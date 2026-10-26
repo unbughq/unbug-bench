@@ -1,0 +1,4 @@
+{"id": "S6", "title": "Business allows backorders on product Y", "kind": "data",
+ "change": "Business decision (signed by Head of Sales): product Y may be sold beyond stock as a backorder (allow_backorder enabled on both Y variants). All other products unchanged.",
+ "traffic": {"mode": "stress"},
+ "rule": {"backorder": ["y"]}}

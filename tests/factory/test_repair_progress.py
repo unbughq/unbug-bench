@@ -1,0 +1,99 @@
+"""Offline integration tests for bounded repair and evidence invalidation."""
+
+# Keep direct execution and unittest discovery independent of the working directory.
+import sys
+from pathlib import Path as _TestPath
+_TEST_ROOT = _TestPath(__file__).resolve().parents[2]
+sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
+import json
+import pathlib
+import tempfile
+import types
+import unittest
+from unittest.mock import patch
+
+import gate_state
+import run
+from registry import Registry
+
+
+class RepairProgressTests(unittest.TestCase):
+    def context(self, root):
+        c = types.SimpleNamespace(
+            work=root / "work", case=root / "work/case", manifest0="trusted", seed=7,
+            card={"gates": {}}, models={}, args=types.SimpleNamespace(
+                runs=10, scenario_runs=3, dry_run=False, max_repairs=2))
+        c.case.mkdir(parents=True)
+        (c.work / "logs").mkdir()
+        (c.case / "base").mkdir()
+        (c.case / "base/judge.py").write_text("synthetic judge")
+        (c.case / "promise.md").write_text("synthetic promise")
+        return c
+
+    def test_same_worker_repair_continues_and_bounds_no_progress(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            c = self.context(pathlib.Path(tmp))
+            calls = []
+            def gates(ctx):
+                calls.append(ctx.work)
+                ctx.card["failed_gate"] = "G15" if len(calls) == 1 else None
+                ctx.card["failed_detail"] = {"wrong": 1}
+            def repair(ctx, previous):
+                self.assertEqual(previous["failed_gate"], "G15")
+                (ctx.case / "base/judge.py").write_text("repaired judge")
+            with patch.object(run, "run_gates", gates), patch.object(run, "write_and_attack", repair):
+                run.validate_and_repair(c)
+            self.assertEqual(calls, [c.work, c.work])
+            self.assertIsNone(c.card["failed_gate"])
+            calls.clear()
+            with patch.object(run, "run_gates", gates), patch.object(run, "write_and_attack", lambda *a: None):
+                run.validate_and_repair(c)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(c.card["repair_blocked"], "repair made no case changes")
+
+    def test_receipt_requires_unchanged_inputs_and_retained_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            c = self.context(root)
+            evidence = root / "results/run.json"
+            evidence.parent.mkdir()
+            evidence.write_text('{"pass": true}')
+            signature = gate_state.fingerprint(c, "G4", root)
+            gate_state.save(c, "G4", {"pass": True}, signature, {}, root)
+            (c.case / "BUILD-NOTES.md").write_text("typo corrected")
+            self.assertEqual(gate_state.load(c, "G4", root), {"pass": True})
+            dest = c.work / "bench-results/run.json"
+            dest.parent.mkdir()
+            evidence.replace(dest)
+            self.assertIsNotNone(gate_state.load(c, "G4", root))
+            (c.case / "base/judge.py").write_text("changed judge")
+            self.assertIsNone(gate_state.load(c, "G4", root))
+            (c.case / "base/judge.py").write_text("synthetic judge")
+            dest.unlink()
+            self.assertIsNone(gate_state.load(c, "G4", root))
+            self.assertIsNone(gate_state.load(c, "G7", root))
+
+    def test_registry_order_and_stale_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            cipher = root / "statement.age"
+            cipher.write_bytes(b"age-encryption.org/v1\nsynthetic encrypted test data")
+            registry = Registry(root / "registry")
+            registry.import_historical("case-old", cipher)
+            a = registry.reserve("case-a", "a" * 64, cipher, expected_revision=1)
+            with self.assertRaisesRegex(ValueError, "registry changed"):
+                registry.reserve("case-b", "b" * 64, cipher, expected_revision=1)
+            b = registry.reserve("case-b", "b" * 64, cipher, expected_revision=2)
+            self.assertNotIn("case-b", a["statements"])
+            self.assertIn("case-a", b["statements"])
+            self.assertIn("case-old", a["statements"])
+            registry.export("case-b", root / "snapshot")
+            snapshot = json.loads((root / "snapshot/admission.json").read_text())
+            self.assertEqual(snapshot["reservation"], b["reservation"])
+            with self.assertRaisesRegex(ValueError, "stale reservation"):
+                registry.transition("case-a", "wrong-token", "released")
+            registry.transition("case-a", a["reservation"], "released")
+
+
+if __name__ == "__main__":
+    unittest.main()

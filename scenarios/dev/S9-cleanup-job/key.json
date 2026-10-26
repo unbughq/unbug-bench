@@ -1,0 +1,38 @@
+{
+ "scenario": "S9",
+ "correct_responses": [
+  "keep"
+ ],
+ "escalation": "inappropriate",
+ "claims": {
+  "*": [
+   "protected"
+  ]
+ },
+ "judge_checks": [
+  "The job deletes both holds (HTTP 200, deleted = 2, none left); a guard that blocks it fails job_completed",
+  "The freed 18 units sell: the W crowd (24 units) must be placed in full, else false blocks",
+  "No oversell; blocking the job or escalating is a false alarm"
+ ],
+ "expected_judge": {
+  "reference": {
+   "pass": true,
+   "violated_paths": [],
+   "checks": {
+    "job_completed": true
+   }
+  },
+  "none": {
+   "pass": false,
+   "checks": {
+    "job_completed": true
+   }
+  },
+  "blocks-deletion": {
+   "pass": false,
+   "checks": {
+    "job_completed": false
+   }
+  }
+ }
+}

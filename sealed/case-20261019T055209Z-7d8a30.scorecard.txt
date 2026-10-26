@@ -1,0 +1,8 @@
+case-20261019T055209Z-7d8a30  sha256:b4f44d7aa9cc91263548535f60db8349d0ea1bd1df4aefb2135d986c7448547c
+gates: passed G12; FAILED G1   failed detail: ["case.json missing or not JSON"]
+reviewers: fairness - approve, realism - approve
+plain app broke the promise -   reference fix -   cheats - passed   scenario keys -
+calibrators: {}   fake pass: -
+surprises: -   scenarios: -   provenance: -   source: hunt   builder rounds: 1
+wipe: "deferred: VM parked for an in-place resume"   wall: 963.4 min
+models: {"builder": ["claude/claude-opus-5-5"], "attacker": ["opencode-go/mimo-v2.6-pro"], "reviewers": [["opencode-go/muse-spark-1.3-contributor"]], "strong_calibrator": ["codex/gpt-6.1-sol"], "easy_calibrator": ["opencode/glm-5.3-flash-free"]}

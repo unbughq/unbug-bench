@@ -1,0 +1,6 @@
+{
+ "id": "S3",
+ "title": "Default isolation becomes repeatable read",
+ "kind": "db-config",
+ "change": "DBA change: ALTER DATABASE medusa SET default_transaction_isolation = 'repeatable read' (applies to every new connection)."
+}

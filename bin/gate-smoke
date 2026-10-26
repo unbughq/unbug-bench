@@ -1,0 +1,292 @@
+#!/usr/bin/env python3
+"""Destructive public gate smoke for ONE newly created, driver-owned Linux worker.
+
+No model calls. tools/run-gate-smoke.sh creates the ownership marker. Never run
+on a retained worker: this intentionally discards its public results and slots.
+"""
+import argparse
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import sys
+import tarfile
+import time
+import traceback
+import types
+
+ROOT = Path(__file__).resolve().parents[1]
+MARKER = Path('/tmp/unbug-gate-smoke-owned.json')
+STEPS = ('account-handoff', 'g15-early', 'g3', 'g4', 'g5', 'g15-late')
+
+
+def owned(worker):
+    marker = json.loads(MARKER.read_text())
+    if (sys.platform != 'linux' or ROOT != Path.home() / 'unbug-bench' or
+            marker != {'worker_id': worker, 'root': str(ROOT)} or
+            os.environ.get('UNBUG_FACTORY_SLOT', '0') != '0'):
+        raise ValueError('requires a fresh disposable worker owned by run-gate-smoke.sh')
+    if any(os.environ.get(k) for k in ('FACTORY_STRATEGY_DIAGNOSTIC', 'DOCKER_HOST')):
+        raise ValueError('diagnostic overrides and remote Docker are forbidden')
+
+
+def command(args):
+    return subprocess.run(list(map(str, args)), check=True, text=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120).stdout
+
+
+def load_strategy():
+    loader = importlib.machinery.SourceFileLoader('gate_smoke_strategy', str(ROOT / 'bin/strategy'))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+    return module
+
+
+def progress():
+    return {str(p): p.stat().st_mtime_ns for p in (ROOT / 'results').glob('**/bench-progress-*.json')}
+
+
+def prove_parallel(before):
+    observed = []
+    for name, modified in progress().items():
+        if before.get(name) != modified:
+            row = json.loads(Path(name).read_text())
+            if row['status'] == 'completed':
+                observed.append({k: row[k] for k in ('slot', 'status', 'completed_trials', 'total_trials')})
+    # Parent has two trials, each real pool child has one. Serial fallback is a failure.
+    if not all(any(r['slot'] == slot and r['completed_trials'] == r['total_trials'] == 1
+                   for r in observed) for slot in (0, 1)):
+        raise ValueError('factory_workers=2 did not execute on both slots: ' + json.dumps(observed))
+    return observed
+
+
+def step(name, out):
+    if name == 'account-handoff':
+        result = subprocess.run([sys.executable, '-B', str(ROOT / 'tests/factory/test_account_handoff.py')],
+                                text=True, capture_output=True, timeout=120)
+        (out / 'account-handoff-tests.log').write_text(result.stdout + result.stderr)
+        if result.returncode: raise ValueError('account handoff replay failed: ' + result.stderr)
+        return dict(tests=13, account=2, delay=60, only_secret='opencode-go-key-2',
+                    model_calls=0, real_keys=False, same_worker_monitor=True)
+    sys.path[:0] = [str(ROOT / 'bin'), str(ROOT / 'factory')]
+    os.environ.update(BENCH=str(ROOT), UNBUG_FACTORY_SLOT='0', UNBUG_JUDGE='1')
+    import bench
+    import run
+    scenario = bench.load_scenario(ROOT / 'scenarios/dev/S0-null')
+    work = out / 'fixture'; case = work / 'case'
+    if not case.exists():
+        (case / 'guards').mkdir(parents=True)
+        (work / 'logs').mkdir()
+        shutil.copytree(scenario['dir'], case / 'base')
+        shutil.copytree(ROOT / 'guards/reference', case / 'guards/reference')
+        shutil.copytree(ROOT / 'guards/refuse-all', case / 'guards/cheats/retained-refusal')
+        (case / 'scenarios').mkdir()
+        shutil.copytree(ROOT / 'projects/marketplace', case / 'projects/marketplace')
+        shutil.copytree(ROOT / 'scenarios/dev/P2-pending-harmless', case / 'scenarios/approved')
+        shutil.copytree(scenario['dir'], case / 'scenarios/after-approved')
+        for directory, project in ((case / 'base', '../projects/marketplace'),
+                (case / 'scenarios/approved', '../../projects/marketplace'),
+                (case / 'scenarios/after-approved', '../../projects/marketplace')):
+            path = directory / 'scenario.json'; meta = json.loads(path.read_text())
+            if directory.name == 'after-approved': meta['id'] = 'smoke-after-approved'
+            meta['inventory_services'] = [{'name': 'marketplace', 'project': project, 'host_ports': [9010]}]
+            path.write_text(json.dumps(meta))
+            key_path = directory / 'key.json'; key = json.loads(key_path.read_text())
+            key.update(scenario=meta['id'], oracle_contract={'version': 1, 'requirements': {
+                'shared_inventory': ['service:marketplace:confirmed_orders_ok']}})
+            key_path.write_text(json.dumps(key))
+        # One real refused sale exercises the service without consuming shared
+        # stock needed by S0's legitimate Medusa traffic. The public channel has 10.
+        (case / 'base/hooks.mjs').write_text('''export async function before(ctx) {
+  const response = await fetch(ctx.serviceURL("marketplace", "/orders"), {
+    method: "POST", headers: {"content-type": "application/json"},
+    body: JSON.stringify({kit: "s", quantity: 11}), signal: AbortSignal.timeout(15000),
+  });
+  const data = await response.json();
+  (ctx.record.services ||= {}).marketplace = [{requested: {s: 11}, legitimate: false,
+    response: {status: response.status, data}}];
+  if (response.status !== 409) throw new Error("public channel must refuse more than its stock");
+}
+''')
+        (case / 'case.json').write_text(json.dumps({'source': 'public-gate-smoke',
+            'steps': ['P2', 'smoke-after-approved'],
+            'promise_paths': ['store-checkout', 'draft-order', 'order-edit', 'cancel-resale'],
+            'promise_checks': []}))
+    scenario = bench.load_scenario(case / 'base')
+    if not bench.factory_memory_fits([scenario], 2):
+        raise ValueError('worker cannot fit two real factory slots; serial fallback does not qualify')
+    c = types.SimpleNamespace(case=case, work=work, seed=1, card={},
+        args=types.SimpleNamespace(bench_workers=2, runs=2, scenario_runs=2,
+                                  concurrent_roles=False, dry_run=False, rehearse_only=True))
+    before = progress()
+    if name.startswith('g15-'):
+        strategy = load_strategy()
+        summaries = []
+        def execute(scenarios, guard, report, runs, seed, label):
+            summary = strategy.checkpoint(scenarios, guard, report, runs, seed,
+                                          'gate-smoke-' + name + '-' + label, factory_workers=2)
+            summaries.append(summary)
+            return summary
+        result = strategy.simulate(case, 'honest-reference', 2, 1, execute=execute, factory_workers=2)
+        ok = (len(summaries) == 3 and result['totals']['unsafe'] == result['totals']['wrong'] == 0
+              and all(s.get('pass_runs') == 2 and s.get('legit_completion', 0) >= .95
+                      and not s.get('error_runs') and not s.get('invalid_runs') for s in summaries))
+        detail = result
+    else:
+        ok, detail = getattr(run, name)(c)
+        if c.args.bench_workers != 2:
+            raise ValueError('G3 reduced bench_workers; this smoke requires two slots')
+    if name == 'g5' and ok:
+        problems = run.early_cheat_check(c)
+        saved = c.card['early_gates']['saved_cheats']
+        if problems or saved != {'ok': True, 'checked': 1, 'runs_each': 1}:
+            raise ValueError('early saved-cheat recheck failed: ' + str(problems))
+        detail['early_saved_cheats'] = saved
+    if not ok:
+        raise ValueError(name + ' failed: ' + json.dumps(detail))
+    return {'detail': detail, 'parallel': prove_parallel(before) if name != 'g3' else [],
+            'bench_workers': 2}
+
+
+def restore_fixture(out):
+    """Prove the old EACCES, then use the launcher's real restore entry point."""
+    sys.path.insert(0, str(ROOT / 'factory'))
+    work = out / 'fixture'
+    project = work / 'case/projects/marketplace'
+    if ('COPY service.py .' not in (project / 'Dockerfile').read_text() or
+            'user: "65534:65534"' not in (project / 'compose.yaml').read_text() or
+            'read_only: true' not in (project / 'compose.yaml').read_text()):
+        raise ValueError('restored smoke must exercise non-root COPY inventory service')
+    secret = work / '.casekey'; secret.write_text('synthetic-not-a-key'); secret.chmod(0o600)
+    archive = out / 'legacy-checkpoint.tgz'
+    with tarfile.open(archive, 'w:gz') as bundle:
+        def stripped(member):
+            member.mode = 0o700 if member.isdir() or member.mode & 0o111 else 0o600
+            return member
+        bundle.add(work, arcname='fixture', filter=stripped)
+    legacy = out / 'unfixed'; legacy.mkdir(mode=0o700)
+    with archive.open('rb') as stream:
+        subprocess.run(['tar', '-xzf', '-', '-C', str(legacy)], stdin=stream, check=True, umask=0o077)
+    tag = 'unbug-gate-smoke-restore-denied:latest'
+    command(['docker', 'build', '-t', tag, str(legacy / 'fixture/case/projects/marketplace')])
+    try:
+        denied = subprocess.run(['docker', 'run', '--rm', '--user', '65534:65534',
+                                 '--read-only', tag], text=True, capture_output=True, timeout=30)
+        if denied.returncode != 2 or "can't open file '/app/service.py'" not in denied.stderr or 'Permission denied' not in denied.stderr:
+            raise ValueError('unfixed stripped-mode restore did not reproduce Python EACCES: ' + denied.stderr)
+    finally:
+        command(['docker', 'image', 'rm', tag])
+    shutil.rmtree(legacy)
+    shutil.rmtree(work)
+    with archive.open('rb') as stream:
+        subprocess.run([sys.executable, '-B', str(ROOT / 'factory/case_permissions.py'),
+                        '--extract-to', str(out), '--case-tree', str(work / 'case')],
+                       stdin=stream, check=True, umask=0o077)
+    mode = lambda p: oct(p.stat().st_mode & 0o777)
+    if mode(project / 'service.py') != '0o644' or mode(secret) != '0o600':
+        raise ValueError('restore did not repair source modes and protect case identity')
+    return {'legacy_python_exit': denied.returncode, 'legacy_python_stderr': denied.stderr.strip(),
+            'service_mode': mode(project / 'service.py'), 'casekey_mode': mode(secret),
+            'restore_path': 'factory/case_permissions.py', 'archive_modes': 'files 0600, dirs 0700'}
+
+
+def prepare_state(state, out):
+    compose = ['docker', 'compose', '-f', str(ROOT / 'projects/medusa/compose.yaml')]
+    if state == 'fresh':
+        command(compose + ['-p', 'unbug-factory-1', 'down', '-v', '--remove-orphans'])
+    # Keep the baked slot-zero seed IDs/template. Restored state keeps used DB volumes
+    # but loses the public results/ tree, exactly the missing-ID initialization edge.
+    shutil.rmtree(ROOT / 'results', ignore_errors=False) if (ROOT / 'results').exists() else None
+    if not (ROOT / 'projects/medusa/seed-ids.json').is_file():
+        raise ValueError('bench-env image lacks baked public seed IDs')
+    if state == 'restored':
+        # A failed seed run leaves this stopped explicit name, outside Compose's
+        # service lifecycle; the new shared preparation must remove it.
+        command(['docker', 'create', '--name', 'unbug-factory-1-seed',
+                 'unbug-bench-medusa:latest', 'true'])
+    command(compose + ['up', '-d', '--wait', 'postgres', 'redis'])
+    return restore_fixture(out) if state == 'restored' else {}
+
+
+def child(args, deadline, logfile):
+    with logfile.open('w') as log:
+        process = subprocess.Popen(args, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
+                                   start_new_session=True, text=True)
+        try:
+            status = process.wait(timeout=max(.01, deadline - time.monotonic()))
+        except BaseException:
+            os.killpg(process.pid, signal.SIGTERM)
+            try: process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL); process.wait()
+            raise
+    if status:
+        raise RuntimeError(f'exit {status}; captured output:\n' + logfile.read_text())
+
+
+def execute(worker, out):
+    owned(worker)
+    out = out.resolve()
+    if out.is_relative_to(ROOT):
+        raise ValueError('summary/log directory must be outside the disposable repo results tree')
+    out.mkdir(parents=True, exist_ok=False)
+    started = time.monotonic(); deadline = started + 1800
+    report = {'schema': 1, 'worker_id': worker, 'fixture': 'public-practice-S0-pending-case-local-inventory',
+              'model_calls': 0, 'factory_workers': 2, 'limit_seconds': 1800,
+              'scope': 'real G15 strategy history after approved pending inventory; real G3/G4 and G5 base reference plus early saved-cheat recheck', 'steps': []}
+    def save():
+        report['seconds'] = round(time.monotonic() - started, 3)
+        (out / 'summary.json').write_text(json.dumps(report, indent=2) + '\n')
+    for state in ('fresh', 'restored'):
+        for name in ('prepare-state', *STEPS):
+            begin = time.monotonic(); row = {'state': state, 'step': name}
+            log = out / (state + '-' + name + '.log')
+            try:
+                child([sys.executable, str(Path(__file__).resolve()), '--worker-id', worker,
+                       '--output', str(out), '--step', name, '--state', state], deadline, log)
+                row.update(status='PASS', evidence=json.loads(log.read_text().split('GATE_SMOKE_JSON=')[-1]))
+            except Exception as error:
+                row.update(status='FAIL', error=str(error), log=str(log))
+            row['seconds'] = round(time.monotonic() - begin, 3)
+            report['steps'].append(row); save()
+            print(f"{row['status']} {state}/{name} ({row['seconds']}s)", flush=True)
+            if row['status'] == 'FAIL':
+                print(row['error'], flush=True)
+                break  # next state is still attempted unless the total budget has expired
+        if time.monotonic() >= deadline: break
+    report['status'] = 'PASS' if (len(report['steps']) == 2 * (1 + len(STEPS)) and
+        all(r['status'] == 'PASS' for r in report['steps'])) else 'FAIL'
+    save()
+    return 0 if report['status'] == 'PASS' else 1
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--run', action='store_true')
+    parser.add_argument('--worker-id', required=True)
+    parser.add_argument('--output', type=Path, default=Path.home() / 'gate-smoke')
+    parser.add_argument('--step', choices=('prepare-state', *STEPS), help=argparse.SUPPRESS)
+    parser.add_argument('--state', choices=('fresh', 'restored'), help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if not args.run and args.step is None:
+        parser.error('--run is required on the newly allocated disposable worker')
+    owned(args.worker_id)
+    if args.step:
+        # factory.sh owns nested process groups; raising lets its cancellation path
+        # stop them before the outer watchdog's final kill.
+        def interrupted(*_): raise TimeoutError('gate smoke deadline/termination')
+        signal.signal(signal.SIGTERM, interrupted)
+        result = prepare_state(args.state, args.output) if args.step == 'prepare-state' else step(args.step, args.output)
+        print('GATE_SMOKE_JSON=' + json.dumps(result))
+        return 0
+    return execute(args.worker_id, args.output)
+
+
+if __name__ == '__main__':
+    try: sys.exit(main())
+    except Exception:
+        traceback.print_exc(); sys.exit(1)

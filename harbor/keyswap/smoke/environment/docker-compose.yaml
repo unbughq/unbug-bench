@@ -1,0 +1,12 @@
+services:
+  main:
+    privileged: true
+    command: [start-dockerd]
+    volumes: [nested:/var/lib/docker]
+    healthcheck:
+      test: [CMD, docker, info]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+volumes:
+  nested: {}

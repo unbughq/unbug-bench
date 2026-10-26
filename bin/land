@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""Land a merged change in the running app, the way production deploys it (Harbor step setup).
+
+  bin/land <change dir>      the directory holds app.patch and/or admin.sql
+
+admin.sql runs as the database administrator on the live database. app.patch is merged into
+projects/medusa, the app image is rebuilt and both instances restart on it, with the guard's
+own /app/guard/app.patch on top when there is one (as the bench builds guards). Nothing is
+reset: live orders and an installed database guard stay. Later resets keep the change: the
+merged source is the app, and bench.reset re-applies every changes/*/admin.sql.
+"""
+import fcntl, json, pathlib, sys
+import bench
+
+approved = "--approved" in sys.argv[2:]
+change = pathlib.Path(sys.argv[1]).resolve()
+meta = json.loads((change / "scenario.json").read_text()) if (change / "scenario.json").exists() else {}
+if meta.get('delivery') == 'unannounced':
+    sys.exit('bin/land: unannounced delivery is judge-owned; use the silent-window runner')
+if meta.get("delivery") == "pending" and not approved:
+    print(f"bin/land: pending change {meta.get('id', change.name)}; report pending_decision in claims.json", flush=True)
+    print((change / "change-record.md").read_text() if (change / "change-record.md").exists() else meta.get("change", ""))
+    for name in ("app.patch", "admin.sql", "hooks.mjs"):
+        if (change / name).exists():
+            print(f"\n--- {name} ---\n{(change / name).read_text()}")
+    sys.exit(0)
+guard = bench.ROOT / "guard"
+with (bench.RESULTS / ".bench.lock").open("w") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)  # waits for any bench command still running
+    if (change / "admin.sql").exists():
+        bench.sql((change / "admin.sql").read_text())
+        print(f"bin/land: applied {change.name}/admin.sql to the live database", flush=True)
+    if (change / "app.patch").exists():
+        bench.command(["git", "apply", str(change / "app.patch")], cwd=bench.APP)
+        bench.dc("build", "medusa", capture=False)
+        guard_image = False
+        if (guard / "app.patch").exists():
+            try:
+                bench.prepare_app_guard(guard)
+                guard_image = True
+            except Exception as error:
+                print(f"bin/land: guard/app.patch does not apply or build on the merged app; deployed without it: {error}", file=sys.stderr, flush=True)
+        bench.start_app(guard_image)
+        print(f"bin/land: merged {change.name}/app.patch and restarted the app"
+              + (" with guard/app.patch" if guard_image else ""), flush=True)
+
+    if (change / "admin.sql").exists() and not (change / "app.patch").exists():
+        # ALTER ROLE defaults take effect on new sessions, including pending P1/P2.
+        bench.dc("restart", *bench.APP_SERVICES)
+        bench.wait_ready()
+    # Live privacy deployment for independent inventory writers; resets use the same declaration.
+    for name in meta.get("blind_monitors", []):
+        state = json.loads(bench.INVENTORY_STATE.read_text())
+        if name not in state["names"]: raise ValueError(f"Unknown inventory monitor: {name}")
+        bench.command(state["compose"] + ["exec", "-T", name, "touch", "/data/monitor-blind"])

@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Background shoppers: ordinary customers of the running shop, so it has real outcomes to watch.
+
+  bin/shoppers               runs until killed; one JSON line per attempt on stdout
+
+About one order a minute (SHOPPERS_INTERVAL seconds, +-50%), 1-2 units of one normal product
+(N1-N5, 100 in stock each), on either app instance. Half the orders try the express checkout
+(POST /store/express-orders) and fall back to the cart checkout where that route does not
+exist. An order is only placed when it fits: the product must show at least 10 more units
+available than the order takes. Shoppers pause while a bench command (bin/setup, bin/reset,
+bin/check, bin/land) holds the bench lock, so they never touch a reset in progress.
+"""
+import fcntl, json, os, pathlib, random, time, urllib.error, urllib.request
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+IDS = json.loads((ROOT / "projects/medusa/seed-ids.json").read_text())
+LOCK = ROOT / "results/.bench.lock"
+BASES = ["http://127.0.0.1:9000", "http://127.0.0.1:9001"]
+INTERVAL = float(os.environ.get("SHOPPERS_INTERVAL", 60))
+SPARE = 10  # units left untouched: room for other buyers and for counts that run slightly high
+PRODUCTS = [p["id"] for p in IDS["products"] if p["handle"].startswith("normal-")]
+ADDRESS = {"first_name": "Sam", "last_name": "Shopper", "address_1": "2 Market Street", "city": "New York",
+           "province": "NY", "postal_code": "10002", "country_code": "us"}
+
+
+def call(base, path, body=None):
+    request = urllib.request.Request(base + path, method="GET" if body is None else "POST",
+                                     data=None if body is None else json.dumps(body).encode(),
+                                     headers={"x-publishable-api-key": IDS["publishable_key"], "content-type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.status, json.load(response)
+    except urllib.error.HTTPError as error:
+        try: return error.code, json.loads(error.read() or b"{}")
+        except ValueError: return error.code, {}
+
+
+def bench_busy():
+    # ponytail: probes the lock by taking it for microseconds; a bench command starting in that
+    # instant fails its non-blocking lock. Read /proc/locks instead if that is ever seen.
+    try:
+        with LOCK.open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return False
+    except BlockingIOError:
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def available(base):
+    query = "&".join(f"id[]={p}" for p in PRODUCTS) + "&fields=id,*variants,+variants.inventory_quantity&limit=50"
+    status, data = call(base, "/store/products?" + query)
+    if status != 200: raise RuntimeError(f"product list: {status} {data}")
+    return {v["id"]: v.get("inventory_quantity") or 0 for p in data["products"] for v in p["variants"]}
+
+
+def checkout(base, body, express):
+    if express:
+        status, data = call(base, "/store/express-orders", body)
+        if status != 404: return "express-checkout", status, data
+    status, data = call(base, "/store/carts", body)
+    if status != 200: return "store-checkout", status, data
+    cart = data["cart"]["id"]
+    status, data = call(base, f"/store/carts/{cart}/shipping-methods", {"option_id": IDS["shipping_option_id"]})
+    if status != 200: return "store-checkout", status, data
+    status, data = call(base, "/store/payment-collections", {"cart_id": cart})
+    if status != 200: return "store-checkout", status, data
+    status, data = call(base, f"/store/payment-collections/{data['payment_collection']['id']}/payment-sessions",
+                        {"provider_id": "pp_system_default"})
+    if status != 200: return "store-checkout", status, data
+    return ("store-checkout", *call(base, f"/store/carts/{cart}/complete", {}))
+
+
+def shop(n):
+    instance = random.randrange(len(BASES))
+    stock = available(BASES[instance])
+    quantity = random.choice((1, 2))
+    fits = [v for v, units in stock.items() if units >= quantity + SPARE]
+    record = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "instance": instance, "quantity": quantity}
+    if not fits: return {**record, "skipped": "no product with enough stock"}
+    variant = random.choice(fits)
+    body = {"region_id": IDS["region_id"], "email": f"shopper-{n}@shop.test", "shipping_address": ADDRESS,
+            "billing_address": ADDRESS, "items": [{"variant_id": variant, "quantity": quantity}]}
+    path, status, data = checkout(BASES[instance], body, express=random.random() < .5)
+    order = (data.get("order") or {}).get("id") if status == 200 and data.get("type") == "order" else None
+    return {**record, "path": path, "variant": variant, "available": stock[variant], "status": status,
+            "order_id": order, **({} if order else {"answer": json.dumps(data)[:300]})}
+
+
+if __name__ == "__main__":
+    n = 0
+    while True:
+        time.sleep(INTERVAL * random.uniform(.5, 1.5))
+        if bench_busy(): continue
+        n += 1
+        try: record = shop(n)
+        except Exception as error:  # the app restarting (reset, deploy) must not stop the shoppers
+            record = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "error": f"{type(error).__name__}: {error}"}
+        print(json.dumps(record), flush=True)

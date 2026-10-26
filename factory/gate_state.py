@@ -1,0 +1,230 @@
+"""Conservative reuse of passed checks during bounded repairs.
+
+G7 always repeats independently. G10 validates its own attempt receipts; G11 is
+never cached here. Stored evidence must still exist, including after sealing moves
+bench results into the case workspace.
+"""
+import ast
+import hashlib
+import os
+import json
+import pathlib
+from registry import atomic_json
+
+REUSABLE = {"G4", "G5", "G6", "G8", "G9", "G13", "G14", "G15", "G16"}
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+
+VERSION = 3
+RUNNER = pathlib.Path(__file__).with_name("run.py")
+MEASURE = ("factory/case_permissions.py", "bin/bench.py", "bin/bench_judging.py", "bin/checkpoint", "bin/checkpoint_evidence.py", "bin/claims.py", "bin/refusal.py", "bin/factory_pool.py", "bin/diagnostic_budget.py",
+           "cases/medusa-oversell/checker/**", "cases/medusa-oversell/traffic/**", "projects/**", "guards/**")
+STRATEGY = ("bin/strategy", "bin/strategy_resume.py", "bin/silent_window.py", "bin/exposure.py", "bin/live_shop.py",
+            "bin/live_traffic.py", "bin/shoppers", "factory/calibration.py", "factory/registry.py")
+MODEL = ("factory/model_runtime.py", "factory/budget.py", "factory/token_prices.py", "factory/calibration.py", "factory/free_models.py", "factory/registry.py")
+DEPENDENCIES = {"G4": MEASURE, "G5": MEASURE, "G6": MEASURE + ("bin/verify-negative",),
+                "G8": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),
+                "G9": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),
+                "G13": MEASURE + STRATEGY, "G14": MEASURE + STRATEGY, "G15": MEASURE + STRATEGY,
+                "G16": MEASURE + MODEL + ("factory/fairness.py", "factory/exam_responder.py",
+                    "harbor/responder/**", "bin/run-exam", "bin/score-claims", "bin/land")}
+# fairness.py invokes these through its runner argument, rather than direct names.
+EXTRA_ROOTS = {"G16": ("make_pilots", "calibrate", "family", "model_call", "jload")}
+# Execution/checkpoint side effects cannot determine a scientific verdict.
+# External model/checker code remains conservatively pinned as whole modules.
+SIDE_EFFECTS = {"checked_gate", "_gate_pipeline", "_gate_completed", "seal", "wipe", "_run_artifacts",
+                "log", "public_progress", "update_case_budget", "case_budget_boundary", "bench_manifest"}
+
+
+def source_inputs(*roots):
+    """Hash the gate's source and its transitive same-module names, including constants.
+
+    Follow references rather than line ranges: inserting an unrelated function does
+    not change the binding. External code/data is explicitly listed above.
+    """
+    source = RUNNER.read_text()
+    nodes = {}
+    for node in ast.parse(source).body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            nodes[node.name] = node
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.Import, ast.ImportFrom)):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                names = [a.asname or a.name.split(".")[0] for a in node.names]
+            else:
+                names = [n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)]
+            for name in names: nodes[name] = node
+    pending = list(roots)
+    found = {}
+    while pending:
+        name = pending.pop()
+        if name in found or name not in nodes or name in SIDE_EFFECTS: continue
+        node = nodes[name]
+        text = ast.get_source_segment(source, node)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            text += "".join(ast.dump(d) for d in node.decorator_list)
+        found[name] = hashlib.sha256(text.encode()).hexdigest()
+        pending.extend(n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load))
+    if any(root not in found for root in roots): raise ValueError("missing judge source")
+    return found
+
+
+def runner_inputs(gate):
+    return source_inputs(gate.lower(), *EXTRA_ROOTS.get(gate, ()))
+
+
+def source_paths(root, pattern):
+    # Prune installed/generated trees before traversal. Filtering after rglob
+    # walked every node_modules entry on every review binding (minutes per test).
+    if pattern.endswith("/**"):
+        for anchor in sorted(root.glob(pattern[:-3])):
+            for directory, directories, names in os.walk(anchor):
+                directories[:] = sorted(d for d in directories if d not in {"node_modules", ".medusa", "__pycache__", ".git"})
+                yield from (pathlib.Path(directory) / name for name in sorted(names))
+    else:
+        yield from sorted(root.glob(pattern))
+
+
+def dependency_files(c, patterns, bench, *, include_pool=False):
+    dependencies = {}
+    for pattern in patterns:
+        # Bench imports its own copy; the runner/launcher use the sibling factory copy.
+        if pattern == "factory/case_permissions.py":
+            path = bench / pattern
+            dependencies["bench/" + pattern] = digest(path) if path.is_file() else None
+        if pattern == "bin/factory_pool.py" and not include_pool and getattr(c.args, "bench_workers", 1) == 1:
+            continue
+        factory = pattern.startswith("factory/")
+        root, relative = (RUNNER.parent, pattern[8:]) if factory else (bench, pattern)
+        found = False
+        for p in source_paths(root, relative):
+            rel = p.relative_to(root).as_posix()
+            if not p.is_file() or any(part in {"node_modules", ".medusa", "__pycache__", ".git"} for part in p.relative_to(root).parts): continue
+            if rel == "projects/medusa/seed-ids.json": continue
+            dependencies["factory/" + rel if factory else rel] = digest(p)
+            found = True
+        if not found: dependencies[pattern] = None  # additions/removals are inputs too
+    return dependencies
+
+
+def judge_dependencies(c, bench, *, calibration=False):
+    """Exact portable stress/calibration dependency inventory; no whole manifest."""
+    patterns = MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**", "factory/case_contract.py", "factory/gate_state.py", "factory/attack_findings.py")
+    roots = ("calibrate", "make_pilots", "calibration_identity") if calibration else (
+        "attack_report", "stress_request", "opencode", "g1")
+    result = {"version": VERSION, "runner": source_inputs(*roots),
+              "files": dependency_files(c, patterns, bench, include_pool=True)}
+    if not calibration:
+        result.update(settings={key: getattr(c.args, key, default) for key, default in (
+                ("runs", 10), ("scenario_runs", 3), ("bench_workers", 1), ("source", None),
+                ("agent_timeout", 14400), ("max_role_calls", 400), ("max_total_calls", 1000),
+                ("max_cost", 5), ("no_progress_minutes", 45), ("max_zero_tokens", 3),
+                ("concurrent_roles", True))}, seed=getattr(c, "seed", None))
+    return result
+
+
+def inputs(c, gate, bench):
+    files = []
+    for p in sorted(c.case.rglob("*")):
+        if not p.is_file(): continue
+        rel = p.relative_to(c.case).as_posix()
+        if gate not in {"G8", "G9"} and rel in {"BUILD-NOTES.md", "freshness.jsonl"}: continue
+        if gate == "G4" and not (rel.startswith("base/") or rel in {"case.json", "promise.md"}): continue
+        files.append((rel, digest(p)))
+    dependencies = dependency_files(c, (*DEPENDENCIES[gate], "factory/case_contract.py"), bench)
+    settings = {"runs": 10, "scenario_runs": 3, "bench_workers": 1, "dry_run": False, "rehearse_only": False}
+    if gate in {"G8", "G9", "G16"}:
+        settings.update(pilot_runs=5, pilot_tries=3, calibrator_minutes=30, max_role_calls=400,
+            max_total_calls=1000, max_cost=5, no_progress_minutes=45, max_zero_tokens=3,
+            agent_timeout=14400, concurrent_roles=True, source=None)
+    identity = {
+        "version": VERSION, "gate": gate, "case": files, "bench": dependencies,
+        "runner": runner_inputs(gate), "cache": digest(pathlib.Path(__file__)),
+        "seed": c.seed, "slot": getattr(c, "factory_slot", 0),
+        "args": {key: getattr(c.args, key, default) for key, default in settings.items()},
+        "environment": {key: os.environ.get(key) for key in ("UNBUG_JUDGE", "UNBUG_FACTORY_SLOT", "MEDUSA_DEPS_IMAGE")},
+    }
+    if gate in {"G8", "G9", "G16"}:
+        import run
+        role = "pilot" if gate == "G16" else "reviewer"
+        identity["prompt"] = hashlib.sha256(run.prompt(role, "").encode()).hexdigest()
+        names = ("strong_calibrator", "reviewers") if gate == "G16" else ("reviewers",)
+        identity["models"] = {key: getattr(c, "models", {}).get(key) for key in names}
+        names = ("strong_calibrator", "reviewer", "reviewer2") if gate == "G16" else ("reviewer", "reviewer2")
+        identity["roles"] = {key: c.card.get("roles", {}).get(key) for key in names}
+    return identity
+
+
+def calibration_binding(c):
+    # G16 also feeds portable delivery receipts; sealing still checks this identity.
+    import run
+    return run.calibration_identity(c, "strong_calibrator", "statement", runs=c.args.runs)
+
+
+def fingerprint(c, gate, bench):
+    return hashlib.sha256(json.dumps(inputs(c, gate, bench), sort_keys=True).encode()).hexdigest()
+
+
+def inventory(c, bench):
+    paths = {}
+    roots = [("bench", bench / "results"), ("work", c.work / "gate-details"),
+             ("work", c.work / "judge_breadth")]
+    roots += [("work", p) for p in c.work.glob("review-*") if p.is_dir()]
+    for kind, root in roots:
+        for p in root.rglob("*") if root.exists() else []:
+            if p.is_file() and not p.name.startswith("."):
+                relative = p.relative_to(bench / "results" if kind == "bench" else c.work).as_posix()
+                paths[(kind, relative)] = p
+    return paths
+
+
+def save(c, gate, info, signature, before, bench):
+    if gate not in REUSABLE:
+        return
+    evidence = [{"kind": kind, "path": rel, "sha256": digest(p)}
+                for (kind, rel), p in inventory(c, bench).items()
+                if (kind, rel) not in before or before[(kind, rel)] != digest(p)]
+    if not evidence and gate in {"G8", "G9"}:
+        evidence = [{"kind": "work", "path": p.relative_to(c.work).as_posix(), "sha256": digest(p)}
+                    for p in c.work.glob("review-[0-9]/verdict.json") if p.is_file()]
+    if not evidence:
+        return  # A summary without supporting evidence cannot authorize later reuse.
+    directory = c.work / "gate-cache"
+    directory.mkdir(exist_ok=True)
+    record = {"fingerprint_version": VERSION, "inputs": inputs(c, gate, bench),
+              "signature": signature, "info": info, "evidence": evidence}
+    if gate == "G16": record["calibration_identity"] = calibration_binding(c)
+    atomic_json(directory / f"{gate}.json", record)
+
+
+def load(c, gate, bench):
+    if gate not in REUSABLE:
+        return None
+    try:
+        record = json.loads((c.work / "gate-cache" / f"{gate}.json").read_text())
+        # V1 contains only an opaque hash, not the old per-input digests.
+        # It cannot prove scoped equivalence after a source change.
+        if not isinstance(record, dict) or record.get("fingerprint_version") != VERSION:
+            return None
+        if gate == "G16" and record.get("calibration_identity") != calibration_binding(c):
+            return None
+        current = inputs(c, gate, bench)
+        if (record["signature"] != hashlib.sha256(json.dumps(current, sort_keys=True).encode()).hexdigest()
+                or record["inputs"] != json.loads(json.dumps(current)) or not record["evidence"]):
+            return None
+        for e in record["evidence"]:
+            relative = pathlib.PurePosixPath(e["path"])
+            if relative.is_absolute() or ".." in relative.parts:
+                return None
+            paths = ([bench / "results" / relative, c.work / "bench-results" / relative]
+                     if e["kind"] == "bench" else [c.work / relative])
+            if not any(p.is_file() and digest(p) == e["sha256"] for p in paths):
+                return None
+        if not hasattr(c, "gate_fingerprint_versions"): c.gate_fingerprint_versions = {}
+        c.gate_fingerprint_versions[gate] = VERSION
+        return record["info"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None

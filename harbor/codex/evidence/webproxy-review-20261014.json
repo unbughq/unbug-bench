@@ -1,0 +1,12 @@
+{
+  "initial_finding": "Public GitHub CONNECT + api.openai.com SNI bypassed path audit via ignore_hosts; isolated curl probe got HTTP301 with CONNECT-only audit.",
+  "resolution": "Webproxy owner removed ignore_hosts and requires matching CONNECT authority and model TLS SNI:443; request Host/authority mismatches rejected.",
+  "reviewer_verification": {
+    "command": "rtk proxy python3 harbor/webproxy/test_webproxy.py",
+    "result": "PASS",
+    "checks": "trusted HTTPS public path, stripped queries, credential/body-free model passthrough, SNI bypass/inverse/IP and Host mismatch denial, model host lookalikes rejected, direct main/nested egress denied, proxy-down fails closed",
+    "audit_sha256": "e98053465e741c3c229bdf3028e4969f29d549f61daf2a4f2550db775582bf11",
+    "test_sha256": "4529524f1e82f47807085d053b4fb4809531a105b64598b69dea484e45a270ad"
+  },
+  "remaining_root_integration": "Actual Medusa nested build needs proxy+CA forwarding and an executed real rebuild; medusa task needs proxy sidecar artifact and overlay launch. Hosted Codex web search disabled in Codex launcher."
+}

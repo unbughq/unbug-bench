@@ -1,0 +1,57 @@
+{
+  "source": "fixture",
+  "scored": false,
+  "app": {
+    "repo": "https://github.com/medusajs/medusa",
+    "commit": "v2.19.0",
+    "image": "unbug-bench-medusa:latest",
+    "lockfile_sha256": "02823dacc78e8a478754ba5bc3a3ff84c7355b890eeb8ccf3b143944cd6d0554"
+  },
+  "promise_paths": [
+    "store-checkout",
+    "draft-order",
+    "order-edit",
+    "cancel-resale",
+    "service:marketplace"
+  ],
+  "steps": [
+    "U1",
+    "P1",
+    "P2",
+    "S0",
+    "S11",
+    "U2"
+  ],
+  "ingredients": {
+    "unstated_rules": [
+      {
+        "id": "manual-holds",
+        "scenario": "U1",
+        "intent_check": "expired_manual_hold_released",
+        "fact_sheet_anchor": "manual-holds"
+      }
+    ],
+    "second_writer": {
+      "service": "marketplace",
+      "path": "service:marketplace"
+    },
+    "pending": {
+      "harmful": [
+        "P1"
+      ],
+      "harmless": [
+        "P2"
+      ]
+    },
+    "blind": [
+      "S11"
+    ],
+    "unannounced": [
+      "U2"
+    ]
+  },
+  "leak_words": [
+    "pending-harmful",
+    "pending-harmless"
+  ]
+}

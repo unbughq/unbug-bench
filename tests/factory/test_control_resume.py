@@ -1,0 +1,309 @@
+"""Restart the real monitor against the admission fixture's local Boat."""
+
+# Keep direct execution and unittest discovery independent of the working directory.
+import sys
+from pathlib import Path as _TestPath
+_TEST_ROOT = _TestPath(__file__).resolve().parents[2]
+sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
+import io
+import hashlib
+import json
+import os
+from pathlib import Path
+import shlex
+import shutil
+import signal
+import subprocess
+import tarfile
+import time
+import unittest
+
+import test_admission_handoff as fixture
+
+HERE = (Path(__file__).resolve().parents[2] / "factory")
+
+
+class ControlResumeTests(unittest.TestCase):
+    def setUp(self):
+        self.f = fixture.AdmissionHandoffTests()
+        self.f.setUp()
+        self.addCleanup(self.f.doCleanups)
+        f = self.f
+        for name in ('launch.sh', 'control_resume.py'):
+            if (HERE / name).exists(): shutil.copyfile(HERE / name, f.root / 'factory' / name)
+        for name in ('boat-launch-guards.sh', 'boat-spend'):
+            shutil.copyfile(HERE.parent / 'bin' / name, f.root / 'bin' / name)
+            (f.root / 'bin' / name).chmod(0o755)
+        guards=f.root/'bin/boat-launch-guards.sh'
+        guards.write_text(guards.read_text().replace('guard_delete_receipt() {',
+            'guard_delete_receipt() {\n  "$root/bin/boat-call" test-gate before-delete',1).replace(
+            'guard_delete_receipt || return 1', 'guard_delete_receipt || return 1\n    "$root/bin/boat-call" test-gate after-receipt',1))
+        collector=f.root / 'factory/collect.sh'
+        collector.write_text(collector.read_text().replace('set -eu', 'set -eu\necho collect >> "$TEST_BASE/effects"',1))
+        collector.chmod(0o755)
+        self.home = f.base / 'control'
+        self.state = self.home / 'launches/abandoned'
+        self.state.mkdir(parents=True, mode=0o700)
+        self.spend = f.root / 'results/spend/test.json'
+        self.spend.parent.mkdir(parents=True)
+        self.spend.write_text(json.dumps(dict(provider='boat', balance_before_usd=10)))
+        argv = ['1', '--admission-root', str(f.history), *f.argv]
+        (self.state / 'launch.json').write_text(json.dumps(dict(argv=argv, environment={'UNBUG_CLOUD':'boat'})))
+        values = dict(spend_file=str(self.spend), ttl_seconds='3600', retire_at='3500', margin='100',
+                      poll='0.01', stall_minutes='45', stall_seconds='2700', unreachable='1')
+        (self.state / 'monitor.sh').write_text(''.join(k+'='+shlex.quote(v)+'\n' for k,v in values.items()))
+        (self.state / 'ids').write_text(f.worker+'\n')
+        (self.state / (f.worker+'.started')).write_text(str(int(time.time())))
+        (self.state / (f.worker+'.bench-sha')).write_text('a'*64)
+        # Only synthetic credential bytes, emitted by a fake age executable.
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode='w') as tar:
+            for name in ('claude-token','codex-auth.json','opencode-go-key','openrouter-key','statements-key'):
+                value = b'synthetic credential'
+                info = tarfile.TarInfo(name); info.size=len(value); tar.addfile(info, io.BytesIO(value))
+        (f.base / 'bundle').write_bytes(output.getvalue())
+        age = f.base / 'tools/age'
+        age.write_text('#!/bin/sh\ncat '+shlex.quote(str(f.base/'bundle'))+'\n'); age.chmod(0o755)
+        # Extend the existing local worker fake with provider receipts and crash gates.
+        backend = f.root / 'bin/boat-call'
+        original = f.root / 'bin/worker-call'
+        backend.rename(original)
+        code=original.read_text().replace('env={**os.environ,',
+            'if a[0]=="exec": cmd=cmd[:cmd.index("unset ANTHROPIC")]+":"+cmd[cmd.index("\\nrm -f ~/sealed/DONE"):]\n' + 'env={**os.environ,')
+        original.write_text(code)
+        backend.write_text("#!/usr/bin/env python3\n" + r'''
+import json, os, pathlib, subprocess, sys, time
+base=pathlib.Path(os.environ['TEST_BASE']); a=sys.argv[1:]
+phase=os.environ.get('TEST_CRASH','')
+def gate(name):
+    if phase==name:
+        (base/'blocked').write_text(name)
+        while not (base/'release').exists(): time.sleep(.01)
+if a[0]=='billing':
+    gate('before-spend-finish')
+    with (base/'effects').open('a') as s: s.write('finish\n')
+    print(json.dumps({'limits':{'creditBalanceSeconds':1000000}})); sys.exit()
+if a[0]=='list':
+    print(json.dumps({'sandboxes': [] if (base/'deleted').exists() else [{'id':'worker-owned','status':'running'}]})); sys.exit()
+if a[0] in ('ssh','scp','exec') and (base/'deleted').exists(): sys.exit(1)
+if a[0]=='test-gate': gate(a[1]); sys.exit()
+if a[0]=='delete':
+    with (base/'effects').open('a') as s: s.write('delete\n')
+    (base/'deleted').touch()
+    print(json.dumps({'operation':dict(id='op-owned',targetId='worker-owned',kind='sandbox',status='pending',stage='queued',completedAt=None)})); sys.exit()
+if a[0]=='deletion':
+    print(json.dumps({'operation':dict(id='op-owned',targetId='worker-owned',kind='sandbox',status='completed',stage='completed',completedAt='2026-10-23T19:30:00Z')})); sys.exit()
+if a[0]=='ssh' and 'for directory, dirs, files in os.walk' in a[-1]:
+    gate('before-admission')
+    print('DONE'); sys.exit()
+if a[0]=='ssh' and 'lock.mkdir()' in a[-1]: gate('after-handoff-reserved')
+if a[0]=='exec':
+    gate('before-restart')
+result=subprocess.run([str(pathlib.Path(__file__).with_name('worker-call')),*a])
+if a[0]=='ssh' and 's.rename(p)' in a[-1]: gate('after-admission-swap')
+if a[0]=='exec' and not result.returncode:
+    # The synthetic resumed runner completes with a non-retryable stop.
+    card=base/'worker/sealed/case-selected.scorecard.json'
+    c=json.loads(card.read_text()); c['terminal_stop']='call_limit'; card.write_text(json.dumps(c))
+    (base/'worker/sealed/DONE').write_text('case-selected')
+sys.exit(result.returncode)
+''')
+        backend.chmod(0o755)
+        runner=f.remote/'factory/run.py'
+        runner.write_text(runner.read_text().replace('(h/"sealed/.factory-restart.lock/owner").read_text()', '(h/"sealed/.factory-restart.lock/owner").read_text() if (h/"sealed/.factory-restart.lock/owner").exists() else "transient"'))
+        self.env={**os.environ, 'UNBUG_CONTROL_HOME':str(self.home), 'UNBUG_CLOUD':'boat',
+                  'BOAT_CMD':str(backend), 'TEST_BASE':str(f.base), 'BOAT_COLLECT_RETRY_SECONDS':'0',
+                  'PATH':str(f.base/'tools')+os.pathsep+os.environ['PATH']}
+
+    def start(self, crash=''):
+        return subprocess.Popen(['sh', str(self.f.root/'factory/launch.sh'), '--resume-launch','abandoned'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env={**self.env,'TEST_CRASH':crash}, start_new_session=True)
+
+    def run_resume(self):
+        p=self.start()
+        self.addCleanup(lambda: self.stop(p))
+        try: out,err=p.communicate('synthetic identity\n',timeout=20)
+        except subprocess.TimeoutExpired:
+            self.stop(p)
+            out,err=p.communicate(timeout=5)
+            self.fail('resume timed out: '+err)
+        self.assertEqual(p.returncode,0,err)
+
+    def abandon(self, phase):
+        p=self.start(phase)
+        p.stdin.write('synthetic identity\n'); p.stdin.close(); p.stdin=None
+        self.addCleanup(lambda: self.stop(p))
+        deadline=time.monotonic()+10
+        while not (self.f.base/'blocked').exists() and p.poll() is None and time.monotonic()<deadline:
+            time.sleep(.01)
+        if not (self.f.base/'blocked').exists():
+            self.stop(p)
+            self.fail('controller did not reach '+phase+': '+p.stderr.read())
+        # A reboot loses the controller and every local in-flight child.
+        os.killpg(p.pid,signal.SIGKILL); p.wait(timeout=5)
+        p.communicate(timeout=10)
+        (self.f.base/'blocked').unlink()
+
+    @staticmethod
+    def stop(p):
+        if p.poll() is None:
+            os.killpg(p.pid,signal.SIGKILL); p.wait(timeout=5)
+
+    def assert_finished(self, handoffs=1, restarts=None, collections=None):
+        f=self.f
+        self.assertTrue((f.base/'deleted').exists())
+        effects=(f.base/'effects').read_text().splitlines()
+        self.assertEqual(effects.count('delete'),1)
+        self.assertEqual(effects.count('finish'),1)
+        if restarts is None: restarts=handoffs
+        self.assertEqual(effects.count('collect'),1+restarts if collections is None else collections)
+        receipt=self.spend.with_suffix('.deletions')/f.worker/'deletion-completion.json'
+        self.assertEqual(json.loads(receipt.read_text())['targetId'],f.worker)
+        calls=[json.loads(s) for s in (f.base/'calls').read_text().splitlines()]
+        self.assertEqual(sum(c[0]=='exec' for c in calls),restarts)
+        self.assertEqual(sum(c[0]=='ssh' and 's.rename(p)' in c[-1] for c in calls),handoffs)
+        self.assertEqual(self.state.stat().st_mode & 0o777,0o700)
+        data=b''.join(p.read_bytes() for p in self.state.rglob('*') if p.is_file())
+        self.assertNotIn(b'synthetic identity',data)
+        self.assertNotIn(b'synthetic credential',data)
+        self.run_resume()  # Completed launches are harmless to resume again.
+        self.assertEqual((f.base/'effects').read_text().splitlines(),effects)
+
+    def test_killed_before_admission_handoff(self):
+        self.abandon('before-admission'); self.run_resume(); self.assert_finished()
+
+    def test_abandoned_after_handoff_reserved(self):
+        self.abandon('after-handoff-reserved')
+        self.assertTrue((self.state/(self.f.worker+'.admission-'+self.f.card['sha256']+'.reserved')).exists())
+        self.run_resume(); self.assert_finished()
+
+    def test_killed_after_admission_snapshot_swap(self):
+        self.abandon('after-admission-swap'); self.run_resume(); self.assert_finished()
+
+    def test_abandoned_bare_admission_reservation(self):
+        (self.state/(self.f.worker+'.admission-'+self.f.card['sha256']+'.reserved')).touch()
+        self.run_resume(); self.assert_finished()
+
+    def test_killed_after_collection_before_deletion(self):
+        self.f.card['terminal_stop']='call_limit'; self.f.save_card()
+        self.abandon('before-delete'); self.run_resume(); self.assert_finished(handoffs=0)
+
+    def test_killed_after_deletion_before_spend_finish(self):
+        self.f.card['terminal_stop']='call_limit'; self.f.save_card()
+        self.abandon('before-spend-finish'); self.run_resume(); self.assert_finished(handoffs=0)
+
+    def test_deletion_receipt_recovers_with_pending_restart(self):
+        f=self.f
+        f.card['terminal_stop']='call_limit'; f.save_card()
+        (self.state/(f.worker+'.restart-attempted')).write_text('old generation')
+        (self.state/(f.worker+'.restart-acknowledged')).touch()
+        (self.state/(f.worker+'.started')).write_text('1')
+        self.abandon('after-receipt')
+        self.assertFalse((self.state/(f.worker+'.deleted')).exists())
+        self.run_resume(); self.assert_finished(handoffs=0)
+
+    def test_live_owner_excludes_second_controller(self):
+        p=self.start('before-admission')
+        p.stdin.write('synthetic identity\n'); p.stdin.close(); p.stdin=None
+        self.addCleanup(lambda: self.stop(p))
+        deadline=time.monotonic()+10
+        while not (self.f.base/'blocked').exists() and p.poll() is None and time.monotonic()<deadline: time.sleep(.01)
+        self.assertTrue((self.f.base/'blocked').exists())
+        other=self.start(); _,err=other.communicate('synthetic identity\n',timeout=10)
+        self.assertNotEqual(other.returncode,0)
+        self.assertIn('owned',err)
+        owner=json.loads((self.state/'controller.lock').read_text())
+        self.assertEqual(owner['pid'],p.pid); self.assertTrue(owner['started'])
+        os.kill(p.pid,signal.SIGKILL); p.wait(timeout=5)
+        (self.f.base/'release').touch(); p.communicate(timeout=10)
+        self.run_resume(); self.assert_finished()
+
+    def test_recycled_pid_does_not_own_launch(self):
+        (self.state/'controller.lock').write_text(json.dumps({'pid':os.getpid(),'started':'old process'}))
+        self.run_resume(); self.assert_finished()
+
+    def test_scan_resumes_abandoned_launch(self):
+        result=subprocess.run(['sh',str(self.f.root/'factory/launch.sh'),'--resume-launches'],
+            input='synthetic identity\n',text=True,capture_output=True,env=self.env,timeout=20)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assert_finished()
+
+    def test_scan_starts_all_monitors_before_waiting(self):
+        second=self.home/'launches/second'
+        shutil.copytree(self.state,second)
+        launcher=self.f.root/'factory/launch.sh'
+        launcher.write_text('#!/bin/sh\nset -eu\ntouch "$TEST_BASE/started-$2"\nwhile [ ! -f "$TEST_BASE/started-abandoned" ] || [ ! -f "$TEST_BASE/started-second" ]; do sleep .01; done\n')
+        p=subprocess.Popen(['python3',str(launcher.with_name('control_resume.py')),'--resume-launches'],
+            stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=self.env,start_new_session=True)
+        try: _,err=p.communicate('synthetic identity\n',timeout=5)
+        except subprocess.TimeoutExpired:
+            self.stop(p); _,err=p.communicate(timeout=5)
+            self.fail('scan did not start both monitors: '+err)
+        self.assertEqual(p.returncode,0,err)
+        self.assertTrue((self.f.base/'started-abandoned').exists())
+        self.assertTrue((self.f.base/'started-second').exists())
+
+    def test_transient_retry_preserves_deadline_and_attempt_count(self):
+        f=self.f
+        f.card['terminal_stop']='stalled'; f.save_card()
+        (self.state/(f.worker+'.retry-at')).write_text('1')
+        (self.state/(f.worker+'.autoresumes')).write_text('1')
+        started=(self.state/(f.worker+'.started')).read_text()
+        self.abandon('before-admission'); self.run_resume()
+        self.assert_finished(handoffs=0,restarts=1)
+        self.assertEqual((self.state/(f.worker+'.autoresumes')).read_text().strip(),'2')
+        self.assertEqual((self.state/(f.worker+'.started')).read_text(),started)
+        self.assertFalse((self.state/(f.worker+'.retry-at')).exists())
+
+    def test_acknowledged_restart_waits_for_a_new_checkpoint(self):
+        f=self.f
+        result=subprocess.run(['sh',str(f.root/'factory/collect.sh'),f.worker],env=self.env,capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        digest=hashlib.sha256((f.root/'sealed'/(f.case+'.scorecard.json')).read_bytes()).hexdigest()
+        (self.state/(f.worker+'.collected')).touch()
+        (self.state/(f.worker+'.restart-attempted')).write_text(digest)
+        (self.state/(f.worker+'.restart-acknowledged')).touch()
+        p=self.start()
+        self.addCleanup(lambda: self.stop(p))
+        p.stdin.write('synthetic identity\n'); p.stdin.close(); p.stdin=None
+        deadline=time.monotonic()+5
+        while not (f.base/'calls').exists() and p.poll() is None and time.monotonic()<deadline: time.sleep(.01)
+        time.sleep(.5)
+        self.assertIsNone(p.poll())
+        calls=[json.loads(s) for s in (f.base/'calls').read_text().splitlines()]
+        self.assertFalse(any(c[0]=='exec' or (c[0]=='ssh' and 's.rename(p)' in c[-1]) for c in calls))
+        self.assertFalse((self.state/(f.worker+'.admission-handoffs')).exists())
+        self.stop(p); p.communicate(timeout=5)
+        prior=(f.base/'effects').read_text().splitlines().count('collect')
+        # Reboot immediately after an early poll collected the old DONE. The worker
+        # subsequently finishes a new checkpoint; retirement must not trust that marker.
+        (self.state/(f.worker+'.collected')).touch()
+        archive=f.remote/'sealed'/f.archive
+        archive.write_bytes(archive.read_bytes()+b' later completed checkpoint')
+        f.card['sha256']=f.sha(archive); f.card['terminal_stop']='call_limit'; f.save_card()
+        (self.state/(f.worker+'.started')).write_text('1')  # retire at the original TTL
+        self.run_resume()
+        self.assertEqual(f.sha(f.root/'sealed'/f.archive),f.card['sha256'])
+        self.assertEqual(json.loads((f.root/'sealed'/(f.case+'.scorecard.json')).read_text()),f.card)
+        self.assert_finished(handoffs=0,collections=prior+1)
+
+    def test_new_launch_records_persistent_job_and_spend_path(self):
+        # Deliberately stop at the fake's unsupported create. No worker is made.
+        f=self.f
+        (f.root/'factory/worker_release.py').write_text('')
+        result=subprocess.run(['sh',str(f.root/'factory/launch.sh'),'1','--source','hunt','--dry-run'],
+            input='synthetic identity\n',text=True,capture_output=True,env=self.env,timeout=20)
+        states=[p for p in (self.home/'launches').iterdir() if p != self.state]
+        self.assertEqual(len(states),1,result.stderr)
+        state=states[0]
+        self.assertEqual(state.stat().st_mode & 0o777,0o700)
+        job=json.loads((state/'launch.json').read_text())
+        self.assertEqual(job['argv'],['1','--source','hunt','--dry-run'])
+        monitor=(state/'monitor.sh').read_text()
+        self.assertIn(str(f.root/'results/spend'),monitor)
+        self.assertTrue((state/'ids').exists())
+        self.assertFalse((f.base/'deleted').exists())
+
+
+if __name__=='__main__': unittest.main()

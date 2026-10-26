@@ -1,0 +1,136 @@
+#!/bin/sh
+# Host: <identity> | bin/exam-launch sealed/<case>.tar.gz.age --arm ARM [--arm ARM]
+# [--tries N] [--ttl-hours H] [--max-spend 3] [--stall-minutes 20] [run-exam options].
+# One VM; TTL = arms * tries * 1.5 h + 1 h margin. Prints TTL and spend estimate.
+# Identity streams to VM RAM only. Always collect sealed results before deleting.
+# EXAM_SECRETS: keys pushed by bin/push-secrets (default claude-token codex-auth.json openrouter-key opencode-go-key).
+# BOAT_CMD is an executable override; BOAT_POLL_SECONDS shortens test polls.
+# Read whole before running: editing this file while a launcher runs must not change what it executes.
+{
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd)
+archive=${1:?usage: <identity> | bin/exam-launch CASE.tar.gz.age --arm ARM [...]}; shift
+case_id=$(basename "$archive" .tar.gz.age)
+case $case_id in *[!A-Za-z0-9_.-]*|.*) echo "invalid case filename" >&2; exit 1 ;; esac
+card=$(dirname "$archive")/$case_id.scorecard.json
+[ -f "$archive" ] && [ -f "$card" ] || { echo "need $archive and $card" >&2; exit 1; }
+PYTHONPATH="$root/factory" python3 - "$card" "$case_id" <<'PYCODE'
+import json, pathlib, sys
+from sealed_audit import verify_exam_metadata
+verify_exam_metadata(json.loads(pathlib.Path(sys.argv[1]).read_text()), sys.argv[2])
+PYCODE
+[ ! -t 0 ] || { echo "pipe the age identity on stdin" >&2; exit 1; }
+# One identity, read once: it decrypts the keys here (in memory) and the case on the VM (RAM).
+identity=$(cat)
+secrets_file=${UNBUG_SECRETS_FILE:-$HOME/.config/unbug-bench/secrets.age}
+secrets_b64=$(printf '%s\n' "$identity" | age -d -i /dev/stdin "$secrets_file" | base64) || true
+[ -n "$secrets_b64" ] || { echo "could not decrypt $secrets_file (run bin/setup-secrets?)" >&2; exit 1; }
+ttl_hours=""; max_spend=3; args=""; arms=0; tries=1; out='~/exam-out'; private='~/exam-private'; label=exam; n=1
+# Scored runs: one machine type for the whole round (CX33 = boat's 4 vCPU/8 GB), never the CX43 fallback.
+HCLOUD_PLACES="cx33@nbg1 cx33@fsn1 cx33@hel1"; export HCLOUD_PLACES
+. "$root/bin/boat-launch-guards.sh"
+while [ $# -gt 0 ]; do
+  case $1 in
+    --ttl-hours|--max-spend|--stall-minutes|--arm|--tries|--out|--private)
+      [ $# -ge 2 ] || { echo "missing value for $1" >&2; exit 1; }
+      case $1 in
+        --ttl-hours) ttl_hours=$2; shift 2; continue ;;
+        --max-spend) max_spend=$2; shift 2; continue ;;
+        --stall-minutes) BOAT_STALL_MINUTES=$2; shift 2; continue ;;
+        --arm) arms=$((arms + 1)) ;;
+        --tries) tries=$2 ;;
+        --out)
+          out=$2
+          case $out in '~/'*) out=/home/user/${out#\~/} ;; esac
+          args="$args '--out' $(quote "$out")"; shift 2; continue ;;
+        --private)
+          private=$2
+          case $private in '~/'*) private=/home/user/${private#\~/} ;; esac
+          args="$args '--private' $(quote "$private")"; shift 2; continue ;;
+      esac
+      args="$args $(quote "$1") $(quote "$2")"; shift 2 ;;
+    --arm=*|--tries=*|--out=*|--private=*)
+      case $1 in
+        --arm=*) arms=$((arms + 1)) ;;
+        --tries=*) tries=${1#*=} ;;
+        --out=*)
+          out=${1#*=}
+          case $out in '~/'*) out=/home/user/${out#\~/} ;; esac
+          args="$args '--out' $(quote "$out")"; shift; continue ;;
+        --private=*)
+          private=${1#*=}
+          case $private in '~/'*) private=/home/user/${private#\~/} ;; esac
+          args="$args '--private' $(quote "$private")"; shift; continue ;;
+      esac
+      args="$args $(quote "$1")"; shift ;;
+    *) args="$args $(quote "$1")"; shift ;;
+  esac
+done
+case $tries in *[!0-9]*|'') echo "tries must be positive" >&2; exit 1 ;; esac
+[ "$arms" -gt 0 ] && [ "$tries" -gt 0 ] || { echo "need at least one --arm and positive --tries" >&2; exit 1; }
+[ -n "$ttl_hours" ] || ttl_hours=$(python3 -c 'import sys; print(int(sys.argv[1])*int(sys.argv[2])*1.5+1)' "$arms" "$tries")
+# Reject relative outputs: both collection and the probe must address the same VM path.
+case $out in /*|'~/'*) ;; *) echo "--out must be absolute or start with ~/" >&2; exit 1 ;; esac
+case $private in /*|'~/'*) ;; *) echo "--private must be absolute or start with ~/" >&2; exit 1 ;; esac
+out_python=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$out")
+private_python=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$private")
+case $out in '~/'*) scp_out=/home/user/${out#\~/} ;; *) scp_out=$out ;; esac
+remote_out="\$(python3 -c $(quote "import os; print(os.path.expanduser($out_python))"))"
+collect_vm() {
+  collect_status=0
+  # A VM that failed before the exam started has no output folder: nothing to collect (a failed SSH stays an error).
+  files=$(boat ssh "$1" "[ -d \"$remote_out\" ] || { echo NOTHING; exit 0; }; cd \"$remote_out\" || exit 1; ls *.scorecard.json *.scorecard.txt *.jobs.tar.gz.age 2>/dev/null; true") || return 1
+  [ "$files" != NOTHING ] || return 0
+  dest=${EXAM_RESULTS_DIR:-$root/sealed}
+  mkdir -p "$dest" || return 1
+  for f in $files; do
+    case $f in *[!A-Za-z0-9_.-]*|.*) collect_status=1; continue ;; esac
+    case $f in *.scorecard.json|*.scorecard.txt|*.jobs.tar.gz.age) ;; *) collect_status=1; continue ;; esac
+    boat scp "$1:$scp_out/$f" "$dest/$f" >/dev/null || collect_status=1
+  done
+  boat ssh "$1" "cat ~/exam-stdout" || collect_status=1
+  return "$collect_status"
+}
+purpose="$case_id, $arms arms, $tries tries"
+guard_init
+guard_new
+echo "exam VM $id" >&2
+[ -z "${EXAM_STATUS_FILE:-}" ] || printf '%s\n' "$id" > "$EXAM_STATUS_FILE"
+printf '%s\n' "$identity" | "$root/bin/boat-call" --stdin ssh "$id" 'umask 077; cat > /dev/shm/exam-key; test -s /dev/shm/exam-key'
+bundle="$state/exam.tgz"
+COPYFILE_DISABLE=1 tar --no-xattrs -C "$root" --exclude ./.git --exclude ./sealed --exclude ./results --exclude node_modules \
+  --exclude .medusa --exclude __pycache__ --exclude '._*' -czf "$bundle" .
+boat scp "$bundle" "$id:/home/user/bench.tgz" >/dev/null
+boat scp "$archive" "$id:/home/user/$case_id.tar.gz.age" >/dev/null
+boat scp "$card" "$id:/home/user/$case_id.scorecard.json" >/dev/null
+boat ssh "$id" "rm -rf ~/unbug-bench && mkdir ~/unbug-bench && tar -xzf ~/bench.tgz -C ~/unbug-bench && rm ~/bench.tgz" >/dev/null
+# Real keys, not boat's paid relay: files on the VM, mounted only into keyswap / the responder.
+claude_secret=${EXAM_CLAUDE_SECRET:-claude-token}
+case $claude_secret in claude-token|claude-token-2) ;; *) echo "invalid Claude account key" >&2; exit 1 ;; esac
+printf '%s' "$secrets_b64" | "$root/bin/push-secrets" "$id" ${EXAM_SECRETS:-$claude_secret codex-auth.json openrouter-key opencode-go-key}
+# Trial wiring always expects claude-token, regardless of the case's pinned account.
+if [ "$claude_secret" != claude-token ]; then
+  boat ssh "$id" "cp /dev/shm/secrets/$claude_secret /dev/shm/secrets/claude-token" >/dev/null
+fi
+keys='KEYSWAP_CLAUDE_TOKEN_FILE=/dev/shm/secrets/claude-token KEYSWAP_CODEX_AUTH_FILE=/dev/shm/secrets/codex-auth.json ANSWER_API_KEY_FILE=/dev/shm/secrets/openrouter-key'
+boat exec "$id" --detach -- sh -c "touch ~/.boat-launch-start && unset ANTHROPIC_BASE_URL OPENCODE_API_KEY_BASE_URL OPENAI_BASE_URL && $keys python3 ~/unbug-bench/bin/run-exam ~/$case_id.tar.gz.age --identity /dev/shm/exam-key $args > ~/exam-stdout 2>/dev/null < /dev/null" >/dev/null
+probe_python=$(cat <<PYCODE
+import os, time
+out = os.path.expanduser($out_python)
+if os.path.isfile(out + "/DONE"):
+    print("DONE")
+else:
+    paths = [os.path.expanduser("~/.boat-launch-start")]
+    for root in (os.path.expanduser("~/jobs"), os.path.expanduser($private_python), out):
+        for directory, dirs, files in os.walk(root):
+            paths.extend([directory] + [os.path.join(directory, f) for f in files])
+    latest = 0
+    for path in paths:
+        try: latest = max(latest, os.stat(path).st_mtime)
+        except FileNotFoundError: pass
+    print(max(0, int(time.time() - latest)))
+PYCODE
+)
+guard_wait
+exit
+}

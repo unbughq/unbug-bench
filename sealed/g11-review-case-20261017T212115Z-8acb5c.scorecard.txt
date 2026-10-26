@@ -1,0 +1,30 @@
+{
+  "kind": "g11-independent-review",
+  "case": "case-20261017T212115Z-8acb5c",
+  "model": "openrouter/meta/muse-spark-1.3-contributor",
+  "dry_run": false,
+  "status": "stopped",
+  "verdict": "inconclusive",
+  "digest_version": 2,
+  "limits": {
+    "max_cost": 0.7386117149999999,
+    "max_total_calls": 977,
+    "max_role_calls": 21,
+    "timeout_seconds": 1200
+  },
+  "continuations": 2,
+  "source_inputs_sha256": "7a28d7c8f6ed73ff9bf873d1cc56fa4b6b76ffd0a919cba5102f9310b6ab55a8",
+  "review_bench_sha256": "6b364f29507b9cb3d8a41d9b2a70bcd8a4b2e1a4d94e9dc43c9b4a86e858b907",
+  "audit_inputs_sha256": "c5137b0fd16629873c0803aca155a7b8d243ebbf1e2db37cde4f72b10bbad200",
+  "models_used": {
+    "reviewer-g11-audit": "openrouter/meta/muse-spark-1.3-contributor"
+  },
+  "terminal_stop": "total_call_limit",
+  "inputs_unchanged": true,
+  "cost_delta": 0.08144588,
+  "calls_delta": 21,
+  "audit_cost_total": 0.29075858,
+  "audit_calls_total": 80,
+  "sha256": "4e67bd722510fb156d9d82d3049e25f13f7215c36a67c6f69d4cde3b8456284a",
+  "archive": "/home/user/sealed/g11-review-case-20261017T212115Z-8acb5c.tar.gz.age"
+}

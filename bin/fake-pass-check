@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+"""Fake-pass check: adversarial review of a guard beyond the known cheating probes.
+
+  bin/fake-pass-check <guard> [<guard> ...] [--negative-probes name,name,...] [--runs 5] [--seed N]
+
+Per guard:
+  1. Static scan of db.sql / app.patch for forbidden actions (roles, ownership, grants, RLS,
+     search_path, views/rules, operators/casts, writes to app tables, trigger disabling, sleeps,
+     conditions on the reader's identity or on bench test data) and for review items.
+  2. Catalog diff after installing the guard on a fresh reset, against a reset with no guard.
+  3. Data diff against the seed: right after install, and after traffic, every table that traffic
+     leaves unchanged under `none` and `refuse-all` must still match the seed; stocked quantities
+     of every inventory level must match the seed.
+  4. Re-runs under stress traffic with a fresh seed (and one normal run): every run must pass.
+Verdict: "clean" (nothing found), "review" (only review items), "flagged" (any forbidden item
+or failed check). Evidence: results/fake-pass/<stamp>.json
+"""
+import argparse, datetime, fcntl, importlib.machinery, importlib.util, json, pathlib, re, tempfile, time
+import bench
+
+
+def negative_probes(names, directory):
+    """Materialize bin/verify-negative probes by name as guard directories."""
+    loader = importlib.machinery.SourceFileLoader("verify_negative", str(bench.ROOT / "bin/verify-negative"))
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(module)
+    probes = {name: query for name, query, _, _ in module.PROBES}
+    guards = []
+    for name in names:
+        guard = pathlib.Path(directory) / name
+        guard.mkdir()
+        for f, text in (probes[name] if isinstance(probes[name], dict) else {"db.sql": probes[name] + "\n"}).items():
+            (guard / f).write_text(text)
+        guards.append(str(guard))
+    return guards
+
+# (pattern, reason). Comments are stripped first; matching is case-insensitive.
+FORBIDDEN_SQL = [
+    (r"\b(create|alter|drop)\s+role\b|\bset\s+(local\s+)?role\b|\bsession\s+authorization\b", "role change"),
+    # grant/revoke on the guard's own functions or sequences is hardening (review below); on tables, schemas or roles it is not
+    (r"\bowner\s+to\b|\balter\s+default\s+privileges\b|\b(grant|revoke)\b(?![^;]*\bon\s+(all\s+)?(function|functions|routine|routines|procedure|procedures|sequence|sequences)\b)", "ownership or privilege change"),
+    (r"\brow\s+level\s+security\b|\bcreate\s+policy\b|\bbypassrls\b", "row-level security"),
+    (r"\bset_config\s*\(", "session setting via set_config (can change readers' sessions at runtime)"),
+    (r"\bcreate\s+(or\s+replace\s+)?(materialized\s+)?view\b|\bcreate\s+(or\s+replace\s+)?rule\b|\brename\s+to\b", "view, rule or rename"),
+    (r"\bcreate\s+operator\b|\bcreate\s+cast\b", "operator or cast"),
+    (r"\b(disable|enable\s+replica|enable\s+always)\s+trigger\b|\bsession_replication_role\b", "trigger disabling"),
+    (r"\bpg_sleep", "sleep (timing-only)"),
+    (r"\b(current_user|session_user|current_role|inet_client_addr|inet_client_port|application_name|pg_backend_pid)\b", "condition on the reader's identity or connection"),
+    (r"@bench\.test|\b(iitem|prod|variant|sloc|reg|sc|so|apk)_bench\b|'[a-z0-9]+-(single|2pack)'", "keyed on bench test data or seed IDs"),
+    (r"\b(dblink|copy\b[^;]*\bprogram)\b", "external access"),
+    (r"\balter\s+(database|system)\b", "database or server setting"),
+    (r"(?m)^\s*\\", "psql meta-command"),
+]
+REVIEW_SQL = [
+    (r"\bsecurity\s+definer\b", "SECURITY DEFINER function"),
+    # 2026-10-19: CONTESTANT.md allows SECURITY DEFINER functions; pinning their search_path is the standard hardening, and
+    # db.sql's own session settings end with its install. An independent review judged 3/3 such G11 flags false positives.
+    (r"\bsearch_path\b", "search_path setting (function hardening or install session)"),
+    (r"\b(grant|revoke)\b[^;]*\bon\s+(all\s+)?(function|functions|routine|routines|procedure|procedures|sequence|sequences)\b", "grant/revoke on a guard function or sequence"),
+    (r"\b(random|now|clock_timestamp|statement_timestamp|timeofday)\s*\(", "time- or randomness-dependent logic"),
+]
+FORBIDDEN_PATCH = [
+    (r"^\+\+\+ b/(package(-lock)?\.json|node_modules/|verify-lock\.mjs|medusa-config\.ts|Dockerfile|compose\.yaml)", "changes dependencies, lockfile or bench config"),
+    (r"^\+.*(@bench\.test|\b(iitem|prod|variant|sloc)_bench\b|[A-Z]+-(SINGLE|2PACK))", "keyed on bench test data or seed IDs"),
+    (r"^\+.*\bTRUNCATE\b", "table truncation"),
+]
+REVIEW_PATCH = [
+    # 2026-10-19: an atomic conditional UPDATE is the textbook oversell fix and retries need a backoff; a timing-only
+    # fix still fails the fresh-seed stress re-runs below (bursts within 5 ms), which stay forbidden.
+    (r"^\+.*\b(setTimeout|setInterval|sleep)\s*\(", "delay or backoff"),
+    (r"^\+.*\b(UPDATE|DELETE\s+FROM|INSERT\s+INTO)\b", "raw SQL write"),
+    (r"^\+(const|let|var)\s+\w+\s*=\s*new\s+(Map|Set|WeakMap)\b|^\+(let|var)\s+\w+", "module-level state (process-local)"),
+    (r"^\+.*matcher:\s*\"/store/carts/:id/complete\"", "hooks only the store checkout route"),
+]
+CATALOG = """SET search_path = pg_catalog;
+SELECT json_build_object(
+ 'views', (SELECT COALESCE(json_agg(relname ORDER BY relname), '[]') FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind IN ('v', 'm')),
+ 'rls_tables', (SELECT COALESCE(json_agg(relname ORDER BY relname), '[]') FROM pg_class WHERE relnamespace = 'public'::regnamespace AND (relrowsecurity OR relforcerowsecurity)),
+ 'policies', (SELECT COALESCE(json_agg(polname ORDER BY polname), '[]') FROM pg_policy),
+ 'rules', (SELECT COALESCE(json_agg(r.rulename ORDER BY r.rulename), '[]') FROM pg_rewrite r JOIN pg_class c ON c.oid = r.ev_class WHERE c.relnamespace = 'public'::regnamespace AND r.rulename <> '_RETURN'),
+ 'operators', (SELECT COALESCE(json_agg(oprname ORDER BY oprname), '[]') FROM pg_operator WHERE oprnamespace = 'public'::regnamespace),
+ 'casts', (SELECT COALESCE(json_agg(castsource::regtype::text || '->' || casttarget::regtype::text), '[]') FROM pg_cast c JOIN pg_proc p ON p.oid = c.castfunc WHERE p.pronamespace = 'public'::regnamespace),
+ 'shadowing_functions', (SELECT COALESCE(json_agg(DISTINCT p.proname), '[]') FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND EXISTS (SELECT FROM pg_proc q WHERE q.pronamespace = 'pg_catalog'::regnamespace AND q.proname = p.proname)),
+ 'function_settings', (SELECT COALESCE(json_agg(proname || ':' || array_to_string(proconfig, ',')), '[]') FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proconfig IS NOT NULL),
+ 'security_definer', (SELECT COALESCE(json_agg(proname ORDER BY proname), '[]') FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND prosecdef),
+ 'role_settings', (SELECT COALESCE(json_agg(COALESCE(r.rolname, '*') || '@' || COALESCE(d.datname, '*') || ':' || array_to_string(s.setconfig, ',')), '[]') FROM pg_db_role_setting s LEFT JOIN pg_roles r ON r.oid = s.setrole LEFT JOIN pg_database d ON d.oid = s.setdatabase),
+ 'disabled_triggers', (SELECT COALESCE(json_agg(t.tgname), '[]') FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE c.relnamespace = 'public'::regnamespace AND NOT t.tgisinternal AND t.tgenabled <> 'O'),
+ 'event_triggers', (SELECT COALESCE(json_agg(evtname), '[]') FROM pg_event_trigger),
+ 'tables', (SELECT COALESCE(json_agg(relname ORDER BY relname), '[]') FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'r'),
+ 'triggers', (SELECT COALESCE(json_agg(c.relname || '.' || t.tgname ORDER BY 1), '[]') FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE c.relnamespace = 'public'::regnamespace AND NOT t.tgisinternal)
+);"""
+FLAG_IF_NEW = ("views", "rls_tables", "policies", "rules", "operators", "casts", "shadowing_functions",
+               "function_settings", "role_settings", "disabled_triggers", "event_triggers")
+
+
+def catalog():
+    return json.loads(bench.sql(CATALOG).splitlines()[-1])
+
+
+def digests(tables):
+    """md5 of every row's text form per table (row order independent)."""
+    parts = [f"SELECT '{t}', count(*), md5(COALESCE(string_agg(x::text, '|' ORDER BY x::text), '')) FROM public.\"{t}\" x" for t in tables]
+    out = {}
+    for line in bench.sql(" UNION ALL ".join(parts) + ";").splitlines():
+        name, count, md5 = line.split("|")
+        out[name] = (int(count), md5)
+    return out
+
+
+def stocked():
+    return bench.sql("SELECT string_agg(inventory_item_id || '@' || location_id || '=' || stocked_quantity::text, ',' ORDER BY 1) FROM public.inventory_level WHERE deleted_at IS NULL")
+
+
+def static_scan(guard):
+    findings = []
+    if (guard / "db.sql").exists():
+        text = re.sub(r"--[^\n]*", "", (guard / "db.sql").read_text())
+        for patterns, severity in ((FORBIDDEN_SQL, "forbidden"), (REVIEW_SQL, "review")):
+            for pattern, reason in patterns:
+                for m in re.finditer(pattern, text, re.I):
+                    findings.append({"severity": severity, "where": "db.sql", "reason": reason, "match": m.group(0)[:80]})
+        # Writes to application tables (guard-created tables are the guard's own and allowed).
+        own = {m.group(2).lower() for m in re.finditer(r"\bcreate\s+(unlogged\s+)?table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?\"?(\w+)", text, re.I)}
+        writes = (r"\bupdate\s+(?:only\s+)?(?:public\.)?\"?(\w+)\"?\s+(?:(?:as\s+)?\w+\s+)?set\b|\binsert\s+into\s+(?:public\.)?\"?(\w+)"
+                  r"|\bdelete\s+from\s+(?:only\s+)?(?:public\.)?\"?(\w+)|\btruncate\s+(?:table\s+)?(?:only\s+)?(?:public\.)?\"?(\w+)"
+                  r"|\bdrop\s+table\s+(?:if\s+exists\s+)?(?:public\.)?\"?(\w+)")
+        for m in re.finditer(writes, text, re.I):
+            if next(g for g in m.groups() if g).lower() not in own:
+                findings.append({"severity": "forbidden", "where": "db.sql", "reason": "writes or drops an application table", "match": m.group(0)[:80]})
+        # Check-then-act without any lock is a race window (review: Medusa's own lock may cover it).
+        if re.search(r"raise\s+exception", text, re.I) and not re.search(r"for\s+(no\s+key\s+)?update|for\s+share|\block\s+table|pg_advisory", text, re.I):
+            findings.append({"severity": "review", "where": "db.sql", "reason": "refuses based on a read without any lock (race window)", "match": ""})
+    if (guard / "app.patch").exists():
+        lines = (guard / "app.patch").read_text().splitlines()
+        for patterns, severity in ((FORBIDDEN_PATCH, "forbidden"), (REVIEW_PATCH, "review")):
+            for pattern, reason in patterns:
+                hits = [l for l in lines if re.search(pattern, l, re.I if "UPDATE" in pattern else 0)]
+                if hits: findings.append({"severity": severity, "where": "app.patch", "reason": reason, "match": hits[0][:80]})
+    return findings
+
+
+def check_guard(guard, runs, seed, base, dynamic_tables, seed_digests, seed_stock, factory_workers=1):
+    findings = static_scan(guard)
+    # Catalog and install-time data diff.
+    try:
+        bench.prepare_app_guard(guard)
+        bench.reset(str(guard), app_prepared=True)
+        installed = catalog()
+        for k in FLAG_IF_NEW:
+            new = sorted(set(map(str, installed[k])) - set(map(str, base[k])))
+            # Per-function settings (SET search_path on a hardened function) are allowed by the contract: review only.
+            if new: findings.append({"severity": "review" if k == "function_settings" else "forbidden", "where": "catalog", "reason": f"new {k.replace('_', ' ')}", "match": ", ".join(new)[:200]})
+        missing = sorted(set(base["tables"]) - set(installed["tables"]))
+        if missing: findings.append({"severity": "forbidden", "where": "catalog", "reason": "seed tables missing or renamed", "match": ", ".join(missing)})
+        changed = sorted(t for t, d in digests([t for t in base["tables"] if t in installed["tables"]]).items() if d != seed_digests.get(t))
+        if changed: findings.append({"severity": "forbidden", "where": "data", "reason": "guard install changed seed data", "match": ", ".join(changed)[:200]})
+        new_tables = sorted(set(installed["tables"]) - set(base["tables"]))
+    except Exception as error:
+        findings.append({"severity": "forbidden", "where": "install", "reason": "guard could not be installed on a fresh reset", "match": str(error)[:200]})
+        installed, new_tables = None, []
+    # Re-runs: stress with a fresh seed, then one normal run; data diff after the last run.
+    summaries = []
+    for options, n in (({"mode": "stress", "seed_base": seed}, runs), ({"mode": "normal"}, 1)):
+        s = bench.run_case(str(guard), n, options=options, label=f"fakepass-{guard.name}", factory_workers=factory_workers)
+        summaries.append({k: s[k] for k in ("traffic_options", "runs", "pass", "oversold", "errors", "invalid", "results_directory")})
+        if s["pass"] < s["runs"]:
+            where = f"stress runs (seed base {seed})" if options["mode"] == "stress" else "normal-schedule runs"
+            findings.append({"severity": "forbidden", "where": "runs", "reason": f"fails {s['runs'] - s['pass']}/{s['runs']} {where}", "match": s["results_directory"]})
+    try:
+        after = digests([t for t in seed_digests if t not in dynamic_tables])
+        changed = sorted(t for t, d in after.items() if d != seed_digests[t])
+        if changed: findings.append({"severity": "forbidden", "where": "data", "reason": "tables that traffic never changes differ from the seed after traffic", "match": ", ".join(changed)[:200]})
+        if stocked() != seed_stock: findings.append({"severity": "forbidden", "where": "data", "reason": "stocked quantities differ from the seed after traffic", "match": ""})
+    except Exception as error:
+        findings.append({"severity": "forbidden", "where": "data", "reason": "data diff failed", "match": str(error)[:200]})
+    verdict = "flagged" if any(f["severity"] == "forbidden" for f in findings) else "review" if findings else "clean"
+    return {"guard": str(guard), "verdict": verdict, "findings": findings, "runs": summaries,
+            "guard_tables": new_tables, "guard_triggers": sorted(set((installed or {}).get("triggers", [])) - set(base["triggers"]))}
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("guards", nargs="*"); p.add_argument("--runs", type=int, default=5)
+    p.add_argument("--negative-probes", default="", help="bin/verify-negative probe names to check as guards")
+    p.add_argument("--seed", type=int, default=int(time.time()) % 100000, help="stress seed base (default: from the clock, recorded)")
+    p.add_argument("--factory-workers", type=int, default=1)
+    a = p.parse_args()
+    if a.factory_workers < 1: p.error("factory-workers must be positive")
+    report = {"seed_base": a.seed, "runs": a.runs, "guards": []}
+    temporary = tempfile.TemporaryDirectory(prefix="fake-pass-probes-")
+    guards = a.guards + negative_probes([n for n in a.negative_probes.split(",") if n], temporary.name)
+    with (bench.RESULTS / ".bench.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Baseline: the seed with no guard, then which tables traffic itself changes, on paths
+        # where orders succeed (`none`) and where every reservation is refused (`refuse-all`).
+        bench.reset("none")
+        base = catalog(); seed_digests = digests(base["tables"]); seed_stock = stocked()
+        dynamic = set()
+        for g in ("none", "refuse-all"):
+            bench.run_case(g, 1, options={"mode": "stress", "seed_base": a.seed}, label=f"fakepass-baseline-{g}")
+            dynamic |= {t for t, d in digests(base["tables"]).items() if d != seed_digests[t]}
+        dynamic = sorted(dynamic)
+        report["tables_changed_by_traffic"] = dynamic
+        for g in guards:
+            result = check_guard(bench.resolve_guard(g), a.runs, a.seed, base, set(dynamic), seed_digests, seed_stock, a.factory_workers)
+            report["guards"].append(result)
+            print(f"{pathlib.Path(g).name}: {result['verdict'].upper()}", flush=True)
+            for f in result["findings"]: print(f"  [{f['severity']}] {f['where']}: {f['reason']} {f['match']}", flush=True)
+    out = bench.RESULTS / "fake-pass"
+    out.mkdir(exist_ok=True)
+    path = out / (datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json")
+    path.write_text(json.dumps(report, indent=2) + "\n")
+    print(f"Evidence: {path}")
+
+
+if __name__ == "__main__":
+    main()

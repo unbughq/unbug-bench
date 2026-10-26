@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""Run/resume a sealed measurement round. Pipe the age identity on stdin once.
+See factory/README.md for the round JSON schema. No provider calls outside exam-launch.
+"""
+import argparse
+import fcntl
+import hashlib
+import json
+import math
+import os
+import pathlib
+import signal
+import subprocess
+import sys
+import time
+
+from exam_meter import merge, ready
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+ACCOUNTS = ['claude-token', 'claude-token-2']
+ARMS = {'A', 'B', 'C', 'C0', 'gpt', 'oracle', 'nop'}
+
+
+def save(path, data):
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(data, indent=2) + '\n')
+    temporary.replace(path)
+
+
+def specification(path):
+    data = json.loads(path.read_text())
+    accounts = data.get('accounts', ACCOUNTS[:1])
+    if accounts not in (ACCOUNTS[:1], ACCOUNTS):
+        raise ValueError('accounts must be [claude-token] or [claude-token, claude-token-2]')
+    arms, tries = data['arms'], data['tries']
+    if not arms or len(set(arms)) != len(arms) or not set(arms) <= ARMS:
+        raise ValueError('arms must be unique exam arms')
+    if type(tries) is not int or not 1 <= tries <= 3:
+        raise ValueError('tries must be 1, 2 or 3')
+    cases = []
+    for i, case in enumerate(data['cases']):
+        archive = (path.parent / case['archive']).resolve()
+        name = archive.name.removesuffix('.tar.gz.age')
+        if not archive.name.endswith('.tar.gz.age') or not archive.is_file() or not archive.with_name(name + '.scorecard.json').is_file():
+            raise ValueError(f'need sealed archive and scorecard: {archive}')
+        account = accounts[i % len(accounts)]
+        if case.get('account', account) != account:
+            raise ValueError('case account must match round-robin case order')
+        numbers = case.get('tries', list(range(1, tries + 1)))
+        if not numbers or len(set(numbers)) != len(numbers) or any(type(n) is not int or not 1 <= n <= tries for n in numbers):
+            raise ValueError('case tries must be a unique subset of round tries')
+        cases.append({'archive': str(archive), 'sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
+                      'account': account, 'trials': [f'{arm}:{n}' for arm in arms for n in numbers]})
+    if not cases or len({c['archive'] for c in cases}) != len(cases):
+        raise ValueError('cases must be nonempty and unique')
+    return {'arms': arms, 'tries': tries, 'accounts': accounts, 'cases': cases}
+
+
+def collect(case, attempt, meters):
+    """Accept only a collected scorecard with its complete, hash-checked sealed jobs."""
+    directory = pathlib.Path(attempt['directory'])
+    found = False
+    for path in directory.glob('*.scorecard.json'):
+        card = json.loads(path.read_text())
+        raw = directory / pathlib.Path(card.get('raw_archive', '')).name
+        if card.get('case') != pathlib.Path(case['archive']).name.removesuffix('.tar.gz.age'):
+            continue
+        if card.get('seal_error') or not card.get('case_sha256_matches') or not raw.is_file():
+            continue
+        if hashlib.sha256(raw.read_bytes()).hexdigest() != card.get('raw_archive_sha256'):
+            continue
+        for trial in card.get('trials', []):
+            key = f"{trial['arm']}:{trial['try']}"
+            if key not in attempt['trials']:
+                raise ValueError('unexpected trial in collected scorecard')
+            record = case['trials'][key]
+            if record['status'] in ('collected', 'missing'):
+                continue
+            meter = trial.get('meter', {})
+            merge(meters[case['account']], [meter])
+            if trial.get('infrastructure_failure') == 'claude_usage_limit':
+                record['limit_failures'] += 1
+                record['status'] = 'missing' if record['limit_failures'] >= 3 else 'pending'
+                outcome = 'claude_usage_limit'
+            else:
+                record['status'] = 'collected'
+                record['scorecard'] = str(path)
+                outcome = 'collected'
+            record['attempts'].append({'scorecard': str(path), 'outcome': outcome, 'meter': meter})
+            found = True
+    attempt['processed'] = True
+    return found
+
+
+def ensure_retired(attempt, env):
+    server = pathlib.Path(attempt['directory']) / 'server'
+    if not server.exists() or not server.read_text().strip():
+        return
+    sid = server.read_text().strip()
+    response = subprocess.run([str(ROOT / 'bin/boat-call'), 'list', '--json'],
+                              env=env, capture_output=True, text=True)
+    if response.returncode:
+        raise ValueError('cannot verify previous VM deletion; inspect launch.log before resuming')
+    data = json.loads(response.stdout)
+    if not isinstance(data.get('sandboxes'), list):
+        raise ValueError('invalid server list; cannot verify previous VM deletion')
+    if any(str(vm.get('id')) == sid for vm in data.get('sandboxes', [])):
+        raise ValueError(f'previous VM {sid} still exists; finish its collect/delete cleanup before resuming')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('round', type=pathlib.Path)
+    parser.add_argument('--parallel', type=int, default=12, help='cases at once (1..14; 56 of 64 shared vCPUs)')
+    parser.add_argument('--poll-seconds', type=float, default=30)
+    args = parser.parse_args()
+    if not 1 <= args.parallel <= 14 or not math.isfinite(args.poll_seconds) or args.poll_seconds <= 0:
+        parser.error('parallel must be 1..14 and poll-seconds positive/finite')
+    spec = specification(args.round.resolve())
+    directory = ROOT / 'results/exam-round' / args.round.stem
+    directory.mkdir(parents=True, exist_ok=True)
+    # Prevent two runners from scheduling the same round. The identity is never persisted.
+    lock = (directory / 'lock').open('w')
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        parser.error('this round already has a runner')
+    manifest = directory / 'manifest.json'
+    if manifest.exists():
+        state = json.loads(manifest.read_text())
+        if state['specification'] != spec:
+            parser.error('round changed; restore its frozen input or choose a new round filename')
+    else:
+        state = {'specification': spec, 'meters': {a: {} for a in spec['accounts']}, 'cases': []}
+        for case in spec['cases']:
+            state['cases'].append({**case, 'trials': {t: {'status': 'pending', 'limit_failures': 0, 'attempts': []}
+                                                    for t in case['trials']}, 'launches': []})
+        save(manifest, state)  # account assignment is durable BEFORE reading identity or launching
+    env = dict(os.environ, UNBUG_CLOUD='hetzner', HCLOUD_PLACES='cx33@nbg1 cx33@fsn1 cx33@hel1')
+    env.setdefault('BOAT_CMD', str(ROOT / 'bin/hcloud-boat'))
+    for case in state['cases']:
+        for attempt in case['launches']:
+            if attempt.get('processed'):
+                ensure_retired(attempt, env)
+                continue
+            if attempt.get('pid'):
+                try:
+                    os.kill(attempt['pid'], 0)
+                except ProcessLookupError:
+                    pass
+                else:
+                    parser.error(f"previous launcher {attempt['pid']} is still alive; wait for its cleanup")
+            ensure_retired(attempt, env)
+            collect(case, attempt, state['meters'])
+    save(manifest, state)
+    if sys.stdin.isatty():
+        parser.error('pipe the age identity on stdin')
+    identity = sys.stdin.buffer.read()
+    if not identity.strip():
+        parser.error('empty age identity')
+    active, failed = {}, set()
+    stopping = False
+
+    def stop(_signum, _frame):
+        nonlocal stopping
+        stopping = True
+        for proc, *_ in active.values():
+            if proc.poll() is None:
+                proc.terminate()  # exam-launch's trap collects and deletes; never used for pacing
+
+    signal.signal(signal.SIGINT, stop)
+    signal.signal(signal.SIGTERM, stop)
+    try:
+        while True:
+            for index, (proc, attempt, output) in list(active.items()):
+                case = state['cases'][index]
+                if proc.poll() is not None:
+                    output.close()
+                    attempt['returncode'] = proc.returncode
+                    collect(case, attempt, state['meters'])
+                    del active[index]
+                    # An uncollected trial or failed cleanup needs operator attention, not a retry loop.
+                    completed = {t for t in attempt['trials'] if case['trials'][t]['status'] in ('collected', 'missing')
+                                 or any(a['scorecard'].startswith(attempt['directory'] + '/') for a in case['trials'][t]['attempts'])}
+                    limit_stop = any(a['outcome'] == 'claude_usage_limit' and a['scorecard'].startswith(attempt['directory'] + '/')
+                                     for t in attempt['trials'] for a in case['trials'][t]['attempts'])
+                    if proc.returncode or (len(completed) < len(attempt['trials']) and not limit_stop):
+                        failed.add(index)
+                        attempt['error'] = 'launcher/collection failed; inspect launch.log and rerun to resume'
+                else:
+                    server_file = pathlib.Path(attempt['directory']) / 'server'
+                    if server_file.exists():
+                        sid = server_file.read_text().strip()
+                        if sid and sid.replace('-', '').replace('_', '').isalnum():
+                            response = subprocess.run([str(ROOT / 'bin/boat-call'), 'ssh', sid,
+                                'sudo python3 ~/unbug-bench/bin/exam_meter.py'], env=env,
+                                capture_output=True, text=True)
+                            if response.returncode == 0:
+                                try:
+                                    merge(state['meters'][case['account']], [json.loads(response.stdout)])
+                                except (ValueError, TypeError):
+                                    pass
+            save(manifest, state)
+            for index, case in enumerate(state['cases']):
+                if stopping or len(active) >= args.parallel:
+                    break
+                pending = [t for t, r in case['trials'].items() if r['status'] == 'pending']
+                if index in active or index in failed or not pending or not ready(state['meters'][case['account']]):
+                    continue
+                launch_dir = directory / f"case-{index + 1:02d}-launch-{len(case['launches']) + 1:02d}"
+                launch_dir.mkdir()
+                attempt = {'directory': str(launch_dir), 'trials': pending}
+                case['launches'].append(attempt)
+                save(manifest, state)
+                cmd = [os.environ.get('EXAM_LAUNCH_CMD', str(ROOT / 'bin/exam-launch')), case['archive'],
+                       '--tries', str(spec['tries'])]
+                for arm in spec['arms']:
+                    cmd += ['--arm', arm]
+                for trial in pending:
+                    cmd += ['--trial', trial]
+                launch_env = dict(env, EXAM_CLAUDE_SECRET=case['account'],
+                                  EXAM_RESULTS_DIR=str(launch_dir), EXAM_STATUS_FILE=str(launch_dir / 'server'))
+                # Override EXAM_SECRETS so account 2 is checked before copying to the canonical name.
+                launch_env['EXAM_SECRETS'] = case['account'] + ' codex-auth.json openrouter-key'
+                output = (launch_dir / 'launch.log').open('wb')
+                proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=output, stderr=output, env=launch_env)
+                attempt['pid'] = proc.pid
+                active[index] = (proc, attempt, output)
+                save(manifest, state)
+                try:
+                    proc.stdin.write(identity)
+                    proc.stdin.close()
+                except BrokenPipeError:
+                    pass
+                print(f"case {index + 1}: {case['account']}, {len(pending)} trials", flush=True)
+            pending = any(r['status'] == 'pending' for i, c in enumerate(state['cases']) if i not in failed
+                          for r in c['trials'].values())
+            if not active and (stopping or not pending):
+                break
+            if not active:
+                print('Waiting for Claude meter reset; see manifest meters.', flush=True)
+            time.sleep(min(args.poll_seconds, 60))
+    finally:
+        if active:
+            stop(signal.SIGTERM, None)
+            for proc, attempt, output in active.values():
+                proc.wait()  # allow launch traps to finish collecting/deleting
+                output.close()
+                attempt['returncode'] = proc.returncode
+        save(manifest, state)
+    missing = sum(r['status'] == 'missing' for c in state['cases'] for r in c['trials'].values())
+    print(f'Manifest: {manifest}; missing trials: {missing}', flush=True)
+    return 130 if stopping else int(bool(failed or missing))
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except (ValueError, KeyError, OSError) as error:
+        sys.exit(f'exam-round: {error}')

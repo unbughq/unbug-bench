@@ -1,0 +1,3881 @@
+{
+  "case": "case-20261017T120254Z-01eae8",
+  "dry_run": false,
+  "source": "port",
+  "seed": 48975,
+  "gates": {
+    "G1": "fail",
+    "G12": "pass"
+  },
+  "failed_gate": "G1",
+  "resume": {
+    "fresh_gates": true,
+    "legacy_transcripts_preserved": true,
+    "legacy_cost_excluded_from_continuation_ceiling": true
+  },
+  "roles": {
+    "writer": {
+      "model": "openrouter/meta/muse-spark-1.3-contributor",
+      "effort": "xhigh",
+      "family": "meta"
+    },
+    "stress_tester": {
+      "model": "opencode-go/mimo-v2.6-pro",
+      "effort": "default",
+      "family": "xiaomi"
+    },
+    "strong_calibrator": {
+      "model": "claude/claude-opus-5-5",
+      "effort": "high",
+      "family": "anthropic"
+    },
+    "reviewer": {
+      "model": "codex/gpt-6.1-sol",
+      "effort": "high",
+      "family": "openai"
+    },
+    "easy_calibrator": {
+      "model": "opencode/glm-5.3-flash-free",
+      "effort": "default",
+      "family": "z-ai"
+    }
+  },
+  "rotation_slot": 7,
+  "models": {
+    "builder": [
+      "openrouter/meta/muse-spark-1.3-contributor"
+    ],
+    "attacker": [
+      "opencode-go/mimo-v2.6-pro"
+    ],
+    "reviewers": [
+      [
+        "codex/gpt-6.1-sol"
+      ]
+    ],
+    "strong_calibrator": [
+      "claude/claude-opus-5-5"
+    ],
+    "easy_calibrator": [
+      "opencode/glm-5.3-flash-free"
+    ]
+  },
+  "models_used": {
+    "builder-1": "openrouter/meta/muse-spark-1.3-contributor",
+    "builder-precheck": "openrouter/meta/muse-spark-1.3-contributor"
+  },
+  "builder_rounds": 1,
+  "builder_note": "final prechecks failed",
+  "gate_results": {
+    "G1": {
+      "problems": [
+        "case.json missing or not JSON"
+      ]
+    }
+  },
+  "gate_minutes": {
+    "G1": 0.0
+  },
+  "failed_detail": [
+    "case.json missing or not JSON"
+  ],
+  "wall_minutes": 313.9,
+  "continuation_budget": {
+    "cost": 0.9363353800000004,
+    "calls": 210,
+    "events": [
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149be8ed7001Rwz8zUojjvsQjM:prt_149be9797001NspHhhBP4wQjrq",
+        "cost": 0.0011289,
+        "tokens": {
+          "total": 11204,
+          "input": 11119,
+          "output": 77,
+          "reasoning": 8,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149be97a0001Id7cPIiAUs7a9p:prt_149bf06e3001gRHXH7T2wDuZQ4",
+        "cost": 0.000124186,
+        "tokens": {
+          "total": 11666,
+          "input": 324,
+          "output": 299,
+          "reasoning": 50,
+          "cache": {
+            "write": 0,
+            "read": 10993
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149bf06ee001brBKuRVYm52RO2:prt_149bf11950018UbPUpbMUeSUxf",
+        "cost": 0.0042284,
+        "tokens": {
+          "total": 41986,
+          "input": 41688,
+          "output": 266,
+          "reasoning": 32,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149bf119e001RAd1AfzCKZyz7a:prt_149bf4245001yuMCfVJ75zXa9U",
+        "cost": 0.004613586,
+        "tokens": {
+          "total": 54455,
+          "input": 41008,
+          "output": 362,
+          "reasoning": 2092,
+          "cache": {
+            "write": 0,
+            "read": 10993
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149bf4252001YSZZnBwvXy437R:prt_149bf7961001228uLjL2SPtCiq",
+        "cost": 0.005540626,
+        "tokens": {
+          "total": 54033,
+          "input": 52436,
+          "output": 355,
+          "reasoning": 1129,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149bf796b001tL7wDrFMa28tsL:prt_149bf86a8001I2rNI5EPKCM2d1",
+        "cost": 0.0053928,
+        "tokens": {
+          "total": 53635,
+          "input": 53342,
+          "output": 293,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149bf86b2001IVbUtJqATmmzCI:prt_149bf93fd00137rimGd37DMzJ1",
+        "cost": 0.0054863,
+        "tokens": {
+          "total": 54543,
+          "input": 54223,
+          "output": 320,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149bf94090012oESjp9ZvmyVb4:prt_149bf9b58001EDPSCpMROW52LO",
+        "cost": 0.00174547,
+        "tokens": {
+          "total": 57958,
+          "input": 16123,
+          "output": 250,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 41585
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149bf9b60001ZFRjq35thyu89v:prt_149bfa39200134mM6uPUQS3fXm",
+        "cost": 0.000659266,
+        "tokens": {
+          "total": 58505,
+          "input": 5016,
+          "output": 256,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 53233
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149bfa39a0014Qtszo0ZjXERxI:prt_149bfb1b9001NYsxRRUzjNIG90",
+        "cost": 0.0060351,
+        "tokens": {
+          "total": 60092,
+          "input": 59833,
+          "output": 259,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149bfb1c7001LO2QpUVbwhHlq3:prt_149bfbd4d001PqGerKkCOkdLgm",
+        "cost": 0.001028706,
+        "tokens": {
+          "total": 60792,
+          "input": 8430,
+          "output": 409,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 51953
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149bfbd55001mqRS08TmDVYcAt:prt_149bfcb5d001OELPCgHc91uK1l",
+        "cost": 0.00112823,
+        "tokens": {
+          "total": 62361,
+          "input": 9559,
+          "output": 337,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 52465
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149bfcb6e001vydIwt6prlaOs5:prt_149bff231001no1mE0CWzqtVbf",
+        "cost": 0.000897146,
+        "tokens": {
+          "total": 66791,
+          "input": 5270,
+          "output": 411,
+          "reasoning": 837,
+          "cache": {
+            "write": 0,
+            "read": 60273
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149bff240001p5KisKGwuqq85d:prt_149bffe24001dch1E7vilUbkP5",
+        "cost": 0.00101725,
+        "tokens": {
+          "total": 66905,
+          "input": 8352,
+          "output": 328,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 58225
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149bffe2e001Kwhr1JmREph7Nv:prt_149c00be5001snFWXwMMceQm3i",
+        "cost": 0.000384342,
+        "tokens": {
+          "total": 67713,
+          "input": 1851,
+          "output": 341,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 65521
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c00bfa001Ytzs7L9S48oLPL:prt_149c06690001mNz7bn9lCdCYWy",
+        "cost": 0.006402998,
+        "tokens": {
+          "total": 73405,
+          "input": 60507,
+          "output": 358,
+          "reasoning": 1291,
+          "cache": {
+            "write": 0,
+            "read": 11249
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c066a4001ioRecrL7e83GdD:prt_149c07ab9001S8WDSLkWZImo1l",
+        "cost": 0.001212374,
+        "tokens": {
+          "total": 72572,
+          "input": 10385,
+          "output": 250,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 61937
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c07ac8001IXYIS7GRRob3tq:prt_149c084420017nn3nmkS4AVZQw",
+        "cost": 0.003150758,
+        "tokens": {
+          "total": 84232,
+          "input": 29781,
+          "output": 322,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 54129
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c0844c0014LITopI0G0z8ND:prt_149c0a0de001w0T5hfqVyisFPn",
+        "cost": 0.00067265,
+        "tokens": {
+          "total": 87848,
+          "input": 2996,
+          "output": 263,
+          "reasoning": 764,
+          "cache": {
+            "write": 0,
+            "read": 83825
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c0a0ea001O5FkuR2p2wLLrd:prt_149c0b305001CXp8AJJum908jH",
+        "cost": 0.00223499,
+        "tokens": {
+          "total": 87392,
+          "input": 20675,
+          "output": 172,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 66545
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c0b3130011Ec0CFV5k9H4Y4:prt_149c117d70015ntbYjgvxRMzC3",
+        "cost": 0.00439627,
+        "tokens": {
+          "total": 97076,
+          "input": 36171,
+          "output": 395,
+          "reasoning": 2925,
+          "cache": {
+            "write": 0,
+            "read": 57585
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c117ea001MRDoTPrz1rPm7b:prt_149c12c1c001Dyp0hjMdZTNrDm",
+        "cost": 0.0094937,
+        "tokens": {
+          "total": 94626,
+          "input": 94315,
+          "output": 311,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c12c2b001TlkGjsbZUsvvI4:prt_149c133d4001cRSn2q6V1WZq4N",
+        "cost": 0.000561962,
+        "tokens": {
+          "total": 97246,
+          "input": 3384,
+          "output": 181,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 93681
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c133dd001NbIUVOpVX7abNJ:prt_149c13d3e001b57iZ7gQL3hVQL",
+        "cost": 0.001344738,
+        "tokens": {
+          "total": 98287,
+          "input": 11324,
+          "output": 194,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 86769
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c13d47001w0OlHVmBmbyTNv:prt_149c14829001FQgix30uFQckpG",
+        "cost": 0.000685686,
+        "tokens": {
+          "total": 98829,
+          "input": 4299,
+          "output": 337,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 94193
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c14838001TJVGrmKCsSnxcj:prt_149c1e697001rTU7N3zwwLD5q5",
+        "cost": 0.004411426,
+        "tokens": {
+          "total": 105770,
+          "input": 34146,
+          "output": 227,
+          "reasoning": 4084,
+          "cache": {
+            "write": 0,
+            "read": 67313
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c1e6a2001Wkvd4JlKgyjlgk:prt_149c1edac0016rF5T8B9FQtmdT",
+        "cost": 0.001759222,
+        "tokens": {
+          "total": 116722,
+          "input": 15157,
+          "output": 204,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 101361
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c1edbd001F9259EGvcVWyDB:prt_149c2ec28001eZiP0zMJW3VL63",
+        "cost": 0.004382306,
+        "tokens": {
+          "total": 126242,
+          "input": 36098,
+          "output": 190,
+          "reasoning": 2801,
+          "cache": {
+            "write": 0,
+            "read": 87153
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c2ec33001TaZrm22fCYo2wU:prt_149c31dd6001gczd5VBd1BqnUI",
+        "cost": 0.00526571,
+        "tokens": {
+          "total": 123436,
+          "input": 51051,
+          "output": 80,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 72305
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c31de20014fHPK0Zp3J3SjY:prt_149c33edc001Qeb64uBFwjF9nk",
+        "cost": 0.002784366,
+        "tokens": {
+          "total": 123703,
+          "input": 25457,
+          "output": 213,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 98033
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c33f06001gasG0bnI2mwHLT:prt_149c3baf3001epki89IrToBG6g",
+        "cost": 0.003148634,
+        "tokens": {
+          "total": 126242,
+          "input": 26132,
+          "output": 201,
+          "reasoning": 1492,
+          "cache": {
+            "write": 0,
+            "read": 98417
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c3bb01001honTPihKzPYyTK:prt_149c3f3d5001sHci8mahO0or3j",
+        "cost": 0.00280813,
+        "tokens": {
+          "total": 141414,
+          "input": 24146,
+          "output": 181,
+          "reasoning": 622,
+          "cache": {
+            "write": 0,
+            "read": 116465
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c3f3e1001Rtrv923r27tC9H:prt_149c76326001p4pzQnXRQxhvVq",
+        "cost": 0.006004054,
+        "tokens": {
+          "total": 160915,
+          "input": 17503,
+          "output": 442,
+          "reasoning": 19593,
+          "cache": {
+            "write": 0,
+            "read": 123377
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c76338001Ua3fHvsWvK9vCn:prt_149c87293001NyNuae3t4G9FDe",
+        "cost": 0.001785458,
+        "tokens": {
+          "total": 148982,
+          "input": 1862,
+          "output": 400,
+          "reasoning": 6191,
+          "cache": {
+            "write": 0,
+            "read": 140529
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c8729f001GPmANFtwbucr7W:prt_149c883b9001mR2dDz3esQRAmF",
+        "cost": 0.00727743,
+        "tokens": {
+          "total": 142888,
+          "input": 71105,
+          "output": 118,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 71665
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c883cd001Lo3A9jgXFP9bCz:prt_149c89146001j1Ok5xL6fxO9aJ",
+        "cost": 0.000372342,
+        "tokens": {
+          "total": 143055,
+          "input": 591,
+          "output": 143,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 142321
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c891500011jwUToCpDDOLRM:prt_149c8a4e9001LUlPCOik60r43b",
+        "cost": 0.008493222,
+        "tokens": {
+          "total": 143361,
+          "input": 83463,
+          "output": 137,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 59761
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c8a4fa001h13lkrBT51Q1A1:prt_149c8aea2001h1TyIkna6qr375",
+        "cost": 0.000363866,
+        "tokens": {
+          "total": 143513,
+          "input": 578,
+          "output": 102,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 142833
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c8aeb100192bgSNHoooCnpp:prt_149c8b936001ioFPzuYLtADkrO",
+        "cost": 0.00060897,
+        "tokens": {
+          "total": 143964,
+          "input": 3084,
+          "output": 95,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 140785
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c8b9400018lcKHVA6d4kZHL:prt_149c8c51b001kTWsDnNnTGkNQl",
+        "cost": 0.004955018,
+        "tokens": {
+          "total": 144502,
+          "input": 47376,
+          "output": 117,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 97009
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c8c52e001dB67MCC04Jo9yt:prt_149c8cbc8001zZGH5XOYaz6Ll2",
+        "cost": 0.000330738,
+        "tokens": {
+          "total": 144701,
+          "input": 244,
+          "output": 88,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 144369
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c8cbe7001XdIQefoth37joX:prt_149c8d2c8001vOcM0XkP56z8zE",
+        "cost": 0.00050719,
+        "tokens": {
+          "total": 145475,
+          "input": 2055,
+          "output": 75,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 143345
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c8d2d2001qVLZCJIKE1xtHQ:prt_149c8dcd8001iNCL6PFON2fMWe",
+        "cost": 0.000539294,
+        "tokens": {
+          "total": 146925,
+          "input": 2353,
+          "output": 75,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 144497
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c8dce2001CeKHEjYE3Y84Bz:prt_149c9f6c5001MyhbcZt2cH4SWd",
+        "cost": 0.001985186,
+        "tokens": {
+          "total": 155341,
+          "input": 2952,
+          "output": 434,
+          "reasoning": 6562,
+          "cache": {
+            "write": 0,
+            "read": 145393
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149c9f6d80016FnBWn6OpvW7l7:prt_149ca272b001mYaKzz2I8NB3AB",
+        "cost": 0.014904226,
+        "tokens": {
+          "total": 149035,
+          "input": 148804,
+          "output": 118,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149ca2737001pKQ4YUZikEtcRm:prt_149cb8184001JM7RmmFlxNdhTN",
+        "cost": 0.002656914,
+        "tokens": {
+          "total": 159139,
+          "input": 6872,
+          "output": 248,
+          "reasoning": 8162,
+          "cache": {
+            "write": 0,
+            "read": 143857
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149cb8191001AMwWhZ5uMY1tKq:prt_149cb8fc6001FhPT2dPQdVLbTs",
+        "cost": 0.001071802,
+        "tokens": {
+          "total": 154440,
+          "input": 7496,
+          "output": 143,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 146801
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149cb8fd4001so3fTpvy4UcUIs:prt_149cb97ff001rVXVyn9iifzrYf",
+        "cost": 0.000705782,
+        "tokens": {
+          "total": 154612,
+          "input": 3897,
+          "output": 74,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 150641
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149cb980b001MfsCxJyvlq45lV:prt_149cfa931001xv6qHETr5C8jDz",
+        "cost": 0.00538965,
+        "tokens": {
+          "total": 179861,
+          "input": 460,
+          "output": 592,
+          "reasoning": 24584,
+          "cache": {
+            "write": 0,
+            "read": 154225
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149cfa942001DHJikbSxhrR16h:prt_149cfb42d001vE1Z6unm7566J9",
+        "cost": 0.00179871,
+        "tokens": {
+          "total": 157786,
+          "input": 15029,
+          "output": 52,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 142705
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6417378ffe86773ylb6L637L:msg_149cfb43b0013jpjS8t3bFhFWL:prt_149cfd189001VtR36xOYzLoZGh",
+        "cost": 0.000983118,
+        "tokens": {
+          "total": 161319,
+          "input": 6681,
+          "output": 29,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 154609
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149cfd91b0017OqZ3s261kHg0A:prt_149cff4e2001pJaf62naiozaed",
+        "cost": 0.0011537,
+        "tokens": {
+          "total": 11335,
+          "input": 11133,
+          "output": 144,
+          "reasoning": 58,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149cff4f3001diSbYje3XTRuHy:prt_149d00568001DGhf7LKuQBjTQ1",
+        "cost": 0.001206426,
+        "tokens": {
+          "total": 11817,
+          "input": 11346,
+          "output": 246,
+          "reasoning": 112,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d0056d001RWvOOnk0OaMpFS:prt_149d02b500012ZnOwhcvpyRo8F",
+        "cost": 0.003346,
+        "tokens": {
+          "total": 32951,
+          "input": 32442,
+          "output": 265,
+          "reasoning": 244,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d02b5b001Sif1cAkGnH7SmG:prt_149d043e9001K4gc1FfRTZdWDJ",
+        "cost": 0.0052672,
+        "tokens": {
+          "total": 52340,
+          "input": 52008,
+          "output": 243,
+          "reasoning": 89,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d043fd001s2NeMper8PlSg8:prt_149d06c33001DvvYXzLKjm97qa",
+        "cost": 0.000251006,
+        "tokens": {
+          "total": 53051,
+          "input": 725,
+          "output": 248,
+          "reasoning": 125,
+          "cache": {
+            "write": 0,
+            "read": 51953
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d06c3e0010EmQCm9XtybTQy:prt_149d0bc0c001QDboeguiSHdMKI",
+        "cost": 0.004677742,
+        "tokens": {
+          "total": 55552,
+          "input": 42307,
+          "output": 403,
+          "reasoning": 1721,
+          "cache": {
+            "write": 0,
+            "read": 11121
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d0bc160014pU4iDm22iqni2:prt_149d0ce1d001WtOVUv31dpEsWh",
+        "cost": 0.002306238,
+        "tokens": {
+          "total": 54420,
+          "input": 21687,
+          "output": 272,
+          "reasoning": 92,
+          "cache": {
+            "write": 0,
+            "read": 32369
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d0ce26001nF6f47tBS0nDzu:prt_149d0deeb001QxNX2r6g4EhMID",
+        "cost": 0.004717086,
+        "tokens": {
+          "total": 57689,
+          "input": 46441,
+          "output": 255,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 10993
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d0def7001TcHbVB6KsuL9gm:prt_149d0eed3001bgsaLMsmcqyiCg",
+        "cost": 0.004998654,
+        "tokens": {
+          "total": 60881,
+          "input": 49249,
+          "output": 255,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 11377
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d0eee3001DtdnY4tndRsC36:prt_149d0fb38001rjjeG3tdHcV3qu",
+        "cost": 0.000473858,
+        "tokens": {
+          "total": 63807,
+          "input": 3028,
+          "output": 250,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 60529
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d0fb47001ceYSZdL9B4uEpR:prt_149d10db7001QKbL8W65LZK9B1",
+        "cost": 0.001306886,
+        "tokens": {
+          "total": 64354,
+          "input": 11505,
+          "output": 256,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 52593
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d10dc3001cVQiyyZix4d1ej:prt_149d1197d001Al7SKXyRsSI2U3",
+        "cost": 0.001390422,
+        "tokens": {
+          "total": 65940,
+          "input": 12321,
+          "output": 258,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 53361
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d1198a001ltrHi1fidwuUZM:prt_149d124a1001M4AIfHfPUPB3vH",
+        "cost": 0.001055958,
+        "tokens": {
+          "total": 66474,
+          "input": 8877,
+          "output": 268,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 57329
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d124ad001Ihl54zPNexZbKK:prt_149d153a9001aPeCk6a9TTK8fE",
+        "cost": 0.00105647,
+        "tokens": {
+          "total": 72642,
+          "input": 8029,
+          "output": 224,
+          "reasoning": 404,
+          "cache": {
+            "write": 0,
+            "read": 63985
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d153b4001aCPbquDJk6eHP9:prt_149d1b2e6001Jx7NfmOb5Y0Awi",
+        "cost": 0.002760542,
+        "tokens": {
+          "total": 96828,
+          "input": 23647,
+          "output": 325,
+          "reasoning": 935,
+          "cache": {
+            "write": 0,
+            "read": 71921
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d1b2f400166KNLn2c5FZyLX:prt_149d259cc001CnVNmdzfCsrf79",
+        "cost": 0.001138246,
+        "tokens": {
+          "total": 102787,
+          "input": 5155,
+          "output": 345,
+          "reasoning": 1814,
+          "cache": {
+            "write": 0,
+            "read": 95473
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d259da001lQyXJ9673kOe0t:prt_149d29969001YAPSASMXyDQhok",
+        "cost": 0.004012798,
+        "tokens": {
+          "total": 103401,
+          "input": 36689,
+          "output": 317,
+          "reasoning": 746,
+          "cache": {
+            "write": 0,
+            "read": 65649
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d2997b001E8KjXJiODaZ1wH:prt_149d2afec001WCd23k618KhCqH",
+        "cost": 0.004114346,
+        "tokens": {
+          "total": 103116,
+          "input": 39412,
+          "output": 231,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 63473
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d2affc001VkQfxtc5N6PKw6:prt_149d2ba33001c6Thv7ZM0uVZ82",
+        "cost": 0.000591038,
+        "tokens": {
+          "total": 106371,
+          "input": 3349,
+          "output": 253,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 102769
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d2ba41001A6MhCHyT37vqJr:prt_149d2c58e001rtadIC6bgJZ27D",
+        "cost": 0.000765314,
+        "tokens": {
+          "total": 107607,
+          "input": 5092,
+          "output": 258,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 102257
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d2c598001Bs9qkDj9DK4RwW:prt_149d2d7b9001Uo1QO97JkvnNPV",
+        "cost": 0.000469194,
+        "tokens": {
+          "total": 108397,
+          "input": 2030,
+          "output": 270,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 106097
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d2d7cc001liY0knKdcM6rqi:prt_149d2e744001tGyj1aGNJLexAf",
+        "cost": 0.004540422,
+        "tokens": {
+          "total": 109971,
+          "input": 43539,
+          "output": 271,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 66161
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d2e754001LL1ZcwiMMIkBNM:prt_149d2f3990019q1vEUYjV5a6uq",
+        "cost": 0.000540834,
+        "tokens": {
+          "total": 110995,
+          "input": 2708,
+          "output": 270,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 108017
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d2f3a5001871sRfiQ1YPHi0:prt_149d6e61e001e5NXvqivy6gUpz",
+        "cost": 0.00248211,
+        "tokens": {
+          "total": 122915,
+          "input": 1813,
+          "output": 542,
+          "reasoning": 9855,
+          "cache": {
+            "write": 0,
+            "read": 110705
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d6e62b001IekZmzsP8GhHit:prt_149d85471001gKh8fpi96keDiK",
+        "cost": 0.001336062,
+        "tokens": {
+          "total": 117035,
+          "input": 3541,
+          "output": 322,
+          "reasoning": 3491,
+          "cache": {
+            "write": 0,
+            "read": 109681
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149d8547d001rf2Hk2vjbxKet5:prt_149dd1353001vFjzH0EL1xiXvA",
+        "cost": 0.010195202,
+        "tokens": {
+          "total": 143235,
+          "input": 77596,
+          "output": 412,
+          "reasoning": 11226,
+          "cache": {
+            "write": 0,
+            "read": 54001
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149dd1368001iVVtexg1Run6pj:prt_149dea062001LUbM3S8fC873zf",
+        "cost": 0.002089938,
+        "tokens": {
+          "total": 144502,
+          "input": 7598,
+          "output": 350,
+          "reasoning": 4985,
+          "cache": {
+            "write": 0,
+            "read": 131569
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149dea0750011UDmTBBAwaDIHz:prt_149dff6ab001PPnhyrbtXxzqoj",
+        "cost": 0.005355986,
+        "tokens": {
+          "total": 147474,
+          "input": 42214,
+          "output": 493,
+          "reasoning": 4174,
+          "cache": {
+            "write": 0,
+            "read": 100593
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149dff6b7001huUEld8DNm1Bl3:prt_149e0071c001WKtry3o5S78g7U",
+        "cost": 0.003327874,
+        "tokens": {
+          "total": 143881,
+          "input": 30472,
+          "output": 272,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113137
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149e0072d0012KWHuxB3E5AQ5n:prt_149e01cd9001vObEqf1izRTeOu",
+        "cost": 0.003496894,
+        "tokens": {
+          "total": 144910,
+          "input": 32107,
+          "output": 306,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 112497
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149e01cea0018lQZYXxA1QP3QJ:prt_149e02e9e001l4EknzWy76FR0U",
+        "cost": 0.001222242,
+        "tokens": {
+          "total": 148365,
+          "input": 9048,
+          "output": 196,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 139121
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149e02eb1001ukEw4FpJ2RrWV8:prt_149e687ca001px9hbhFlfxoG3u",
+        "cost": 0.003980162,
+        "tokens": {
+          "total": 168224,
+          "input": 3446,
+          "output": 417,
+          "reasoning": 16280,
+          "cache": {
+            "write": 0,
+            "read": 148081
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149e687dd001uomPC3OH1GBrBg:prt_149e8287f001U0jpu6RYrqO9m1",
+        "cost": 0.006213798,
+        "tokens": {
+          "total": 162415,
+          "input": 50339,
+          "output": 367,
+          "reasoning": 4460,
+          "cache": {
+            "write": 0,
+            "read": 107249
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149e82893001j6ZDmQeti5Vl5b:prt_149ea4799001JeHS0WL1UED6Jo",
+        "cost": 0.003031918,
+        "tokens": {
+          "total": 173333,
+          "input": 16557,
+          "output": 403,
+          "reasoning": 4964,
+          "cache": {
+            "write": 0,
+            "read": 151409
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149ea47ab001ZPgSsClYJTJsTP:prt_149edf134001ALrIWF0QWiItzH",
+        "cost": 0.004274306,
+        "tokens": {
+          "total": 185516,
+          "input": 16334,
+          "output": 378,
+          "reasoning": 11251,
+          "cache": {
+            "write": 0,
+            "read": 157553
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149edf146001APwWY1EcGRIUaB:prt_149f3996d001EasgUEJjhCDO3U",
+        "cost": 0.006560502,
+        "tokens": {
+          "total": 190348,
+          "input": 30761,
+          "output": 519,
+          "reasoning": 15467,
+          "cache": {
+            "write": 0,
+            "read": 143601
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149f39980001hyK315hZTl6aM7:prt_149fa6c2a001iUWbVlRXWoKKtZ",
+        "cost": 0.021178626,
+        "tokens": {
+          "total": 193614,
+          "input": 175218,
+          "output": 558,
+          "reasoning": 17725,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_149fa6c3b0017eHaWQ5W7e6gm7:prt_14a0cc44c001l9gYUyRqJG3tyZ",
+        "cost": 0.0219453,
+        "tokens": {
+          "total": 197998,
+          "input": 176543,
+          "output": 473,
+          "reasoning": 20982,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_14a0cc45b001afviwE2rF2drfd:prt_14a0f15a8001z9wZmgdFkyRhVB",
+        "cost": 0.0187705,
+        "tokens": {
+          "total": 182666,
+          "input": 177627,
+          "output": 305,
+          "reasoning": 4734,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_14a0f15ba001KWmT2VKfShnIND:prt_14a233a9b001SGDsLSE56tGrcO",
+        "cost": 0.002192422,
+        "tokens": {
+          "total": 187374,
+          "input": 65,
+          "output": 406,
+          "reasoning": 8742,
+          "cache": {
+            "write": 0,
+            "read": 178161
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb630292dffevZyYXtiI4XNhAw:msg_14a233aaf001Su76m3VVRkrE9E:prt_14a2e9410001o1eQyAal9a4Lx7",
+        "cost": 0.006859122,
+        "tokens": {
+          "total": 210968,
+          "input": 586,
+          "output": 223,
+          "reasoning": 31998,
+          "cache": {
+            "write": 0,
+            "read": 178161
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a5d4eb4001y4reTFpTVjv0Fw:prt_14a5d6699001epXpriUaglDuSL",
+        "cost": 0.001119326,
+        "tokens": {
+          "total": 11222,
+          "input": 11027,
+          "output": 76,
+          "reasoning": 6,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a5d66a80012Ay0y8wOlnZ3WE:prt_14a5d70a5001hWwRcFQXAYc70I",
+        "cost": 0.0012023,
+        "tokens": {
+          "total": 11680,
+          "input": 11337,
+          "output": 304,
+          "reasoning": 39,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a5d70b2001h10uClXu2a7skv:prt_14a5d8355001JYleX52Bs5EZsX",
+        "cost": 0.0038862,
+        "tokens": {
+          "total": 38501,
+          "input": 38140,
+          "output": 314,
+          "reasoning": 47,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a5d8364001chBckQg8g632da:prt_14a5db207001C3KINe7LXZaLCr",
+        "cost": 0.004318398,
+        "tokens": {
+          "total": 53203,
+          "input": 40949,
+          "output": 352,
+          "reasoning": 653,
+          "cache": {
+            "write": 0,
+            "read": 11249
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a5db211001DR6y9HtYadDbot:prt_14a5dd300001l2yzMhMTXNO3D0",
+        "cost": 0.005607226,
+        "tokens": {
+          "total": 55572,
+          "input": 54848,
+          "output": 366,
+          "reasoning": 245,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a5dd313001mfo1CNOyPfv0RU:prt_14a5df86a001ZIR21SuROHWWK2",
+        "cost": 0.002092158,
+        "tokens": {
+          "total": 57511,
+          "input": 18605,
+          "output": 372,
+          "reasoning": 405,
+          "cache": {
+            "write": 0,
+            "read": 38129
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a5df878001omgSiCjsedbUa6:prt_14a5e162b001QkS0vZkq37YBvy",
+        "cost": 0.000609078,
+        "tokens": {
+          "total": 60944,
+          "input": 3553,
+          "output": 376,
+          "reasoning": 326,
+          "cache": {
+            "write": 0,
+            "read": 56689
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a5e163d001IDUfSQd5856848:prt_14a5eadd4001UrCqAtiJd36dor",
+        "cost": 0.00101149,
+        "tokens": {
+          "total": 66025,
+          "input": 2848,
+          "output": 441,
+          "reasoning": 2591,
+          "cache": {
+            "write": 0,
+            "read": 60145
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a5eade0001dAG3e1Qtko437Q:prt_14a5fb340001gtyc3mQ3enxxP7",
+        "cost": 0.001071022,
+        "tokens": {
+          "total": 68599,
+          "input": 1825,
+          "output": 400,
+          "reasoning": 3413,
+          "cache": {
+            "write": 0,
+            "read": 62961
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a5fb353001XpCXZoekqt3KnN:prt_14a600111001MJQMGAg4W42Hl3",
+        "cost": 0.002187994,
+        "tokens": {
+          "total": 74231,
+          "input": 17886,
+          "output": 384,
+          "reasoning": 1064,
+          "cache": {
+            "write": 0,
+            "read": 54897
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a600123001WBSx9ohrXWUcOI:prt_14a60b202001ZcSb9m4mt6BESZ",
+        "cost": 0.001293778,
+        "tokens": {
+          "total": 80977,
+          "input": 5092,
+          "output": 418,
+          "reasoning": 2778,
+          "cache": {
+            "write": 0,
+            "read": 72689
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a60b213001RAjpwIy4vGpJQc:prt_14a61bde6001P91fuVr95e0Mdq",
+        "cost": 0.001055762,
+        "tokens": {
+          "total": 82538,
+          "input": 710,
+          "output": 479,
+          "reasoning": 3668,
+          "cache": {
+            "write": 0,
+            "read": 77681
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a61bdf9001WFlvgWnOxWEGEy:prt_14a61d947001C7PJ1g7QW30lOv",
+        "cost": 0.007109742,
+        "tokens": {
+          "total": 81290,
+          "input": 69463,
+          "output": 380,
+          "reasoning": 326,
+          "cache": {
+            "write": 0,
+            "read": 11121
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a61d959001ULiLd0cKbp8a2F:prt_14a6208a9001tTpSZ6QJToZmpK",
+        "cost": 0.003092562,
+        "tokens": {
+          "total": 81626,
+          "input": 29206,
+          "output": 339,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 52081
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a6208bd001li3SdVukY1lQiK:prt_14a621ab0001W2OdVxkfaIO19l",
+        "cost": 0.00034983,
+        "tokens": {
+          "total": 82800,
+          "input": 1197,
+          "output": 338,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 81265
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a621ac1001MBFfO7X4Vj7vhN:prt_14a62f9fa001Z6Oi3LoNQK33uJ",
+        "cost": 0.001528194,
+        "tokens": {
+          "total": 90076,
+          "input": 5486,
+          "output": 291,
+          "reasoning": 3802,
+          "cache": {
+            "write": 0,
+            "read": 80497
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a62fa03001LsVtdVL149OVBI:prt_14a6331bd001qFSfjppGox2661",
+        "cost": 0.000530246,
+        "tokens": {
+          "total": 87856,
+          "input": 381,
+          "output": 191,
+          "reasoning": 1411,
+          "cache": {
+            "write": 0,
+            "read": 85873
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a6331c9001uDgqrVD0872TgT:prt_14a63387d001RH2U3bF57FyF9m",
+        "cost": 0.000322258,
+        "tokens": {
+          "total": 87548,
+          "input": 1338,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 86129
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a633888001xo47VfhwsSNTWa:prt_14a68abc4001rhETLXYZ06dIC6",
+        "cost": 0.006707406,
+        "tokens": {
+          "total": 111564,
+          "input": 27843,
+          "output": 624,
+          "reasoning": 18344,
+          "cache": {
+            "write": 0,
+            "read": 64753
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a68abd8001HlIlu0v3N6t9IX:prt_14a6e7ae2001ygaHS3Pf7WkGBt",
+        "cost": 0.003791758,
+        "tokens": {
+          "total": 111010,
+          "input": 895,
+          "output": 572,
+          "reasoning": 17014,
+          "cache": {
+            "write": 0,
+            "read": 92529
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a6e7af8001OgMIwbEitilTFH:prt_14a70e4bb001e8oXfJm1WdxvXu",
+        "cost": 0.001458994,
+        "tokens": {
+          "total": 100544,
+          "input": 1770,
+          "output": 436,
+          "reasoning": 5041,
+          "cache": {
+            "write": 0,
+            "read": 93297
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a70e4cd001Hn1KeSolEjvh3d:prt_14a73ca46001iAOVNfOfJPuLLv",
+        "cost": 0.003901342,
+        "tokens": {
+          "total": 106839,
+          "input": 19589,
+          "output": 545,
+          "reasoning": 8384,
+          "cache": {
+            "write": 0,
+            "read": 78321
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a73ca5a001qZ0Lo5s0UNLeEw:prt_14a78e559001HSbPmUYIUdsEGJ",
+        "cost": 0.00272291,
+        "tokens": {
+          "total": 113586,
+          "input": 6091,
+          "output": 558,
+          "reasoning": 9032,
+          "cache": {
+            "write": 0,
+            "read": 97905
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a78e571001MBAunN6hS6n3Sl:prt_14a79005b001b5YqnmUghAYipK",
+        "cost": 0.009450686,
+        "tokens": {
+          "total": 104970,
+          "input": 93667,
+          "output": 310,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 10993
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a79006f001NSxwNYeo4RciMZ:prt_14a7e45ef001j85yBb74dLB99f",
+        "cost": 0.012434826,
+        "tokens": {
+          "total": 115606,
+          "input": 106640,
+          "output": 498,
+          "reasoning": 8355,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a7e4602001eIN4P4ZsJ9k0TA:prt_14a8193520014Jf53PN7gkzIdv",
+        "cost": 0.002214174,
+        "tokens": {
+          "total": 120028,
+          "input": 6575,
+          "output": 367,
+          "reasoning": 6349,
+          "cache": {
+            "write": 0,
+            "read": 106737
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a81935f001VOD71v73Q6J87t:prt_14a81a7f70015Yl40FBVf856JP",
+        "cost": 0.001223622,
+        "tokens": {
+          "total": 114519,
+          "input": 9771,
+          "output": 145,
+          "reasoning": 42,
+          "cache": {
+            "write": 0,
+            "read": 104561
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a81a80b001bc5Rq6czv0oelD:prt_14a8a0062001d5gWcuPMA5px6b",
+        "cost": 0.001301978,
+        "tokens": {
+          "total": 122394,
+          "input": 5476,
+          "output": 377,
+          "reasoning": 2252,
+          "cache": {
+            "write": 0,
+            "read": 114289
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a8a006e0015Hn7irfiM6cc2K:prt_14a8a1609001WtDWdbxRENJtjD",
+        "cost": 0.00035673,
+        "tokens": {
+          "total": 120729,
+          "input": 954,
+          "output": 110,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 119665
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb5a2b3b7ffeqv2kQ8VZsAxvvJ:msg_14a8a161b00164X1MpqJtUczCY:prt_14a8a29640015N0UGy9pOO2G8K",
+        "cost": 0.012559026,
+        "tokens": {
+          "total": 125665,
+          "input": 125516,
+          "output": 36,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8a31370016FbKRgqf9Q6WLx:prt_14a8a404f001tXI0ZtoyeiDUB5",
+        "cost": 0.0011305,
+        "tokens": {
+          "total": 11219,
+          "input": 11133,
+          "output": 76,
+          "reasoning": 10,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8a405a001eNtPbA2xE53Poc:prt_14a8a4c870011OocqXrRhG2epV",
+        "cost": 0.001176926,
+        "tokens": {
+          "total": 11605,
+          "input": 11217,
+          "output": 93,
+          "reasoning": 182,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8a4c91001sRFi8h7RbHhEq1:prt_14a8a53af001eyNAvrb3dyr1sQ",
+        "cost": 0.000120098,
+        "tokens": {
+          "total": 11852,
+          "input": 230,
+          "output": 308,
+          "reasoning": 65,
+          "cache": {
+            "write": 0,
+            "read": 11249
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8a53b9001DULdX420TcHd70:prt_14a8a64760014JYTEvQIrQrsOT",
+        "cost": 0.0042781,
+        "tokens": {
+          "total": 42320,
+          "input": 41859,
+          "output": 338,
+          "reasoning": 123,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8a647e00161ZvtpIS9YUPlL:prt_14a8a6beb001sLM1GUV0OwiXQ0",
+        "cost": 0.000204082,
+        "tokens": {
+          "total": 42790,
+          "input": 694,
+          "output": 249,
+          "reasoning": 6,
+          "cache": {
+            "write": 0,
+            "read": 41841
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8a6bf5001oRNbRlj2LNW13I:prt_14a8a8d2e001Dscx1YyCTb2eAz",
+        "cost": 0.005437526,
+        "tokens": {
+          "total": 53690,
+          "input": 52781,
+          "output": 279,
+          "reasoning": 517,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8a8d36001SbBwgtgFxLWfQJ:prt_14a8aac3c001Hapgv9oclDINtM",
+        "cost": 0.0056942,
+        "tokens": {
+          "total": 56276,
+          "input": 55610,
+          "output": 269,
+          "reasoning": 397,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8aac49001g1pyLq10JMQLKq:prt_14a8acb49001QsbYC2Cblkqub3",
+        "cost": 0.006465626,
+        "tokens": {
+          "total": 64239,
+          "input": 63598,
+          "output": 105,
+          "reasoning": 423,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8acb56001rYOprQ2DZUvZhr:prt_14a8ae943001J2HJ0q3j4T67NB",
+        "cost": 0.003840262,
+        "tokens": {
+          "total": 79399,
+          "input": 36283,
+          "output": 235,
+          "reasoning": 400,
+          "cache": {
+            "write": 0,
+            "read": 42481
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8ae94f001vF6kUlCA6d7x7W:prt_14a8b096b001KFBRfQvjEFjJLj",
+        "cost": 0.007361754,
+        "tokens": {
+          "total": 84130,
+          "input": 72116,
+          "output": 376,
+          "reasoning": 261,
+          "cache": {
+            "write": 0,
+            "read": 11377
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8b0972001m66jLQoeeltbLb:prt_14a8b47dd001wgBuzh7sGkyKNK",
+        "cost": 0.000891482,
+        "tokens": {
+          "total": 88843,
+          "input": 3558,
+          "output": 357,
+          "reasoning": 1487,
+          "cache": {
+            "write": 0,
+            "read": 83441
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8b47e4001DMDGilt17eSPXj:prt_14a8b577c00102ijbMZwv1K9PR",
+        "cost": 0.00114261,
+        "tokens": {
+          "total": 88059,
+          "input": 8856,
+          "output": 285,
+          "reasoning": 213,
+          "cache": {
+            "write": 0,
+            "read": 78705
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8b5789001L3YIkHKKIzbLlL:prt_14a8b825f001Kq4WW8fVR9D2w7",
+        "cost": 0.003960398,
+        "tokens": {
+          "total": 90281,
+          "input": 36317,
+          "output": 263,
+          "reasoning": 852,
+          "cache": {
+            "write": 0,
+            "read": 52849
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8b8268001fAafuiLNY2jYcb:prt_14a8bb1f6001sHml8Wtf1lpEQs",
+        "cost": 0.003380302,
+        "tokens": {
+          "total": 95036,
+          "input": 30339,
+          "output": 395,
+          "reasoning": 701,
+          "cache": {
+            "write": 0,
+            "read": 63601
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8bb2100014Cq7q4rEDq2YtN:prt_14a8bf3030014ijAIitc1vGfLJ",
+        "cost": 0.010057926,
+        "tokens": {
+          "total": 98965,
+          "input": 97127,
+          "output": 413,
+          "reasoning": 1312,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8bf313001BUuom9iaDbQ1oO:prt_14a8c1019001G3C730eQ2r2VAO",
+        "cost": 0.001309446,
+        "tokens": {
+          "total": 99682,
+          "input": 9905,
+          "output": 126,
+          "reasoning": 578,
+          "cache": {
+            "write": 0,
+            "read": 89073
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8c1021001FWhutsGzEuDL4x:prt_14a8c7be30016NGStS3RrnT0Cc",
+        "cost": 0.002123874,
+        "tokens": {
+          "total": 104232,
+          "input": 13902,
+          "output": 246,
+          "reasoning": 2547,
+          "cache": {
+            "write": 0,
+            "read": 87537
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8c7bed001yUD07uj2KMw1FM:prt_14a8d51d8001qix5M5gkr82ahX",
+        "cost": 0.002682194,
+        "tokens": {
+          "total": 107525,
+          "input": 16172,
+          "output": 239,
+          "reasoning": 4217,
+          "cache": {
+            "write": 0,
+            "read": 86897
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8d51e40013iZnXUjy3AWeB4:prt_14a8e421f001eUeaOlRMBVCzCT",
+        "cost": 0.011123934,
+        "tokens": {
+          "total": 108419,
+          "input": 100813,
+          "output": 414,
+          "reasoning": 4775,
+          "cache": {
+            "write": 0,
+            "read": 2417
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8e4240001optlgcHy4oEPZu:prt_14a8e851f001y2xeSpUgMPnzIW",
+        "cost": 0.009844442,
+        "tokens": {
+          "total": 107901,
+          "input": 95338,
+          "output": 313,
+          "reasoning": 1129,
+          "cache": {
+            "write": 0,
+            "read": 11121
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8e8529001kerwKbQUq58Ug1:prt_14a8ed817001C07JtiHwRibFA7",
+        "cost": 0.005833274,
+        "tokens": {
+          "total": 111051,
+          "input": 53806,
+          "output": 181,
+          "reasoning": 1527,
+          "cache": {
+            "write": 0,
+            "read": 55537
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8ed82a001AmnXvApxWzHRay:prt_14a8f3887001JPcsrH9UCwzfy3",
+        "cost": 0.001563022,
+        "tokens": {
+          "total": 112418,
+          "input": 8511,
+          "output": 183,
+          "reasoning": 2363,
+          "cache": {
+            "write": 0,
+            "read": 101361
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8f3898001qb151tz601143a:prt_14a8f6061001eiOdfe24r9aw5b",
+        "cost": 0.00243255,
+        "tokens": {
+          "total": 124393,
+          "input": 20471,
+          "output": 399,
+          "reasoning": 498,
+          "cache": {
+            "write": 0,
+            "read": 103025
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a8f6075001CkoeRHvu5L4frC:prt_14a9040ad001d0gMjF3kXwbgh1",
+        "cost": 0.004972874,
+        "tokens": {
+          "total": 136608,
+          "input": 37492,
+          "output": 345,
+          "reasoning": 4834,
+          "cache": {
+            "write": 0,
+            "read": 93937
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a9040bf001xZB4pLulyUf2Gg:prt_14a90a69d001zxoC6dqJ1smNcK",
+        "cost": 0.002042854,
+        "tokens": {
+          "total": 138794,
+          "input": 12873,
+          "output": 242,
+          "reasoning": 2302,
+          "cache": {
+            "write": 0,
+            "read": 123377
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a90a6ac0013h5bYpxVOYm95h:prt_14a9133fa001hTn8zRedVGoGAr",
+        "cost": 0.004880474,
+        "tokens": {
+          "total": 140390,
+          "input": 39644,
+          "output": 294,
+          "reasoning": 3315,
+          "cache": {
+            "write": 0,
+            "read": 97137
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a91340d001s1PzX8YNQNcQnF:prt_14a9225a8001ipcPvL01XJkobQ",
+        "cost": 0.001670054,
+        "tokens": {
+          "total": 143693,
+          "input": 1055,
+          "output": 363,
+          "reasoning": 6098,
+          "cache": {
+            "write": 0,
+            "read": 136177
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a9225b7001maU1ndadhbkuQs:prt_14a973cd3001CjIRk7CirrB4jo",
+        "cost": 0.008540918,
+        "tokens": {
+          "total": 165539,
+          "input": 28247,
+          "output": 319,
+          "reasoning": 27164,
+          "cache": {
+            "write": 0,
+            "read": 109809
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a973ce6001WZc7j6H1ZWJukf:prt_14a979c090016yAlwWcr03B8VU",
+        "cost": 0.001133102,
+        "tokens": {
+          "total": 143917,
+          "input": 4845,
+          "output": 203,
+          "reasoning": 1668,
+          "cache": {
+            "write": 0,
+            "read": 137201
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a979c17001YhV12rbeO6zYeI:prt_14a97ab24001londMa7S2ZA02t",
+        "cost": 0.003917206,
+        "tokens": {
+          "total": 143261,
+          "input": 36771,
+          "output": 137,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 106353
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a97ab30001rm29LKMvxjCRIY:prt_14a97c743001bcM5tVwJAprByX",
+        "cost": 0.0143596,
+        "tokens": {
+          "total": 143518,
+          "input": 143440,
+          "output": 78,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a97c757001k1VeAw08hArdgF:prt_14a97cfae001qXoQcVOShA7lMi",
+        "cost": 0.000402778,
+        "tokens": {
+          "total": 144181,
+          "input": 1018,
+          "output": 74,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 143089
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a97cfb8001nbKTtD1vLA6PfJ:prt_14a98a6670011GxZTdwSBZ66ih",
+        "cost": 0.001797074,
+        "tokens": {
+          "total": 152008,
+          "input": 5010,
+          "output": 316,
+          "reasoning": 4745,
+          "cache": {
+            "write": 0,
+            "read": 141937
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a98a67a0019OX1Cn5fCpDi2C:prt_14a98c459001kzPiXJz1m3I3Pj",
+        "cost": 0.0148523,
+        "tokens": {
+          "total": 148403,
+          "input": 148283,
+          "output": 120,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a98c464001jPvo2JJFdIzKG3:prt_14a9f3282001zAME0AjCLKWCP1",
+        "cost": 0.00462909,
+        "tokens": {
+          "total": 168311,
+          "input": 6508,
+          "output": 555,
+          "reasoning": 17903,
+          "cache": {
+            "write": 0,
+            "read": 143345
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14a9f3297001DrbZWZNlTYDz5s:prt_14aa04b15001nHP2DqjFnEAtxg",
+        "cost": 0.006797658,
+        "tokens": {
+          "total": 157735,
+          "input": 51614,
+          "output": 315,
+          "reasoning": 6877,
+          "cache": {
+            "write": 0,
+            "read": 98929
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aa04b26001TaTnelSCMXx9Dn:prt_14aa0b2c6001Dy4MjU5lDF65rj",
+        "cost": 0.001104958,
+        "tokens": {
+          "total": 153461,
+          "input": 4953,
+          "output": 202,
+          "reasoning": 1377,
+          "cache": {
+            "write": 0,
+            "read": 146929
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aa0b2d9001k78SeFUQo9ESOU:prt_14aa0bc3a001npaGn4aOusH15F",
+        "cost": 0.001754738,
+        "tokens": {
+          "total": 152662,
+          "input": 14598,
+          "output": 95,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 137969
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aa0bc4b001xHivfTPcYzOBJu:prt_14aa0c715001ftmlgpOfYVD2Uz",
+        "cost": 0.001982478,
+        "tokens": {
+          "total": 153636,
+          "input": 16803,
+          "output": 144,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 136689
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aa0c72c001Blor3NdDBkiNvC:prt_14aa4550a001C1a1Wk5dkR553t",
+        "cost": 0.004585486,
+        "tokens": {
+          "total": 175099,
+          "input": 3793,
+          "output": 528,
+          "reasoning": 18985,
+          "cache": {
+            "write": 0,
+            "read": 151793
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aa455170016WYoaAeQQRzcm1:prt_14aa87c9d001VfOpVIsIdjRGpY",
+        "cost": 0.018504726,
+        "tokens": {
+          "total": 171034,
+          "input": 156797,
+          "output": 341,
+          "reasoning": 13783,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aa87cb5001bGSDW4wME1OfXi:prt_14aa8884b001GxXMAXG1ENhxzj",
+        "cost": 0.001263718,
+        "tokens": {
+          "total": 157671,
+          "input": 9251,
+          "output": 211,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 148209
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aa8885f001Z0Fb4vlLCYKQ0x:prt_14aa892ff001R98MzhPh5HdPjc",
+        "cost": 0.000820814,
+        "tokens": {
+          "total": 158383,
+          "input": 4713,
+          "output": 213,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 153457
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aa89316001954akRNweThbYU:prt_14aa8ac42001QBff96kCSytXpn",
+        "cost": 0.015955126,
+        "tokens": {
+          "total": 159471,
+          "input": 159167,
+          "output": 191,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aa8ac5b001PtkJ8BAVGKTMv7:prt_14aa8c6a3001EcbRqm19Wuq4FV",
+        "cost": 0.016204026,
+        "tokens": {
+          "total": 161875,
+          "input": 161486,
+          "output": 276,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aa8c6ba00165FpM0eVbeouG0:prt_14aa8da140018WWV2JbjIv9DAV",
+        "cost": 0.000534642,
+        "tokens": {
+          "total": 163518,
+          "input": 1878,
+          "output": 119,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 161521
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aa8da2b001P4yctUpPYnP83e:prt_14aa8eb0c001L2sqTx647zUdyu",
+        "cost": 0.00126877,
+        "tokens": {
+          "total": 166123,
+          "input": 9124,
+          "output": 214,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 156785
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aa8eb22001ndBa8K7mth36vy:prt_14aa8f8c90015XvsXMmc0LuzqD",
+        "cost": 0.001989426,
+        "tokens": {
+          "total": 167165,
+          "input": 16420,
+          "output": 232,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 150513
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aa8f8e7001NiFnKwDco56zZQ:prt_14aaa81ec0015E7D4Bz4EPCod4",
+        "cost": 0.00366873,
+        "tokens": {
+          "total": 180537,
+          "input": 11418,
+          "output": 495,
+          "reasoning": 10559,
+          "cache": {
+            "write": 0,
+            "read": 158065
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aaa8202001m6LKb6B5WUj1iV:prt_14aab6f2a001J0Oti4s54P6Xw1",
+        "cost": 0.0178776,
+        "tokens": {
+          "total": 174750,
+          "input": 170724,
+          "output": 255,
+          "reasoning": 3771,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aab6f43001IpbcDIWLMgetvr:prt_14aacd267001XWAWkLE9t1kiA6",
+        "cost": 0.00384481,
+        "tokens": {
+          "total": 181239,
+          "input": 16130,
+          "output": 304,
+          "reasoning": 9300,
+          "cache": {
+            "write": 0,
+            "read": 155505
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aacd278001jUyt5hcPsDt9SW:prt_14ab033b900118HD3hzBdWS1Ff",
+        "cost": 0.0212498,
+        "tokens": {
+          "total": 197646,
+          "input": 182794,
+          "output": 349,
+          "reasoning": 14503,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ab033ca001xD6tuTFfOHsspn:prt_14ab0b255001PJ7LM5puA8lETc",
+        "cost": 0.002532994,
+        "tokens": {
+          "total": 185960,
+          "input": 16134,
+          "output": 382,
+          "reasoning": 2547,
+          "cache": {
+            "write": 0,
+            "read": 166897
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ab0b266001zBnzDGAi1CTn2K:prt_14ab344dd001PVP7RdjEu2qQn9",
+        "cost": 0.020056726,
+        "tokens": {
+          "total": 192770,
+          "input": 184749,
+          "output": 339,
+          "reasoning": 7569,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ab344ee001dXOoWDNapnGxt3:prt_14abcf9830015hrraX3Z7Ir4vN",
+        "cost": 0.005917166,
+        "tokens": {
+          "total": 206204,
+          "input": 13403,
+          "output": 541,
+          "reasoning": 20627,
+          "cache": {
+            "write": 0,
+            "read": 171633
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14abcf995001mLbp7jxpzFOf8w:prt_14ac5e9c8001gQGYpaGvkCszJL",
+        "cost": 0.0204589,
+        "tokens": {
+          "total": 195144,
+          "input": 185699,
+          "output": 272,
+          "reasoning": 9173,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ac5e9e1001Qg4lDxeC1vcnGm:prt_14ac6ed8f001RIEy0B36lyPV6E",
+        "cost": 0.00127787,
+        "tokens": {
+          "total": 190717,
+          "input": 1197,
+          "output": 288,
+          "reasoning": 3647,
+          "cache": {
+            "write": 0,
+            "read": 185585
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ac6eda4001EgK7ctSO6G3TBZ:prt_14ac70799001IbcCjmIWwqJDhT",
+        "cost": 0.018721326,
+        "tokens": {
+          "total": 187244,
+          "input": 187051,
+          "output": 80,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ac707a7001Ocd1sxum15BRCW:prt_14ac8c134001Gax6P8FR01dt56",
+        "cost": 0.002319942,
+        "tokens": {
+          "total": 197920,
+          "input": 2141,
+          "output": 372,
+          "reasoning": 8286,
+          "cache": {
+            "write": 0,
+            "read": 187121
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ac8c14c001RtomMZzRjQ7ckS:prt_14aced409001FqRbJWVRpELhxa",
+        "cost": 0.0191416,
+        "tokens": {
+          "total": 191335,
+          "input": 191254,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14aced417001vtQ7dDub9G0lZm:prt_14acef4c1001IRk5TRVPNErMKp",
+        "cost": 0.019181426,
+        "tokens": {
+          "total": 191832,
+          "input": 191626,
+          "output": 93,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14acef4d7001uYw7fCAM6terGa:prt_14acf122e0017Rsn35pIjeFlpF",
+        "cost": 0.019416026,
+        "tokens": {
+          "total": 194145,
+          "input": 193906,
+          "output": 126,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14acf1247001wqkMpJ7Sxne58R:prt_14acf1b21001avWfKcrjlX6FaN",
+        "cost": 0.000890834,
+        "tokens": {
+          "total": 196223,
+          "input": 4928,
+          "output": 78,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 191217
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14acf1b37001XFh11bofpm00RV:prt_14acf2393001dqoFJvhH1qJoLW",
+        "cost": 0.00079331,
+        "tokens": {
+          "total": 197813,
+          "input": 3761,
+          "output": 147,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 193905
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14acf239f001KbbjNQkcw6ZYr1:prt_14acfc9f8001iA3DYxlOm4WH2y",
+        "cost": 0.001362262,
+        "tokens": {
+          "total": 202849,
+          "input": 3835,
+          "output": 271,
+          "reasoning": 2662,
+          "cache": {
+            "write": 0,
+            "read": 196081
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14acfca0f00178damvDuF0yZW5:prt_14acfd5e70011a94Ew4sW7tQNt",
+        "cost": 0.000710434,
+        "tokens": {
+          "total": 200688,
+          "input": 2990,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 197617
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14acfd60a001q6y6WtoRXr30DM:prt_14ad03b91001jrwtkPSyM4PcSr",
+        "cost": 0.002024838,
+        "tokens": {
+          "total": 203750,
+          "input": 12697,
+          "output": 149,
+          "reasoning": 1735,
+          "cache": {
+            "write": 0,
+            "read": 189169
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad03ba4001Ji1rFxdLzdyJyt:prt_14ad2faac001ZqtyVgbnfnyrLG",
+        "cost": 0.003512482,
+        "tokens": {
+          "total": 219195,
+          "input": 3620,
+          "output": 300,
+          "reasoning": 13434,
+          "cache": {
+            "write": 0,
+            "read": 201841
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad2fac3001palVKkQ3LzzYdu:prt_14ad3d542001TuHPCoCSI073RH",
+        "cost": 0.002805134,
+        "tokens": {
+          "total": 211126,
+          "input": 15591,
+          "output": 309,
+          "reasoning": 4009,
+          "cache": {
+            "write": 0,
+            "read": 191217
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad3d559001PsS81gybNMTU4Q:prt_14ad3e0e2001MrY7B51tvu4sL7",
+        "cost": 0.00060501,
+        "tokens": {
+          "total": 208542,
+          "input": 1758,
+          "output": 79,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 206705
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad3e0fa001T4sqB1GOElSrWs:prt_14ad3eb9c001BArkYMerv5gHxC",
+        "cost": 0.001304222,
+        "tokens": {
+          "total": 209513,
+          "input": 8873,
+          "output": 79,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 200561
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad3ebac0019boHwvpYdXAdUX:prt_14ad42a94001JFLL3bPzplNJ1w",
+        "cost": 0.000645938,
+        "tokens": {
+          "total": 210530,
+          "input": 2030,
+          "output": 131,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 208369
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad42aad001SHWcU5oR3TcQT4:prt_14ad44cb20017qwWjYnM8igDj8",
+        "cost": 0.021160026,
+        "tokens": {
+          "total": 211523,
+          "input": 211222,
+          "output": 188,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad44ccc001X8Bxi1pLhmEnku:prt_14ad4e206001HIejlnJ90RIq59",
+        "cost": 0.003007074,
+        "tokens": {
+          "total": 212919,
+          "input": 26028,
+          "output": 154,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 186737
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad4e216001F41Z8U1Ls1tpAU:prt_14ad4eb830018W4qWho134xiXP",
+        "cost": 0.000716578,
+        "tokens": {
+          "total": 213130,
+          "input": 2722,
+          "output": 119,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 210289
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad4eb94001WQcHfQD08lvxzd:prt_14ad50d980016lELU44X6sf5k8",
+        "cost": 0.021397026,
+        "tokens": {
+          "total": 213919,
+          "input": 213644,
+          "output": 162,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad50daa001LuLXhbWw4OAwX9:prt_14ad51c8b001K991N48kPTSxfk",
+        "cost": 0.002005686,
+        "tokens": {
+          "total": 215719,
+          "input": 15791,
+          "output": 135,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 199793
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad51ca2001K2Y1WG17oAwZdJ:prt_14ad524f7001sD8PnJvRFMhmcX",
+        "cost": 0.000585874,
+        "tokens": {
+          "total": 217005,
+          "input": 1388,
+          "output": 80,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 215537
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad5250b0010GtN3JFjSwUUe7:prt_14ad8e4e6001p1MHjb53zsWjL1",
+        "cost": 0.004253054,
+        "tokens": {
+          "total": 234341,
+          "input": 4457,
+          "output": 374,
+          "reasoning": 16533,
+          "cache": {
+            "write": 0,
+            "read": 212977
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad8e501001xNZqPAQOdtMO5x:prt_14ad8f3e3001Y18P7BErSFBSYb",
+        "cost": 0.000552034,
+        "tokens": {
+          "total": 217888,
+          "input": 958,
+          "output": 113,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 216817
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad8f3f8001y8uJkxI2S6XWQV:prt_14ad8fc6c0019SWP5Pjtuv1g29",
+        "cost": 0.000489926,
+        "tokens": {
+          "total": 218142,
+          "input": 313,
+          "output": 116,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 217713
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad8fc79001nOBS8x1Ja29C2I:prt_14ad93262001pGh3lXAIhN5PzY",
+        "cost": 0.021850126,
+        "tokens": {
+          "total": 218444,
+          "input": 218163,
+          "output": 168,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad932780016KjfxzX9iOPmEo:prt_14ad93bf3001i6qqRdfg0UD34D",
+        "cost": 0.000647658,
+        "tokens": {
+          "total": 219381,
+          "input": 1974,
+          "output": 78,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 217329
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14ad93c0d001AMqF8JhNTVb0Bm:prt_14adb772b0016iSp8eSL6oynkr",
+        "cost": 0.004854358,
+        "tokens": {
+          "total": 228280,
+          "input": 28393,
+          "output": 320,
+          "reasoning": 7838,
+          "cache": {
+            "write": 0,
+            "read": 191729
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14adb773e001xB1d1FcvgxTo3m:prt_14add6ae3001Tk8HPOkuwYr3yQ",
+        "cost": 0.003578986,
+        "tokens": {
+          "total": 230736,
+          "input": 11084,
+          "output": 450,
+          "reasoning": 9809,
+          "cache": {
+            "write": 0,
+            "read": 209393
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14add6af4001z56xL7RvdxDz0q:prt_14add7fbd001jRRUFDBUgqZUBg",
+        "cost": 0.001394626,
+        "tokens": {
+          "total": 220953,
+          "input": 9560,
+          "output": 80,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 211313
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14add7fd3001jY7fgrfr0sQ9M0:prt_14addb026001HSPIPPBY1i3zVk",
+        "cost": 0.001330542,
+        "tokens": {
+          "total": 221692,
+          "input": 8891,
+          "output": 80,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 212721
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb575d130ffefyW0sru80rvEJr:msg_14addb041001Wl6nW4WiGSNJsD:prt_14addb93d001SP6g2szAxL5RBm",
+        "cost": 0.00214945,
+        "tokens": {
+          "total": 222789,
+          "input": 17342,
+          "output": 22,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 205425
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      }
+    ],
+    "terminal_stop": "complete",
+    "driver": "opencode",
+    "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+    "zero_token_streak": 0
+  },
+  "sha256": "1ffd01dc7db823e93d813250d7e6f4ab0402fc2ddda423e4315caed64f0cf5cb",
+  "archive": "/home/user/sealed/case-20261017T120254Z-01eae8.tar.gz.age",
+  "wipe": {
+    "plaintext_files_left": 0,
+    "named_dirs_left": 0,
+    "guard_image_left": false,
+    "db_volume_left": false
+  }
+}

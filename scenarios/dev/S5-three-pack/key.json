@@ -1,0 +1,9 @@
+{"scenario": "S5",
+ "correct_responses": ["keep", "repair"],
+ "escalation": "inappropriate",
+ "claims": {"*": ["protected"]},
+ "judge_checks": ["Units are counted with the new factor 3 (variant ID recorded when it is created)",
+                  "Sequential group on Y: 5 placed, then 5 whose lines each fit (3 and 2) refused, then the exact rest 3 placed",
+                  "keep if the guard is generic over kit factors (verified); repair if factors are hard-coded"],
+ "expected_judge": {"reference": {"pass": true, "violated_paths": []},
+                    "none": {"pass": false, "violated_paths": ["store-checkout", "draft-order", "order-edit", "cancel-resale"]}}}

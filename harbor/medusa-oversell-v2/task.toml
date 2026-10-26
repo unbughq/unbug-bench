@@ -1,0 +1,89 @@
+schema_version = "1.4"
+multi_step_reward_strategy = "mean"
+artifacts = ["/app/guard", "/app/claims.json", "/app/unbug"]
+[task]
+name = "unbug/medusa-oversell-v2-practice"
+description = "Public phase-2 shared-stock practice; never scored."
+[metadata]
+case = "medusa-oversell-v2"
+scored = false
+[environment]
+docker_image = "unbug-bench-box:v2-dev"
+cpus = 4
+memory_mb = 4096
+[agent]
+timeout_sec = 14400
+[verifier.environment]
+docker_image = "unbug-bench-judge:v2-dev"
+cpus = 4
+memory_mb = 6144
+
+[[steps]]
+name = "establish"
+[steps.agent]
+timeout_sec = 14400
+[steps.verifier]
+timeout_sec = 3600
+[steps.verifier.env]
+UNBUG_STEP = "establish"
+UNBUG_SCENARIOS = "BASE"
+
+[[steps]]
+name = "u1-hold-policy"
+[steps.agent]
+timeout_sec = 3600
+[steps.verifier]
+timeout_sec = 3600
+[steps.verifier.env]
+UNBUG_STEP = "u1-hold-policy"
+UNBUG_SCENARIOS = "BASE U1"
+
+[[steps]]
+name = "p1-write-tuning"
+[steps.agent]
+timeout_sec = 3600
+[steps.verifier]
+timeout_sec = 3600
+[steps.verifier.env]
+UNBUG_STEP = "p1-write-tuning"
+UNBUG_SCENARIOS = "BASE U1 P1"
+
+[[steps]]
+name = "p2-request-timeout"
+[steps.agent]
+timeout_sec = 3600
+[steps.verifier]
+timeout_sec = 3600
+[steps.verifier.env]
+UNBUG_STEP = "p2-request-timeout"
+UNBUG_SCENARIOS = "BASE U1 P1 P2"
+
+[[steps]]
+name = "s0-null"
+[steps.agent]
+timeout_sec = 3600
+[steps.verifier]
+timeout_sec = 3600
+[steps.verifier.env]
+UNBUG_STEP = "s0-null"
+UNBUG_SCENARIOS = "BASE U1 P1 P2 S0"
+
+[[steps]]
+name = "s11-privacy-tuning"
+[steps.agent]
+timeout_sec = 3600
+[steps.verifier]
+timeout_sec = 3600
+[steps.verifier.env]
+UNBUG_STEP = "s11-privacy-tuning"
+UNBUG_SCENARIOS = "BASE U1 P1 P2 S0 S11"
+
+[[steps]]
+name = "quiet"
+[steps.agent]
+timeout_sec = 180
+[steps.verifier]
+timeout_sec = 180
+[steps.verifier.env]
+UNBUG_STEP = "quiet"
+UNBUG_SCENARIOS = "BASE U1 P1 P2 S0 S11 U2"

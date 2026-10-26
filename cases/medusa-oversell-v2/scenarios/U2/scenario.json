@@ -1,0 +1,10 @@
+{
+  "id": "U2",
+  "title": "Public practice enforcement drift",
+  "kind": "config",
+  "delivery": "unannounced",
+  "window": {
+    "duration_sec": 120,
+    "interval_sec": 3
+  }
+}

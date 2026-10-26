@@ -1,0 +1,5973 @@
+{
+  "admission": {
+    "screen": "evidence_incomplete",
+    "status": "evidence_incomplete"
+  },
+  "admission_freshness": {
+    "confirmed_hits": 0,
+    "counted": {
+      "attacker": 5,
+      "builder_github": 22,
+      "builder_web": 13
+    },
+    "flagged_hits": 5,
+    "hits": 5,
+    "invalid_evidence": 16,
+    "invalid_evidence_reasons": {
+      "evidence_expired": 16
+    },
+    "outcome": "evidence_incomplete",
+    "searches": 56,
+    "uncounted_who_kind": [],
+    "unresolved_hits": 5
+  },
+  "archive": "/home/user/sealed/case-20261024T085209Z-873d7f.checkpoint.tar.gz.age",
+  "build_deferred": "existing_public_match_requires_G2",
+  "builder_rounds": 4,
+  "case": "case-20261024T085209Z-873d7f",
+  "case_budget": {
+    "breakdown_by_role": {
+      "easy_calibrator": 0,
+      "reviewer": 0.105286229,
+      "stress_tester": 0,
+      "strong_calibrator": 0.0042488,
+      "writer": 26.9822287
+    },
+    "infrastructure_waste": [
+      {
+        "derivation": {
+          "bound_charge_usd": 16,
+          "calls_added": 16,
+          "card_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-5-20261024/sealed/case-20261024T085209Z-873d7f.scorecard.json",
+          "card_sha256": "5b988023849c1c6ca8215484920733a853a105f55b1e84853bdac8921f5780bd",
+          "case": "case-20261024T085209Z-873d7f",
+          "case_spent_usd": 27.072383602,
+          "checkpoint_sha256": "4ab78c2ac7550e2ba291b8846706b6d7b7f07d0457b0188f26dfcf7c9d4f44ac",
+          "completed_writer_elapsed_seconds": 308.435,
+          "completed_writer_timing_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-2-20261024/sealed/case-20261024T085209Z-873d7f.progress.json",
+          "corrected_spent_usd": 43.072383602,
+          "derivation": "ceil(max(maximum historical writer invocation list cost, maximum historical writer invocation list cost / available completed writer duration * interrupted duration)); USD whole-dollar round-up. Deliberately pairs maximum cost with available completed duration rather than claiming unobserved per-invocation timing. Full largest invocation floor further overcounts the five-minute interruption.",
+          "duration_envelope_usd": 14.64312780715775,
+          "envelope_usd_per_second": 0.04880505746753774,
+          "infrastructure_waste_usd": 16,
+          "interrupted_seconds": 300.033,
+          "known_spent_usd": 27.072383602,
+          "ledger_events_after": 229,
+          "ledger_events_before": 229,
+          "limitation": "Empirical conservative allowance, not recovered exact token usage or a provider-enforced maximum. Older per-invocation timings are unavailable without forbidden transcript/checkpoint access.",
+          "maximum_event_id": "b741739e-bdec-4272-8b41-4a7703b02d52:result",
+          "maximum_observed_writer_list_cost_usd": 15.053187900000001,
+          "progress_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-5-20261024/sealed/case-20261024T085209Z-873d7f.progress.json",
+          "real_G2": {
+            "confirmed_hits": 0,
+            "counted": {
+              "attacker": 5,
+              "builder_github": 0,
+              "builder_web": 0
+            },
+            "flagged_hits": 1,
+            "hits": 1,
+            "invalid_evidence": 44,
+            "invalid_evidence_reasons": {
+              "evidence_expired": 27,
+              "invalid_app_version": 17
+            },
+            "outcome": "evidence_incomplete",
+            "searches": 49,
+            "uncounted_who_kind": [],
+            "unresolved_hits": 1
+          },
+          "remaining_usd": 22.927616398,
+          "restore_built": true,
+          "terminal_stop": "timeout",
+          "unpriced_invocations": [
+            {
+              "model": "claude/claude-opus-5-5",
+              "role": "writer"
+            }
+          ]
+        },
+        "id": "873d7f:300s-infrastructure-kill",
+        "infrastructure_waste_usd": 16,
+        "kind": "infrastructure_kill",
+        "reason": "Evidenced flat-300s freshness repair deadline bug; founder excludes our infrastructure waste from the case cap.",
+        "resolved_unpriced_invocations": [
+          {
+            "model": "claude/claude-opus-5-5",
+            "role": "writer"
+          }
+        ]
+      }
+    ],
+    "infrastructure_waste_usd": 16.0,
+    "limit_usd": 50.0,
+    "spent_usd": 27.091763729,
+    "total_spent_usd": 43.091763729
+  },
+  "continuation_budget": {
+    "calls": 615,
+    "claude_resets_at": 1792953600,
+    "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+    "cost": 0.1052862294,
+    "driver": "opencode",
+    "estimated_subscription_cost_usd": 0.0042488000000000005,
+    "events": [
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92e39f88ffeP3zHynlJ2NWQ5d:msg_16d1c61f0001k77k8mzmmOMPdQ:prt_16d1c69750010BuOXuJdfIuhw7",
+        "invocation": "attacker-provider-preflight",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 6144,
+            "write": 0
+          },
+          "input": 915,
+          "output": 2,
+          "reasoning": 0,
+          "total": 7061
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 9.88074e-05,
+        "id": "ses_e92e39143ffeJxXFCAc2nCP0ZL:msg_16d1c7037001lhaz2Wuf37qvyu:prt_16d1c83b40015TrfPZ4shSQqfT",
+        "invocation": "reviewer-provider-preflight",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 6784,
+            "write": 0
+          },
+          "input": 129,
+          "output": 3,
+          "reasoning": 18,
+          "total": 6934
+        }
+      },
+      {
+        "calls": 1,
+        "configured_model": "codex/gpt-6.1-sol",
+        "cost": 0,
+        "estimated_subscription_cost_usd": 0.0042488000000000005,
+        "id": "01a16d1c-85b5-7302-b4c9-7625730e92ea:turn-1",
+        "invocation": "strong-calibrator-provider-preflight",
+        "priced": "subscription",
+        "role": "strong_calibrator",
+        "tokens": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 9088,
+          "input_tokens": 10733,
+          "output_tokens": 5,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "calls": 62,
+        "configured_model": "claude/claude-opus-5-5",
+        "cost": 0,
+        "id": "0d4adf8f-0ef4-4cef-aeb0-c974454eaee8:result",
+        "invocation": "builder-selection",
+        "list_cost_usd": 5.152198700000002,
+        "priced": "subscription",
+        "role": "writer",
+        "tokens": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 227795,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 227795,
+          "cache_read_input_tokens": 7835773,
+          "fallback_credit": null,
+          "inference_geo": "global",
+          "input_tokens": 124,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 403,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 403,
+              "cache_read_input_tokens": 227392,
+              "input_tokens": 2,
+              "output_tokens": 1003,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 86264,
+          "output_tokens_details": {
+            "thinking_tokens": 71491
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92d2afb7ffe6WxaV9Q3RVgbTE:msg_16d2d53e30014TBc1dtpQt0jvH:prt_16d2d69880015EiVlOl7dnhdKb",
+        "invocation": "easy-calibrator-dedup",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "easy_calibrator",
+        "tokens": {
+          "cache": {
+            "read": 6144,
+            "write": 0
+          },
+          "input": 3346,
+          "output": 652,
+          "reasoning": 0,
+          "total": 10142
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92d2afb7ffe6WxaV9Q3RVgbTE:msg_16d2d6992001H26WYYIP6JuoId:prt_16d2d768f001CQ1Yggd3Xdn3i6",
+        "invocation": "easy-calibrator-dedup",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "easy_calibrator",
+        "tokens": {
+          "cache": {
+            "read": 9472,
+            "write": 0
+          },
+          "input": 5661,
+          "output": 657,
+          "reasoning": 9,
+          "total": 15799
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92d2afb7ffe6WxaV9Q3RVgbTE:msg_16d2d76960017VEnEG9l7N8T33:prt_16d2d861a001n4ke5VieLBMUSb",
+        "invocation": "easy-calibrator-dedup",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "easy_calibrator",
+        "tokens": {
+          "cache": {
+            "read": 15104,
+            "write": 0
+          },
+          "input": 3580,
+          "output": 659,
+          "reasoning": 3,
+          "total": 19346
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92d2afb7ffe6WxaV9Q3RVgbTE:msg_16d2d8620001NqO3yYI3DBTA6P:prt_16d2d971e0014wCB2NJE4vUAuL",
+        "invocation": "easy-calibrator-dedup",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "easy_calibrator",
+        "tokens": {
+          "cache": {
+            "read": 18560,
+            "write": 0
+          },
+          "input": 4113,
+          "output": 842,
+          "reasoning": 5,
+          "total": 23520
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92d2afb7ffe6WxaV9Q3RVgbTE:msg_16d2d9728001lLSJKj0dcTgqaH:prt_16d2e2c2a001NctZ1HyhbxglLW",
+        "invocation": "easy-calibrator-dedup",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "easy_calibrator",
+        "tokens": {
+          "cache": {
+            "read": 22656,
+            "write": 0
+          },
+          "input": 5094,
+          "output": 98,
+          "reasoning": 5363,
+          "total": 33211
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92d2afb7ffe6WxaV9Q3RVgbTE:msg_16d2e2c31001HxuhhyS86EES4i:prt_16d2e38570011ODMw9daAT9TvT",
+        "invocation": "easy-calibrator-dedup",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "easy_calibrator",
+        "tokens": {
+          "cache": {
+            "read": 27648,
+            "write": 0
+          },
+          "input": 5578,
+          "output": 126,
+          "reasoning": 119,
+          "total": 33471
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92d2afb7ffe6WxaV9Q3RVgbTE:msg_16d2e385e001JmCo6dx4iAFBZU:prt_16d2e408a001RtMIjxheDN3Vlx",
+        "invocation": "easy-calibrator-dedup",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "easy_calibrator",
+        "tokens": {
+          "cache": {
+            "read": 33152,
+            "write": 0
+          },
+          "input": 335,
+          "output": 45,
+          "reasoning": 0,
+          "total": 33532
+        }
+      },
+      {
+        "calls": 10,
+        "configured_model": "claude/claude-opus-5-5",
+        "cost": 0,
+        "id": "13c7ca76-cf78-4557-8c13-dd1cba73166c:result",
+        "invocation": "builder-freshness",
+        "list_cost_usd": 0.2897249,
+        "priced": "subscription",
+        "role": "writer",
+        "tokens": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 18408,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 18408,
+          "cache_read_input_tokens": 140433,
+          "fallback_credit": null,
+          "inference_geo": "global",
+          "input_tokens": 20,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 258,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 258,
+              "cache_read_input_tokens": 22200,
+              "input_tokens": 2,
+              "output_tokens": 100,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 3366,
+          "output_tokens_details": {
+            "thinking_tokens": 750
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92cf25f5ffe5UcjVv5Xu3Akmc:msg_16d30dc78001zTkAi256n1FQU3:prt_16d30e5de0019Zc5IdDUqZK7Jd",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 6144,
+            "write": 0
+          },
+          "input": 1389,
+          "output": 111,
+          "reasoning": 10,
+          "total": 7654
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92cf25f5ffe5UcjVv5Xu3Akmc:msg_16d30e603001wpfCm57Mbpobod:prt_16d30ed18001lh57gD2OUHW1ti",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 7424,
+            "write": 0
+          },
+          "input": 664,
+          "output": 114,
+          "reasoning": 11,
+          "total": 8213
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92cf25f5ffe5UcjVv5Xu3Akmc:msg_16d30ed1f001Su4dQAoAseWf3O:prt_16d3106f1001LXXX7q7O3Ta7YQ",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 8064,
+            "write": 0
+          },
+          "input": 4560,
+          "output": 374,
+          "reasoning": 362,
+          "total": 13360
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92cf25f5ffe5UcjVv5Xu3Akmc:msg_16d3106f7001DFNAL5r0EN4CG4:prt_16d3126340016LonLsWtzC5o07",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 12544,
+            "write": 0
+          },
+          "input": 17431,
+          "output": 475,
+          "reasoning": 483,
+          "total": 30933
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92cf25f5ffe5UcjVv5Xu3Akmc:msg_16d31263a00162F2i3cZ7GDMEq:prt_16d316a6b0017SlNdcTQKjrUq8",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 29952,
+            "write": 0
+          },
+          "input": 9121,
+          "output": 319,
+          "reasoning": 1519,
+          "total": 40911
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92cf25f5ffe5UcjVv5Xu3Akmc:msg_16d316a73001JO6epZxk062Aj4:prt_16d31d8e8001IDJp4IW56ZI1yF",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 39040,
+            "write": 0
+          },
+          "input": 3135,
+          "output": 2341,
+          "reasoning": 2512,
+          "total": 47028
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92cf25f5ffe5UcjVv5Xu3Akmc:msg_16d31d8f2001Egetjvg9GCvc8a:prt_16d31e999001owBpE3l1UlQk5I",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 42112,
+            "write": 0
+          },
+          "input": 4933,
+          "output": 287,
+          "reasoning": 19,
+          "total": 47351
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92cf25f5ffe5UcjVv5Xu3Akmc:msg_16d31e9a0001dPkMfAKcAE3Kyt:prt_16d31f565001riv05juJYFCknw",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 46976,
+            "write": 0
+          },
+          "input": 854,
+          "output": 67,
+          "reasoning": 41,
+          "total": 47938
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0018545634,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d31fb76001yaHyi3Xv3TTw1F:prt_16d3222f2001Tlf5J5yTuxdPMM",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 2944,
+            "write": 0
+          },
+          "input": 4099,
+          "output": 62,
+          "reasoning": 8,
+          "total": 7113
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.001281624,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d3222ff00168zNRRDD3Iw8sV:prt_16d32319d001HL5cRx2PVYmt5M",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 7040,
+            "write": 0
+          },
+          "input": 2718,
+          "output": 72,
+          "reasoning": 13,
+          "total": 9843
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0007284108,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d3231a4001ZOmqMFVzixxwDU:prt_16d325ead001YN8UyLjTMsFvTI",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 9728,
+            "write": 0
+          },
+          "input": 452,
+          "output": 178,
+          "reasoning": 393,
+          "total": 10751
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0010808382,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d325eb4001ZkyZpMgdUijOBT:prt_16d328942001k3NOSMqZlDK0Mb",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 10112,
+            "write": 0
+          },
+          "input": 1755,
+          "output": 170,
+          "reasoning": 153,
+          "total": 12190
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0022926486,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d32894f0018uM3PYwwBaJlLB:prt_16d32ac6f001aUZNuKWzIV2HwE",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 11776,
+            "write": 0
+          },
+          "input": 4575,
+          "output": 121,
+          "reasoning": 178,
+          "total": 16650
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0007184166,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d32ac79001uL1wrBsRPebgk6:prt_16d32bf28001d4LXi2Npa1m7hf",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 16256,
+            "write": 0
+          },
+          "input": 1179,
+          "output": 94,
+          "reasoning": 75,
+          "total": 17604
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0011079738,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d32bf300013Y308CF73lf5gK:prt_16d32d7bf001TYB6B9DEfAghN6",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 17408,
+            "write": 0
+          },
+          "input": 1889,
+          "output": 146,
+          "reasoning": 111,
+          "total": 19554
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.001053525,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d32d7c9001egHBu5pnCBEWiy:prt_16d32ed0e001Z5mbv6JHMZcIvM",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 19200,
+            "write": 0
+          },
+          "input": 1885,
+          "output": 108,
+          "reasoning": 81,
+          "total": 21274
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0013466412,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d32ed15001q12h2RN7eieArr:prt_16d333174001OknucnFhteDqaH",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 20992,
+            "write": 0
+          },
+          "input": 1398,
+          "output": 194,
+          "reasoning": 568,
+          "total": 23152
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0032317542,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d333181001A4fUsVMO7rtQMK:prt_16d33b7a30015FddaiVhbb06tD",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 22272,
+            "write": 0
+          },
+          "input": 4859,
+          "output": 166,
+          "reasoning": 1027,
+          "total": 28324
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0023300838,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d33b7c6001vf4vSgRQNEemmA:prt_16d346979001oqHYjVW3IaRPD6",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 27008,
+            "write": 0
+          },
+          "input": 1935,
+          "output": 202,
+          "reasoning": 1397,
+          "total": 30542
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0010698408,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d346986001LnXVcOu1ncblgv:prt_16d347b20001HgfynJM9yOd2am",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 28928,
+            "write": 0
+          },
+          "input": 2050,
+          "output": 58,
+          "reasoning": 27,
+          "total": 31063
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0009702036,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d347b48001RaKA51DSnexywp:prt_16d34b7e7001S7LJ7aMtbD6uz2",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 30976,
+            "write": 0
+          },
+          "input": 678,
+          "output": 239,
+          "reasoning": 409,
+          "total": 32302
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0005636076,
+        "id": "ses_e92ce0636ffedf2jFsn7FMuva8:msg_16d34b7f1001yLisRyIdqiuhcp:prt_16d34cfc00011pFwEYyfIj2oFL",
+        "invocation": "reviewer-idea-realism",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 31616,
+            "write": 0
+          },
+          "input": 698,
+          "output": 159,
+          "reasoning": 9,
+          "total": 32482
+        }
+      },
+      {
+        "calls": 49,
+        "configured_model": "claude/claude-opus-5-5",
+        "cost": 0,
+        "id": "cdc7f1f4-ef58-42ed-89e6-d26a3ccb0930:result",
+        "invocation": "builder-prototype",
+        "list_cost_usd": 2.4816412,
+        "priced": "subscription",
+        "role": "writer",
+        "tokens": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 123104,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 123104,
+          "cache_read_input_tokens": 4021986,
+          "fallback_credit": null,
+          "inference_geo": "global",
+          "input_tokens": 98,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 860,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 860,
+              "cache_read_input_tokens": 126294,
+              "input_tokens": 2,
+              "output_tokens": 1335,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 34601,
+          "output_tokens_details": {
+            "thinking_tokens": 14688
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
+      },
+      {
+        "calls": 110,
+        "configured_model": "claude/claude-opus-5-5",
+        "cost": 0,
+        "id": "b741739e-bdec-4272-8b41-4a7703b02d52:result",
+        "invocation": "builder-1",
+        "list_cost_usd": 15.053187900000001,
+        "priced": "subscription",
+        "role": "writer",
+        "tokens": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 486955,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 486955,
+          "cache_read_input_tokens": 34077748,
+          "fallback_credit": null,
+          "inference_geo": "global",
+          "input_tokens": 220,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 1656,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 1656,
+              "cache_read_input_tokens": 489349,
+              "input_tokens": 2,
+              "output_tokens": 1312,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 213431,
+          "output_tokens_details": {
+            "thinking_tokens": 132047
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d916f4400116qCH2EdOTAjyq:prt_16d917b91001fJyUw3uXn2AmBW",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 4096,
+            "write": 0
+          },
+          "input": 4704,
+          "output": 207,
+          "reasoning": 34,
+          "total": 9041
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d917ba1001uXd9zl8J07edHk:prt_16d91851a0014SStcIN8G5f9R1",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 8704,
+            "write": 0
+          },
+          "input": 3257,
+          "output": 241,
+          "reasoning": 13,
+          "total": 12215
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d91851e0014aS24noWLjiN5o:prt_16d91903c001prM7WX4PlNd2jU",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 11904,
+            "write": 0
+          },
+          "input": 1309,
+          "output": 107,
+          "reasoning": 199,
+          "total": 13519
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d9190410012iPlDsd2hZpzP2:prt_16d9199b3001Dvaw5EfZT71T8d",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 13184,
+            "write": 0
+          },
+          "input": 8539,
+          "output": 203,
+          "reasoning": 44,
+          "total": 21970
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d9199ba001KbOZSNe5nhl6G9:prt_16d91a4b5001r3mW1Vnb7nwodc",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 21632,
+            "write": 0
+          },
+          "input": 7945,
+          "output": 180,
+          "reasoning": 36,
+          "total": 29793
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d91a4be001rRgCtxDUOw7zkL:prt_16d91af190013OAGbqjhUfoLN3",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 29568,
+            "write": 0
+          },
+          "input": 14440,
+          "output": 109,
+          "reasoning": 41,
+          "total": 44158
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d91af1e001eSZWQD6bMnp5t7:prt_16d91c32f001nKNRKNUrTuA4sT",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 43904,
+            "write": 0
+          },
+          "input": 4103,
+          "output": 94,
+          "reasoning": 394,
+          "total": 48495
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d91c336001dhDhOxKA0ki1Lm:prt_16d91cf7f001B6BiHFZF7daxyy",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 48000,
+            "write": 0
+          },
+          "input": 3963,
+          "output": 174,
+          "reasoning": 47,
+          "total": 52184
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d91cf84001lOzGrEjgd29sB6:prt_16d91d900001fU7ZeTOkV5PpVx",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 51840,
+            "write": 0
+          },
+          "input": 4997,
+          "output": 93,
+          "reasoning": 18,
+          "total": 56948
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d91da47001H8eRwf58eg0PwQ:prt_16d91e62a001KTWRVx5JcB7cUD",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 56832,
+            "write": 0
+          },
+          "input": 4628,
+          "output": 148,
+          "reasoning": 49,
+          "total": 61657
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d91e630001bqjqc84duiliX3:prt_16d91f462001SYfCLfsSvrB8WH",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 61440,
+            "write": 0
+          },
+          "input": 14288,
+          "output": 171,
+          "reasoning": 63,
+          "total": 75962
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d91f469001Jxr4zuU6ANxpRA:prt_16d922164001Afgj82IvWxQcIG",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 75648,
+            "write": 0
+          },
+          "input": 13953,
+          "output": 258,
+          "reasoning": 1038,
+          "total": 90897
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d92216b001F71SaRzMHq89DS:prt_16d923a0d001nMEA7hMlCABCYw",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 89600,
+            "write": 0
+          },
+          "input": 6546,
+          "output": 288,
+          "reasoning": 240,
+          "total": 96674
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d923a1a001kVaM4yTxB34O3X:prt_16d925042001Z7aLm5kwBW8Tjq",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 96128,
+            "write": 0
+          },
+          "input": 10508,
+          "output": 238,
+          "reasoning": 148,
+          "total": 107022
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d92504a001GMsRnUQ9W9PZLh:prt_16d92830e001mlMWm4BBqbw6hu",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 106624,
+            "write": 0
+          },
+          "input": 3321,
+          "output": 127,
+          "reasoning": 1378,
+          "total": 111450
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d928315001EShXA4fPLVv06R:prt_16d92917f001MdoLOI6Lx2AJGk",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 109824,
+            "write": 0
+          },
+          "input": 7352,
+          "output": 58,
+          "reasoning": 35,
+          "total": 117269
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d929186001U4EdIn3fcv06y3:prt_16d92a7560015GEK7rfEOlkfFs",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 117120,
+            "write": 0
+          },
+          "input": 3103,
+          "output": 123,
+          "reasoning": 307,
+          "total": 120653
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d92a75c001GPE5fbaaZ14OCD:prt_16d92ba6e001EHhzYOby6YOFT7",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 120192,
+            "write": 0
+          },
+          "input": 2808,
+          "output": 104,
+          "reasoning": 30,
+          "total": 123134
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d92ba79001ed0TLpz02ZUm07:prt_16d92f9b4001aZMPhcqFnRtYci",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 122880,
+            "write": 0
+          },
+          "input": 3122,
+          "output": 218,
+          "reasoning": 1711,
+          "total": 127931
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d92f9bc001NcfPMXmDwo3nEz:prt_16d931aae001Tv0XF8aYbpT8D1",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 125952,
+            "write": 0
+          },
+          "input": 5295,
+          "output": 348,
+          "reasoning": 219,
+          "total": 131814
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d931ab6001R4blxfMX3grh37:prt_16d933f38001SToZL3Q2UNtess",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 131200,
+            "write": 0
+          },
+          "input": 6392,
+          "output": 58,
+          "reasoning": 963,
+          "total": 138613
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d933f41001RTwcEnWrpz3gBo:prt_16d938901001VtmkLRQcOexn23",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 137472,
+            "write": 0
+          },
+          "input": 4279,
+          "output": 350,
+          "reasoning": 2103,
+          "total": 144204
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d93890d001hgEthByleCndQR:prt_16d939d98001OS1egejVJ3LpNq",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 141696,
+            "write": 0
+          },
+          "input": 2591,
+          "output": 343,
+          "reasoning": 99,
+          "total": 144729
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d939d9f001hPL6NL4THNhMWE:prt_16d94c0c5001uZWp3A2Znp54Th",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 144256,
+            "write": 0
+          },
+          "input": 660,
+          "output": 138,
+          "reasoning": 102,
+          "total": 145156
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d94c0ce0019WzxG95jc5pocs:prt_16d94d5050017sGLruB3jX2HPj",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 144896,
+            "write": 0
+          },
+          "input": 904,
+          "output": 224,
+          "reasoning": 28,
+          "total": 146052
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d94d50e001DL4LaqBVOl0PkX:prt_16d94e8ed001XNh1Z7O2JLI0rJ",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 145792,
+            "write": 0
+          },
+          "input": 303,
+          "output": 229,
+          "reasoning": 0,
+          "total": 146324
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d94e8f4001ptlCYDIgKT3a4X:prt_16d9521fb001NRN4ScwIYlvZ0s",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 146048,
+            "write": 0
+          },
+          "input": 2950,
+          "output": 58,
+          "reasoning": 1720,
+          "total": 150776
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d952202001rb7orxZbx4oJUL:prt_16d9545c6001WGG2aXq4r0o4dM",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 148992,
+            "write": 0
+          },
+          "input": 5958,
+          "output": 180,
+          "reasoning": 820,
+          "total": 155950
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d9545d2001FyzHz6MVcsEQY5:prt_16d956321001Vb4sqLununBAGi",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 154880,
+            "write": 0
+          },
+          "input": 1932,
+          "output": 144,
+          "reasoning": 230,
+          "total": 157186
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d956329001CXHG4i3tmlBUkn:prt_16d957e4d001p0MTJav60pbJlt",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 156800,
+            "write": 0
+          },
+          "input": 13047,
+          "output": 140,
+          "reasoning": 370,
+          "total": 170357
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d957e74001OVDMvrSUCWgQvz:prt_16d95f794001JeVTft2yGEpUwW",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 0,
+            "write": 0
+          },
+          "input": 41837,
+          "output": 3075,
+          "reasoning": 2524,
+          "total": 47436
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d95f7af001PdWiTlaPZy74G5:prt_16d9606ed001s98z4bdw3xiPxT",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 6912,
+            "write": 0
+          },
+          "input": 9711,
+          "output": 198,
+          "reasoning": 210,
+          "total": 17031
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d9606f4001gV5MxYB1onOAm9:prt_16d961124001OYeWmko3QcX4j6",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 16512,
+            "write": 0
+          },
+          "input": 1957,
+          "output": 310,
+          "reasoning": 48,
+          "total": 18827
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d961132001k67V7haZjY4LjT:prt_16d96192c001aktRWfpRDFj0mi",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 18432,
+            "write": 0
+          },
+          "input": 2344,
+          "output": 101,
+          "reasoning": 14,
+          "total": 20891
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d9619360016D2sAGRR7WAYVu:prt_16d962746001Vm6jGxUVb5aCEt",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 20736,
+            "write": 0
+          },
+          "input": 2756,
+          "output": 174,
+          "reasoning": 188,
+          "total": 23854
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d96274e001eQWh1nl3H0NLu2:prt_16d96326b001m7UMeovs1dteMr",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 23424,
+            "write": 0
+          },
+          "input": 1643,
+          "output": 162,
+          "reasoning": 95,
+          "total": 25324
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d963274001nyRCDQvCug0PdQ:prt_16d963cf00017BAp74ZW9yiJO9",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 24960,
+            "write": 0
+          },
+          "input": 1359,
+          "output": 160,
+          "reasoning": 26,
+          "total": 26505
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d963cf90017Z9u8A6qJwdnAb:prt_16d96439a001d0HrJxeqv0YeV5",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 26240,
+            "write": 0
+          },
+          "input": 1105,
+          "output": 53,
+          "reasoning": 8,
+          "total": 27406
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d9643a30017lVAJj6PLaTAiR:prt_16d964b98001EsqhVzSyMvxi7T",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 27264,
+            "write": 0
+          },
+          "input": 1639,
+          "output": 153,
+          "reasoning": 26,
+          "total": 29082
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d964ba4001wvF4Tb2mp1CkyI:prt_16d966e31001iAHnM6LY10nBDt",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 28800,
+            "write": 0
+          },
+          "input": 2294,
+          "output": 337,
+          "reasoning": 270,
+          "total": 31701
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d966e3b001ZbUmSvb2hkuVQO:prt_16d967aea001UpjZqtwSDV9hWC",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 30976,
+            "write": 0
+          },
+          "input": 1389,
+          "output": 268,
+          "reasoning": 83,
+          "total": 32716
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d967af4001FN6Foh7g07VqrD:prt_16d968741001sOtH48hiIAgXVr",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 32256,
+            "write": 0
+          },
+          "input": 607,
+          "output": 308,
+          "reasoning": 90,
+          "total": 33261
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d96874e001B2qq04jbTeDeiT:prt_16d9696e5001rZsCSqW3jtQRX1",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 32768,
+            "write": 0
+          },
+          "input": 1950,
+          "output": 133,
+          "reasoning": 227,
+          "total": 35078
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d9696f5001EDlVNVvejP408e:prt_16d96d616001lf4CYPmJjer1i1",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 34688,
+            "write": 0
+          },
+          "input": 3794,
+          "output": 149,
+          "reasoning": 1955,
+          "total": 40586
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d96d622001iMh14hv2r6Y4NV:prt_16d96f2cc0014fgyizMJf9LuaE",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 38400,
+            "write": 0
+          },
+          "input": 4726,
+          "output": 98,
+          "reasoning": 47,
+          "total": 43271
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d96f2d9001tBhrcDbDiPrEUF:prt_16d96fbfb001hXdh3Gs27ub3f7",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 43008,
+            "write": 0
+          },
+          "input": 9836,
+          "output": 67,
+          "reasoning": 34,
+          "total": 52945
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d96fc08001fjdUAPIiCOX3Xh:prt_16d97084a001lUyqtr5mxTb0oB",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 52736,
+            "write": 0
+          },
+          "input": 911,
+          "output": 70,
+          "reasoning": 92,
+          "total": 53809
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d970856001vAT10UlNH0SAOD:prt_16d971b88001IS3ow511nm33wC",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 53632,
+            "write": 0
+          },
+          "input": 1390,
+          "output": 104,
+          "reasoning": 399,
+          "total": 55525
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d971ba0001780gv0mdcZt217:prt_16d972b0a001aZPwBLzVDBwHAn",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 54912,
+            "write": 0
+          },
+          "input": 2065,
+          "output": 239,
+          "reasoning": 35,
+          "total": 57251
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d972b20001w84waGaIUSQtX7:prt_16d9752c5001izvoXVWJdcGY30",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 56960,
+            "write": 0
+          },
+          "input": 4211,
+          "output": 842,
+          "reasoning": 707,
+          "total": 62720
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d9752cf001LEJcR1HxTYw80F:prt_16d977e59001YnwcMRiBXKOoDZ",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 61056,
+            "write": 0
+          },
+          "input": 1700,
+          "output": 64,
+          "reasoning": 1412,
+          "total": 64232
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d977e6700118YyrQe4VeChBz:prt_16d97b04e001vCiR9W3OAnnjPJ",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 62720,
+            "write": 0
+          },
+          "input": 1639,
+          "output": 961,
+          "reasoning": 921,
+          "total": 66241
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d97b05c0012NG827ThtA9z0K:prt_16d97bea6001cMlTrtbqrdVkH4",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 64256,
+            "write": 0
+          },
+          "input": 2001,
+          "output": 216,
+          "reasoning": 115,
+          "total": 66588
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d97beba001g4LVn098Sml2Kx:prt_16d97d5b0001no6emggyJOzbGF",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 66176,
+            "write": 0
+          },
+          "input": 474,
+          "output": 210,
+          "reasoning": 565,
+          "total": 67425
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d97d5be001P7PBTYJVUlYtzt:prt_16d97e094001SZdjLF4ODl9T56",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 66560,
+            "write": 0
+          },
+          "input": 880,
+          "output": 77,
+          "reasoning": 4,
+          "total": 67521
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e926e9333ffeZvcdhxE97zLABR:msg_16d97e0a00015DFmLDJLEEFvAi:prt_16d97eb44001fMKH9vGn7Rrgdu",
+        "invocation": "attacker-1",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 67328,
+            "write": 0
+          },
+          "input": 207,
+          "output": 91,
+          "reasoning": 0,
+          "total": 67626
+        }
+      },
+      {
+        "calls": 43,
+        "configured_model": "claude/claude-opus-5-5",
+        "cost": 0,
+        "id": "b95952f1-061e-4c78-876a-643ba18d81a4:result",
+        "invocation": "builder-2",
+        "list_cost_usd": 1.8439225999999997,
+        "priced": "subscription",
+        "role": "writer",
+        "tokens": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 85713,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 85713,
+          "cache_read_input_tokens": 2481173,
+          "fallback_credit": null,
+          "inference_geo": "global",
+          "input_tokens": 86,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 1746,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 1746,
+              "cache_read_input_tokens": 88017,
+              "input_tokens": 2,
+              "output_tokens": 1140,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 33082,
+          "output_tokens_details": {
+            "thinking_tokens": 13670
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dba73790012Dg9oTox5128gz:prt_16dba7e2c001QFFKG7Oz7bSy7P",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 8192,
+            "write": 0
+          },
+          "input": 606,
+          "output": 146,
+          "reasoning": 13,
+          "total": 8957
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dba7e320014hCUxAa9JRdRNf:prt_16dba8a930013QoUQNKh5tuFIh",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 8704,
+            "write": 0
+          },
+          "input": 7589,
+          "output": 248,
+          "reasoning": 20,
+          "total": 16561
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dba8a98001iQN2Rrpqy9xtEb:prt_16dba945a001XSrg3BteIaw81S",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 16256,
+            "write": 0
+          },
+          "input": 4592,
+          "output": 150,
+          "reasoning": 56,
+          "total": 21054
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dba945f001kxcc3L8miGhbjS:prt_16dba9e86001qNB3YJ4aCC8yGq",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 20736,
+            "write": 0
+          },
+          "input": 4333,
+          "output": 173,
+          "reasoning": 59,
+          "total": 25301
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dba9e8f001zcOv7rty2n0hAL:prt_16dbaabf8001FhQRVAKz18t111",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 24960,
+            "write": 0
+          },
+          "input": 11208,
+          "output": 95,
+          "reasoning": 132,
+          "total": 36395
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbaabfd001PU3pKlD0GTbe1p:prt_16dbac8d2001cZDqWL5V0pZPP3",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 36096,
+            "write": 0
+          },
+          "input": 7318,
+          "output": 185,
+          "reasoning": 643,
+          "total": 44242
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbac8d8001KZdtKoPj6x0j5N:prt_16dbad6e7001S46rH5sa2VJi1K",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 43392,
+            "write": 0
+          },
+          "input": 8718,
+          "output": 302,
+          "reasoning": 55,
+          "total": 52467
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbad6ec001hCJ2aoqstAAjUd:prt_16dbae77f001t30LqWGI35gqvV",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 52096,
+            "write": 0
+          },
+          "input": 5535,
+          "output": 337,
+          "reasoning": 123,
+          "total": 58091
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbae787001OtD0t4daqFi4Bc:prt_16dbaf37f001CTzxVdqnFS2qGs",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 57600,
+            "write": 0
+          },
+          "input": 964,
+          "output": 209,
+          "reasoning": 13,
+          "total": 58786
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbaf384001yY3V0FHJJtdNfS:prt_16dbb01df001OIK5VeEo3jqk6A",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 58496,
+            "write": 0
+          },
+          "input": 23668,
+          "output": 116,
+          "reasoning": 56,
+          "total": 82336
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbb01e5001rnYGrdcRIy5mXc:prt_16dbb12fd0012gTNvrzLRNBOnS",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 82048,
+            "write": 0
+          },
+          "input": 3040,
+          "output": 145,
+          "reasoning": 16,
+          "total": 85249
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbb1301001Mf9dXU4hJo06b2:prt_16dbb22f4001eqw5JnqEaKfDO0",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 84992,
+            "write": 0
+          },
+          "input": 1368,
+          "output": 254,
+          "reasoning": 67,
+          "total": 86681
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbb22fa001IMCdeZzuoseovU:prt_16dbb31c4001owLyJivwhyxwdl",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 86272,
+            "write": 0
+          },
+          "input": 1120,
+          "output": 167,
+          "reasoning": 83,
+          "total": 87642
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbb31c90014UwBtQQ6s9rK1r:prt_16dbb3ff5001S6q25M1rnUEMs5",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 87296,
+            "write": 0
+          },
+          "input": 1283,
+          "output": 199,
+          "reasoning": 51,
+          "total": 88829
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbb3ff9001e71xSf4nm0g0sr:prt_16dbb81e4001sGbFFwxIrxjrt8",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 88576,
+            "write": 0
+          },
+          "input": 10610,
+          "output": 280,
+          "reasoning": 1825,
+          "total": 101291
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbb81ea001sRRpsVS0K3roEc:prt_16dbb93d6001G753iVH8z3glLD",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 99072,
+            "write": 0
+          },
+          "input": 7068,
+          "output": 91,
+          "reasoning": 178,
+          "total": 106409
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbb93dd0014yD8kNynyyYlcB:prt_16dbba8ac001tgjZXU9cFaHk5X",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 106112,
+            "write": 0
+          },
+          "input": 3496,
+          "output": 314,
+          "reasoning": 149,
+          "total": 110071
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbba8b10013iz7eYdTb7OBvt:prt_16dbc2d34001JdqWIwu01FzT33",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 109568,
+            "write": 0
+          },
+          "input": 7617,
+          "output": 211,
+          "reasoning": 4473,
+          "total": 121869
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbc2d410010l7Ou6lq1Mc448:prt_16dbc3eca001ktgUV8ux7uSGDf",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 117120,
+            "write": 0
+          },
+          "input": 14043,
+          "output": 139,
+          "reasoning": 120,
+          "total": 131422
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbc3ed1001iptZYyKHgrXR0l:prt_16dbc4dbe001pN8m7cxD42qqBI",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 131072,
+            "write": 0
+          },
+          "input": 5392,
+          "output": 171,
+          "reasoning": 26,
+          "total": 136661
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbc4dc4001agM62enNIDx9ze:prt_16dbc6b1e001xB5juHO7JT3SPE",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 136448,
+            "write": 0
+          },
+          "input": 7573,
+          "output": 229,
+          "reasoning": 387,
+          "total": 144637
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbc6b24001l9rL0DDZNsDnBp:prt_16dbc7f82001S3DQtjZDa2WmzW",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 144000,
+            "write": 0
+          },
+          "input": 5324,
+          "output": 173,
+          "reasoning": 119,
+          "total": 149616
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbc7f8a001tBirSfYkk8Z1yh:prt_16dbcc251001htYv2V6RHZCsq2",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 149248,
+            "write": 0
+          },
+          "input": 424,
+          "output": 263,
+          "reasoning": 548,
+          "total": 150483
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbcc25c001P55AVL75lVFOQ4:prt_16dbd9950001LWD3gM71uMRUhL",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 149632,
+            "write": 0
+          },
+          "input": 1008,
+          "output": 143,
+          "reasoning": 3,
+          "total": 150786
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbd995a001YCeByKv10k98SS:prt_16dbdd1140018HhBmGtdTPa1XU",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 150528,
+            "write": 0
+          },
+          "input": 902,
+          "output": 190,
+          "reasoning": 362,
+          "total": 151982
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbdd11a001nWZ3QaGxIQcZOF:prt_16dbdf481001KpMr56IRAq7FVg",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 151424,
+            "write": 0
+          },
+          "input": 22072,
+          "output": 599,
+          "reasoning": 331,
+          "total": 174426
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbdf49d001tRoExYs3135IEd:prt_16dbe7580001C0qhwf29V89464",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 0,
+            "write": 0
+          },
+          "input": 40700,
+          "output": 2037,
+          "reasoning": 3190,
+          "total": 45927
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbe758c001iJmh8m0LTZxPHr:prt_16dbe80fc001fVFemObRtzblOe",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 6144,
+            "write": 0
+          },
+          "input": 7570,
+          "output": 148,
+          "reasoning": 116,
+          "total": 13978
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbe8104001jn8xmP0swo4M55:prt_16dbe8d23001iqjqBjT7Z6ZeIQ",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 13696,
+            "write": 0
+          },
+          "input": 1299,
+          "output": 332,
+          "reasoning": 40,
+          "total": 15367
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbe8d2d001LopBRigrrfZYOq:prt_16dbe955e001co30JwJ5FmbS9l",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 14976,
+            "write": 0
+          },
+          "input": 503,
+          "output": 109,
+          "reasoning": 4,
+          "total": 15592
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbe95660010v5wjCyz4D37me:prt_16dbea2c0001Thg0b6jWRyYRj8",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 15360,
+            "write": 0
+          },
+          "input": 2712,
+          "output": 109,
+          "reasoning": 226,
+          "total": 18407
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbea2c7001WxmTOJ7wCVH473:prt_16dbee73000168EzxRNERZJkM3",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 18048,
+            "write": 0
+          },
+          "input": 595,
+          "output": 1051,
+          "reasoning": 1368,
+          "total": 21062
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e92458e31ffeJ4zm8BAT7YDqIb:msg_16dbee73a001r0OxKZswjHtN9L:prt_16dbf1ff2001Kp36GkM1tIOipC",
+        "invocation": "attacker-2",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 18560,
+            "write": 0
+          },
+          "input": 3429,
+          "output": 101,
+          "reasoning": 1775,
+          "total": 23865
+        }
+      },
+      {
+        "calls": 26,
+        "configured_model": "claude/claude-opus-5-5",
+        "cost": 0,
+        "id": "4d83cf09-d8a3-4842-a095-76b2f2081ac8:result",
+        "invocation": "builder-3",
+        "list_cost_usd": 1.042906,
+        "priced": "subscription",
+        "role": "writer",
+        "tokens": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 60561,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 60561,
+          "cache_read_input_tokens": 1165950,
+          "fallback_credit": null,
+          "inference_geo": "global",
+          "input_tokens": 52,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 1707,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 1707,
+              "cache_read_input_tokens": 62904,
+              "input_tokens": 2,
+              "output_tokens": 978,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 16251,
+          "output_tokens_details": {
+            "thinking_tokens": 4732
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de29ef8001TgkeMlkIZJXAfC:prt_16de2aab3001Wn70RKAuYVsO2T",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 8192,
+            "write": 0
+          },
+          "input": 608,
+          "output": 183,
+          "reasoning": 13,
+          "total": 8996
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de2aabd001V2x3TXRIyjfpJa:prt_16de2b368001HxLBmrLeQSGZQe",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 8704,
+            "write": 0
+          },
+          "input": 1668,
+          "output": 257,
+          "reasoning": 19,
+          "total": 10648
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de2b373001jVikgAnN8zQHbK:prt_16de2bf86001d5z6WbvPyeYzAX",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 10368,
+            "write": 0
+          },
+          "input": 6666,
+          "output": 141,
+          "reasoning": 25,
+          "total": 17200
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de2bf8d001l0OJ3gvzX5ttsI:prt_16de2cb67001JTj9czcglrIn3o",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 17024,
+            "write": 0
+          },
+          "input": 9997,
+          "output": 170,
+          "reasoning": 54,
+          "total": 27245
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de2cb6f001qhnrgYS6oRUhWa:prt_16de2d772001HSt2gvpMDKiWR5",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 27008,
+            "write": 0
+          },
+          "input": 12434,
+          "output": 176,
+          "reasoning": 76,
+          "total": 39694
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de2d7780010I8AkhfNdjYWUo:prt_16de31134001P4Wqk9fERtD0Eu",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 39424,
+            "write": 0
+          },
+          "input": 5188,
+          "output": 156,
+          "reasoning": 1788,
+          "total": 46556
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de3113a001iJEQVQZjPyl9xH:prt_16de31ce1001JUrmvejtFdcxdI",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 44544,
+            "write": 0
+          },
+          "input": 6518,
+          "output": 167,
+          "reasoning": 53,
+          "total": 51282
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de31ce7001v0dBKC6r9OHl6e:prt_16de38632001Cape2tSWqTsAML",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 50944,
+            "write": 0
+          },
+          "input": 35465,
+          "output": 233,
+          "reasoning": 17,
+          "total": 86659
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de3863b001VbkZ8tPABKyi6d:prt_16de3a6a9001yBxuYMbMIxnGWk",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 86400,
+            "write": 0
+          },
+          "input": 1854,
+          "output": 390,
+          "reasoning": 40,
+          "total": 88684
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de3a6b4001Y8lq67DQvzVVr5:prt_16de3b358001WUFtxYEY7HnUtg",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 88192,
+            "write": 0
+          },
+          "input": 3984,
+          "output": 164,
+          "reasoning": 25,
+          "total": 92365
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de3b35f001Nah277yhpY67bd:prt_16de3c04a001hkPWVXolNv7mMm",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 92160,
+            "write": 0
+          },
+          "input": 260,
+          "output": 195,
+          "reasoning": 40,
+          "total": 92655
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de3c0590013VtDZNLTVmb17Y:prt_16de3da47001r4Ht7nWvT01h4u",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 92416,
+            "write": 0
+          },
+          "input": 1887,
+          "output": 224,
+          "reasoning": 304,
+          "total": 94831
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de3da520012n8JqOLFarx5eQ:prt_16de3ec28001I6E9bATeikrQ7I",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 94208,
+            "write": 0
+          },
+          "input": 3846,
+          "output": 298,
+          "reasoning": 152,
+          "total": 98504
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de3ec35001hYIeF5d34CMm10:prt_16de3fcb0001Dm5QeFxy4bqd2P",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 98048,
+            "write": 0
+          },
+          "input": 4838,
+          "output": 91,
+          "reasoning": 15,
+          "total": 102992
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de3fcba001hoQwHfFEVjVltF:prt_16de40cd1001hwsKRFUTFeE6SI",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 102784,
+            "write": 0
+          },
+          "input": 3932,
+          "output": 177,
+          "reasoning": 80,
+          "total": 106973
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de40cd8001Ik8lut1iprLAew:prt_16de5d4bb001P3gBAntzAUhojq",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 106624,
+            "write": 0
+          },
+          "input": 2418,
+          "output": 130,
+          "reasoning": 256,
+          "total": 109428
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de5d6810016V5FJbtGPgn36P:prt_16de5f0a0001SnoNb7gWIaci2d",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 108928,
+            "write": 0
+          },
+          "input": 1144,
+          "output": 198,
+          "reasoning": 29,
+          "total": 110299
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de5f0b00015pQlDIF7AVu6yk:prt_16de60ec1001kCJXaJkJ3Bww74",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 109952,
+            "write": 0
+          },
+          "input": 1435,
+          "output": 493,
+          "reasoning": 370,
+          "total": 112250
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de60ecd001QPWqpiG0nZJYDk:prt_16de62ea2001jleR4Inb3NftuF",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 111360,
+            "write": 0
+          },
+          "input": 904,
+          "output": 192,
+          "reasoning": 86,
+          "total": 112542
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de62eb2001o49IDJBmX8HU8N:prt_16de6473b001J6gO9O0NjGRnQD",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 112256,
+            "write": 0
+          },
+          "input": 16501,
+          "output": 618,
+          "reasoning": 84,
+          "total": 129459
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de64748001ib94W6zebs065j:prt_16de66e6b0011GQLDPVMTd16BR",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 128640,
+            "write": 0
+          },
+          "input": 1333,
+          "output": 476,
+          "reasoning": 795,
+          "total": 131244
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de66e7a0017ucATceZhx9q9V:prt_16de69ef7001Vkcx7hc3BL6efQ",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 129920,
+            "write": 0
+          },
+          "input": 1615,
+          "output": 58,
+          "reasoning": 563,
+          "total": 132156
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de69f240017SgiRLH5MOf6Cg:prt_16de726c1001gJ6xjHnfhwiShk",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 131456,
+            "write": 0
+          },
+          "input": 3838,
+          "output": 451,
+          "reasoning": 4058,
+          "total": 139803
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de726f8001MPUO0NvAg0QVNA:prt_16de76afa001WwGIw39P6PGVQn",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 135168,
+            "write": 0
+          },
+          "input": 4817,
+          "output": 1204,
+          "reasoning": 840,
+          "total": 142029
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e921d649dffevf1m5IP7oE7x6J:msg_16de76b15001Ku0BPJCwoA37st:prt_16de78cb2001PobUX8DT0fkbki",
+        "invocation": "attacker-3",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 139904,
+            "write": 0
+          },
+          "input": 2139,
+          "output": 113,
+          "reasoning": 113,
+          "total": 142269
+        }
+      },
+      {
+        "calls": 29,
+        "configured_model": "claude/claude-opus-5-5",
+        "cost": 0,
+        "id": "88a69c8c-6b8e-41dc-9b4d-c57b410cb7a9:result",
+        "invocation": "builder-4",
+        "list_cost_usd": 1.1186474000000002,
+        "priced": "subscription",
+        "role": "writer",
+        "tokens": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 60622,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 60622,
+          "cache_read_input_tokens": 1384897,
+          "fallback_credit": null,
+          "inference_geo": "global",
+          "input_tokens": 58,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 638,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 638,
+              "cache_read_input_tokens": 64034,
+              "input_tokens": 2,
+              "output_tokens": 1027,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 17823,
+          "output_tokens_details": {
+            "thinking_tokens": 4700
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e91ec6adcffewf2CTMC4dMlAOc:msg_16e13991a001YGBjRfWrOXAVEf:prt_16e13a5d8001G9b2QVGF5JFI5p",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 8192,
+            "write": 0
+          },
+          "input": 606,
+          "output": 168,
+          "reasoning": 55,
+          "total": 9021
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e91ec6adcffewf2CTMC4dMlAOc:msg_16e13a6390012rejHYY9r3SEPV:prt_16e13ae8c001AVpHpkRuXrwwBo",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 8704,
+            "write": 0
+          },
+          "input": 2336,
+          "output": 204,
+          "reasoning": 23,
+          "total": 11267
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e91ec6adcffewf2CTMC4dMlAOc:msg_16e13aea0001VTd6jJSmIpwMMG:prt_16e13bbc700100190a0yXYxbWm",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 11008,
+            "write": 0
+          },
+          "input": 9296,
+          "output": 175,
+          "reasoning": 89,
+          "total": 20568
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e91ec6adcffewf2CTMC4dMlAOc:msg_16e13bbcf0013JY75EOrOfwO35:prt_16e13c8f6001DZPZbHTfU8WrXC",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 20224,
+            "write": 0
+          },
+          "input": 8793,
+          "output": 282,
+          "reasoning": 62,
+          "total": 29361
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e91ec6adcffewf2CTMC4dMlAOc:msg_16e13c90e001F9Rd7HP3VtzY2V:prt_16e13e86f001wlHgy0RXWWMdop",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 28928,
+            "write": 0
+          },
+          "input": 9588,
+          "output": 327,
+          "reasoning": 660,
+          "total": 39503
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e91ec6adcffewf2CTMC4dMlAOc:msg_16e13e87a001hDZnwP8biIckPG:prt_16e13f6df001MOrP1k76qfLf84",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 38400,
+            "write": 0
+          },
+          "input": 7175,
+          "output": 303,
+          "reasoning": 76,
+          "total": 45954
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e91ec6adcffewf2CTMC4dMlAOc:msg_16e13f6ee001J2DPq5YVR6k5Sm:prt_16e1408060019MtmcSyK158Ooj",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 45568,
+            "write": 0
+          },
+          "input": 3583,
+          "output": 317,
+          "reasoning": 173,
+          "total": 49641
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e91ec6adcffewf2CTMC4dMlAOc:msg_16e140811001GVeYxxgPxQ8c4b:prt_16e141a14001LfdDrrAC3FNKsf",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 49024,
+            "write": 0
+          },
+          "input": 6650,
+          "output": 224,
+          "reasoning": 134,
+          "total": 56032
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e91ec6adcffewf2CTMC4dMlAOc:msg_16e141a1d001zTeQLbZBOAafcs:prt_16e1433e9001aLpP7nYEgSSzjK",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 55552,
+            "write": 0
+          },
+          "input": 3848,
+          "output": 203,
+          "reasoning": 522,
+          "total": 60125
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e91ec6adcffewf2CTMC4dMlAOc:msg_16e1433f2001OaD4qWYkx1tELg:prt_16e1463df001ZFPMAre9R69rPL",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 59392,
+            "write": 0
+          },
+          "input": 9500,
+          "output": 342,
+          "reasoning": 895,
+          "total": 70129
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e91ec6adcffewf2CTMC4dMlAOc:msg_16e1463ea0010JoWtubZiSEspV:prt_16e1473ce0015KKvcQZCG8yVyj",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 68864,
+            "write": 0
+          },
+          "input": 2383,
+          "output": 178,
+          "reasoning": 158,
+          "total": 71583
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e91ec6adcffewf2CTMC4dMlAOc:msg_16e1473d7001FgHzXTaGyTsMqO:prt_16e1481cf001jcK3I3Y0UFUXqF",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 71168,
+            "write": 0
+          },
+          "input": 596,
+          "output": 227,
+          "reasoning": 108,
+          "total": 72099
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3ac0fb0017GjApHVznTfScZ:prt_16f3acbd6001UcvTPd1XvWFPKH",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 2048,
+            "write": 0
+          },
+          "input": 6906,
+          "output": 180,
+          "reasoning": 13,
+          "total": 9147
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3acbde001ReTp6mFOa6FIR1:prt_16f3ad656001gFxrPWeet8SJk4",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 8832,
+            "write": 0
+          },
+          "input": 7631,
+          "output": 186,
+          "reasoning": 31,
+          "total": 16680
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3ad65c001KqQiN7AOVENy0L:prt_16f3ae559001IQUqJM6ykml0FD",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 16384,
+            "write": 0
+          },
+          "input": 9547,
+          "output": 225,
+          "reasoning": 138,
+          "total": 26294
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3ae55f001cadRfM9DyOtmQa:prt_16f3b0e72001aWKLMKIcVuNgB8",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 25856,
+            "write": 0
+          },
+          "input": 8182,
+          "output": 217,
+          "reasoning": 1057,
+          "total": 35312
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3b0e790015f0wbUuqjal2db:prt_16f3b19ea001YX1V3l660R9LUX",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 33920,
+            "write": 0
+          },
+          "input": 1953,
+          "output": 219,
+          "reasoning": 59,
+          "total": 36151
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3b19ef001fIR0mLK1Ylhb5t:prt_16f3b262f001278FlgmRZ0dBDG",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 35840,
+            "write": 0
+          },
+          "input": 3170,
+          "output": 201,
+          "reasoning": 125,
+          "total": 39336
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3b2638001xIE3mL3jP8vFLp:prt_16f3b6172001ty8IzNiUqc0kms",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 1792,
+            "write": 0
+          },
+          "input": 47393,
+          "output": 370,
+          "reasoning": 0,
+          "total": 49555
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3b617a001dACwW63VzaFASy:prt_16f3d193d0014uBDMte18L54wl",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 49408,
+            "write": 0
+          },
+          "input": 11231,
+          "output": 390,
+          "reasoning": 0,
+          "total": 61029
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3d1945001WonQdXj5o78kFd:prt_16f3d1fe70011VFN3AoFRw0q5W",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 60928,
+            "write": 0
+          },
+          "input": 750,
+          "output": 153,
+          "reasoning": 0,
+          "total": 61831
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3d1fed001s6xnBdCeCJ2n1h:prt_16f3d2652001WfgpRB4KmbNG0P",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 61696,
+            "write": 0
+          },
+          "input": 2804,
+          "output": 136,
+          "reasoning": 0,
+          "total": 64636
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3d265a001koLnJ4OgEPD47x:prt_16f3d4b8e001X6s190SQZ40C93",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 64512,
+            "write": 0
+          },
+          "input": 875,
+          "output": 763,
+          "reasoning": 0,
+          "total": 66150
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3d4b94001rssZtohjQVpcGB:prt_16f3d798f001NoVPM01pWXoFnv",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 66048,
+            "write": 0
+          },
+          "input": 3861,
+          "output": 305,
+          "reasoning": 0,
+          "total": 70214
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3d799c001aQxN28fuhHZPvy:prt_16f3da4c6001Yje3acwWT2sEdN",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 70144,
+            "write": 0
+          },
+          "input": 13200,
+          "output": 1010,
+          "reasoning": 0,
+          "total": 84354
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3da4ce001CvUbBVfaP3hdqS:prt_16f3e28d4001jbBhmCjpcVblmO",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 84224,
+            "write": 0
+          },
+          "input": 163,
+          "output": 1817,
+          "reasoning": 0,
+          "total": 86204
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3e28da001KTVN4edaLIcwEk:prt_16f3e31b9001qP8YfkMQVN9KtT",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 86016,
+            "write": 0
+          },
+          "input": 521,
+          "output": 213,
+          "reasoning": 0,
+          "total": 86750
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3e31c0001LzKv2qKgpzLFC8:prt_16f3f5b7d001WShNGi85v3duzL",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 86528,
+            "write": 0
+          },
+          "input": 23500,
+          "output": 4068,
+          "reasoning": 0,
+          "total": 114096
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3f5b83001qHpcBGMJkPMlkG:prt_16f3f8725001UWoLQcd6VYNxuJ",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 113920,
+            "write": 0
+          },
+          "input": 1213,
+          "output": 269,
+          "reasoning": 0,
+          "total": 115402
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e90c540d8ffe34Og2SKkuTpujT:msg_16f3f872b001ZPAtzLbDlb7AqR:prt_16f3f96150012NFErOYrh5i6o7",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 115200,
+            "write": 0
+          },
+          "input": 490,
+          "output": 224,
+          "reasoning": 0,
+          "total": 115914
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_172225c2e001ZKWvKsE821j21P:prt_1722267d10016aeVKtM5Xq3w5V",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 2048,
+            "write": 0
+          },
+          "input": 6987,
+          "output": 174,
+          "reasoning": 42,
+          "total": 9251
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_1722267d70019LkEay40brveuI:prt_17222719b001LUfZmSVIB5RkjV",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 8960,
+            "write": 0
+          },
+          "input": 6242,
+          "output": 181,
+          "reasoning": 27,
+          "total": 15410
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_1722271a0001srfM5OB7j0v0jm:prt_172227fc0001h1U3YYG1ecS9TU",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 15104,
+            "write": 0
+          },
+          "input": 6481,
+          "output": 167,
+          "reasoning": 103,
+          "total": 21855
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_172227fc6001IJqBRG6ApzQaqy:prt_1722288fc001x5QiTzs5g59uU2",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 21504,
+            "write": 0
+          },
+          "input": 3640,
+          "output": 173,
+          "reasoning": 19,
+          "total": 25336
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17222890400160S8SraMdTxIW5:prt_17222abcc001J8mJcUJXo8avRd",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 25088,
+            "write": 0
+          },
+          "input": 6473,
+          "output": 209,
+          "reasoning": 949,
+          "total": 32719
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17222abd5001ZP90Cx0RWVQrI3:prt_17222ba9f001UcdFQVoEuGAEbW",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 31488,
+            "write": 0
+          },
+          "input": 2536,
+          "output": 221,
+          "reasoning": 161,
+          "total": 34406
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17222baa5001FXt2UhXCXG5SGX:prt_17222f2eb001zlbu47nEQi6afY",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 33920,
+            "write": 0
+          },
+          "input": 4216,
+          "output": 258,
+          "reasoning": 1349,
+          "total": 39743
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17222f2f4001nbXN7or1Z5XHPU:prt_17222fd9e001ZCWTFVRo4PMMSA",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 38016,
+            "write": 0
+          },
+          "input": 7760,
+          "output": 110,
+          "reasoning": 31,
+          "total": 45917
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17222fda6001M0CHWgFEjGRtZl:prt_172232c3c001wxQnigcv1bjIXL",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 45696,
+            "write": 0
+          },
+          "input": 745,
+          "output": 269,
+          "reasoning": 1164,
+          "total": 47874
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_172232c44001LmtI1PpPQo56rV:prt_1722364b00018ZHXulph2uWDOI",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 46336,
+            "write": 0
+          },
+          "input": 13990,
+          "output": 195,
+          "reasoning": 1614,
+          "total": 62135
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_172236592001q3Csjhs455MyV7:prt_172237bdd001dlofNeQbLk5UZ1",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 60288,
+            "write": 0
+          },
+          "input": 6528,
+          "output": 81,
+          "reasoning": 412,
+          "total": 67309
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_172237be2001uSHhFVy8JVD5Q7:prt_17223868d001AqUolNEaOyCIFs",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 66816,
+            "write": 0
+          },
+          "input": 1739,
+          "output": 130,
+          "reasoning": 0,
+          "total": 68685
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_1722386910019AWjGZEIdWZCSq:prt_1722414530017TtwhXeUqPXR3t",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 68480,
+            "write": 0
+          },
+          "input": 7593,
+          "output": 220,
+          "reasoning": 3983,
+          "total": 80276
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17224145a001iCSZWR8rgCaMvp:prt_17224260c001cB8iKPqfX7uBSf",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 76032,
+            "write": 0
+          },
+          "input": 6778,
+          "output": 383,
+          "reasoning": 42,
+          "total": 83235
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_1722426130012jW3QAXMsF5Ib1:prt_172248487001MJb9pz0dkSILqm",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 82688,
+            "write": 0
+          },
+          "input": 4915,
+          "output": 242,
+          "reasoning": 2582,
+          "total": 90427
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17224848c001Adj0Y2e09rzqSI:prt_17224b5ae0017p9DOBPmh3BXP3",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 87552,
+            "write": 0
+          },
+          "input": 5857,
+          "output": 120,
+          "reasoning": 409,
+          "total": 93938
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17224b5b5001zz9SzyZ82E3cX4:prt_17224c5fd001RTQJDEWj1DCVA1",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 93312,
+            "write": 0
+          },
+          "input": 1642,
+          "output": 215,
+          "reasoning": 50,
+          "total": 95219
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17224c604001bIBI9XqmCkh4r5:prt_17224d9fd001DNqPJJyFa7c9aV",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 94848,
+            "write": 0
+          },
+          "input": 1042,
+          "output": 190,
+          "reasoning": 183,
+          "total": 96263
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17224da02001RAURK8laR03kxb:prt_17224f0a5001o12DhYGEmtsKuL",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 95872,
+            "write": 0
+          },
+          "input": 1137,
+          "output": 310,
+          "reasoning": 248,
+          "total": 97567
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17224f0ab001vYlV4a1Al3jjYc:prt_172250ee90014K7qR4LfMPcTXh",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 96896,
+            "write": 0
+          },
+          "input": 1407,
+          "output": 231,
+          "reasoning": 449,
+          "total": 98983
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_172250ef00017f7TAj2c3hSm66:prt_17225246500166RI3Afc5YO3nG",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 98176,
+            "write": 0
+          },
+          "input": 1268,
+          "output": 58,
+          "reasoning": 293,
+          "total": 99795
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17225246b001F9KTWLL3WQ0TqO:prt_172258122001e5g1RloOiQXOdd",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 99328,
+            "write": 0
+          },
+          "input": 2517,
+          "output": 180,
+          "reasoning": 2494,
+          "total": 104519
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_172258129001gEGIvc5s8Enqrg:prt_17225ab740014yMPP1k5CRkXaP",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 101760,
+            "write": 0
+          },
+          "input": 4631,
+          "output": 337,
+          "reasoning": 673,
+          "total": 107401
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17225ab7a001xZu9qLEZPZo5X0:prt_17225dcb8001CPbVVZydJSZO8F",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 106368,
+            "write": 0
+          },
+          "input": 1333,
+          "output": 70,
+          "reasoning": 1083,
+          "total": 108854
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17225dcbf001U2sQ0qoS0EVCoX:prt_17225ec71001RdB3agpipqVmEZ",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 107648,
+            "write": 0
+          },
+          "input": 5256,
+          "output": 53,
+          "reasoning": 85,
+          "total": 113042
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17225ec77001t9jfDw8dps4O0O:prt_17225fcaa00124JY2O0jrAnFoi",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 112896,
+            "write": 0
+          },
+          "input": 172,
+          "output": 67,
+          "reasoning": 18,
+          "total": 113153
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17225fcb1001TmSgmbqpf0teQe:prt_1722684f8001MGxyqIh7lg4qcA",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 113024,
+            "write": 0
+          },
+          "input": 611,
+          "output": 746,
+          "reasoning": 3732,
+          "total": 118113
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_1722684ff001j3mQ6czS5aOfyM:prt_17226b67f001RDWozoUgNQmDf1",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 113536,
+            "write": 0
+          },
+          "input": 4779,
+          "output": 84,
+          "reasoning": 948,
+          "total": 119347
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17226b687001AxJNjMzOTkMbz6:prt_17226d5d3001TrYbrLiG44HnDL",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 118272,
+            "write": 0
+          },
+          "input": 2139,
+          "output": 92,
+          "reasoning": 0,
+          "total": 120503
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17226d5db001Sg4ll3RjtdUBTb:prt_1722715db001vT6rSiHDihM7Tk",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 120320,
+            "write": 0
+          },
+          "input": 2582,
+          "output": 64,
+          "reasoning": 1793,
+          "total": 124759
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_1722715e8001wL1joA5ebfJTO0:prt_172277efa001jfnw3jDGXQkQvR",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 122880,
+            "write": 0
+          },
+          "input": 1959,
+          "output": 174,
+          "reasoning": 3060,
+          "total": 128073
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_172277f03001l3HS4aPwNCutO4:prt_17228229e0014i99vck6mIv3vC",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 124800,
+            "write": 0
+          },
+          "input": 3659,
+          "output": 145,
+          "reasoning": 3770,
+          "total": 132374
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_1722822a6001UUGPNdHZNBjy1u:prt_17228e6390015GsIGy54iYHAx5",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 128384,
+            "write": 0
+          },
+          "input": 4109,
+          "output": 1362,
+          "reasoning": 5617,
+          "total": 139472
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17228e643001RWqY8vhew0weEz:prt_17228f7ab001x35em3QAzdrESh",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 132480,
+            "write": 0
+          },
+          "input": 7008,
+          "output": 161,
+          "reasoning": 11,
+          "total": 139660
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_17228f7b40014yVodImhEgq4yA:prt_1722942fe001cR20GgXGljH0bE",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 139392,
+            "write": 0
+          },
+          "input": 325,
+          "output": 155,
+          "reasoning": 2288,
+          "total": 142160
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8ddda561ffevVNLMOTlktAfUd:msg_172294304001snct0Xj0t6iIZ0:prt_17229605d001oEjSlB2I6XfVta",
+        "invocation": "attacker-4",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 139648,
+            "write": 0
+          },
+          "input": 2573,
+          "output": 122,
+          "reasoning": 491,
+          "total": 142834
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.003621375,
+        "id": "ses_e8dd68fadffeEo7WKsRk6iQMxv:msg_1722971f1001e92jh6MbjfHRQx:prt_172297ca6001xpqYiNxMFrLCsZ",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 0,
+            "write": 0
+          },
+          "input": 7989,
+          "output": 147,
+          "reasoning": 21,
+          "total": 8157
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0006737004,
+        "id": "ses_e8dd68fadffeEo7WKsRk6iQMxv:msg_172297cae001W0Ito8WL0lOlvk:prt_17229907900170l19J3pAhOWAZ",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 8064,
+            "write": 0
+          },
+          "input": 712,
+          "output": 337,
+          "reasoning": 48,
+          "total": 9161
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0057418524,
+        "id": "ses_e8dd68fadffeEo7WKsRk6iQMxv:msg_17229907f0010RmtraPW4sWslf:prt_1722a8b16001rGQvSRo1dHXjYI",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 3584,
+            "write": 0
+          },
+          "input": 7466,
+          "output": 153,
+          "reasoning": 2699,
+          "total": 13902
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0030454788,
+        "id": "ses_e8dd68fadffeEo7WKsRk6iQMxv:msg_1722a8b1d001R4RK6pLYeY08gN:prt_1722af56f001z6LBaWeZfniEeq",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 11008,
+            "write": 0
+          },
+          "input": 4362,
+          "output": 178,
+          "reasoning": 1096,
+          "total": 16644
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0176028018,
+        "id": "ses_e8dd68fadffeEo7WKsRk6iQMxv:msg_1722af574001WOUBD7WcQNdyIs:prt_1722bb633001207j2DX04Y2cAp",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 9088,
+            "write": 0
+          },
+          "input": 27539,
+          "output": 57,
+          "reasoning": 6369,
+          "total": 43053
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.018246126,
+        "id": "ses_e8dd68fadffeEo7WKsRk6iQMxv:msg_1722bb639001YJMEi141zuQkQ7:prt_1722d142d001oRehmQgjhhMmXD",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 15360,
+            "write": 0
+          },
+          "input": 33894,
+          "output": 146,
+          "reasoning": 3816,
+          "total": 53216
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0074667438,
+        "id": "ses_e8dd68fadffeEo7WKsRk6iQMxv:msg_1722d1434001bph5NfSALOK5yZ:prt_1722d2d2000114NQ4sSnGSGwcj",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 43008,
+            "write": 0
+          },
+          "input": 16035,
+          "output": 225,
+          "reasoning": 162,
+          "total": 59430
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0025058262,
+        "id": "ses_e8dd68fadffeEo7WKsRk6iQMxv:msg_1722d2d26001N9azK2v2VDzKcD:prt_1722d60110019NNcuWW0Iyc0zc",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 59392,
+            "write": 0
+          },
+          "input": 2841,
+          "output": 712,
+          "reasoning": 502,
+          "total": 63447
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0065188122,
+        "id": "ses_e8dd68fadffeEo7WKsRk6iQMxv:msg_1722d6017001CCvRhybkqguSPe:prt_1722d76d6001AzB1Zlr0vM6r0i",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 49152,
+            "write": 0
+          },
+          "input": 14247,
+          "output": 152,
+          "reasoning": 14,
+          "total": 63565
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.000754446,
+        "id": "ses_e8dd68fadffeEo7WKsRk6iQMxv:msg_1722d76db001DIyFPJolIPZPJa:prt_1722dac49001y1B3tYTMRsJSfr",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 63360,
+            "write": 0
+          },
+          "input": 298,
+          "output": 435,
+          "reasoning": 21,
+          "total": 64114
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a7720a001MXrxadU90Zsocn:prt_173a77d57001kxUvXSGK6Z3Sub",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 2048,
+            "write": 0
+          },
+          "input": 5741,
+          "output": 75,
+          "reasoning": 0,
+          "total": 7864
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a77d5f001jkKFt3Ei12zvwc:prt_173a7851f001V5ZhFzhcw7jPkl",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 7680,
+            "write": 0
+          },
+          "input": 602,
+          "output": 215,
+          "reasoning": 0,
+          "total": 8497
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a78524001Jvv4c6n2ExRn2m:prt_173a78e5c001zkxA4dbDBnokJa",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 8192,
+            "write": 0
+          },
+          "input": 2770,
+          "output": 130,
+          "reasoning": 23,
+          "total": 11115
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a78e61001WFE9hED2RcoeXL:prt_173a796e5001DRo541FqScT4Ub",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 10880,
+            "write": 0
+          },
+          "input": 6796,
+          "output": 75,
+          "reasoning": 9,
+          "total": 17760
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a796ea001iTlmk9658v9BbJ:prt_173a79fc20011yfgCJT12cO2CE",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 17664,
+            "write": 0
+          },
+          "input": 7248,
+          "output": 75,
+          "reasoning": 0,
+          "total": 24987
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a79fc7001286AjeLVE3edwE:prt_173a7c11e0011TOJ92L9oPIhvZ",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 24832,
+            "write": 0
+          },
+          "input": 3493,
+          "output": 183,
+          "reasoning": 1045,
+          "total": 29553
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a7c123001UWcZ5j2pZUGxmU:prt_173a7d1140012k2c3th05UgEC1",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 28288,
+            "write": 0
+          },
+          "input": 1672,
+          "output": 104,
+          "reasoning": 49,
+          "total": 30113
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a7d11900158eGLa7PWeXgbj:prt_173a7e480001v1AkLVGxNlvzuX",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 29952,
+            "write": 0
+          },
+          "input": 550,
+          "output": 74,
+          "reasoning": 197,
+          "total": 30773
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a7e487001wEUxWx5XnfFx0J:prt_173a7f8d9001VeB9PFW4MnO6tV",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 30464,
+            "write": 0
+          },
+          "input": 7761,
+          "output": 68,
+          "reasoning": 94,
+          "total": 38387
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a7f8e0001L06fMexi7gIoaX:prt_173a80c7a001hAomgf3mu5ke2t",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 38144,
+            "write": 0
+          },
+          "input": 8932,
+          "output": 71,
+          "reasoning": 22,
+          "total": 47169
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a80c81001N0zvGMwzuHYNR7:prt_173a81f9a001RQF3l9gqrkgowF",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 46976,
+            "write": 0
+          },
+          "input": 8245,
+          "output": 75,
+          "reasoning": 22,
+          "total": 55318
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a81fa100163koVXAZ0iGbb2:prt_173a83b330014MRfJl8QtpDwke",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 55168,
+            "write": 0
+          },
+          "input": 7762,
+          "output": 73,
+          "reasoning": 10,
+          "total": 63013
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a83b3a001McQJKWBHvmrFWE:prt_173a85919001KJP05WBDVsAi2W",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 62848,
+            "write": 0
+          },
+          "input": 8127,
+          "output": 81,
+          "reasoning": 32,
+          "total": 71088
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a859230012W2XyItwQ1R7hp:prt_173a86b0a001XTsb4pyjmpARL8",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 70912,
+            "write": 0
+          },
+          "input": 7504,
+          "output": 59,
+          "reasoning": 135,
+          "total": 78610
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a86b10001eKmYhhCK3Q2X9f:prt_173a879b8001RyDK0dMKDkfXwd",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 78336,
+            "write": 0
+          },
+          "input": 305,
+          "output": 180,
+          "reasoning": 49,
+          "total": 78870
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a879be001KgyCdQ34LPdMZE:prt_173a8937e001H4KhmydIC6SjQ0",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 78592,
+            "write": 0
+          },
+          "input": 500,
+          "output": 170,
+          "reasoning": 123,
+          "total": 79385
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a89385001MBB9F69ErLofxC:prt_173a8abf0001QFrIpB3KXoKHI3",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 78976,
+            "write": 0
+          },
+          "input": 568,
+          "output": 188,
+          "reasoning": 75,
+          "total": 79807
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a8abf6001vXyGoncbRiGycj:prt_173a8c476001YJi9iIH5MnLk5T",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 79488,
+            "write": 0
+          },
+          "input": 397,
+          "output": 197,
+          "reasoning": 164,
+          "total": 80246
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a8c4800013s9RrCtoIVz6Fh:prt_173a8e130001MWnpCoS7a0K4FL",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 79872,
+            "write": 0
+          },
+          "input": 402,
+          "output": 166,
+          "reasoning": 44,
+          "total": 80484
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a8e1350017MFeazSocG6XMh:prt_173a8fcf10019bMjqWKNJesSnI",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 80256,
+            "write": 0
+          },
+          "input": 908,
+          "output": 170,
+          "reasoning": 76,
+          "total": 81410
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a8fcf90016qK27318ARX6Pa:prt_173a91429001AeqC6R3UVm0oZe",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 81152,
+            "write": 0
+          },
+          "input": 932,
+          "output": 79,
+          "reasoning": 275,
+          "total": 82438
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a9142f001r8o6TT3Mr3I0R9:prt_173a923c000161lP3PoMWriNLs",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 82048,
+            "write": 0
+          },
+          "input": 8995,
+          "output": 135,
+          "reasoning": 37,
+          "total": 91215
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a923ce001EwViJXBErZaW2Z:prt_173a99a83001ga6jsEAMnIiXaA",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 91008,
+            "write": 0
+          },
+          "input": 363,
+          "output": 166,
+          "reasoning": 58,
+          "total": 91595
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a99a8a001uqzDlwJExIR3FA:prt_173a9acfe001B6B03U29egGeSl",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 91264,
+            "write": 0
+          },
+          "input": 811,
+          "output": 83,
+          "reasoning": 55,
+          "total": 92213
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173a9ad04001MM3BRHM3sFULt7:prt_173aa7031001QbyhSfROvtKDAc",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 92032,
+            "write": 0
+          },
+          "input": 8987,
+          "output": 3944,
+          "reasoning": 3920,
+          "total": 108883
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173aa7037001q3m3u3QxsCUyUX:prt_173aa88ff001KITtOV5HOtigOK",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 100992,
+            "write": 0
+          },
+          "input": 7912,
+          "output": 397,
+          "reasoning": 46,
+          "total": 109347
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173aa890d001leWkSTVL6WJF9k:prt_173aace44001SE9AryAD6pbQ72",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 108800,
+            "write": 0
+          },
+          "input": 1107,
+          "output": 74,
+          "reasoning": 79,
+          "total": 110060
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173aace4a0016VUopVoAqHDoM9:prt_173aadb48001zYNKt366ooIO1s",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 109824,
+            "write": 0
+          },
+          "input": 338,
+          "output": 64,
+          "reasoning": 0,
+          "total": 110226
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173aadb4e001tSiAVztqTHVvoj:prt_173aaea83001fJyrgdTwVD2Lqn",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 110080,
+            "write": 0
+          },
+          "input": 178,
+          "output": 57,
+          "reasoning": 0,
+          "total": 110315
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173aaea89001VYAYlp9vj6rYhU:prt_173aafcfa0012Cr8Zrvf0gvLkk",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 110208,
+            "write": 0
+          },
+          "input": 1418,
+          "output": 161,
+          "reasoning": 180,
+          "total": 111967
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173aafd040013M1e0IFYk5zDV2:prt_173ab0d38001qDCr0n4Eyt7LSS",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 111616,
+            "write": 0
+          },
+          "input": 428,
+          "output": 169,
+          "reasoning": 0,
+          "total": 112213
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173ab0d40001mKq1ynQdMHntD0:prt_173ab258e001Gq0qNpHtgjeHCi",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 112000,
+            "write": 0
+          },
+          "input": 231,
+          "output": 174,
+          "reasoning": 39,
+          "total": 112444
+        }
+      },
+      {
+        "configured_model": "opencode/deepseek-v4.1-flash-free",
+        "cost": 0,
+        "id": "ses_e8c588f97ffeQ3lCoA6Gx1aWip:msg_173ab2597001BhrDeQvtuIDQ0e:prt_173ab3cde001FpfscBLGgF9fxe",
+        "invocation": "attacker-freshness",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "stress_tester",
+        "tokens": {
+          "cache": {
+            "read": 112128,
+            "write": 0
+          },
+          "input": 341,
+          "output": 103,
+          "reasoning": 346,
+          "total": 112918
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0020948934,
+        "id": "ses_e8c54ae16ffe5y35Qg1XuLFslT:msg_173ab53bb0018Uu5aL23eH2NTE:prt_173ab6144001D6GgTQSwgSZq8Q",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 6144,
+            "write": 0
+          },
+          "input": 4459,
+          "output": 144,
+          "reasoning": 9,
+          "total": 10756
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0004540806,
+        "id": "ses_e8c54ae16ffe5y35Qg1XuLFslT:msg_173ab614e001tT2005b3RkJ19Y:prt_173ab7226001VHNZ7knzFcyPYa",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 10496,
+            "write": 0
+          },
+          "input": 337,
+          "output": 291,
+          "reasoning": 19,
+          "total": 11143
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0019835922,
+        "id": "ses_e8c54ae16ffe5y35Qg1XuLFslT:msg_173ab722d0010uNUsSVvQ0i2XZ:prt_173abb5f6001lYiFksJshuwhaI",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 10752,
+            "write": 0
+          },
+          "input": 2999,
+          "output": 256,
+          "reasoning": 480,
+          "total": 14487
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0010184856,
+        "id": "ses_e8c54ae16ffe5y35Qg1XuLFslT:msg_173abb5ff001hiDj9JeU6bhp4M:prt_173abdc7f001yq8pm7BO3ZFO5u",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 13696,
+            "write": 0
+          },
+          "input": 1460,
+          "output": 181,
+          "reasoning": 203,
+          "total": 15540
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0014972694,
+        "id": "ses_e8c54ae16ffe5y35Qg1XuLFslT:msg_173abdc89001VVw7G1Y0lMQ0c3:prt_173ac4a18001Tg5SazA2qnOVRK",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 15104,
+            "write": 0
+          },
+          "input": 573,
+          "output": 512,
+          "reasoning": 860,
+          "total": 17049
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0016191726,
+        "id": "ses_e8c54ae16ffe5y35Qg1XuLFslT:msg_173ac4a1f001Ggrj8n4wJgVx6l:prt_173ac7b1700166W5wXLXrNubTZ",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 15616,
+            "write": 0
+          },
+          "input": 2207,
+          "output": 543,
+          "reasoning": 150,
+          "total": 18516
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0011019612,
+        "id": "ses_e8c54ae16ffe5y35Qg1XuLFslT:msg_173ac7b1e001i7ljCfpS8SABUD:prt_173acac4c001Z5Wzbq6jyB24X6",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 17792,
+            "write": 0
+          },
+          "input": 1200,
+          "output": 298,
+          "reasoning": 295,
+          "total": 19585
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0013018584,
+        "id": "ses_e8c54ae16ffe5y35Qg1XuLFslT:msg_173acac54001RYOupEWoDyz227:prt_173acce19001eUaohZY9AL6dcQ",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 18944,
+            "write": 0
+          },
+          "input": 1904,
+          "output": 258,
+          "reasoning": 208,
+          "total": 21314
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0009655296,
+        "id": "ses_e8c54ae16ffe5y35Qg1XuLFslT:msg_173acce22001GepmmVrA0Wt0Tn:prt_173ace976001SYw3msqj8ENXmG",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 20736,
+            "write": 0
+          },
+          "input": 1376,
+          "output": 185,
+          "reasoning": 151,
+          "total": 22448
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0038415726,
+        "id": "ses_e8c54ae16ffe5y35Qg1XuLFslT:msg_173ace980001uTZIfx6WXCsAcx:prt_173ae6e19001L3VhzHdfPeKQxN",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 22016,
+            "write": 0
+          },
+          "input": 1633,
+          "output": 633,
+          "reasoning": 2875,
+          "total": 27157
+        }
+      },
+      {
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "cost": 0.0035017122,
+        "id": "ses_e8c54ae16ffe5y35Qg1XuLFslT:msg_173ae6e22001yQT1hZjKTI08W2:prt_173aee2ed001wQ9zdt0qAICUGq",
+        "invocation": "reviewer-g2-confirm",
+        "model": null,
+        "modelID": null,
+        "providerID": null,
+        "role": "reviewer",
+        "tokens": {
+          "cache": {
+            "read": 23552,
+            "write": 0
+          },
+          "input": 5605,
+          "output": 225,
+          "reasoning": 900,
+          "total": 30282
+        }
+      }
+    ],
+    "infrastructure_waste": [
+      {
+        "derivation": {
+          "bound_charge_usd": 16,
+          "calls_added": 16,
+          "card_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-5-20261024/sealed/case-20261024T085209Z-873d7f.scorecard.json",
+          "card_sha256": "5b988023849c1c6ca8215484920733a853a105f55b1e84853bdac8921f5780bd",
+          "case": "case-20261024T085209Z-873d7f",
+          "case_spent_usd": 27.072383602,
+          "checkpoint_sha256": "4ab78c2ac7550e2ba291b8846706b6d7b7f07d0457b0188f26dfcf7c9d4f44ac",
+          "completed_writer_elapsed_seconds": 308.435,
+          "completed_writer_timing_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-2-20261024/sealed/case-20261024T085209Z-873d7f.progress.json",
+          "corrected_spent_usd": 43.072383602,
+          "derivation": "ceil(max(maximum historical writer invocation list cost, maximum historical writer invocation list cost / available completed writer duration * interrupted duration)); USD whole-dollar round-up. Deliberately pairs maximum cost with available completed duration rather than claiming unobserved per-invocation timing. Full largest invocation floor further overcounts the five-minute interruption.",
+          "duration_envelope_usd": 14.64312780715775,
+          "envelope_usd_per_second": 0.04880505746753774,
+          "infrastructure_waste_usd": 16,
+          "interrupted_seconds": 300.033,
+          "known_spent_usd": 27.072383602,
+          "ledger_events_after": 229,
+          "ledger_events_before": 229,
+          "limitation": "Empirical conservative allowance, not recovered exact token usage or a provider-enforced maximum. Older per-invocation timings are unavailable without forbidden transcript/checkpoint access.",
+          "maximum_event_id": "b741739e-bdec-4272-8b41-4a7703b02d52:result",
+          "maximum_observed_writer_list_cost_usd": 15.053187900000001,
+          "progress_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-5-20261024/sealed/case-20261024T085209Z-873d7f.progress.json",
+          "real_G2": {
+            "confirmed_hits": 0,
+            "counted": {
+              "attacker": 5,
+              "builder_github": 0,
+              "builder_web": 0
+            },
+            "flagged_hits": 1,
+            "hits": 1,
+            "invalid_evidence": 44,
+            "invalid_evidence_reasons": {
+              "evidence_expired": 27,
+              "invalid_app_version": 17
+            },
+            "outcome": "evidence_incomplete",
+            "searches": 49,
+            "uncounted_who_kind": [],
+            "unresolved_hits": 1
+          },
+          "remaining_usd": 22.927616398,
+          "restore_built": true,
+          "terminal_stop": "timeout",
+          "unpriced_invocations": [
+            {
+              "model": "claude/claude-opus-5-5",
+              "role": "writer"
+            }
+          ]
+        },
+        "id": "873d7f:300s-infrastructure-kill",
+        "infrastructure_waste_usd": 16,
+        "kind": "infrastructure_kill",
+        "reason": "Evidenced flat-300s freshness repair deadline bug; founder excludes our infrastructure waste from the case cap.",
+        "resolved_unpriced_invocations": [
+          {
+            "model": "claude/claude-opus-5-5",
+            "role": "writer"
+          }
+        ]
+      }
+    ],
+    "list_cost_usd": 26.982228700000004,
+    "previous_stops": [
+      "stalled",
+      "timeout"
+    ],
+    "resolved_unpriced_invocations": [
+      {
+        "infrastructure_waste_id": "873d7f:300s-infrastructure-kill",
+        "original": {
+          "model": "claude/claude-opus-5-5",
+          "role": "writer"
+        }
+      }
+    ],
+    "terminal_stop": "timeout",
+    "zero_token_streak": 0
+  },
+  "counts": {
+    "provenance": 5,
+    "scenarios": 6,
+    "surprises": 4
+  },
+  "driver_qualification": {
+    "tools": {
+      "claude": "2.1.299 (Claude Code)",
+      "codex": "codex-cli 0.162.1",
+      "opencode": "1.19.0"
+    },
+    "verified_drivers": [
+      "claude",
+      "codex",
+      "opencode"
+    ]
+  },
+  "dry_run": false,
+  "durable_checkpoint": {
+    "archive": "/home/user/sealed/case-20261024T085209Z-873d7f.checkpoint.tar.gz.age",
+    "at": 1792941964,
+    "local_durable": true,
+    "pending": false,
+    "r2_object": "vm/bx_uy5nus4b/checkpoint.tar.gz.age",
+    "remote_durable": true,
+    "sha256": "43c81eb58cdbf524b097d750312a50907023f8bfcbd0c923ac71902044d183a9",
+    "version": 1
+  },
+  "factory_slots_prepared": 2,
+  "failed_gate": null,
+  "freshness_repair": {
+    "attempts": 0,
+    "statement_sha256": "40c7b191cb3c9c91bf67be6d30b88e50f03204d241e57a849c81ea5fe5e12a2a",
+    "version": 1
+  },
+  "freshness_reverify": {
+    "at": "2026-10-25T15:21:54.281080+00:00",
+    "expired": 16
+  },
+  "freshness_topup": {
+    "after": {
+      "attacker": 21,
+      "builder_github": 22,
+      "builder_web": 13
+    },
+    "before": {
+      "attacker": 5,
+      "builder_github": 22,
+      "builder_web": 13
+    }
+  },
+  "gates": {},
+  "models": {
+    "attacker": [
+      "opencode/deepseek-v4.1-flash-free"
+    ],
+    "builder": [
+      "claude/claude-opus-5-5"
+    ],
+    "easy_calibrator": [
+      "opencode/deepseek-v4.1-flash-free"
+    ],
+    "reviewers": [
+      [
+        "openrouter/xiaomi/mimo-v2.6-pro"
+      ]
+    ],
+    "strong_calibrator": [
+      "codex/gpt-6.1-sol"
+    ]
+  },
+  "models_used": {
+    "attacker-1": "opencode/deepseek-v4.1-flash-free",
+    "attacker-2": "opencode/deepseek-v4.1-flash-free",
+    "attacker-3": "opencode/deepseek-v4.1-flash-free",
+    "attacker-4": "opencode/deepseek-v4.1-flash-free",
+    "attacker-freshness": "opencode/deepseek-v4.1-flash-free",
+    "attacker-provider-preflight": "opencode/deepseek-v4.1-flash-free",
+    "builder-1": "claude/claude-opus-5-5",
+    "builder-2": "claude/claude-opus-5-5",
+    "builder-3": "claude/claude-opus-5-5",
+    "builder-4": "claude/claude-opus-5-5",
+    "builder-freshness": "claude/claude-opus-5-5",
+    "builder-prototype": "claude/claude-opus-5-5",
+    "builder-selection": "claude/claude-opus-5-5",
+    "easy-calibrator-dedup": "opencode/deepseek-v4.1-flash-free",
+    "reviewer-g2-confirm": "openrouter/xiaomi/mimo-v2.6-pro",
+    "reviewer-idea-realism": "openrouter/xiaomi/mimo-v2.6-pro",
+    "reviewer-provider-preflight": "openrouter/xiaomi/mimo-v2.6-pro",
+    "strong-calibrator-provider-preflight": "codex/gpt-6.1-sol"
+  },
+  "r2_object": "vm/bx_uy5nus4b/checkpoint.tar.gz.age",
+  "recovery_config": {
+    "agent_timeout": 14400,
+    "calibrator_minutes": 30.0,
+    "case_budget": 50.0,
+    "max_cost": 5.0,
+    "max_repairs": 2,
+    "max_role_calls": 400,
+    "max_total_calls": 2000,
+    "max_zero_tokens": 3,
+    "no_progress_minutes": 45.0,
+    "pilot_runs": 5,
+    "pilot_tries": 3,
+    "rounds": 8,
+    "runs": 10,
+    "scenario_runs": 3,
+    "version": 1
+  },
+  "resume": {
+    "bench_sha": "3f0b192711307e9126bc356c3a8c8f5a3ea786060039f774c18e4705dc12e736",
+    "case": "case-20261024T085209Z-873d7f",
+    "usage_preserved": true,
+    "work": "/home/user/work/case-20261024T085209Z-873d7f"
+  },
+  "roles": {
+    "easy_calibrator": {
+      "effort": "default",
+      "family": "deepseek",
+      "model": "opencode/deepseek-v4.1-flash-free"
+    },
+    "reviewer": {
+      "effort": "default",
+      "family": "xiaomi",
+      "model": "openrouter/xiaomi/mimo-v2.6-pro"
+    },
+    "stress_tester": {
+      "effort": "default",
+      "family": "deepseek",
+      "model": "opencode/deepseek-v4.1-flash-free"
+    },
+    "strong_calibrator": {
+      "effort": "high",
+      "family": "openai",
+      "model": "codex/gpt-6.1-sol"
+    },
+    "writer": {
+      "effort": "high",
+      "family": "anthropic",
+      "model": "claude/claude-opus-5-5"
+    }
+  },
+  "rotation_slot": 1,
+  "seed": 261024,
+  "sha256": "ccb9d60a2132df7f547410bca92cc4a906f8c4ab13505babec4e1b2c619bb9cd",
+  "source": "hunt",
+  "status": "stopped",
+  "terminal_stop": "timeout",
+  "wall_minutes": 1839.0
+}

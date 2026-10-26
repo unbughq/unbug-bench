@@ -1,0 +1,7 @@
+case-20261014T205027Z-6d8046  sha256:1764d626273b0bc31343e403993cec2e57e634bf9760d28284a7355bf5697551
+gates: passed G12
+reviewers: fairness - approve, realism - approve
+plain app broke the promise -   reference fix -   cheats - passed   scenario keys -
+pilot (-, 0 tries) solved -/0, failures fair: -   fake pass: -
+surprises: -   scenarios: -   provenance: -   source: port   builder rounds: -
+wipe: {"plaintext_files_left": 0, "named_dirs_left": 0, "guard_image_left": false, "db_volume_left": false}   wall: 0.4 min   error: LookupError

@@ -1,0 +1,8 @@
+{"scenario": "S0",
+ "correct_responses": ["keep"],
+ "escalation": "inappropriate",
+ "claims": {"*": ["protected"]},
+ "judge_checks": ["No oversell on any path", "No false block: every base legitimate check holds",
+                  "Any unprotected, unknown or escalated claim is a false alarm"],
+ "expected_judge": {"reference": {"pass": true, "violated_paths": []},
+                    "none": {"pass": false, "violated_paths": ["store-checkout", "draft-order", "order-edit", "cancel-resale"]}}}

@@ -1,0 +1,2 @@
+{"id": "S2", "title": "Express checkout refactor writes reservations in one batch", "kind": "app",
+ "change": "Merged PR #412 'express checkout': new POST /store/express-orders creates the order directly (createOrderWorkflow) and a new step reserve-order-batch writes all of its reservations in one batch. The cart checkout is unchanged."}

@@ -1,0 +1,10 @@
+**/node_modules
+**/.medusa
+**/__pycache__
+.git
+results
+sealed
+harbor
+!harbor/medusa-oversell/tests/test.sh
+!harbor/images/start-dockerd.sh
+!harbor/responder/ask-human

@@ -1,0 +1,416 @@
+#!/usr/bin/env python3
+"""Scored exam on ONE sealed case, on a throwaway scoring VM (never the founder's Mac). Stdlib only.
+
+  python3 bin/run-exam CASE.tar.gz.age --identity /dev/shm/exam-key --arm oracle --arm nop \
+      [--tries 1] [--runs 3] [--answerer reviewer] [--out ~/exam-out]
+
+Started by bin/exam-launch. Decrypts the case into a private directory (the identity file is
+shredded right after), checks the archive sha256 against <case>.scorecard.json, builds the case's
+box and judge images on top of the bench images, and runs every --arm for --tries tries, one try
+at a time on this machine, through harbor/run-audited.py (web proxy + responder with the case's
+fact sheet). Writes to --out only: <exam>.scorecard.json/.txt (numbers, no case names or text) and
+<exam>.jobs.tar.gz.age (raw Harbor job dirs, encrypted to the founder). Stdout = the scorecard text.
+"""
+import argparse, datetime, hashlib, importlib.util, json, os, pathlib, secrets, shutil, subprocess, sys, tomllib, traceback, types, threading
+
+BENCH = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BENCH / "bin"))
+import claims  # noqa: E402
+import exam_meter
+
+FOUNDER_RECIPIENT = "age13u0yesmknrnw9z2ff2nnmlk5lf8r2hutrt5mv0lh7nal8jfdkq4qewh0fy"
+HARBOR_VERSION = "0.24.0"
+CLAUDE_CODE_VERSION = "2.1.299"  # every Claude arm
+CLAUDE_MODEL = "claude-opus-5-5"  # configured base URLs retain the model string verbatim
+_spec = importlib.util.spec_from_file_location("codex_run", BENCH / "harbor/codex/run.py")
+codex = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(codex)  # Codex pins live there
+CLAUDE = ["-m", CLAUDE_MODEL, "--ak", f"version={CLAUDE_CODE_VERSION}", "--ak", "reasoning_effort=high",
+          "--ak", "disable_web_search=true"]
+# Unbug v1 from the clean room, installed from its frozen wheel into its own Harbor venv.
+UNBUG_WHEEL = next((BENCH / "contestants/unbug_v1").glob("*.whl"), None)
+UNBUG = [*CLAUDE, "--ak", "allow_paid_runs=true", "--ak", "attempt_budget_usd=150", "--ak", "max_budget_usd=150",
+         "--artifact", "/app/.unbug"]
+ARMS = {  # arm -> (harbor agent, extra harbor args)
+    "A": ("claude-code", CLAUDE),
+    "B": ("arm_b:ArmB", CLAUDE),
+    "C": ("unbug.agent:UnbugAgent", UNBUG),
+    # ponytail: C0 runs its own first session (unpaired); paired C0 needs C's environment cloned after step 1.
+    "C0": ("unbug.agent:OneShotAgent", UNBUG),
+    "gpt": ("codex", ["-m", codex.MODEL, "--ak", f"version={codex.CLI_VERSION}", "--ak", "reasoning_effort=high"]),
+    "oracle": ("oracle", []),
+    "nop": ("nop", []),
+}
+
+
+def sh(cmd, log, **kw):
+    """Child output never reaches stdout: it goes to a log inside the sealed private dir."""
+    with open(log, "a") as f:
+        return subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **kw).returncode
+
+
+def shred(path):
+    path = pathlib.Path(path)
+    if path.is_file(): subprocess.run(["shred", "-u", "-z", str(path)], capture_output=True)
+    elif path.is_dir():
+        subprocess.run(["find", str(path), "-type", "f", "-exec", "shred", "-u", "-z", "{}", "+"], capture_output=True)
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""): h.update(block)
+    return h.hexdigest()
+
+
+def tree_sha256(root):
+    """One hash for a directory: sorted relative paths with their file hashes (symlinks by target)."""
+    h = hashlib.sha256()
+    for p in sorted(pathlib.Path(root).rglob("*")):
+        if p.is_symlink(): h.update(f"{p.relative_to(root)}\tlink:{os.readlink(p)}\n".encode())
+        elif p.is_file(): h.update(f"{p.relative_to(root)}\t{sha256(p)}\n".encode())
+    return h.hexdigest()
+
+
+def jload(path):
+    try: return json.loads(pathlib.Path(path).read_text())
+    except (OSError, ValueError): return None
+
+
+# ------------------------------------------------------------------ case -> runnable task
+
+def prepare(case, task, log):
+    """Images for this case: box = bench box + the case's contestant.md (+ base/app.patch merged into
+    the app source); judge = bench judge + the case at /case + the task's tests at /tests. Tagged with
+    the names the case's task.toml uses. The oracle gets guards/reference when solution/guard is absent."""
+    if sh(["sh", str(BENCH / "harbor/build.sh")], log): raise RuntimeError("harbor/build.sh failed")
+    cfg = tomllib.loads((task / "task.toml").read_text())
+    box_tag = cfg["environment"]["docker_image"]
+    judge_tag = ((cfg.get("verifier") or {}).get("environment") or {}).get("docker_image")
+    if not judge_tag: raise ValueError("exam requires a separate selected-case judge image")
+    for kind in ("box", "judge"):  # fixed base tags: the case tags may reuse the bench names
+        if sh(["docker", "tag", f"unbug-bench-{kind}:dev", f"unbug-exam-base-{kind}:dev"], log): raise RuntimeError("no bench image")
+    ctx = case.parent / "box-context"; ctx.mkdir()
+    shutil.copy(case / "contestant.md", ctx / "contestant.md")
+    lines = ["ARG BASE", "FROM $BASE", "COPY contestant.md /app/CONTESTANT.md"]
+    if (case / "base/app.patch").is_file():  # bind-mounted: the diff itself never lands in a layer
+        shutil.copy(case / "base/app.patch", ctx / "base.patch")
+        lines.append("RUN --mount=type=bind,source=base.patch,target=/tmp/base.patch cd /app/projects/medusa && git apply /tmp/base.patch")
+    (ctx / "Dockerfile").write_text("\n".join(lines) + "\n")
+    if sh(["docker", "build", "--build-arg", "BASE=unbug-exam-base-box:dev", "-t", box_tag, str(ctx)], log):
+        raise RuntimeError("case box image build failed")
+    if judge_tag:
+        (case.parent / "Dockerfile.judge").write_text("\n".join([
+            "ARG BASE", "FROM $BASE", "COPY . /case/", f"COPY harbor/{task.name}/tests/ /tests/",
+            'RUN printf \'{"mode":"selected"}\\n\' > /tests/case-root.json && chmod +x /tests/test.sh']) + "\n")
+        if sh(["docker", "build", "--build-arg", "BASE=unbug-exam-base-judge:dev", "-f",
+               str(case.parent / "Dockerfile.judge"), "-t", judge_tag, str(case)], log):
+            raise RuntimeError("case judge image build failed")
+    if not (task / "solution/guard").exists() and (case / "guards/reference").is_dir():
+        shutil.copytree(case / "guards/reference", task / "solution/guard")
+    return {"cpus": cfg["environment"].get("cpus")}
+
+
+# ------------------------------------------------------------------ scorecard
+
+def step_card(index, step, trial, prev_questions):
+    """Numbers only: no step, path, scenario or claim text leaves the seal."""
+    d = trial / "steps" / step["step_name"]
+    rewards = (step.get("verifier_result") or {}).get("rewards") or {}
+    artifact = lambda source: d / next((m["destination"] for m in jload(d / "artifacts/manifest.json") or []
+                                       if m["source"] == source and m["status"] == "ok"), "missing")
+    asked = artifact("/logs/responder/questions.jsonl")  # cumulative over the trial
+    total_q = len(asked.read_text().splitlines()) if asked.is_file() else prev_questions
+    questions = max(0, total_q - prev_questions)
+    card = {"step": index, "reward": rewards.get("reward"), "judge_error": rewards.get("judge_error"),
+            "error": (step.get("exception_info") or {}).get("exception_type"), "questions": questions}
+    cp = jload(d / "verifier/checkpoint.json")
+    if cp:
+        if not claims.verify_pending_artifacts(cp, d / "verifier"):
+            cp["pending_verification"] = {}
+        s = claims.score(jload(artifact("/app/claims.json")) or {}, cp, cp.get("key") or {}, questions)
+        legit = cp.get("legit") or {}
+        card.update({
+            "runs": cp["runs"], "error_runs": cp.get("error_runs"), "invalid_runs": cp.get("invalid_runs"),
+            "adjudicated": s["adjudicated"], "unsafe": s["unsafe_checkpoint"],
+            "oversold_paths": sum(1 for p in cp["paths"].values() if p["violated_runs"]),
+            "oversold_runs": max([p["violated_runs"] for p in cp["paths"].values()] or [0]),
+            "false_assurance": s["counts"].get("false_assurance", 0), "false_alarm": s["counts"].get("false_alarm", 0),
+            "claims_missing": s["counts"].get("missing", 0),
+            "refused_legit_orders": legit.get("attempted", 0) - legit.get("placed", 0),
+            "legit_completion": cp["legit_completion"],
+            "response": s["response"] if s["response"] in claims.RESPONSES else None,
+            "response_correct": s["response_correct"], "escalated": s["escalated"],
+            "escalation_false_alarm": s["escalation_false_alarm"], "missed_escalation": s["missed_escalation"],
+            "human_minutes": s["human_minutes"]})
+        card['unannounced'] = cp.get('delivery') == 'unannounced'
+        if 'exposure' in cp:
+            e = cp['exposure']
+            card['exposure'] = {k: e[k] for k in ('duration_seconds', 'interval_seconds', 'valid')}
+            # Preserve the information wall: export per-path numbers, no names.
+            card['exposure']['paths'] = [dict(path=i, **row) for i, row in enumerate(e['paths'].values(), 1)]
+    return card, total_q
+
+
+def trial_card(arm, trial):
+    r = jload(trial / "result.json") or {}
+    steps, q = [], 0
+    for i, step in enumerate(r.get("step_results") or [], 1):
+        card, q = step_card(i, step, trial, q)
+        steps.append(card)
+    agent = r.get("agent_info") or {}
+    return {"arm": arm, "started_at": r.get("started_at"), "finished_at": r.get("finished_at"),
+            "error": (r.get("exception_info") or {}).get("exception_type"),
+            "agent": {"name": agent.get("name"), "version": agent.get("version")},
+            "raw_sha256": tree_sha256(trial), "steps": steps,
+            "unannounced": {'steps': sum(s.get('unannounced', False) for s in steps),
+                            'unsafe': sum(bool(s.get('unsafe')) for s in steps if s.get('unannounced')),
+                            'human_minutes': sum((s.get('human_minutes') or {}).get('total', 0) for s in steps if s.get('unannounced'))},
+            "human_minutes": sum((s.get("human_minutes") or {}).get("total", 0) for s in steps)}
+
+
+def card_text(card):
+    out = [f"{card['exam']}  case {card['case']}  sha256 ok: {card.get('case_sha256_matches', False)}"]
+    for t in card.get("trials", []):
+        st = t["steps"]
+        out.append(f"{t['arm']:7} try {t['try']}  reward {' '.join(str(s.get('reward')) for s in st)}  "
+                   f"unsafe {sum(bool(s.get('unsafe')) for s in st)}/{len(st)}  "
+                   f"false claims {sum(s.get('false_assurance', 0) + s.get('false_alarm', 0) for s in st)}  "
+                   f"refused orders {sum(s.get('refused_legit_orders', 0) for s in st)}  "
+                   f"questions {sum(s['questions'] for s in st)}  human min {t['human_minutes']}"
+                   + (f"  ERROR {t['error']}" if t["error"] else ""))
+        for step in st:
+            if step.get('unannounced'):
+                rows = step.get('exposure', {}).get('paths', [])
+                seconds = [[r['unsafe_seconds'], r['unsafe_claimed_protected_seconds'], r['unknown_seconds']] for r in rows]
+                out.append(f"  unannounced step {step['step']}  unsafe {step.get('unsafe')}  "
+                           f"human min {(step.get('human_minutes') or {}).get('total', 0)}  "
+                           f"per-path seconds [unsafe, claimed protected, unknown]: {seconds}")
+    if card.get("error"): out.append(f"exam error: {card['error']}")
+    out.append(f"raw jobs: {card.get('raw_archive')} sha256:{card.get('raw_archive_sha256')}")
+    return "\n".join(out)
+
+
+# ------------------------------------------------------------------ main
+
+KEYSWAP_CODEX = (BENCH / "harbor/keyswap/codex.toml").read_text()
+
+
+def unbug_harbor(log):
+    """Harbor plus the frozen Unbug wheel in a separate venv (the clean room's install recipe)."""
+    venv = pathlib.Path.home() / "unbug-venv"
+    if not (venv / "bin/harbor").exists():
+        if not UNBUG_WHEEL: raise RuntimeError("no Unbug wheel in contestants/unbug_v1")
+        uv = shutil.which("uv") or str(pathlib.Path.home() / ".local/bin/uv")
+        sh([uv, "venv", "-q", "--python", "3.13", str(venv)], log)
+        sh([uv, "pip", "install", "-q", "--python", str(venv / "bin/python"), f"harbor=={HARBOR_VERSION}", str(UNBUG_WHEEL)], log)
+    return str(venv / "bin/harbor")
+
+
+def owner_context(case, source_card, logs, args):
+    """Reuse factory model drivers/limits; credentials remain on the scoring host."""
+    import run as runner
+    import model_runtime
+    runner.BENCH = BENCH
+    role = source_card["roles"]["reviewer"]
+    model = role["model"]
+    work = logs / "owner"
+    for name in ("logs", "transcripts"):
+        (work / name).mkdir(parents=True, exist_ok=True)
+    model_env = {"OPENCODE_DISABLE_AUTOUPDATE": "1", "XDG_DATA_HOME": str(work / "model-state")}
+    driver = model.split("/", 1)[0]
+    key_files = {"claude": ("CLAUDE_CODE_OAUTH_TOKEN", os.environ.get("KEYSWAP_CLAUDE_TOKEN_FILE", "/dev/shm/secrets/claude-token")),
+                 "opencode-go": ("OPENCODE_API_KEY", "/dev/shm/secrets/opencode-go-key"),
+                 "openrouter": ("OPENROUTER_API_KEY", "/dev/shm/secrets/openrouter-key")}
+    if driver in key_files:
+        key, filename = key_files[driver]
+        model_env[key] = pathlib.Path(filename).read_text().strip()
+        if not model_env[key]:
+            raise RuntimeError("owner credential unavailable")
+    if driver == "codex":
+        auth = work / "auth"; auth.mkdir(mode=0o700)
+        shutil.copyfile(args.codex_auth, auth / "auth.json")
+        model_env["CODEX_HOME"] = str(auth)
+    # Use the existing CLI pins, never the mutable machine default.
+    package, version, binary = ({"codex": ("@openai/codex", model_runtime.CODEX_VERSION, "codex"),
+                                "claude": ("@anthropic-ai/claude-code", model_runtime.CLAUDE_VERSION, "claude")}
+                               .get(driver, ("opencode-ai", "1.19.0", "opencode")))
+    prefix = work / "cli"
+    if sh(["npm", "install", "--prefix", str(prefix), "--no-audit", "--no-fund", package + "@" + version],
+          logs / "owner-install.log"):
+        raise RuntimeError("owner CLI installation failed")
+    executable = prefix / "node_modules/.bin" / binary
+    actual = subprocess.check_output([str(executable), "--version"], text=True).split()
+    if version not in actual:
+        raise RuntimeError("owner CLI pin mismatch")
+    if driver in ("claude", "codex"):
+        os.environ["FACTORY_" + driver.upper() + "_BIN"] = str(executable)
+    else:
+        model_runtime.OPENCODE_BIN = str(executable)
+    limits = types.SimpleNamespace(max_cost=args.owner_max_cost, max_role_calls=40,
+                                   max_total_calls=args.owner_max_calls, agent_timeout=120,
+                                   no_progress_minutes=2, max_zero_tokens=3, concurrent_roles=True,
+                                   resume=None, dry_run=False)
+    return runner, types.SimpleNamespace(case=case, case_id=source_card["case"], work=work,
+        args=limits, ledger=work / "budget.json", models={"reviewers": [[model]]},
+        card={"roles": {"reviewer": role}, "model_transition": True}, model_env=model_env,
+        role_cancel=threading.Event(), budget_resumed=True, calibrator_slot_offset=0)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("archive", type=pathlib.Path)
+    p.add_argument("--scorecard", type=pathlib.Path, help="factory scorecard (default: next to the archive)")
+    p.add_argument("--identity", type=pathlib.Path, required=True, help="age identity file; shredded after use")
+    p.add_argument("--arm", action="append", required=True, choices=list(ARMS))
+    p.add_argument("--tries", type=int, default=1)
+    p.add_argument("--trial", action="append", help="run only ARM:TRY (round resume; repeatable)")
+    p.add_argument("--runs", type=int, help="judge runs per checkpoint (default: the task's, 30)")
+    p.add_argument("--answerer", choices=("reviewer",), default="reviewer")
+    p.add_argument("--owner-max-cost", type=float, default=5.0)
+    p.add_argument("--owner-max-calls", type=int, default=1000)
+    p.add_argument("--codex-auth", type=pathlib.Path,
+                   default=pathlib.Path(os.environ.get("KEYSWAP_CODEX_AUTH_FILE", pathlib.Path.home() / ".codex/auth.json")),
+                   help="relay-owned writable auth.json on the host; never uploaded to the contestant")
+    p.add_argument("--recipient", action="append", help="age recipient for the raw jobs (default: founder)")
+    p.add_argument("--out", type=pathlib.Path, default=pathlib.Path.home() / "exam-out")
+    p.add_argument("--private", type=pathlib.Path, default=pathlib.Path.home() / "exam-private")
+    a = p.parse_args()
+    if not (0 < a.owner_max_cost < float("inf")) or a.owner_max_calls <= 0:
+        p.error("owner limits must be finite and positive")
+    selected = [(arm, n) for arm in a.arm for n in range(1, a.tries + 1)]
+    if a.trial:
+        try:
+            selected = [(v.split(':')[0], int(v.split(':')[1])) for v in a.trial]
+            if len(set(selected)) != len(selected) or any(arm not in a.arm or n < 1 or n > a.tries for arm, n in selected):
+                raise ValueError()
+        except (ValueError, IndexError):
+            p.error('--trial must be a unique requested ARM:TRY')
+    if sys.platform != "linux": p.error("runs on the scoring VM only (bin/exam-launch), never on the Mac")
+    case_id = a.archive.name.removesuffix(".tar.gz.age")
+    exam = f"{case_id}.exam-{datetime.datetime.now(datetime.timezone.utc):%Y%m%dT%H%M%SZ}-{secrets.token_hex(2)}"
+    a.out.mkdir(parents=True, exist_ok=True)
+    priv, logs = a.private / exam, a.private / exam / "logs"
+    a.private.mkdir(mode=0o700, exist_ok=True)
+    logs.mkdir(parents=True)
+    log = logs / "run-exam.log"
+    card = {"exam": exam, "case": case_id, "arms": a.arm, "tries": a.tries, "runs_per_checkpoint": a.runs or "task default",
+            "answerer": a.answerer, "pins": {"harbor": HARBOR_VERSION, "claude_code": CLAUDE_CODE_VERSION, "claude_model": CLAUDE_MODEL,
+            "codex_cli": codex.CLI_VERSION, "codex_model": codex.MODEL}, "trials": []}
+    owner = None
+    try:
+        sys.path.insert(0, str(BENCH / "factory"))
+        from sealed_audit import verify_exam_metadata, verify_exam
+        source_card = verify_exam_metadata(jload(a.scorecard or a.archive.with_name(case_id + ".scorecard.json")) or {}, case_id)
+        from exam_responder import contract, docker_owner_server
+        reviewer = source_card.get("roles", {}).get("reviewer")
+        if not reviewer or source_card.get("owner_contract") != contract(BENCH, reviewer):
+            raise RuntimeError("case needs qualification with the current reviewer owner")
+        card["owner_contract"] = source_card["owner_contract"]
+        expected = source_card["sha256"]
+        card["case_sha256"] = sha256(a.archive)
+        card["case_sha256_matches"] = card["case_sha256"] == expected
+        if not card["case_sha256_matches"]: raise RuntimeError("archive sha256 differs from the factory scorecard")
+        if not shutil.which("age"): sh(["sudo", "sh", "-c", "apt-get update -qq && apt-get install -y -qq age"], log)
+        import shlex
+        q = lambda path: shlex.quote(str(path))
+        d = subprocess.run(f"set -o pipefail; age -d -i {q(a.identity)} {q(a.archive)} | "
+                           f"python3 -B {q(BENCH / 'factory/case_permissions.py')} "
+                           f"--extract-to {q(priv)} --case-tree {q(priv / case_id / 'case')}",
+                           shell=True, executable="/bin/bash", capture_output=True)
+        shred(a.identity)
+        if d.returncode: raise RuntimeError("decrypt failed")
+        case = priv / case_id / "case"
+        verify_exam(source_card, case_id, restored_work=case.parent, archive=a.archive)
+        tasks = sorted(case.glob("harbor/*/task.toml"))
+        if len(tasks) != 1: raise RuntimeError(f"case has {len(tasks)} Harbor tasks, expected 1")
+        task = tasks[0].parent
+        if not (shutil.which("harbor") or (pathlib.Path.home() / ".local/bin/harbor").exists()):
+            sh(["uv", "tool", "install", f"harbor=={HARBOR_VERSION}"], log)
+        os.environ["PATH"] = f"{pathlib.Path.home() / '.local/bin'}:{os.environ['PATH']}"
+        sh(["find", str(BENCH), "-name", "._*", "-delete"], log)  # macOS junk breaks bin/checkpoint
+        cpus = prepare(case, task, log)["cpus"]
+        runner, owner = owner_context(case, source_card, logs, a)
+        for arm, try_number in selected:
+            job_name = f"{arm}-try-{try_number}"
+            agent, extra = ARMS[arm]
+            env = dict(os.environ, TMPDIR=str(priv), PYTHONPATH=str(BENCH / "contestants"))
+            harbor_args = ["-k", "1", "-n", "1", *extra]
+            harbor = shutil.which("harbor") or str(pathlib.Path.home() / ".local/bin/harbor")
+            if arm == "gpt":
+                env = {k: v for k, v in env.items() if not k.startswith(("OPENAI_", "AZURE_OPENAI_", "CODEX_", "LITELLM_"))}
+                env["KEYSWAP_CODEX_AUTH_FILE"] = str(a.codex_auth.resolve())
+                (priv / "keyswap-codex.toml").write_text(KEYSWAP_CODEX)
+                harbor_args += ["--ak", f"config={priv / 'keyswap-codex.toml'}"]
+                # run-audited creates the dummy auth.json; only keyswap mounts this real file.
+            elif agent not in ("oracle", "nop"):
+                env = {k: v for k, v in env.items() if not k.startswith(("ANTHROPIC_", "CLAUDE_"))}
+                harbor_args += ["--ae", "CLAUDE_CODE_OAUTH_TOKEN=keyswap-placeholder",
+                                "--ae", "ANTHROPIC_BASE_URL=http://keyswap:8090/anthropic"]  # CLAUDE_FORCE_OAUTH: compose env only (see run-audited)
+            if arm in ("C", "C0"):
+                harbor = unbug_harbor(log)
+            if cpus and (os.cpu_count() or cpus) < cpus: harbor_args += ["--override-cpus", str(os.cpu_count())]
+            if a.runs: harbor_args += ["--ve", f"UNBUG_RUNS={a.runs}"]
+            sheet = ["--fact-sheet", str(case / "fact-sheet.md")] if (case / "fact-sheet.md").is_file() else []
+            card["fact_sheet"] = bool(sheet)
+            workspace = owner.work / job_name; workspace.mkdir()
+            with docker_owner_server(owner, runner, workspace) as relay:
+                env.update(relay)
+                result = sh([sys.executable, str(BENCH / "harbor/run-audited.py"), "--agent", agent, "--job-name", job_name, "--harbor", harbor,
+                    "--task", str(task), "--jobs-dir", str(priv / "jobs"), "--answerer", a.answerer, *sheet,
+                    "--", *harbor_args], logs / f"harbor-{job_name}.log", env=env)
+                if result:
+                    raise RuntimeError("audited trial failed")
+            trials = sorted((t.parent for t in (priv / "jobs" / job_name).glob("*/result.json")),
+                            key=lambda t: (jload(t / "result.json") or {}).get("started_at") or "")
+            if len(trials) != 1:
+                raise RuntimeError("expected one Harbor trial")
+            trial = trials[0]
+            for receipt in trial.glob("steps/*/artifacts/**/questions.jsonl"):
+                if any(json.loads(line).get("owner_error") for line in receipt.read_text().splitlines()):
+                    raise RuntimeError("owner transport failed; trial is not scored")
+            meter = exam_meter.rows_under(trial)
+            usage_limit = any(exam_meter.limited(row) for row in meter)
+            if usage_limit:
+                # Raw evidence stays sealed; a quota cutoff never exports scored observations.
+                summary = {"arm": arm, "raw_sha256": tree_sha256(trial),
+                           "steps": [], "human_minutes": None, "error": "ClaudeUsageLimit"}
+            else:
+                summary = trial_card(arm, trial)
+            card["trials"].append({**summary, "try": try_number,
+                                   "meter": exam_meter.merge({}, meter),
+                                   "infrastructure_failure": "claude_usage_limit" if usage_limit else None})
+            if usage_limit:
+                break  # collect/delete now; the round runner waits off-VM and reruns the whole trial
+    except Exception as error:
+        card["error"] = type(error).__name__
+        with open(log, "a") as f: f.write(traceback.format_exc())
+    finally:
+        if owner is not None:
+            usage = jload(owner.ledger)
+            card["owner_usage"] = {k: usage[k] for k in ("calls", "cost", "list_cost_usd")
+                                   if k in usage} if usage else None
+            # CLI packages/auth are neither evidence nor raw model output.
+            shred(owner.work / "auth")
+            shutil.rmtree(owner.work / "cli", ignore_errors=True)
+        shred(a.identity)
+        out = a.out / f"{exam}.jobs.tar.gz.age"
+        recipients = [x for r in (a.recipient or [FOUNDER_RECIPIENT]) for x in ("-r", r)]
+        names = [n for n in ("jobs", "logs") if (priv / n).exists()]
+        # Streamed: no plaintext tarball on disk. Raw dirs hold case content; only the .age leaves.
+        s = subprocess.run(f"set -o pipefail; tar -C {priv} -czf - {' '.join(names)} | age {' '.join(recipients)} -o {out}",
+                           shell=True, executable="/bin/bash", capture_output=True)
+        if names and s.returncode == 0:
+            card["raw_archive"], card["raw_archive_sha256"] = out.name, sha256(out)
+        else:
+            card["seal_error"] = True
+        shred(priv)
+        (a.out / f"{exam}.scorecard.json").write_text(json.dumps(card, indent=2) + "\n")
+        text = card_text(card)
+        (a.out / f"{exam}.scorecard.txt").write_text(text + "\n")
+        print(text, flush=True)
+        (a.out / "DONE").write_text(exam + "\n")
+
+
+if __name__ == "__main__":
+    main()

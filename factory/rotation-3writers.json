@@ -1,0 +1,80 @@
+{
+  "families": {
+    "anthropic": {
+      "model": "claude/claude-opus-5-5",
+      "effort": "high"
+    },
+    "openai": {
+      "model": "codex/gpt-6.1-sol",
+      "effort": "high"
+    },
+    "minimax": {
+      "model": "opencode/minimax-m3.1-flash-free",
+      "effort": "default"
+    },
+    "deepseek": {
+      "model": "opencode/deepseek-v4.1-flash-free",
+      "effort": "default"
+    }
+  },
+  "refused": {
+    "openai": [
+      "writer",
+      "stress_tester"
+    ]
+  },
+  "refused_why": "OpenAI's filter flags case writing as cybersecurity risk (2026-10-16); remove after Daybreak approval",
+  "note": "3 writer families while GPT is refused: anthropic 3, minimax 3, deepseek 2 cases; openai calibrates/reviews only",
+  "slots": [
+    {
+      "writer": "anthropic",
+      "stress_tester": "minimax",
+      "strong_calibrator": "openai",
+      "reviewer": "deepseek"
+    },
+    {
+      "writer": "anthropic",
+      "stress_tester": "deepseek",
+      "strong_calibrator": "openai",
+      "reviewer": "minimax"
+    },
+    {
+      "writer": "anthropic",
+      "stress_tester": "minimax",
+      "strong_calibrator": "openai",
+      "reviewer": "deepseek"
+    },
+    {
+      "writer": "minimax",
+      "stress_tester": "deepseek",
+      "strong_calibrator": "anthropic",
+      "reviewer": "openai"
+    },
+    {
+      "writer": "minimax",
+      "stress_tester": "anthropic",
+      "strong_calibrator": "openai",
+      "reviewer": "deepseek"
+    },
+    {
+      "writer": "minimax",
+      "stress_tester": "deepseek",
+      "strong_calibrator": "openai",
+      "reviewer": "anthropic"
+    },
+    {
+      "writer": "deepseek",
+      "stress_tester": "minimax",
+      "strong_calibrator": "anthropic",
+      "reviewer": "openai"
+    },
+    {
+      "writer": "deepseek",
+      "stress_tester": "anthropic",
+      "strong_calibrator": "openai",
+      "reviewer": "minimax"
+    }
+  ],
+  "routes_note": "2026-10-19 founder: OpenCode Go subscription first for MiMo and Muse; OpenRouter is the backup",
+  "free_models_note": "2026-10-20 founder: new cases use free MiniMax M3.1 Flash and DeepSeek V4.1 Flash (OpenCode) in place of MiMo and Muse"
+}

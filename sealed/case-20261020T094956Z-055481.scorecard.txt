@@ -1,0 +1,8 @@
+case-20261020T094956Z-055481  sha256:0667f38ffda45cc455ce9802053507f61e7ba7bf9c4cfbf589dd6a9e334e30ef
+gates: passed G1,G2,G3,G4,G5,G12; FAILED G8   failed detail: {"approve": "0/1"}
+reviewers: fairness 0/1 approve, realism - approve
+plain app broke the promise 10/10   reference fix 10/10   cheats - passed   scenario keys 4/4
+calibrators: {}   fake pass: -
+surprises: 3   scenarios: 5   provenance: 3   source: port   builder rounds: 1
+wipe: "deferred: VM parked for an in-place resume"   wall: 313.7 min
+models: {"builder": ["opencode/deepseek-v4.1-flash-free"], "attacker": ["opencode/minimax-m3.1-flash-free"], "reviewers": [["codex/gpt-6.1-sol"]], "strong_calibrator": ["claude/claude-opus-5-5"], "easy_calibrator": ["opencode/glm-5.3-flash-free"]}

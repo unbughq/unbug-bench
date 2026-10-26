@@ -1,0 +1,9 @@
+case-20261018T144339Z-e5caf7  sha256:cdb3541516143f187f9c75a8c224738c2c936aead027bbf64345a5fb37ca236b
+gates: passed G1,G2,G3,G4,G5,G12
+reviewers: fairness - approve, realism - approve
+plain app broke the promise 10/10   reference fix 10/10   cheats - passed   scenario keys 12/12
+calibrators: {}   fake pass: -
+surprises: 4   scenarios: 6   provenance: 5   source: hunt   builder rounds: -
+wipe: null   wall: 2832.5 min
+STOPPED: Budget ledger stopped: codex_error
+models: {"builder": ["claude/claude-opus-5-5"], "attacker": ["opencode/minimax-m3.1-flash-free"], "reviewers": [["opencode/deepseek-v4.1-flash-free"]], "strong_calibrator": ["codex/gpt-6.1-sol"], "easy_calibrator": ["opencode/glm-5.3-flash-free"]}

@@ -1,0 +1,17 @@
+{
+  "round": 7,
+  "report": "round-7.json",
+  "round_limit": 9,
+  "rereviews": 2,
+  "binding_keys": [
+    "bench",
+    "case",
+    "case_id",
+    "models",
+    "prompt",
+    "source"
+  ],
+  "report_at": "2026-10-24T19:12:33Z",
+  "observed_at": "2026-10-25T14:04:00Z",
+  "provenance": "Founder-provided live receipt values; binding values and report contents were not read on Mac."
+}

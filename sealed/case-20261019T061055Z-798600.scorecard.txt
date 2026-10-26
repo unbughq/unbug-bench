@@ -1,0 +1,8 @@
+case-20261019T061055Z-798600  sha256:0d1ff60f6140a82ef42a5fffcaa67598251ff3a49863f5f80c47f58acb96311f
+gates: passed G1,G2,G3,G4,G5,G12; FAILED G8   failed detail: {"approve": "0/1"}
+reviewers: fairness 0/1 approve, realism - approve
+plain app broke the promise 10/10   reference fix 10/10   cheats - passed   scenario keys 5/5
+calibrators: {}   fake pass: -
+surprises: 4   scenarios: 5   provenance: 3   source: hunt   builder rounds: -
+wipe: "deferred: VM parked for an in-place resume"   wall: 1933.5 min
+models: {"builder": ["opencode/minimax-m3.1-flash-free"], "attacker": ["opencode/deepseek-v4.1-flash-free"], "reviewers": [["claude/claude-opus-5-5"]], "strong_calibrator": ["codex/gpt-6.1-sol"], "easy_calibrator": ["opencode/glm-5.3-flash-free"]}

@@ -1,0 +1,99 @@
+{
+  "parameters": {
+    "cases": 8,
+    "tries": 5,
+    "saving": 0.5,
+    "safety_difference": 0.0,
+    "base_rate": 0.05,
+    "base_minutes": 15.0,
+    "case_rho": 0.03,
+    "try_rho": 0.2,
+    "minute_case_sd": 0.4,
+    "minute_try_sd": 0.7,
+    "paired_uniform": 0.0,
+    "harm_fraction": 1.0,
+    "checkpoints": [
+      4,
+      6
+    ]
+  },
+  "simulations": 400,
+  "bootstrap_resamples": 499,
+  "proposed_guarded_rules": {
+    "safety_noninferior": {
+      "probability": 0.3525,
+      "monte_carlo95": [
+        0.30728664659675226,
+        0.4005194802318652
+      ]
+    },
+    "minutes_over_30pct": {
+      "probability": 0.2025,
+      "monte_carlo95": [
+        0.16603379503442495,
+        0.24462602009448153
+      ]
+    },
+    "supports_H1": {
+      "probability": 0.175,
+      "monte_carlo95": [
+        0.14090420159304531,
+        0.21527878972424738
+      ]
+    },
+    "falsifies_H1": {
+      "probability": 0.005,
+      "monte_carlo95": [
+        0.0013722529547103828,
+        0.018044918436243153
+      ]
+    },
+    "inconclusive": {
+      "probability": 0.82,
+      "monte_carlo95": [
+        0.7793624469518832,
+        0.8545496846741669
+      ]
+    }
+  },
+  "literal_protocol_rules": {
+    "safety_noninferior": {
+      "probability": 0.3525,
+      "monte_carlo95": [
+        0.30728664659675226,
+        0.4005194802318652
+      ]
+    },
+    "minutes_over_30pct": {
+      "probability": 0.2025,
+      "monte_carlo95": [
+        0.16603379503442495,
+        0.24462602009448153
+      ]
+    },
+    "supports_H1": {
+      "probability": 0.175,
+      "monte_carlo95": [
+        0.14090420159304531,
+        0.21527878972424738
+      ]
+    },
+    "falsifies_H1": {
+      "probability": 0.005,
+      "monte_carlo95": [
+        0.0013722529547103828,
+        0.018044918436243153
+      ]
+    },
+    "inconclusive": {
+      "probability": 0.82,
+      "monte_carlo95": [
+        0.7793624469518832,
+        0.8545496846741669
+      ]
+    }
+  },
+  "safety_ci_coverage": 0.9675,
+  "minutes_ci_coverage": 0.93,
+  "collapsed_safety_fraction": 0.0
+}

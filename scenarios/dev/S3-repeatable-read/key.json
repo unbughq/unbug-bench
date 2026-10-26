@@ -1,0 +1,34 @@
+{
+ "scenario": "S3",
+ "correct_responses": [
+  "keep",
+  "repair"
+ ],
+ "escalation": "inappropriate",
+ "claims": {
+  "*": [
+   "protected"
+  ]
+ },
+ "judge_checks": [
+  "App connections run repeatable read (judge fact)",
+  "No oversell on any path",
+  "Serialization failures that refuse legitimate orders count as false blocks (base legitimate checks)",
+  "keep is correct only if the guard still passes; repair if it now false-blocks or misses"
+ ],
+ "expected_judge": {
+  "reference": {
+   "pass": true,
+   "violated_paths": [],
+   "checks": {
+    "repeatable_read": true
+   }
+  },
+  "none": {
+   "pass": false,
+   "checks": {
+    "repeatable_read": true
+   }
+  }
+ }
+}

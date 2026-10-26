@@ -1,0 +1,21 @@
+schema_version = "1.4"
+multi_step_reward_strategy = "mean"
+artifacts = ["/app/evidence", "/app/claims.json"]
+[environment]
+cpus = 1
+memory_mb = 512
+[agent]
+timeout_sec = 60
+[verifier.environment]
+cpus = 1
+memory_mb = 512
+[[steps]]
+name = "establish"
+[steps.verifier.env]
+PROBE_CALLS = "1"
+[[steps]]
+name = "observe"
+[steps.verifier.env]
+PROBE_CALLS = "2"
+[[steps]]
+name = "quiet"

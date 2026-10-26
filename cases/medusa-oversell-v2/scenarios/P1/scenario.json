@@ -1,0 +1,7 @@
+{
+  "id": "P1",
+  "title": "App role write tuning",
+  "kind": "db config",
+  "delivery": "pending",
+  "change": "Ops proposes bypassing ordinary database triggers on application sessions to reduce checkout lock waits."
+}

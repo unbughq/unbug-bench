@@ -1,0 +1,18 @@
+services:
+  marketplace:
+    build: {context: ../marketplace}
+    image: unbug-bench-marketplace:latest
+    mem_limit: 64m
+    cpus: 1
+    stop_grace_period: 2s
+    user: "65534:65534"
+    read_only: true
+    environment:
+      MEDUSA_URL: http://medusa:9000
+    ports: ["127.0.0.1:9010:9010"]
+    tmpfs: ["/data:uid=65534,gid=65534,mode=0700"]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9010/health', timeout=1)"]
+      interval: 1s
+      timeout: 2s
+      retries: 30

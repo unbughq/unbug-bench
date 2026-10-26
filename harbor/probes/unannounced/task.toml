@@ -1,0 +1,14 @@
+schema_version = "1.4"
+multi_step_reward_strategy = "mean"
+artifacts = ["/app/evidence", "/app/claims.json"]
+[environment]
+cpus = 1
+memory_mb = 512
+[agent]
+timeout_sec = 60
+[[steps]]
+name = "establish"
+[[steps]]
+name = "observe"
+[[steps]]
+name = "quiet"

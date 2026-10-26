@@ -1,0 +1,188 @@
+"""Gate execution policy: evidence reuse, early feedback and joined scheduling.
+
+Scientific evaluators and runtime effects are injected by the factory composition
+root. This module never imports the runner or discovers its globals.
+"""
+import json
+import sys
+import threading
+import time
+import traceback
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
+
+from budget import BudgetError
+import gate_attempt
+import gate_state
+
+
+@dataclass
+class GatePipeline:
+    bench: Path
+    evaluate: Callable
+    case_hash: Callable
+    log: Callable
+    publish: Callable
+    budget_boundary: Callable
+    after_gate: Callable
+    overlap_reason: Callable
+    gates: tuple
+    early_gates: tuple
+    saved_cheat_check: Callable
+    dry_skip: dict
+
+    def check(self, c, gate):
+        """Reuse verified evidence or execute a gate and retain its supporting artifacts."""
+        reusable = gate in gate_state.REUSABLE and hasattr(c, "manifest0") and hasattr(c, "case")
+        if reusable:
+            cached = gate_state.load(c, gate, self.bench)
+            if cached is not None:
+                if gate in ("G8", "G9"):
+                    c.card["reviewers_fairness" if gate == "G8" else "reviewers_realism"] = cached.get("approve")
+                return True, {**cached, "reused_verified_evidence": True,
+                              "fingerprint_version": c.gate_fingerprint_versions[gate]}
+            signature = gate_state.fingerprint(c, gate, self.bench)
+            before = {key: gate_state.digest(path) for key, path in gate_state.inventory(c, self.bench).items()}
+        ok, info = self.evaluate(c, gate)
+        if reusable and ok and signature == gate_state.fingerprint(c, gate, self.bench):
+            gate_state.save(c, gate, info, signature, before, self.bench)
+        return ok, info
+
+
+    def record_crash(self, c, gate, error):
+        directory = c.work / "gate-details"; directory.mkdir(exist_ok=True)
+        attempt = 1
+        while (directory / f"{gate}.crash-{attempt}.json").exists(): attempt += 1
+        (directory / f"{gate}.crash-{attempt}.json").write_text(json.dumps({
+            "error": type(error).__name__, "message": str(error)[:20000], "traceback": traceback.format_exc()[:20000]}))
+        self.log(c, gate, "crashed", type(error).__name__)
+
+
+    def early_checks(self, c):
+        """G3-G5 right after the writer (~20 min on a cpx42): a case whose bug is not real or whose keys are wrong goes
+        back to the writer in the same round, before the stress tester spends time on it. Returns writer problems or None;
+        passing results are reused by the gate loop while the case is unchanged."""
+        c.early = {}
+        # G15 needs the complete answer key/ingredients; G1 has validated them before this call.
+        gates = (["G15"] if (c.case / "answer-key.json").is_file() else []) + list(self.early_gates)
+        for gate in gates:
+            outcome = gate_attempt.execute(
+                lambda: self.check(c, gate),
+                publish=lambda *args: self.publish(c, 'early:' + gate, *args),
+                record_crash=lambda error: self.record_crash(c, gate, error),
+                interruption=BudgetError, attempts=2)
+            ok, info = outcome.ok, outcome.info
+            if outcome.crashed:
+                c.card.setdefault("early_gates", {})[gate] = {"ok": False, "crashed": True, **info,
+                    "minutes": round(outcome.elapsed_seconds / 60, 1)}
+                continue  # Operational failure: no writer problem or reusable verdict.
+            self.log(c, gate, "early", "pass" if ok else "FAIL", json.dumps(info), f"{outcome.elapsed_seconds:.0f}s")
+            c.card.setdefault("early_gates", {})[gate] = {"ok": ok, "minutes": round((outcome.elapsed_seconds) / 60, 1)}
+            if not ok:
+                c.early = {}
+                problems = [f"early check {gate} failed: {json.dumps(info)}"]
+                details = c.work / "gate-details" / f"{gate}.json"
+                if details.is_file(): problems.append(f"details: {details.read_text()[:8000]}")
+                return problems
+            c.early[gate] = (ok, info)
+        problems = self.saved_cheat_check(c)
+        if problems:
+            c.early = {}
+            return problems
+        c.early_hash = self.case_hash(c)
+        return None
+
+
+    def early_review(self, c):
+        """G8/G9 on the written case (reviewers read it; no bench). Returns writer problems with the reviewers' findings,
+        or None; passes are reused by the gate loop while the case is unchanged."""
+        early = c.__dict__.setdefault("early", {})
+        if not hasattr(c, "early_hash"): c.early_hash = self.case_hash(c)
+        problems = []
+        for gate, part in (("G8", "fairness"), ("G9", "realism")):
+            outcome = gate_attempt.execute(
+                lambda: self.evaluate(c, gate),
+                publish=lambda *args: self.publish(c, 'early:' + gate, *args),
+                record_crash=lambda error: self.record_crash(c, gate, error),
+                interruption=BudgetError, raise_crash=True)
+            ok, info = outcome.ok, outcome.info
+            self.log(c, gate, "early", "pass" if ok else "FAIL", json.dumps(info), f"{outcome.elapsed_seconds:.0f}s")
+            c.card.setdefault("early_gates", {})[gate] = {"ok": ok, "minutes": round(outcome.elapsed_seconds / 60, 1)}
+            if ok: early[gate] = (ok, info)
+            else: problems.append(f"early check {gate} failed: {json.dumps(info)}; reviewer {part} findings: "
+                                  + json.dumps([(v.get(part) or {}).get("findings") for v in c.votes])[:8000])
+        return problems or None
+
+
+    def run(self, c):
+        """Run gates, joining/cancelling the isolated G10 before returning to seal/checkpoint."""
+        a = c.args
+        def run_gate(gate):
+            def invoke():
+                if gate in getattr(c, "early", {}) and c.early_hash == self.case_hash(c):
+                    ok, info = c.early[gate]
+                    return ok, {**info, "reused_from_early_check": True}
+                return self.check(c, gate)
+            outcome = gate_attempt.execute(
+                invoke, publish=lambda *args: self.publish(c, gate, *args),
+                record_crash=lambda error: self.record_crash(c, gate, error), interruption=BudgetError)
+            if outcome.crashed:
+                c.stopped = True
+                c.card["terminal_stop"] = "runner_error:" + outcome.info["error"]
+            return outcome.ok, outcome.info
+
+        future, g10_started = None, None
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            for gate in getattr(c, "audit_gates", self.gates):
+                self.budget_boundary(c)
+                if a.dry_run and gate in self.dry_skip:
+                    c.card["gates"][gate] = f"skipped ({self.dry_skip[gate]})"; continue
+                # 2026-10-20: a completed G10 rejection/stop wins at the next boundary;
+                # an already-running foreground gate finishes first (its failure wins).
+                if future is not None and future.done() and gate != "G10":
+                    if not future.result()[0]: gate = "G10"
+                if gate == "G6" and not (a.dry_run and "G10" in self.dry_skip):
+                    reason = self.overlap_reason(c)
+                    if reason is None and getattr(c, "prepared_factory_slots", 1) < a.bench_workers + 2:
+                        reason = "reserved tester instances were not prepared"
+                    if reason:
+                        self.log(c, "G10", "serial:", reason)
+                    else:
+                        c.calibrator_slot_offset = a.bench_workers
+                        c.role_cancel = threading.Event()
+                        g10_started = time.time()
+                        self.log(c, "G10", "start (overlapping bench gates)")
+                        future = pool.submit(run_gate, "G10")
+                started = g10_started if gate == "G10" and future is not None else time.time()
+                if gate == "G10" and future is not None:
+                    ok, info = future.result()  # joined before G11; same card/log format
+                else:
+                    ok, info = run_gate(gate)
+                self.log(c, gate, "pass" if ok else "FAIL", json.dumps(info), f"{time.time() - started:.0f}s")
+                c.card["gates"][gate] = "pass" if ok else "fail"
+                c.card.setdefault("gate_results", {})[gate] = info
+                c.card.setdefault("gate_minutes", {})[gate] = round((time.time() - started) / 60, 1)
+                self.after_gate(c, gate, ok, future is None or gate == "G10")
+                if not ok:
+                    c.card["failed_gate"] = gate
+                    c.card["failed_detail"] = info.get("problems") or info
+                    break
+            if not c.card.get("failed_gate"): self.budget_boundary(c)
+        finally:
+            if future is not None:
+                error = sys.exc_info()[1]
+                budget_boundary = isinstance(error, BudgetError) and str(error) == 'budget_exhausted'
+                cancelling = not future.done() and not budget_boundary
+                if cancelling: c.role_cancel.set()
+                pool.shutdown(wait=True)  # model cancellation kills its process group
+                # Stop/provider errors in the tester must reach main's checkpoint path.
+                try: future.result()
+                except BudgetError as error:
+                    if not (cancelling and str(error) == "cancelled"): raise
+            else:
+                pool.shutdown(wait=True)
+
+

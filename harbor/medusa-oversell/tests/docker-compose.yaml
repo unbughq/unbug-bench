@@ -1,0 +1,14 @@
+# Separate verifier box (main = unbug-bench-judge:dev). Same Docker-in-Docker setup as the
+# agent box; a fresh one per step, so nothing the agent did to its own engine reaches the judge.
+services:
+  main:
+    privileged: true  # ASSUMPTION: as in environment/docker-compose.yaml
+    command: ["start-dockerd"]  # cgroup v2 nesting + dockerd (images/start-dockerd.sh)
+    volumes: [judge-docker:/var/lib/docker]
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+volumes:
+  judge-docker:

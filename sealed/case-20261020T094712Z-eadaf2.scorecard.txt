@@ -1,0 +1,8 @@
+case-20261020T094712Z-eadaf2  sha256:6846f904f73c47de47c34e9195fa1f79622e5d9ceb68c205658d229d026a0aa6
+gates: passed G1,G12; FAILED G2   failed detail: {"searches": 16, "hits": 1, "flagged_hits": 1, "counted": {"builder_web": 8, "builder_github": 4, "attacker": 4}, "uncounted_who_kind": []}
+reviewers: fairness - approve, realism - approve
+plain app broke the promise -   reference fix -   cheats - passed   scenario keys -
+calibrators: {}   fake pass: -
+surprises: 4   scenarios: 5   provenance: 3   source: port   builder rounds: -
+wipe: "deferred: VM parked for an in-place resume"   wall: 184.5 min
+models: {"builder": ["opencode/minimax-m3.1-flash-free"], "attacker": ["claude/claude-opus-5-5"], "reviewers": [["opencode/deepseek-v4.1-flash-free"]], "strong_calibrator": ["codex/gpt-6.1-sol"], "easy_calibrator": ["opencode/glm-5.3-flash-free"]}

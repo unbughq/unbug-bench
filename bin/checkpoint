@@ -1,0 +1,276 @@
+#!/usr/bin/env python3
+"""Checkpoint: apply change scenarios (in order) to a fresh bench in every run, run traffic and
+the judge, and record per-path results in <run directory>/checkpoint.json. With --claims, score
+the arm's claims.json against the last scenario's answer key.
+
+  bin/checkpoint --scenario <dir> [--scenario <dir> ...] --guard <guard> [--runs 3] [--stress] [--seed 1] [--claims claims.json]
+    [--questions questions.jsonl --step <step>]
+    [--pending-state <trial-decisions.json>]  use a fresh path for each trial
+"""
+import argparse, fcntl, hashlib, json, os, pathlib, sys
+import bench, claims as claim_scoring
+import checkpoint_evidence
+
+
+def select_scenarios(scenarios, claims, history):
+    """Resolve once per trial; replay only approved changes, including on later steps."""
+    active, decisions = [], dict(history)
+    for s in scenarios:
+        if s.get("delivery", "announced") != "pending":
+            active.append(s)
+            continue
+        if s["id"] not in decisions:
+            decisions[s["id"]] = claim_scoring.pending_decision(claims if s is scenarios[-1] else {}, s["key"] or {})
+        if decisions[s["id"]]["landed"]: active.append(s)
+    return active, decisions
+
+
+def summarize(directory, scenarios, guard_name, active=None):
+    active = scenarios if active is None else active
+    records = [json.loads(f.read_text()) for f in checkpoint_evidence.record_paths(directory)]
+    paths, checks = {}, {}
+    for r in records:
+        for p, violated in r["judge"]["paths"].items():
+            e = paths.setdefault(p, {"violated_runs": 0, "runs": 0}); e["runs"] += 1; e["violated_runs"] += violated
+        for name, ok in r["judge"]["checks"].items():
+            c = checks.setdefault(name, {"ok_runs": 0, "runs": 0}); c["runs"] += 1; c["ok_runs"] += ok
+    for e in paths.values(): e["rate_wilson95"] = [round(x, 4) for x in bench.wilson(e["violated_runs"], e["runs"])]
+    attempted = sum(r["judge"]["legit"]["attempted"] for r in records)
+    placed = sum(r["judge"]["legit"]["placed"] for r in records)
+    key = dict(scenarios[-1]["key"] or {})
+    intent = sorted({name for s in active for name in (s["key"] or {}).get("intent_checks", [])})
+    if intent or "intent_checks" in key: key["intent_checks"] = intent
+    expected_violations = sorted({p for s in active for p in ((s["key"] or {}).get("expected_violations") or [])})
+    summary = {"scenarios": [s["id"] for s in scenarios], "guard": guard_name, "runs": len(records),
+               "delivery": scenarios[-1].get('delivery', 'announced'),
+               "pass_runs": sum(r["judge"]["pass"] for r in records), "error_runs": sum(bool(r["errors"]) for r in records),
+               "invalid_runs": sum(not r["checker"].get("valid") for r in records),
+               "errors": [e for r in records for e in r["errors"]][:5],
+               "paths": paths, "checks": checks, "expected_violations": expected_violations,
+               "legit": {"placed": placed, "attempted": attempted}, "legit_completion": placed / attempted if attempted else 1.0,
+               "key": key}
+    expected = (key.get("expected_judge") or {}).get(guard_name)
+    if expected:
+        mismatches = []
+        n = len(records)
+        # An errored or invalid run has no verdict to compare; it never counts as matching the key.
+        if summary["error_runs"] or summary["invalid_runs"]:
+            mismatches.append(f"{summary['error_runs']} errored and {summary['invalid_runs']} invalid run(s) of {n}: no verdict")
+        if "pass" in expected and summary["pass_runs"] != (n if expected["pass"] else 0):
+            mismatches.append(f"pass: expected {expected['pass']} in every run, observed {summary['pass_runs']}/{n}")
+        if "violated_paths" in expected:
+            seen = sorted(p for p, e in paths.items() if e["violated_runs"])
+            if seen != sorted(expected["violated_paths"]):
+                mismatches.append(f"violated paths: expected {sorted(expected['violated_paths'])}, observed {seen}")
+        for name, want in (expected.get("checks") or {}).items():
+            got = checks.get(name, {"ok_runs": 0})["ok_runs"]
+            if got != (n if want else 0): mismatches.append(f"check {name}: expected {want} in every run, observed {got}/{n}")
+        summary["key_consistent"] = not mismatches
+        summary["key_mismatches"] = mismatches
+    return summary
+
+
+def matches_fact_schema(value, schema):
+    """Small fail-closed subset of JSON Schema for trusted oracle declarations."""
+    if not isinstance(schema, dict): return False
+    kind = schema.get("type")
+    supported = {"object": {"type", "properties", "required", "minProperties", "additionalProperties"},
+                 "array": {"type", "items", "minItems"}, "integer": {"type", "minimum"},
+                 "number": {"type"}, "boolean": {"type"}, "string": {"type"}}
+    if kind not in supported or set(schema) - supported[kind]: return False
+    if kind == "object":
+        properties = schema.get("properties", {})
+        required = schema.get("required", list(properties))
+        if not isinstance(value, dict) or not isinstance(properties, dict) or not isinstance(required, list): return False
+        if not set(required) <= properties.keys() or not set(required) <= value.keys(): return False
+        if len(value) < schema.get("minProperties", 1): return False
+        if not all(matches_fact_schema(value[k], v) for k, v in properties.items() if k in value): return False
+        additional = schema.get("additionalProperties", False)
+        return all(k in properties or isinstance(additional, dict) and matches_fact_schema(v, additional)
+                   for k, v in value.items())
+    if kind == "array":
+        return (isinstance(value, list) and len(value) >= schema.get("minItems", 1)
+                and all(matches_fact_schema(v, schema.get("items")) for v in value))
+    if kind == "integer": return type(value) is int and value >= schema.get("minimum", 0)
+    if kind == "number": return type(value) in (int, float) and 0 <= value < float("inf")
+    if kind == "boolean": return type(value) is bool
+    if kind == "string": return isinstance(value, str) and bool(value)
+    return False
+
+
+def oracle_requirements(active):
+    """Completeness is declared by the trusted case author, never inferred from claims/guards.
+
+    Legacy cases without an explicit contract cannot authorize pending approval. All declared
+    requirements are mandatory; judges remain responsible for declaring the full business rule.
+    """
+    checks, schemas = set(), {}
+    for scenario in active:
+        contract = (scenario.get("key") or {}).get("oracle_contract")
+        if not isinstance(contract, dict) or contract.get("version") != 1: raise ValueError("missing oracle contract")
+        requirements = contract["requirements"]
+        if not isinstance(requirements, dict): raise ValueError("invalid requirements")
+        for name, names in requirements.items():
+            if not isinstance(name, str) or not name or not isinstance(names, list) or not names: raise ValueError("invalid requirement")
+            if any(not isinstance(c, str) or not c for c in names): raise ValueError("invalid requirement checks")
+            checks.update(names)
+        checks.update((scenario.get("key") or {}).get("intent_checks", []))
+        if (scenario["dir"] / "judge.py").exists():
+            if not requirements or not isinstance(contract.get("facts"), dict): raise ValueError("missing judge contract")
+            schemas[scenario["id"]] = contract["facts"]
+        elif contract.get("facts") is not None:
+            raise ValueError("facts declared without judge")
+    return checks, schemas
+
+
+def verify_pending_installation(directory, summary, active, requested_runs):
+    """Validate runner receipts against frozen inputs and full oracle records, not claims.
+
+    This is a local judge-artifact trust boundary, not a contestant attestation API.
+    Historical records without installation receipts deliberately fail closed.
+    """
+    proof = {"version": claim_scoring.SCORING_VERSION, **claim_scoring.scoring_identity(), "verified": False,
+             "requested_runs": requested_runs}
+    try:
+        files = {f: (directory / "guard" / f).read_bytes() for f in bench.GUARD_FILES
+                 if (directory / "guard" / f).exists()}
+        guard_hash = bench.digest(files)
+        source_hashes = {s["id"]: bench.digest(bench.scenario_files(s)) for s in active}
+        installed_scenarios = None
+        records = checkpoint_evidence.record_paths(directory)
+        if type(requested_runs) is not int or requested_runs <= 0 or len(records) != requested_runs: return proof
+        ignored = {c for s in active for c in s.get("ignore", [])}
+        business_checks, fact_schemas = oracle_requirements(active)
+        services = bench.inventory_services(active)
+        required_checks = ((set(bench.BASE_CHECKS) - ignored) | business_checks
+                           | {"service:" + s["name"] + ":confirmed_orders_ok" for s in services})
+        required_paths = set(bench.PATH_OF_KIT.values()) | {"service:" + s["name"] for s in services}
+        seen_checks, seen_paths, hashes = None, None, []
+        for i, path in enumerate(records, 1):
+            r = json.loads(path.read_text())
+            # JSON permits NaN/Infinity by default; those are invalid oracle facts.
+            json.dumps(r, allow_nan=False)
+            if r["run"] != i or r["guard_sha256"] != guard_hash: return proof
+            if r["errors"] != [] or r["checker"]["valid"] is not True or not isinstance(r["traffic"], dict): return proof
+            if r["traffic"].get("error"): return proof
+            frozen = r["scenarios"]
+            if [s["id"] for s in frozen] != [s["id"] for s in active]: return proof
+            for scenario in frozen:
+                stored = (bench.ROOT / scenario["dir"]).resolve()
+                if not stored.is_relative_to((directory / "scenarios").resolve()): return proof
+                if bench.digest(bench.scenario_files({"dir": stored})) != scenario["sha256"]: return proof
+                if scenario["source_sha256"] != source_hashes[scenario["id"]]: return proof
+                original = next(s for s in active if s["id"] == scenario["id"])
+                if bench.load_scenario(stored)["key"] != original["key"]: return proof
+            installed = {"guard_sha256": guard_hash, "scenarios": [{"id": s["id"], "sha256": s["sha256"]} for s in frozen]}
+            if r["installation"] != installed: return proof
+            if installed_scenarios is not None and installed_scenarios != installed["scenarios"]: return proof
+            installed_scenarios = installed["scenarios"]
+            judge = r["judge"]
+            if judge["pass"] is not True or judge.get("invalid") or not isinstance(judge["facts"], dict): return proof
+            if not required_paths <= judge["paths"].keys() or any(v is not False for v in judge["paths"].values()): return proof
+            if not required_checks <= judge["checks"].keys() or any(v is not True for v in judge["checks"].values()): return proof
+            # A missing check/path in one trial cannot disappear through aggregation.
+            current_checks, current_paths = set(judge["checks"]), set(judge["paths"])
+            if seen_checks is not None and (seen_checks != current_checks or seen_paths != current_paths): return proof
+            seen_checks, seen_paths = current_checks, current_paths
+            facts = judge["facts"]
+            units = {"type": "object", "properties": {k: {"type": "number"} for k in (*bench.STOCK, *bench.CROWD_STOCK)}}
+            inventory_schema = {"type": "object", "properties": {
+                "writers": {"type": "object", "minProperties": len(services), "properties": {
+                    service["name"]: {"type": "object", "properties": {
+                        "database_units": units, "api_units": units, "attempts": {"type": "integer", "minimum": 1}}}
+                    for service in services}}, "total_units": units}}
+            if not matches_fact_schema(facts["inventory_services"], inventory_schema): return proof
+            if any(not isinstance(facts.get(name), dict) or not facts[name]
+                   or not matches_fact_schema(facts[name], schema) for name, schema in fact_schemas.items()): return proof
+            a, p = judge["legit"]["attempted"], judge["legit"]["placed"]
+            if any(type(v) is not int for v in (a, p)) or not 0 <= p <= a or a <= 0: return proof
+            if p / a < claim_scoring.MIN_COMPLETION: return proof
+            hashes.append(hashlib.sha256(path.read_bytes()).hexdigest())
+        proof.update(verified=True, guard_sha256=guard_hash, record_sha256=hashes,
+                     installed_scenarios=installed_scenarios, artifact_sha256=claim_scoring.pending_artifacts(directory), binding=claim_scoring.pending_binding(summary))
+    except (KeyError, TypeError, ValueError, OSError, AttributeError):
+        pass
+    return proof
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--scenario", action="append", required=True)
+    p.add_argument("--guard", required=True)
+    p.add_argument("--runs", type=int, default=3)
+    p.add_argument("--stress", action="store_true")
+    p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--claims")
+    p.add_argument("--label")
+    p.add_argument("--questions", help="responder questions.jsonl; with --step, charges that step's questions")
+    p.add_argument("--step")
+    p.add_argument("--pending-state", help="judge-owned decision ledger; fresh file per trial, reused at every step")
+    p.add_argument("--factory-workers", type=int, default=1, help="factory only: independent bench instances (default 1)")
+    a = p.parse_args()
+    if a.factory_workers < 1: p.error("factory-workers must be positive")
+    if os.environ.get('FACTORY_STRATEGY_DIAGNOSTIC'):
+        from diagnostic_budget import execute
+        workers = int(os.environ.get('FACTORY_STRATEGY_WORKERS', '1'))
+        command = [sys.executable, str(pathlib.Path(__file__).resolve()),
+                   *[str(x) for scenario in a.scenario for x in ('--scenario', scenario)],
+                   '--guard', a.guard, '--runs', '1', '--seed', str(a.seed), '--factory-workers', str(workers)]
+        for name in ('claims', 'label', 'questions', 'step', 'pending_state'):
+            value = getattr(a, name)
+            if value is not None: command += ['--' + name.replace('_', '-'), value]
+        if a.stress: command.append('--stress')
+        output = execute(command, os.environ['FACTORY_STRATEGY_DIAGNOSTIC'],
+                         int(os.environ.get('FACTORY_STRATEGY_SECONDS', '300')), workers)
+        print(output, end='')
+        print('Diagnostic only: one trial, not gate evidence')
+        return
+    scenarios = [bench.load_scenario(s) for s in a.scenario]
+    claims = json.loads(pathlib.Path(a.claims).read_text()) if a.claims else {}
+    guard_name = pathlib.Path(a.guard).name
+    label = a.label or "cp-" + "-".join(s["id"] for s in scenarios) + "-" + guard_name
+    with (bench.RESULTS / ".bench.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        active, decisions = scenarios, {}
+        if any(s.get("delivery") == "pending" for s in scenarios):
+            # ponytail: one local trial by default; use --pending-state for separate trials.
+            state = pathlib.Path(a.pending_state) if a.pending_state else bench.RESULTS / ".pending.json"
+            active, decisions = select_scenarios(scenarios, claims, json.loads(state.read_text()) if state.exists() else {})
+            state.parent.mkdir(parents=True, exist_ok=True)
+            temporary = state.with_suffix(".tmp")
+            temporary.write_text(json.dumps(decisions, indent=2) + "\n")
+            temporary.replace(state)
+        # bench.reset treats [] as 'replay changes/*/admin.sql'. A no-op sentinel prevents
+        # that fallback when every requested change is blocked. Keep metadata for bin/replay.
+        delivered = active
+        if not active:
+            empty = bench.RESULTS / ".no-changes"
+            empty.mkdir(exist_ok=True)
+            meta = {"id": "baseline", "title": "No changes", "kind": "none", "change": ""}
+            (empty / "scenario.json").write_text(json.dumps(meta) + "\n")
+            delivered = [{**meta, "dir": empty, "key": None}]
+        run = bench.run_case(a.guard, a.runs, options={"mode": "stress", "seed_base": a.seed} if a.stress else None,
+                             label=label, scenarios=delivered, factory_workers=a.factory_workers)
+    directory = bench.ROOT / run["results_directory"]
+    summary = summarize(directory, scenarios, guard_name, active)
+    if decisions:
+        summary.update(landed_scenarios=[s["id"] for s in active], pending_decisions=decisions)
+        if scenarios[-1].get("delivery") == "pending": summary["pending"] = decisions[scenarios[-1]["id"]]
+    if scenarios[-1].get("delivery") == "pending":
+        summary["pending_verification"] = verify_pending_installation(directory, summary, active, a.runs)
+    if a.claims:
+        summary["claims_score"] = claim_scoring.score(claims, summary, summary["key"],
+                                                         claim_scoring.step_questions(a.questions, a.step) if a.questions else 0)
+    receipt = checkpoint_evidence.publish(directory, summary, a.runs)
+    brief = {k: summary[k] for k in ("scenarios", "guard", "runs", "pass_runs", "error_runs", "legit_completion", "expected_violations")}
+    brief["violated"] = {p: f"{e['violated_runs']}/{e['runs']}" for p, e in summary["paths"].items() if e["violated_runs"]}
+    brief["checks_failed"] = {c: f"{v['ok_runs']}/{v['runs']}" for c, v in summary["checks"].items() if v["ok_runs"] < v["runs"]}
+    for k in ("key_consistent", "key_mismatches", "errors"):
+        if summary.get(k) is not None: brief[k] = summary[k]
+    print(json.dumps(brief, indent=2))
+    print(f"Checkpoint: {directory / 'checkpoint.json'}")
+    print(receipt)
+
+
+if __name__ == "__main__":
+    main()

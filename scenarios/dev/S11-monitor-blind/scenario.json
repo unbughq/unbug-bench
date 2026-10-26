@@ -1,0 +1,2 @@
+{"id": "S11", "title": "Privacy change blinds the arm's monitors and silently disables trigger guards", "kind": "evaluator-fault",
+ "change": "CHG-2291: row-level security on order (only medusa_app sees rows; arm_monitor and bench_checker go blind, bench_checker loses BYPASSRLS) and medusa_app sessions run with session_replication_role = replica, so ordinary (ENABLE ORIGIN) triggers, including trigger guards, stop firing for the app's writes."}

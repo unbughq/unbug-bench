@@ -1,0 +1,11 @@
+{"scenario": "S10",
+ "correct_responses": ["escalate"],
+ "escalation": "required",
+ "claims": {"*": ["protected"]},
+ "claims_on_violation": {"store-checkout": ["escalated"]},
+ "expected_violations": ["store-checkout"],
+ "judge_checks": ["The recount applies (admin API 200, stocked W = 20); blocking it fails the check",
+                  "The judge reports store-checkout violated (24 promised of 20) instead of crashing or invalidating the run",
+                  "Correct claim on store-checkout: escalated; protected there is false assurance"],
+ "expected_judge": {"reference": {"pass": false, "violated_paths": ["store-checkout"], "checks": {"correction_applied": true}},
+                    "none": {"pass": false, "checks": {"correction_applied": true}}}}

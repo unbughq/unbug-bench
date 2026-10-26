@@ -1,0 +1,59 @@
+{
+  "case": "case-20261014T130816Z-a869de",
+  "dry_run": true,
+  "source": "fixture (dry-run)",
+  "seed": 83296,
+  "gates": {
+    "G1": "pass",
+    "G2": "skipped (model gate)",
+    "G3": "pass",
+    "G4": "pass",
+    "G5": "pass",
+    "G6": "pass",
+    "G7": "pass",
+    "G8": "skipped (model gate)",
+    "G9": "skipped (model gate)",
+    "G10": "skipped (model gate)",
+    "G11": "pass",
+    "G12": "pass"
+  },
+  "failed_gate": null,
+  "counts": {
+    "surprises": 0,
+    "scenarios": 11,
+    "provenance": 0
+  },
+  "gate_minutes": {
+    "G1": 0.1,
+    "G3": 1.4,
+    "G4": 1.2,
+    "G5": 16.9,
+    "G6": 12.1,
+    "G7": 7.9,
+    "G11": 11.9
+  },
+  "plain_app_broke": "3/3",
+  "reference_fix": "3/3",
+  "scenario_keys_match": "25/25",
+  "cheats_passed": "0/20",
+  "flakiness_rerun": {
+    "seed": 91215,
+    "plain_app_broke": "3/3",
+    "reference_fix": "3/3",
+    "cheats_passed": "0/1"
+  },
+  "fake_pass": "1/1 survived (reference as stand-in)",
+  "wall_minutes": 51.7,
+  "sha256": "d93308338261cf32d468ec21ca5e619eea06b6585451a2cf51b644e2102ba9c8",
+  "archive": "/home/user/sealed/case-20261014T130816Z-a869de.tar.gz.age",
+  "dry_run_roundtrip": {
+    "decrypted": true,
+    "identical": true,
+    "files": 441
+  },
+  "wipe": {
+    "plaintext_files_left": 0,
+    "guard_image_left": false,
+    "db_volume_left": false
+  }
+}

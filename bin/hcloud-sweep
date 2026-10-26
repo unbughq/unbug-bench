@@ -1,0 +1,53 @@
+#!/bin/sh
+# Delete every unbug-bench Hetzner server past its expires label (Hetzner never stops billing on its
+# own). Never touches unlabelled servers. bin/hcloud-sweep --install runs it every 5 minutes via
+# launchd on this Mac (catches up after sleep); --uninstall removes that.
+set -eu
+plist=$HOME/Library/LaunchAgents/dev.unbug.hcloud-sweep.plist
+case ${1:-} in
+  --install)
+    cat > "$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>dev.unbug.hcloud-sweep</string>
+  <key>ProgramArguments</key><array><string>$(cd "$(dirname "$0")" && pwd)/hcloud-sweep</string></array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+  <key>StartInterval</key><integer>300</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>$HOME/Library/Logs/unbug-hcloud-sweep.log</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Logs/unbug-hcloud-sweep.log</string>
+</dict></plist>
+EOF
+    launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$plist"
+    echo "installed: every 5 min, log ~/Library/Logs/unbug-hcloud-sweep.log"; exit 0 ;;
+  --uninstall) launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true; rm -f "$plist"; exit 0 ;;
+esac
+now=$(date +%s)
+hcloud server list -l unbug-bench=1 -o json | python3 -c '
+import json, sys
+now = int(sys.argv[1])
+for s in json.load(sys.stdin) or []:
+    exp = (s.get("labels") or {}).get("expires", "")
+    # A labelled server without a valid expiry is treated as expired: it should not exist.
+    if not exp.isdigit() or int(exp) <= now:
+        print(s["id"], s["name"])
+' "$now" | while read -r sid name; do
+  # Collect first (collect.sh pauses a running case so it checkpoints); a server whose work did not arrive
+  # gets one more hour instead of deletion, up to 36 h of age. Results land in sealed/ as usual.
+  root=$(cd "$(dirname "$0")/.." && pwd)
+  if ! BOAT_CMD="$root/bin/hcloud-boat" "$root/factory/collect.sh" "$sid" </dev/null >/dev/null; then
+    age=$(hcloud server describe "$sid" -o json | python3 -c 'import datetime, json, sys
+c = datetime.datetime.fromisoformat(json.load(sys.stdin)["created"].replace("Z", "+00:00"))
+print(int(datetime.datetime.now(datetime.timezone.utc).timestamp() - c.timestamp()))' 2>/dev/null || echo 0)
+    if [ "$age" -lt 129600 ]; then
+      hcloud server add-label --overwrite "$sid" "expires=$((now + 3600))" >/dev/null
+      echo "$(date -u +%FT%TZ) !!! KEPT $sid $name one more hour: its work was not collected (factory/collect.sh $sid)" >&2
+      continue
+    fi
+    echo "$(date -u +%FT%TZ) !!! $sid $name is 36 h old and still uncollected; deleting" >&2
+  fi
+  if hcloud server delete "$sid" >/dev/null; then echo "$(date -u +%FT%TZ) swept $sid $name"
+  else echo "$(date -u +%FT%TZ) !!! FAILED to delete $sid $name" >&2; fi
+done

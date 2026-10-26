@@ -1,0 +1,25 @@
+{
+ "response": "escalate",
+ "claims": [
+  {
+   "rule": "never-oversell",
+   "path": "store-checkout",
+   "status": "escalated"
+  },
+  {
+   "rule": "never-oversell",
+   "path": "draft-order",
+   "status": "protected"
+  },
+  {
+   "rule": "never-oversell",
+   "path": "order-edit",
+   "status": "protected"
+  },
+  {
+   "rule": "never-oversell",
+   "path": "cancel-resale",
+   "status": "protected"
+  }
+ ]
+}

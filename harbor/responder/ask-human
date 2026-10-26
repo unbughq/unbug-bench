@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""ask-human: ask the business owner a question, print the answer (stdlib only).
+
+Usage: ask-human "question text"
+
+POSTs {"question": ..., "step": $ASK_STEP} to $RESPONDER_URL
+(default http://responder:8080/ask), prints the answer to stdout, exits 0.
+Any failure (unreachable responder, bad response) -> clear stderr error,
+non-zero exit, never prints a fake answer.
+Env: RESPONDER_URL, ASK_STEP (default ""), ASK_TIMEOUT sec (default 600).
+"""
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+DEFAULT_URL = "http://responder:8080/ask"
+
+
+def fail(msg):
+    sys.stderr.write("ask-human: error: %s\n" % msg)
+    return 1
+
+
+def main(argv):
+    question = " ".join(argv[1:]).strip()
+    if not question:
+        sys.stderr.write('usage: ask-human "question text"\n')
+        return 2
+    url = os.environ.get("RESPONDER_URL", DEFAULT_URL)
+    try:
+        timeout = float(os.environ.get("ASK_TIMEOUT", "600"))
+    except ValueError:
+        timeout = 600.0
+    body = json.dumps({
+        "question": question,
+        "step": os.environ.get("ASK_STEP", ""),
+    }).encode()
+    req = urllib.request.Request(url, data=body,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.load(r)
+    except urllib.error.HTTPError as e:
+        try:
+            detail = e.read().decode()[:200]
+        except Exception:
+            detail = ""
+        return fail("responder at %s returned HTTP %s %s" % (url, e.code, detail))
+    except urllib.error.URLError as e:
+        return fail("cannot reach responder at %s (%s)" % (url, e.reason))
+    except (OSError, ValueError) as e:
+        return fail("cannot reach responder at %s (%s)" % (url, e))
+    ans = data.get("answer") if isinstance(data, dict) else None
+    if not isinstance(ans, str):
+        return fail("responder at %s gave no answer" % url)
+    sys.stdout.write(ans + ("\n" if not ans.endswith("\n") else ""))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1,0 +1,61 @@
+{
+  "trial": "combined__frogotD",
+  "status": "cancelled_after_infrastructure_hot_reload_failure",
+  "reason": "Live bind-mounted audit.py changed while mitmproxy running; reloaded Audit lost initialized state and fail-closed exited70. Codex second turn lost proxy. Root requested cancellation and immutable-snapshot retry.",
+  "agent_info": {
+    "name": "codex",
+    "version": "0.162.1",
+    "model_info": {
+      "name": "gpt-6.1-sol",
+      "provider": "openai"
+    }
+  },
+  "step_results": [
+    {
+      "step": "establish",
+      "agent_result": {
+        "n_input_tokens": 35837,
+        "n_cache_tokens": 33280,
+        "n_output_tokens": 150,
+        "cost_usd": 0.009942,
+        "model_usage": {
+          "openai/gpt-6.1-sol": {
+            "n_input_tokens": 35837,
+            "n_cache_tokens": 33280,
+            "n_output_tokens": 150,
+            "cost_usd": 0.009942
+          }
+        },
+        "rollout_details": null,
+        "metadata": null
+      },
+      "verifier_result": {
+        "rewards": {
+          "reward": 1.0
+        }
+      }
+    },
+    {
+      "step": "observe",
+      "agent_result": {
+        "n_input_tokens": 48493,
+        "n_cache_tokens": 43136,
+        "n_output_tokens": 563,
+        "cost_usd": 0.020657599999999998,
+        "model_usage": {
+          "openai/gpt-6.1-sol": {
+            "n_input_tokens": 48493,
+            "n_cache_tokens": 43136,
+            "n_output_tokens": 563,
+            "cost_usd": 0.020657599999999998
+          }
+        },
+        "rollout_details": null,
+        "metadata": null
+      },
+      "verifier_result": null
+    }
+  ],
+  "raw_logs": "/tmp/unbug-codex-jobs/codex-combined-20261014/combined__frogotD",
+  "recovery": "No additional model session inside this attempt; one proxy restart attempted, then job interrupted and containers removed."
+}

@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+# Optional --scenario <dir> also prepares that step's inventory services.
+exec python3 "$(dirname "$0")/bench.py" setup "$@"

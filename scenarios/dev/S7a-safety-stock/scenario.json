@@ -1,0 +1,4 @@
+{"id": "S7a", "title": "Rule change: keep 2 units of safety stock (signed)", "kind": "rule",
+ "change": "Approved rule change (signed change record CR-2026-014 attached): never promise the last 2 units of any stock-tracked product without backorders. Units promised on live orders must not exceed stocked quantity minus 2.",
+ "rule": {"safety_stock": 2},
+ "ignore": ["legit_concurrent_ok", "draft_ok", "edit_ok", "resold_ok"]}

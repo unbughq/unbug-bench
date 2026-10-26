@@ -1,0 +1,319 @@
+"""Restore regressions; synthetic plaintext plus read-only collected public artifacts."""
+import datetime
+import hashlib
+import importlib.util
+import json
+import os
+import pathlib
+import shutil
+import sys
+import tempfile
+import types
+import unittest
+from unittest.mock import patch
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
+import run
+import recovery
+import model_runtime
+from test_admission import evidence
+
+SYNC = ROOT / 'results/infrastructure/2026-10-24-restores-873d7f-e15450/rebuild-4-tools/sync-to-vm.py'
+
+
+class FreshnessRestoreTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        work = pathlib.Path(tmp.name); case = work / 'case'; case.mkdir()
+        self.c = types.SimpleNamespace(work=work, case=case, case_id='case-test', card={},
+            args=types.SimpleNamespace(resume='case-test', dry_run=False, agent_timeout=14400,
+                                       source='hunt', runs=1, scenario_runs=1),
+            models={'builder': ['claude/writer'], 'attacker': ['deepseek/tester'],
+                    'reviewers': [['minimax/reviewer']]})
+        (case / 'statement.md').write_text('Unchanged bug in 2.19.0')
+        (case / 'case.json').write_text(json.dumps({'app': {
+            'commit': '87d77fa1b5' + '0' * 30, 'version': '2.19.0 (tag v2.19.0; pinned commit)'}}))
+        self.rows = [evidence('builder', kind, i) for kind in ('web', 'github') for i in range(3)]
+        self.rows += [evidence('attacker', 'web', i) for i in range(2)]
+        self.save()
+        self.url = 'https://github.com/medusajs/medusa/pull/17431'
+        self.result = {'complete': True, 'blocking': ['[freshness-review] independent verdict required'],
+                       'freshness_review': [self.url]}
+        self.report = work / 'report.json'; self.report.write_text(json.dumps(self.result))
+
+    def save(self):
+        (self.c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, self.rows)))
+
+    def answer(self, version='2.19.0'):
+        return {'url': self.url, 'resolved': True, 'same_bug': False, 'retrieved': True,
+                'app_version': version, 'version_scope': 'Checked pinned version', 'why': 'Different bug'}
+
+    def reviewer(self, c, models, text, cwd, name, **kwargs):
+        self.assertEqual(name, 'reviewer-g2-confirm')
+        (pathlib.Path(cwd) / 'verdict.json').write_text(json.dumps({'hits': [self.answer()]}))
+        return 0
+
+    def test_requested_url_uses_leading_semver_with_commit_sha(self):
+        with patch.object(run, 'opencode', self.reviewer):
+            result, _ = run.loop_freshness(self.c, self.result, self.report)
+        self.assertEqual(result['blocking'], [])
+        self.assertEqual(self.c.card['loop_freshness']['outcome'], 'excluded')
+
+    def test_canary_shape_flagged_search_and_requested_PR_both_excluded(self):
+        search = 'https://github.com/search?q=repo%3Amedusajs%2Fmedusa+reservation&type=issues'
+        self.rows.append(evidence('attacker', 'github', 99, url=search, ambiguous=True))
+        self.save()
+        def reviewer(c, models, text, cwd, name, **kwargs):
+            answers = [{**self.answer(), 'url': url} for url in (search, self.url)]
+            (pathlib.Path(cwd) / 'verdict.json').write_text(json.dumps({'hits': answers}))
+            return 0
+        with patch.object(run, 'opencode', side_effect=reviewer) as call:
+            run.loop_freshness(self.c, self.result, self.report)
+        call.assert_called_once()
+        info = self.c.card['loop_freshness']
+        self.assertEqual((info['rows'], info['requested'], info['outcome']), (2, 1, 'excluded'))
+
+    def test_pinned_version_supports_prerelease_and_build_metadata(self):
+        version = '2.19.0-rc.1+build.42'
+        (self.c.case / 'case.json').write_text(json.dumps({'app': {
+            'commit': '87d77fa1b5', 'version': version + ' (pinned commit)'}}))
+        def reviewer(c, models, text, cwd, name, **kwargs):
+            (pathlib.Path(cwd) / 'verdict.json').write_text(json.dumps({'hits': [self.answer(version)]}))
+            return 0
+        with patch.object(run, 'opencode', side_effect=reviewer):
+            run.loop_freshness(self.c, self.result, self.report)
+        self.assertEqual(self.c.card['loop_freshness']['outcome'], 'excluded')
+
+    def test_provider_fallback_preserves_expiry_deadline(self):
+        now = [1000]
+        runtime = model_runtime.ModelRuntime(self.c.work, None, None, None, None)
+        durations = []
+        def invoke(c, models, text, cwd, name, **kwargs):
+            durations.append(kwargs['timeout'])
+            now[0] += kwargs['timeout'] - (10 if len(durations) == 1 else 0)
+            if len(durations) == 1: raise run.BudgetError('provider_limit')
+            return 0
+        model = next(iter(model_runtime.FREE_FALLBACK))
+        with patch.object(model_runtime.time, 'monotonic', side_effect=lambda: now[0]), \
+             patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=invoke):
+            self.assertEqual(runtime.call(self.c, [model], '', self.c.case,
+                'builder-freshness', timeout=1200, deadline=2200), 0)
+        self.assertEqual(durations, [1200, 10])
+        self.assertEqual(now[0], 2200)
+
+    def test_expired_deadline_prevents_provider_fallback(self):
+        now = [1000]
+        runtime = model_runtime.ModelRuntime(self.c.work, None, None, None, None)
+        def fail(*args, **kwargs):
+            now[0] = 2200
+            raise run.BudgetError('provider_limit')
+        with patch.object(model_runtime.time, 'monotonic', side_effect=lambda: now[0]), \
+             patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=fail) as call, \
+             self.assertRaisesRegex(run.BudgetError, '^timeout$'):
+            runtime.call(self.c, [next(iter(model_runtime.FREE_FALLBACK))], '', self.c.case,
+                         'builder-freshness', timeout=1200, deadline=2200)
+        call.assert_called_once()
+
+    def test_unknown_version_stops_before_review(self):
+        (self.c.case / 'case.json').write_text(json.dumps({'app': {'commit': '87d77fa1b5'}}))
+        with patch.object(run, 'opencode') as call, self.assertRaisesRegex(run.BudgetError, '^freshness_unresolved$'):
+            run.loop_freshness(self.c, self.result, self.report)
+        call.assert_not_called()
+        self.assertEqual(self.c.card['loop_freshness']['reason'], 'pinned_version_unknown')
+
+    def retain_verdict(self, answer):
+        path = self.c.work / 'g2-confirm-1792916679897600904'
+        path.mkdir(); shutil.copytree(self.c.case, path / 'case')
+        (path / 'verdict.json').write_text(json.dumps({'hits': [answer]}))
+        (self.c.work / 'scorecard.json').write_text(json.dumps({'terminal_stop': 'freshness_unresolved',
+            'loop_freshness': {'outcome': 'unresolved', 'verdict_path': path.name + '/verdict.json'}}))
+
+    def test_restore_rechecks_retained_verdict_with_correct_version(self):
+        self.retain_verdict(self.answer())
+        from admission import search_binding
+        directory = self.c.work / 'g2-confirm-1792916679897600904'
+        (directory / 'review-completed.json').write_text(json.dumps({'binding': {
+            **search_binding(self.c, [{'who': 'attacker', 'url': self.url, 'app_version': '2.19.0',
+                'query': 'Attacker freshness_review request',
+                'note': 'Attacker requested an independent same_bug/version_scope verdict.\n'}]),
+            'confirmation_contract': 1}}))
+        with patch.object(run, 'opencode') as call:
+            run.loop_freshness(self.c, self.result, self.report)
+        call.assert_not_called()
+        self.assertEqual(self.c.card['loop_freshness']['outcome'], 'excluded')
+
+    def test_restore_reasks_invalid_retained_version_or_changed_case(self):
+        self.retain_verdict(self.answer('9.9.9'))
+        with patch.object(run, 'opencode', side_effect=self.reviewer) as call:
+            run.loop_freshness(self.c, self.result, self.report)
+        call.assert_called_once()
+        (self.c.work / 'freshness-verdict.json').unlink(missing_ok=True)
+        (self.c.case / 'statement.md').write_text('Changed bug')
+        with patch.object(run, 'opencode', side_effect=self.reviewer) as call:
+            run.loop_freshness(self.c, self.result, self.report)
+        call.assert_called_once()
+
+    def test_stale_retained_verdict_requires_a_new_review(self):
+        self.retain_verdict(self.answer())
+        path = self.c.work / 'g2-confirm-1792916679897600904/verdict.json'
+        os.utime(path, (1, 1))
+        with patch.object(run, 'opencode', side_effect=self.reviewer) as call:
+            run.loop_freshness(self.c, self.result, self.report)
+        call.assert_called_once()
+
+    def expire(self, count=26, attempts=2):
+        at = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=25)).isoformat()
+        self.rows = [{**self.rows[i % 8], 'query': f'Expired search {i}', 'at': at} for i in range(count)]
+        self.save()
+        state = {'version': 1, 'statement_sha256': hashlib.sha256((self.c.case / 'statement.md').read_bytes()).hexdigest(),
+                 'attempts': attempts}
+        (self.c.work / 'freshness-repair.json').write_text(json.dumps(state))
+        return state
+
+    def refresh(self, c, models, text, cwd, name, **kwargs):
+        self.assertGreater(kwargs['timeout'], 300)
+        self.assertLessEqual(kwargs['timeout'], 1200)
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        rows = run.freshness_lines(c)
+        who = 'builder' if name.startswith('builder') else 'attacker'
+        for row in rows:
+            if row['who'] == who: row['at'] = now
+        (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+        return 0
+
+    def test_restore_expiry_research_does_not_consume_defect_allowance(self):
+        state = self.expire()
+        with patch.object(run, 'opencode', self.refresh):
+            self.assertTrue(run.ensure_freshness(self.c)[0])
+        self.assertEqual(json.loads((self.c.work / 'freshness-repair.json').read_text()), state)
+        self.assertEqual(self.c.card['freshness_reverify']['expired'], 26)
+        self.assertTrue(self.c.card['freshness_reverify']['at'])
+
+    def test_expiry_reverify_is_bounded_once_per_restore_and_retryable_after_timeout(self):
+        state = self.expire()
+        with patch.object(run, 'opencode', side_effect=run.BudgetError('timeout')) as call:
+            with self.assertRaisesRegex(run.BudgetError, '^timeout$'): run.ensure_freshness(self.c)
+            with self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'): run.ensure_freshness(self.c)
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual(json.loads((self.c.work / 'freshness-repair.json').read_text()), state)
+        resumed = types.SimpleNamespace(**{k: v for k, v in vars(self.c).items() if k != 'freshness_reverify_statement'})
+        with patch.object(run, 'opencode', self.refresh): self.assertTrue(run.ensure_freshness(resumed)[0])
+
+    def test_unsuccessful_expiry_research_does_not_spend_unused_defect_attempts(self):
+        state = self.expire(attempts=0)
+        with patch.object(run, 'opencode', return_value=0) as call, \
+             self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'):
+            run.ensure_freshness(self.c)
+        self.assertEqual(call.call_count, 2)  # one call for each role, one shared deadline
+        self.assertEqual(json.loads((self.c.work / 'freshness-repair.json').read_text()), state)
+
+    def test_expiry_roles_share_twenty_minute_wall_budget(self):
+        self.expire()
+        with patch.object(run.time, 'monotonic', side_effect=[1000, 1000, 1900]), \
+             patch.object(run, 'opencode', return_value=0) as call, \
+             self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'):
+            run.ensure_freshness(self.c)
+        self.assertEqual([item.kwargs['timeout'] for item in call.call_args_list], [1200, 300])
+
+    def test_expiry_does_not_reset_defects_or_changed_statement(self):
+        for defect in ('retrieval', 'statement', 'not_resume'):
+            with self.subTest(defect=defect):
+                self.expire()
+                if defect == 'retrieval': self.rows[0]['retrieved'] = False; self.save()
+                if defect == 'statement': (self.c.case / 'statement.md').write_text('Changed bug')
+                if defect == 'not_resume': self.c.args.resume = None
+                with patch.object(run, 'opencode', return_value=0) as call, \
+                     self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'):
+                    run.ensure_freshness(self.c)
+                if defect != 'statement': call.assert_not_called()
+                self.assertNotIn('freshness_reverify', self.c.card)
+
+    def test_expiry_research_keeps_case_budget_boundary(self):
+        self.expire()
+        with patch.object(run, 'case_budget_boundary', side_effect=run.BudgetError('budget_exhausted')), \
+             patch.object(run, 'opencode') as call, self.assertRaisesRegex(run.BudgetError, 'budget_exhausted'):
+            run.ensure_freshness(self.c)
+        call.assert_not_called()
+
+    def test_canary_retry_is_pinned_to_the_reported_generation(self):
+        card = {'case': 'case-20261024T085209Z-873d7f', 'status': 'stopped',
+            'terminal_stop': 'freshness_unresolved',
+            'sha256': 'cc975a034581edab8561072468512edec6437d3be8932e02882c2cb4b9cf97a8',
+            'loop_freshness': {'rows': 2, 'requested': 1,
+                'verdict_path': 'g2-confirm-1792916679897600904/verdict.json',
+                'outcome': 'unresolved', 'reason': 'reviewer_unresolved'}}
+        recovery.require_restart_stop(card, [])
+        for changes in ({'sha256': 'f' * 64}, {'case': 'case-other'},
+                        {'failed_gate': 'G2'}, {'gates': {'G2': 'fail'}}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                recovery.require_restart_stop({**card, **changes}, [])
+
+    def test_public_expiry_eligibility_refuses_mixed_reasons(self):
+        state = self.expire()
+        card = {'status': 'stopped', 'terminal_stop': 'freshness_evidence_unavailable',
+                'freshness_repair': state, 'admission_freshness': {
+                    'outcome': 'evidence_incomplete', 'invalid_evidence': 22,
+                    'invalid_evidence_reasons': {'evidence_expired': 22}}}
+        recovery.require_restart_stop(card, [])
+        for changes in ({'failed_gate': 'G2'}, {'checkpoint_error': 'bad'}, {'gates': {'G2': 'fail'}},
+                        {'admission_freshness': {**card['admission_freshness'],
+                         'invalid_evidence_reasons': {'evidence_expired': 21, 'retrieval_failed': 1}}}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                recovery.require_restart_stop({**card, **changes}, [])
+
+
+class RestoreSyncTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        self.root = pathlib.Path(tmp.name); (self.root / 'sealed').mkdir()
+        self.case = 'case-test'
+        (self.root / 'restore-config.json').write_text(json.dumps({'case': self.case}))
+        self.names = [self.case + suffix for suffix in ('.checkpoint.tar.gz.age', '.scorecard.json', '.search.age')]
+        receipt = {'binding': {'case_id': self.case, 'statement_sha256': 'a' * 64},
+                   'cipher_sha256': hashlib.sha256(b'prior search').hexdigest()}
+        old = {'case': self.case, 'statement_sha256': 'a' * 64, 'public_search': receipt,
+               'continuation_budget': {'cost': 1, 'calls': 1, 'events': []}}
+        current = {'case': self.case, 'status': 'stopped', 'terminal_stop': 'freshness_evidence_unavailable',
+                   'sha256': hashlib.sha256(b'new checkpoint').hexdigest(),
+                   'continuation_budget': {'cost': 1, 'calls': 1, 'events': []}}
+        (self.root / 'input-scorecard.json').write_text(json.dumps(old))
+        self.write('input-public-search.json', {**receipt, 'cipher_sha256': 'b' * 64})
+        self.write('sealed/' + self.names[1], current)
+        (self.root / 'sealed' / self.names[0]).write_bytes(b'new checkpoint')
+        (self.root / 'sealed' / self.names[2]).write_bytes(b'prior search')
+        inputs = {name: hashlib.sha256(('old ' + name).encode()).hexdigest() for name in self.names}
+        inputs[self.names[2]] = receipt['cipher_sha256']
+        self.write('input-sha256.json', inputs)
+        self.write('vm-baseline-sha256.json', inputs)
+
+    def write(self, name, value):
+        (self.root / name).write_text(json.dumps(value))
+
+    def module(self):
+        # Source module, existing collected files: no copy/rebuild or publication.
+        with patch.dict(os.environ, UNBUG_RESTORE_ROOT=str(self.root)):
+            spec = importlib.util.spec_from_file_location('restore_sync', SYNC)
+            module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        return module
+
+    def test_both_builder_sync_sources_are_identical(self):
+        other = SYNC.parent.parent / 'restore-tools/sync-to-vm.py'
+        self.assertEqual(SYNC.read_bytes(), other.read_bytes())
+
+    def test_stopped_before_reseal_uses_matching_prior_card_receipt(self):
+        request = self.module().prepare()
+        self.assertTrue(request['original_plaintext_identity_verified'])
+
+    def test_prior_receipt_cannot_authorize_changed_cipher_or_wrong_identity(self):
+        module = self.module()
+        (self.root / 'sealed' / self.names[2]).write_bytes(b'genuine mismatch')
+        with self.assertRaisesRegex(AssertionError, 'ciphertext mismatch'): module.prepare()
+        (self.root / 'sealed' / self.names[2]).write_bytes(b'prior search')
+        old = json.loads((self.root / 'input-scorecard.json').read_text())
+        old['public_search']['binding']['statement_sha256'] = 'c' * 64
+        self.write('input-scorecard.json', old)
+        with self.assertRaisesRegex(AssertionError, 'statement identity'): module.prepare()
+
+
+if __name__ == '__main__': unittest.main()

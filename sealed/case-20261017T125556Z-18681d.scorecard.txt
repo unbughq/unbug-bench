@@ -1,0 +1,8 @@
+case-20261017T125556Z-18681d  sha256:90fa095feff8923aed90516356e7e975991ee9e342fb7b8f6176579b2c826a40
+gates: passed G1,G2,G3,G4,G5,G8,G9,G6,G13,G14,G15,G7,G10,G11,G12
+reviewers: fairness - approve, realism - approve
+plain app broke the promise -   reference fix -   cheats - passed   scenario keys -
+calibrators: {"strong": {"model": "codex/gpt-6.1-sol", "tries": 3, "solved": 0, "diagnostics": {"version": 1, "stop_reasons": {"completed": 3, "time_limit": 0, "call_limit": 0, "unrecorded": 0}, "outcomes": {"solved": 0, "no_fix_submitted": 0, "fix_failed_some_runs": 0, "fix_failed_all_runs": 1, "fix_failed_runs": 0, "run_error": 2, "unknown": 0}}}, "easy": {"model": "opencode/glm-5.3-flash-free", "tries": 3, "solved": 0, "diagnostics": {"version": 1, "stop_reasons": {"completed": 0, "time_limit": 3, "call_limit": 0, "unrecorded": 0}, "outcomes": {"solved": 0, "no_fix_submitted": 3, "fix_failed_some_runs": 0, "fix_failed_all_runs": 0, "fix_failed_runs": 0, "run_error": 0, "unknown": 0}}}}   fake pass: -
+surprises: 4   scenarios: 6   provenance: 4   source: port   builder rounds: -
+wipe: {"plaintext_files_left": 0, "named_dirs_left": 0, "guard_image_left": false, "db_volume_left": false, "factory_cleanup_ok": true}   wall: 4366.7 min
+models: {"builder": ["claude/claude-opus-5-5"], "attacker": ["opencode/minimax-m3.1-flash-free"], "reviewers": [["opencode/deepseek-v4.1-flash-free"]], "strong_calibrator": ["codex/gpt-6.1-sol"], "easy_calibrator": ["opencode/glm-5.3-flash-free"]}

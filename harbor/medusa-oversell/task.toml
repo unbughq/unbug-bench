@@ -1,0 +1,85 @@
+# Harbor multi-step task: the practice case (#17032, dev only) with change scenarios.
+# DRAFT, never run. Every line marked ASSUMPTION is unverified until Phase B (harbor/README.md).
+schema_version = "1.4"
+
+# Trial-level number is not used: every checkpoint's metrics are kept per step in
+# result.json (step_results[i].verifier_result.rewards) and steps/<name>/verifier/checkpoint.json.
+multi_step_reward_strategy = "mean"
+
+# Copied (not moved) out of the agent container after every step and restored at the same
+# paths in the separate verifier. Do not use /logs/artifacts for the guard: Harbor moves that
+# directory's contents into steps/<name>/artifacts after each step, so the guard would vanish.
+artifacts = ["/app/guard", "/app/claims.json", "/app/unbug"]
+
+[task]
+name = "unbug/medusa-oversell-practice"
+description = "Never sell more stock than exists (Medusa 2.19.0, practice case #17032, dev scenarios)."
+
+[metadata]
+case = "medusa-oversell"
+scored = false  # practice case: dev scores only, never H1 (PROTOCOL.md section 2)
+
+[environment]
+# Built by harbor/build.sh from the bench root (contestant bundle + Docker engine).
+docker_image = "unbug-bench-box:dev"
+cpus = 6          # ASSUMPTION: bench stack cap 3,456 MiB + app image build + agent
+memory_mb = 8192  # ASSUMPTION: see above; measure in Phase B
+
+[agent]
+timeout_sec = 14400  # phase 1 wall time, PROTOCOL default (founder decision pending)
+
+[verifier]
+# Separate verifier: a fresh judge box per step, own Docker engine, own fresh bench.
+# The agent never controls the judge's Docker daemon, images or files.
+[verifier.environment]
+docker_image = "unbug-bench-judge:dev"  # tests/docker-compose.yaml makes it privileged
+cpus = 6
+memory_mb = 8192
+
+# One step per checkpoint. UNBUG_SCENARIOS is cumulative: changes stay landed.
+# Order is fixed here; PROTOCOL wants a random order per attempt (seeded) -> one generated
+# task directory per order seed (not built; see README "Gaps").
+# Step verifier timeout_sec MUST be set on every step: StepConfig.verifier defaults to 600 s
+# and never inherits [verifier].timeout_sec (harbor models/task/config.py:563, trial.py:838-848).
+
+[[steps]]
+name = "establish"
+[steps.agent]
+timeout_sec = 14400
+[steps.verifier]
+timeout_sec = 3600
+[steps.verifier.env]
+UNBUG_STEP = "establish"  # matches ASK_STEP in the responder log
+# ASSUMPTION/GAP: no "establish" answer key exists yet; S0 (null change) stands in, so the
+# claims and the oracle are right but only response "keep" scores as correct here.
+UNBUG_SCENARIOS = "S0-null"
+
+[[steps]]
+name = "s0-null"
+[steps.agent]
+timeout_sec = 3600  # per-change wall time, PROTOCOL default
+[steps.verifier]
+timeout_sec = 3600
+[steps.verifier.env]
+UNBUG_STEP = "s0-null"  # matches ASK_STEP in the responder log
+UNBUG_SCENARIOS = "S0-null"
+
+[[steps]]
+name = "s2-express-checkout"
+[steps.agent]
+timeout_sec = 3600
+[steps.verifier]
+timeout_sec = 3600
+[steps.verifier.env]
+UNBUG_STEP = "s2-express-checkout"  # matches ASK_STEP in the responder log
+UNBUG_SCENARIOS = "S0-null S2-express-checkout"
+
+[[steps]]
+name = "s11-monitor-blind"
+[steps.agent]
+timeout_sec = 3600
+[steps.verifier]
+timeout_sec = 3600
+[steps.verifier.env]
+UNBUG_STEP = "s11-monitor-blind"  # matches ASK_STEP in the responder log
+UNBUG_SCENARIOS = "S0-null S2-express-checkout S11-monitor-blind"

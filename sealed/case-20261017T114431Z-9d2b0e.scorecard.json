@@ -1,0 +1,3409 @@
+{
+  "case": "case-20261017T114431Z-9d2b0e",
+  "dry_run": false,
+  "source": "port",
+  "seed": 37471,
+  "gates": {},
+  "failed_gate": null,
+  "roles": {
+    "writer": {
+      "model": "opencode-go/mimo-v2.6-pro",
+      "effort": "default",
+      "family": "xiaomi"
+    },
+    "stress_tester": {
+      "model": "claude/claude-opus-5-5",
+      "effort": "high",
+      "family": "anthropic"
+    },
+    "strong_calibrator": {
+      "model": "codex/gpt-6.1-sol",
+      "effort": "high",
+      "family": "openai"
+    },
+    "reviewer": {
+      "model": "openrouter/meta/muse-spark-1.3-contributor",
+      "effort": "xhigh",
+      "family": "meta"
+    },
+    "easy_calibrator": {
+      "model": "opencode/glm-5.3-flash-free",
+      "effort": "default",
+      "family": "z-ai"
+    }
+  },
+  "rotation_slot": 5,
+  "models": {
+    "builder": [
+      "opencode-go/mimo-v2.6-pro"
+    ],
+    "attacker": [
+      "claude/claude-opus-5-5"
+    ],
+    "reviewers": [
+      [
+        "openrouter/meta/muse-spark-1.3-contributor"
+      ]
+    ],
+    "strong_calibrator": [
+      "codex/gpt-6.1-sol"
+    ],
+    "easy_calibrator": [
+      "opencode/glm-5.3-flash-free"
+    ]
+  },
+  "models_used": {
+    "builder-1": "opencode-go/mimo-v2.6-pro"
+  },
+  "terminal_stop": "stalled",
+  "wall_minutes": 181.5,
+  "continuation_budget": {
+    "cost": 0.642389092,
+    "calls": 185,
+    "events": [
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149adbdfb001RWCnE5xxHuA33Q:prt_149add08d001QFzpS7SyrmWihX",
+        "cost": 0.004804575,
+        "tokens": {
+          "total": 10917,
+          "input": 10789,
+          "output": 108,
+          "reasoning": 20,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149add096001Qp4xT6m53h3GW9:prt_149addd940015AJRAzmzAtcTlG",
+        "cost": 0.000343911,
+        "tokens": {
+          "total": 11333,
+          "input": 461,
+          "output": 111,
+          "reasoning": 9,
+          "cache": {
+            "write": 0,
+            "read": 10752
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149addd9d001QhuHoCE52qrQZQ:prt_149ade85a001nANJIJ8QD8xAFK",
+        "cost": 0.000287448,
+        "tokens": {
+          "total": 11638,
+          "input": 436,
+          "output": 57,
+          "reasoning": 9,
+          "cache": {
+            "write": 0,
+            "read": 11136
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ade861001wpq6dXyLCQppBL:prt_149adf573001wVOXP833HW5x2t",
+        "cost": 0.00262131,
+        "tokens": {
+          "total": 17325,
+          "input": 5680,
+          "output": 77,
+          "reasoning": 48,
+          "cache": {
+            "write": 0,
+            "read": 11520
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149adf57a001PNxeqUgQNW7BNO:prt_149ae04fe001d5Uxv4nlvBarAp",
+        "cost": 0.005132536,
+        "tokens": {
+          "total": 28699,
+          "input": 11438,
+          "output": 65,
+          "reasoning": 44,
+          "cache": {
+            "write": 0,
+            "read": 17152
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ae051a001EDLrWB6ZvNz33j:prt_149ae1d15001iJbOKn1ge82QWQ",
+        "cost": 0.003413822,
+        "tokens": {
+          "total": 35959,
+          "input": 7220,
+          "output": 147,
+          "reasoning": 48,
+          "cache": {
+            "write": 0,
+            "read": 28544
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ae1d1e001UkAT3vXOYgdehr:prt_149ae3692001qlF33JuuaPJ8Ei",
+        "cost": 0.001753746,
+        "tokens": {
+          "total": 39266,
+          "input": 3374,
+          "output": 117,
+          "reasoning": 63,
+          "cache": {
+            "write": 0,
+            "read": 35712
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ae3699001D72LaC8LbsnwrK:prt_149ae45c40013OqxF4fMAXJk0G",
+        "cost": 0.000621325,
+        "tokens": {
+          "total": 40014,
+          "input": 845,
+          "output": 84,
+          "reasoning": 45,
+          "cache": {
+            "write": 0,
+            "read": 39040
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ae45d0001dXvYiijR1XR64I:prt_149ae5eff001e74lhyOvmjZUND",
+        "cost": 0.000647599,
+        "tokens": {
+          "total": 40771,
+          "input": 769,
+          "output": 124,
+          "reasoning": 70,
+          "cache": {
+            "write": 0,
+            "read": 39808
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ae5f06001JqEBLlVaql8y2g:prt_149aea93a001wWbg9mzDqn2G0L",
+        "cost": 0.001810528,
+        "tokens": {
+          "total": 43511,
+          "input": 2046,
+          "output": 163,
+          "reasoning": 726,
+          "cache": {
+            "write": 0,
+            "read": 40576
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149aea946001C972jICyPPA7ap:prt_149aebfd7001AKG6rwDcVn0vhO",
+        "cost": 0.001037098,
+        "tokens": {
+          "total": 44355,
+          "input": 1688,
+          "output": 138,
+          "reasoning": 33,
+          "cache": {
+            "write": 0,
+            "read": 42496
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149aebfe5001LR42z96H4Zqq7r:prt_149aed7c1001oGFeq3e7c61V90",
+        "cost": 0.000920025,
+        "tokens": {
+          "total": 45833,
+          "input": 1599,
+          "output": 41,
+          "reasoning": 33,
+          "cache": {
+            "write": 0,
+            "read": 44160
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149aed7c9001sZOx22ADZ5q89X:prt_149af09f6001Aas5J7ULxsRDTf",
+        "cost": 0.002726928,
+        "tokens": {
+          "total": 51047,
+          "input": 4814,
+          "output": 103,
+          "reasoning": 434,
+          "cache": {
+            "write": 0,
+            "read": 45696
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149af09fe001elyACUTDKDOhID:prt_149af58cc0011CbSWcDEvh53y6",
+        "cost": 0.003953396,
+        "tokens": {
+          "total": 58512,
+          "input": 7492,
+          "output": 143,
+          "reasoning": 445,
+          "cache": {
+            "write": 0,
+            "read": 50432
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149af58d7001Lw3N29QhwFnb6F:prt_149af769f001J5X0LGJinrPcH9",
+        "cost": 0.001683073,
+        "tokens": {
+          "total": 61093,
+          "input": 3087,
+          "output": 80,
+          "reasoning": 70,
+          "cache": {
+            "write": 0,
+            "read": 57856
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149af76ab001xa2fOsd6kQo04g:prt_149afea81001cinRufmCCR70nb",
+        "cost": 0.003803089,
+        "tokens": {
+          "total": 68262,
+          "input": 6433,
+          "output": 131,
+          "reasoning": 770,
+          "cache": {
+            "write": 0,
+            "read": 60928
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149afea8e001BmlV0JljUECX73:prt_149b04568001GYcdbHti4P5dyI",
+        "cost": 0.002505629,
+        "tokens": {
+          "total": 71927,
+          "input": 3999,
+          "output": 113,
+          "reasoning": 487,
+          "cache": {
+            "write": 0,
+            "read": 67328
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b04570001NlmzfJu4zfxYN1:prt_149b07167001zyTUlU5ix4qH1m",
+        "cost": 0.001263733,
+        "tokens": {
+          "total": 73264,
+          "input": 1625,
+          "output": 132,
+          "reasoning": 211,
+          "cache": {
+            "write": 0,
+            "read": 71296
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b07175001KKrbPnujpgRhyU:prt_149b09abe001AJvx8HNy1VjsM7",
+        "cost": 0.001881346,
+        "tokens": {
+          "total": 76292,
+          "input": 3202,
+          "output": 106,
+          "reasoning": 152,
+          "cache": {
+            "write": 0,
+            "read": 72832
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b09ad2001q9N9SOLDy4mnoM:prt_149b11e6b001QI0UFaXpYg3l3F",
+        "cost": 0.002100006,
+        "tokens": {
+          "total": 79324,
+          "input": 2390,
+          "output": 151,
+          "reasoning": 751,
+          "cache": {
+            "write": 0,
+            "read": 76032
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b11e75001HafMZvgize2bhW:prt_149b1365c001Sd4ZjdjRb66qMI",
+        "cost": 0.000944298,
+        "tokens": {
+          "total": 79679,
+          "input": 1168,
+          "output": 149,
+          "reasoning": 26,
+          "cache": {
+            "write": 0,
+            "read": 78336
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b1367c001DHFUDiIBpgo0Yv:prt_149b16266001vedLbmEZhQcY24",
+        "cost": 0.000697914,
+        "tokens": {
+          "total": 80183,
+          "input": 448,
+          "output": 171,
+          "reasoning": 76,
+          "cache": {
+            "write": 0,
+            "read": 79488
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b16271001aia0yIdZ0VPrVC:prt_149b189cd001YXsN4KNZ9flWG6",
+        "cost": 0.001457511,
+        "tokens": {
+          "total": 82224,
+          "input": 2019,
+          "output": 153,
+          "reasoning": 180,
+          "cache": {
+            "write": 0,
+            "read": 79872
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b189e000126kfkxvGBK4wP8:prt_149b1b18e001dHuglJV9b1pJw4",
+        "cost": 0.001197381,
+        "tokens": {
+          "total": 83659,
+          "input": 1663,
+          "output": 100,
+          "reasoning": 104,
+          "cache": {
+            "write": 0,
+            "read": 81792
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b1b1970014A7naOja3Lqd5j:prt_149b20626001shLwW9QOsKxLpJ",
+        "cost": 0.002367444,
+        "tokens": {
+          "total": 87475,
+          "input": 3546,
+          "output": 158,
+          "reasoning": 443,
+          "cache": {
+            "write": 0,
+            "read": 83328
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b206370018WQSGSQUoN8fME:prt_149b2c394001dKVU70QzsLfNIO",
+        "cost": 0.003013767,
+        "tokens": {
+          "total": 91578,
+          "input": 3383,
+          "output": 122,
+          "reasoning": 1289,
+          "cache": {
+            "write": 0,
+            "read": 86784
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b2c3a3001fNvUNb9EsCGDxJ:prt_149b2dcc8001u8ANO2aU33AV3Q",
+        "cost": 0.001130536,
+        "tokens": {
+          "total": 91880,
+          "input": 1688,
+          "output": 39,
+          "reasoning": 41,
+          "cache": {
+            "write": 0,
+            "read": 90112
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b2dcdc001hsbUmD8pAqPkhM:prt_149b2f9fe0013YsdxqIZbHEGb9",
+        "cost": 0.002993583,
+        "tokens": {
+          "total": 97833,
+          "input": 5997,
+          "output": 38,
+          "reasoning": 22,
+          "cache": {
+            "write": 0,
+            "read": 91776
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b2fa0f0014LmjeWrGYZ9CQz:prt_149b3941e0016ZVianhfi4cNzp",
+        "cost": 0.002676497,
+        "tokens": {
+          "total": 101989,
+          "input": 3311,
+          "output": 155,
+          "reasoning": 859,
+          "cache": {
+            "write": 0,
+            "read": 97664
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b39429001AYWi32Nn51CvxW:prt_149b4cde1001nCGcE2hM45yeCO",
+        "cost": 0.003612037,
+        "tokens": {
+          "total": 106130,
+          "input": 3069,
+          "output": 51,
+          "reasoning": 2146,
+          "cache": {
+            "write": 0,
+            "read": 100864
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b4cdef001WLfBPfALSmOW2Z:prt_149b5bf1a0012r2ioPpH6boj5l",
+        "cost": 0.003870224,
+        "tokens": {
+          "total": 110088,
+          "input": 4528,
+          "output": 95,
+          "reasoning": 1657,
+          "cache": {
+            "write": 0,
+            "read": 103808
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b5bf25001SUQxlMQUqEJGB7:prt_149b66d84001w0cBXAYOwqKH4R",
+        "cost": 0.002480109,
+        "tokens": {
+          "total": 111901,
+          "input": 2427,
+          "output": 134,
+          "reasoning": 1052,
+          "cache": {
+            "write": 0,
+            "read": 108288
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b66d98001OtFzZw38AdnpZr:prt_149b69f23001PpY8q2UfC5XTk3",
+        "cost": 0.001410966,
+        "tokens": {
+          "total": 112732,
+          "input": 1958,
+          "output": 123,
+          "reasoning": 59,
+          "cache": {
+            "write": 0,
+            "read": 110592
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b69f46001cNaWo8wUe8EzJO:prt_149b6c26a001w23mBiXh9YI2rH",
+        "cost": 0.001092111,
+        "tokens": {
+          "total": 113977,
+          "input": 1357,
+          "output": 61,
+          "reasoning": 47,
+          "cache": {
+            "write": 0,
+            "read": 112512
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b6c27d001aKbQYY3AbZBqTX:prt_149b7c263001kZe74ce8G2HsNB",
+        "cost": 0.003275231,
+        "tokens": {
+          "total": 118351,
+          "input": 2537,
+          "output": 120,
+          "reasoning": 1902,
+          "cache": {
+            "write": 0,
+            "read": 113792
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b7c2740010fPy2lnWAbbcaF:prt_149b7d8ae001VXRtdWwXcFvjRk",
+        "cost": 0.002464942,
+        "tokens": {
+          "total": 120830,
+          "input": 4514,
+          "output": 61,
+          "reasoning": 31,
+          "cache": {
+            "write": 0,
+            "read": 116224
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b7d8be001ElxNcfxDRdFpho:prt_149b881ad001d4iVckoBYX9W7v",
+        "cost": 0.001729937,
+        "tokens": {
+          "total": 122618,
+          "input": 857,
+          "output": 114,
+          "reasoning": 943,
+          "cache": {
+            "write": 0,
+            "read": 120704
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b881b90013vVMqa5zh2cCUZ:prt_149b89ae8001A2SiCZ4cCg9Iwb",
+        "cost": 0.001122851,
+        "tokens": {
+          "total": 122908,
+          "input": 1303,
+          "output": 112,
+          "reasoning": 21,
+          "cache": {
+            "write": 0,
+            "read": 121472
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b89af30014YsS75wr4gkthT:prt_149b8c0de001iUcmXQUQc2hldG",
+        "cost": 0.000947836,
+        "tokens": {
+          "total": 123783,
+          "input": 906,
+          "output": 93,
+          "reasoning": 32,
+          "cache": {
+            "write": 0,
+            "read": 122752
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149b8c0eb001GtYaVoNhWMAz86:prt_149bba0970015ElQAT4h34nbvn",
+        "cost": 0.005726079,
+        "tokens": {
+          "total": 130412,
+          "input": 1395,
+          "output": 49,
+          "reasoning": 5320,
+          "cache": {
+            "write": 0,
+            "read": 123648
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149bba0a30018IpK3ZfxzmD2zM:prt_149bbb86e0015Uyt2wAMUFBtpi",
+        "cost": 0.002946284,
+        "tokens": {
+          "total": 130619,
+          "input": 5650,
+          "output": 29,
+          "reasoning": 12,
+          "cache": {
+            "write": 0,
+            "read": 124928
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149bbb879001j6OhhXFfoCjupZ:prt_149bbe28c001F8RZsVM6eHPkvE",
+        "cost": 0.001274115,
+        "tokens": {
+          "total": 132207,
+          "input": 1453,
+          "output": 153,
+          "reasoning": 41,
+          "cache": {
+            "write": 0,
+            "read": 130560
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149bbe2a3001v72JGSOvvqHTx4:prt_149bc1646001wXms1H991PfY0G",
+        "cost": 0.000889459,
+        "tokens": {
+          "total": 132648,
+          "input": 415,
+          "output": 169,
+          "reasoning": 96,
+          "cache": {
+            "write": 0,
+            "read": 131968
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149bc1650001zFUCvmYIcRnXFu:prt_149bc3dd6001JfYlmNsZyGSgfm",
+        "cost": 0.001046146,
+        "tokens": {
+          "total": 133466,
+          "input": 926,
+          "output": 134,
+          "reasoning": 54,
+          "cache": {
+            "write": 0,
+            "read": 132352
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149bc3deb001KoD0SpsQ0vUhA8:prt_149bc70ed001RJzFFcXyY2HMQd",
+        "cost": 0.001657524,
+        "tokens": {
+          "total": 135805,
+          "input": 2414,
+          "output": 43,
+          "reasoning": 100,
+          "cache": {
+            "write": 0,
+            "read": 133248
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149bc70fd001Q3v9bAjocMhyOf:prt_149bd61cb001FPgqr99S3fsFpK",
+        "cost": 0.003356286,
+        "tokens": {
+          "total": 139944,
+          "input": 2198,
+          "output": 100,
+          "reasoning": 2094,
+          "cache": {
+            "write": 0,
+            "read": 135552
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149bd61df001USOLTrePRh6Vwl:prt_149bd950f001pnLCG7jB422Pdg",
+        "cost": 0.001797739,
+        "tokens": {
+          "total": 140577,
+          "input": 2713,
+          "output": 60,
+          "reasoning": 76,
+          "cache": {
+            "write": 0,
+            "read": 137728
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149bd951a001lgPvZPb0KFdB6x:prt_149bdd2c0001CR3YlUwYAICCq7",
+        "cost": 0.001273738,
+        "tokens": {
+          "total": 141935,
+          "input": 1280,
+          "output": 152,
+          "reasoning": 87,
+          "cache": {
+            "write": 0,
+            "read": 140416
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149bdd2cc001KEn1dzSUGtfiHC:prt_149be0c61001q48o9CapvnLEZe",
+        "cost": 0.001006503,
+        "tokens": {
+          "total": 142602,
+          "input": 679,
+          "output": 135,
+          "reasoning": 92,
+          "cache": {
+            "write": 0,
+            "read": 141696
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149be0c6b0011DtHEJNqXhBT6Y:prt_149c0c2e0001P3iVjPiWE8D7bk",
+        "cost": 0.006537963,
+        "tokens": {
+          "total": 149550,
+          "input": 1859,
+          "output": 85,
+          "reasoning": 5910,
+          "cache": {
+            "write": 0,
+            "read": 141696
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c0c2ee001G1UNvuVdS4b3AG:prt_149c12696001PWxZQbCgld8L0p",
+        "cost": 0.004041034,
+        "tokens": {
+          "total": 151029,
+          "input": 6988,
+          "output": 157,
+          "reasoning": 396,
+          "cache": {
+            "write": 0,
+            "read": 143488
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c126b0001At1YoJvM2zYnrn:prt_149c18600001aZrHu4Gz1btBro",
+        "cost": 0.00154222,
+        "tokens": {
+          "total": 152264,
+          "input": 1436,
+          "output": 41,
+          "reasoning": 387,
+          "cache": {
+            "write": 0,
+            "read": 150400
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c1860f001pi0VaeV1KK5bK3:prt_149c2083e001B8GdeJraYXwe7Z",
+        "cost": 0.002632214,
+        "tokens": {
+          "total": 155628,
+          "input": 2854,
+          "output": 158,
+          "reasoning": 808,
+          "cache": {
+            "write": 0,
+            "read": 151808
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c2084f001oKkxMpE5UW7bBw:prt_149c2b25c001g6Mv1aR84u8Pk6",
+        "cost": 0.003676852,
+        "tokens": {
+          "total": 159036,
+          "input": 1660,
+          "output": 2647,
+          "reasoning": 105,
+          "cache": {
+            "write": 0,
+            "read": 154624
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c2b26e001zlsx8kV2pJOowf:prt_149c325a4001oc3a3DudSLYEjx",
+        "cost": 0.00194155,
+        "tokens": {
+          "total": 159185,
+          "input": 2888,
+          "output": 42,
+          "reasoning": 95,
+          "cache": {
+            "write": 0,
+            "read": 156160
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c325b300185zKqg3PtDAfNL:prt_149c4d7ff0017yu5528fLiQeTm",
+        "cost": 0.004235508,
+        "tokens": {
+          "total": 164081,
+          "input": 1798,
+          "output": 172,
+          "reasoning": 3135,
+          "cache": {
+            "write": 0,
+            "read": 158976
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c4d819001HneoQ4E2vHhpT0:prt_149c625a8001XwODfy6zuh9O7U",
+        "cost": 0.005903269,
+        "tokens": {
+          "total": 168658,
+          "input": 3549,
+          "output": 2833,
+          "reasoning": 1508,
+          "cache": {
+            "write": 0,
+            "read": 160768
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c625c50011p5f6EVig4b4dI:prt_149c68ba9001Sx53e0grZLJVg0",
+        "cost": 0.002949967,
+        "tokens": {
+          "total": 169152,
+          "input": 4443,
+          "output": 43,
+          "reasoning": 442,
+          "cache": {
+            "write": 0,
+            "read": 164224
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c68bba001KRppZFTSfE3ogS:prt_149c77a58001k3VN37qbkj2v9r",
+        "cost": 0.002772168,
+        "tokens": {
+          "total": 171719,
+          "input": 1318,
+          "output": 239,
+          "reasoning": 1586,
+          "cache": {
+            "write": 0,
+            "read": 168576
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c77a76001IeHtxQ4ubtjoHS:prt_149c8a5390015SgusbWXAgq2nH",
+        "cost": 0.003754253,
+        "tokens": {
+          "total": 174454,
+          "input": 1981,
+          "output": 242,
+          "reasoning": 2375,
+          "cache": {
+            "write": 0,
+            "read": 169856
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c8a54d001PeBoev55zVI5mN:prt_149c8d050001BxU7nQyuwBG1yp",
+        "cost": 0.002086463,
+        "tokens": {
+          "total": 174806,
+          "input": 2695,
+          "output": 162,
+          "reasoning": 173,
+          "cache": {
+            "write": 0,
+            "read": 171776
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c8d0620013kRSVnTVszH4Py:prt_149c92008001w1FNFeuB7iC0yU",
+        "cost": 0.001367582,
+        "tokens": {
+          "total": 175627,
+          "input": 636,
+          "output": 111,
+          "reasoning": 416,
+          "cache": {
+            "write": 0,
+            "read": 174464
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c9201c00164ECMdIFQdrSyb:prt_149c93b47001fBTxMoOQSDmHQL",
+        "cost": 0.001614343,
+        "tokens": {
+          "total": 177118,
+          "input": 2031,
+          "output": 62,
+          "reasoning": 49,
+          "cache": {
+            "write": 0,
+            "read": 174976
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c93b590012DrCslOIcp7umv:prt_149c98ccd001uPbntLqJoL1jHX",
+        "cost": 0.001446433,
+        "tokens": {
+          "total": 178290,
+          "input": 937,
+          "output": 113,
+          "reasoning": 344,
+          "cache": {
+            "write": 0,
+            "read": 176896
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c98cdc001tH51jx6bI7gvdY:prt_149c9b2320017E6N6ddmFrl9Xc",
+        "cost": 0.001244796,
+        "tokens": {
+          "total": 179022,
+          "input": 1080,
+          "output": 45,
+          "reasoning": 105,
+          "cache": {
+            "write": 0,
+            "read": 177792
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149c9b243001cPaFp02KJeYWPo:prt_149cac0f1001GH6ZeSp5qgD6bT",
+        "cost": 0.002810158,
+        "tokens": {
+          "total": 181649,
+          "input": 696,
+          "output": 105,
+          "reasoning": 2032,
+          "cache": {
+            "write": 0,
+            "read": 178816
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149cac1040010tMhdDJOT4Ki6q:prt_149caf82900158Tp6VLVwC5Jc6",
+        "cost": 0.001878098,
+        "tokens": {
+          "total": 181988,
+          "input": 2242,
+          "output": 78,
+          "reasoning": 212,
+          "cache": {
+            "write": 0,
+            "read": 179456
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149caf83e001JEyMMEyxLwzHTn:prt_149cb22fe001ng1EPCyaMMcvUl",
+        "cost": 0.001167366,
+        "tokens": {
+          "total": 182600,
+          "input": 766,
+          "output": 156,
+          "reasoning": 46,
+          "cache": {
+            "write": 0,
+            "read": 181632
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149cb2313001clXMGTVcdyN5XR:prt_149cb4193001vWgqZa6TuCu1m7",
+        "cost": 0.001193611,
+        "tokens": {
+          "total": 183418,
+          "input": 1067,
+          "output": 44,
+          "reasoning": 35,
+          "cache": {
+            "write": 0,
+            "read": 182272
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149cb41a6001OEAK72KQLiwi4A:prt_149cbac4f001CkZiOGxYkOUqJe",
+        "cost": 0.001625363,
+        "tokens": {
+          "total": 184691,
+          "input": 581,
+          "output": 165,
+          "reasoning": 649,
+          "cache": {
+            "write": 0,
+            "read": 183296
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149cbac63001wLOON6Lu2SszRm:prt_149cc508d0013tfGUmlZFrVbjR",
+        "cost": 0.002973544,
+        "tokens": {
+          "total": 187580,
+          "input": 2240,
+          "output": 186,
+          "reasoning": 1346,
+          "cache": {
+            "write": 0,
+            "read": 183808
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149cc50a4001wQRPJ8iLJXQa70:prt_149cdd6af001I5RnqRBJ1b4Ryf",
+        "cost": 0.004241192,
+        "tokens": {
+          "total": 191125,
+          "input": 2082,
+          "output": 89,
+          "reasoning": 2970,
+          "cache": {
+            "write": 0,
+            "read": 185984
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149cdd6cd001j5H3FfqN5xI0Lc:prt_149ce5d8e001IxfbWh2oCsseqb",
+        "cost": 0.004044601,
+        "tokens": {
+          "total": 194626,
+          "input": 5457,
+          "output": 154,
+          "reasoning": 983,
+          "cache": {
+            "write": 0,
+            "read": 188032
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ce5da4001r8XmgAE4JrDinT:prt_149d36cb5001k3UTnvXCGXKD0E",
+        "cost": 0.010700449,
+        "tokens": {
+          "total": 205922,
+          "input": 2041,
+          "output": 204,
+          "reasoning": 10269,
+          "cache": {
+            "write": 0,
+            "read": 193408
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149d36cc4001jUFI2yPZUlYOom:prt_149d3b9a2001HaI3pAlWvCzZoz",
+        "cost": 0.006036814,
+        "tokens": {
+          "total": 207307,
+          "input": 11708,
+          "output": 130,
+          "reasoning": 141,
+          "cache": {
+            "write": 0,
+            "read": 195328
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149d3b9c0001qW3x1BRSlqgGWe:prt_149d4698d001Vgc0kMU9X5iMso",
+        "cost": 0.003471213,
+        "tokens": {
+          "total": 210765,
+          "input": 1323,
+          "output": 1911,
+          "reasoning": 555,
+          "cache": {
+            "write": 0,
+            "read": 206976
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149d469a1001j15tJT7wnZmUvr:prt_149d4aedf001K4yf01SqO7I9ix",
+        "cost": 0.002066018,
+        "tokens": {
+          "total": 211023,
+          "input": 2520,
+          "output": 43,
+          "reasoning": 204,
+          "cache": {
+            "write": 0,
+            "read": 208256
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149d4aef4001VKa4mOTl8VtZZE:prt_149d5212b0016WozR2zQfPJbU1",
+        "cost": 0.001681159,
+        "tokens": {
+          "total": 212086,
+          "input": 687,
+          "output": 112,
+          "reasoning": 599,
+          "cache": {
+            "write": 0,
+            "read": 210688
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149d5213b001ZSG15FUE3IZUQg:prt_149d59385001u1uHxMtrcKBbT0",
+        "cost": 0.002515634,
+        "tokens": {
+          "total": 213934,
+          "input": 1190,
+          "output": 1123,
+          "reasoning": 293,
+          "cache": {
+            "write": 0,
+            "read": 211328
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149d5939a001EECq7XB7kK7BJf:prt_149d5b171001nyEkD1c84c8GSh",
+        "cost": 0.001642415,
+        "tokens": {
+          "total": 214402,
+          "input": 1839,
+          "output": 43,
+          "reasoning": 40,
+          "cache": {
+            "write": 0,
+            "read": 212480
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149d5b18400174zfrPiJ2Iv2HD:prt_149d7ff16001I3UyZKR0zydkQF",
+        "cost": 0.004663896,
+        "tokens": {
+          "total": 218917,
+          "input": 354,
+          "output": 148,
+          "reasoning": 4143,
+          "cache": {
+            "write": 0,
+            "read": 214272
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149d7ff25001XeREBOrrayThj6:prt_149d859ac001bhmKGK6hs54kQm",
+        "cost": 0.003756109,
+        "tokens": {
+          "total": 220818,
+          "input": 5733,
+          "output": 99,
+          "reasoning": 458,
+          "cache": {
+            "write": 0,
+            "read": 214528
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149d859bb001bR5uErSH2SH9pj:prt_149d8bf780012xiRYqdnZ2isoe",
+        "cost": 0.002606375,
+        "tokens": {
+          "total": 223782,
+          "input": 3087,
+          "output": 40,
+          "reasoning": 495,
+          "cache": {
+            "write": 0,
+            "read": 220160
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149d8bf89001Ff2Zotf9fuJjWF:prt_149db1a7a001kYika1FMTHTmCN",
+        "cost": 0.008804951,
+        "tokens": {
+          "total": 234132,
+          "input": 3419,
+          "output": 108,
+          "reasoning": 7373,
+          "cache": {
+            "write": 0,
+            "read": 223232
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149db1a8a001hx52gisrAZOUxi:prt_149dc596c001pDDjaHZ8nlVUJB",
+        "cost": 0.00761424,
+        "tokens": {
+          "total": 238657,
+          "input": 8578,
+          "output": 42,
+          "reasoning": 3477,
+          "cache": {
+            "write": 0,
+            "read": 226560
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149dc5981001hOpxhCl6j16rSg:prt_149de93e1001thH4qxyL3B6xBd",
+        "cost": 0.015144728,
+        "tokens": {
+          "total": 254016,
+          "input": 4904,
+          "output": 39,
+          "reasoning": 13937,
+          "cache": {
+            "write": 0,
+            "read": 235136
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149de93f00014364sPvYu5OBbO:prt_149df8d50001h8MuFEy68RKIKR",
+        "cost": 0.00967353,
+        "tokens": {
+          "total": 258063,
+          "input": 15888,
+          "output": 81,
+          "reasoning": 2094,
+          "cache": {
+            "write": 0,
+            "read": 240000
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149df8d64001gl9vPAnqrFK2Db:prt_149dfb5fc001rsr1OhmYR21QaQ",
+        "cost": 0.002313881,
+        "tokens": {
+          "total": 258889,
+          "input": 2847,
+          "output": 40,
+          "reasoning": 130,
+          "cache": {
+            "write": 0,
+            "read": 255872
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149dfb6090012WhNgsuuvgBwZY:prt_149dfd4b2001EtPSilMJwBNhuI",
+        "cost": 0.001764244,
+        "tokens": {
+          "total": 260511,
+          "input": 1746,
+          "output": 39,
+          "reasoning": 38,
+          "cache": {
+            "write": 0,
+            "read": 258688
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149dfd4ca001CNjEx9HC1gbel8:prt_149ea799f0019DAfe0spSoZ02E",
+        "cost": 0.022400586,
+        "tokens": {
+          "total": 285840,
+          "input": 1650,
+          "output": 212,
+          "reasoning": 23626,
+          "cache": {
+            "write": 0,
+            "read": 260352
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ea79ae001G9poq058KOuvd0:prt_149ec33ee001EtANOKB7YOyH0G",
+        "cost": 0.015805029,
+        "tokens": {
+          "total": 291455,
+          "input": 24983,
+          "output": 114,
+          "reasoning": 4470,
+          "cache": {
+            "write": 0,
+            "read": 261888
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ec3413001PKUjydE900Qvmy:prt_149ec6d64001D7AbT4xhNAsxuY",
+        "cost": 0.006141069,
+        "tokens": {
+          "total": 298182,
+          "input": 10941,
+          "output": 74,
+          "reasoning": 319,
+          "cache": {
+            "write": 0,
+            "read": 286848
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ec6d80001E2emTpoVzIXEXQ:prt_149ecbf36001DIiocFG75nQVAl",
+        "cost": 0.006232709,
+        "tokens": {
+          "total": 308962,
+          "input": 10621,
+          "output": 93,
+          "reasoning": 520,
+          "cache": {
+            "write": 0,
+            "read": 297728
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ecbf60001YokbuUDhv3cksQ:prt_149ecff1c001Wmhlo9NVpRp21M",
+        "cost": 0.006142867,
+        "tokens": {
+          "total": 319204,
+          "input": 10407,
+          "output": 77,
+          "reasoning": 496,
+          "cache": {
+            "write": 0,
+            "read": 308224
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ecff3e001t0Ij5nFEdColOF:prt_149ed3ca3001rWFQzcguwN4oQb",
+        "cost": 0.003897136,
+        "tokens": {
+          "total": 323881,
+          "input": 4274,
+          "output": 961,
+          "reasoning": 54,
+          "cache": {
+            "write": 0,
+            "read": 318592
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ed3cc3001sacnT0paRKFGcJ:prt_149ee61d2001nYKDbPi4TEE3K1",
+        "cost": 0.005831668,
+        "tokens": {
+          "total": 328716,
+          "input": 1084,
+          "output": 1580,
+          "reasoning": 3236,
+          "cache": {
+            "write": 0,
+            "read": 322816
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ee61e9001Xy4h430wxP5vZj:prt_149eea2170016YXI4mtoRF3EcV",
+        "cost": 0.004298525,
+        "tokens": {
+          "total": 329878,
+          "input": 4893,
+          "output": 1052,
+          "reasoning": 93,
+          "cache": {
+            "write": 0,
+            "read": 323840
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149eea22b0017iSE5M29PnzNGQ:prt_149eeeb83001VaUFU9Wp8IHce9",
+        "cost": 0.002207712,
+        "tokens": {
+          "total": 330474,
+          "input": 1204,
+          "output": 142,
+          "reasoning": 424,
+          "cache": {
+            "write": 0,
+            "read": 328704
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149eeeb96001IusFEW70Vyo0P6:prt_149ef20e4001iuWxRtUi6TwNkl",
+        "cost": 0.001826913,
+        "tokens": {
+          "total": 331002,
+          "input": 841,
+          "output": 240,
+          "reasoning": 65,
+          "cache": {
+            "write": 0,
+            "read": 329856
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ef20fc0018SBtyy52P8Uxu3:prt_149ef72ee001S0aahY0ErE8VpM",
+        "cost": 0.002354742,
+        "tokens": {
+          "total": 332451,
+          "input": 996,
+          "output": 57,
+          "reasoning": 774,
+          "cache": {
+            "write": 0,
+            "read": 330624
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ef7305001RTXwhegaR0Ges0:prt_149f17101001Ux0hxTaBvZZ418",
+        "cost": 0.00777635,
+        "tokens": {
+          "total": 339827,
+          "input": 1500,
+          "output": 67,
+          "reasoning": 6740,
+          "cache": {
+            "write": 0,
+            "read": 331520
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149f17115001C1y2aHwZ0RgVXp:prt_149f47b65001rsCH7e6BZSgT4I",
+        "cost": 0.015448329,
+        "tokens": {
+          "total": 353004,
+          "input": 7413,
+          "output": 2612,
+          "reasoning": 10051,
+          "cache": {
+            "write": 0,
+            "read": 332928
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149f47b77001PeJIouzvTelsa3:prt_149f5b2630016SXpdzg3bAww6Y",
+        "cost": 0.009895032,
+        "tokens": {
+          "total": 356574,
+          "input": 12788,
+          "output": 240,
+          "reasoning": 3322,
+          "cache": {
+            "write": 0,
+            "read": 340224
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149f5b282001DI76Up4jFQUDUt:prt_149f5d7ad001C34sl5g87TGMC0",
+        "cost": 0.003248058,
+        "tokens": {
+          "total": 357295,
+          "input": 4272,
+          "output": 116,
+          "reasoning": 11,
+          "cache": {
+            "write": 0,
+            "read": 352896
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149f5d7be0018F84arQxu5NVf0:prt_149f66d52001fFzu2udbXLcoTV",
+        "cost": 0.00403071,
+        "tokens": {
+          "total": 360460,
+          "input": 390,
+          "output": 1912,
+          "reasoning": 1038,
+          "cache": {
+            "write": 0,
+            "read": 357120
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149f66d6a001RHV7OO1y9j9cw0:prt_149f6cab10015pbc2gZdkdx0Xf",
+        "cost": 0.003564477,
+        "tokens": {
+          "total": 361595,
+          "input": 2967,
+          "output": 1008,
+          "reasoning": 116,
+          "cache": {
+            "write": 0,
+            "read": 357504
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149f6cac4001BI77RtuYKa0pt6:prt_149f7e7dc001nh6FdE0YHucuVJ",
+        "cost": 0.004636114,
+        "tokens": {
+          "total": 364859,
+          "input": 1168,
+          "output": 501,
+          "reasoning": 2742,
+          "cache": {
+            "write": 0,
+            "read": 360448
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149f7e7f3001nbQUtHjeMMv2Yg:prt_149f841120018eRwIxXOXvwESl",
+        "cost": 0.003182605,
+        "tokens": {
+          "total": 365385,
+          "input": 3267,
+          "output": 276,
+          "reasoning": 242,
+          "cache": {
+            "write": 0,
+            "read": 361600
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149f84124001g46MybLVcv7Ha7:prt_149f992f00015MTkYmqKi1MoK0",
+        "cost": 0.003955455,
+        "tokens": {
+          "total": 368187,
+          "input": 721,
+          "output": 84,
+          "reasoning": 2582,
+          "cache": {
+            "write": 0,
+            "read": 364800
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149f99305001o4duR8tYFn2EOX:prt_149fba064001JafgbiB1hx7Mhi",
+        "cost": 0.006895765,
+        "tokens": {
+          "total": 373426,
+          "input": 3165,
+          "output": 965,
+          "reasoning": 3856,
+          "cache": {
+            "write": 0,
+            "read": 365440
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149fba079001Ui11iimeZBoGmd:prt_149fc12db001Cm50E6WnVKy9rW",
+        "cost": 0.004514836,
+        "tokens": {
+          "total": 374631,
+          "input": 4930,
+          "output": 554,
+          "reasoning": 635,
+          "cache": {
+            "write": 0,
+            "read": 368512
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149fc130600124UPfwF4Qqp4L0:prt_149fc7406001TVwq4lIvdleatM",
+        "cost": 0.002873378,
+        "tokens": {
+          "total": 375960,
+          "input": 1674,
+          "output": 650,
+          "reasoning": 260,
+          "cache": {
+            "write": 0,
+            "read": 373376
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149fc7423001lYiOqWo53UuO4z:prt_149fca36c001lO0dyLiCP47PyP",
+        "cost": 0.00223996,
+        "tokens": {
+          "total": 376528,
+          "input": 952,
+          "output": 447,
+          "reasoning": 89,
+          "cache": {
+            "write": 0,
+            "read": 375040
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149fca380001FOCRD5nKiYnjtc:prt_149fd2ac9001gjFRspvJAO6SbZ",
+        "cost": 0.001983948,
+        "tokens": {
+          "total": 377081,
+          "input": 862,
+          "output": 109,
+          "reasoning": 174,
+          "cache": {
+            "write": 0,
+            "read": 375936
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149fd2add001445a2MqmEX1zD2:prt_149fdc1d2001QJScCMJch62emS",
+        "cost": 0.003139047,
+        "tokens": {
+          "total": 379214,
+          "input": 943,
+          "output": 688,
+          "reasoning": 879,
+          "cache": {
+            "write": 0,
+            "read": 376704
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149fdc1ec001oGnz1Q0yjZXlIi:prt_149feba0b001O1MIyjbkU8tZro",
+        "cost": 0.002742095,
+        "tokens": {
+          "total": 380213,
+          "input": 2069,
+          "output": 110,
+          "reasoning": 434,
+          "cache": {
+            "write": 0,
+            "read": 377600
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149feba22001idSC9jsQfI5s8F:prt_149fee355001gLH1q7qxEuabHZ",
+        "cost": 0.001965214,
+        "tokens": {
+          "total": 380760,
+          "input": 870,
+          "output": 150,
+          "reasoning": 92,
+          "cache": {
+            "write": 0,
+            "read": 379648
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149fee366001OTiglAfQZ3guP1:prt_149ff4ccf001lRbAhc1XWU0bz0",
+        "cost": 0.002387773,
+        "tokens": {
+          "total": 381961,
+          "input": 771,
+          "output": 262,
+          "reasoning": 512,
+          "cache": {
+            "write": 0,
+            "read": 380416
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_149ff4ce30014thBZfODjAp1VM:prt_14a00ccab001cSlvk6FLpUhFLY",
+        "cost": 0.002080402,
+        "tokens": {
+          "total": 382459,
+          "input": 944,
+          "output": 227,
+          "reasoning": 104,
+          "cache": {
+            "write": 0,
+            "read": 381184
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a00ccc9001Wp4S1qJ0TiCCBO:prt_14a019e12001XXxBm9An17bXFf",
+        "cost": 0.001790895,
+        "tokens": {
+          "total": 382796,
+          "input": 499,
+          "output": 110,
+          "reasoning": 107,
+          "cache": {
+            "write": 0,
+            "read": 382080
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a019e33001ce5sabJ3F2k9EP:prt_14a01bab3001lmWSzJ5XyGaqCL",
+        "cost": 0.001818387,
+        "tokens": {
+          "total": 383265,
+          "input": 609,
+          "output": 169,
+          "reasoning": 23,
+          "cache": {
+            "write": 0,
+            "read": 382464
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a01bacc001Y6PhPugdba8BhW:prt_14a023370001hMDJNKukESAZga",
+        "cost": 0.002820743,
+        "tokens": {
+          "total": 385064,
+          "input": 883,
+          "output": 490,
+          "reasoning": 715,
+          "cache": {
+            "write": 0,
+            "read": 382976
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a023386001V4aXfWtw1eB5Ic:prt_14a02f73f001Oq8sJP3H3zc0Jm",
+        "cost": 0.002169287,
+        "tokens": {
+          "total": 385363,
+          "input": 1449,
+          "output": 110,
+          "reasoning": 60,
+          "cache": {
+            "write": 0,
+            "read": 383744
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a02f752001vxLakqBB6pUWv1:prt_14a034ace001q4ipiGf9yDfmAg",
+        "cost": 0.001812036,
+        "tokens": {
+          "total": 385857,
+          "input": 454,
+          "output": 147,
+          "reasoning": 104,
+          "cache": {
+            "write": 0,
+            "read": 385152
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a034aee001JYQk6KyDwWCpGb:prt_14a03dd4d001Xf7bgcr0Ihg6xI",
+        "cost": 0.003357243,
+        "tokens": {
+          "total": 388342,
+          "input": 1107,
+          "output": 279,
+          "reasoning": 1420,
+          "cache": {
+            "write": 0,
+            "read": 385536
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a03dd6b0015vGsmPdaQcJi3T:prt_14a053468001jjkwoySXx0G9ih",
+        "cost": 0.002537065,
+        "tokens": {
+          "total": 388775,
+          "input": 1819,
+          "output": 145,
+          "reasoning": 251,
+          "cache": {
+            "write": 0,
+            "read": 386560
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a05347c001QcZkKYhwQ7qy1m:prt_14a060fdc001FYzo8eF4VEtM0V",
+        "cost": 0.002415236,
+        "tokens": {
+          "total": 390220,
+          "input": 1420,
+          "output": 110,
+          "reasoning": 338,
+          "cache": {
+            "write": 0,
+            "read": 388352
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a060ff3001JOncFgKxWywr4l:prt_14a0787f3001RNeTooay3T3qxM",
+        "cost": 0.00579594,
+        "tokens": {
+          "total": 395124,
+          "input": 652,
+          "output": 1134,
+          "reasoning": 3578,
+          "cache": {
+            "write": 0,
+            "read": 389760
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a07880a001IPrhKuaSlxQg4X:prt_14a0835210015t0egYLPP7utuh",
+        "cost": 0.005334985,
+        "tokens": {
+          "total": 397287,
+          "input": 4763,
+          "output": 894,
+          "reasoning": 1230,
+          "cache": {
+            "write": 0,
+            "read": 390400
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a083540001Y2tZ9prL63s1D7:prt_14a088e53001Z17HNVO0PMZzVo",
+        "cost": 0.003260238,
+        "tokens": {
+          "total": 398381,
+          "input": 2288,
+          "output": 541,
+          "reasoning": 416,
+          "cache": {
+            "write": 0,
+            "read": 395136
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a088e670013BFy4TLDZBZjKd:prt_14a08e091001Ei3IAz4IVHHg6X",
+        "cost": 0.002658256,
+        "tokens": {
+          "total": 399302,
+          "input": 1180,
+          "output": 39,
+          "reasoning": 771,
+          "cache": {
+            "write": 0,
+            "read": 397312
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a08e0a7001YYG2fzFgX1PMU8:prt_14a09522e001dcmdgWBERnRHrY",
+        "cost": 0.003214012,
+        "tokens": {
+          "total": 401407,
+          "input": 1818,
+          "output": 971,
+          "reasoning": 154,
+          "cache": {
+            "write": 0,
+            "read": 398464
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a09524400164Eqj3R75EASur:prt_14a0af85f001SACJJ1GxM5mKxJ",
+        "cost": 0.006805343,
+        "tokens": {
+          "total": 407081,
+          "input": 1341,
+          "output": 1324,
+          "reasoning": 4160,
+          "cache": {
+            "write": 0,
+            "read": 400256
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a0af874001SsWfuEy3TjVHPP:prt_14a0b57140016ab8SlKXyXWu8M",
+        "cost": 0.004715893,
+        "tokens": {
+          "total": 408069,
+          "input": 5571,
+          "output": 692,
+          "reasoning": 270,
+          "cache": {
+            "write": 0,
+            "read": 401536
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a0b572b001csykWf0cx2y8LP:prt_14a0c215e001hXkmxgunOh4NZE",
+        "cost": 0.004614045,
+        "tokens": {
+          "total": 411177,
+          "input": 1059,
+          "output": 1326,
+          "reasoning": 1752,
+          "cache": {
+            "write": 0,
+            "read": 407040
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a0c2175001cOd9cGOU9xrtAL:prt_14a0c9784001pRxefYY92WZMlO",
+        "cost": 0.003889132,
+        "tokens": {
+          "total": 412406,
+          "input": 3144,
+          "output": 560,
+          "reasoning": 638,
+          "cache": {
+            "write": 0,
+            "read": 408064
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a0c97b40017HiqJUHleHqnc1:prt_14a0d31b1001ZOzE4H0HIos2Jf",
+        "cost": 0.003567493,
+        "tokens": {
+          "total": 414169,
+          "input": 1291,
+          "output": 87,
+          "reasoning": 1655,
+          "cache": {
+            "write": 0,
+            "read": 411136
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a0d31d3001Mefo7rHF45fn9C:prt_14a0deea9001gi0KMm6lzpSfHB",
+        "cost": 0.004401243,
+        "tokens": {
+          "total": 416824,
+          "input": 2135,
+          "output": 649,
+          "reasoning": 1624,
+          "cache": {
+            "write": 0,
+            "read": 412416
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a0deebe0018Veu8NxRttbQ4l:prt_14a0e3cc0001JdqmRwkjNfbe42",
+        "cost": 0.003108887,
+        "tokens": {
+          "total": 417510,
+          "input": 2399,
+          "output": 540,
+          "reasoning": 107,
+          "cache": {
+            "write": 0,
+            "read": 414464
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a0e3cde001mk9eclS2OcX7uf:prt_14a0e95f6001G96AFduq1hRZbW",
+        "cost": 0.002830574,
+        "tokens": {
+          "total": 418671,
+          "input": 772,
+          "output": 612,
+          "reasoning": 519,
+          "cache": {
+            "write": 0,
+            "read": 416768
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a0e9610001632h6U8nddjm2K:prt_14a0f0483001zMrzXnj79Gpk0F",
+        "cost": 0.003013883,
+        "tokens": {
+          "total": 419843,
+          "input": 1165,
+          "output": 493,
+          "reasoning": 649,
+          "cache": {
+            "write": 0,
+            "read": 417536
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a0f049b001Svsv04Z8ayPB0d:prt_14a0f6005001agISfAZSluPn42",
+        "cost": 0.002818394,
+        "tokens": {
+          "total": 420771,
+          "input": 1176,
+          "output": 595,
+          "reasoning": 312,
+          "cache": {
+            "write": 0,
+            "read": 418688
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a0f6027001RW0s6M74VGlCHc:prt_14a106905001Q828Q49w4Zf3Za",
+        "cost": 0.00460868,
+        "tokens": {
+          "total": 423858,
+          "input": 940,
+          "output": 92,
+          "reasoning": 2986,
+          "cache": {
+            "write": 0,
+            "read": 419840
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a10691e001nbyKIIaGJPwdZg:prt_14a10b0ae001pv4udT1zayFQAP",
+        "cost": 0.004035118,
+        "tokens": {
+          "total": 425397,
+          "input": 3552,
+          "output": 1028,
+          "reasoning": 81,
+          "cache": {
+            "write": 0,
+            "read": 420736
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a10b0d2001WDhEjThzEFetxj:prt_14a117744001qOuHjLsA5aGzcv",
+        "cost": 0.003910621,
+        "tokens": {
+          "total": 427537,
+          "input": 1235,
+          "output": 97,
+          "reasoning": 2013,
+          "cache": {
+            "write": 0,
+            "read": 424192
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a11775b001GdeD0Ltgm63xMq:prt_14a11b6d1001505IYA6g6qVcgE",
+        "cost": 0.003436732,
+        "tokens": {
+          "total": 429035,
+          "input": 3026,
+          "output": 152,
+          "reasoning": 513,
+          "cache": {
+            "write": 0,
+            "read": 425344
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a11b6e60016Nb59JwijIxuHf:prt_14a11f363001bdydQOCNEaCk4U",
+        "cost": 0.002717909,
+        "tokens": {
+          "total": 430365,
+          "input": 1475,
+          "output": 152,
+          "reasoning": 450,
+          "cache": {
+            "write": 0,
+            "read": 428288
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a11f375001vCjSB7yvuZ6sBe:prt_14a126541001e3w3lhs5h4ROGn",
+        "cost": 0.002974443,
+        "tokens": {
+          "total": 431752,
+          "input": 855,
+          "output": 59,
+          "reasoning": 1142,
+          "cache": {
+            "write": 0,
+            "read": 429696
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a12655a0018b1JPvBW46Xt2r:prt_14a131ed2001rkQLOfQHXlLjXO",
+        "cost": 0.004785522,
+        "tokens": {
+          "total": 435031,
+          "input": 1720,
+          "output": 1860,
+          "reasoning": 987,
+          "cache": {
+            "write": 0,
+            "read": 430464
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a131ef8001ccY36I2p3sSk7N:prt_14a13cc8a001cvhV84u6k2X3hN",
+        "cost": 0.006449339,
+        "tokens": {
+          "total": 439636,
+          "input": 3791,
+          "output": 1468,
+          "reasoning": 2249,
+          "cache": {
+            "write": 0,
+            "read": 432128
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a13cca7001G3wkKTaVUXkGvm:prt_14a14708b001ujxgbBxHfDVz1y",
+        "cost": 0.00507123,
+        "tokens": {
+          "total": 441760,
+          "input": 3814,
+          "output": 359,
+          "reasoning": 1747,
+          "cache": {
+            "write": 0,
+            "read": 435840
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a1470a4001i5OBqGV8OpuZdy:prt_14a150575001nGlx6Q4Y2wLi25",
+        "cost": 0.004378246,
+        "tokens": {
+          "total": 443868,
+          "input": 2230,
+          "output": 2048,
+          "reasoning": 38,
+          "cache": {
+            "write": 0,
+            "read": 439552
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a150591001eqDerLs76hc7g1:prt_14a15502e0019RajeBSGYGWjfs",
+        "cost": 0.003412604,
+        "tokens": {
+          "total": 444886,
+          "input": 2152,
+          "output": 834,
+          "reasoning": 172,
+          "cache": {
+            "write": 0,
+            "read": 441728
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a155047001znYbe1sOG1goJT:prt_14a15e4ce00151rM7IH8HsSkwK",
+        "cost": 0.003450043,
+        "tokens": {
+          "total": 446458,
+          "input": 1131,
+          "output": 1321,
+          "reasoning": 230,
+          "cache": {
+            "write": 0,
+            "read": 443776
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a15e4e5001plrD65Yee7cGSQ:prt_14a166b6b001QeY5Cs2S0FgYpL",
+        "cost": 0.004616945,
+        "tokens": {
+          "total": 449093,
+          "input": 1679,
+          "output": 2035,
+          "reasoning": 579,
+          "cache": {
+            "write": 0,
+            "read": 444800
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a166b82001sMWLgUbhNJO1ut:prt_14a16be96001Uh9zpM4xQ452Pk",
+        "cost": 0.003956122,
+        "tokens": {
+          "total": 450476,
+          "input": 2650,
+          "output": 1198,
+          "reasoning": 164,
+          "cache": {
+            "write": 0,
+            "read": 446464
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a16beb30012WoqSfw3dGDZ9l:prt_14a16f400001neZacmlXaOEaLK",
+        "cost": 0.003119327,
+        "tokens": {
+          "total": 451522,
+          "input": 1567,
+          "output": 908,
+          "reasoning": 23,
+          "cache": {
+            "write": 0,
+            "read": 449024
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a16f414001rQiGHbNvIqtqTS:prt_14a1743f8001k8IsrcYZEywMZi",
+        "cost": 0.003028325,
+        "tokens": {
+          "total": 452751,
+          "input": 1175,
+          "output": 776,
+          "reasoning": 240,
+          "cache": {
+            "write": 0,
+            "read": 450560
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a174422001i4sX1hLCBak8df:prt_14a1771b4001cmco8iHxPxYpcj",
+        "cost": 0.002728871,
+        "tokens": {
+          "total": 453599,
+          "input": 1265,
+          "output": 388,
+          "reasoning": 234,
+          "cache": {
+            "write": 0,
+            "read": 451712
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a1771d0001TDcLLyJeP6vs5t:prt_14a17c334001sChmilrxu4hf8a",
+        "cost": 0.002758712,
+        "tokens": {
+          "total": 454520,
+          "input": 744,
+          "output": 638,
+          "reasoning": 274,
+          "cache": {
+            "write": 0,
+            "read": 452864
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a17c352001b1sreiHr2nnL79:prt_14a18f9550017eb2wccW9HFVyC",
+        "cost": 0.002604867,
+        "tokens": {
+          "total": 455125,
+          "input": 1033,
+          "output": 156,
+          "reasoning": 432,
+          "cache": {
+            "write": 0,
+            "read": 453504
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a18f96c001RX2v3YATXjgwDQ:prt_14a1a20e4001lkFSWEL2yRueKB",
+        "cost": 0.002176624,
+        "tokens": {
+          "total": 455503,
+          "input": 734,
+          "output": 162,
+          "reasoning": 79,
+          "cache": {
+            "write": 0,
+            "read": 454528
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a1a20fa0013oBDrSRM0LPmEh:prt_14a1b7887001BtqDdG9ZpzXewx",
+        "cost": 0.002083244,
+        "tokens": {
+          "total": 455902,
+          "input": 472,
+          "output": 200,
+          "reasoning": 62,
+          "cache": {
+            "write": 0,
+            "read": 455168
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a1b78a0001S4Xdsgwj1yzyNF:prt_14a1cac3d001ZTyEza1udsm1Db",
+        "cost": 0.002356511,
+        "tokens": {
+          "total": 456620,
+          "input": 515,
+          "output": 193,
+          "reasoning": 360,
+          "cache": {
+            "write": 0,
+            "read": 455552
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a1cac5b00119dT2xB3DGgVE6:prt_14a1d7928001SRX52L6zav58WX",
+        "cost": 0.002169142,
+        "tokens": {
+          "total": 456998,
+          "input": 682,
+          "output": 193,
+          "reasoning": 59,
+          "cache": {
+            "write": 0,
+            "read": 456064
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a1d7940001Yc527VXK9jPLQn:prt_14a1daf2e0017UT3fHKeX9LD3I",
+        "cost": 0.002329367,
+        "tokens": {
+          "total": 457726,
+          "input": 495,
+          "output": 128,
+          "reasoning": 399,
+          "cache": {
+            "write": 0,
+            "read": 456704
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a1daf440014caDZTysBL5PJi:prt_14a1df57a001bt2seuiL8qYGGZ",
+        "cost": 0.002316839,
+        "tokens": {
+          "total": 458198,
+          "input": 703,
+          "output": 139,
+          "reasoning": 268,
+          "cache": {
+            "write": 0,
+            "read": 457088
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a1df596001gKxteSQAP0H0fQ:prt_14a1e4a85001MhFX4exZSrQAd4",
+        "cost": 0.002846814,
+        "tokens": {
+          "total": 459402,
+          "input": 618,
+          "output": 367,
+          "reasoning": 689,
+          "cache": {
+            "write": 0,
+            "read": 457728
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a1e4a9d0011STrhhxMg8QABB:prt_14a208bde001kr2V4CFge60jjn",
+        "cost": 0.008753795,
+        "tokens": {
+          "total": 467072,
+          "input": 1359,
+          "output": 499,
+          "reasoning": 6974,
+          "cache": {
+            "write": 0,
+            "read": 458240
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a208bf40014whtVIH7jqLk4q:prt_14a21b53a001pgaidz6eJrq5bH",
+        "cost": 0.00562339,
+        "tokens": {
+          "total": 467892,
+          "input": 7646,
+          "output": 300,
+          "reasoning": 426,
+          "cache": {
+            "write": 0,
+            "read": 459520
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a21b554001TyzINTJNwXkWau:prt_14a2293650019SRxejt0Kp3Ier",
+        "cost": 0.002301266,
+        "tokens": {
+          "total": 468237,
+          "input": 932,
+          "output": 194,
+          "reasoning": 39,
+          "cache": {
+            "write": 0,
+            "read": 467072
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a2293820010ih6JMX0531EHb:prt_14a23b90e0011s5j32BuUeTXK0",
+        "cost": 0.002108329,
+        "tokens": {
+          "total": 468660,
+          "input": 437,
+          "output": 195,
+          "reasoning": 60,
+          "cache": {
+            "write": 0,
+            "read": 467968
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a23b922001yV1xcH42bFBdMY:prt_14a24ff7e001mdHOHhEgrI06in",
+        "cost": 0.002330701,
+        "tokens": {
+          "total": 469302,
+          "input": 445,
+          "output": 214,
+          "reasoning": 291,
+          "cache": {
+            "write": 0,
+            "read": 468352
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a24ffa1001H8v4h0VAD06Ecg:prt_14a261194001o5HYy2Q8iNN0xa",
+        "cost": 0.002236393,
+        "tokens": {
+          "total": 469703,
+          "input": 699,
+          "output": 214,
+          "reasoning": 54,
+          "cache": {
+            "write": 0,
+            "read": 468736
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a2611b1001OmO1zmf1v8qeUe:prt_14a2d3fa60019RLWfYmtle3NIo",
+        "cost": 0.002200868,
+        "tokens": {
+          "total": 470177,
+          "input": 454,
+          "output": 121,
+          "reasoning": 226,
+          "cache": {
+            "write": 0,
+            "read": 469376
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a2d3fbf0019lvlytGyv3LrFG:prt_14a2e1b88001a86NMuO5Hm55Ss",
+        "cost": 0.00400925,
+        "tokens": {
+          "total": 472869,
+          "input": 916,
+          "output": 204,
+          "reasoning": 1989,
+          "cache": {
+            "write": 0,
+            "read": 469760
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a2e1ba2001QiOoMyCAnrr7Fz:prt_14a2ea1a7001OxG5VMM1VpnWnu",
+        "cost": 0.003516598,
+        "tokens": {
+          "total": 474093,
+          "input": 2712,
+          "output": 152,
+          "reasoning": 573,
+          "cache": {
+            "write": 0,
+            "read": 470656
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a2ea1c6001OGZQQTa7Cy4CBD:prt_14a2f302e001BmrUVWRmIUTAkq",
+        "cost": 0.003450217,
+        "tokens": {
+          "total": 475848,
+          "input": 1021,
+          "output": 235,
+          "reasoning": 1248,
+          "cache": {
+            "write": 0,
+            "read": 473344
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a2f3046001Fzd3YcRWpU0Gzh:prt_14a2f73bf0019rCFmk1kjG8Vdq",
+        "cost": 0.002807925,
+        "tokens": {
+          "total": 476301,
+          "input": 1619,
+          "output": 366,
+          "reasoning": 76,
+          "cache": {
+            "write": 0,
+            "read": 474240
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a2f73d70011zcgKLJWfttt8S:prt_14a33be88001AjQuP9gEKOVT6z",
+        "cost": 0.003954933,
+        "tokens": {
+          "total": 478612,
+          "input": 545,
+          "output": 951,
+          "reasoning": 1340,
+          "cache": {
+            "write": 0,
+            "read": 475776
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a33bea7001RiGVP7UnRFwVbW:prt_14a3b76f80016UPATaKjjA7YGL",
+        "cost": 0.003765824,
+        "tokens": {
+          "total": 479818,
+          "input": 2372,
+          "output": 148,
+          "reasoning": 1010,
+          "cache": {
+            "write": 0,
+            "read": 476288
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a3b7723001TL8xj7UoA2bnrE:prt_14a44da89001TX6zAbMgMGpaeX",
+        "cost": 0.002479181,
+        "tokens": {
+          "total": 480073,
+          "input": 1251,
+          "output": 184,
+          "reasoning": 46,
+          "cache": {
+            "write": 0,
+            "read": 478592
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a44daaa001Zvl559E1JUaC79:prt_14a452019001iYSGfySpEBMRN2",
+        "cost": 0.002247152,
+        "tokens": {
+          "total": 480584,
+          "input": 512,
+          "output": 193,
+          "reasoning": 135,
+          "cache": {
+            "write": 0,
+            "read": 479744
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a452037001h4KpUb9ycRkMAq:prt_14a4558dd001q757v5mtXVvuNi",
+        "cost": 0.002152003,
+        "tokens": {
+          "total": 480910,
+          "input": 363,
+          "output": 146,
+          "reasoning": 145,
+          "cache": {
+            "write": 0,
+            "read": 480256
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb6524475ffelRiKQ1JOO8zBjD:msg_14a4558f3001qqTq3fue7bYlHB:prt_14a45ce430014xpHfjLOaxjJ6S",
+        "cost": 0.002774981,
+        "tokens": {
+          "total": 482000,
+          "input": 601,
+          "output": 282,
+          "reasoning": 605,
+          "cache": {
+            "write": 0,
+            "read": 480512
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      }
+    ],
+    "terminal_stop": "stalled",
+    "driver": "opencode",
+    "configured_model": "opencode-go/mimo-v2.6-pro",
+    "zero_token_streak": 0
+  },
+  "status": "stopped",
+  "resume": {
+    "case": "case-20261017T114431Z-9d2b0e",
+    "bench_sha": "27a7b2fb1821ebc3e501e26cd91941ae79c97f597d400d21e5910f1a7b66e7eb",
+    "work": "/home/user/work/case-20261017T114431Z-9d2b0e",
+    "usage_preserved": true
+  },
+  "sha256": "4982654da0739b3f7172709e335be1f2022c6fb2186ed5f2ee4b8ba062b209fb",
+  "archive": "/home/user/sealed/case-20261017T114431Z-9d2b0e.checkpoint.tar.gz.age"
+}

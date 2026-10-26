@@ -1,0 +1,25 @@
+{
+  "name": "unbug-medusa-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "medusa start",
+    "seed": "medusa exec ./src/scripts/seed.ts",
+    "migrate": "medusa db:migrate"
+  },
+  "dependencies": {
+    "@medusajs/cli": "2.19.0",
+    "@medusajs/framework": "2.19.0",
+    "@medusajs/fulfillment-manual": "2.19.0",
+    "@medusajs/medusa": "2.19.0",
+    "pg": "8.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.30",
+    "ts-node": "10.9.2",
+    "typescript": "5.8.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

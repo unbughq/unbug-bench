@@ -1,0 +1,77 @@
+"""Model execution contract: CLI policy, credentials, isolation and cleanup."""
+
+# Keep direct execution and unittest discovery independent of the working directory.
+import sys
+from pathlib import Path as _TestPath
+_TEST_ROOT = _TestPath(__file__).resolve().parents[2]
+sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
+import argparse
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+import types
+import unittest
+from unittest import mock
+import model_runtime
+
+
+class ModelRuntimeTests(unittest.TestCase):
+    def test_subscription_execution_contract(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            c = types.SimpleNamespace(work=root, case=root / 'case', card={})
+            runtime = model_runtime.ModelRuntime(root, mock.Mock(), mock.Mock(),
+                lambda path, sudo=False: shutil.rmtree(path), lambda user: root / user)
+            # argv/env and isolation only: no CLI or model process starts.
+            import os, subprocess
+            seen = []
+            c.args = argparse.Namespace(agent_timeout=1, max_cost=5, max_role_calls=1, max_total_calls=1, no_progress_minutes=15, max_zero_tokens=3)
+            c.ledger = c.work / "ledger.json"; (c.work / "transcripts").mkdir()
+            home = c.work / "codex-home"; home.mkdir()  # the boat VM's config shape
+            (home / "config.toml").write_text('model_provider = "boat-openai"\n[mcp_servers.computer]\ncommand = "x"\n'
+                                              '[model_providers.boat-openai]\nbase_url = "https://relay/v1"\n')
+            fake_env = {"OPENAI_API_KEY": "x", "ANTHROPIC_API_KEY": "x", "CODEX_HOME": str(home), "PATH": os.environ["PATH"]}
+            def budgeted(cmd, cwd, env, *a, **k):
+                seen.append((cmd, env, k["driver"], (pathlib.Path(env.get("CODEX_HOME", "/nonexistent")) / "config.toml").read_text() if k["driver"] == "codex" else ""))
+                return subprocess.CompletedProcess(cmd, 0)
+            with mock.patch.dict(os.environ, fake_env, clear=True), mock.patch.object(model_runtime, "pinned_cli", lambda kind: kind), \
+                 mock.patch.object(model_runtime, "run_budgeted", budgeted):
+                runtime.call(c, ["codex/gpt-6.1-sol"], "hi", c.work, "builder-1")
+                runtime.call(c, ["claude/claude-opus-5-5"], "hi", c.work, "attacker-1")
+                runtime.call(c, ["claude/claude-opus-5-5"], "hi", c.work, "reviewer-1")
+            (codex, cenv, d1, config), (claude, aenv, d2, _), (claude_reviewer, *_) = seen
+            assert (d1, d2) == ("codex", "claude")
+            assert "mcp_servers" not in config and 'model_provider = "boat-openai"' in config and "https://relay/v1" in config
+            assert codex[:2] == ["codex", "exec"] and 'web_search="disabled"' in codex and 'model_reasoning_effort="high"' in codex
+            assert codex[codex.index("-m") + 1] == "gpt-6.1-sol" and "--ephemeral" in codex and "OPENAI_API_KEY" not in cenv
+            assert all(f in codex for f in ("multi_agent", "browser_use", "apps", "computer_use")), "no subagents, browser or connectors"
+            assert claude[claude.index("--model") + 1] == "claude-opus-5-5" and claude[claude.index("--effort") + 1] == "high"
+            assert claude_reviewer[-1] == "Bash,Edit,Read,Write", "no web outside the searching roles"
+            assert claude[-1] == "Bash,Edit,Read,Write,WebSearch,WebFetch" and "--no-session-persistence" in claude and "ANTHROPIC_API_KEY" not in aenv
+            assert not any(pathlib.Path(e[k]).exists() for e, k in ((cenv, "CODEX_HOME"), (aenv, "CLAUDE_CONFIG_DIR"))), "scratch dirs removed"
+            tester_home = c.work / 'tester'; (tester_home / '.cache').mkdir(parents=True)
+            fake_sh = lambda c, cmd, **k: (shutil.move(str(cmd[2]), str(cmd[3])) and 0) if list(cmd[:2]) == ['sudo', 'mv'] else 0  # hand_to's move
+            runtime = model_runtime.ModelRuntime(root, fake_sh, mock.Mock(),
+                lambda path, sudo=False: shutil.rmtree(path), lambda user: tester_home)
+            with mock.patch.object(model_runtime, 'pinned_cli', lambda kind: kind), \
+                 mock.patch.object(model_runtime, 'run_budgeted', budgeted):
+                runtime.call(c, ["claude/claude-opus-5-5"], "hi", c.work, "strong-calibrator-1", user="pilot")
+            assert seen[-1][0][:2] == ['sudo', '--preserve-env=CLAUDE_CODE_OAUTH_TOKEN,CLAUDE_CONFIG_DIR,DISABLE_AUTOUPDATER,PATH']
+            assert '-u' in seen[-1][0] and 'pilot' in seen[-1][0], 'Claude tester uses the isolated Unix user'
+            u = seen[-1][0].index('pilot')  # the isolated user enters its own private dir; the runner never chdirs there
+            assert seen[-1][0][u + 1:u + 4] == ['sh', '-c', 'cd "$1" && shift && exec "$@"'], seen[-1][0][:12]
+
+    def test_import_does_not_probe_or_install_a_cli(self):
+        code = ("import sys; from unittest.mock import patch; "
+                "sys.path.insert(0, sys.argv[1]); "
+                "guard=patch('subprocess.run', side_effect=AssertionError('import launched a process')); "
+                "guard.start(); import model_runtime")
+        result = subprocess.run([sys.executable, '-I', '-c', code, str((pathlib.Path(__file__).resolve().parents[2] / "factory"))],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
+if __name__ == '__main__':
+    unittest.main()

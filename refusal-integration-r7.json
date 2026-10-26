@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "revision": "r7",
+  "status": "implemented_focused_regression_passed",
+  "review_finding": "R6-REVIEW-01",
+  "qualification": "deterministic_same_instance_business_path_coverage",
+  "owned_file_count": 4,
+  "focused_synthetic_checks_passed": 21,
+  "selected_case_proof_regression": "passed",
+  "claims_regression": "passed",
+  "cold_start_production_seam": "passed_without_postgresql_or_review_calls",
+  "saved_reviewer_repro": {
+    "before": "false_positive_reproduced",
+    "after": "fails_closed_at_legacy_fixture_missing_new_receipts",
+    "instrumented_positive_and_fault_controls": "passed"
+  },
+  "full_case_gate_pass": false,
+  "runtime_qualification": "pending_bounded_runtime_for_added_private_control",
+  "runtime_limitations": {
+    "postgresql_started": false,
+    "docker_used": false,
+    "models_used": false,
+    "agents_spawned": false,
+    "candidate_modified": false
+  },
+  "created_at": "2026-10-22T17:36:15.028897+00:00"
+}

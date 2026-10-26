@@ -1,0 +1,53 @@
+name: unbug-bench
+services:
+  postgres:
+    image: postgres:17.11-bookworm
+    mem_limit: 768m
+    cpus: 2
+    environment:
+      POSTGRES_USER: medusa
+      POSTGRES_PASSWORD: medusa
+      POSTGRES_DB: medusa
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U medusa"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+  redis:
+    image: redis:7.4.8-bookworm
+    mem_limit: 128m
+    cpus: 1
+    command: [redis-server, --maxmemory, 64mb, --maxmemory-policy, allkeys-lru, --save, "", --appendonly, "no"]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+  # Two app instances share one image, database and Redis (locking provider);
+  # together they keep the previous single-instance 2,560 MiB budget.
+  medusa: &medusa
+    image: unbug-bench-medusa:latest
+    build:
+      context: .
+      args:
+        MEDUSA_DEPS_IMAGE: ${MEDUSA_DEPS_IMAGE:-node:22.22.2-bookworm-slim}
+        UNBUG_PROXY_CA: ${UNBUG_PROXY_CA:-}
+    mem_limit: 1280m
+    cpus: 4
+    stop_grace_period: 2s
+    environment:
+      DATABASE_URL: postgres://medusa_app:medusa_app@postgres:5432/medusa
+      REDIS_URL: redis://redis:6379
+      MEDUSA_DISABLE_TELEMETRY: "true"
+      NODE_OPTIONS: --max-old-space-size=768
+    ports: ["127.0.0.1:9000:9000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+  medusa-b:
+    <<: *medusa
+    pull_policy: never
+    ports: !override ["127.0.0.1:9001:9000"]
+volumes:
+  postgres-data:

@@ -1,0 +1,8 @@
+{
+  "webproxy/audit.py": "e98053465e741c3c229bdf3028e4969f29d549f61daf2a4f2550db775582bf11",
+  "webproxy/start-main.sh": "6f45ae21e4b59cfba1fe2fd75b67b43a11019cfe850a20385c1b3375fdded792",
+  "webproxy/docker-compose.webproxy.yaml": "72d471bd96028acdb2d052fd43b42e28dfb3b6ae1c4afdf3aa6b60bbf4996001",
+  "responder/responder.py": "889f6de4ff6b0d1b67b7bb8bb5fc1e016a39648b59dfcc5379bba3c09de6b37d",
+  "responder/canned.json": "6bd3e0a2733d4e67cd7577b72d03dca56c37dea2a5fc3aa4df413086f657071e",
+  "responder/docker-compose.responder.yaml": "35a7f83d317824b2adb8067c9fd6d0d8111967b41f5f39b6a48b1984d24ae5d9"
+}

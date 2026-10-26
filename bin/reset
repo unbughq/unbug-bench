@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+# Optional --scenario <dir> (repeatable) and --guard <name-or-path>.
+exec python3 "$(dirname "$0")/bench.py" reset "$@"

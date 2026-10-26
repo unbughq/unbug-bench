@@ -1,0 +1,1008 @@
+{
+  "case": "case-20261019T061510Z-6a8a7d",
+  "dry_run": false,
+  "source": "hunt",
+  "seed": 2531,
+  "gates": {},
+  "failed_gate": null,
+  "rotation_slot": 3,
+  "factory_slots_prepared": 1,
+  "gate_results": {},
+  "resume": {
+    "case": "case-20261019T061510Z-6a8a7d",
+    "bench_sha": "5625e0ec5c476dec6930ddf9052c301f0f51beede12695ed0f844ad026f92a55",
+    "work": "/home/user/work/case-20261019T061510Z-6a8a7d",
+    "usage_preserved": true
+  },
+  "roles": {
+    "writer": {
+      "model": "claude/claude-opus-5-5",
+      "effort": "high",
+      "family": "anthropic"
+    },
+    "stress_tester": {
+      "model": "opencode/minimax-m3.1-flash-free",
+      "effort": "default",
+      "family": "minimax"
+    },
+    "strong_calibrator": {
+      "model": "codex/gpt-6.1-sol",
+      "effort": "high",
+      "family": "openai"
+    },
+    "reviewer": {
+      "model": "opencode/deepseek-v4.1-flash-free",
+      "effort": "default",
+      "family": "deepseek"
+    },
+    "easy_calibrator": {
+      "model": "opencode/glm-5.3-flash-free",
+      "effort": "default",
+      "family": "z-ai"
+    }
+  },
+  "models": {
+    "builder": [
+      "claude/claude-opus-5-5"
+    ],
+    "attacker": [
+      "opencode/minimax-m3.1-flash-free"
+    ],
+    "reviewers": [
+      [
+        "opencode/deepseek-v4.1-flash-free"
+      ]
+    ],
+    "strong_calibrator": [
+      "codex/gpt-6.1-sol"
+    ],
+    "easy_calibrator": [
+      "opencode/glm-5.3-flash-free"
+    ]
+  },
+  "dedup": {
+    "checked_against": 23,
+    "duplicate_of": "case-20261019T061459Z-cb5e26",
+    "retried": 1
+  },
+  "models_used": {
+    "easy-calibrator-dedup-0": "opencode-go/glm-5.3-flash",
+    "builder-statement-retry": "claude/claude-opus-5-5"
+  },
+  "free_model_fallback": [
+    {
+      "from": "opencode/glm-5.3-flash-free",
+      "to": "opencode-go/glm-5.3-flash",
+      "why": "opencode_error"
+    }
+  ],
+  "terminal_stop": "provider_limit:claude/claude-opus-5-5",
+  "wall_minutes": 1882.2,
+  "continuation_budget": {
+    "cost": 0.018892379999999997,
+    "calls": 460,
+    "events": [
+      {
+        "id": "8a245c45-3372-49e2-8e13-795df02d11fe:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 86,
+          "cache_creation_input_tokens": 132209,
+          "cache_read_input_tokens": 3503257,
+          "output_tokens": 31803,
+          "output_tokens_details": {
+            "thinking_tokens": 19865
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 132209,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 854,
+              "cache_read_input_tokens": 135925,
+              "cache_creation_input_tokens": 334,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 334
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 43,
+        "list_cost_usd": 2.4300594
+      },
+      {
+        "id": "ses_ead2ca6ecffezleB7it8hp6UiQ:msg_152d35b19001akdIF4Gk3jVSXi:prt_152d36cf2001m6aZC5VZLAUkP1",
+        "cost": 0.00121782,
+        "tokens": {
+          "total": 8352,
+          "input": 5358,
+          "output": 642,
+          "reasoning": 48,
+          "cache": {
+            "write": 0,
+            "read": 2304
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead2ca6ecffezleB7it8hp6UiQ:msg_152d36cf90013WOKDqE5lbIycV:prt_152d384fc00184PD1wJ81GHsFD",
+        "cost": 0.00136493,
+        "tokens": {
+          "total": 13153,
+          "input": 4663,
+          "output": 121,
+          "reasoning": 753,
+          "cache": {
+            "write": 0,
+            "read": 7616
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead2ca6ecffezleB7it8hp6UiQ:msg_152d38502001t6hABtRvSCXgD5:prt_152d38af2001zjuywa5ZAXJpwh",
+        "cost": 0.00055992,
+        "tokens": {
+          "total": 13267,
+          "input": 938,
+          "output": 105,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 12224
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "8be03f19-28cb-439b-853d-98a41fcbd676:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 226,
+          "cache_creation_input_tokens": 357958,
+          "cache_read_input_tokens": 19537539,
+          "output_tokens": 174512,
+          "output_tokens_details": {
+            "thinking_tokens": 151793
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 357958,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 819,
+              "cache_read_input_tokens": 361731,
+              "cache_creation_input_tokens": 277,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 277
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 113,
+        "list_cost_usd": 10.2975377
+      },
+      {
+        "id": "ses_ead099a56ffeSGuQJzAjYdzFkm:msg_152f668b0001bScRk9pHjuHSOh:prt_153010d1a0016NLOJNyyJOc5d4",
+        "cost": 0.0014863,
+        "tokens": {
+          "total": 8336,
+          "input": 7662,
+          "output": 642,
+          "reasoning": 32,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead099a56ffeSGuQJzAjYdzFkm:msg_153010d28001K4eR0r9kpnKxkZ:prt_1530144be001cYjueTq5Da9u5D",
+        "cost": 0.00156597,
+        "tokens": {
+          "total": 13248,
+          "input": 6201,
+          "output": 124,
+          "reasoning": 779,
+          "cache": {
+            "write": 0,
+            "read": 6144
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead099a56ffeSGuQJzAjYdzFkm:msg_1530144c5001PDE2PT9EIKg7ZG:prt_153014bf9001Inyu5CgsCNlp3I",
+        "cost": 0.00055949,
+        "tokens": {
+          "total": 13348,
+          "input": 969,
+          "output": 86,
+          "reasoning": 5,
+          "cache": {
+            "write": 0,
+            "read": 12288
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "f4d78433-3a83-447f-9d62-0c82ddd20b23:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 80,
+          "cache_creation_input_tokens": 267793,
+          "cache_read_input_tokens": 5881063,
+          "output_tokens": 64810,
+          "output_tokens_details": {
+            "thinking_tokens": 55130
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 267793,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 1220,
+              "cache_read_input_tokens": 263822,
+              "cache_creation_input_tokens": 4045,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 4045
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 40,
+        "list_cost_usd": 4.615076599999999
+      },
+      {
+        "id": "ses_eace101bcffeVe6HyM4dISebXM:msg_1531efff90017VvsSn4Lj6DITN:prt_1531f10a2001bB2P3FKlP9QBc1",
+        "cost": 0.00132735,
+        "tokens": {
+          "total": 8326,
+          "input": 6383,
+          "output": 642,
+          "reasoning": 21,
+          "cache": {
+            "write": 0,
+            "read": 1280
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eace101bcffeVe6HyM4dISebXM:msg_1531f10ac001x8rzjxg1ZZEL8t:prt_1531f311e001ArvykvCBIKBDL5",
+        "cost": 0.00161533,
+        "tokens": {
+          "total": 13693,
+          "input": 4719,
+          "output": 127,
+          "reasoning": 1231,
+          "cache": {
+            "write": 0,
+            "read": 7616
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eace101bcffeVe6HyM4dISebXM:msg_1531f3123001UVpMFdZqkeEzFI:prt_1531f39ea001qySlMn8QamU99j",
+        "cost": 0.00065024,
+        "tokens": {
+          "total": 13841,
+          "input": 1414,
+          "output": 123,
+          "reasoning": 16,
+          "cache": {
+            "write": 0,
+            "read": 12288
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eacc285f4ffei7jmx1s1ctmRFi:msg_1533d7b8f001u4KIJcWmE8HdEA:prt_1533d988d001OGwpqwyfpa2TRb",
+        "cost": 0.00149145,
+        "tokens": {
+          "total": 8347,
+          "input": 7663,
+          "output": 642,
+          "reasoning": 42,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eacc285f4ffei7jmx1s1ctmRFi:msg_1533d9893001vxaSDZrpqisr7P:prt_1533dc84e001adCsJncQMgMbfk",
+        "cost": 0.00169162,
+        "tokens": {
+          "total": 13507,
+          "input": 6212,
+          "output": 220,
+          "reasoning": 931,
+          "cache": {
+            "write": 0,
+            "read": 6144
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eacc285f4ffei7jmx1s1ctmRFi:msg_1533dc854001FQIOaeg5OtjBRI:prt_1533dcfa2001w6QdvdZFpijA3X",
+        "cost": 0.00059834,
+        "tokens": {
+          "total": 13607,
+          "input": 1228,
+          "output": 86,
+          "reasoning": 5,
+          "cache": {
+            "write": 0,
+            "read": 12288
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eab30acdeffe3aEWlUhiZYHibY:msg_154cf547d001sDQc17EsIUe0OB:prt_154cfd8f0001fMsZA5DpmKdyAa",
+        "cost": 0,
+        "tokens": {
+          "total": 9662,
+          "input": 8423,
+          "output": 1239,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eab30acdeffe3aEWlUhiZYHibY:msg_154cfd8f6001YUglPh5KvGXpG1:prt_154d07ab3001sP3hdwL3zAt0RN",
+        "cost": 0,
+        "tokens": {
+          "total": 20207,
+          "input": 12346,
+          "output": 3381,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 4480
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eab30acdeffe3aEWlUhiZYHibY:msg_154d07ab9001vJmTWpAKm5BONh:prt_154d0cb37001DNuIKf7kzxPPqg",
+        "cost": 0,
+        "tokens": {
+          "total": 17235,
+          "input": 3652,
+          "output": 143,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 13440
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eab30acdeffe3aEWlUhiZYHibY:msg_154d0cb3c001SVVMFF26Xzu6EI:prt_154d0d83f001vQspVI3OLuQgQr",
+        "cost": 0,
+        "tokens": {
+          "total": 17670,
+          "input": 588,
+          "output": 314,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 16768
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eab30acdeffe3aEWlUhiZYHibY:msg_154d0d846001d1iUUwU8qPJMFw:prt_154d0dccd001AhW27lw8NDmu93",
+        "cost": 0,
+        "tokens": {
+          "total": 17725,
+          "input": 613,
+          "output": 88,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 17024
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "d83dc45b-ec01-4ce9-9497-5daaead87600:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 62,
+          "cache_creation_input_tokens": 95906,
+          "cache_read_input_tokens": 1827625,
+          "output_tokens": 32820,
+          "output_tokens_details": {
+            "thinking_tokens": 25597
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 95906,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 724,
+              "cache_read_input_tokens": 98387,
+              "cache_creation_input_tokens": 1569,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 1569
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 31,
+        "list_cost_usd": 1.7894210000000002
+      },
+      {
+        "id": "ses_eab2870adffejP6IBBcL4i1PKm:msg_154d79559001r0CZC8q5emui0T:prt_154d805af001tsYcJJHHkhMzL8",
+        "cost": 0,
+        "tokens": {
+          "total": 8783,
+          "input": 8423,
+          "output": 360,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eab2870adffejP6IBBcL4i1PKm:msg_154d805c70014m8T2fxFb9qFjA:prt_154d83848001UPMeukUhIu194s",
+        "cost": 0,
+        "tokens": {
+          "total": 11315,
+          "input": 6427,
+          "output": 408,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 4480
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eab2870adffejP6IBBcL4i1PKm:msg_154d83855001w33F2GE2Oyk5dr:prt_154d84802001Pf204qkpmuytQ7",
+        "cost": 0,
+        "tokens": {
+          "total": 14073,
+          "input": 4647,
+          "output": 466,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 8960
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eab2870adffejP6IBBcL4i1PKm:msg_154d8481200189G8O7O4rmkLCE:prt_154d8e0e20016M50tbeMe9adi6",
+        "cost": 0,
+        "tokens": {
+          "total": 17838,
+          "input": 16818,
+          "output": 120,
+          "reasoning": 900,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eab2870adffejP6IBBcL4i1PKm:msg_154d8e0ef001PmWFBlD80ypKvc:prt_154d8f7b5001DDmG9JjgedkvBw",
+        "cost": 0,
+        "tokens": {
+          "total": 17884,
+          "input": 1527,
+          "output": 37,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 16320
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaafd3723ffesXi0ZDx0Co7fvT:msg_15502ca5e00196Y9OOfiaztvEn:prt_155036244001F8fGnehtbVcPDD",
+        "cost": 0,
+        "tokens": {
+          "total": 9711,
+          "input": 8424,
+          "output": 1287,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaafd3723ffesXi0ZDx0Co7fvT:msg_15503624b001kJoymmPTAJfggv:prt_15503a811001YbgM2nOmbTlzyn",
+        "cost": 0,
+        "tokens": {
+          "total": 18026,
+          "input": 12368,
+          "output": 1178,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 4480
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaafd3723ffesXi0ZDx0Co7fvT:msg_15503a8170015nNwnakrtJS5RH:prt_15503e8610019T6AwGth3N2X9T",
+        "cost": 0,
+        "tokens": {
+          "total": 18251,
+          "input": 18138,
+          "output": 113,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaafd3723ffesXi0ZDx0Co7fvT:msg_15503e8660013JlHqHCYfnVk7I:prt_15503f2e7001vHOhZSfG0tZvr5",
+        "cost": 0,
+        "tokens": {
+          "total": 18366,
+          "input": 3668,
+          "output": 106,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 14592
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaaea0e75ffeF7nK3oase8LB5d:msg_15515f300001prvoGGEgHb4YHK:prt_15515ffbd0019z1aGkCYSFe0yF",
+        "cost": 0,
+        "tokens": {
+          "total": 8829,
+          "input": 8424,
+          "output": 405,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaaea0e75ffeF7nK3oase8LB5d:msg_15515ffc8001p7n97bl6rsKqx1:prt_1551609c2001lWnXzs2i2cyzFS",
+        "cost": 0,
+        "tokens": {
+          "total": 11651,
+          "input": 6763,
+          "output": 408,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 4480
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaaea0e75ffeF7nK3oase8LB5d:msg_1551609cc001xkJPAxBWAKaIUB:prt_155161374001SbO6qSQq9ofUfF",
+        "cost": 0,
+        "tokens": {
+          "total": 14274,
+          "input": 4898,
+          "output": 416,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 8960
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaaea0e75ffeF7nK3oase8LB5d:msg_15516137b0019utSdsZJitAg0A:prt_155165706001FZb2nZ7nz7eCbh",
+        "cost": 0,
+        "tokens": {
+          "total": 17784,
+          "input": 16814,
+          "output": 107,
+          "reasoning": 863,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaaea0e75ffeF7nK3oase8LB5d:msg_1551657120015hlX5T20Q2Zxvv:prt_155166dfe001GqMnSVuIsjFk7g",
+        "cost": 0,
+        "tokens": {
+          "total": 17864,
+          "input": 1473,
+          "output": 71,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 16320
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "fc8acdef-d7db-40c4-8898-abf3b59f0129:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 48,
+          "cache_creation_input_tokens": 123071,
+          "cache_read_input_tokens": 1866064,
+          "output_tokens": 12942,
+          "output_tokens_details": {
+            "thinking_tokens": 4775
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 123071,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 753,
+              "cache_read_input_tokens": 126877,
+              "cache_creation_input_tokens": 244,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 244
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 24,
+        "list_cost_usd": 1.6520051999999998
+      },
+      {
+        "id": "55f5d3d6-bf1d-4419-bec5-b3b88b7d8b01:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 22,
+          "cache_creation_input_tokens": 30171,
+          "cache_read_input_tokens": 258084,
+          "output_tokens": 4927,
+          "output_tokens_details": {
+            "thinking_tokens": 1475
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 30171,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 637,
+              "cache_read_input_tokens": 33590,
+              "cache_creation_input_tokens": 631,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 631
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 11,
+        "list_cost_usd": 0.3916128
+      },
+      {
+        "id": "ses_ea685d2cbffeiF08ikWFLsutrB:msg_1597a2e58001l0ZdaTKXchZr4Z:prt_1597a3c94001BzEu6XXm4Uzlkz",
+        "cost": 0.00113233,
+        "tokens": {
+          "total": 8803,
+          "input": 5559,
+          "output": 388,
+          "reasoning": 40,
+          "cache": {
+            "write": 0,
+            "read": 2816
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea685d2cbffeiF08ikWFLsutrB:msg_1597a3c99001sOTFtZVjKampjJ:prt_1597a49330011y2ar9eAQnS6aB",
+        "cost": 0.0009027,
+        "tokens": {
+          "total": 11666,
+          "input": 2914,
+          "output": 408,
+          "reasoning": 24,
+          "cache": {
+            "write": 0,
+            "read": 8320
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea685d2cbffeiF08ikWFLsutrB:msg_1597a4938001OqAhxGaO7DNtj4:prt_1597a5368001vfD5MkoRAf04SQ",
+        "cost": 0.0009361,
+        "tokens": {
+          "total": 14230,
+          "input": 2614,
+          "output": 416,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 11200
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea685d2cbffeiF08ikWFLsutrB:msg_1597a536b001StHQd7yT3N56my:prt_1597a647d001fzbGMkxZ2y54zw",
+        "cost": 0.00115105,
+        "tokens": {
+          "total": 17375,
+          "input": 3055,
+          "output": 139,
+          "reasoning": 421,
+          "cache": {
+            "write": 0,
+            "read": 13760
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea685d2cbffeiF08ikWFLsutrB:msg_1597a6481001GO73UGQj68vZe6:prt_1597a6d130012DArljOB8JgDMd",
+        "cost": 0.00064144,
+        "tokens": {
+          "total": 17476,
+          "input": 616,
+          "output": 85,
+          "reasoning": 7,
+          "cache": {
+            "write": 0,
+            "read": 16768
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      }
+    ],
+    "terminal_stop": "provider_limit:claude/claude-opus-5-5",
+    "driver": "claude",
+    "configured_model": "claude/claude-opus-5-5",
+    "zero_token_streak": 0,
+    "list_cost_usd": 21.175712700000002,
+    "previous_stops": [
+      "opencode_error",
+      "provider_limit:claude/claude-opus-5-5",
+      "opencode_error",
+      "provider_limit:claude/claude-opus-5-5",
+      "opencode_error",
+      "provider_limit:claude/claude-opus-5-5",
+      "provider_limit:claude/claude-opus-5-5",
+      "PauseRequested",
+      "opencode_error"
+    ],
+    "claude_resets_at": 1792511400
+  },
+  "status": "stopped",
+  "sha256": "7eb0e12db6779d70d49b99f38e8eb0a22d7c209ba5bdc26c050a6be7ca05eb25",
+  "archive": "/home/user/sealed/case-20261019T061510Z-6a8a7d.checkpoint.tar.gz.age",
+  "r2_object": "vm/bx_fr4v95ne/checkpoint.tar.gz.age"
+}

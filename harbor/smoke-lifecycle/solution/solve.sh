@@ -1,0 +1,24 @@
+#!/bin/bash
+set -euo pipefail
+python3 - <<'PYTHON'
+import json, os, subprocess, sys, time
+from pathlib import Path
+root = Path('/app/lifecycle')
+root.mkdir(exist_ok=True)
+step = 'observe' if (root / 'establish.json').exists() else 'establish'
+if step == 'establish':
+    with (root / 'monitor.stdout').open('a') as output:
+        subprocess.Popen([sys.executable, '/solution/monitor.py'], stdin=subprocess.DEVNULL,
+                         stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+    deadline = time.time() + 10
+    while not (root / 'monitor.json').exists():
+        assert time.time() < deadline, 'monitor did not start'
+        time.sleep(0.1)
+identity = json.loads((root / 'monitor.json').read_text())
+os.kill(identity['pid'], 0)
+result = subprocess.run([sys.executable, '/app/ask-human', 'What is the refund policy?'],
+    env=dict(os.environ, ASK_STEP=step), text=True, capture_output=True, check=True)
+assert '3 business days' in result.stdout, result.stdout
+(root / (step + '.json')).write_text(json.dumps(dict(identity, ts=time.time(), answer=result.stdout.strip())))
+time.sleep(1)
+PYTHON

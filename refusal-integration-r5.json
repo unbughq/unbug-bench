@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "status": "production_diff_implemented_review_pending",
+  "production_invocation": true,
+  "protected_history_witness": true,
+  "immutable_scope_cache": true,
+  "per_request_model_calls": 0,
+  "per_trial_model_calls": 0,
+  "real_guard_approvals_issued": 0,
+  "tests": {
+    "synthetic_production_seam": "passed",
+    "synthetic_existing_review_invocation": "passed",
+    "local_postgresql_privilege_checks": "passed",
+    "selected_case_proof_regression": "passed",
+    "claims_scoring_regression": "passed",
+    "existing_fairness_regression": "passed",
+    "private_judge_synthetic_controls": 8,
+    "syntax_checks": "passed"
+  },
+  "candidate_runtime_validation": "deferred",
+  "independent_semantic_review": "pending",
+  "exam_review_protocol_decision_required": true,
+  "full_case_or_gate_pass_claim": false,
+  "activation_status": "not_deployed_protocol_unresolved",
+  "protocol_note": "Retain deterministic exam protocol until explicit user decision; G5-to-review ordering and unseen exam guard approval remain unresolved."
+}

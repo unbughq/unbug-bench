@@ -1,0 +1,61 @@
+# Harbor: --extra-docker-compose /absolute/path/to/this/file
+services:
+  main:
+    networks: [web-isolated]
+    command: ["/bin/sh", "/opt/webproxy/start-main.sh"]
+    depends_on:
+      webproxy:
+        condition: service_healthy
+    environment:
+      HTTP_PROXY: http://webproxy:8080
+      HTTPS_PROXY: http://webproxy:8080
+      http_proxy: http://webproxy:8080
+      https_proxy: http://webproxy:8080
+      NO_PROXY: localhost,127.0.0.1,::1
+      no_proxy: localhost,127.0.0.1,::1
+      NODE_EXTRA_CA_CERTS: /webproxy-ca/mitmproxy-ca-cert.crt
+      SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+      REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt
+    volumes:
+      - ${UNBUG_WEBPROXY_DIR:?Set absolute webproxy directory}/start-main.sh:/opt/webproxy/start-main.sh:ro
+      - webproxy-public-ca:/webproxy-ca:ro
+  webproxy:
+    image: mitmproxy/mitmproxy:12.1.2@sha256:0d7b2a14b4a71a908cd6f31b8f50e29bbc5c8720fe6caa706acf782da558e5c7
+    user: "0:0"
+    entrypoint: []
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [web-isolated, web-egress]
+    command:
+      - mitmdump
+      - --quiet
+      - --listen-host
+      - 0.0.0.0
+      - --set
+      - confdir=/private-ca
+      - --set
+      - block_global=false
+      - --set
+      - rawtcp=false
+      - --set
+      - connection_strategy=lazy
+      - -s
+      - /opt/webproxy/audit.py
+    volumes:
+      - ${UNBUG_WEBPROXY_DIR:?Set absolute webproxy directory}/audit.py:/opt/webproxy/audit.py:ro
+      - webproxy-private-ca:/private-ca
+      - webproxy-public-ca:/ca-public
+      - webproxy-log:/log
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib,socket; assert pathlib.Path('/ca-public/mitmproxy-ca-cert.crt').stat().st_size; socket.create_connection(('127.0.0.1',8080),2).close()"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+networks:
+  web-isolated:
+    internal: true
+  web-egress: {}
+volumes:
+  webproxy-private-ca: {}
+  webproxy-public-ca: {}
+  webproxy-log: {}

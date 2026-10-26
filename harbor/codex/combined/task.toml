@@ -1,0 +1,26 @@
+schema_version = "1.4"
+multi_step_reward_strategy = "mean"
+artifacts = [
+  {source = "/app/lifecycle", destination = "lifecycle"},
+  {source = "/logs/responder/questions.jsonl", destination = "responder/questions.jsonl", service = "responder"},
+  {source = "/log/web.jsonl", destination = "web/web.jsonl", service = "webproxy"},
+]
+[task]
+name = "unbug/codex-combined-infrastructure-smoke"
+description = "Two actual Codex sessions; heartbeat persistence, canned human, audited HTTPS. No Medusa run."
+[environment]
+cpus = 2
+memory_mb = 2048
+[agent]
+timeout_sec = 180
+[verifier.environment]
+cpus = 1
+memory_mb = 512
+[[steps]]
+name = "establish"
+[steps.verifier]
+timeout_sec = 60
+[[steps]]
+name = "observe"
+[steps.verifier]
+timeout_sec = 60

@@ -1,0 +1,8 @@
+DRY RUN (practice fixture, throwaway key)  case-20261014T130816Z-a869de  sha256:d93308338261cf32d468ec21ca5e619eea06b6585451a2cf51b644e2102ba9c8
+gates: passed G1,G3,G4,G5,G6,G7,G11,G12; skipped G2,G8,G9,G10
+reviewers: fairness - approve, realism - approve
+plain app broke the promise 3/3   reference fix 3/3   cheats 0/20 passed   scenario keys 25/25
+pilot (-, 0 tries) solved -/0, failures fair: -   fake pass: 1/1 survived (reference as stand-in)
+surprises: 0   scenarios: 11   provenance: 0   source: fixture (dry-run)   builder rounds: -
+wipe: {"plaintext_files_left": 0, "guard_image_left": false, "db_volume_left": false}   wall: 51.7 min
+seal round trip: {"decrypted": true, "identical": true, "files": 441}

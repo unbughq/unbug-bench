@@ -1,0 +1,49 @@
+#!/bin/sh
+# Founder, on this Mac: <founder identity> | bin/keyswap-live-check [claude] [codex]
+# One tiny Harbor task per subscription through harbor/keyswap on local Docker: a few
+# subscription messages, no paid API, no boat. Keys from bin/setup-secrets are decrypted into a
+# private temp dir for the run and erased after; a Codex login the relay renewed is written back
+# into the bundle (encrypting needs no private key). Prints pass/fail per subscription.
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd)
+bundle=${UNBUG_SECRETS_FILE:-$HOME/.config/unbug-bench/secrets.age}
+recipient=$(sed -n 's/^FOUNDER_RECIPIENT = "\(age1[a-z0-9]*\)".*/\1/p' "$root/factory/run.py")
+[ ! -t 0 ] || { echo "pipe the founder identity on stdin" >&2; exit 1; }
+umask 077
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT INT TERM
+mkdir "$tmp/keys"
+age -d -i /dev/stdin "$bundle" | tar -x -C "$tmp/keys" || { echo "could not decrypt $bundle" >&2; exit 1; }
+cp "$tmp/keys/codex-auth.json" "$tmp/codex-before"
+export KEYSWAP_CLAUDE_TOKEN_FILE="$tmp/keys/claude-token" KEYSWAP_CODEX_AUTH_FILE="$tmp/keys/codex-auth.json"
+jobs=/tmp/unbug-audited-jobs; stamp=$(date +%Y%m%d-%H%M%S); status=0
+for sub in ${*:-claude codex}; do
+  case $sub in
+    claude) set -- --agent claude-code -- --model claude-opus-5-5 --ak version=2.1.299 ;;
+    codex) set -- --agent codex -- --model openai/gpt-6.1-sol --ak version=0.162.1 ;;
+    *) echo "unknown subscription $sub" >&2; exit 1 ;;
+  esac
+  job=keyswap-$sub-live-$stamp
+  agent=$2; shift 2
+  python3 "$root/harbor/run-audited.py" --agent "$agent" --job-name "$job" --task "$root/harbor/keyswap/smoke" \
+    "$@" -n 1 -k 1 --ak reasoning_effort=high > "$tmp/$sub.log" 2>&1 || true
+  # Pass = verifier reward 1 and the model call went through keyswap (web log), nothing else.
+  if python3 - "$jobs/$job" <<'PY'
+import json, pathlib, sys
+job = pathlib.Path(sys.argv[1])
+rewards = [r for f in job.rglob("result.json") for r in [json.loads(f.read_text())]
+           if isinstance(r, dict) and "verifier_result" in r]
+reward = [((r.get("verifier_result") or {}).get("rewards") or {}).get("reward") for r in rewards]
+routes = [json.loads(l)["url"] for f in job.rglob("web.jsonl") for l in f.read_text().splitlines() if l.strip()]
+relayed = [u for u in routes if u.startswith(("https://api.anthropic.com/v1/messages", "https://chatgpt.com/backend-api/codex/responses"))]
+print(f"  reward {reward}, relayed model calls {len(relayed)}")
+sys.exit(0 if reward in ([1], [1.0]) and relayed else 1)
+PY
+  then echo "PASS $sub subscription through keyswap"
+  else echo "FAIL $sub; last lines of the run:"; tail -15 "$tmp/$sub.log" | sed 's/^/    /'; status=1; fi
+done
+if ! cmp -s "$tmp/codex-before" "$tmp/keys/codex-auth.json"; then
+  (cd "$tmp/keys" && ls) | tar -C "$tmp/keys" -cf - -T - | age -r "$recipient" -o "$bundle.new" && mv "$bundle.new" "$bundle"
+  echo "Codex login was renewed by the relay; saved back into $bundle"
+fi
+exit "$status"

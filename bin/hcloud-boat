@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+"""The subset of the boat CLI our launchers use, on Hetzner Cloud: BOAT_CMD=bin/hcloud-boat.
+  new [--from bench-env] [--no-monitoring] [--no-snapshots] --ttl SECONDS --json
+  delete ID --yes | list --json | ssh ID [CMD] | scp SRC DST (ID:/path) | exec ID --detach -- CMD...
+Only servers labelled unbug-bench=1 are ever listed or deleted (the project has other servers).
+Hetzner bills until a server is deleted, powered off or not: every server carries an
+expires=<epoch> label; bin/hcloud-sweep deletes expired ones. Uses the active hcloud CLI context.
+HCLOUD_PLACES overrides the type@location fallback chain (cheapest first: cx33/cx43, then cpx32 at
+EUR 0.067/h when cx is sold out, as on 2026-10-17). The exam and bin/hcloud-bake pin cx33 themselves.
+IPv4 only: the account allows 10 primary IPs, and IPv6 would spend a second one per server.
+"""
+import json
+import os
+import pathlib
+import secrets
+import shlex
+import subprocess
+import sys
+import time
+
+LABEL = "unbug-bench"
+PLACES = os.environ.get("HCLOUD_PLACES", "cx33@nbg1 cx33@fsn1 cx33@hel1 cx43@nbg1 cx43@fsn1 cx43@hel1 cpx32@fsn1 cpx32@nbg1 cpx32@hel1").split()
+KEY = pathlib.Path.home() / ".ssh/unbug-bench-hcloud"
+STATE = pathlib.Path.home() / ".cache/unbug-bench/hcloud"
+HOSTS = pathlib.Path(__file__).resolve().parents[1] / "results/spend/hcloud-hosts.jsonl"
+USER = os.environ.get("HCLOUD_SSH_USER", "user")
+
+
+def hcloud(*args, check=True):
+    p = subprocess.run(["hcloud", *args], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    if check and p.returncode:
+        sys.exit(f"hcloud {args[0]} {args[1] if len(args) > 1 else ''}: {p.stderr.strip()}")
+    return p
+
+
+def server(sid):
+    data = json.loads(hcloud("server", "describe", sid, "-o", "json").stdout)
+    if (data.get("labels") or {}).get(LABEL) != "1":
+        sys.exit(f"refusing: server {sid} is not an {LABEL} server")
+    return data
+
+
+def record(**event):
+    HOSTS.parent.mkdir(parents=True, exist_ok=True)
+    with HOSTS.open("a") as f:
+        f.write(json.dumps({"ts": time.time(), **event}) + "\n")
+
+
+def ssh_base(sid):
+    ip = server(sid)["public_net"]["ipv4"]["ip"]
+    STATE.mkdir(parents=True, exist_ok=True)
+    # One known_hosts per server: Hetzner reuses IPs, so a shared file would hit stale host keys.
+    opts = ["-i", str(KEY), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+            "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={STATE / f'{sid}.known_hosts'}",
+            "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4"]
+    return ip, opts
+
+
+def retry(cmd, window=60):
+    """Retry only connection failures (ssh/scp exit 255) for a freshly booted server."""
+    deadline = time.time() + window
+    while True:
+        code = subprocess.call(cmd)
+        if code != 255 or time.time() > deadline:
+            return code
+        time.sleep(5)
+
+
+def cmd_new(args):
+    ttl = int(args[args.index("--ttl") + 1])
+    image = "ubuntu-24.04"
+    if "--from" in args:
+        name = args[args.index("--from") + 1]
+        snaps = json.loads(hcloud("image", "list", "-t", "snapshot", "-l", f"{LABEL}-env={name}", "-o", "json").stdout)
+        if not snaps:
+            sys.exit(f"no Hetzner snapshot labelled {LABEL}-env={name}; run bin/hcloud-bake")
+        image = str(max(snaps, key=lambda s: s["created"])["id"])
+    started = time.time()
+    budget = float(os.environ.get("BOAT_COMMAND_TIMEOUT_SECONDS", "120")) - 10
+    name = f"{LABEL}-{time.strftime('%m%d-%H%M%S')}-{secrets.token_hex(2)}"
+    errors, availability = [], {}
+    for place in PLACES:
+        stype, _, location = place.partition("@")
+        if stype not in availability:  # Hetzner's live flag; skips sold-out places without a failed create
+            info = json.loads(hcloud("server-type", "describe", stype, "-o", "json").stdout)
+            availability[stype] = {l["name"]: l.get("available", True) for l in info.get("locations", [])}
+        if not availability[stype].get(location, True):
+            errors.append(f"{place}: sold out")
+            continue
+        p = hcloud("server", "create", "--name", name, "--type", stype, "--location", location, "--image", image,
+                   "--ssh-key", LABEL, "--firewall", LABEL, "--without-ipv6", "--label", f"{LABEL}=1",
+                   "--label", f"expires={int(time.time()) + ttl}", "-o", "json", check=False)
+        if p.returncode == 0:
+            break
+        errors.append(f"{place}: {p.stderr.strip()}")
+        # A half-created server (create failed after allocation) must not survive.
+        stray = hcloud("server", "describe", name, "-o", "json", check=False)
+        if stray.returncode == 0:
+            hcloud("server", "delete", name, check=False)
+    else:
+        sys.exit("no Hetzner capacity:\n  " + "\n  ".join(errors))
+    sid = str(json.loads(p.stdout)["server"]["id"])
+    print(json.dumps({"event": "created", "id": sid}), flush=True)
+    record(event="created", id=sid, type=stype, location=location, image=image, ttl=ttl)
+    print(f"hcloud: {sid} {stype}@{location}", file=sys.stderr)
+    ip, opts = ssh_base(sid)
+    while time.time() - started < budget:
+        if subprocess.call(["ssh", *opts, f"{USER}@{ip}", "true"], stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+            return 0
+        time.sleep(5)
+    sys.exit(f"hcloud: {sid} created but SSH not ready within {budget:.0f}s")
+
+
+def cmd_delete(args):
+    sid = args[0]
+    server(sid)
+    hcloud("server", "delete", sid)
+    (STATE / f"{sid}.known_hosts").unlink(missing_ok=True)
+    record(event="deleted", id=sid)
+    return 0
+
+
+def cmd_list(_args):
+    data = json.loads(hcloud("server", "list", "-l", f"{LABEL}=1", "-o", "json").stdout) or []
+    print(json.dumps({"sandboxes": [{"id": str(s["id"]), "name": s["name"], "status": s["status"],
+                                     "type": s["server_type"]["name"], "labels": s["labels"]} for s in data]}))
+    return 0
+
+
+def cmd_ssh(args):
+    ip, opts = ssh_base(args[0])
+    return retry(["ssh", *opts, f"{USER}@{ip}", *args[1:]])
+
+
+def cmd_scp(args):
+    out, ip_opts = [], None
+    for a in args[-2:]:
+        sid, sep, path = a.partition(":")
+        if sep and sid.isdigit():
+            ip, ip_opts = ssh_base(sid)
+            a = f"{USER}@{ip}:{path}"
+        out.append(a)
+    if ip_opts is None:
+        sys.exit("scp needs one ID:/path side")
+    return retry(["scp", "-q", *ip_opts, *out])
+
+
+def cmd_exec(args):
+    sid, rest = args[0], args[args.index("--") + 1:]
+    if "--detach" not in args:
+        return cmd_ssh([sid, shlex.join(rest)])
+    return cmd_ssh([sid, f"nohup setsid {shlex.join(rest)} >/dev/null 2>&1 </dev/null &"])
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit(__doc__)
+    fn = {"new": cmd_new, "delete": cmd_delete, "list": cmd_list, "ssh": cmd_ssh, "scp": cmd_scp,
+          "exec": cmd_exec}.get(sys.argv[1])
+    if fn is None:
+        sys.exit(f"hcloud-boat: unsupported command {sys.argv[1]}")
+    return fn([a for a in sys.argv[2:] if a != "--json" or sys.argv[1] == "exec"])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

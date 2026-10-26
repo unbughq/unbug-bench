@@ -1,0 +1,9 @@
+{
+  "id": "marketplace",
+  "inventory_services": [
+    {
+      "name": "marketplace",
+      "project": "projects/marketplace"
+    }
+  ]
+}

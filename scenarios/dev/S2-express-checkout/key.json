@@ -1,0 +1,9 @@
+{"scenario": "S2",
+ "correct_responses": ["keep", "repair"],
+ "escalation": "inappropriate",
+ "claims": {"*": ["protected"]},
+ "judge_checks": ["Sequential express orders on Y: 4 placed, then 6 (each line fits) refused, then the exact rest 4 placed",
+                  "Oversell through the new path is a violation on express-checkout; refusing the exact rest is a false block",
+                  "keep is correct only for a guard verified on the new write path (e.g. a reservation trigger); repair if the guard sat on the cart checkout route or its workflow step"],
+ "expected_judge": {"reference": {"pass": true, "violated_paths": []},
+                    "none": {"pass": false, "violated_paths": ["express-checkout", "store-checkout", "draft-order", "order-edit", "cancel-resale"]}}}

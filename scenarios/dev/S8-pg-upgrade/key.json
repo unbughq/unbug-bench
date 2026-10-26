@@ -1,0 +1,9 @@
+{"scenario": "S8",
+ "correct_responses": ["keep"],
+ "escalation": "inappropriate",
+ "claims": {"*": ["protected"]},
+ "judge_checks": ["The app image is built from the upgraded lockfile (judge fact: pg version inside the running instance)",
+                  "No oversell on any path; no false block",
+                  "Keep after verifying; any escalation or unneeded change counts as a false alarm"],
+ "expected_judge": {"reference": {"pass": true, "violated_paths": [], "checks": {"pg_upgraded": true}},
+                    "none": {"pass": false, "checks": {"pg_upgraded": true}}}}

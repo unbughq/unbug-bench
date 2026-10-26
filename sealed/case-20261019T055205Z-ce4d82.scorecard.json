@@ -1,0 +1,5346 @@
+{
+  "case": "case-20261019T055205Z-ce4d82",
+  "dry_run": false,
+  "source": "port",
+  "seed": 89125,
+  "gates": {
+    "G1": "pass",
+    "G2": "fail",
+    "G12": "pass"
+  },
+  "failed_gate": "G2",
+  "rotation_slot": 7,
+  "factory_slots_prepared": 2,
+  "gate_results": {
+    "G1": {
+      "problems": [],
+      "content_checks": "on"
+    },
+    "G2": {
+      "searches": 12,
+      "hits": 3,
+      "counted": {
+        "builder_web": 4,
+        "builder_github": 4,
+        "attacker": 4
+      },
+      "uncounted_who_kind": []
+    }
+  },
+  "resume": {
+    "fresh_gates": true,
+    "legacy_transcripts_preserved": true,
+    "legacy_cost_excluded_from_continuation_ceiling": true
+  },
+  "roles": {
+    "writer": {
+      "model": "opencode-go/muse-spark-1.3-contributor",
+      "effort": "xhigh",
+      "family": "meta"
+    },
+    "stress_tester": {
+      "model": "opencode-go/mimo-v2.6-pro",
+      "effort": "default",
+      "family": "xiaomi"
+    },
+    "strong_calibrator": {
+      "model": "claude/claude-opus-5-5",
+      "effort": "high",
+      "family": "anthropic"
+    },
+    "reviewer": {
+      "model": "codex/gpt-6.1-sol",
+      "effort": "high",
+      "family": "openai"
+    },
+    "easy_calibrator": {
+      "model": "opencode/glm-5.3-flash-free",
+      "effort": "default",
+      "family": "z-ai"
+    }
+  },
+  "models": {
+    "builder": [
+      "opencode-go/muse-spark-1.3-contributor"
+    ],
+    "attacker": [
+      "opencode-go/mimo-v2.6-pro"
+    ],
+    "reviewers": [
+      [
+        "codex/gpt-6.1-sol"
+      ]
+    ],
+    "strong_calibrator": [
+      "claude/claude-opus-5-5"
+    ],
+    "easy_calibrator": [
+      "opencode/glm-5.3-flash-free"
+    ]
+  },
+  "models_used": {
+    "builder-statement": "opencode-go/muse-spark-1.3-contributor",
+    "easy-calibrator-dedup-0": "opencode/glm-5.3-flash-free",
+    "builder-1": "opencode-go/muse-spark-1.3-contributor",
+    "builder-precheck": "opencode-go/muse-spark-1.3-contributor",
+    "attacker-freshness": "opencode-go/mimo-v2.6-pro"
+  },
+  "dedup": {
+    "checked_against": 12,
+    "duplicate_of": null,
+    "retried": false
+  },
+  "builder_rounds": 1,
+  "counts": {
+    "surprises": 3,
+    "scenarios": 6,
+    "provenance": 3
+  },
+  "bench_workers_effective": 2,
+  "early_gates": {
+    "G3": {
+      "ok": true,
+      "minutes": 2.3
+    },
+    "G4": {
+      "ok": true,
+      "minutes": 3.5
+    },
+    "G5": {
+      "ok": false,
+      "minutes": 9.7
+    }
+  },
+  "plain_app_broke": "10/10",
+  "reference_fix": "10/10",
+  "scenario_keys_match": "5/6",
+  "builder_note": "final builder fix passed prechecks; gates must verify it",
+  "freshness_topup": {
+    "before": {
+      "builder_web": 4,
+      "builder_github": 4,
+      "attacker": 0
+    },
+    "after": {
+      "builder_web": 4,
+      "builder_github": 4,
+      "attacker": 4
+    }
+  },
+  "gate_minutes": {
+    "G1": 0.1,
+    "G2": 0.0
+  },
+  "failed_detail": {
+    "searches": 12,
+    "hits": 3,
+    "counted": {
+      "builder_web": 4,
+      "builder_github": 4,
+      "attacker": 4
+    },
+    "uncounted_who_kind": []
+  },
+  "wall_minutes": 87.3,
+  "continuation_budget": {
+    "cost": 0.18981506600000014,
+    "calls": 288,
+    "events": [
+      {
+        "id": "ses_ead383863ffeRGPQH3lAjaDgkn:msg_152c7c90f001inLsIQdf4T2B6C:prt_152c7d5d8001QTODuBK64rau3T",
+        "cost": 0.001129386,
+        "tokens": {
+          "total": 12078,
+          "input": 10104,
+          "output": 168,
+          "reasoning": 413,
+          "cache": {
+            "write": 0,
+            "read": 1393
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead383863ffeRGPQH3lAjaDgkn:msg_152c7d5df001YJ1t7x6QFavPT6:prt_152c7db39001hRkWB9sbGnc9Hn",
+        "cost": 0.000163054,
+        "tokens": {
+          "total": 12513,
+          "input": 869,
+          "output": 228,
+          "reasoning": 39,
+          "cache": {
+            "write": 0,
+            "read": 11377
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead383863ffeRGPQH3lAjaDgkn:msg_152c7db3d001W4jSGIb0wf2tfp:prt_152c7e3e8001W0A2hgGIDbrALn",
+        "cost": 0.00222179,
+        "tokens": {
+          "total": 33874,
+          "input": 21483,
+          "output": 224,
+          "reasoning": 22,
+          "cache": {
+            "write": 0,
+            "read": 12145
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead383863ffeRGPQH3lAjaDgkn:msg_152c7e3ee001qjJ9GApZsSsJa3:prt_152c7eda8001ib5ETg50wOcNjT",
+        "cost": 0.002083942,
+        "tokens": {
+          "total": 53448,
+          "input": 19685,
+          "output": 227,
+          "reasoning": 15,
+          "cache": {
+            "write": 0,
+            "read": 33521
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead383863ffeRGPQH3lAjaDgkn:msg_152c7edae001iorueiQSgIUC3d:prt_152c80a3e001M5G3cDh21206m4",
+        "cost": 0.00083951,
+        "tokens": {
+          "total": 59109,
+          "input": 4675,
+          "output": 222,
+          "reasoning": 1107,
+          "cache": {
+            "write": 0,
+            "read": 53105
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead383863ffeRGPQH3lAjaDgkn:msg_152c80a45001euw72vNC0nNjSr:prt_152c8127d001oNxpv7yNSlGTRG",
+        "cost": 0.000349626,
+        "tokens": {
+          "total": 59842,
+          "input": 1916,
+          "output": 198,
+          "reasoning": 15,
+          "cache": {
+            "write": 0,
+            "read": 57713
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead383863ffeRGPQH3lAjaDgkn:msg_152c81282001j5X55ySXpep42E:prt_152c83017001jk8qVw06Ofwgai",
+        "cost": 0.00043931,
+        "tokens": {
+          "total": 61692,
+          "input": 1171,
+          "output": 127,
+          "reasoning": 889,
+          "cache": {
+            "write": 0,
+            "read": 59505
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead383863ffeRGPQH3lAjaDgkn:msg_152c8301c0012N18xKgyuiXIql:prt_152c857c9001GBnatnkgZvekh4",
+        "cost": 0.000579214,
+        "tokens": {
+          "total": 63637,
+          "input": 1381,
+          "output": 293,
+          "reasoning": 1306,
+          "cache": {
+            "write": 0,
+            "read": 60657
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead383863ffeRGPQH3lAjaDgkn:msg_152c857d0001IkSxAPwu4JU1DO:prt_152c860750011i5Py54SU1LFrx",
+        "cost": 0.000304274,
+        "tokens": {
+          "total": 63671,
+          "input": 1664,
+          "output": 51,
+          "reasoning": 19,
+          "cache": {
+            "write": 0,
+            "read": 61937
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead379c6dffe71Ub5EVdengWW1:msg_152c864d4001HRo0IV6Hr2wcSp:prt_152c8824b001mAh0fDWWGPCPcz",
+        "cost": 0,
+        "tokens": {
+          "total": 8301,
+          "input": 7653,
+          "output": 648,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead379c6dffe71Ub5EVdengWW1:msg_152c88251001YHvpGZ9zu362oY:prt_152c8aee8001JxwJukfX84tI5X",
+        "cost": 0,
+        "tokens": {
+          "total": 13071,
+          "input": 7545,
+          "output": 1046,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 4480
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead379c6dffe71Ub5EVdengWW1:msg_152c8aeee001L15aVkBHvSWpd7:prt_152c8b5cc001JL1za6Gr8zQRU1",
+        "cost": 0,
+        "tokens": {
+          "total": 12470,
+          "input": 3337,
+          "output": 173,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 8960
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead379c6dffe71Ub5EVdengWW1:msg_152c8b5d00016WuvT252YjkULH:prt_152c8d8fe001LNhwB8k0MEBxhG",
+        "cost": 0,
+        "tokens": {
+          "total": 13759,
+          "input": 13512,
+          "output": 210,
+          "reasoning": 37,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead379c6dffe71Ub5EVdengWW1:msg_152c8d902001jzLSCPdEl9HNhV:prt_152c8ef720012IU74J2X4X9rA7",
+        "cost": 0,
+        "tokens": {
+          "total": 14095,
+          "input": 811,
+          "output": 228,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 13056
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c8f411001dbw05rvDd6W2fg:prt_152c8f9dd001tnzATgzQXgapbC",
+        "cost": 0.000891402,
+        "tokens": {
+          "total": 11574,
+          "input": 8688,
+          "output": 77,
+          "reasoning": 8,
+          "cache": {
+            "write": 0,
+            "read": 2801
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c8f9e60018F6yonMhLt1n88:prt_152c8ff4b001Qgd6NBzFmk29IT",
+        "cost": 0.000108754,
+        "tokens": {
+          "total": 11970,
+          "input": 326,
+          "output": 228,
+          "reasoning": 39,
+          "cache": {
+            "write": 0,
+            "read": 11377
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c8ff4f001qU4du8KwAjqOjw:prt_152c9078d001cZvjfVhifew3oB",
+        "cost": 0.002218666,
+        "tokens": {
+          "total": 33336,
+          "input": 21452,
+          "output": 231,
+          "reasoning": 20,
+          "cache": {
+            "write": 0,
+            "read": 11633
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c90793001t1PKI0NwKRf6z2:prt_152c9112c0014FCvbxfUnS0AqL",
+        "cost": 0.002111618,
+        "tokens": {
+          "total": 53063,
+          "input": 19652,
+          "output": 261,
+          "reasoning": 141,
+          "cache": {
+            "write": 0,
+            "read": 33009
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c91134001tktmX2Smdwbyhd:prt_152c918480017wBvxmC38UxTUL",
+        "cost": 0.000230786,
+        "tokens": {
+          "total": 53661,
+          "input": 880,
+          "output": 188,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 52593
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c9184c001kwrFoPElrM956u:prt_152c92154001PqO5Vbp5GoMAbQ",
+        "cost": 0.000247222,
+        "tokens": {
+          "total": 54427,
+          "input": 727,
+          "output": 269,
+          "reasoning": 70,
+          "cache": {
+            "write": 0,
+            "read": 53361
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c9215a001CNPnYZItvFSY1M:prt_152c927f6001I4EdSTdr22WW6F",
+        "cost": 0.000231002,
+        "tokens": {
+          "total": 54976,
+          "input": 720,
+          "output": 255,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 54001
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c927fd001SdP4QttReoZYZI:prt_152c930b8001Is09ixmdLGFeot",
+        "cost": 0.000484882,
+        "tokens": {
+          "total": 58155,
+          "input": 3272,
+          "output": 242,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 54641
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c930be001uHy6Hjcyo9NPST:prt_152c94456001jpWvBdHaBAca7h",
+        "cost": 0.001564382,
+        "tokens": {
+          "total": 71499,
+          "input": 12829,
+          "output": 361,
+          "reasoning": 468,
+          "cache": {
+            "write": 0,
+            "read": 57841
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c944660017zp1I7IvVDxBVT:prt_152c94b68001DP7s7DleIH6e8g",
+        "cost": 0.000427882,
+        "tokens": {
+          "total": 73264,
+          "input": 2380,
+          "output": 243,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 70641
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c94b6e001JdhsiYT26YFT6h:prt_152c951a8001ykWWLg17FdU2AP",
+        "cost": 0.00043359,
+        "tokens": {
+          "total": 75690,
+          "input": 2613,
+          "output": 132,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 72945
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c951ae001IPpd33i4J3ff2N:prt_152c961e2001JXA7w7hC0I2V7l",
+        "cost": 0.00054071,
+        "tokens": {
+          "total": 78687,
+          "input": 2467,
+          "output": 160,
+          "reasoning": 555,
+          "cache": {
+            "write": 0,
+            "read": 75505
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c961ea001K7W3pzfJMfqGxT:prt_152c973e7001TBbDVgW4tUArMj",
+        "cost": 0.000320174,
+        "tokens": {
+          "total": 79437,
+          "input": 1357,
+          "output": 143,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 77937
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c973ee001lcKJ8AX54X5rbl:prt_152c979290014XjnAWRUOZRRxv",
+        "cost": 0.000236034,
+        "tokens": {
+          "total": 79853,
+          "input": 496,
+          "output": 140,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 79217
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c97931001CnpI791Q0b2gLl:prt_152c980760018KgzEimHDNGFWG",
+        "cost": 0.000275802,
+        "tokens": {
+          "total": 80698,
+          "input": 1028,
+          "output": 69,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 79601
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c98080001STTPL78rPgtOZw:prt_152c987ec001CgeJKvouqxL1oL",
+        "cost": 0.00072125,
+        "tokens": {
+          "total": 86044,
+          "input": 5238,
+          "output": 181,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 80625
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c987f6001wJVBxsl12hunm3:prt_152c990e4001LaOc1lfV7flkVs",
+        "cost": 0.00056799,
+        "tokens": {
+          "total": 89400,
+          "input": 3345,
+          "output": 298,
+          "reasoning": 12,
+          "cache": {
+            "write": 0,
+            "read": 85745
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c990ec001ZsTU28k7fqGNiz:prt_152c998de001cVI3d9FMWgQ76z",
+        "cost": 0.000587246,
+        "tokens": {
+          "total": 92906,
+          "input": 3575,
+          "output": 258,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 89073
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c998e50011gYgdo4gP2HMny:prt_152c9a100001rdkS7zr9R1B40L",
+        "cost": 0.000338258,
+        "tokens": {
+          "total": 93838,
+          "input": 1086,
+          "output": 223,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 92529
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c9a1050018xZmQqgzX4OK4r:prt_152c9e8b000121BD0aa5Qx2x1u",
+        "cost": 0.000972006,
+        "tokens": {
+          "total": 98419,
+          "input": 1883,
+          "output": 170,
+          "reasoning": 2813,
+          "cache": {
+            "write": 0,
+            "read": 93553
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152c9e8b6001NBMi22opuqenqF:prt_152ca0479001x3xzYzmFE4gcn3",
+        "cost": 0.00090989,
+        "tokens": {
+          "total": 101402,
+          "input": 4922,
+          "output": 126,
+          "reasoning": 1009,
+          "cache": {
+            "write": 0,
+            "read": 95345
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ca047f001W44aCexVq13KB1:prt_152ca1ac8001sd1ZxssUTlyV57",
+        "cost": 0.000856018,
+        "tokens": {
+          "total": 105644,
+          "input": 4314,
+          "output": 181,
+          "reasoning": 940,
+          "cache": {
+            "write": 0,
+            "read": 100209
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ca1acf001wmpFUDwRCcAYPs:prt_152ca4a2f001LHodp4r0SEM27F",
+        "cost": 0.000974866,
+        "tokens": {
+          "total": 109725,
+          "input": 2924,
+          "output": 200,
+          "reasoning": 2168,
+          "cache": {
+            "write": 0,
+            "read": 104433
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ca4a36001We8Z5RrSHrbd0k:prt_152ca50ad001zB7mjjob626Guu",
+        "cost": 0.000492698,
+        "tokens": {
+          "total": 109939,
+          "input": 2598,
+          "output": 92,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 107249
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ca50b3001YxB5SG6DbIiVZN:prt_152ca5cf9001I6lSgDonW6pzd4",
+        "cost": 0.000351618,
+        "tokens": {
+          "total": 110841,
+          "input": 744,
+          "output": 130,
+          "reasoning": 158,
+          "cache": {
+            "write": 0,
+            "read": 109809
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ca5cfe001TDV1WxupJUQO0P:prt_152ca6523001FoJSHYEISO6fPo",
+        "cost": 0.000355598,
+        "tokens": {
+          "total": 111720,
+          "input": 1195,
+          "output": 76,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 110449
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ca6528001eE6R57oeYyOZ2m:prt_152ca6f230010VRmGbWCubX1HL",
+        "cost": 0.000593602,
+        "tokens": {
+          "total": 114925,
+          "input": 2944,
+          "output": 171,
+          "reasoning": 209,
+          "cache": {
+            "write": 0,
+            "read": 111601
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ca6f2a001syrBGZ1vKW7XEp:prt_152ca7c260011eWrPrn414fIK5",
+        "cost": 0.00060559,
+        "tokens": {
+          "total": 117714,
+          "input": 2573,
+          "output": 167,
+          "reasoning": 429,
+          "cache": {
+            "write": 0,
+            "read": 114545
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ca7c2f001PCyCly5FM5V22T:prt_152ca8357001QSVv2QNMtXOg58",
+        "cost": 0.00042481,
+        "tokens": {
+          "total": 118781,
+          "input": 1446,
+          "output": 135,
+          "reasoning": 95,
+          "cache": {
+            "write": 0,
+            "read": 117105
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ca835d001grlfGobVnxfiRd:prt_152ca9199001cejxB1PhemEASC",
+        "cost": 0.000489426,
+        "tokens": {
+          "total": 120710,
+          "input": 1870,
+          "output": 64,
+          "reasoning": 263,
+          "cache": {
+            "write": 0,
+            "read": 118513
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ca919f001npH757m2rgKSLY:prt_152caa889001PTgK8qRKQnM0e3",
+        "cost": 0.00049631,
+        "tokens": {
+          "total": 121920,
+          "input": 673,
+          "output": 153,
+          "reasoning": 789,
+          "cache": {
+            "write": 0,
+            "read": 120305
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152caa88f001qH4wRKTkxO5ktU:prt_152cabf20001ZY51zBYYaRfCuG",
+        "cost": 0.00053309,
+        "tokens": {
+          "total": 123018,
+          "input": 1234,
+          "output": 695,
+          "reasoning": 144,
+          "cache": {
+            "write": 0,
+            "read": 120945
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cabf27001rbAw9y3d1ApXYo:prt_152cacd4a001HduHU9t306W8xZ",
+        "cost": 0.000544094,
+        "tokens": {
+          "total": 124371,
+          "input": 1549,
+          "output": 668,
+          "reasoning": 57,
+          "cache": {
+            "write": 0,
+            "read": 122097
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cacd51001BF0uG4i7fAobiy:prt_152cb15220017KUplOZcfoSVXl",
+        "cost": 0.001057266,
+        "tokens": {
+          "total": 128099,
+          "input": 832,
+          "output": 197,
+          "reasoning": 3437,
+          "cache": {
+            "write": 0,
+            "read": 123633
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cb152b001YdHGCMcSJ2WDr6:prt_152cb1dcd001IZDfz5iCfzGvym",
+        "cost": 0.000623802,
+        "tokens": {
+          "total": 128084,
+          "input": 3616,
+          "output": 67,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 124401
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cb1dd40012uyVioqio80OM0:prt_152cb3e53001zoYsoLUtJn4rV3",
+        "cost": 0.00029117,
+        "tokens": {
+          "total": 128261,
+          "input": 200,
+          "output": 76,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 127985
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cb3e5a0018tlDYnQc2T2Wxb:prt_152cb4700001pgMXG4WIo8sYsN",
+        "cost": 0.000302126,
+        "tokens": {
+          "total": 128457,
+          "input": 229,
+          "output": 103,
+          "reasoning": 12,
+          "cache": {
+            "write": 0,
+            "read": 128113
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cb4706001iXRovfRjyygmZe:prt_152cb5131001JhrKejjeDdcuZs",
+        "cost": 0.000382182,
+        "tokens": {
+          "total": 129107,
+          "input": 475,
+          "output": 365,
+          "reasoning": 26,
+          "cache": {
+            "write": 0,
+            "read": 128241
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cb5139001rkfng0njjw2sdh:prt_152cb586b001BtoH5V2wu9OteF",
+        "cost": 0.00033245,
+        "tokens": {
+          "total": 129257,
+          "input": 512,
+          "output": 101,
+          "reasoning": 19,
+          "cache": {
+            "write": 0,
+            "read": 128625
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cb5872001VXgIprgG3tAgp4:prt_152cb5f89001kUNOS56720ndO7",
+        "cost": 0.000296874,
+        "tokens": {
+          "total": 129428,
+          "input": 196,
+          "output": 50,
+          "reasoning": 45,
+          "cache": {
+            "write": 0,
+            "read": 129137
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cb5f8f0018SJqNViScj2I3s:prt_152cb6736001fMJCmDw1dEqmLc",
+        "cost": 0.00034243,
+        "tokens": {
+          "total": 130035,
+          "input": 701,
+          "output": 61,
+          "reasoning": 8,
+          "cache": {
+            "write": 0,
+            "read": 129265
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cb673e001wy27IBdRolaMsi:prt_152cb714c001UM76429aXnrHFK",
+        "cost": 0.00040861,
+        "tokens": {
+          "total": 130727,
+          "input": 156,
+          "output": 652,
+          "reasoning": 14,
+          "cache": {
+            "write": 0,
+            "read": 129905
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cb7153001RFQm518emo890l:prt_152cb7e13001CViDe8a8kX8djh",
+        "cost": 0.000348666,
+        "tokens": {
+          "total": 130836,
+          "input": 720,
+          "output": 83,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 130033
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cb7e1b0017SYm9utU7vFmmH:prt_152cb8a450012xnVdsmT8qQuV3",
+        "cost": 0.000408746,
+        "tokens": {
+          "total": 131633,
+          "input": 446,
+          "output": 394,
+          "reasoning": 120,
+          "cache": {
+            "write": 0,
+            "read": 130673
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cb8a4b001aZP0H7KCaukmaA:prt_152cbae1900171R7Rdem2U3xzT",
+        "cost": 0.000359014,
+        "tokens": {
+          "total": 131871,
+          "input": 659,
+          "output": 115,
+          "reasoning": 40,
+          "cache": {
+            "write": 0,
+            "read": 131057
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cbae20001CQB1Jk6240epvq:prt_152cbba37001OL1t6aJ1BFrcYe",
+        "cost": 0.000419694,
+        "tokens": {
+          "total": 132729,
+          "input": 501,
+          "output": 355,
+          "reasoning": 176,
+          "cache": {
+            "write": 0,
+            "read": 131697
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cbba3e001UcniqN5uVv0waa:prt_152cbc183001zaTcHWQWt41ncW",
+        "cost": 0.000385662,
+        "tokens": {
+          "total": 133036,
+          "input": 695,
+          "output": 188,
+          "reasoning": 72,
+          "cache": {
+            "write": 0,
+            "read": 132081
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cbc18a001ZtPMBzPrv08NWd:prt_152cbcb60001DNrbtAU0l0QHLF",
+        "cost": 0.000319742,
+        "tokens": {
+          "total": 133188,
+          "input": 391,
+          "output": 76,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 132721
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cbcb66001AupuutymHQBW6F:prt_152cbe975001LCypP5Szu3tVeD",
+        "cost": 0.00031821,
+        "tokens": {
+          "total": 133544,
+          "input": 358,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 133105
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cbe97c001cpckBP57W56f5Y:prt_152cbf3fe001dtypcQUcYaq27n",
+        "cost": 0.000409522,
+        "tokens": {
+          "total": 134294,
+          "input": 438,
+          "output": 384,
+          "reasoning": 111,
+          "cache": {
+            "write": 0,
+            "read": 133361
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cbf408001SAPcpftcUwvoJT:prt_152cbfe1b001HSSOamonSHPFqE",
+        "cost": 0.00047039,
+        "tokens": {
+          "total": 135394,
+          "input": 1269,
+          "output": 322,
+          "reasoning": 58,
+          "cache": {
+            "write": 0,
+            "read": 133745
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cbfe23001grgEnYSY23Lg71:prt_152cc2630001cH5g2UBdArGDPv",
+        "cost": 0.000432094,
+        "tokens": {
+          "total": 136145,
+          "input": 873,
+          "output": 136,
+          "reasoning": 239,
+          "cache": {
+            "write": 0,
+            "read": 134897
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cc2637001CdqzJii4k2VRbM:prt_152cc30d1001OBESb5Nq2p6CV8",
+        "cost": 0.00050333,
+        "tokens": {
+          "total": 137296,
+          "input": 942,
+          "output": 670,
+          "reasoning": 19,
+          "cache": {
+            "write": 0,
+            "read": 135665
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cc30d80016aiUsaUCYzB1uv:prt_152cc533c001z8Ll2opMH4Cthh",
+        "cost": 0.000369022,
+        "tokens": {
+          "total": 137421,
+          "input": 761,
+          "output": 99,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 136561
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cc5344001lM75QEN2qkj53w:prt_152cc7c64001twFuIlrKTKyEMO",
+        "cost": 0.000714502,
+        "tokens": {
+          "total": 139834,
+          "input": 865,
+          "output": 325,
+          "reasoning": 1443,
+          "cache": {
+            "write": 0,
+            "read": 137201
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cc7c6c001Kwk43t1VR4kL7H:prt_152cc8a57001ec0sHu8lLVHcDr",
+        "cost": 0.000546238,
+        "tokens": {
+          "total": 140359,
+          "input": 2077,
+          "output": 100,
+          "reasoning": 213,
+          "cache": {
+            "write": 0,
+            "read": 137969
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cc8a5e001ridcozAI23zjlU:prt_152cc9a6f001rW29BURH61G7YW",
+        "cost": 0.000992434,
+        "tokens": {
+          "total": 146756,
+          "input": 6354,
+          "output": 217,
+          "reasoning": 168,
+          "cache": {
+            "write": 0,
+            "read": 140017
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cc9a76001LXafMzPpXCHBJE:prt_152ccac5d001Gfrq5YUpQDqOsc",
+        "cost": 0.001412678,
+        "tokens": {
+          "total": 157031,
+          "input": 10283,
+          "output": 226,
+          "reasoning": 233,
+          "cache": {
+            "write": 0,
+            "read": 146289
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ccac63001PBZD4rBasVmdO2:prt_152cce65b0015TPTvdlsuoMpk0",
+        "cost": 0.002119358,
+        "tokens": {
+          "total": 171540,
+          "input": 11959,
+          "output": 251,
+          "reasoning": 2801,
+          "cache": {
+            "write": 0,
+            "read": 156529
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cce667001QIJPt7sAuHi9V6:prt_152cced60001PcFugmqQi6NYec",
+        "cost": 0.000728066,
+        "tokens": {
+          "total": 172168,
+          "input": 3558,
+          "output": 168,
+          "reasoning": 9,
+          "cache": {
+            "write": 0,
+            "read": 168433
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cced6b001qsa9P5G0V79Yg0:prt_152cd02590018isxG2Igk6T61N",
+        "cost": 0.000666078,
+        "tokens": {
+          "total": 173851,
+          "input": 701,
+          "output": 226,
+          "reasoning": 1035,
+          "cache": {
+            "write": 0,
+            "read": 171889
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cd0261001t3OpZzh5Jt3t5t:prt_152cd13a7001FgMhwQyF3Cfgrr",
+        "cost": 0.000704558,
+        "tokens": {
+          "total": 175792,
+          "input": 2931,
+          "output": 228,
+          "reasoning": 104,
+          "cache": {
+            "write": 0,
+            "read": 172529
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cd13b3001QAUpNm99pJDogJ:prt_152cd1f3c001l5zu3n75SZcj7M",
+        "cost": 0.00084219,
+        "tokens": {
+          "total": 179727,
+          "input": 3849,
+          "output": 164,
+          "reasoning": 369,
+          "cache": {
+            "write": 0,
+            "read": 175345
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cd1f44001w70QrFiXvLhER6:prt_152cd2933001G6Vw85xbFMbAlX",
+        "cost": 0.00062987,
+        "tokens": {
+          "total": 181706,
+          "input": 2327,
+          "output": 100,
+          "reasoning": 94,
+          "cache": {
+            "write": 0,
+            "read": 179185
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cd293f001slJkjRYiSo085X:prt_152cd306c001b1BXg827n0PsWh",
+        "cost": 0.000515778,
+        "tokens": {
+          "total": 182941,
+          "input": 1376,
+          "output": 76,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 181489
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cd3073001b3ZSE6bIPVAbGg:prt_152cd423d001UYryjDEx6S7rnT",
+        "cost": 0.001024738,
+        "tokens": {
+          "total": 188279,
+          "input": 4428,
+          "output": 316,
+          "reasoning": 766,
+          "cache": {
+            "write": 0,
+            "read": 182769
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cd4248001pmH07QuKQBKv1T:prt_152cd4938001MNnXhXACr2aGt9",
+        "cost": 0.000571142,
+        "tokens": {
+          "total": 188801,
+          "input": 1391,
+          "output": 289,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 187121
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cd4941001KU9VmxydHMG95B:prt_152cd5905001IqopSzCAGb5aSp",
+        "cost": 0.000555802,
+        "tokens": {
+          "total": 189718,
+          "input": 844,
+          "output": 160,
+          "reasoning": 313,
+          "cache": {
+            "write": 0,
+            "read": 188401
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cd59230018XKzr1SXC0YU0p:prt_152cd643e001tRodOzTrq2681a",
+        "cost": 0.000507438,
+        "tokens": {
+          "total": 190135,
+          "input": 641,
+          "output": 278,
+          "reasoning": 47,
+          "cache": {
+            "write": 0,
+            "read": 189169
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cd64460014jK05UG7H7c9Q8:prt_152cd6d2b001JGAirkFc49h7EE",
+        "cost": 0.000623118,
+        "tokens": {
+          "total": 191905,
+          "input": 1757,
+          "output": 282,
+          "reasoning": 57,
+          "cache": {
+            "write": 0,
+            "read": 189809
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cd6d32001124VKrdhRyayiT:prt_152cd82f4001TJikOfAQ4LLSad",
+        "cost": 0.000653046,
+        "tokens": {
+          "total": 193052,
+          "input": 457,
+          "output": 1122,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 191473
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cd82fc001jix16xlRCo7Wgx:prt_152cd94a7001yFxFzZjxQTb7Mk",
+        "cost": 0.000713314,
+        "tokens": {
+          "total": 194115,
+          "input": 1220,
+          "output": 547,
+          "reasoning": 491,
+          "cache": {
+            "write": 0,
+            "read": 191857
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cd94af00125LCVUFa6NyLkh:prt_152cda2030017tyLFiI0Wmctpk",
+        "cost": 0.000606718,
+        "tokens": {
+          "total": 194669,
+          "input": 1113,
+          "output": 90,
+          "reasoning": 457,
+          "cache": {
+            "write": 0,
+            "read": 193009
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cda20d001vMSVbtub4oKNk2:prt_152cdad2f0015F2pzkdh0FAMf3",
+        "cost": 0.000556366,
+        "tokens": {
+          "total": 195409,
+          "input": 1069,
+          "output": 307,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 194033
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cdad38001Y79z6Dd8bdyY4V:prt_152cdb822001vJGt0YEjOSSQkt",
+        "cost": 0.000587014,
+        "tokens": {
+          "total": 196230,
+          "input": 377,
+          "output": 791,
+          "reasoning": 5,
+          "cache": {
+            "write": 0,
+            "read": 195057
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cdb82a0019vYi1mlA8MF5Cy:prt_152cdbf39001MfG3J5KmhtoLf3",
+        "cost": 0.000553026,
+        "tokens": {
+          "total": 196596,
+          "input": 942,
+          "output": 319,
+          "reasoning": 22,
+          "cache": {
+            "write": 0,
+            "read": 195313
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cdbf400010lGpESE4m9xSVP:prt_152cdde33001LCxXplxr8TJzti",
+        "cost": 0.000711318,
+        "tokens": {
+          "total": 198433,
+          "input": 1259,
+          "output": 192,
+          "reasoning": 773,
+          "cache": {
+            "write": 0,
+            "read": 196209
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cdde3a001sGnaUgHTMx90JL:prt_152cde49a001XNnONKlAe06wju",
+        "cost": 0.000551722,
+        "tokens": {
+          "total": 198833,
+          "input": 1374,
+          "output": 98,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 197361
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cde4a2001aT5krxYsV0FoAC:prt_152cdebfa001IrvKrLs6de6g0w",
+        "cost": 0.000667782,
+        "tokens": {
+          "total": 201113,
+          "input": 2239,
+          "output": 187,
+          "reasoning": 46,
+          "cache": {
+            "write": 0,
+            "read": 198641
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cdec03001Nj3FzXq5PAPPEr:prt_152cdf2400012l8JjOTWrSpvkL",
+        "cost": 0.000479534,
+        "tokens": {
+          "total": 201432,
+          "input": 451,
+          "output": 158,
+          "reasoning": 6,
+          "cache": {
+            "write": 0,
+            "read": 200817
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cdf247001EOqo4946TNrG2i:prt_152cdf9f3001r8f15l8Y3gpkzg",
+        "cost": 0.000444502,
+        "tokens": {
+          "total": 201540,
+          "input": 257,
+          "output": 82,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 201201
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cdf9fc001lUYK1hGlDv4OcO:prt_152ce06d4001VYBejxCq16wnvc",
+        "cost": 0.000457314,
+        "tokens": {
+          "total": 201826,
+          "input": 194,
+          "output": 152,
+          "reasoning": 23,
+          "cache": {
+            "write": 0,
+            "read": 201457
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce06e4001iYBdMgHER3ixeW:prt_152ce0ede001NEgdfn5mXgJTMR",
+        "cost": 0.00044647,
+        "tokens": {
+          "total": 201935,
+          "input": 267,
+          "output": 83,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 201585
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce0ee6001BSj6mkAFzYenVH:prt_152ce2fe70014oj0BgoARyC5x5",
+        "cost": 0.000797482,
+        "tokens": {
+          "total": 204030,
+          "input": 440,
+          "output": 190,
+          "reasoning": 1559,
+          "cache": {
+            "write": 0,
+            "read": 201841
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce2ff1001L0Nwx8FJtx7xSa:prt_152ce3d69001zfv330BL7iWoKh",
+        "cost": 0.00072985,
+        "tokens": {
+          "total": 204924,
+          "input": 2144,
+          "output": 514,
+          "reasoning": 41,
+          "cache": {
+            "write": 0,
+            "read": 202225
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce3d71001YzxZQp0COECej7:prt_152ce4515001XamcTgionUSIIi",
+        "cost": 0.000503046,
+        "tokens": {
+          "total": 205084,
+          "input": 677,
+          "output": 134,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 204273
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce451d001misYnWYOQbZ0Xy:prt_152ce5238001qW1SL2pU6Wd3hs",
+        "cost": 0.000486726,
+        "tokens": {
+          "total": 205450,
+          "input": 305,
+          "output": 166,
+          "reasoning": 66,
+          "cache": {
+            "write": 0,
+            "read": 204913
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce52460010BEVeNGwh3VtMY:prt_152ce5a75001L8CqPazyOScK6Y",
+        "cost": 0.000545438,
+        "tokens": {
+          "total": 206243,
+          "input": 797,
+          "output": 151,
+          "reasoning": 126,
+          "cache": {
+            "write": 0,
+            "read": 205169
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce5a7c0016Wlt1sjBqpVBFf:prt_152ce61f5001GgGwcPYYS2JqSt",
+        "cost": 0.000541074,
+        "tokens": {
+          "total": 207028,
+          "input": 890,
+          "output": 142,
+          "reasoning": 59,
+          "cache": {
+            "write": 0,
+            "read": 205937
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce61fc0015CpSkDo0m4eE21:prt_152ce69a7001Tnf5625tIBPtKt",
+        "cost": 0.00047111,
+        "tokens": {
+          "total": 207168,
+          "input": 349,
+          "output": 75,
+          "reasoning": 39,
+          "cache": {
+            "write": 0,
+            "read": 206705
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce69af001ceRqcWhWJzNMkA:prt_152ce70bf001GH0OgBEeT29v9w",
+        "cost": 0.000468322,
+        "tokens": {
+          "total": 207382,
+          "input": 298,
+          "output": 123,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 206961
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce70c8001yz1XlsaGs9oj3j:prt_152ce7616001v5dGWcmYAM82Cw",
+        "cost": 0.000447434,
+        "tokens": {
+          "total": 207477,
+          "input": 190,
+          "output": 70,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 207217
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce761d001j31QHlVC8enNpT:prt_152ce8082001oAI90d2ICqb6bQ",
+        "cost": 0.00048149,
+        "tokens": {
+          "total": 207817,
+          "input": 276,
+          "output": 196,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 207345
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce8089001WAYLHKmclcoSDK:prt_152ce878f001hnIdPoUgULZx2k",
+        "cost": 0.000453302,
+        "tokens": {
+          "total": 207912,
+          "input": 241,
+          "output": 70,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 207601
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce8797001UW29FO5bwGkjAo:prt_152ce903e001HOGvoI1f4kAomg",
+        "cost": 0.000487158,
+        "tokens": {
+          "total": 208251,
+          "input": 327,
+          "output": 195,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 207729
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ce9048001VekKX92pjpuoqW:prt_152cea3d300140tLrtM88angtI",
+        "cost": 0.00065467,
+        "tokens": {
+          "total": 209324,
+          "input": 291,
+          "output": 117,
+          "reasoning": 931,
+          "cache": {
+            "write": 0,
+            "read": 207985
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cea3dc001jfdguKTKySwK0U:prt_152ceaf3a001PmDbQ0XShGULO6",
+        "cost": 0.000611182,
+        "tokens": {
+          "total": 209853,
+          "input": 1277,
+          "output": 335,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 208241
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ceaf42001s7hxtr0OdB6Hpr:prt_152ceb692001fVgFFTxcDmaffp",
+        "cost": 0.000481286,
+        "tokens": {
+          "total": 209948,
+          "input": 485,
+          "output": 70,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 209393
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ceb699001gb8BS5gHU3W0bD:prt_152cebfcf001Oo7mc0mkCQHijg",
+        "cost": 0.000545854,
+        "tokens": {
+          "total": 210600,
+          "input": 383,
+          "output": 440,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 209777
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cebfd8001hBa33D7buwPPf3:prt_152cec7c1001uvOiAtK9f5x0d0",
+        "cost": 0.000493066,
+        "tokens": {
+          "total": 210694,
+          "input": 592,
+          "output": 69,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 210033
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cec7ca0015s7vRA75HiUfvE:prt_152ced1b0001eGQVeqeLDOhAu8",
+        "cost": 0.00054959,
+        "tokens": {
+          "total": 211407,
+          "input": 439,
+          "output": 423,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 210545
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ced1b8001fekSsmMkCPMWbD:prt_152ced83a0010t3YgfeJQWHgxx",
+        "cost": 0.000514558,
+        "tokens": {
+          "total": 211644,
+          "input": 503,
+          "output": 158,
+          "reasoning": 54,
+          "cache": {
+            "write": 0,
+            "read": 210929
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ced842001HjoAQVL5wlo8VW:prt_152cedfa2001cE8Y2GWLD7hb16",
+        "cost": 0.000525226,
+        "tokens": {
+          "total": 212272,
+          "input": 892,
+          "output": 67,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 211313
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cedfac001lXwAb4Cxo4F9mZ:prt_152ceee37001yPh1mOA7XvXpAG",
+        "cost": 0.000733262,
+        "tokens": {
+          "total": 214580,
+          "input": 1907,
+          "output": 187,
+          "reasoning": 405,
+          "cache": {
+            "write": 0,
+            "read": 212081
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152ceee41001EsOZtQi9IjSDxi:prt_152cef64b001vpyHpMXgFUmMmd",
+        "cost": 0.000578646,
+        "tokens": {
+          "total": 215131,
+          "input": 1007,
+          "output": 145,
+          "reasoning": 106,
+          "cache": {
+            "write": 0,
+            "read": 213873
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cef6560016qdJUNh5w1up6z:prt_152cf05ee0017xyRYKdwkN6rOi",
+        "cost": 0.000686938,
+        "tokens": {
+          "total": 216412,
+          "input": 712,
+          "output": 592,
+          "reasoning": 339,
+          "cache": {
+            "write": 0,
+            "read": 214769
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf05f90014c7L3MPL8yDlGz:prt_152cf0c97001O9G4EAyIQ8LyCJ",
+        "cost": 0.000581418,
+        "tokens": {
+          "total": 216750,
+          "input": 1176,
+          "output": 155,
+          "reasoning": 10,
+          "cache": {
+            "write": 0,
+            "read": 215409
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf0c9f001kjx4EoM4huAITR:prt_152cf14bc001uou7pSC430F4GT",
+        "cost": 0.000541022,
+        "tokens": {
+          "total": 217208,
+          "input": 215,
+          "output": 432,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 216561
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf14c4001J1vpubpMCKVhuH:prt_152cf1c66001IxyZMjJhdT1Zgt",
+        "cost": 0.000514478,
+        "tokens": {
+          "total": 217367,
+          "input": 545,
+          "output": 133,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 216689
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf1c6d001kJFNGJFaJTr3Tb:prt_152cf24ad001M8HOqJOHV3GwA3",
+        "cost": 0.000551302,
+        "tokens": {
+          "total": 218134,
+          "input": 697,
+          "output": 140,
+          "reasoning": 96,
+          "cache": {
+            "write": 0,
+            "read": 217201
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf24b5001CnfEe2rMquVzU2:prt_152cf2d6f001HjAPK5Vc4XJxei",
+        "cost": 0.000636882,
+        "tokens": {
+          "total": 219502,
+          "input": 1310,
+          "output": 245,
+          "reasoning": 106,
+          "cache": {
+            "write": 0,
+            "read": 217841
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf2d7a001xG3Xp1MzHQn0CH:prt_152cf3a9f0018XY2LcDu7xR6uL",
+        "cost": 0.000535242,
+        "tokens": {
+          "total": 219955,
+          "input": 698,
+          "output": 95,
+          "reasoning": 41,
+          "cache": {
+            "write": 0,
+            "read": 219121
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf3aaa001YPN9DyNdoUSc0r:prt_152cf422d0019X9xyXV5Yl5Hkq",
+        "cost": 0.000546422,
+        "tokens": {
+          "total": 220585,
+          "input": 579,
+          "output": 245,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 219761
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf4235001xmD2RbytJKRXoZ:prt_152cf4cb4001M2dllzmGgO76s8",
+        "cost": 0.000561446,
+        "tokens": {
+          "total": 221046,
+          "input": 337,
+          "output": 219,
+          "reasoning": 217,
+          "cache": {
+            "write": 0,
+            "read": 220273
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf4cbe001sTyqvpwGR2vLO9:prt_152cf53e5001V9VGzCFFARpLwT",
+        "cost": 0.000646358,
+        "tokens": {
+          "total": 222329,
+          "input": 1547,
+          "output": 166,
+          "reasoning": 87,
+          "cache": {
+            "write": 0,
+            "read": 220529
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf53ed001ZQ0tKx02Ms0S3s:prt_152cf5daf00193dgHFYP8D3vxF",
+        "cost": 0.00052443,
+        "tokens": {
+          "total": 222611,
+          "input": 289,
+          "output": 216,
+          "reasoning": 41,
+          "cache": {
+            "write": 0,
+            "read": 222065
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf5dba001giNmO3CvH93w1Q:prt_152cf72c00018ahmtapDfRpciH",
+        "cost": 0.001057342,
+        "tokens": {
+          "total": 226792,
+          "input": 2815,
+          "output": 1468,
+          "reasoning": 188,
+          "cache": {
+            "write": 0,
+            "read": 222321
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf72c9001NC0mIPANNw9Ejy:prt_152cf7a76001qVtDnC45KYi02D",
+        "cost": 0.000651918,
+        "tokens": {
+          "total": 226923,
+          "input": 1809,
+          "output": 105,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 225009
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf7a7e001YnUBhj2IpZ9wu9:prt_152cf82ba001PjJTAA3UZR7kfn",
+        "cost": 0.000539702,
+        "tokens": {
+          "total": 227335,
+          "input": 207,
+          "output": 278,
+          "reasoning": 49,
+          "cache": {
+            "write": 0,
+            "read": 226801
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cf82c4001MB3UneDVn5E6i4:prt_152cfa128001y4xJTxYg9TLMtv",
+        "cost": 0.000874458,
+        "tokens": {
+          "total": 229607,
+          "input": 1150,
+          "output": 149,
+          "reasoning": 1379,
+          "cache": {
+            "write": 0,
+            "read": 226929
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cfa136001jUyfjMngrg0c5J:prt_152cfadd1001UHd45QoDbtrja8",
+        "cost": 0.000917206,
+        "tokens": {
+          "total": 232113,
+          "input": 3707,
+          "output": 220,
+          "reasoning": 233,
+          "cache": {
+            "write": 0,
+            "read": 227953
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cfaddc001VPIf6dZvyjdQWY:prt_152cfb43e001Kk5np6Xpbsf13z",
+        "cost": 0.000548574,
+        "tokens": {
+          "total": 232265,
+          "input": 601,
+          "output": 127,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 231537
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cfb44a00120OAcV0bAGmcdz:prt_152cfc09b001yxKMr5k7ivGe3s",
+        "cost": 0.000575498,
+        "tokens": {
+          "total": 232731,
+          "input": 250,
+          "output": 142,
+          "reasoning": 290,
+          "cache": {
+            "write": 0,
+            "read": 232049
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cfc0ad001S3BpJ1jFT1q5Lx:prt_152cfcdfa001ZUG6gNnPhv4tOD",
+        "cost": 0.000625254,
+        "tokens": {
+          "total": 233271,
+          "input": 579,
+          "output": 253,
+          "reasoning": 262,
+          "cache": {
+            "write": 0,
+            "read": 232177
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cfce06001Hz8NsANQL0NJvG:prt_152cfdb3d001UDL6PDgh4y3lQT",
+        "cost": 0.000584978,
+        "tokens": {
+          "total": 233591,
+          "input": 608,
+          "output": 255,
+          "reasoning": 39,
+          "cache": {
+            "write": 0,
+            "read": 232689
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cfdb47001dPKOAUAYRTpvzQ:prt_152cfe843001MQV8cLhgwCOeRM",
+        "cost": 0.000646402,
+        "tokens": {
+          "total": 234309,
+          "input": 416,
+          "output": 486,
+          "reasoning": 206,
+          "cache": {
+            "write": 0,
+            "read": 233201
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cfe851001uI73o039PHo7SE:prt_152cff33a001KAMJbjPIbBlVtc",
+        "cost": 0.00062507,
+        "tokens": {
+          "total": 234749,
+          "input": 749,
+          "output": 415,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 233585
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152cff34b001WVQwtAUURUpUjI:prt_152d001040012Zf8c33O7UTQCX",
+        "cost": 0.00059845,
+        "tokens": {
+          "total": 235150,
+          "input": 550,
+          "output": 350,
+          "reasoning": 25,
+          "cache": {
+            "write": 0,
+            "read": 234225
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d0010d0019i9awEIiHqGxQm:prt_152d013c2001aD5OFLf21xFWhA",
+        "cost": 0.000762774,
+        "tokens": {
+          "total": 236423,
+          "input": 439,
+          "output": 862,
+          "reasoning": 385,
+          "cache": {
+            "write": 0,
+            "read": 234737
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d013d90019h1jLRJef4xQQm:prt_152d01e64001RniJwRxnr0DCDL",
+        "cost": 0.000664542,
+        "tokens": {
+          "total": 236741,
+          "input": 1297,
+          "output": 141,
+          "reasoning": 182,
+          "cache": {
+            "write": 0,
+            "read": 235121
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d01e6e0014WWhp4Ta9UyPfW:prt_152d02d18001A6xi2syp3VtNrl",
+        "cost": 0.000705102,
+        "tokens": {
+          "total": 238066,
+          "input": 1007,
+          "output": 162,
+          "reasoning": 496,
+          "cache": {
+            "write": 0,
+            "read": 236401
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d02d21001u4BeUtKm7fctMX:prt_152d0375c001tA6fc5rgdqUiA6",
+        "cost": 0.000786994,
+        "tokens": {
+          "total": 239835,
+          "input": 1952,
+          "output": 164,
+          "reasoning": 422,
+          "cache": {
+            "write": 0,
+            "read": 237297
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d0376c001dlT75esZtsW8A4:prt_152d04259001tlTaTX5hnphqwd",
+        "cost": 0.000663734,
+        "tokens": {
+          "total": 240702,
+          "input": 1117,
+          "output": 205,
+          "reasoning": 163,
+          "cache": {
+            "write": 0,
+            "read": 239217
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d04262001UuqiybY0ZYyHR1:prt_152d04dca001ZNNf1NCLWolm7h",
+        "cost": 0.000784582,
+        "tokens": {
+          "total": 242859,
+          "input": 2195,
+          "output": 148,
+          "reasoning": 275,
+          "cache": {
+            "write": 0,
+            "read": 240241
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d04dd4001YJnMDa8gPNF445:prt_152d055d90011XQLeM634TQobg",
+        "cost": 0.000677034,
+        "tokens": {
+          "total": 244100,
+          "input": 1444,
+          "output": 179,
+          "reasoning": 60,
+          "cache": {
+            "write": 0,
+            "read": 242417
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d055e20011dOmegf04W4Yk6:prt_152d085ea001e7hppdBxfHVTPQ",
+        "cost": 0.00098315,
+        "tokens": {
+          "total": 246668,
+          "input": 731,
+          "output": 158,
+          "reasoning": 1954,
+          "cache": {
+            "write": 0,
+            "read": 243825
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d085f4001pnkJOOkmtjymZB:prt_152d09a410014Fg2IpGUC089F9",
+        "cost": 0.00091523,
+        "tokens": {
+          "total": 247756,
+          "input": 2319,
+          "output": 172,
+          "reasoning": 800,
+          "cache": {
+            "write": 0,
+            "read": 244465
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d09a4d001D9s2FKmTo8Oxd5:prt_152d0a520001tSAo51jtLu5Dos",
+        "cost": 0.000626338,
+        "tokens": {
+          "total": 247985,
+          "input": 1104,
+          "output": 77,
+          "reasoning": 35,
+          "cache": {
+            "write": 0,
+            "read": 246769
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d0a52c001Uhet9Pvb96ULMF:prt_152d0adb7001gjQpwSplm4A7Rr",
+        "cost": 0.000640286,
+        "tokens": {
+          "total": 249049,
+          "input": 1065,
+          "output": 191,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 247793
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d0adc20016PN3tBMcDRdreS:prt_152d0bc79001B2J9ILP7axdJBi",
+        "cost": 0.000725934,
+        "tokens": {
+          "total": 250087,
+          "input": 257,
+          "output": 1013,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 248817
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d0bc84001XuHdhAwEL99iWw:prt_152d0c9cf001E0kKvqLvwGWmE6",
+        "cost": 0.000661846,
+        "tokens": {
+          "total": 250411,
+          "input": 1039,
+          "output": 205,
+          "reasoning": 94,
+          "cache": {
+            "write": 0,
+            "read": 249073
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d0c9de0016ReXx6FQR9LsXK:prt_152d0d804001JQlGxc28WGalTp",
+        "cost": 0.000575094,
+        "tokens": {
+          "total": 250674,
+          "input": 405,
+          "output": 100,
+          "reasoning": 72,
+          "cache": {
+            "write": 0,
+            "read": 250097
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d0d80f001eJvfJGSH92tyhj:prt_152d0df670015ETI5PrNpOxS3P",
+        "cost": 0.000578362,
+        "tokens": {
+          "total": 250994,
+          "input": 252,
+          "output": 207,
+          "reasoning": 54,
+          "cache": {
+            "write": 0,
+            "read": 250481
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d0df7100134nMNxErXTVyPt:prt_152d0ef30001pgM5G0K1qLNIFa",
+        "cost": 0.000820718,
+        "tokens": {
+          "total": 253463,
+          "input": 2513,
+          "output": 187,
+          "reasoning": 154,
+          "cache": {
+            "write": 0,
+            "read": 250609
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d0ef3d001SHYy8pmaWAEUVk:prt_152d10620001pP4pVf9PjnyO1H",
+        "cost": 0.000812382,
+        "tokens": {
+          "total": 254974,
+          "input": 803,
+          "output": 211,
+          "reasoning": 919,
+          "cache": {
+            "write": 0,
+            "read": 253041
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d1062b001inFdNe87MGj4RR:prt_152d11bf6001gU7YY8NLt7qj9G",
+        "cost": 0.000914818,
+        "tokens": {
+          "total": 256697,
+          "input": 1704,
+          "output": 1157,
+          "reasoning": 27,
+          "cache": {
+            "write": 0,
+            "read": 253809
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d11c02001KSKFZ8YMvu4Wwn:prt_152d123db001L2HzdmCOID0JCh",
+        "cost": 0.000667146,
+        "tokens": {
+          "total": 256879,
+          "input": 1250,
+          "output": 156,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 255473
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d123e40013ytLvUm0OBk7w7:prt_152d12dd60016x35sssAAR8C6U",
+        "cost": 0.00061225,
+        "tokens": {
+          "total": 257307,
+          "input": 374,
+          "output": 243,
+          "reasoning": 65,
+          "cache": {
+            "write": 0,
+            "read": 256625
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d12de1001Cb9nNyQxvQB8YL:prt_152d13709001BjMZJ661dyIthj",
+        "cost": 0.000649862,
+        "tokens": {
+          "total": 257849,
+          "input": 575,
+          "output": 168,
+          "reasoning": 225,
+          "cache": {
+            "write": 0,
+            "read": 256881
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d137190018yaKyrTt2BHliM:prt_152d141af001M2wqupibqfAeeM",
+        "cost": 0.000682686,
+        "tokens": {
+          "total": 258586,
+          "input": 707,
+          "output": 454,
+          "reasoning": 32,
+          "cache": {
+            "write": 0,
+            "read": 257393
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d141bc001DqVCELTZIK5BKm:prt_152d14943001QyORAfS2j3wYt3",
+        "cost": 0.000604166,
+        "tokens": {
+          "total": 258763,
+          "input": 579,
+          "output": 151,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 258033
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d1494f001WwtKlK37zoX83S:prt_152d163bb0015embeRfZwj2P8m",
+        "cost": 0.00076329,
+        "tokens": {
+          "total": 259939,
+          "input": 326,
+          "output": 179,
+          "reasoning": 889,
+          "cache": {
+            "write": 0,
+            "read": 258545
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d163c5001qV2xf2w8aaU7O3:prt_152d16a17001iHTZqVpC5SDZsW",
+        "cost": 0.000666102,
+        "tokens": {
+          "total": 260121,
+          "input": 1155,
+          "output": 156,
+          "reasoning": 9,
+          "cache": {
+            "write": 0,
+            "read": 258801
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d16a2200130EkEhsxk7N6qL:prt_152d17322001m1b5PAY45IEbtz",
+        "cost": 0.000575306,
+        "tokens": {
+          "total": 260335,
+          "input": 210,
+          "output": 172,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 259953
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d1732c001I6bxdnHUwoi7Wd:prt_152d17aa7001T9RJZ1eqoVoB3W",
+        "cost": 0.000580362,
+        "tokens": {
+          "total": 260522,
+          "input": 280,
+          "output": 161,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 260081
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d17ab1001WXBXnV0YJsVutB:prt_152d18347001FBdheUK4FVhREy",
+        "cost": 0.000574374,
+        "tokens": {
+          "total": 260711,
+          "input": 211,
+          "output": 163,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 260337
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d18353001911rkXYSi7t670:prt_152d19904001292caQvyVRBnMS",
+        "cost": 0.00062683,
+        "tokens": {
+          "total": 261141,
+          "input": 293,
+          "output": 316,
+          "reasoning": 67,
+          "cache": {
+            "write": 0,
+            "read": 260465
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d19911001Ijcv00J7P5dwl4:prt_152d1a0b0001VjQD9FZnKJUi2O",
+        "cost": 0.000594842,
+        "tokens": {
+          "total": 261311,
+          "input": 446,
+          "output": 144,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 260721
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d1a0bc001Vhr5FiNBiwWCmd:prt_152d1ace00017nIBpm8rfVoVUZ",
+        "cost": 0.00065781,
+        "tokens": {
+          "total": 261899,
+          "input": 232,
+          "output": 134,
+          "reasoning": 428,
+          "cache": {
+            "write": 0,
+            "read": 261105
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d1acec0012BnkUlEvmydN45:prt_152d1c43a001bByKKF4kJKIU7C",
+        "cost": 0.000990266,
+        "tokens": {
+          "total": 264557,
+          "input": 1970,
+          "output": 629,
+          "reasoning": 725,
+          "cache": {
+            "write": 0,
+            "read": 261233
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d1c445001lSftxb4TtoQRLx:prt_152d1cdef0011qeX84kx3aZRkH",
+        "cost": 0.000686106,
+        "tokens": {
+          "total": 264647,
+          "input": 1390,
+          "output": 104,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 263153
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d1cdfa001YlzwfvH76ddJWs:prt_152d1d70c001b7gAWcIpmSNuTH",
+        "cost": 0.000584766,
+        "tokens": {
+          "total": 264862,
+          "input": 299,
+          "output": 78,
+          "reasoning": 52,
+          "cache": {
+            "write": 0,
+            "read": 264433
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d1d716001TO1U8NMP6DoyH6:prt_152d1e8b3001En5r9O0k0NoLyx",
+        "cost": 0.000758878,
+        "tokens": {
+          "total": 266702,
+          "input": 1731,
+          "output": 282,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 264689
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d1e8c0001Og8U2YM7ZAufBi:prt_152d1f7e7001nUNC8fNLunPXs3",
+        "cost": 0.000603506,
+        "tokens": {
+          "total": 266894,
+          "input": 374,
+          "output": 153,
+          "reasoning": 14,
+          "cache": {
+            "write": 0,
+            "read": 266353
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d1f7f2001fyQc6Fkfxb1fBo:prt_152d1ff0c001YCfoib4PFGL5xW",
+        "cost": 0.000595718,
+        "tokens": {
+          "total": 267136,
+          "input": 429,
+          "output": 80,
+          "reasoning": 18,
+          "cache": {
+            "write": 0,
+            "read": 266609
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d1ff19001RHyiFNpTZABWO7:prt_152d20633001XU2ku08hvKz23Z",
+        "cost": 0.000631686,
+        "tokens": {
+          "total": 267655,
+          "input": 347,
+          "output": 315,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 266993
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d2063f001EZ99iBq9jDsuvw:prt_152d20ec00019ExvzMdYYNSsY5",
+        "cost": 0.000630398,
+        "tokens": {
+          "total": 267944,
+          "input": 431,
+          "output": 223,
+          "reasoning": 41,
+          "cache": {
+            "write": 0,
+            "read": 267249
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d20ecd001us6el7HoibdlHG:prt_152d22c9c001M3oKWgRTYsasP3",
+        "cost": 0.000906366,
+        "tokens": {
+          "total": 269657,
+          "input": 337,
+          "output": 151,
+          "reasoning": 1536,
+          "cache": {
+            "write": 0,
+            "read": 267633
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d22ca7001qY3XNiNLSxC9gl:prt_152d23675001577QIWpe7WLHHq",
+        "cost": 0.000810478,
+        "tokens": {
+          "total": 270259,
+          "input": 1993,
+          "output": 220,
+          "reasoning": 157,
+          "cache": {
+            "write": 0,
+            "read": 267889
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d23682001rH6d0XYemeLU4s:prt_152d249b7001p3KeQlJf27BxLN",
+        "cost": 0.000680218,
+        "tokens": {
+          "total": 270750,
+          "input": 476,
+          "output": 102,
+          "reasoning": 363,
+          "cache": {
+            "write": 0,
+            "read": 269809
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d249c4001SnKi0XTah6ldu4:prt_152d25c96001VSNf1tIV928hwK",
+        "cost": 0.000876186,
+        "tokens": {
+          "total": 272655,
+          "input": 1566,
+          "output": 557,
+          "reasoning": 339,
+          "cache": {
+            "write": 0,
+            "read": 270193
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d25ca40019Wd8q4sLaUrVa3:prt_152d266d9001kShx25bs94Kb0B",
+        "cost": 0.000766758,
+        "tokens": {
+          "total": 273605,
+          "input": 1519,
+          "output": 313,
+          "reasoning": 44,
+          "cache": {
+            "write": 0,
+            "read": 271729
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d266e5001f9zqm04ixzIPwu:prt_152d28c9e001De7PRYhBn8xTYS",
+        "cost": 0.000612474,
+        "tokens": {
+          "total": 273715,
+          "input": 494,
+          "output": 84,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 273137
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d28caa001v7SnNVmiRXRjKX:prt_152d298a3001lJl15QYh5esUop",
+        "cost": 0.000670542,
+        "tokens": {
+          "total": 274323,
+          "input": 369,
+          "output": 151,
+          "reasoning": 282,
+          "cache": {
+            "write": 0,
+            "read": 273521
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d298b4001TWFoYuIIRS9zdB:prt_152d33a71001r7omTj3zAugA4f",
+        "cost": 0.000636754,
+        "tokens": {
+          "total": 274545,
+          "input": 644,
+          "output": 124,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 273777
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d33a7f001WihdZ7O8e7bf4O:prt_152d3434d001Rw7mPJmxGmZNSf",
+        "cost": 0.000686134,
+        "tokens": {
+          "total": 275483,
+          "input": 759,
+          "output": 228,
+          "reasoning": 79,
+          "cache": {
+            "write": 0,
+            "read": 274417
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d34361001pDbhFRo1WecoiI:prt_152d3a9c3001Yq692isGsJwJat",
+        "cost": 0.000731614,
+        "tokens": {
+          "total": 276385,
+          "input": 841,
+          "output": 145,
+          "reasoning": 342,
+          "cache": {
+            "write": 0,
+            "read": 275057
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d3a9d0001lm7pt7ncmDnJtq:prt_152d43195001sFdanIpbL3q4pE",
+        "cost": 0.00066765,
+        "tokens": {
+          "total": 276781,
+          "input": 752,
+          "output": 135,
+          "reasoning": 69,
+          "cache": {
+            "write": 0,
+            "read": 275825
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d431a3001OtpkA7bYjY13cu:prt_152d4b67c001qHJeN4atEdwsZS",
+        "cost": 0.00069113,
+        "tokens": {
+          "total": 277630,
+          "input": 948,
+          "output": 148,
+          "reasoning": 69,
+          "cache": {
+            "write": 0,
+            "read": 276465
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d4b689001BcqVmgZuikWA3B:prt_152d69259001WZyhMC5FjGbB4u",
+        "cost": 0.000636722,
+        "tokens": {
+          "total": 277984,
+          "input": 426,
+          "output": 168,
+          "reasoning": 29,
+          "cache": {
+            "write": 0,
+            "read": 277361
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d69265001M2v4vVvmesj82x:prt_152d6a80a001c4iPdcf4UHEmnD",
+        "cost": 0.00078779,
+        "tokens": {
+          "total": 279124,
+          "input": 435,
+          "output": 121,
+          "reasoning": 823,
+          "cache": {
+            "write": 0,
+            "read": 277745
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d6a817001ZdRbkSXkR7etwc:prt_152d6b0b7001IduslYuIiJ7N0T",
+        "cost": 0.000707358,
+        "tokens": {
+          "total": 279433,
+          "input": 1097,
+          "output": 207,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 278129
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d6b0c5001mIbdVqFsYET6BJ:prt_152d6c9400012nVAmAY3zxjFza",
+        "cost": 0.000617806,
+        "tokens": {
+          "total": 279603,
+          "input": 305,
+          "output": 130,
+          "reasoning": 15,
+          "cache": {
+            "write": 0,
+            "read": 279153
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d6c94a001MFbEusJ9aZXG8N:prt_152d72a56001HJL0Hhx3e9Q9CM",
+        "cost": 0.000657818,
+        "tokens": {
+          "total": 280071,
+          "input": 334,
+          "output": 162,
+          "reasoning": 166,
+          "cache": {
+            "write": 0,
+            "read": 279409
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d72a62001CyoM0C5kOtSQCR:prt_152d7ac78001AzRGia183vrmWu",
+        "cost": 0.00067223,
+        "tokens": {
+          "total": 280535,
+          "input": 611,
+          "output": 143,
+          "reasoning": 116,
+          "cache": {
+            "write": 0,
+            "read": 279665
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d7ac83001oSLeN46pq0yGzD:prt_152d80cf8001O62EGV1c9VgEr3",
+        "cost": 0.000741654,
+        "tokens": {
+          "total": 281584,
+          "input": 1001,
+          "output": 163,
+          "reasoning": 243,
+          "cache": {
+            "write": 0,
+            "read": 280177
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d80d04001zHGckjcSzGyk3Z:prt_152d81577001xX5P9zJg7UXRST",
+        "cost": 0.000689346,
+        "tokens": {
+          "total": 282066,
+          "input": 714,
+          "output": 198,
+          "reasoning": 81,
+          "cache": {
+            "write": 0,
+            "read": 281073
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d81585001uE7DDtVkpmkn15:prt_152d88e6c001U5as3prXluavxM",
+        "cost": 0.000634726,
+        "tokens": {
+          "total": 282259,
+          "input": 379,
+          "output": 167,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 281713
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d88e78001k0X8uKBO92scYz:prt_152d8ee0e001lYFNRZiN03iezG",
+        "cost": 0.000710538,
+        "tokens": {
+          "total": 283159,
+          "input": 914,
+          "output": 248,
+          "reasoning": 28,
+          "cache": {
+            "write": 0,
+            "read": 281969
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d8ee1a0019aRqhVofu2P1jM:prt_152d8fba10017kpYS6tJXxO153",
+        "cost": 0.00073343,
+        "tokens": {
+          "total": 283910,
+          "input": 413,
+          "output": 199,
+          "reasoning": 433,
+          "cache": {
+            "write": 0,
+            "read": 282865
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d8fbac001g16emsJKOmiekQ:prt_152d983540016Lr5eMFW01Yfby",
+        "cost": 0.000668198,
+        "tokens": {
+          "total": 284101,
+          "input": 687,
+          "output": 165,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 283249
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d9835e001fTNSiK3wUhoFqr:prt_152d9948a0013lo1ws8eE179K2",
+        "cost": 0.000694478,
+        "tokens": {
+          "total": 284693,
+          "input": 341,
+          "output": 193,
+          "reasoning": 270,
+          "cache": {
+            "write": 0,
+            "read": 283889
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d99495001DvXWwiqC1r0p4G:prt_152d99b93001iN87pi22KJNDBK",
+        "cost": 0.00069569,
+        "tokens": {
+          "total": 285225,
+          "input": 886,
+          "output": 142,
+          "reasoning": 52,
+          "cache": {
+            "write": 0,
+            "read": 284145
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d99b9f0014N2Ab772OI9VVM:prt_152d9a1b6001fR75cY82K7B2FI",
+        "cost": 0.000654326,
+        "tokens": {
+          "total": 285616,
+          "input": 561,
+          "output": 97,
+          "reasoning": 45,
+          "cache": {
+            "write": 0,
+            "read": 284913
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d9a1c0001Ww2J7hThm5LEx6:prt_152d9a8540016RRQe6U1Ki0cuR",
+        "cost": 0.00062165,
+        "tokens": {
+          "total": 285820,
+          "input": 282,
+          "output": 113,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 285425
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d9a85e0017oLyp4DhP5ZIau:prt_152d9be930010VqvM22inBAdp5",
+        "cost": 0.000603562,
+        "tokens": {
+          "total": 285924,
+          "input": 164,
+          "output": 79,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 285681
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d9bea6001ahDUb6gxmJpui4:prt_152d9c708001QL7H8SpM09icQu",
+        "cost": 0.000641718,
+        "tokens": {
+          "total": 286369,
+          "input": 419,
+          "output": 141,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 285809
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d9c711001XMDLgmt8cA5YFZ:prt_152d9d0c90016jiUKCqucVcCVC",
+        "cost": 0.000652086,
+        "tokens": {
+          "total": 286692,
+          "input": 201,
+          "output": 141,
+          "reasoning": 157,
+          "cache": {
+            "write": 0,
+            "read": 286193
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d9d0d7001ecLfVQpBUAc637:prt_152d9e20a001VWCDrZps5P7WGI",
+        "cost": 0.000681542,
+        "tokens": {
+          "total": 287206,
+          "input": 681,
+          "output": 178,
+          "reasoning": 26,
+          "cache": {
+            "write": 0,
+            "read": 286321
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d9e218001PW8mWnF4mLdDDD:prt_152d9ea4e001ToTmbEbmBYby55",
+        "cost": 0.000633322,
+        "tokens": {
+          "total": 287409,
+          "input": 302,
+          "output": 72,
+          "reasoning": 74,
+          "cache": {
+            "write": 0,
+            "read": 286961
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d9ea5c001MQio9QPXtXhKPu:prt_152d9f7cd0018PThMGKe4l1xkX",
+        "cost": 0.000776934,
+        "tokens": {
+          "total": 288829,
+          "input": 1199,
+          "output": 125,
+          "reasoning": 288,
+          "cache": {
+            "write": 0,
+            "read": 287217
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152d9f7db001upBdtVoZL1lMl3:prt_152da00e0001KX2rtSu6nqh612",
+        "cost": 0.000669238,
+        "tokens": {
+          "total": 289161,
+          "input": 659,
+          "output": 70,
+          "reasoning": 63,
+          "cache": {
+            "write": 0,
+            "read": 288369
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152da00f00014ZqhFA9Z5z0UFB:prt_152da090d0018llAPncDgK5AgL",
+        "cost": 0.000665718,
+        "tokens": {
+          "total": 289627,
+          "input": 359,
+          "output": 259,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 289009
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152da0919001fj4mcxJSAUak3a:prt_152da1714001dxoieCan4mky8R",
+        "cost": 0.00071723,
+        "tokens": {
+          "total": 290152,
+          "input": 387,
+          "output": 493,
+          "reasoning": 7,
+          "cache": {
+            "write": 0,
+            "read": 289265
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152da1724001GR4k5eOd4IPw0Q:prt_152da274e001XWdjc9IFAypSiz",
+        "cost": 0.000834798,
+        "tokens": {
+          "total": 291191,
+          "input": 529,
+          "output": 271,
+          "reasoning": 742,
+          "cache": {
+            "write": 0,
+            "read": 289649
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152da275b001gv99NwsCyaxrvb:prt_152da2f46001zwotB74K8dW0Og",
+        "cost": 0.000766722,
+        "tokens": {
+          "total": 291735,
+          "input": 1284,
+          "output": 290,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 290161
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152da2f58001TFHDd0QQ3PV68K:prt_152da3822001ZQ9f1NwkpKctkx",
+        "cost": 0.000718282,
+        "tokens": {
+          "total": 292533,
+          "input": 830,
+          "output": 249,
+          "reasoning": 13,
+          "cache": {
+            "write": 0,
+            "read": 291441
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead370d46ffeFQTp0jZHeIy3SP:msg_152da382f0014eaAe72MJQaALS:prt_152da41f40011zas2wok9XWBO0",
+        "cost": 0.000721818,
+        "tokens": {
+          "total": 293195,
+          "input": 598,
+          "output": 340,
+          "reasoning": 48,
+          "cache": {
+            "write": 0,
+            "read": 292209
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e8764d001VLdkG997V6s8zX:prt_152e87dbd001UAKsi6rD8We0PB",
+        "cost": 0.001187,
+        "tokens": {
+          "total": 11715,
+          "input": 11560,
+          "output": 91,
+          "reasoning": 64,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e87dc4001zPvzVFzuFH77Rf:prt_152e8826e00130Pn8ECzRg2gIs",
+        "cost": 9.861e-05,
+        "tokens": {
+          "total": 12048,
+          "input": 330,
+          "output": 210,
+          "reasoning": 3,
+          "cache": {
+            "write": 0,
+            "read": 11505
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e88273001GX9aO9sOuafa48:prt_152e88720001ecU7E36hz7gvA5",
+        "cost": 0.000403222,
+        "tokens": {
+          "total": 15360,
+          "input": 3401,
+          "output": 198,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 11761
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e88725001Qaji5btQj5JFlR:prt_152e88c91001CywCXb2Z7kjpKd",
+        "cost": 0.000136978,
+        "tokens": {
+          "total": 15878,
+          "input": 510,
+          "output": 279,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 15089
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e88c96001B1kmrl00FVg2NT:prt_152e89318001kp2H7XOpIH8dI1",
+        "cost": 0.000254446,
+        "tokens": {
+          "total": 17500,
+          "input": 1819,
+          "output": 208,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 15473
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e8931c001RgYR7TPRcfWr17:prt_152e89788001foi2gx6IMBCvPz",
+        "cost": 0.00019073,
+        "tokens": {
+          "total": 18663,
+          "input": 1234,
+          "output": 164,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 17265
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e8978f001H7y1X7iHGm318m:prt_152e89efe001iNKQ6nq8YUZ7rt",
+        "cost": 0.000150234,
+        "tokens": {
+          "total": 19191,
+          "input": 414,
+          "output": 360,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 18417
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e89f030017FepX61xwYNEwP:prt_152e8ab270015OxRMQbftKphma",
+        "cost": 0.000305002,
+        "tokens": {
+          "total": 21125,
+          "input": 1974,
+          "output": 350,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 18801
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e8ab2b001ppIEAPhMt2hM15:prt_152e8b86f001GvSEX7lyvWOHsy",
+        "cost": 0.000709542,
+        "tokens": {
+          "total": 26890,
+          "input": 5657,
+          "output": 108,
+          "reasoning": 404,
+          "cache": {
+            "write": 0,
+            "read": 20721
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e8b874001J90XSo3rPSDTqL:prt_152e8bc88001KMC24BgRak5Dlr",
+        "cost": 0.000138606,
+        "tokens": {
+          "total": 27104,
+          "input": 643,
+          "output": 108,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 26353
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e8bc8d0016rKBJCwrlhRWSY:prt_152e8c31c001MecWYrntkKytsf",
+        "cost": 0.000742786,
+        "tokens": {
+          "total": 33789,
+          "input": 6704,
+          "output": 92,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 26993
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e8c323001PQW6GxgmT512ld:prt_152e8cdca0010UsZvQUs1We953",
+        "cost": 0.000829698,
+        "tokens": {
+          "total": 41131,
+          "input": 7340,
+          "output": 142,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 33649
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e8cdd0001P6OgfqdmwjhVqS:prt_152e8d6da0010r0d0r90E8Gmoj",
+        "cost": 0.00018869,
+        "tokens": {
+          "total": 41931,
+          "input": 904,
+          "output": 82,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 40945
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e8d6e1001lIKD9NgNCwJH58:prt_152e8dd8a0012pQygX6sEcFFpP",
+        "cost": 0.000360782,
+        "tokens": {
+          "total": 44483,
+          "input": 2513,
+          "output": 129,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 41841
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e8dd8f001O5OlinND0XNqaC:prt_152e8f0bc001ddC6RWyHZAfisU",
+        "cost": 0.000293446,
+        "tokens": {
+          "total": 46221,
+          "input": 1847,
+          "output": 101,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 44273
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e8f0c30010VUZRlChB6V00w:prt_152e8f846001hA3yi4RqJ01O5a",
+        "cost": 0.00052763,
+        "tokens": {
+          "total": 50281,
+          "input": 4077,
+          "output": 129,
+          "reasoning": 10,
+          "cache": {
+            "write": 0,
+            "read": 46065
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e8f84d001qBPhxulBvMhoCY:prt_152e901c40018GPEQ9LGcH20I1",
+        "cost": 0.000240766,
+        "tokens": {
+          "total": 51388,
+          "input": 1303,
+          "output": 52,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 50033
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e901ca001zmDl5zsz7imDBL:prt_152e91552001wT0B4dU3E0ptoa",
+        "cost": 0.000496226,
+        "tokens": {
+          "total": 54539,
+          "input": 2516,
+          "output": 299,
+          "reasoning": 411,
+          "cache": {
+            "write": 0,
+            "read": 51313
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_152e91559001GN9jGdv5nOuIs6:prt_15300f935001LSgwAFYvvMagzX",
+        "cost": 0.00029669,
+        "tokens": {
+          "total": 55352,
+          "input": 1322,
+          "output": 285,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 53745
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_15300f93f001iNuRFQR810u5rp:prt_1530101d0001s1lj2G5rHKa3sY",
+        "cost": 0.00027875,
+        "tokens": {
+          "total": 56547,
+          "input": 1357,
+          "output": 165,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 55025
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_1530101d7001wqkKVoP4y287AE:prt_153010abe001xOvxXIGRKq8Fpw",
+        "cost": 0.00033611,
+        "tokens": {
+          "total": 58181,
+          "input": 1517,
+          "output": 359,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 56305
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153010ac40016fOlImzK47moHw:prt_153011fc80010duQV6BA2ITOl3",
+        "cost": 0.000393126,
+        "tokens": {
+          "total": 59773,
+          "input": 1343,
+          "output": 162,
+          "reasoning": 555,
+          "cache": {
+            "write": 0,
+            "read": 57713
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153011fd1001HS12qjvgPRjbak:prt_1530126870017xF7XiqJZhDrW6",
+        "cost": 0.000325786,
+        "tokens": {
+          "total": 60990,
+          "input": 1916,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 58993
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_15301268e001lent6MkbGhe53h:prt_153012e28001MJ8ejjRMKvgZnO",
+        "cost": 0.00063337,
+        "tokens": {
+          "total": 65822,
+          "input": 4956,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 60785
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153012e2e001N6aHmuPcG8i1Xa:prt_15301453b00126RURXNjT6Lq2B",
+        "cost": 0.000679798,
+        "tokens": {
+          "total": 70345,
+          "input": 3907,
+          "output": 128,
+          "reasoning": 661,
+          "cache": {
+            "write": 0,
+            "read": 65649
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_1530145430015fK3njnePcQos7:prt_153016562001J682sUWr8PjUIX",
+        "cost": 0.000739978,
+        "tokens": {
+          "total": 74268,
+          "input": 3548,
+          "output": 188,
+          "reasoning": 1043,
+          "cache": {
+            "write": 0,
+            "read": 69489
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153016569001Iho9dWfheU4Exo:prt_153016e570016z9fI9Of7phC14",
+        "cost": 0.00037029,
+        "tokens": {
+          "total": 75108,
+          "input": 2082,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 72945
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153016e5d001pdH1Qu6WRPR4Mx:prt_15301869c0014uvE2gZFiIENV0",
+        "cost": 0.000615686,
+        "tokens": {
+          "total": 78598,
+          "input": 2553,
+          "output": 161,
+          "reasoning": 891,
+          "cache": {
+            "write": 0,
+            "read": 74993
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_1530186a3001i4gVRrvIfO6rjG:prt_153018f5b001CdYTOvGoSwRXu1",
+        "cost": 0.00047725,
+        "tokens": {
+          "total": 80503,
+          "input": 2932,
+          "output": 146,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 77425
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153018f60001huLYRPFdc1F6tK:prt_153019b74001OhJKSp5ax2JzyB",
+        "cost": 0.000352482,
+        "tokens": {
+          "total": 81753,
+          "input": 1104,
+          "output": 152,
+          "reasoning": 256,
+          "cache": {
+            "write": 0,
+            "read": 80241
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153019b7a001fJ3XFMXLaW2tkN:prt_15301ac67001jneeBNk67thQnU",
+        "cost": 0.00051473,
+        "tokens": {
+          "total": 84671,
+          "input": 3290,
+          "output": 116,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 81265
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_15301ac6f0012UF0bMIPkHWw0F:prt_15301b8e1001EAfJX4uDVDwTyG",
+        "cost": 0.00042263,
+        "tokens": {
+          "total": 86565,
+          "input": 1663,
+          "output": 156,
+          "reasoning": 281,
+          "cache": {
+            "write": 0,
+            "read": 84465
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_15301b8e8001AtEV5ZIDll9n3X:prt_15301bfb8001pBrW6rIIbcXVRx",
+        "cost": 0.000295902,
+        "tokens": {
+          "total": 87158,
+          "input": 1075,
+          "output": 82,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 86001
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_15301bfc0001p1IOnrCcIroQ2r:prt_15301d823001NSKcxcpR85QyFf",
+        "cost": 0.00053375,
+        "tokens": {
+          "total": 89673,
+          "input": 1699,
+          "output": 180,
+          "reasoning": 769,
+          "cache": {
+            "write": 0,
+            "read": 87025
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_15301d82b001Bojdi9SwoaLjRF:prt_15301df42001bXVKXZQNoJAXT6",
+        "cost": 0.000475278,
+        "tokens": {
+          "total": 91521,
+          "input": 2685,
+          "output": 147,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 88689
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_15301df4a001tFeseTsFRy9Hio:prt_15301e742001o6XrAWcl0dXfEC",
+        "cost": 0.000269698,
+        "tokens": {
+          "total": 92047,
+          "input": 724,
+          "output": 74,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 91249
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_15301e74c0013SUrySZ1uISvHm:prt_15301fddd0013D4r06PZXC9Uk1",
+        "cost": 0.000873978,
+        "tokens": {
+          "total": 97904,
+          "input": 5128,
+          "output": 204,
+          "reasoning": 683,
+          "cache": {
+            "write": 0,
+            "read": 91889
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_15301fde3001RoyAsLfBHYY1o4:prt_153020571001QY05P8SbnXP1kR",
+        "cost": 0.000461218,
+        "tokens": {
+          "total": 99600,
+          "input": 2510,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 97009
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153020577001IxE12YwPjae1kc:prt_153020d6e001dVV7ugxGKGIwe4",
+        "cost": 0.000358682,
+        "tokens": {
+          "total": 100870,
+          "input": 1260,
+          "output": 169,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 99441
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153020d78001HVWuzQ3HjskY1S:prt_1530216de001zbJOmtlPwx0fIL",
+        "cost": 0.000323086,
+        "tokens": {
+          "total": 101706,
+          "input": 1007,
+          "output": 106,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 100593
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_1530216e6001ystkU0sesewTyF:prt_1530220ae0014TOi1jVCwpvnYN",
+        "cost": 0.000319178,
+        "tokens": {
+          "total": 102522,
+          "input": 904,
+          "output": 129,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 101489
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_1530220b50015JROufoUH6FJ2c:prt_1530236ee0010UdxlfqfOxWHZt",
+        "cost": 0.00059797,
+        "tokens": {
+          "total": 105471,
+          "input": 2240,
+          "output": 198,
+          "reasoning": 648,
+          "cache": {
+            "write": 0,
+            "read": 102385
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_1530236f5001upad8Z8YSX6FpK:prt_1530244fe001mKdMJmU9jaPmIn",
+        "cost": 0.000944222,
+        "tokens": {
+          "total": 111530,
+          "input": 6587,
+          "output": 148,
+          "reasoning": 234,
+          "cache": {
+            "write": 0,
+            "read": 104561
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153024505001p3h2IUglECvAUy:prt_153025bb3001Gg78b1gO6asYM9",
+        "cost": 0.000607778,
+        "tokens": {
+          "total": 114190,
+          "input": 2346,
+          "output": 135,
+          "reasoning": 620,
+          "cache": {
+            "write": 0,
+            "read": 111089
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153025bbe001EZayZ4cfF98ssY:prt_1530265d4001YxH1pZxeOPLoca",
+        "cost": 0.000410686,
+        "tokens": {
+          "total": 115004,
+          "input": 1383,
+          "output": 228,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113393
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_1530265e0001m9j5k1P9wE4mIx:prt_15302848a001hRynvPhcQkT6NM",
+        "cost": 0.000717946,
+        "tokens": {
+          "total": 118366,
+          "input": 2500,
+          "output": 191,
+          "reasoning": 1002,
+          "cache": {
+            "write": 0,
+            "read": 114673
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_1530284910010ZDABnpWGr3eTt:prt_153028c77001Z4p8WZRDBBfBau",
+        "cost": 0.00041641,
+        "tokens": {
+          "total": 118727,
+          "input": 1422,
+          "output": 174,
+          "reasoning": 26,
+          "cache": {
+            "write": 0,
+            "read": 117105
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153028c7f001bIQijqSkbLBdvv:prt_1530295bd001ctNwWINU6NiN5c",
+        "cost": 0.000315226,
+        "tokens": {
+          "total": 119133,
+          "input": 458,
+          "output": 72,
+          "reasoning": 90,
+          "cache": {
+            "write": 0,
+            "read": 118513
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_1530295c6001LdhEEnVgEzJ1Jw:prt_153029d5c001lNEHxdBvBe84Fd",
+        "cost": 0.000406894,
+        "tokens": {
+          "total": 120364,
+          "input": 1243,
+          "output": 213,
+          "reasoning": 11,
+          "cache": {
+            "write": 0,
+            "read": 118897
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153029d630018TBvlSWEqjc3dG:prt_15302b0f20010TnhbSawlqRswq",
+        "cost": 0.000392298,
+        "tokens": {
+          "total": 120980,
+          "input": 340,
+          "output": 126,
+          "reasoning": 465,
+          "cache": {
+            "write": 0,
+            "read": 120049
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_15302b0fa001n5lO2Zzy8iSvP7:prt_15302b8a2001PCdT1FIy8zOyNE",
+        "cost": 0.00039551,
+        "tokens": {
+          "total": 121649,
+          "input": 1139,
+          "output": 205,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 120305
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_15302b8aa001X9yBGe9PHFZENo:prt_153037c09001RxwrQe3Ybeq74z",
+        "cost": 0.000353958,
+        "tokens": {
+          "total": 122060,
+          "input": 349,
+          "output": 222,
+          "reasoning": 160,
+          "cache": {
+            "write": 0,
+            "read": 121329
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153037c1e001qnJIME3JQC33Qb:prt_15304440e001htMj0yvkSvYnEp",
+        "cost": 0.00040727,
+        "tokens": {
+          "total": 122963,
+          "input": 1115,
+          "output": 222,
+          "reasoning": 41,
+          "cache": {
+            "write": 0,
+            "read": 121585
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153044417001k0WKZmS3Ozv5y7:prt_153044d15001qOnyO5WtYugEnU",
+        "cost": 0.000374218,
+        "tokens": {
+          "total": 123748,
+          "input": 988,
+          "output": 91,
+          "reasoning": 60,
+          "cache": {
+            "write": 0,
+            "read": 122609
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_153044d1e001OZoEY0ESPiRxPC:prt_15304573d001ci3I65Ee4HhbKg",
+        "cost": 0.00037881,
+        "tokens": {
+          "total": 124530,
+          "input": 732,
+          "output": 293,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 123505
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_1530457450016D6gD0VyPECFLW:prt_153046870001mbH2xNESgD1vm5",
+        "cost": 0.00042209,
+        "tokens": {
+          "total": 125219,
+          "input": 410,
+          "output": 198,
+          "reasoning": 466,
+          "cache": {
+            "write": 0,
+            "read": 124145
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead178b54ffeV3S6dK0DxyoteT:msg_15304687900156199rdUB2WU3R:prt_1530477d70019rXPURDtrMIPys",
+        "cost": 0.000460758,
+        "tokens": {
+          "total": 126146,
+          "input": 1117,
+          "output": 158,
+          "reasoning": 342,
+          "cache": {
+            "write": 0,
+            "read": 124529
+          }
+        },
+        "configured_model": "opencode-go/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eacfb673effekRHjSwxdBS2Sv0:msg_153049a66001vMrqMK9jwGZQ65:prt_15304aa090016T0tGaqnGZo6t4",
+        "cost": 0.000256447,
+        "tokens": {
+          "total": 7227,
+          "input": 353,
+          "output": 73,
+          "reasoning": 17,
+          "cache": {
+            "write": 0,
+            "read": 6784
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eacfb673effekRHjSwxdBS2Sv0:msg_15304aa0f001LDu1Mgdks6qwi5:prt_15304c177001Ru8xoKqj0P7L64",
+        "cost": 0.00030392,
+        "tokens": {
+          "total": 7523,
+          "input": 326,
+          "output": 144,
+          "reasoning": 13,
+          "cache": {
+            "write": 0,
+            "read": 7040
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eacfb673effekRHjSwxdBS2Sv0:msg_15304c17d001v3TMCuC9LG7lfp:prt_15304d435001VQ30uHodNGZfUC",
+        "cost": 0.000805533,
+        "tokens": {
+          "total": 8810,
+          "input": 1237,
+          "output": 54,
+          "reasoning": 223,
+          "cache": {
+            "write": 0,
+            "read": 7296
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eacfb673effekRHjSwxdBS2Sv0:msg_15304d43a001YtyCOGz3OdS0yT:prt_15304f576001c6D5KOGKUcMEeX",
+        "cost": 0.000723579,
+        "tokens": {
+          "total": 9849,
+          "input": 1209,
+          "output": 110,
+          "reasoning": 82,
+          "cache": {
+            "write": 0,
+            "read": 8448
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eacfb673effekRHjSwxdBS2Sv0:msg_15304f57b001n01u3jESLEmRpm:prt_153052af70010uI5D97wr7lI6p",
+        "cost": 0.005564955,
+        "tokens": {
+          "total": 21896,
+          "input": 11879,
+          "output": 127,
+          "reasoning": 290,
+          "cache": {
+            "write": 0,
+            "read": 9600
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eacfb673effekRHjSwxdBS2Sv0:msg_153052afe001d9JJ1L51RBoDM6:prt_153071222001AM1SdQPVxo1QJy",
+        "cost": 0.011250463,
+        "tokens": {
+          "total": 40724,
+          "input": 13011,
+          "output": 44,
+          "reasoning": 6293,
+          "cache": {
+            "write": 0,
+            "read": 21376
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eacfb673effekRHjSwxdBS2Sv0:msg_153071229001p2tqh6B5lggwRT:prt_1530739ee001so9Cg4MQhUBOCr",
+        "cost": 0.003487337,
+        "tokens": {
+          "total": 41393,
+          "input": 6447,
+          "output": 620,
+          "reasoning": 22,
+          "cache": {
+            "write": 0,
+            "read": 34304
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eacfb673effekRHjSwxdBS2Sv0:msg_1530739f3001mMfereuhiVl3Bc:prt_153074cd1001Ce3ZXBLNTVU6GW",
+        "cost": 0.000576027,
+        "tokens": {
+          "total": 41546,
+          "input": 699,
+          "output": 127,
+          "reasoning": 16,
+          "cache": {
+            "write": 0,
+            "read": 40704
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eacfb673effekRHjSwxdBS2Sv0:msg_153074cd7001QEXiTd9rFeJcfs:prt_153076fec0016kQ711HfZvqUUI",
+        "cost": 0.000583567,
+        "tokens": {
+          "total": 42058,
+          "input": 431,
+          "output": 214,
+          "reasoning": 69,
+          "cache": {
+            "write": 0,
+            "read": 41344
+          }
+        },
+        "configured_model": "opencode-go/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      }
+    ],
+    "terminal_stop": "complete",
+    "driver": "opencode",
+    "configured_model": "opencode-go/mimo-v2.6-pro",
+    "previous_stops": [
+      "opencode_error",
+      "provider_limit:openrouter/meta/muse-spark-1.3-contributor"
+    ],
+    "zero_token_streak": 0
+  },
+  "sha256": "f93b67bccedad80e4b03be394eec98eb71e47fa76df75de75c0693d6bbdc34ee",
+  "archive": "/home/user/sealed/case-20261019T055205Z-ce4d82.tar.gz.age",
+  "wipe": "deferred: VM parked for an in-place resume"
+}

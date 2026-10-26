@@ -1,0 +1,3 @@
+{"id": "S4", "title": "Round-robin load balancer in front of both instances", "kind": "topology",
+ "change": "Ops change: a round-robin load balancer now fronts both Medusa instances; consecutive requests of one cart and one admin session land on different instances.",
+ "traffic": {"lb": "round-robin"}}

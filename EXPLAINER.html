@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unbug experiment: how it all works</title>
+<style>
+  :root { color-scheme: light dark; --background: #ffffff; --foreground: #16181d; --muted-foreground: #5b616e;
+    --border: #dfe2e8; --card: #f6f7f9; --secondary: #eceef2; --accent-surface: #dde3ee; --code-background: #f0f1f4;
+    --info: #2563eb; --warning: #d97706; --success: #16a34a; --destructive: #dc2626; --radius: 8px; }
+  @media (prefers-color-scheme: dark) { :root { --background: #0f1115; --foreground: #e7e9ee; --muted-foreground: #9aa1ad;
+    --border: #2c313a; --card: #171a20; --secondary: #232730; --accent-surface: #2f3542; --code-background: #1b1f26;
+    --info: #60a5fa; --warning: #fbbf24; --success: #4ade80; --destructive: #f87171; } }
+  body { background: var(--background); max-width: 920px; margin: 0 auto !important; padding: 24px 18px 60px; box-sizing: border-box; font-family: var(--font-sans, system-ui, sans-serif); color: var(--foreground, #111); line-height: 1.55; font-size: 15px; }
+  .wrap { max-width: 100%; }
+  h1 { font-size: 24px; margin: 4px 0 6px; line-height: 1.25; }
+  h2 { font-size: 19px; margin: 34px 0 8px; padding-top: 10px; border-top: 1px solid var(--border, #ddd); }
+  h3 { font-size: 15.5px; margin: 18px 0 6px; }
+  p { margin: 6px 0 10px; }
+  .lede { color: var(--muted-foreground, #555); margin-bottom: 14px; }
+  code { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12.5px; background: var(--code-background, rgba(127,127,127,.12)); color: var(--code-foreground, inherit); padding: 1px 5px; border-radius: 4px; }
+  pre { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12.5px; background: var(--code-background, rgba(127,127,127,.12)); color: var(--code-foreground, inherit); padding: 12px 14px; border-radius: var(--radius, 8px); overflow-x: auto; margin: 8px 0 12px; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 14px; font-size: 13.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 7px 9px; border-bottom: 1px solid var(--border, #ddd); }
+  th { font-weight: 600; color: var(--muted-foreground, #555); font-size: 12.5px; text-transform: none; }
+  .toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+  .toc a { font-size: 12.5px; text-decoration: none; color: var(--foreground, #111); background: var(--secondary, rgba(127,127,127,.12)); padding: 4px 9px; border-radius: 999px; }
+  .toc a:hover { background: var(--accent-surface, rgba(127,127,127,.22)); }
+  .box { background: var(--card, rgba(127,127,127,.07)); color: var(--card-foreground, inherit); border: 1px solid var(--border, #ddd); border-radius: var(--radius, 8px); padding: 16px; margin: 10px 0 14px; }
+  .note { border-left: 3px solid var(--info, #3b82f6); padding: 4px 0 4px 12px; margin: 10px 0 14px; color: var(--foreground, #111); }
+  .warn { border-left: 3px solid var(--warning, #d97706); padding: 4px 0 4px 12px; margin: 10px 0 14px; }
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; margin: 10px 0 14px; }
+  .flow .step { flex: 1 1 120px; background: var(--card, rgba(127,127,127,.07)); border: 1px solid var(--border, #ddd); border-radius: var(--radius, 8px); padding: 10px 12px; font-size: 13px; }
+  .flow .step b { display: block; font-size: 13.5px; margin-bottom: 3px; }
+  .flow .arrow { align-self: center; color: var(--muted-foreground, #777); font-size: 16px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin: 10px 0 14px; }
+  .grid2 .box { margin: 0; }
+  .tag { display: inline-block; font-size: 11.5px; padding: 1px 7px; border-radius: 999px; margin-right: 4px; background: var(--secondary, rgba(127,127,127,.15)); }
+  .ok { color: var(--success, #16a34a); font-weight: 600; }
+  .no { color: var(--destructive, #dc2626); font-weight: 600; }
+  .muted { color: var(--muted-foreground, #666); }
+  .diagram { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; line-height: 1.35; white-space: pre; overflow-x: auto; background: var(--code-background, rgba(127,127,127,.12)); padding: 12px 14px; border-radius: var(--radius, 8px); margin: 8px 0 14px; }
+  .tw { overflow-x: auto; margin: 8px 0 14px; }
+  .tw table { margin: 0; min-width: 520px; }
+  dl { margin: 6px 0 12px; }
+  dt { font-weight: 600; margin-top: 8px; }
+  dd { margin: 2px 0 0 0; color: var(--foreground, #111); }
+  ul, ol { margin: 6px 0 10px; padding-left: 22px; }
+  li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>The Unbug experiment, explained</h1>
+<p class="lede">What we're testing, the exam, how cases are made and sealed, the contestants, Harbor, boat, Unbug v1, and how a winner is decided. Plain words, real details. As of 15 October 2026.</p>
+
+<div class="toc">
+  <a href="#big">1. Big picture</a><a href="#shop">2. The shop &amp; the promise</a><a href="#exam">3. One exam</a>
+  <a href="#score">4. Scoring</a><a href="#factory">5. Case factory</a><a href="#seal">6. Sealing</a>
+  <a href="#arms">7. Contestants</a><a href="#harbor">8. Harbor</a><a href="#boat">9. boat</a>
+  <a href="#unbug">10. Unbug v1</a><a href="#win">11. Who wins</a><a href="#walls">12. Who sees what</a>
+  <a href="#now">13. Where we are</a><a href="#gloss">14. Glossary</a>
+</div>
+
+<div class="note">This page deliberately leaves out the <b>answer keys</b> (the correct response at each step) and the judge's exact <b>traffic recipe</b>. You are also steering the Unbug build, and seeing those would let Unbug be tuned to the grader. Everything here is what any contestant may know, plus how the machinery around them works.</div>
+
+<!-- 1 -->
+<h2 id="big">1. The big picture</h2>
+<p><b>The question:</b> can software own a business promise (build the protection, notice when changes threaten it, and keep, repair, retreat or call for help) with <b>less human time</b> than a strong team using today's AI agents, while staying <b>just as safe</b>?</p>
+<p>We test this on one promise in a real online shop: <b>"Never sell more stock than exists."</b> Several AI contestants each get the same shop with a hidden-in-plain-sight bug, and the same series of code changes arriving over time. An automated judge then hammers the shop with customers and checks two things: did it oversell, and was the contestant honest about what it protected?</p>
+
+<div class="flow">
+  <div class="step"><b>Case factory</b>Other AI models build new exam cases, each a fresh bug plus a series of changes. They are tested, then encrypted.</div>
+  <div class="arrow">→</div>
+  <div class="step"><b>Contestants</b>Plain Claude, Claude + extra tools, Unbug, Unbug one-shot (and GPT, secondary) each try every case.</div>
+  <div class="arrow">→</div>
+  <div class="step"><b>Judge</b>After every step, a fresh copy of the shop gets real-looking traffic. Did it oversell? Did honest orders go through? Were the claims true?</div>
+  <div class="arrow">→</div>
+  <div class="step"><b>Verdict</b>Is Unbug no less safe than the strongest rival, <i>and</i> at least 30% cheaper in human time?</div>
+</div>
+
+<p>The machinery: <b>Harbor</b> runs each contestant through each step in containers. <b>boat</b> rents the cloud machines that Harbor and the case factory run on. <b>age</b> encryption keeps the new exam cases secret, even from you and from me.</p>
+
+<!-- 2 -->
+<h2 id="shop">2. The shop and the promise</h2>
+<h3>The shop</h3>
+<p><b>Medusa 2.19.0</b>, a popular open-source e-commerce backend (Node.js/TypeScript). In our setup it runs as <b>two server processes</b> sharing one <b>PostgreSQL</b> database and one <b>Redis</b>, like a real shop behind a load balancer. The store API (what shoppers use) is on port 9000, the admin API (what staff use) on 9001. It is seeded with fixed products and stock levels, and all package versions are locked so every run is identical.</p>
+
+<h3>The promise, precisely</h3>
+<p>Units promised to customers on <b>live orders</b> (placed, not canceled, not yet fulfilled) must never exceed the stock that exists. This covers every way the shop sells or changes orders:</p>
+<ul>
+  <li><b>Store checkout</b>, including many shoppers at once.</li>
+  <li><b>Admin draft orders</b> that staff convert into real orders.</li>
+  <li><b>Order edits</b> (adding units to a placed order).</li>
+  <li><b>Resale after cancel</b>: canceling frees stock, but deleting a live order's reservation does <i>not</i> free it.</li>
+</ul>
+<p>And the promise must not be kept by refusing honest business:</p>
+<ul>
+  <li>Orders that fit must succeed, including several simultaneous orders that <i>together</i> fit.</li>
+  <li>Products that allow <b>backorders</b> must keep selling past their stock; that is not an oversell.</li>
+  <li>An order confirmed to a customer must stay confirmed unless the shop cancels it.</li>
+</ul>
+
+<h3>The practice bug (why it is hard)</h3>
+<p>The practice case uses a real, publicly reported Medusa bug (GitHub issue #17032). Two checkouts racing for the last units can both pass the "is there enough stock?" check <b>before either one reserves the stock</b>. It's a classic <b>check-then-act race</b>: every request looks fine on its own, the logs look healthy, and the shop still sells 12 units of a product that has 10. You only see it under simultaneous traffic, which is why the judge uses heavy, concurrent shoppers.</p>
+<div class="warn">Because #17032 and its public workaround are on the internet (and possibly in model training data), the practice case is for <b>development only</b>. Scored results come from <b>new, unpublished bugs</b> built by the case factory.</div>
+
+<!-- 3 -->
+<h2 id="exam">3. What one exam looks like</h2>
+<p>An exam ("case") is a sequence of <b>steps</b>. The first step sets up protection; each later step lands a change in the shop, the way a pull request lands in a real company.</p>
+
+<div class="flow">
+  <div class="step"><b>Establish</b>Understand the promise, find where the shop can break it, build a guard, test it, report claims.</div>
+  <div class="arrow">→</div>
+  <div class="step"><b>Change 1</b>A change lands (code and/or database). Decide: keep, repair, withdraw, escalate.</div>
+  <div class="arrow">→</div>
+  <div class="step"><b>Change 2</b>Another change lands…</div>
+  <div class="arrow">→</div>
+  <div class="step"><b>Change N</b>…and so on. The judge checks after every step.</div>
+</div>
+
+<h3>The practice case's four steps (public)</h3>
+<table>
+  <tr><th>Step</th><th>What lands</th><th>Why it's in the exam</th></tr>
+  <tr><td><code>establish</code></td><td>Nothing; the bug is already in the shop</td><td>Build protection from scratch.</td></tr>
+  <tr><td><code>s0-null</code></td><td>A harmless change</td><td>Control: tests whether a contestant cries wolf.</td></tr>
+  <tr><td><code>s2-express-checkout</code></td><td>Code that adds a new "express" checkout route</td><td>A new sales path appears. Does the old guard cover it, and does the contestant check?</td></tr>
+  <tr><td><code>s11-monitor-blind</code></td><td>A database permission change</td><td>The contestant's monitoring may silently stop seeing orders. Does it notice that "zero problems seen" no longer means "zero problems"?</td></tr>
+</table>
+<p class="muted">Sealed cases have their own steps, built the same way: harmless changes, new paths, config changes, infrastructure changes, and "your evidence went blind" changes.</p>
+
+<h3>What a contestant may touch</h3>
+<p>Only a <b>guard</b>, in two files:</p>
+<ul>
+  <li><code>guard/db.sql</code>: database rules, e.g. a constraint or trigger that refuses to oversell.</li>
+  <li><code>guard/app.patch</code>: a code change to the shop (a <code>git</code> patch), applied on top of the shop and any landed changes.</li>
+</ul>
+<p>They may not patch Medusa's installed packages, change the bench tools, or weaken database permissions. To watch real outcomes, they get a <b>read-only</b> database login (<code>arm_monitor</code>).</p>
+
+<h3>What a contestant reports: <code>claims.json</code></h3>
+<pre>{"response": "keep",
+ "claims": [{"rule": "never-oversell", "path": "store-checkout", "status": "protected"},
+            {"rule": "never-oversell", "path": "draft-order",    "status": "unknown"}]}</pre>
+<table>
+  <tr><th>Response (whole step)</th><th>Meaning</th></tr>
+  <tr><td><code>keep</code></td><td>The guard still holds; no change needed.</td></tr>
+  <tr><td><code>repair</code></td><td>The change broke something; I fixed the guard.</td></tr>
+  <tr><td><code>withdraw</code></td><td>I can't protect this safely; I fell back to something safe.</td></tr>
+  <tr><td><code>escalate</code></td><td>A human needs to decide.</td></tr>
+</table>
+<table>
+  <tr><th>Status (per sales path)</th><th>Meaning</th></tr>
+  <tr><td><code>protected</code></td><td>I have evidence this path cannot oversell.</td></tr>
+  <tr><td><code>unprotected</code></td><td>I know this path is not protected.</td></tr>
+  <tr><td><code>withdrawn-safe-fallback</code></td><td>Protection withdrawn, but a safe fallback is in place.</td></tr>
+  <tr><td><code>escalated</code></td><td>Handed to a human.</td></tr>
+  <tr><td><code>unknown</code></td><td>I can't tell. Always better than a false "protected".</td></tr>
+</table>
+
+<h3>Life inside the shop during the exam</h3>
+<ul>
+  <li><b>Changes land for real.</b> Before a change step, <code>bin/land</code> applies the change's database script to the live database, merges its code patch, rebuilds the app and restarts it, with the contestant's own guard re-applied on top.</li>
+  <li><b>Customers keep shopping.</b> <code>bin/shoppers</code> places about one order a minute (1–2 units, about half through express checkout once it exists), so a monitor has real activity to watch.</li>
+  <li><b>Asking a human.</b> <code>ask-human "question"</code> sends a question to a separate <b>responder</b> service, which answers from a fact sheet and logs the time charged.</li>
+</ul>
+
+<!-- 4 -->
+<h2 id="score">4. How a step is scored</h2>
+<p>After each step, a <b>separate judge</b> (the contestant can't see or touch it) builds a <b>fresh copy</b> of the shop with the contestant's guard and all landed changes, then runs repeated rounds of heavy, simultaneous traffic across every sales path. It records:</p>
+<ol>
+  <li><b>Oversell</b>: did any path end up with more units promised than exist?</li>
+  <li><b>Honest business</b>: did at least <b>95%</b> of orders that fit go through? (Blocks "safe by refusing everything".)</li>
+  <li><b>Confirmation integrity</b>: did confirmed orders stay confirmed?</li>
+  <li><b>Claims vs reality</b>: each path's claim gets a label:</li>
+</ol>
+<table>
+  <tr><th>Label</th><th>When</th><th>How bad</th></tr>
+  <tr><td><span class="no">false assurance</span></td><td>Claimed protected (or safe fallback) but the shop oversold, or the evidence was blind</td><td>Worst. Fails the step ("unsafe checkpoint").</td></tr>
+  <tr><td><span class="ok">correct</span></td><td>Claim matches what really happened</td><td>Good.</td></tr>
+  <tr><td>false alarm</td><td>Said unknown, unprotected or escalated when nothing was wrong</td><td>Counts against: crying wolf.</td></tr>
+  <tr><td>abstain</td><td>Said unknown where there really was a problem</td><td>Not a lie, but not helpful.</td></tr>
+</table>
+
+<h3>Human minutes (decided 15 Oct): the main cost measure</h3>
+<table>
+  <tr><th>Event</th><th>Minutes charged</th></tr>
+  <tr><td>A question to a human</td><td>5</td></tr>
+  <tr><td>An escalation (once per step)</td><td>15</td></tr>
+  <tr><td>Each path left unknown, unprotected or unclaimed (someone must check it)</td><td>10</td></tr>
+  <tr><td>The shop oversold at that step, whatever was claimed (refunds, apology, finding the cause)</td><td>60</td></tr>
+</table>
+<p>Also logged for every contestant: tokens, money at list price, wall time, how fast a threat was detected, how fast safety was restored, and <b>exposure</b> (time a path was unsafe while claimed protected).</p>
+
+<!-- 5 -->
+<h2 id="factory">5. The case factory: how new exams are made</h2>
+<p>Scored cases must be <b>fresh</b> (no public fix to look up, not in training data), <b>real</b> (a bug that actually oversells), <b>fair</b> (solvable from what contestants are told), and <b>secret</b>. So a separate team of AI models builds them on a separate cloud machine. None of these models is a contestant.</p>
+
+<table>
+  <tr><th>Job</th><th>Model</th><th>Does</th></tr>
+  <tr><td>Writer</td><td>Gemini 4 Argon</td><td>Finds or adapts a bug, writes the case: promise, steps, answer key, reference fix, fact sheet.</td></tr>
+  <tr><td>Cheater</td><td>Muse Spark 1.3</td><td>Gets the answers and tries to pass <i>without</i> really fixing the bug (block everything, fake claims…). Any cheat that works gets the case fixed. Up to 3 write/cheat rounds.</td></tr>
+  <tr><td>Honest student</td><td>DeepSeek V4 Pro</td><td>Takes the case 10 times, blind, as a different Unix user that cannot read the case files.</td></tr>
+  <tr><td>Reviewers</td><td>Grok 4.7, Qwen 3.8 Max</td><td>Read the case: is it fair (everything needed is stated or discoverable)? Is it realistic?</td></tr>
+</table>
+<p class="muted">Rule: no model family both sits the exam and helps make it. Contestants are Claude and GPT, so the factory uses neither. Models run through OpenCode on your Go plan, with OpenRouter as automatic backup.</p>
+
+<h3>Where bugs come from (a mix)</h3>
+<ol>
+  <li><b>Port</b> a real bug pattern other shops reported (Medusa, Saleor, Spree, Magento…) into a new spot in our shop. Recommended: real <i>and</i> fresh.</li>
+  <li><b>Hunt</b> real, unreported bugs in Medusa for other promises. Most realistic; uncertain yield.</li>
+  <li><b>Plant</b> synthetic bugs. Cheap but least realistic; secondary analysis only.</li>
+</ol>
+
+<h3>The 12 gates a case must pass</h3>
+<table>
+  <tr><th>Gate</th><th>Passes when</th></tr>
+  <tr><td>G1 Prechecks</td><td>All parts present; promise ≤ 300 words; no tell-tale words in contestant files; patches apply.</td></tr>
+  <tr><td>G2 Fresh</td><td>Logged web and GitHub searches find no published issue, fix or discussion of the bug.</td></tr>
+  <tr><td>G3 Builds</td><td>The shop builds and sets up on a fresh database.</td></tr>
+  <tr><td>G4 Bug is real</td><td>The unprotected shop really oversells under judge traffic.</td></tr>
+  <tr><td>G5 Solvable</td><td>The reference fix passes 30 of 30 runs, and honest sales succeed.</td></tr>
+  <tr><td>G6 Cheats fail</td><td>Block-everything, generic cheats and the cheater's ideas all fail.</td></tr>
+  <tr><td>G7 Not flaky</td><td>G4–G6 repeated with a new random seed give the same verdicts.</td></tr>
+  <tr><td>G8 Fair</td><td>Both reviewers approve fairness.</td></tr>
+  <tr><td>G9 Realistic</td><td>Both reviewers approve realism.</td></tr>
+  <tr><td>G10 Right difficulty</td><td>The honest student solves some tries but not all (dropped if 0 or 10 of 10), and every failure is for a fair reason.</td></tr>
+  <tr><td>G11 No fake passes</td><td>Every student pass survives a trick check and a fresh re-run.</td></tr>
+  <tr><td>G12 Sealed</td><td>Encrypted, fingerprinted, plaintext shredded (next section).</td></tr>
+</table>
+<p class="muted">Timing: the first real build has been running for many hours. Writer and cheater rounds, 30-run checks and 10 practice tries add up. Later cases run in parallel, one cloud machine each.</p>
+
+<!-- 6 -->
+<h2 id="seal">6. Sealing: keeping cases secret from everyone, including us</h2>
+<div class="diagram">factory VM (boat)                         your Mac                    later (exam time)
+┌──────────────────────────┐   only     ┌─────────────────────┐       ┌────────────────────────┐
+│ build case → gates G1–11 │ ─────────► │ case.tar.gz.age     │ ────► │ you decrypt with the   │
+│ tar | age -r &lt;your key&gt;  │  2 files   │ scorecard (numbers) │       │ private key you hold   │
+│ shred plaintext, delete  │            │ sha256 fingerprint  │       │ off this Mac; operator │
+│ VM                       │            └─────────────────────┘       │ loads cases into Harbor│
+└──────────────────────────┘                                          └────────────────────────┘</div>
+<ul>
+  <li><b>age</b> is a modern file-encryption tool. Cases are encrypted to your <b>public</b> key (<code>age13u0y…h0fy</code>). Only your <b>private</b> key, which you hold away from this Mac, can open them.</li>
+  <li>The archive is streamed straight into encryption, so no unencrypted archive ever touches disk. Then every plaintext file, the model transcripts and the database are shredded, and the machine is deleted.</li>
+  <li>What comes back: the encrypted archive, a <b>SHA-256 fingerprint</b> (proves later the case wasn't swapped), and a <b>scorecard</b>: which gates passed, how many student tries succeeded, cost. No case content.</li>
+  <li>Why: I (Claude) helped build the judge, and you are steering Unbug. If either of us saw the new bugs, Unbug could be tuned to them, and the result would be worthless.</li>
+</ul>
+
+<!-- 7 -->
+<h2 id="arms">7. The contestants ("arms")</h2>
+<table>
+  <tr><th></th><th>A: plain Claude</th><th>B: A + advanced tools</th><th>C0: Unbug one-shot</th><th>C: Unbug v1</th></tr>
+  <tr><td>Model</td><td colspan="4">Same for all: Claude Opus 5.5, high effort, same Claude Code version (to be pinned for everyone)</td></tr>
+  <tr><td>When it works</td><td colspan="4">A fresh session at every step, given the change (diff and deploy log) and the same budgets</td></tr>
+  <tr><td>Instructions</td><td>Rules + a prompt tuned to win by a "baseline advocate"</td><td>Same</td><td>Unbug's owner checklist</td><td>Unbug's owner checklist</td></tr>
+  <tr><td>Extra tools</td><td>—</td><td>Property-based testing, mutation testing (proposed)</td><td>May use B's</td><td>May use B's</td></tr>
+  <tr><td>Memory between steps</td><td>Only files left on disk</td><td>Same</td><td>Notes frozen after step 1</td><td><b>Notebook updated every step</b></td></tr>
+  <tr><td>"Protected" requires</td><td>Its own judgement</td><td>Same</td><td colspan="2"><b>A passing test it ran on the current code, enforced by code</b></td></tr>
+  <tr><td>Watches between steps</td><td>No</td><td>No</td><td>No</td><td>No (v1)</td></tr>
+</table>
+<p><b>Secondary:</b> A run on GPT 6.1 Sol (through Codex), reported separately as a second model family.</p>
+<p><b>Fairness rules:</b> the baseline advocate tuning A and B gets the same tuning hours and the same information as the Unbug builder. Any tool B can't have is removed from C too. Everyone gets the same responder and fact sheet, and the same web policy (no web during scored attempts; an offline Medusa docs snapshot instead).</p>
+
+<!-- 8 -->
+<h2 id="harbor">8. Harbor: the exam room</h2>
+<p><b>Harbor</b> (v0.24) is an open-source framework for running AI agents on tasks inside containers and grading them. We use its <b>multi-step tasks</b>: one task, several steps, the same container living through all of them.</p>
+<div class="diagram">one "trial" = one contestant × one case, on one boat machine
+┌──────────────── agent environment (lives for the whole trial) ─────────────────┐
+│  box container  (/app)                       responder container               │
+│   • Docker inside ("Docker-in-Docker")        • answers ask-human             │
+│     → Medusa ×2, Postgres, Redis              • logs minutes charged          │
+│   • CONTESTANT.md, bin/setup reset check      (used with --extra-docker-      │
+│     land shoppers ask-human                    compose)                        │
+│   • the contestant's coding agent works here                                  │
+└────────────────────────────────────────────────────────────────────────────────┘
+   per step:  upload steps/&lt;name&gt;/workdir → run setup.sh (lands the change)
+              → agent session → copy out guard/ and claims.json ("artifacts")
+              → separate VERIFIER environment, started fresh for this step:
+                 judge image + whole bench → rebuild shop + guard + changes
+                 → heavy traffic → oversell? completion? claims? → reward 1 or 0</div>
+<ul>
+  <li><b>Task folder:</b> <code>task.toml</code> (settings), <code>environment/</code> (how to build the box), <code>steps/&lt;name&gt;/instruction.md</code> (what the contestant reads) and <code>workdir/setup.sh</code> (lands the change), <code>tests/</code> (the judge, never visible to the contestant), <code>solution/</code> (the reference fix, for checking the task).</li>
+  <li><b>Two images:</b> <b>box</b> holds only what contestants may see. <b>judge</b> holds the whole bench and runs only in the verifier.</li>
+  <li><b>Checks done:</b> the reference fix scores 1 on all 4 practice steps. An empty contestant ("do nothing") is unsafe on every step. One 4-step try takes about 17–25 minutes.</li>
+  <li><b>Between steps</b> files and running processes persist (from reading Harbor's code). Whether a background process started by Claude Code survives Claude Code exiting is still untested.</li>
+  <li><b>Fixes we needed:</b> limit CPUs to 4 (<code>--override-cpus 4</code>); a small start script so Docker can run inside Docker on boat's Linux (cgroup v2).</li>
+</ul>
+
+<!-- 9 -->
+<h2 id="boat">9. boat: the computers</h2>
+<p><b>boat</b> (boat.dev, by ASCII) rents full Linux virtual machines (KVM, on AMD Ryzen 9 9950X hosts) built for AI agents.</p>
+<table>
+  <tr><th>Thing</th><th>Detail</th></tr>
+  <tr><td>Machine sizes</td><td><code>default</code> 4 vCPU / 8 GB / 50 GB at $0.036 per hour; <code>large</code> 8 vCPU / 16 GB at $0.072. Billed per second, nothing while stopped.</td></tr>
+  <tr><td>Your plan</td><td>$20/month = $20 of machine time (555 h of <code>default</code>), up to 100 machines at once. Renews 14 November; cancel after the experiment.</td></tr>
+  <tr><td>Snapshots</td><td><code>bench-env</code>: a machine with the shop built and seeded. New machines copy it in about 4 seconds instead of a ~15-minute setup.</td></tr>
+  <tr><td>Credentials proxy (on)</td><td>Your Claude, ChatGPT, OpenRouter and OpenCode keys stay at boat; machines only get stand-in keys, and boat swaps in the real key on the way out. $1/day + $1 per 1,000 requests.</td></tr>
+  <tr><td>Gotcha</td><td>A machine created with "no secrets" (<code>--no-env</code>) keeps that mark in every copy forever. That's why the snapshot was rebuilt as <code>bench-env</code>.</td></tr>
+  <tr><td>vs Hetzner</td><td>Hetzner's raw machines are cheaper (e.g. 4 CAX41s for 10 h ≈ $3). boat wins on 4-second copies, per-second billing and the credentials proxy. Estimated whole experiment: ~1,050 machine-hours ≈ $38 on boat (the $20 plan plus about one $20 time pack).</td></tr>
+</table>
+
+<!-- 10 -->
+<h2 id="unbug">10. Unbug v1: how it works</h2>
+<p>Built in a separate clean-room folder (<code>~/Developer/unbug-cleanroom</code>) that holds only contestant materials, so it can't be tuned to the judge.</p>
+<div class="flow">
+  <div class="step"><b>1. Wake</b>A step starts. The runtime clears last step's "protected" claims and writes a context file: required paths, code fingerprints, notebook.</div>
+  <div class="arrow">→</div>
+  <div class="step"><b>2. Work</b>A fresh Claude Code session follows the owner checklist: meaning → map paths → build the guard → test harmful <i>and</i> honest orders → check it can really see outcomes → decide.</div>
+  <div class="arrow">→</div>
+  <div class="step"><b>3. Prove</b>Each test runs through <code>unbug-runtime check</code>, which records exit code, output and fingerprints of the guard, code and test.</div>
+  <div class="arrow">→</div>
+  <div class="step"><b>4. Gate</b><code>review</code> refuses "protected" without a fresh passing check for that path on the final code. Otherwise the path becomes "unknown".</div>
+  <div class="arrow">→</div>
+  <div class="step"><b>5. Publish</b>Writes <code>claims.json</code> and updates the notebook (assumptions, lessons) in <code>/app/.unbug</code>.</div>
+</div>
+<ul>
+  <li><b>Evidence goes stale:</b> if the guard, code or test changes, older checks stop counting.</li>
+  <li><b>C0 (one-shot):</b> same machinery, but the notebook is frozen after step 1. Comparing C with C0 shows whether ongoing ownership adds anything.</li>
+  <li><b>Budget accounting:</b> it tracks its own spend; unknown cost blocks further paid calls.</li>
+  <li><b>Checked so far:</b> 25 of 25 tests pass; the Harbor plumbing runs with a <i>fake</i> model; a scripted walk-through of the practice steps works.</li>
+  <li><b>Not yet checked:</b> any run with a real model, so nothing is known yet about how well it actually performs.</li>
+  <li><b>Not in v1:</b> no watcher between changes. It acts only when a change arrives.</li>
+</ul>
+
+<!-- 11 -->
+<h2 id="win">11. How a winner is decided</h2>
+<p><b>Main hypothesis (C vs B), on the sealed cases, across the change steps.</b> Both parts must hold:</p>
+<ol>
+  <li><b>Not less safe:</b> Unbug's rate of unsafe steps (oversold, or false assurance) is at most B's rate <b>+ 5 percentage points</b>.</li>
+  <li><b>Clearly cheaper in people:</b> Unbug's human minutes are at least <b>30% lower</b> than B's.</li>
+</ol>
+<table>
+  <tr><th>Outcome</th><th>Rule (set before scoring)</th></tr>
+  <tr><td><span class="ok">Supported</span></td><td>95% upper bound of (C − B) unsafe rate ≤ 5 points <b>and</b> the 95% interval of the minute savings lies wholly above 30%.</td></tr>
+  <tr><td><span class="no">Falsified</span></td><td>C is clearly more than 5 points less safe, <b>or</b> the savings interval lies wholly below 30%.</td></tr>
+  <tr><td>Inconclusive</td><td>Anything else. Reported as such; no extra runs added after seeing results.</td></tr>
+</table>
+<p class="muted">Secondary questions: C vs A; do B's tools help; does ongoing ownership help (C vs C0); who catches hidden requirements; who covers more paths; who detects and restores faster; cost against a fixed risk limit. Proposed: 10 tries per contestant per case; still to be locked before the freeze.</p>
+<p><b>Where Unbug v1 should be stronger:</b> fewer false "protected" claims (enforced proof), re-checking new paths after a change (stale evidence thrown away), and not mistaking blindness for safety. <b>Where it may not:</b> a well-tuned A prompt can copy most of the checklist; the proof gate can turn a correct guard into "unknown" on a technicality; with no watcher, it has no edge on detection speed.</p>
+
+<!-- 12 -->
+<h2 id="walls">12. Who sees what (the walls)</h2>
+<table>
+  <tr><th>Who</th><th>Sees</th><th>Never sees</th></tr>
+  <tr><td>You (founder) &amp; the Unbug builder</td><td>Contestant rules, practice steps, shop code, research, scorecards</td><td>Sealed cases, answer keys, judge internals</td></tr>
+  <tr><td>Contestants</td><td>The box: shop, rules, step instruction, tools</td><td>Judge, traffic, keys, other contestants</td></tr>
+  <tr><td>Case factory models</td><td>The bench and the case they build</td><td>Unbug, contestant attempts</td></tr>
+  <tr><td>Me (Claude, grader side)</td><td>Bench, judge, practice keys, Unbug code</td><td>Sealed case contents (only fingerprints and scorecards)</td></tr>
+  <tr><td>Assessor (later)</td><td>Sealed key + attempts, arm labels hidden</td><td>Which arm is which</td></tr>
+</table>
+<p>Before scoring, everything is <b>frozen and fingerprinted</b>: bench, judge, sealed cases, protocol, every contestant's prompts. An outside check of the judge (an engineer or a panel of non-Claude models) happens before the freeze, because I wrote much of the judge.</p>
+
+<!-- 13 -->
+<h2 id="now">13. Where we are (15 Oct)</h2>
+<table>
+  <tr><th>Piece</th><th>State</th></tr>
+  <tr><td>Practice exam on Harbor + boat</td><td class="ok">Working: reference fix passes all 4 steps; empty contestant unsafe on all 4</td></tr>
+  <tr><td>Human-minute charges</td><td class="ok">Applied to scorer and public rules</td></tr>
+  <tr><td>Case factory</td><td>First real case building; 4 more to follow if it passes</td></tr>
+  <tr><td>Unbug v1</td><td>Built and tested with a fake model; needs one real practice run</td></tr>
+  <tr><td>Plain Claude (A) and GPT contestant in Harbor</td><td>A wired up; GPT version to wire</td></tr>
+  <tr><td>ask-human inside Harbor, web-visit log, judge recalibration on boat, judge freeze</td><td>To do (grader side)</td></tr>
+  <tr><td>Your decisions</td><td>B's tools; tries per case and stopping rule; real-model practice runs; whether v1 needs a watcher</td></tr>
+</table>
+
+<!-- 14 -->
+<h2 id="gloss">14. Glossary</h2>
+<dl>
+  <dt>Arm</dt><dd>One contestant setup (A, B, C, C0).</dd>
+  <dt>Case</dt><dd>One exam: a shop with a bug, a promise, a series of changes, and a hidden answer key.</dd>
+  <dt>Checkpoint</dt><dd>The judge's check after a step.</dd>
+  <dt>Guard</dt><dd>The contestant's protection: <code>db.sql</code> and/or <code>app.patch</code>.</dd>
+  <dt>Claim</dt><dd>What the contestant says about each sales path (protected, unknown…).</dd>
+  <dt>False assurance</dt><dd>Claiming protection that isn't real. The worst outcome.</dd>
+  <dt>Race condition</dt><dd>Two things happening at once that each look fine but together break a rule.</dd>
+  <dt>Reference fix</dt><dd>The known-good fix the case builder writes to prove the case is solvable.</dd>
+  <dt>Oracle / judge</dt><dd>The automated checker that drives traffic and decides what really happened.</dd>
+  <dt>Sealing</dt><dd>Encrypting a case so nobody can read it until exam time.</dd>
+  <dt>Snapshot / fork</dt><dd>A saved machine state, and a new machine copied from it.</dd>
+  <dt>Harbor trial</dt><dd>One contestant attempting one case, start to finish.</dd>
+  <dt>Baseline advocate</dt><dd>Whoever tunes the rival contestants to win, so Unbug faces strong opponents.</dd>
+  <dt>Pre-registration / freeze</dt><dd>Writing down and fingerprinting the rules, thresholds and code before any scored run, so nothing can be adjusted after seeing results.</dd>
+</dl>
+<p class="muted">Saved as <code>~/Developer/unbug-bench/EXPLAINER.html</code>.</p>
+</div>
+<script>
+  // Wide tables scroll sideways on narrow screens instead of being cut off.
+  document.querySelectorAll('table').forEach(t => { const w = document.createElement('div'); w.className = 'tw'; t.replaceWith(w); w.appendChild(t); });
+</script>
+</body>
+</html>

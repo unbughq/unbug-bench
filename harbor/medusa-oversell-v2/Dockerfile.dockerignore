@@ -1,0 +1,15 @@
+**/node_modules
+**/.medusa
+**/__pycache__
+.git
+results
+sealed
+harbor
+!harbor/medusa-oversell-v2/tests/test.sh
+!harbor/medusa-oversell-v2/environment/marketplace-adapter.py
+!harbor/medusa-oversell-v2/environment/reset.py
+!harbor/medusa-oversell-v2/environment/marketplace-README.md
+!harbor/medusa-oversell-v2/environment/start-dockerd.sh
+!harbor/medusa-oversell-v2/tests/pending.py
+!harbor/medusa-oversell-v2/environment/sync-pending.py
+!harbor/medusa-oversell-v2/tests/case-root.json

@@ -1,0 +1,254 @@
+{
+  "region_id": "reg_bench",
+  "sales_channel_id": "sc_bench",
+  "location_id": "sloc_bench",
+  "shipping_option_id": "so_bench",
+  "publishable_key": "pk_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "product_x": "prod_bench_x",
+  "inventory_x": "iitem_bench_x",
+  "variant_single": "variant_bench_x_single",
+  "variant_pack": "variant_bench_x_2pack",
+  "normal_variants": [
+    "variant_bench_n1_single",
+    "variant_bench_n2_single",
+    "variant_bench_n3_single",
+    "variant_bench_n4_single",
+    "variant_bench_n5_single"
+  ],
+  "products": [
+    {
+      "id": "prod_bench_x",
+      "handle": "product-x",
+      "variants": [
+        {
+          "id": "variant_bench_x_single",
+          "sku": "X-SINGLE"
+        },
+        {
+          "id": "variant_bench_x_2pack",
+          "sku": "X-2PACK"
+        }
+      ]
+    },
+    {
+      "id": "prod_bench_n1",
+      "handle": "normal-1",
+      "variants": [
+        {
+          "id": "variant_bench_n1_single",
+          "sku": "N1-SINGLE"
+        }
+      ]
+    },
+    {
+      "id": "prod_bench_n2",
+      "handle": "normal-2",
+      "variants": [
+        {
+          "id": "variant_bench_n2_single",
+          "sku": "N2-SINGLE"
+        }
+      ]
+    },
+    {
+      "id": "prod_bench_n3",
+      "handle": "normal-3",
+      "variants": [
+        {
+          "id": "variant_bench_n3_single",
+          "sku": "N3-SINGLE"
+        }
+      ]
+    },
+    {
+      "id": "prod_bench_n4",
+      "handle": "normal-4",
+      "variants": [
+        {
+          "id": "variant_bench_n4_single",
+          "sku": "N4-SINGLE"
+        }
+      ]
+    },
+    {
+      "id": "prod_bench_n5",
+      "handle": "normal-5",
+      "variants": [
+        {
+          "id": "variant_bench_n5_single",
+          "sku": "N5-SINGLE"
+        }
+      ]
+    },
+    {
+      "id": "prod_bench_y",
+      "handle": "product-y",
+      "variants": [
+        {
+          "id": "variant_bench_y_single",
+          "sku": "Y-SINGLE"
+        },
+        {
+          "id": "variant_bench_y_2pack",
+          "sku": "Y-2PACK"
+        }
+      ]
+    },
+    {
+      "id": "prod_bench_z",
+      "handle": "product-z",
+      "variants": [
+        {
+          "id": "variant_bench_z_single",
+          "sku": "Z-SINGLE"
+        },
+        {
+          "id": "variant_bench_z_2pack",
+          "sku": "Z-2PACK"
+        }
+      ]
+    },
+    {
+      "id": "prod_bench_w",
+      "handle": "product-w",
+      "variants": [
+        {
+          "id": "variant_bench_w_single",
+          "sku": "W-SINGLE"
+        },
+        {
+          "id": "variant_bench_w_2pack",
+          "sku": "W-2PACK"
+        }
+      ]
+    },
+    {
+      "id": "prod_bench_s",
+      "handle": "product-s",
+      "variants": [
+        {
+          "id": "variant_bench_s_single",
+          "sku": "S-SINGLE"
+        },
+        {
+          "id": "variant_bench_s_2pack",
+          "sku": "S-2PACK"
+        }
+      ]
+    },
+    {
+      "id": "prod_bench_bo",
+      "handle": "backorder-bo",
+      "variants": [
+        {
+          "id": "variant_bench_bo_single",
+          "sku": "BO-SINGLE"
+        }
+      ]
+    },
+    {
+      "id": "prod_bench_d",
+      "handle": "product-d",
+      "variants": [
+        {
+          "id": "variant_bench_d_single",
+          "sku": "D-SINGLE"
+        },
+        {
+          "id": "variant_bench_d_2pack",
+          "sku": "D-2PACK"
+        }
+      ]
+    },
+    {
+      "id": "prod_bench_e",
+      "handle": "product-e",
+      "variants": [
+        {
+          "id": "variant_bench_e_single",
+          "sku": "E-SINGLE"
+        },
+        {
+          "id": "variant_bench_e_2pack",
+          "sku": "E-2PACK"
+        }
+      ]
+    },
+    {
+      "id": "prod_bench_r",
+      "handle": "product-r",
+      "variants": [
+        {
+          "id": "variant_bench_r_single",
+          "sku": "R-SINGLE"
+        },
+        {
+          "id": "variant_bench_r_2pack",
+          "sku": "R-2PACK"
+        }
+      ]
+    }
+  ],
+  "inventory_items": [
+    {
+      "id": "iitem_bench_x",
+      "sku": "X"
+    },
+    {
+      "id": "iitem_bench_n1",
+      "sku": "N1"
+    },
+    {
+      "id": "iitem_bench_n2",
+      "sku": "N2"
+    },
+    {
+      "id": "iitem_bench_n3",
+      "sku": "N3"
+    },
+    {
+      "id": "iitem_bench_n4",
+      "sku": "N4"
+    },
+    {
+      "id": "iitem_bench_n5",
+      "sku": "N5"
+    },
+    {
+      "id": "iitem_bench_y",
+      "sku": "Y"
+    },
+    {
+      "id": "iitem_bench_z",
+      "sku": "Z"
+    },
+    {
+      "id": "iitem_bench_w",
+      "sku": "W"
+    },
+    {
+      "id": "iitem_bench_s",
+      "sku": "S"
+    },
+    {
+      "id": "iitem_bench_bo",
+      "sku": "BO"
+    },
+    {
+      "id": "iitem_bench_d",
+      "sku": "D"
+    },
+    {
+      "id": "iitem_bench_e",
+      "sku": "E"
+    },
+    {
+      "id": "iitem_bench_r",
+      "sku": "R"
+    }
+  ],
+  "admin": {
+    "email": "admin@bench.test",
+    "password": "bench-admin-local"
+  }
+}

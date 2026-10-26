@@ -1,0 +1,64 @@
+#!/bin/sh
+# Build the Hetzner snapshot launchers start from (boat's bench-env equivalent): Ubuntu 24.04,
+# Docker, Node 22, Python, age, uv + Harbor 0.24.0, codex 0.162.1 and opencode 1.19.0 in
+# /usr/local/bin, user `user` (passwordless sudo, docker group), this bench at ~/unbug-bench with
+# Medusa installed and bench + Harbor images built. Claude Code is installed per run by
+# factory/run.py; Harbor installs agents inside trial containers.
+#   bin/hcloud-bake           refresh: start from the current bench-env snapshot, sync this tree,
+#                             npm ci only if the lockfile changed, rebuild images on the warm Docker cache
+#   bin/hcloud-bake --fresh   from bare Ubuntu (toolchain change, or no snapshot yet)
+# One cx33 (~EUR 0.01; measured 2026-10-17: --fresh 8 min, refresh 3 min), deleted on exit, error or signal; older bench-env snapshots are replaced.
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd)
+hb="$root/bin/hcloud-boat"
+tmp=$(mktemp -d); sid=""
+cleanup() { [ -z "$sid" ] || "$hb" delete "$sid" --yes >/dev/null 2>&1 && echo "deleted bake server $sid" >&2; rm -rf "$tmp"; }
+trap cleanup 0; trap 'exit 130' INT; trap 'exit 143' TERM
+stage() { echo "== $(date +%H:%M:%S) $*" >&2; }
+export BOAT_COMMAND_TIMEOUT_SECONDS=300 HCLOUD_PLACES="${HCLOUD_PLACES:-cx33@nbg1 cx33@fsn1 cx33@hel1}"
+old=$(hcloud image list -t snapshot -l unbug-bench-env=bench-env -o noheader -o columns=id)
+newid() { sed -n 's/.*"id": "\([0-9]*\)".*/\1/p' "$tmp/new" | head -1; }
+if [ "${1:-}" = --fresh ] || [ -z "$old" ]; then
+  stage "create (bare Ubuntu)"
+  HCLOUD_SSH_USER=root "$hb" new --ttl 7200 --json > "$tmp/new" || true  # a created-but-unready server still gets an id to delete
+  sid=$(newid); [ -n "$sid" ] || { echo "bake: create failed" >&2; exit 1; }
+  stage toolchain
+  HCLOUD_SSH_USER=root "$hb" ssh "$sid" 'set -eux; export DEBIAN_FRONTEND=noninteractive
+cloud-init status --wait >/dev/null || true
+apt-get update -q && apt-get install -yq ca-certificates curl git age jq python3 python3-venv sudo rsync
+curl -fsSL https://get.docker.com | sh
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -yq nodejs
+id user >/dev/null 2>&1 || useradd -m -s /bin/bash -G docker user
+echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user && chmod 440 /etc/sudoers.d/user
+loginctl enable-linger user  # keeps /dev/shm keys after the runner session ends (logind RemoveIPC)
+install -d -m 700 -o user -g user /home/user/.ssh
+install -m 600 -o user -g user /root/.ssh/authorized_keys /home/user/.ssh/authorized_keys
+npm install -g --prefix /usr/local --no-audit --no-fund @openai/codex@0.162.1 opencode-ai@1.19.0
+sudo -u user -H sh -c "curl -LsSf https://astral.sh/uv/install.sh | sh"
+sudo -u user -H /home/user/.local/bin/uv tool install harbor==0.24.0
+ln -sf /home/user/.local/bin/uv /usr/local/bin/uv; ln -sf /home/user/.local/bin/harbor /usr/local/bin/harbor
+apt-get clean
+codex --version; opencode --version; harbor --version; docker --version; node --version; age --version'
+else
+  stage "create (from bench-env)"
+  "$hb" new --from bench-env --ttl 7200 --json > "$tmp/new" || true
+  sid=$(newid); [ -n "$sid" ] || { echo "bake: create failed" >&2; exit 1; }
+fi
+stage "sync tree"
+# --delete keeps the image an exact copy of this tree; excluded paths (node_modules, built images'
+# inputs under results/sealed) are protected from deletion.
+rsync -az --delete -e "$hb ssh" --exclude node_modules --exclude .medusa --exclude /results --exclude /sealed \
+  --exclude /.git --exclude /contestants --exclude __pycache__ --exclude '._*' "$root/" "$sid:unbug-bench/"
+stage "medusa deps + bench setup + images"
+"$hb" ssh "$sid" 'sh ~/unbug-bench/bin/bake-image.sh'
+stage "seal + snapshot"
+# Fresh instance identity (host keys, cloud-init) for every server made from the snapshot; trim
+# freed blocks so the snapshot only stores live data.
+"$hb" ssh "$sid" 'sudo rm -f /root/.bash_history /home/user/.bash_history; sudo cloud-init clean --logs; sudo fstrim -a || true; sync'
+hcloud server shutdown "$sid" >/dev/null || hcloud server poweroff "$sid" >/dev/null
+rev=$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo nogit)
+hcloud server create-image --type snapshot --description "unbug-bench bench-env $(date -u +%F) $rev+worktree" \
+  --label unbug-bench-env=bench-env --label unbug-bench=1 "$sid"
+for o in $old; do hcloud image delete "$o" >/dev/null && echo "replaced snapshot $o" >&2; done
+stage done
+hcloud image list -t snapshot -l unbug-bench-env=bench-env

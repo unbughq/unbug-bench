@@ -1,0 +1,9 @@
+case-20261017T212118Z-1ad7fa  sha256:7906dfd68277573ec45aa9ca7335b37f62e28dfb3cc165ccdcff098dd42cf992
+gates: passed G12
+reviewers: fairness - approve, realism - approve
+plain app broke the promise -   reference fix -   cheats - passed   scenario keys -
+calibrators: {}   fake pass: -
+surprises: 4   scenarios: 6   provenance: 5   source: port   builder rounds: -
+wipe: null   wall: 3878.1 min
+STOPPED: paused
+models: {"builder": ["claude/claude-opus-5-5"], "attacker": ["opencode/deepseek-v4.1-flash-free"], "reviewers": [["opencode/minimax-m3.1-flash-free"]], "strong_calibrator": ["codex/gpt-6.1-sol"], "easy_calibrator": ["opencode/glm-5.3-flash-free"]}

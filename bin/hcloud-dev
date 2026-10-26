@@ -1,0 +1,35 @@
+#!/bin/sh
+# Offload Docker/Harbor work from this Mac to one Hetzner dev server (no secrets on it).
+#   bin/hcloud-dev up [HOURS]   create from the bench-env snapshot (default 6 h expiry), reuse if alive
+#   bin/hcloud-dev run CMD...   sync this working tree to ~/unbug-bench there, then run CMD in it
+#   bin/hcloud-dev pull PATH    copy a remote path (e.g. /tmp/unbug-audited-jobs/JOB) back under ./results/remote/
+#   bin/hcloud-dev down         delete it (the sweeper also deletes it at expiry)
+# Several workers may share one server (own job names), or HCLOUD_DEV=NAME picks a separate one;
+# HCLOUD_PLACES=cx43@nbg1 (8 vCPU/16 GB) for CPU-heavy work.
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd)
+hb="$root/bin/hcloud-boat"
+idf=$HOME/.cache/unbug-bench/hcloud/dev-${HCLOUD_DEV:-default}-id
+mkdir -p "$(dirname "$idf")"
+alive() { [ -s "$idf" ] && hcloud server describe "$(cat "$idf")" -o format='{{.Status}}' 2>/dev/null | grep -q running; }
+case ${1:?usage: hcloud-dev up|run|pull|down} in
+  up)
+    alive && { cat "$idf"; exit 0; }
+    BOAT_COMMAND_TIMEOUT_SECONDS=300 "$hb" new --from bench-env --ttl $(( ${2:-6} * 3600 )) --json > "$idf.new" || true
+    sed -n 's/.*"id": "\([0-9]*\)".*/\1/p' "$idf.new" | head -1 > "$idf"; rm -f "$idf.new"
+    [ -s "$idf" ] || { echo "hcloud-dev: create failed" >&2; exit 1; }
+    cat "$idf" ;;
+  run)
+    shift; alive || "$0" up >/dev/null
+    id=$(cat "$idf")
+    # No --delete and --update: two workers share the tree; remote outputs survive the other's sync.
+    # Remote node_modules/.medusa (built from the snapshot) survive; local ones never upload.
+    rsync -az --update -e "$hb ssh" --exclude node_modules --exclude .medusa --exclude .git --exclude /results \
+      --exclude /sealed --exclude __pycache__ --exclude '._*' "$root/" "$id:unbug-bench/"
+    "$hb" ssh "$id" "cd ~/unbug-bench && $*" ;;
+  pull)
+    id=$(cat "$idf"); mkdir -p "$root/results/remote"
+    rsync -az -e "$hb ssh" "$id:${2:?path}" "$root/results/remote/" ;;
+  down)
+    [ -s "$idf" ] && "$hb" delete "$(cat "$idf")" --yes; rm -f "$idf" ;;
+esac

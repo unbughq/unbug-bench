@@ -1,0 +1,7 @@
+{
+  "id": "P2",
+  "title": "Bound stuck application requests",
+  "kind": "db config",
+  "delivery": "pending",
+  "change": "Ops proposes a 45-second statement timeout on application sessions to bound stuck requests."
+}

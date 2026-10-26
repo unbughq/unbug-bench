@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+"""Fingerprint and archive bench inputs; detect drift before and after a judge command.
+
+This is a local snapshot, not the protocol's externally timestamped experiment lock.
+  bin/freeze create results/freeze/<id> --runtime runtime.json --evidence calibration.json
+  bin/freeze verify results/freeze/<id>/manifest.json
+  bin/freeze run results/freeze/<id>/manifest.json -- bin/checkpoint ...
+"""
+import argparse
+import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import stat
+import subprocess
+import sys
+import tarfile
+
+ROOT = Path(__file__).resolve().parents[1]
+INPUTS = (".gitignore", "README.md", "SPEC.md", "CONTESTANT.md", "PROTOCOL.md", "PLAN.md",
+          "FACTORY.md", "bin", "cases", "guards", "projects", "scenarios", "tests",
+          "harbor", "contestants", "factory")
+EXCLUDED = {"node_modules", ".medusa", "__pycache__", ".venv", ".pytest_cache", ".DS_Store"}
+
+
+def sha(path):
+    with path.open("rb") as stream:
+        return stream_sha(stream)
+
+
+def stream_sha(stream):
+    digest = hashlib.sha256()
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_archive(path, files, directories):
+    with tarfile.open(path, "r:gz") as archive:
+        members = archive.getmembers()
+        expected_names = set(files) | set(directories)
+        if len(members) != len(expected_names) or {m.name for m in members} != expected_names:
+            raise ValueError("Source archive file set differs from manifest")
+        for member in members:
+            if member.name in directories:
+                if not member.isdir() or stat.S_IMODE(member.mode) != directories[member.name]:
+                    raise ValueError(f"Source archive directory differs: {member.name}")
+                continue
+            expected = files[member.name]
+            if (not member.isfile() or member.size != expected["size"]
+                    or stat.S_IMODE(member.mode) != expected["mode"]
+                    or stream_sha(archive.extractfile(member)) != expected["sha256"]):
+                raise ValueError(f"Source archive differs from manifest: {member.name}")
+
+
+def source_files(root):
+    files = {}
+    unexpected = sorted(p.name for p in root.iterdir()
+                        if p.name not in set(INPUTS) | EXCLUDED | {".git", "results", "sealed"}
+                        and not p.name.startswith("._"))
+    if unexpected:
+        raise ValueError("Unclassified bench inputs: " + ", ".join(unexpected))
+    for name in INPUTS:
+        base = root / name
+        if base.is_symlink():
+            raise ValueError(f"Symlink source input is not supported: {name}")
+        if not base.exists():
+            raise ValueError(f"Missing source input: {name}")
+        for directory, dirs, names in os.walk(base) if base.is_dir() else [(root, [], [name])]:
+            directory = Path(directory)
+            for item in dirs + names:
+                if item in EXCLUDED or item.startswith("._"):
+                    continue
+                path = directory / item
+                if path.is_symlink():
+                    raise ValueError(f"Symlink source input is not supported: {path.relative_to(root)}")
+            dirs[:] = sorted(d for d in dirs if d not in EXCLUDED and not d.startswith("._"))
+            for item in sorted(names):
+                if item in EXCLUDED or item.startswith("._"):
+                    continue
+                path = directory / item
+                files[path.relative_to(root).as_posix()] = {
+                    "sha256": sha(path), "size": path.stat().st_size,
+                    "mode": stat.S_IMODE(path.stat().st_mode)}
+    return dict(sorted(files.items()))
+
+
+def source_directories(root):
+    directories = {}
+    for name in INPUTS:
+        base = root / name
+        if not base.is_dir():
+            continue
+        for directory, dirs, _ in os.walk(base):
+            dirs[:] = sorted(d for d in dirs if d not in EXCLUDED and not d.startswith("._"))
+            path = Path(directory)
+            directories[path.relative_to(root).as_posix()] = stat.S_IMODE(path.stat().st_mode)
+    return dict(sorted(directories.items()))
+
+
+def create(args):
+    root = args.root.resolve()
+    out = args.output.resolve()
+    if out == root or any(out.is_relative_to(root / name) for name in INPUTS):
+        raise ValueError("Snapshot output must be outside the source inputs (use results/freeze/)")
+    files = source_files(root)
+    directories = source_directories(root)
+    out.mkdir(parents=True, exist_ok=False)
+    artifacts = {}
+    inputs = [("runtime", args.runtime)] + [("evidence", p) for p in args.evidence] + [("sealed", p) for p in args.archive]
+    for index, (kind, path) in enumerate(inputs):
+        if path is None:
+            continue
+        if kind == "sealed" and not path.name.endswith(".age"):
+            raise ValueError("Only encrypted .age case archives may be included")
+        dest = out / f"{index:02}-{kind}-{path.name}"
+        shutil.copyfile(path, dest)
+        artifacts[dest.name] = {"sha256": sha(dest), "size": dest.stat().st_size, "kind": kind}
+    archive = out / "source.tar.gz"
+    with tarfile.open(archive, "w:gz") as stream:
+        for name in [*directories, *files]:
+            stream.add(root / name, arcname=name, recursive=False)
+    # Catch changes while collecting the snapshot instead of publishing a mixed revision.
+    if files != source_files(root) or directories != source_directories(root):
+        raise ValueError("Source changed while collecting snapshot; discard this output and retry")
+    verify_archive(archive, files, directories)
+    artifacts[archive.name] = {"sha256": sha(archive), "size": archive.stat().st_size, "kind": "source"}
+    commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True)
+    manifest = {"schema": 1, "status": "local-fingerprint",
+                "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "git_commit": commit.stdout.strip() if commit.returncode == 0 else None,
+                "source_inputs": list(INPUTS), "excluded_components": sorted(EXCLUDED),
+                "files": files, "directories": directories, "artifacts": artifacts,
+                "limits": "Not a public timestamp or completed protocol freeze. Verify the trusted manifest hash before scoring; use immutable image IDs from runtime evidence."}
+    path = out / "manifest.json"
+    path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    (out / "manifest.sha256").write_text(sha(path) + "  manifest.json\n")
+    verify(path, root)
+    print(json.dumps({"manifest": str(path), "sha256": sha(path), "files": len(files), "status": manifest["status"]}))
+
+
+def verify(path, root, expected=None, check_images=False):
+    actual_hash = sha(path)
+    recorded = path.with_name("manifest.sha256").read_text().split()[0]
+    if actual_hash != recorded or (expected and actual_hash != expected):
+        raise ValueError("Manifest hash mismatch")
+    manifest = json.loads(path.read_text())
+    if manifest.get("schema") != 1 or manifest.get("source_inputs") != list(INPUTS):
+        raise ValueError("Unsupported manifest schema or source scope")
+    actual = source_files(root.resolve())
+    wanted = manifest["files"]
+    changes = sorted(name for name in set(actual) | set(wanted) if actual.get(name) != wanted.get(name))
+    if changes:
+        raise ValueError("Frozen source drift: " + ", ".join(changes[:20]))
+    if source_directories(root.resolve()) != manifest["directories"]:
+        raise ValueError("Frozen directory or permission drift")
+    runtime_images = []
+    for name, info in manifest["artifacts"].items():
+        artifact = path.parent / name
+        if Path(name).name != name or artifact.is_symlink() or sha(artifact) != info["sha256"]:
+            raise ValueError(f"Frozen artifact drift: {name}")
+        if info["kind"] == "source":
+            verify_archive(artifact, wanted, manifest["directories"])
+        if info["kind"] == "runtime":
+            runtime_images.extend(json.loads(artifact.read_text()).get("images", []))
+    if check_images:
+        if not runtime_images:
+            raise ValueError("No runtime image identities supplied in this snapshot")
+        for image in runtime_images:
+            actual_id = subprocess.check_output(
+                ["docker", "image", "inspect", "--format", "{{.Id}}", image["reference"]], text=True).strip()
+            if actual_id != image["id"]:
+                raise ValueError(f"Frozen runtime image drift: {image['reference']}")
+    return actual_hash
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=ROOT)
+    sub = parser.add_subparsers(dest="action", required=True)
+    make = sub.add_parser("create")
+    make.add_argument("output", type=Path)
+    make.add_argument("--runtime", type=Path)
+    make.add_argument("--evidence", type=Path, action="append", default=[])
+    make.add_argument("--archive", type=Path, action="append", default=[])
+    for action in ("verify", "run"):
+        child = sub.add_parser(action)
+        child.add_argument("manifest", type=Path)
+        child.add_argument("--sha256", help="Expected manifest digest from a trusted external record")
+        child.add_argument("--check-images", action="store_true", help="Also compare Docker image IDs on this runtime host")
+    arguments = sys.argv[1:]
+    command = []
+    if "--" in arguments:
+        separator = arguments.index("--")
+        command = arguments[separator + 1:]
+        arguments = arguments[:separator]
+    args = parser.parse_args(arguments)
+    if args.action == "create":
+        return create(args)
+    digest = verify(args.manifest.resolve(), args.root, args.sha256, args.check_images)
+    if args.action == "verify":
+        print(json.dumps({"verified": True, "sha256": digest}))
+        return
+    if not command:
+        raise ValueError("run requires a command after --")
+    result = subprocess.run(command, cwd=args.root)
+    verify(args.manifest.resolve(), args.root, digest, args.check_images)
+    sys.exit(result.returncode)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, OSError, KeyError, subprocess.SubprocessError, tarfile.TarError) as error:
+        sys.exit(f"freeze: {error}")

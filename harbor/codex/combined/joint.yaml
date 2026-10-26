@@ -1,0 +1,15 @@
+# Merge after the webproxy and responder overlays. Responder has no external egress.
+services:
+  main:
+    environment:
+      RESPONDER_URL: http://responder:8080/ask
+      NO_PROXY: localhost,127.0.0.1,::1,responder
+      no_proxy: localhost,127.0.0.1,::1,responder
+    depends_on:
+      responder:
+        condition: service_healthy
+  responder:
+    networks: [web-isolated]
+    environment:
+      ANSWERER: canned
+      OPENROUTER_API_KEY: ""

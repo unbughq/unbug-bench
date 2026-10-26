@@ -1,0 +1,679 @@
+{
+  "case": "case-20261019T055209Z-7d8a30",
+  "dry_run": false,
+  "source": "hunt",
+  "seed": 45910,
+  "gates": {
+    "G1": "fail",
+    "G12": "pass"
+  },
+  "failed_gate": "G1",
+  "rotation_slot": 3,
+  "factory_slots_prepared": 1,
+  "gate_results": {
+    "G1": {
+      "problems": [
+        "case.json missing or not JSON"
+      ]
+    }
+  },
+  "resume": {
+    "fresh_gates": true,
+    "legacy_transcripts_preserved": true,
+    "legacy_cost_excluded_from_continuation_ceiling": true
+  },
+  "roles": {
+    "writer": {
+      "model": "claude/claude-opus-5-5",
+      "effort": "high",
+      "family": "anthropic"
+    },
+    "stress_tester": {
+      "model": "opencode-go/mimo-v2.6-pro",
+      "effort": "default",
+      "family": "xiaomi"
+    },
+    "strong_calibrator": {
+      "model": "codex/gpt-6.1-sol",
+      "effort": "high",
+      "family": "openai"
+    },
+    "reviewer": {
+      "model": "opencode-go/muse-spark-1.3-contributor",
+      "effort": "xhigh",
+      "family": "meta"
+    },
+    "easy_calibrator": {
+      "model": "opencode/glm-5.3-flash-free",
+      "effort": "default",
+      "family": "z-ai"
+    }
+  },
+  "models": {
+    "builder": [
+      "claude/claude-opus-5-5"
+    ],
+    "attacker": [
+      "opencode-go/mimo-v2.6-pro"
+    ],
+    "reviewers": [
+      [
+        "opencode-go/muse-spark-1.3-contributor"
+      ]
+    ],
+    "strong_calibrator": [
+      "codex/gpt-6.1-sol"
+    ],
+    "easy_calibrator": [
+      "opencode/glm-5.3-flash-free"
+    ]
+  },
+  "dedup": {
+    "checked_against": 15,
+    "duplicate_of": null,
+    "retried": false
+  },
+  "models_used": {
+    "easy-calibrator-dedup-0": "opencode/glm-5.3-flash-free",
+    "builder-1": "claude/claude-opus-5-5",
+    "builder-precheck": "claude/claude-opus-5-5"
+  },
+  "builder_rounds": 1,
+  "builder_note": "final prechecks failed",
+  "gate_minutes": {
+    "G1": 0.0
+  },
+  "failed_detail": [
+    "case.json missing or not JSON"
+  ],
+  "wall_minutes": 963.4,
+  "continuation_budget": {
+    "cost": 0.00961897,
+    "calls": 268,
+    "events": [
+      {
+        "id": "7ced8810-c9ca-4c84-be0e-3794a607bd14:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 68,
+          "cache_creation_input_tokens": 74653,
+          "cache_read_input_tokens": 1565101,
+          "output_tokens": 17338,
+          "output_tokens_details": {
+            "thinking_tokens": 6773
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 74653,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 934,
+              "cache_read_input_tokens": 74127,
+              "cache_creation_input_tokens": 526,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 526
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 34,
+        "list_cost_usd": 1.3009654
+      },
+      {
+        "id": "ses_ead4440c6ffeo6SySavXqAdTko:msg_152bbc0fa001zCD9DTGtAAW9D7:prt_152bbd14b001oNvLY1LGVPyDsB",
+        "cost": 0.0014746,
+        "tokens": {
+          "total": 8293,
+          "input": 7634,
+          "output": 616,
+          "reasoning": 43,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead4440c6ffeo6SySavXqAdTko:msg_152bbd156001UuMJ0JweSFOpFz:prt_152bbe78b001tqM86ByyFFaFXS",
+        "cost": 0.00139448,
+        "tokens": {
+          "total": 13168,
+          "input": 4600,
+          "output": 253,
+          "reasoning": 699,
+          "cache": {
+            "write": 0,
+            "read": 7616
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead4440c6ffeo6SySavXqAdTko:msg_152bbe793001mbxkWptFdmOwWi:prt_152bbeca2001LXRdSTHfM7U2up",
+        "cost": 0.00058085,
+        "tokens": {
+          "total": 13304,
+          "input": 1017,
+          "output": 113,
+          "reasoning": 14,
+          "cache": {
+            "write": 0,
+            "read": 12160
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "cc30119d-fa86-43ae-873d-a7f244fe5d46:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 16,
+          "cache_creation_input_tokens": 36731,
+          "cache_read_input_tokens": 195894,
+          "output_tokens": 7493,
+          "output_tokens_details": {
+            "thinking_tokens": 5125
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 36731,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 674,
+              "cache_read_input_tokens": 39667,
+              "cache_creation_input_tokens": 1114,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 1114
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 8,
+        "list_cost_usd": 0.48295080000000007
+      },
+      {
+        "id": "ses_ead42bc3bffeF12Z0sfsEmOvnc:msg_152bd46ad001pckvEfPz6QhYQD:prt_152bd6f7c001ZKL3NtWhjOiHp8",
+        "cost": 0.0014596,
+        "tokens": {
+          "total": 8263,
+          "input": 7634,
+          "output": 616,
+          "reasoning": 13,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead42bc3bffeF12Z0sfsEmOvnc:msg_152bd6f88001IZ7pTprt23tEAR:prt_152bd8a01001EtON9r41nIi6dj",
+        "cost": 0.00102868,
+        "tokens": {
+          "total": 12442,
+          "input": 4608,
+          "output": 108,
+          "reasoning": 110,
+          "cache": {
+            "write": 0,
+            "read": 7616
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead42bc3bffeF12Z0sfsEmOvnc:msg_152bd8a090014ptQtE7UNpxY2X:prt_152bd95c9001iCzs5mRRULhB6F",
+        "cost": 0.00045949,
+        "tokens": {
+          "total": 12507,
+          "input": 483,
+          "output": 56,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 11968
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "710680f4-414f-4f6b-b3c3-b41e26c38048:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 82,
+          "cache_creation_input_tokens": 342906,
+          "cache_read_input_tokens": 7579895,
+          "output_tokens": 105634,
+          "output_tokens_details": {
+            "thinking_tokens": 92765
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 342906,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 1157,
+              "cache_read_input_tokens": 345897,
+              "cache_creation_input_tokens": 1059,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 1059
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 41,
+        "list_cost_usd": 6.414857899999999
+      },
+      {
+        "id": "9b3e4275-14c2-4d8e-b6cb-53b59fddf487:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 16,
+          "cache_creation_input_tokens": 22075,
+          "cache_read_input_tokens": 138943,
+          "output_tokens": 3621,
+          "output_tokens_details": {
+            "thinking_tokens": 1541
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 22075,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 599,
+              "cache_read_input_tokens": 25452,
+              "cache_creation_input_tokens": 673,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 673
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 8,
+        "list_cost_usd": 0.2768726
+      },
+      {
+        "id": "ses_ead191496ffeoaum1oHgAM7qnW:msg_152e6ec8d001bF6x3GM48x4qwb:prt_152e6fc21001hmC10b33DRwDPc",
+        "cost": 0.00097988,
+        "tokens": {
+          "total": 7978,
+          "input": 4816,
+          "output": 324,
+          "reasoning": 22,
+          "cache": {
+            "write": 0,
+            "read": 2816
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead191496ffeoaum1oHgAM7qnW:msg_152e6fc260010SvgogswtvHMZ4:prt_152e70911001rNN9tx6em0AsYc",
+        "cost": 0.00074988,
+        "tokens": {
+          "total": 10406,
+          "input": 2496,
+          "output": 294,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 7616
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead191496ffeoaum1oHgAM7qnW:msg_152e70915001iDMC9NrRuG8kXm:prt_152e7260d0015MjgAIBL4zJH81",
+        "cost": 0.00098549,
+        "tokens": {
+          "total": 12947,
+          "input": 2187,
+          "output": 132,
+          "reasoning": 580,
+          "cache": {
+            "write": 0,
+            "read": 10048
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ead191496ffeoaum1oHgAM7qnW:msg_152e72612001QJW4WobYQOQwY7:prt_152e72f1d001Tq3axis6bvov4n",
+        "cost": 0.00050602,
+        "tokens": {
+          "total": 13015,
+          "input": 732,
+          "output": 59,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 12224
+          }
+        },
+        "configured_model": "opencode-go/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "81c222d1-84fa-4525-bb1d-1519169ad24a:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 140,
+          "cache_creation_input_tokens": 286935,
+          "cache_read_input_tokens": 12351137,
+          "output_tokens": 46773,
+          "output_tokens_details": {
+            "thinking_tokens": 31353
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 286935,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 561,
+              "cache_read_input_tokens": 285480,
+              "cache_creation_input_tokens": 1139,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 1139
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 70,
+        "list_cost_usd": 5.749309000000001
+      },
+      {
+        "id": "95e3cd62-62b9-4c95-a3ed-06314cc54d1d:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 18,
+          "cache_creation_input_tokens": 19781,
+          "cache_read_input_tokens": 162059,
+          "output_tokens": 3360,
+          "output_tokens_details": {
+            "thinking_tokens": 505
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 19781,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 629,
+              "cache_read_input_tokens": 23242,
+              "cache_creation_input_tokens": 589,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 589
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 9,
+        "list_cost_usd": 0.2589229
+      },
+      {
+        "id": "ses_ea9e5d4bdffeOmR5VI41rJAEcv:msg_1561a2ca1001g2IdCiHWqm6jbQ:prt_1561a5909001NAIwDjgRan4Ywt",
+        "cost": 0,
+        "tokens": {
+          "total": 8597,
+          "input": 7818,
+          "output": 762,
+          "reasoning": 17,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea9e5d4bdffeOmR5VI41rJAEcv:msg_1561a590f001gvhRqYN0qGrb4K:prt_1561a7c5d0011i3EbPSdJ9IXQB",
+        "cost": 0,
+        "tokens": {
+          "total": 13553,
+          "input": 5496,
+          "output": 115,
+          "reasoning": 326,
+          "cache": {
+            "write": 0,
+            "read": 7616
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea9e5d4bdffeOmR5VI41rJAEcv:msg_1561a7c61001kg7pwaPFu3SRMs:prt_1561a83bc0019sUK2Yr6AxRGHL",
+        "cost": 0,
+        "tokens": {
+          "total": 13640,
+          "input": 505,
+          "output": 79,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 13056
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "9acc5e70-361f-4275-849a-98b26c03c05d:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 150,
+          "cache_creation_input_tokens": 323543,
+          "cache_read_input_tokens": 13953931,
+          "output_tokens": 73020,
+          "output_tokens_details": {
+            "thinking_tokens": 57350
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 323543,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 1460,
+              "cache_read_input_tokens": 324396,
+              "cache_creation_input_tokens": 1633,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 1633
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 75,
+        "list_cost_usd": 6.883353200000001
+      },
+      {
+        "id": "4031bcd2-0255-4bc4-8701-40ab5a1f8232:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 20,
+          "cache_creation_input_tokens": 38900,
+          "cache_read_input_tokens": 260936,
+          "output_tokens": 6246,
+          "output_tokens_details": {
+            "thinking_tokens": 1788
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 38900,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 574,
+              "cache_read_input_tokens": 42248,
+              "cache_creation_input_tokens": 702,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 702
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 10,
+        "list_cost_usd": 0.4883872
+      }
+    ],
+    "terminal_stop": "complete",
+    "driver": "claude",
+    "configured_model": "claude/claude-opus-5-5",
+    "zero_token_streak": 0,
+    "list_cost_usd": 21.855618999999997,
+    "previous_stops": [
+      "opencode_error",
+      "opencode_error"
+    ],
+    "claude_resets_at": 1792695600
+  },
+  "sha256": "b4f44d7aa9cc91263548535f60db8349d0ea1bd1df4aefb2135d986c7448547c",
+  "archive": "/home/user/sealed/case-20261019T055209Z-7d8a30.tar.gz.age",
+  "wipe": "deferred: VM parked for an in-place resume"
+}

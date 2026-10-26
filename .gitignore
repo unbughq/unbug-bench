@@ -1,0 +1,7 @@
+projects/medusa/node_modules/
+projects/medusa/.medusa/
+results/*
+!results/calibration-summary.json
+!results/.gitkeep
+__pycache__/
+sealed/*.tar.gz.age

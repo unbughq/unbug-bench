@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""Print boat dollars left (BOAT_CMD supported). Launchers also use --check/--finish.
+--check VMS TTL_HOURS MAX_SPEND RECORD; --finish RECORD EXIT_CODE IDS_FILE.
+--total prints every Hetzner server's cost so far (results/spend/hcloud-hosts.jsonl, live ones to now).
+Records account balance deltas, including any concurrent account activity. With
+BOAT_CMD=bin/hcloud-boat (Hetzner: no balance API) the cap uses the dearest type in HCLOUD_PLACES at its live
+Hetzner price, and the finish record prices each server's billed hours. On boat the cap uses BOAT_TYPE's rate.
+2026-10-18: a fixed cx price under-reported cpx servers 2-4x and the cap never fired; prices are now live.
+"""
+import datetime
+import decimal
+import json
+import math
+import os
+import pathlib
+import subprocess
+import sys
+
+D = decimal.Decimal
+CALL = pathlib.Path(__file__).with_name("boat-call")
+HETZNER = os.path.basename(os.environ.get("BOAT_CMD", "")) == "hcloud-boat"
+HOSTS = pathlib.Path(__file__).resolve().parents[1] / "results/spend/hcloud-hosts.jsonl"
+USD_PER_EUR = D("1.2")  # conservative upper bound for the USD cap
+BOAT_USD_PER_HOUR = {"small": D("0.018"), "default": D("0.036"), "large": D("0.072"), "xlarge": D("0.20")}  # boat new --help, 2026-10-18
+_prices = {}
+
+
+def eur_per_hour(stype, location=None):
+    """Live gross hourly list price + IPv4 at location (unknown location: the dearest); unknown types raise."""
+    if stype not in _prices:
+        info = json.loads(subprocess.check_output(["hcloud", "server-type", "describe", stype, "-o", "json"], text=True))
+        _prices[stype] = {p["location"]: D(p["price_hourly"]["gross"]) + D("0.0008") for p in info["prices"]}
+    return _prices[stype].get(location) or max(_prices[stype].values())
+
+
+def hetzner_cost(ids=None):
+    """EUR for these servers (default: every server logged): Hetzner bills each started hour from creation to deletion."""
+    events = [json.loads(l) for l in HOSTS.read_text().splitlines() if l.strip()] if HOSTS.exists() else []
+    if ids is None: ids = sorted({e["id"] for e in events if e.get("event") == "created"})
+    total = D(0)
+    for sid in ids:
+        made = [e for e in events if e.get("id") == sid and e["event"] == "created"]
+        gone = [e for e in events if e.get("id") == sid and e["event"] == "deleted"]
+        if not made:
+            continue
+        end = gone[-1]["ts"] if gone else datetime.datetime.now().timestamp()
+        hours = max(1, math.ceil((end - made[-1]["ts"]) / 3600))
+        total += hours * eur_per_hour(made[-1]["type"], made[-1].get("location"))
+    return total
+
+
+def balance():
+    data = json.loads(subprocess.check_output([str(CALL), "billing", "--json"], text=True))
+    value = D(str(data["limits"]["creditBalanceSeconds"])) / 100000
+    if not value.is_finite() or value < 0:
+        raise ValueError("invalid credit balance")
+    return value
+
+
+def now():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def write(path, data):
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    tmp.replace(path)
+
+
+def main():
+    if len(sys.argv) == 1:
+        print(balance())
+    elif sys.argv[1] == "--total":
+        print(f"Hetzner so far: EUR {hetzner_cost():.2f}")
+    elif sys.argv[1] == "--check":
+        count, hours, cap, path = sys.argv[2:]
+        count, hours, cap = int(count), D(hours), D(cap)
+        if count < 1 or not hours.is_finite() or hours <= 0 or not cap.is_finite() or cap < 0:
+            raise ValueError("VM count and TTL must be positive; max-spend must be nonnegative")
+        seconds = int((hours * 3600).to_integral_value(rounding=decimal.ROUND_CEILING))
+        hours = D(seconds) / 3600
+        before = None if HETZNER else balance()
+        if HETZNER:
+            types = {p.partition("@")[0] for p in os.environ.get("HCLOUD_PLACES", "cx33@fsn1").split()}
+            rate = max(eur_per_hour(t) for t in types) * USD_PER_EUR
+        else:
+            rate = BOAT_USD_PER_HOUR[os.environ.get("BOAT_TYPE", "default")]
+        estimate = count * hours * rate
+        allowed = (HETZNER or estimate <= before) and estimate <= cap
+        write(path, dict(started_at=now(), vms=count, ttl_seconds=seconds,
+                         estimated_usd=float(estimate), max_spend_usd=float(cap),
+                         provider="hetzner" if HETZNER else "boat",
+                         balance_before_usd=None if HETZNER else float(before), balance_after_usd=None,
+                         actual_spend_usd=None, allowed=allowed))
+        left = "Hetzner, no balance API" if HETZNER else f"balance ${before:.5f}"
+        print(f"TTL: {hours:g} h per VM; batch estimate ${estimate:.4f}; {left}; cap ${cap}", file=sys.stderr)
+        if not allowed:
+            raise ValueError("refusing launch: estimated batch cost exceeds balance or --max-spend")
+        print(seconds)
+    elif sys.argv[1] == "--finish":
+        path, code, ids_file = sys.argv[2:]
+        data = json.loads(pathlib.Path(path).read_text())
+        if data.get("finished_at"): return
+        data.update(finished_at=now(), exit_code=int(code), ids=pathlib.Path(ids_file).read_text().split())
+        if data.get("provider") == "hetzner":
+            cost = hetzner_cost(data["ids"])
+            data.update(actual_spend_eur=float(cost))
+            print(f"Actual spend (billed hours x list price): EUR {cost:.4f}", file=sys.stderr)
+            write(path, data)
+            return
+        try:
+            after = balance()
+            actual = D(str(data["balance_before_usd"])) - after
+            data.update(balance_after_usd=float(after), actual_spend_usd=float(actual))
+            print(f"Actual spend (account balance delta): ${actual:.5f}; balance ${after:.5f}", file=sys.stderr)
+        except Exception as exc:
+            data["balance_after_error"] = str(exc)
+            print(f"WARNING: actual spend unavailable: {exc}", file=sys.stderr)
+        write(path, data)
+    else:
+        raise ValueError(__doc__)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, KeyError, OSError, decimal.InvalidOperation, subprocess.SubprocessError) as exc:
+        sys.exit(f"boat-spend: {exc}")

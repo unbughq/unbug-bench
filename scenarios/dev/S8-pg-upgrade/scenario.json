@@ -1,0 +1,2 @@
+{"id": "S8", "title": "pg driver upgrade 8.16.3 to 8.23.1", "kind": "dependency",
+ "change": "Dependabot PR merged: pg 8.16.3 -> 8.23.1 (package.json and package-lock.json; pg-pool 3.14.0, pg-protocol 1.16.1, pg-connection-string 2.14.1, pg-cloudflare 1.4.1)."}

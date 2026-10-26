@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""Pass rates of timing-dependent probe guards under normal and stress traffic, with Wilson 95%
+intervals. Bench-internal measurement; probes are not contestant guards.
+
+  bin/stress-compare [--runs 30] [--guards order-sum-no-lock,delay-single-line-carts,...] [--modes normal,stress]
+"""
+import argparse, datetime, fcntl, importlib.util, importlib.machinery, json, pathlib, tempfile
+import bench
+
+loader = importlib.machinery.SourceFileLoader("verify_negative", str(bench.ROOT / "bin/verify-negative"))
+negative = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+loader.exec_module(negative)
+
+# Race window: correct one order at a time on every path, no lock (sequentially correct).
+# Delay only: single-line carts complete 300 ms late (order-only). Lock in one instance: a
+# per-process ledger of committed units (correct only when both carts hit the same process).
+PROBES = {"order-sum-no-lock": bench.ROOT / "cases/medusa-oversell/probes/order-sum-no-lock",
+          "delay-single-line-carts": {"app.patch": negative.ORDER_ONLY},
+          "per-instance-ledger": {"app.patch": negative.LEDGER}}
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--runs", type=int, default=30)
+    p.add_argument("--guards", default=",".join(PROBES))
+    p.add_argument("--modes", default="normal,stress")
+    a = p.parse_args()
+    rows = []
+    with tempfile.TemporaryDirectory(prefix="stress-probes-") as temporary, (bench.RESULTS / ".bench.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        for name in a.guards.split(","):
+            probe = PROBES.get(name, name)
+            if isinstance(probe, dict):
+                guard = pathlib.Path(temporary) / name; guard.mkdir()
+                for f, text in probe.items(): (guard / f).write_text(text)
+            else:
+                guard = pathlib.Path(probe) if pathlib.Path(probe).is_absolute() else probe
+            for mode in a.modes.split(","):
+                s = bench.run_case(str(guard), a.runs, options={"mode": "stress", "seed_base": 1} if mode == "stress" else {"mode": "normal"})
+                lo, hi = bench.wilson(s["pass"], s["runs"])
+                rows.append({"guard": name, "mode": mode, "runs": s["runs"], "pass": s["pass"], "pass_wilson95": [round(lo, 4), round(hi, 4)],
+                             **{f: s[f] for f in ("oversold", "crowd_oversold", "concurrent_oversold", "sequential_oversold", "errors", "invalid")},
+                             "results_directory": s["results_directory"]})
+                print(json.dumps(rows[-1]), flush=True)
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out = bench.RESULTS / f"stress-comparison-{stamp}.json"
+    out.write_text(json.dumps(rows, indent=2) + "\n")
+    print("| Guard | Traffic | Pass | Wilson 95% | Oversold | Crowd/burst oversold | Errors |\n|---|---|---:|---|---:|---:|---:|")
+    for r in rows:
+        print(f"| {r['guard']} | {r['mode']} | {r['pass']}/{r['runs']} | {r['pass_wilson95'][0]:.1%}–{r['pass_wilson95'][1]:.1%} | {r['oversold']} | {r['crowd_oversold']} | {r['errors']} |")
+    print(f"Evidence: {out}")
+
+
+if __name__ == "__main__":
+    main()

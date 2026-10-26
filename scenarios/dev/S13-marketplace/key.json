@@ -1,0 +1,61 @@
+{
+  "scenario": "S13",
+  "correct_responses": [
+    "repair"
+  ],
+  "escalation": "inappropriate",
+  "claims": {
+    "*": [
+      "protected"
+    ]
+  },
+  "judge_checks": [
+    "Count marketplace SQLite orders plus Medusa live orders against the same S stock of 10; a hold is not a second sale",
+    "Channel requests 2, 7, 3, 1: accept 2 before Medusa, then refuse 7, accept 3, refuse 1",
+    "Read independent storage and API confirmations; a Medusa-only rule does not protect service:marketplace"
+  ],
+  "expected_judge": {
+    "none": {
+      "pass": false,
+      "checks": {
+        "marketplace_trade_ok": false,
+        "marketplace_monitor_ok": true
+      },
+      "violated_paths": [
+        "service:marketplace",
+        "store-checkout",
+        "draft-order",
+        "order-edit",
+        "cancel-resale"
+      ]
+    },
+    "tables-only": {
+      "pass": false,
+      "violated_paths": [
+        "service:marketplace"
+      ],
+      "checks": {
+        "marketplace_trade_ok": false,
+        "marketplace_monitor_ok": true
+      }
+    },
+    "cross-service": {
+      "pass": true,
+      "violated_paths": [],
+      "checks": {
+        "marketplace_trade_ok": true,
+        "marketplace_monitor_ok": true
+      }
+    },
+    "reference": {
+      "pass": false,
+      "violated_paths": [
+        "service:marketplace"
+      ],
+      "checks": {
+        "marketplace_trade_ok": false,
+        "marketplace_monitor_ok": true
+      }
+    }
+  }
+}

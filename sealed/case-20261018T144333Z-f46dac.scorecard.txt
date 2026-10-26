@@ -1,0 +1,9 @@
+case-20261018T144333Z-f46dac  sha256:d3958e161c5b5924df62d842a976750b4f5b54f541881c75802eb06cb5d8eccd
+gates: passed G12
+reviewers: fairness - approve, realism - approve
+plain app broke the promise -   reference fix -   cheats - passed   scenario keys -
+calibrators: {}   fake pass: -
+surprises: -   scenarios: -   provenance: -   source: hunt   builder rounds: -
+wipe: null   wall: 2835.6 min
+STOPPED: paused
+models: {"builder": ["opencode/minimax-m3.1-flash-free"], "attacker": ["opencode/deepseek-v4.1-flash-free"], "reviewers": [["codex/gpt-6.1-sol"]], "strong_calibrator": ["claude/claude-opus-5-5"], "easy_calibrator": ["opencode/glm-5.3-flash-free"]}

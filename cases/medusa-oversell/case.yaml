@@ -1,0 +1,12 @@
+name: medusa-oversell
+promise: Never sell more stock than exists.
+software: Medusa
+version: 2.19.0
+limits:
+  stack_memory_mib: 3456
+  reset_target_seconds: 30
+  calibration_runs_per_guard: 30
+internals:
+  traffic: traffic/run.mjs
+  checker: checker/check.sql
+  calibration_guards: [none, refuse-all, reference]

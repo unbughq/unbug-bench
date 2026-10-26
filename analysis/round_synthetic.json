@@ -1,0 +1,4946 @@
+{
+  "measurement_round": true,
+  "synthetic": true,
+  "design_sha256": "d41d1ea6a788e277a39696ca0788987a9b82482c02ca457ff69744c59bd7c0eb",
+  "case_count": 24,
+  "tries_per_case": [
+    3,
+    2,
+    2,
+    3,
+    2,
+    2,
+    3,
+    2,
+    2,
+    3,
+    2,
+    2,
+    3,
+    2,
+    2,
+    3,
+    2,
+    2,
+    3,
+    2,
+    2,
+    3,
+    2,
+    2
+  ],
+  "bootstrap_resamples": 10000,
+  "seed": 20261017,
+  "source_sha256": {
+    "report_round.py": "bc7a22738270b0f4be95fac3d0f1c63e5d14767de3d0fd8da661e2d1589fc939",
+    "cluster_bootstrap.py": "191ac4bf0cbf3fdd7ce8095956b53d01bc96903ee92b0a3281a71069297bb1a7",
+    "steadiness.py": "bda5f9d4c0a98edbb6f98b6b4e675cb565705f4c1b245eb9b05c20c0de038a72",
+    "secondary_round.py": "9fa01b7e6c829d38b0ba3aad87e0212c4b9073b0b6cd3782ec4080c7032b0005"
+  },
+  "estimand": "Equal case, equal try within case; minutes summed and unsafe averaged over frozen maintenance checkpoints.",
+  "audit": {
+    "files": [
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-00.scorecard.json",
+        "sha256": "1aa92861732b3065f0ff673915479070c743a6f6516b6df7ea506831d981bcab"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-01.scorecard.json",
+        "sha256": "a5b33745a640e3230c4b031603ca724e9e95f876b077448195ae00f49e539f8b"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-02.scorecard.json",
+        "sha256": "845c4c65c9b047c5c529a126a0c2c4eba03040bacd1eca44360bbaac37110f8a"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-03.scorecard.json",
+        "sha256": "07432eba9ccefba87bc0356d0233f1487a8c3abca26d496533c33ae0599605d1"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-04.scorecard.json",
+        "sha256": "589bf9086e22babbee286c0cff1e40fd34d5a22f84aeaacde0fcd6e3ffc2b358"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-05.scorecard.json",
+        "sha256": "65a672aeb623d8122e630c00b17b462d652931d9188fb5fe64ca2b35c059e304"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-06.scorecard.json",
+        "sha256": "780f781750f80eb07cf370b6e287f1f35b79b4db66ab280c663328554ce11ba6"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-07.scorecard.json",
+        "sha256": "145f45e92ebc41d438c40f3a2d70c0fa4d951b149321a3c027d63605b3ec3b0f"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-08.scorecard.json",
+        "sha256": "51773bc4bd2c51c5987119fe6d4d2c7b245eb14853e41487cbf35e3f37cfd261"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-09.scorecard.json",
+        "sha256": "c933905ea9ec346e59cbd41805c80168c6170b5e9a528f4f3af0dd92a71016bb"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-10.scorecard.json",
+        "sha256": "5c6bf312649239c2154db89ddc75512a03619d519ad41d2ea046b7b601f06184"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-11.scorecard.json",
+        "sha256": "0d6ad9efd4287dbc978c6893ec8edf2a46954cba0e8a921c672cf89f20a27b92"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-12.scorecard.json",
+        "sha256": "222bb8770fed4941497175db90f99fc3bbd2a5e749773937eb0e9c3f7defb07a"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-13.scorecard.json",
+        "sha256": "01908c032f23febcab0fb3dc7d80a9e8a15d46480a737fa789b12c585df509b2"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-14.scorecard.json",
+        "sha256": "82c58950a82cbb54587c94214f51e13e743c2480110a5f42400e17a0e67057c7"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-15.scorecard.json",
+        "sha256": "59a712755865069255672109d93a4f3c48077dbeedc3ed510428b19ff9b63cfe"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-16.scorecard.json",
+        "sha256": "f89fb15bd6e032b07584dc230431f7056a8540969f81f9c39a6d2f4f0c944306"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-17.scorecard.json",
+        "sha256": "4cd87aaf5901fea58edc098e6f5ae37629af65b4c8c09341cbbd74fa2ce03466"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-18.scorecard.json",
+        "sha256": "bd5c2b5b856d077f49d0d94df1a4158ad5809eee06bf146ab346fed7cd43f869"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-19.scorecard.json",
+        "sha256": "9781a4a410a0c422a584db07a2c4cef17dd14e44320bfac9f3c4f7b9a6c8e59b"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-20.scorecard.json",
+        "sha256": "6357edb6f4dbe1443399c5779b9aadeff5d84254752a00f70fb43a07beb4b4f4"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-21.scorecard.json",
+        "sha256": "3abf8e66bfdd9da163e1998a2d1aafdfaad0c5c74bfccdf6777da8778eaeb8b8"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-22.scorecard.json",
+        "sha256": "c9abd493ce0c20bd0d03cbf82619de497481d6cfe96c1781b7320a4dd844fbff"
+      },
+      {
+        "path": "analysis/fixtures/measurement-round/synthetic-23.scorecard.json",
+        "sha256": "1e6dacb419b8125bc06cb5c2da068208b210740c05e4f193e68a8d3428006882"
+      }
+    ],
+    "included_checkpoints": 448,
+    "excluded": {
+      "establishment_or_unselected_steps": 112,
+      "other_arm_trials": 0
+    }
+  },
+  "effects": {
+    "unsafe_difference_C_minus_B": {
+      "estimate": -0.02604166666666663,
+      "ci95": [
+        -0.11111111111111105,
+        0.0572916666666666
+      ],
+      "lower_one_sided95": -0.09722222222222221,
+      "upper_one_sided95": 0.04340277777777779
+    },
+    "minutes_saving": {
+      "estimate": 0.42609510423986885,
+      "ci95": [
+        0.3009989945670862,
+        0.5296544455299462
+      ],
+      "lower_one_sided95": 0.3216838502859124,
+      "upper_one_sided95": 0.5149914926827733
+    },
+    "minutes_difference_C_minus_B": {
+      "estimate": -63.159722222222214,
+      "ci95": [
+        -85.38194444444444,
+        -41.31944444444447
+      ]
+    },
+    "minutes_per_try": {
+      "B": 148.22916666666666,
+      "C": 85.06944444444444
+    },
+    "unsafe_rate": {
+      "B": 0.1927083333333333,
+      "C": 0.16666666666666666
+    },
+    "safety_informative": true,
+    "rule_C": {
+      "safety_noninferior": true,
+      "minutes_over_30pct": true,
+      "supports_H1": true,
+      "falsifies_H1": false,
+      "inconclusive": false
+    },
+    "interpretation": "supports H1",
+    "pooled_comparison_only": {
+      "arms": {
+        "B": {
+          "unsafe": 42,
+          "checkpoints": 224,
+          "wilson95_independent": [
+            0.14181481483265373,
+            0.2437228273302824
+          ]
+        },
+        "C": {
+          "unsafe": 37,
+          "checkpoints": 224,
+          "wilson95_independent": [
+            0.12227682760533232,
+            0.2193706461406707
+          ]
+        }
+      },
+      "newcombe95_C_minus_B": [
+        -0.09304317866350126,
+        0.0485581672610567
+      ],
+      "warning": "Unpaired and unclustered; different pooled weights with unequal tries/steps; never a fallback."
+    }
+  },
+  "consistency": {
+    "B": {
+      "unsafe": {
+        "disagreement": {
+          "estimate": 0.3020833333333333,
+          "ci95": [
+            0.20138888888888887,
+            0.4166666666666667
+          ]
+        },
+        "fleiss_kappa_equal_case": {
+          "estimate": 0.029119442022667807,
+          "ci95_conditional_on_defined": [
+            -0.1457438747158375,
+            0.21593376130237946
+          ],
+          "undefined_bootstrap_samples": 0
+        },
+        "per_case_checkpoint": [
+          {
+            "case": "synthetic-00",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-00",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-00",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-00",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-01",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-01",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-01",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-01",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-03",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-03",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-03",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-03",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-04",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-04",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-04",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-04",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-06",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-06",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-06",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-06",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-07",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-07",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-07",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-07",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-09",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-09",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-09",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-09",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-10",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-10",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-10",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-10",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-12",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-12",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-12",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-12",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-13",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-13",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-13",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-13",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-15",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-15",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-15",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-15",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-16",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-16",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-16",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-16",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-18",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-18",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-18",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-18",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-19",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-19",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-19",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-19",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-21",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-21",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-21",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-21",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-22",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-22",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-22",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-22",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          }
+        ]
+      },
+      "response_correct": {
+        "disagreement": {
+          "estimate": 0.34375,
+          "ci95": [
+            0.2395833333333333,
+            0.4583333333333333
+          ]
+        },
+        "fleiss_kappa_equal_case": {
+          "estimate": 0.07905489429738843,
+          "ci95_conditional_on_defined": [
+            -0.12168893752051566,
+            0.2656041727035642
+          ],
+          "undefined_bootstrap_samples": 0
+        },
+        "per_case_checkpoint": [
+          {
+            "case": "synthetic-00",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-00",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-00",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-00",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-01",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-01",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-01",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-01",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-03",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-03",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-03",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-03",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-04",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-04",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-04",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-04",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-06",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-06",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-06",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-06",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-07",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-07",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-07",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-07",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-09",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-09",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-09",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-09",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-10",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-10",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-10",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-10",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-12",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-12",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-12",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-12",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-13",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-13",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-13",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-13",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-15",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-15",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-15",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-15",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-16",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-16",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-16",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-16",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-18",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-18",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-18",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-18",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-19",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-19",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-19",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-19",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-21",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-21",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-21",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-21",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-22",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-22",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-22",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-22",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          }
+        ]
+      }
+    },
+    "C": {
+      "unsafe": {
+        "disagreement": {
+          "estimate": 0.2916666666666667,
+          "ci95": [
+            0.20138888888888887,
+            0.38888888888888884
+          ]
+        },
+        "fleiss_kappa_equal_case": {
+          "estimate": -0.050000000000000044,
+          "ci95_conditional_on_defined": [
+            -0.20002293621819978,
+            0.13927077106993413
+          ],
+          "undefined_bootstrap_samples": 0
+        },
+        "per_case_checkpoint": [
+          {
+            "case": "synthetic-00",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-00",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-00",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-00",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-01",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-01",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-01",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-01",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-03",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-03",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-03",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-03",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-04",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-04",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-04",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-04",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-06",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-06",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-06",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-06",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-07",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-07",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-07",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-07",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-09",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-09",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-09",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-09",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-10",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-10",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-10",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-10",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-12",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-12",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-12",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-12",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-13",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-13",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-13",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-13",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-15",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-15",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-15",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-15",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-16",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-16",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-16",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-16",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-18",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-18",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-18",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-18",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-19",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-19",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-19",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-19",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-21",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-21",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-21",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-21",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-22",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-22",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-22",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-22",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          }
+        ]
+      },
+      "response_correct": {
+        "disagreement": {
+          "estimate": 0.3541666666666667,
+          "ci95": [
+            0.2534722222222222,
+            0.4583333333333333
+          ]
+        },
+        "fleiss_kappa_equal_case": {
+          "estimate": -0.04824436197544957,
+          "ci95_conditional_on_defined": [
+            -0.21862555396042718,
+            0.1422189128816086
+          ],
+          "undefined_bootstrap_samples": 0
+        },
+        "per_case_checkpoint": [
+          {
+            "case": "synthetic-00",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-00",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-00",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-00",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-01",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-01",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-01",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-01",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-02",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-03",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-03",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-03",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-03",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-04",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-04",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-04",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-04",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-05",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-06",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-06",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-06",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-06",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-07",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-07",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-07",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-07",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-08",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-09",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-09",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-09",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-09",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-10",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-10",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-10",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-10",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-11",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-12",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-12",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-12",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-12",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-13",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-13",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-13",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-13",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-14",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-15",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-15",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-15",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-15",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-16",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-16",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-16",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-16",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-17",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-18",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-18",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-18",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-18",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-19",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-19",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-19",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-19",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-20",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-21",
+            "step": 2,
+            "tries": 3,
+            "disagreeing_pairs": 2,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-21",
+            "step": 3,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-21",
+            "step": 4,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-21",
+            "step": 5,
+            "tries": 3,
+            "disagreeing_pairs": 0,
+            "pairs": 3
+          },
+          {
+            "case": "synthetic-22",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-22",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-22",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 1,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-22",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 2,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 3,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 4,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          },
+          {
+            "case": "synthetic-23",
+            "step": 5,
+            "tries": 2,
+            "disagreeing_pairs": 0,
+            "pairs": 1
+          }
+        ]
+      }
+    }
+  },
+  "variance": {
+    "coordinates": [
+      "log1p_B_minutes",
+      "log1p_C_minutes",
+      "B_unsafe_rate",
+      "C_unsafe_rate"
+    ],
+    "between_covariance": [
+      [
+        0.07916885374726107,
+        0.08277426462571547,
+        0.02276466665809022,
+        0.012662939276386564
+      ],
+      [
+        0.08277426462571547,
+        0.08798243747583372,
+        0.026950713818061182,
+        0.014514080583096473
+      ],
+      [
+        0.02276466665809022,
+        0.026950713818061182,
+        0.013440414747695122,
+        0.006431235333727612
+      ],
+      [
+        0.012662939276386566,
+        0.014514080583096474,
+        0.006431235333727613,
+        0.0031544927372585646
+      ]
+    ],
+    "within_covariance": [
+      [
+        0.1675703210101858,
+        -0.00548693674932163,
+        0.08190513134090101,
+        -0.0018957242618784602
+      ],
+      [
+        -0.00548693674932163,
+        0.3790371292619954,
+        -0.011038869975054605,
+        0.09900015278859559
+      ],
+      [
+        0.08190513134090101,
+        -0.011038869975054605,
+        0.055989583333333336,
+        -0.003038194444444444
+      ],
+      [
+        -0.0018957242618784602,
+        0.09900015278859559,
+        -0.003038194444444444,
+        0.034722222222222224
+      ]
+    ],
+    "raw_between_covariance": [
+      [
+        0.04359808988693556,
+        0.12124971649388636,
+        0.001505970466408546,
+        0.021765604706577135
+      ],
+      [
+        0.12124971649388636,
+        0.04636072488359061,
+        0.04991022541545066,
+        0.0047599156948036556
+      ],
+      [
+        0.001505970466408546,
+        0.04991022541545066,
+        0.00045289855072464316,
+        0.012608821457326894
+      ],
+      [
+        0.021765604706577135,
+        0.0047599156948036556,
+        0.012608821457326894,
+        -0.0011007950885668274
+      ]
+    ],
+    "components": {
+      "B_log1p_minutes": {
+        "between_case": {
+          "estimate": 0.07916885374726107,
+          "ci95": [
+            0.01580405020203393,
+            0.1352919102401483
+          ]
+        },
+        "between_try_within_case": {
+          "estimate": 0.1675703210101858,
+          "ci95": [
+            0.08616816512322807,
+            0.2683784485141265
+          ]
+        }
+      },
+      "C_log1p_minutes": {
+        "between_case": {
+          "estimate": 0.08798243747583372,
+          "ci95": [
+            0.0047156224300660896,
+            0.1826513306351104
+          ]
+        },
+        "between_try_within_case": {
+          "estimate": 0.3790371292619954,
+          "ci95": [
+            0.20594785935785934,
+            0.5703475022091522
+          ]
+        }
+      },
+      "C_minus_B_log1p_minutes": {
+        "between_case": {
+          "estimate": 0.0016027619716638547,
+          "ci95": [
+            0.0004548374419069225,
+            0.033691229054120274
+          ]
+        },
+        "between_try_within_case": {
+          "estimate": 0.5575813237708245,
+          "ci95": [
+            0.23643197702736005,
+            0.9919973487041405
+          ]
+        }
+      },
+      "B_unsafe_rate": {
+        "between_case": {
+          "estimate": 0.013440414747695122,
+          "ci95": [
+            0.002357577092085509,
+            0.024084277854837948
+          ]
+        },
+        "between_try_within_case": {
+          "estimate": 0.055989583333333336,
+          "ci95": [
+            0.02777777777777778,
+            0.08984375
+          ]
+        }
+      },
+      "C_unsafe_rate": {
+        "between_case": {
+          "estimate": 0.0031544927372585646,
+          "ci95": [
+            9.452652862382208e-05,
+            0.012303935985165116
+          ]
+        },
+        "between_try_within_case": {
+          "estimate": 0.034722222222222224,
+          "ci95": [
+            0.013888888888888888,
+            0.06249999999999999
+          ]
+        }
+      },
+      "C_minus_B_unsafe_rate": {
+        "between_case": {
+          "estimate": 0.003732436817498462,
+          "ci95": [
+            0.0005795567733507924,
+            0.013716892242805399
+          ]
+        },
+        "between_try_within_case": {
+          "estimate": 0.09678819444444445,
+          "ci95": [
+            0.0451388888888889,
+            0.15929904513888873
+          ]
+        }
+      }
+    },
+    "method": "Equal-case within covariance; sample covariance of case means minus mean(S_i/n_i). Negative eigenvalues projected to zero; raw estimates retained. Case-only percentile bootstrap.",
+    "zero_minute_transform": "log(1 + total charged minutes); includes genuine zeros, no dropped tries.",
+    "within_interpretation": "Includes stochastic checkpoint outcomes, not a separately identified latent agent propensity."
+  },
+  "next_round_sizing": {
+    "rule": "After all frozen measurement cases are scored, fit equal-case random-effects covariances to log(1 + charged minutes) and unsafe checkpoint fractions per try. Use the measured-component generator in steadiness.py, retaining case, try and paired covariance, under a fixed planning alternative of 50% time saving and zero safety difference, at the measured baseline mean minutes. For 2 and 3 tries separately, scan the frozen case grid [24,36,48,72,96,128,192,256,384,512]. Use 2500 simulated studies and 999 paired case-then-try bootstrap draws per study, seed 20261017; apply fixed-sample rule C (one-sided 95%, saving >30%, safety <=+5 points, collapsed-safety guard). Select the first grid size whose Wilson 95% Monte Carlo LOWER power bound is at least 80%; stop that design's simulation scan there and report every tested grid point. Check moment reproduction and simulate each null boundary at the candidate size; withhold a recommendation if moments differ materially, any boundary rejection LOWER Monte Carlo bound exceeds 5%, safety is collapsed, or baseline minutes are zero. If none qualifies, report beyond 512/undetermined, never extrapolate. This sizes a future separately frozen round, never adds tries or cases to this measurement round, and is conditional on estimated components and the Gaussian summary model; it does not include component-estimation uncertainty.",
+    "planning_only": true,
+    "quick_validation_only": false,
+    "components_between": [
+      [
+        0.003732436817498462,
+        -0.010101727381703654,
+        -0.012436633234964708
+      ],
+      [
+        -0.010101727381703656,
+        0.07916885374726107,
+        0.08277426462571547
+      ],
+      [
+        -0.01243663323496471,
+        0.08277426462571547,
+        0.08798243747583372
+      ]
+    ],
+    "components_within": [
+      [
+        0.09678819444444445,
+        -0.08380085560277947,
+        0.11003902276365018
+      ],
+      [
+        -0.08380085560277947,
+        0.1675703210101858,
+        -0.00548693674932163
+      ],
+      [
+        0.11003902276365018,
+        -0.00548693674932163,
+        0.3790371292619954
+      ]
+    ],
+    "assumptions": "Gaussian case/try summary effects with measured cross-covariances; bounded rate difference, censored shifted-lognormal minutes. Does not simulate discrete checkpoints, or unidentified failures. Component uncertainty excluded.",
+    "designs": {
+      "2": {
+        "scan": [
+          {
+            "cases": 24,
+            "joint": {
+              "count": 467,
+              "probability": 0.1868,
+              "monte_carlo95": [
+                0.1720067291425725,
+                0.20255431006252797
+              ]
+            },
+            "minutes": {
+              "count": 1962,
+              "probability": 0.7848,
+              "monte_carlo95": [
+                0.768260109606767,
+                0.8004659952284418
+              ]
+            },
+            "safety": {
+              "count": 475,
+              "probability": 0.19,
+              "monte_carlo95": [
+                0.17510213955829382,
+                0.20584908060001125
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          },
+          {
+            "cases": 36,
+            "joint": {
+              "count": 648,
+              "probability": 0.2592,
+              "monte_carlo95": [
+                0.24240169697609207,
+                0.2767371862952623
+              ]
+            },
+            "minutes": {
+              "count": 2287,
+              "probability": 0.9148,
+              "monte_carlo95": [
+                0.9032098797714144,
+                0.9251173262877307
+              ]
+            },
+            "safety": {
+              "count": 653,
+              "probability": 0.2612,
+              "monte_carlo95": [
+                0.24435588717871837,
+                0.2787768591883889
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          },
+          {
+            "cases": 48,
+            "joint": {
+              "count": 814,
+              "probability": 0.3256,
+              "monte_carlo95": [
+                0.307510987899095,
+                0.3442241501512548
+              ]
+            },
+            "minutes": {
+              "count": 2399,
+              "probability": 0.9596,
+              "monte_carlo95": [
+                0.9511504627379975,
+                0.966639276666012
+              ]
+            },
+            "safety": {
+              "count": 816,
+              "probability": 0.3264,
+              "monte_carlo95": [
+                0.30829814783376747,
+                0.34503453545488344
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          },
+          {
+            "cases": 72,
+            "joint": {
+              "count": 1115,
+              "probability": 0.446,
+              "monte_carlo95": [
+                0.4266126254023729,
+                0.4655530710122996
+              ]
+            },
+            "minutes": {
+              "count": 2483,
+              "probability": 0.9932,
+              "monte_carlo95": [
+                0.9891366053742684,
+                0.9957500340383892
+              ]
+            },
+            "safety": {
+              "count": 1115,
+              "probability": 0.446,
+              "monte_carlo95": [
+                0.4266126254023729,
+                0.4655530710122996
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          },
+          {
+            "cases": 96,
+            "joint": {
+              "count": 1466,
+              "probability": 0.5864,
+              "monte_carlo95": [
+                0.5669770009174765,
+                0.6055578848190476
+              ]
+            },
+            "minutes": {
+              "count": 2500,
+              "probability": 1.0,
+              "monte_carlo95": [
+                0.9984657739382173,
+                0.9999999999999999
+              ]
+            },
+            "safety": {
+              "count": 1466,
+              "probability": 0.5864,
+              "monte_carlo95": [
+                0.5669770009174765,
+                0.6055578848190476
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          },
+          {
+            "cases": 128,
+            "joint": {
+              "count": 1714,
+              "probability": 0.6856,
+              "monte_carlo95": [
+                0.6671276815089264,
+                0.7035028137769399
+              ]
+            },
+            "minutes": {
+              "count": 2500,
+              "probability": 1.0,
+              "monte_carlo95": [
+                0.9984657739382173,
+                0.9999999999999999
+              ]
+            },
+            "safety": {
+              "count": 1714,
+              "probability": 0.6856,
+              "monte_carlo95": [
+                0.6671276815089264,
+                0.7035028137769399
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          },
+          {
+            "cases": 192,
+            "joint": {
+              "count": 2138,
+              "probability": 0.8552,
+              "monte_carlo95": [
+                0.8408606696739838,
+                0.8684494161317258
+              ]
+            },
+            "minutes": {
+              "count": 2500,
+              "probability": 1.0,
+              "monte_carlo95": [
+                0.9984657739382173,
+                0.9999999999999999
+              ]
+            },
+            "safety": {
+              "count": 2138,
+              "probability": 0.8552,
+              "monte_carlo95": [
+                0.8408606696739838,
+                0.8684494161317258
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          }
+        ],
+        "candidate_cases": 192,
+        "recommended_cases": 192,
+        "boundary_checks": {
+          "time_at_30pct": {
+            "joint": {
+              "count": 81,
+              "probability": 0.0324,
+              "monte_carlo95": [
+                0.026145100046629288,
+                0.04008970816634967
+              ]
+            },
+            "minutes": {
+              "count": 81,
+              "probability": 0.0324,
+              "monte_carlo95": [
+                0.026145100046629288,
+                0.04008970816634967
+              ]
+            },
+            "safety": {
+              "count": 2072,
+              "probability": 0.8288,
+              "monte_carlo95": [
+                0.8135325295557718,
+                0.8430585633859999
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          },
+          "safety_at_plus5pt": {
+            "joint": {
+              "count": 60,
+              "probability": 0.024,
+              "monte_carlo95": [
+                0.018691166080953572,
+                0.03076941712986333
+              ]
+            },
+            "minutes": {
+              "count": 2500,
+              "probability": 1.0,
+              "monte_carlo95": [
+                0.9984657739382173,
+                0.9999999999999999
+              ]
+            },
+            "safety": {
+              "count": 60,
+              "probability": 0.024,
+              "monte_carlo95": [
+                0.018691166080953572,
+                0.03076941712986333
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          }
+        },
+        "status": "conditional recommendation"
+      },
+      "3": {
+        "scan": [
+          {
+            "cases": 24,
+            "joint": {
+              "count": 568,
+              "probability": 0.2272,
+              "monte_carlo95": [
+                0.21120041180875906,
+                0.24403666193054943
+              ]
+            },
+            "minutes": {
+              "count": 2238,
+              "probability": 0.8952,
+              "monte_carlo95": [
+                0.8825810115219681,
+                0.906606336198799
+              ]
+            },
+            "safety": {
+              "count": 572,
+              "probability": 0.2288,
+              "monte_carlo95": [
+                0.21275740135618582,
+                0.24567476285972495
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          },
+          {
+            "cases": 36,
+            "joint": {
+              "count": 868,
+              "probability": 0.3472,
+              "monte_carlo95": [
+                0.3287852847716168,
+                0.36608357471286396
+              ]
+            },
+            "minutes": {
+              "count": 2426,
+              "probability": 0.9704,
+              "monte_carlo95": [
+                0.9630007470113219,
+                0.9763558531097533
+              ]
+            },
+            "safety": {
+              "count": 870,
+              "probability": 0.348,
+              "monte_carlo95": [
+                0.3295740453639392,
+                0.3668923593588427
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          },
+          {
+            "cases": 48,
+            "joint": {
+              "count": 1074,
+              "probability": 0.4296,
+              "monte_carlo95": [
+                0.4103182103496594,
+                0.44909780867983956
+              ]
+            },
+            "minutes": {
+              "count": 2482,
+              "probability": 0.9928,
+              "monte_carlo95": [
+                0.9886470922061272,
+                0.9954407745873799
+              ]
+            },
+            "safety": {
+              "count": 1074,
+              "probability": 0.4296,
+              "monte_carlo95": [
+                0.4103182103496594,
+                0.44909780867983956
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          },
+          {
+            "cases": 72,
+            "joint": {
+              "count": 1379,
+              "probability": 0.5516,
+              "monte_carlo95": [
+                0.5320406436443456,
+                0.5710010242260785
+              ]
+            },
+            "minutes": {
+              "count": 2500,
+              "probability": 1.0,
+              "monte_carlo95": [
+                0.9984657739382173,
+                0.9999999999999999
+              ]
+            },
+            "safety": {
+              "count": 1379,
+              "probability": 0.5516,
+              "monte_carlo95": [
+                0.5320406436443456,
+                0.5710010242260785
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          },
+          {
+            "cases": 96,
+            "joint": {
+              "count": 1745,
+              "probability": 0.698,
+              "monte_carlo95": [
+                0.6797100897686856,
+                0.7156823567108483
+              ]
+            },
+            "minutes": {
+              "count": 2500,
+              "probability": 1.0,
+              "monte_carlo95": [
+                0.9984657739382173,
+                0.9999999999999999
+              ]
+            },
+            "safety": {
+              "count": 1745,
+              "probability": 0.698,
+              "monte_carlo95": [
+                0.6797100897686856,
+                0.7156823567108483
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          },
+          {
+            "cases": 128,
+            "joint": {
+              "count": 2057,
+              "probability": 0.8228,
+              "monte_carlo95": [
+                0.8073402713472446,
+                0.8372692323072686
+              ]
+            },
+            "minutes": {
+              "count": 2500,
+              "probability": 1.0,
+              "monte_carlo95": [
+                0.9984657739382173,
+                0.9999999999999999
+              ]
+            },
+            "safety": {
+              "count": 2057,
+              "probability": 0.8228,
+              "monte_carlo95": [
+                0.8073402713472446,
+                0.8372692323072686
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          }
+        ],
+        "candidate_cases": 128,
+        "recommended_cases": 128,
+        "boundary_checks": {
+          "time_at_30pct": {
+            "joint": {
+              "count": 64,
+              "probability": 0.0256,
+              "monte_carlo95": [
+                0.02009883505683858,
+                0.03255683863058062
+              ]
+            },
+            "minutes": {
+              "count": 64,
+              "probability": 0.0256,
+              "monte_carlo95": [
+                0.02009883505683858,
+                0.03255683863058062
+              ]
+            },
+            "safety": {
+              "count": 2044,
+              "probability": 0.8176,
+              "monte_carlo95": [
+                0.801978763599136,
+                0.8322466960064197
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          },
+          "safety_at_plus5pt": {
+            "joint": {
+              "count": 57,
+              "probability": 0.0228,
+              "monte_carlo95": [
+                0.0176398648289902,
+                0.029424400524374984
+              ]
+            },
+            "minutes": {
+              "count": 2500,
+              "probability": 1.0,
+              "monte_carlo95": [
+                0.9984657739382173,
+                0.9999999999999999
+              ]
+            },
+            "safety": {
+              "count": 57,
+              "probability": 0.0228,
+              "monte_carlo95": [
+                0.0176398648289902,
+                0.029424400524374984
+              ]
+            },
+            "collapsed_safety": {
+              "count": 0,
+              "probability": 0.0,
+              "monte_carlo95": [
+                0,
+                0.0015342260617824603
+              ]
+            }
+          }
+        },
+        "status": "conditional recommendation"
+      }
+    },
+    "generator_check": {
+      "studies": 3000,
+      "diagnostic_tries": 12,
+      "variance_checks": [
+        {
+          "component": "between",
+          "contrast": [
+            1.0,
+            0.0,
+            0.0
+          ],
+          "target": 0.003732436817498462,
+          "achieved": 0.0037532404164640036,
+          "tolerance": 0.0009331092043746155,
+          "acceptable": true
+        },
+        {
+          "component": "between",
+          "contrast": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "target": 0.07916885374726107,
+          "achieved": 0.07750341206936806,
+          "tolerance": 0.019792213436815267,
+          "acceptable": true
+        },
+        {
+          "component": "between",
+          "contrast": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "target": 0.08798243747583372,
+          "achieved": 0.08833312182631267,
+          "tolerance": 0.02199560936895843,
+          "acceptable": true
+        },
+        {
+          "component": "between",
+          "contrast": [
+            3.154077761694967,
+            -2.0131722996536094,
+            0.0
+          ],
+          "target": 0.48627746403365385,
+          "achieved": 0.47752823810289924,
+          "tolerance": 0.12156936600841346,
+          "acceptable": true
+        },
+        {
+          "component": "between",
+          "contrast": [
+            3.154077761694967,
+            0.0,
+            -1.4632969308501966
+          ],
+          "target": 0.3403212704740287,
+          "achieved": 0.3365059691237305,
+          "tolerance": 0.08508031761850718,
+          "acceptable": true
+        },
+        {
+          "component": "between",
+          "contrast": [
+            0.0,
+            2.0131722996536094,
+            -1.4632969308501966
+          ],
+          "target": 0.021567570294388768,
+          "achieved": 0.022727302311567537,
+          "tolerance": 0.005422108285326527,
+          "acceptable": true
+        },
+        {
+          "component": "within",
+          "contrast": [
+            1.0,
+            0.0,
+            0.0
+          ],
+          "target": 0.09678819444444445,
+          "achieved": 0.09654993662886724,
+          "tolerance": 0.024197048611111112,
+          "acceptable": true
+        },
+        {
+          "component": "within",
+          "contrast": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "target": 0.1675703210101858,
+          "achieved": 0.16797979522120265,
+          "tolerance": 0.04189258025254645,
+          "acceptable": true
+        },
+        {
+          "component": "within",
+          "contrast": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "target": 0.3790371292619954,
+          "achieved": 0.38008137031687245,
+          "tolerance": 0.09475928231549885,
+          "acceptable": true
+        },
+        {
+          "component": "within",
+          "contrast": [
+            3.154077761694967,
+            -2.0131722996536094,
+            0.0
+          ],
+          "target": 2.706229370323544,
+          "achieved": 2.705307155089319,
+          "tolerance": 0.676557342580886,
+          "acceptable": true
+        },
+        {
+          "component": "within",
+          "contrast": [
+            3.154077761694967,
+            0.0,
+            -1.4632969308501966
+          ],
+          "target": 0.7587399019023668,
+          "achieved": 0.7584090722010605,
+          "tolerance": 0.1896849754755917,
+          "acceptable": true
+        },
+        {
+          "component": "within",
+          "contrast": [
+            0.0,
+            2.0131722996536094,
+            -1.4632969308501966
+          ],
+          "target": 1.523075766732733,
+          "achieved": 1.5273859138066272,
+          "tolerance": 0.38076894168318326,
+          "acceptable": true
+        }
+      ],
+      "minute_means": [
+        147.96722418001409,
+        74.08163509157906
+      ],
+      "target_minute_means": [
+        148.22916666666666,
+        74.11458333333333
+      ],
+      "acceptable": true
+    },
+    "simulations": 2500,
+    "bootstrap_resamples": 999,
+    "case_grid": [
+      24,
+      36,
+      48,
+      72,
+      96,
+      128,
+      192,
+      256,
+      384,
+      512
+    ],
+    "seed": 20261017
+  },
+  "third_try_subset_rule": "Freeze case IDs, maintenance steps, paired try IDs and the third-try subset before any scores are seen; choose the subset independently of outcomes (prefer a seeded random subset balanced by writer family). Average checkpoints within try for safety; sum minutes within try; average tries within case, then cases equally. Resample paired cases and then paired tries, retaining each selected case's original try count and all checkpoints. Third-try cases get no extra case weight. A fixed subset is unbiased for mean minutes/rates conditional on these cases if tries are exchangeable and subset membership is outcome-independent. The saving ratio and kappa have ordinary finite-sample nonlinear bias; no exact unbiasedness is claimed for them. Missing planned tries are an error, not a new subset.",
+  "subset_simulation": {
+    "simulations": 20000,
+    "seed": 41,
+    "rate_truth": 0.3499999999999999,
+    "equal_case_rate_mean": 0.35022777777777775,
+    "rate_bias": 0.0002277777777778267,
+    "rate_bias_mc95": [
+      -0.00059170498752698,
+      0.0010472605430826335
+    ],
+    "naive_pooled_rate_mean": 0.38018035714285714,
+    "minutes_truth": 35.0,
+    "equal_case_minutes_mean": 35.00212609976275,
+    "minutes_bias_mc95": [
+      -0.0035330486089510385,
+      0.007785248134446864
+    ],
+    "note": "Checkpoint rate and minute means are unbiased; the ratio saving need not be exactly unbiased."
+  },
+  "limitations": [
+    "Percentile cluster bootstrap coverage is approximate with 24 cases, especially rare failures.",
+    "Collapsed safety cannot certify non-inferiority: an empirical bootstrap cannot invent unseen failures.",
+    "Kappa depends on prevalence; undefined when every label is identical. Read plain disagreement first.",
+    "Variance estimates are noisy at 2\u20133 tries, assume exchangeable tries, and truncate negative component eigenvalues.",
+    "A 95% interval is uncertainty under this case-generating design, not a guarantee for production.",
+    "Freeze design, subset, scoring and script hashes before scoring; run once after completion. The script cannot verify when a file was frozen."
+  ],
+  "secondary": {
+    "secondary_only": true,
+    "quick_validation_only": false,
+    "plan": {
+      "chosen_before_scoring": true,
+      "decision_use": "none; rule C alone decides",
+      "bayesian_priors": {
+        "sceptical": {
+          "saving_mean": 0.0,
+          "saving_sd": 0.35,
+          "safety_mean": 0.0,
+          "safety_sd": 0.1
+        },
+        "neutral_flat": {
+          "saving_mean": 0.0,
+          "saving_sd": 1.5,
+          "safety_mean": 0.0,
+          "safety_sd": 0.25
+        },
+        "optimistic": {
+          "saving_mean": 0.5,
+          "saving_sd": 0.35,
+          "safety_mean": -0.03,
+          "safety_sd": 0.1
+        }
+      },
+      "bayesian_likelihood": "Joint Gaussian paired try summaries (B minutes/100, C minutes/100, C-B unsafe fraction), case and try covariance; bounded population effects, not bounded Gaussian observations",
+      "bayesian_covariance_prior": "Independent inverse-Wishart G,W: df=5, scale=diag(.25,.25,.01); prior mean component SD scales 50 minutes, 50 minutes, 10 safety points; heavy tails; same for every effect prior",
+      "bayesian_baseline_prior": "log(B population mean minutes/100) Normal(0,2.5); saving <1; safety difference in [-1,1]",
+      "bayesian_draws_per_chain": 2000,
+      "bayesian_burn_in": 1000,
+      "bayesian_chains": 2,
+      "calibration_studies_per_scenario": 49,
+      "calibration_draws_per_chain": 600,
+      "calibration_burn_in": 400,
+      "calibration_prior": "sceptical",
+      "calibration_seed": 20261019,
+      "calibration_generator": "steadiness.generate_batch: binary checkpoints and discrete charges, base unsafe .15, base minutes 30/checkpoint, level 0; same 24-case unequal-try design as fixture",
+      "calibration_note": "Shorter chains for computational calibration; record diagnostics and threshold Monte Carlo ambiguity. Model-conditional error rate, not a universal frequentist guarantee.",
+      "mixed_model_bootstrap": 199,
+      "logistic_quadrature_nodes_per_dimension": 5,
+      "mixed_sizing_agreement": "Both fits must converge without singularity or quadrature sensitivity; each model marginal and paired variance within 25% of reference (absolute tolerance 1e-5). Reference cross-outcome covariance retained and resulting covariance projected PSD only if relative change <=10%. Reference sizes remain primary; model feeds a power sensitivity at the reference candidate sizes.",
+      "cuped_folds": 4,
+      "seed": 20261017,
+      "subgroups": []
+    },
+    "bayesian": {
+      "primary_prior": "sceptical",
+      "sensitivity": {
+        "sceptical": {
+          "probabilities": {
+            "saving_over_30pct": 0.9635,
+            "safety_at_most_plus5pt": 0.9725,
+            "both": 0.9505
+          },
+          "credible95": {
+            "saving": [
+              0.28946038531005897,
+              0.510421683532408
+            ],
+            "safety_difference": [
+              -0.08201798683279293,
+              0.05054740353960428
+            ]
+          },
+          "posterior_mean": {
+            "saving": 0.406589607041346,
+            "safety_difference": -0.01357480843013145
+          },
+          "posterior_probability_mcse": [
+            0.003247185640155261,
+            0.0027315166318371067,
+            0.00363560195650798
+          ],
+          "diagnostics": {
+            "split_rhat": [
+              1.0007346272183142,
+              1.000776305403569
+            ],
+            "ess": [
+              3797.357802599198,
+              3895.9495077025144
+            ],
+            "adequate": true,
+            "constant_coordinates": []
+          },
+          "indicator_diagnostics": {
+            "split_rhat": [
+              1.0013459028440734,
+              1.0,
+              1.0014616594651766
+            ],
+            "ess": [
+              3345.448405311289,
+              3599.3401961143404,
+              3567.302795225986
+            ],
+            "adequate": true,
+            "constant_coordinates": []
+          },
+          "mean_update_acceptance": [
+            0.8211111111111111,
+            0.8148888888888889
+          ],
+          "draws_per_chain": 2000,
+          "burn_in": 1000,
+          "warning": "Gaussian try-summary approximation; may assign impossible observation values. This is a joint hierarchical posterior with full covariance uncertainty; not a logistic Bayesian GLMM or a rule-C decision.",
+          "threshold_095_mc_ambiguous": {
+            "saving_over_30pct": false,
+            "safety_at_most_plus5pt": false,
+            "both": true
+          }
+        },
+        "neutral_flat": {
+          "probabilities": {
+            "saving_over_30pct": 0.974,
+            "safety_at_most_plus5pt": 0.971,
+            "both": 0.958
+          },
+          "credible95": {
+            "saving": [
+              0.29926130002903883,
+              0.5302217976268314
+            ],
+            "safety_difference": [
+              -0.09297283426990557,
+              0.052666953337793476
+            ]
+          },
+          "posterior_mean": {
+            "saving": 0.41829094935622224,
+            "safety_difference": -0.01918507715988422
+          },
+          "posterior_probability_mcse": [
+            0.0028513240646390755,
+            0.002849527537181097,
+            0.00366737901606513
+          ],
+          "diagnostics": {
+            "split_rhat": [
+              1.0,
+              1.0
+            ],
+            "ess": [
+              3659.4382822219964,
+              4000.0
+            ],
+            "adequate": true,
+            "constant_coordinates": []
+          },
+          "indicator_diagnostics": {
+            "split_rhat": [
+              1.0,
+              1.0002458234872997,
+              1.0
+            ],
+            "ess": [
+              3128.6768545439,
+              3481.594854907781,
+              2999.393006611464
+            ],
+            "adequate": true,
+            "constant_coordinates": []
+          },
+          "mean_update_acceptance": [
+            0.9145555555555556,
+            0.9066666666666666
+          ],
+          "draws_per_chain": 2000,
+          "burn_in": 1000,
+          "warning": "Gaussian try-summary approximation; may assign impossible observation values. This is a joint hierarchical posterior with full covariance uncertainty; not a logistic Bayesian GLMM or a rule-C decision.",
+          "threshold_095_mc_ambiguous": {
+            "saving_over_30pct": false,
+            "safety_at_most_plus5pt": false,
+            "both": false
+          }
+        },
+        "optimistic": {
+          "probabilities": {
+            "saving_over_30pct": 0.985,
+            "safety_at_most_plus5pt": 0.984,
+            "both": 0.9745
+          },
+          "credible95": {
+            "saving": [
+              0.3144324786205394,
+              0.5278451398771463
+            ],
+            "safety_difference": [
+              -0.08801767782373479,
+              0.044058830402862084
+            ]
+          },
+          "posterior_mean": {
+            "saving": 0.42421715623937123,
+            "safety_difference": -0.022655992758678745
+          },
+          "posterior_probability_mcse": [
+            0.0019438722825601015,
+            0.0020490786826938,
+            0.0025396651141243623
+          ],
+          "diagnostics": {
+            "split_rhat": [
+              1.0,
+              1.0
+            ],
+            "ess": [
+              4000.0,
+              3978.3983849436863
+            ],
+            "adequate": true,
+            "constant_coordinates": []
+          },
+          "indicator_diagnostics": {
+            "split_rhat": [
+              1.0,
+              1.000156312289703,
+              1.0000163205208545
+            ],
+            "ess": [
+              3941.2515016326674,
+              3777.5967597204103,
+              3870.1820511857727
+            ],
+            "adequate": true,
+            "constant_coordinates": []
+          },
+          "mean_update_acceptance": [
+            0.9064444444444445,
+            0.9075555555555556
+          ],
+          "draws_per_chain": 2000,
+          "burn_in": 1000,
+          "warning": "Gaussian try-summary approximation; may assign impossible observation values. This is a joint hierarchical posterior with full covariance uncertainty; not a logistic Bayesian GLMM or a rule-C decision.",
+          "threshold_095_mc_ambiguous": {
+            "saving_over_30pct": false,
+            "safety_at_most_plus5pt": false,
+            "both": false
+          }
+        }
+      },
+      "calibration": {
+        "studies_per_scenario": 49,
+        "prior": "sceptical",
+        "draws_per_chain": 600,
+        "burn_in": 400,
+        "seed": 20261019,
+        "generator": "steadiness.generate_batch: binary checkpoints and discrete charges, base unsafe .15, base minutes 30/checkpoint, level 0; same 24-case unequal-try design as fixture",
+        "scenarios": {
+          "no_difference": {
+            "true_saving": 0.0,
+            "true_safety_difference": 0.0,
+            "false_or_boundary_claims": [
+              "saving",
+              "both"
+            ],
+            "posterior_over_095": {
+              "saving": {
+                "count": 0,
+                "rate": 0.0,
+                "monte_carlo95": [
+                  0,
+                  0.07269781922049635
+                ],
+                "threshold_mc_ambiguous": 0
+              },
+              "safety": {
+                "count": 19,
+                "rate": 0.3877551020408163,
+                "monte_carlo95": [
+                  0.26429011711735684,
+                  0.5275400055647955
+                ],
+                "threshold_mc_ambiguous": 11
+              },
+              "both": {
+                "count": 0,
+                "rate": 0.0,
+                "monte_carlo95": [
+                  0,
+                  0.07269781922049635
+                ],
+                "threshold_mc_ambiguous": 0
+              }
+            },
+            "poor_chain_diagnostics": 0,
+            "note": "No-difference safety non-inferiority is true, so its threshold crossing alone is not a false finding. All studies, including poor diagnostics, remain in the denominator; this is algorithm calibration."
+          },
+          "time_boundary": {
+            "true_saving": 0.3,
+            "true_safety_difference": 0.0,
+            "false_or_boundary_claims": [
+              "saving",
+              "both"
+            ],
+            "posterior_over_095": {
+              "saving": {
+                "count": 0,
+                "rate": 0.0,
+                "monte_carlo95": [
+                  0,
+                  0.07269781922049635
+                ],
+                "threshold_mc_ambiguous": 0
+              },
+              "safety": {
+                "count": 16,
+                "rate": 0.32653061224489793,
+                "monte_carlo95": [
+                  0.2120749700181187,
+                  0.46620794685429845
+                ],
+                "threshold_mc_ambiguous": 7
+              },
+              "both": {
+                "count": 0,
+                "rate": 0.0,
+                "monte_carlo95": [
+                  0,
+                  0.07269781922049635
+                ],
+                "threshold_mc_ambiguous": 0
+              }
+            },
+            "poor_chain_diagnostics": 0,
+            "note": "No-difference safety non-inferiority is true, so its threshold crossing alone is not a false finding. All studies, including poor diagnostics, remain in the denominator; this is algorithm calibration."
+          },
+          "safety_boundary": {
+            "true_saving": 0.5,
+            "true_safety_difference": 0.05,
+            "false_or_boundary_claims": [
+              "safety",
+              "both"
+            ],
+            "posterior_over_095": {
+              "saving": {
+                "count": 15,
+                "rate": 0.30612244897959184,
+                "monte_carlo95": [
+                  0.19515491268006574,
+                  0.4452789355891064
+                ],
+                "threshold_mc_ambiguous": 6
+              },
+              "safety": {
+                "count": 0,
+                "rate": 0.0,
+                "monte_carlo95": [
+                  0,
+                  0.07269781922049635
+                ],
+                "threshold_mc_ambiguous": 0
+              },
+              "both": {
+                "count": 0,
+                "rate": 0.0,
+                "monte_carlo95": [
+                  0,
+                  0.07269781922049635
+                ],
+                "threshold_mc_ambiguous": 0
+              }
+            },
+            "poor_chain_diagnostics": 1,
+            "note": "No-difference safety non-inferiority is true, so its threshold crossing alone is not a false finding. All studies, including poor diagnostics, remain in the denominator; this is algorithm calibration."
+          },
+          "both_boundaries": {
+            "true_saving": 0.3,
+            "true_safety_difference": 0.05,
+            "false_or_boundary_claims": [
+              "saving",
+              "safety",
+              "both"
+            ],
+            "posterior_over_095": {
+              "saving": {
+                "count": 1,
+                "rate": 0.02040816326530612,
+                "monte_carlo95": [
+                  0.0036116725898252544,
+                  0.10693521523391615
+                ],
+                "threshold_mc_ambiguous": 1
+              },
+              "safety": {
+                "count": 1,
+                "rate": 0.02040816326530612,
+                "monte_carlo95": [
+                  0.0036116725898252544,
+                  0.10693521523391615
+                ],
+                "threshold_mc_ambiguous": 0
+              },
+              "both": {
+                "count": 0,
+                "rate": 0.0,
+                "monte_carlo95": [
+                  0,
+                  0.07269781922049635
+                ],
+                "threshold_mc_ambiguous": 0
+              }
+            },
+            "poor_chain_diagnostics": 0,
+            "note": "No-difference safety non-inferiority is true, so its threshold crossing alone is not a false finding. All studies, including poor diagnostics, remain in the denominator; this is algorithm calibration."
+          }
+        }
+      },
+      "interpretation": "A posterior around 70% is weak evidence, not a finding. Posterior probabilities never change rule C; priors and Gaussian working-likelihood assumptions matter."
+    },
+    "mixed_effects": {
+      "log_minutes": {
+        "method": "Gaussian REML on log(1+charged minutes); try covariance is within-case residual covariance",
+        "converged": true,
+        "optimizer_message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
+        "boundary_or_singular": true,
+        "covariance_eigenvalues": [
+          0.0,
+          0.19320101501581194,
+          0.12860850123006115,
+          0.29822999777899295
+        ],
+        "fixed_effect_B_C": [
+          4.901812213109487,
+          4.259082953002394
+        ],
+        "C_minus_B": -0.6427292601070933,
+        "between_case_covariance": [
+          [
+            0.0730431121342915,
+            0.09368408175349859
+          ],
+          [
+            0.09368408175349859,
+            0.12015790288152046
+          ]
+        ],
+        "within_case_try_covariance": [
+          [
+            0.13145934560218434,
+            0.021804521897844233
+          ],
+          [
+            0.021804521897844233,
+            0.29537915340686977
+          ]
+        ],
+        "bootstrap_requested": 199,
+        "bootstrap_successes": 199,
+        "bootstrap_failed": 0,
+        "bootstrap_boundary_fits": 199,
+        "interval_method": "case-bootstrap refitting, no Wald intervals; conditional on successful fits",
+        "bootstrap_ci95": {
+          "C_minus_B": [
+            -0.7671361344910694,
+            -0.5371801363957524
+          ],
+          "case_variance_B": [
+            0.01802722773004557,
+            0.11930220368569423
+          ],
+          "case_variance_C": [
+            0.03030595203020463,
+            0.1975056744939107
+          ],
+          "case_variance_C_minus_B": [
+            1.0735393389473686e-05,
+            0.032240977197386396
+          ],
+          "try_variance_B": [
+            0.07786865541148782,
+            0.18467135146741046
+          ],
+          "try_variance_C": [
+            0.16646214109916244,
+            0.43904688983913753
+          ],
+          "try_variance_C_minus_B": [
+            0.24705997336270555,
+            0.5552376975851804
+          ],
+          "marginal_C_minus_B": [
+            -0.7671361344910694,
+            -0.5371801363957524
+          ]
+        },
+        "intervals_reliable": false,
+        "variance_components": {
+          "between_case": {
+            "B": 0.0730431121342915,
+            "C": 0.12015790288152046,
+            "C_minus_B": 0.005832851508814796
+          },
+          "between_try_within_case": {
+            "B": 0.13145934560218434,
+            "C": 0.29537915340686977,
+            "C_minus_B": 0.38322945521336566
+          }
+        },
+        "upper_parameter_boundary": false
+      },
+      "unsafe_glmm": {
+        "method": "Binomial logistic GLMM; paired bivariate case and try-within-case random effects; Gaussian-Hermite integration",
+        "converged": true,
+        "optimizer_message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
+        "boundary_or_singular": true,
+        "covariance_eigenvalues": [
+          -2.7755575615628914e-17,
+          0.6963995006663324,
+          0.0,
+          0.4292709416737849
+        ],
+        "fixed_effect_B_C": [
+          -1.6967327093087285,
+          -1.6971214256228915
+        ],
+        "C_minus_B": -0.00038871631416292907,
+        "between_case_covariance": [
+          [
+            0.4551013765738556,
+            0.33138362729497545
+          ],
+          [
+            0.33138362729497545,
+            0.2412981240924767
+          ]
+        ],
+        "within_case_try_covariance": [
+          [
+            0.40786119476090993,
+            0.0934462677446986
+          ],
+          [
+            0.0934462677446986,
+            0.02140974691287499
+          ]
+        ],
+        "quadrature_nodes_per_dimension": 5,
+        "coefficient_scale": "conditional C-B log odds, not a risk difference",
+        "upper_parameter_boundary": false,
+        "fixed_effect_boundary_or_separation": false,
+        "marginal_unsafe_B_C": [
+          0.18897563742768606,
+          0.16624880234186196
+        ],
+        "marginal_C_minus_B": -0.0227268350858241,
+        "bootstrap_requested": 199,
+        "bootstrap_successes": 199,
+        "bootstrap_failed": 0,
+        "bootstrap_boundary_fits": 199,
+        "interval_method": "case-bootstrap refitting, no Wald intervals; conditional on successful fits",
+        "bootstrap_ci95": {
+          "C_minus_B": [
+            -0.5175883611836313,
+            0.45430154181761423
+          ],
+          "case_variance_B": [
+            0.007066174475597471,
+            1.0721461274925725
+          ],
+          "case_variance_C": [
+            0.00014501954360542063,
+            0.7194457532445778
+          ],
+          "case_variance_C_minus_B": [
+            2.7859322941673256e-07,
+            0.4677523329575307
+          ],
+          "try_variance_B": [
+            0.0,
+            1.449503025252553
+          ],
+          "try_variance_C": [
+            5.0191302381552185e-11,
+            1.1934772391007773
+          ],
+          "try_variance_C_minus_B": [
+            4.532556015458075e-10,
+            1.9119393588164428
+          ],
+          "marginal_C_minus_B": [
+            -0.06777428070776775,
+            0.032581215686400565
+          ]
+        },
+        "intervals_reliable": false,
+        "finer_quadrature_check": {
+          "nodes": 7,
+          "converged": true,
+          "log_odds_difference": 0.0011331178899569583,
+          "marginal_difference": -0.02283388651935006,
+          "sensitive": false
+        },
+        "variance_components": {
+          "between_case": {
+            "B": 0.4551013765738556,
+            "C": 0.2412981240924767,
+            "C_minus_B": 0.03363224607638138
+          },
+          "between_try_within_case": {
+            "B": 0.40786119476090993,
+            "C": 0.02140974691287499,
+            "C_minus_B": 0.24237840618438775
+          }
+        }
+      },
+      "sizing_input": {
+        "eligible": false,
+        "between_covariance": [
+          [
+            0.0730431121342915,
+            0.09368408175349859,
+            0.0,
+            0.0
+          ],
+          [
+            0.09368408175349859,
+            0.12015790288152046,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.008855854513519052,
+            0.006320722244294949
+          ],
+          [
+            0.0,
+            0.0,
+            0.006320722244294949,
+            0.004514745069537106
+          ]
+        ],
+        "within_covariance": [
+          [
+            0.13145934560218434,
+            0.021804521897844233,
+            0.0,
+            0.0
+          ],
+          [
+            0.021804521897844233,
+            0.29537915340686977,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.042703686460653666,
+            0.0018972111852928958
+          ],
+          [
+            0.0,
+            0.0,
+            0.0018972111852928956,
+            0.03383911484379982
+          ]
+        ],
+        "unsafe_conversion": "Marginal probability-scale case covariance plus try propensity covariance and binomial checkpoint noise. Assumes conditionally independent checkpoint Bernoullis; not latent logit variances plugged into a rate generator.",
+        "cross_outcome_covariance": "Unidentified by separate models; use bootstrap reference cross-covariances when comparing a model sensitivity input."
+      },
+      "sizing_policy": "Bootstrap variance components remain the reference. Mixed-model components are an explicitly secondary sensitivity input, never an override.",
+      "sizing_sensitivity": {
+        "reference": "bootstrap components always retain the primary sizing result",
+        "comparisons": [
+          {
+            "component": "between_covariance",
+            "contrast": [
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "bootstrap": 0.07916885374726107,
+            "mixed_model": 0.0730431121342915,
+            "agrees": true
+          },
+          {
+            "component": "between_covariance",
+            "contrast": [
+              0.0,
+              1.0,
+              0.0,
+              0.0
+            ],
+            "bootstrap": 0.08798243747583372,
+            "mixed_model": 0.12015790288152046,
+            "agrees": false
+          },
+          {
+            "component": "between_covariance",
+            "contrast": [
+              0.0,
+              0.0,
+              1.0,
+              0.0
+            ],
+            "bootstrap": 0.013440414747695122,
+            "mixed_model": 0.008855854513519052,
+            "agrees": false
+          },
+          {
+            "component": "between_covariance",
+            "contrast": [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "bootstrap": 0.0031544927372585646,
+            "mixed_model": 0.004514745069537106,
+            "agrees": false
+          },
+          {
+            "component": "between_covariance",
+            "contrast": [
+              -1,
+              1,
+              0,
+              0
+            ],
+            "bootstrap": 0.0016027619716638547,
+            "mixed_model": 0.005832851508814796,
+            "agrees": false
+          },
+          {
+            "component": "between_covariance",
+            "contrast": [
+              0,
+              0,
+              -1,
+              1
+            ],
+            "bootstrap": 0.003732436817498462,
+            "mixed_model": 0.0007291550944662599,
+            "agrees": false
+          },
+          {
+            "component": "within_covariance",
+            "contrast": [
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "bootstrap": 0.1675703210101858,
+            "mixed_model": 0.13145934560218434,
+            "agrees": true
+          },
+          {
+            "component": "within_covariance",
+            "contrast": [
+              0.0,
+              1.0,
+              0.0,
+              0.0
+            ],
+            "bootstrap": 0.3790371292619954,
+            "mixed_model": 0.29537915340686977,
+            "agrees": true
+          },
+          {
+            "component": "within_covariance",
+            "contrast": [
+              0.0,
+              0.0,
+              1.0,
+              0.0
+            ],
+            "bootstrap": 0.055989583333333336,
+            "mixed_model": 0.042703686460653666,
+            "agrees": true
+          },
+          {
+            "component": "within_covariance",
+            "contrast": [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "bootstrap": 0.034722222222222224,
+            "mixed_model": 0.03383911484379982,
+            "agrees": true
+          },
+          {
+            "component": "within_covariance",
+            "contrast": [
+              -1,
+              1,
+              0,
+              0
+            ],
+            "bootstrap": 0.5575813237708245,
+            "mixed_model": 0.38322945521336566,
+            "agrees": false
+          },
+          {
+            "component": "within_covariance",
+            "contrast": [
+              0,
+              0,
+              -1,
+              1
+            ],
+            "bootstrap": 0.09678819444444445,
+            "mixed_model": 0.0727483789338677,
+            "agrees": true
+          }
+        ],
+        "model_input_accepted_for_sensitivity": false,
+        "status": "bootstrap reference retained: model singular/unstable or variance disagreement"
+      }
+    },
+    "covariate_adjustment": {
+      "status": "secondary only",
+      "covariates": [
+        {
+          "name": "tester_success",
+          "source": "factory_difficulty",
+          "fixed_before_contestants": true,
+          "target_mean": 0.4895833333333333
+        },
+        {
+          "name": "strategy_minutes",
+          "source": "scripted_strategy",
+          "fixed_before_contestants": true,
+          "target_mean": 37.5
+        },
+        {
+          "name": "ingredient_count",
+          "source": "case_ingredients",
+          "fixed_before_contestants": true,
+          "target_mean": 2.0
+        }
+      ],
+      "folds_by_case": {
+        "synthetic-00": 0,
+        "synthetic-01": 3,
+        "synthetic-02": 3,
+        "synthetic-03": 2,
+        "synthetic-04": 3,
+        "synthetic-05": 2,
+        "synthetic-06": 2,
+        "synthetic-07": 3,
+        "synthetic-08": 1,
+        "synthetic-09": 1,
+        "synthetic-10": 1,
+        "synthetic-11": 0,
+        "synthetic-12": 0,
+        "synthetic-13": 0,
+        "synthetic-14": 1,
+        "synthetic-15": 0,
+        "synthetic-16": 0,
+        "synthetic-17": 0,
+        "synthetic-18": 0,
+        "synthetic-19": 3,
+        "synthetic-20": 1,
+        "synthetic-21": 0,
+        "synthetic-22": 3,
+        "synthetic-23": 1
+      },
+      "method": "Four pre-fixed case folds; slopes trained without held-out cases; case-bootstrap refits preserve fold membership for duplicate selections. Inference conditions on the frozen case-set covariate mean, not an unknown population mean.",
+      "bootstrap_failed": 0,
+      "bootstrap_requested": 999,
+      "adjusted_mean_B_C_minutes": [
+        152.38964570051482,
+        88.33040055626566
+      ],
+      "effects": {
+        "minutes_difference_C_minus_B": {
+          "unadjusted": -63.159722222222214,
+          "adjusted": -64.05924514424916,
+          "adjusted_ci95": [
+            -83.49465976236571,
+            -42.698358808269745
+          ],
+          "variance_reduction": -0.8016786127166504
+        },
+        "unsafe_difference_C_minus_B": {
+          "unadjusted": -0.02604166666666663,
+          "adjusted": -0.02738122477295965,
+          "adjusted_ci95": [
+            -0.094301649556178,
+            0.05008913134253062
+          ],
+          "variance_reduction": -0.47242291057081354
+        },
+        "saving": {
+          "estimate": 0.4203648144844576,
+          "ci95_conditional_on_positive_baselines": [
+            0.3153380128595104,
+            0.511575724316468
+          ],
+          "nonpositive_baseline_bootstrap_samples": 0,
+          "variance_reduction": -0.7024650771125538
+        }
+      }
+    },
+    "no_subgroups_or_irt": true
+  },
+  "validation_assembly": {
+    "note": "Primary, posterior/model fits and binary-checkpoint calibration computed as separate full validations on the same synthetic fixture; no real results. Assembly verifies scored-file hashes and measured covariance components. The added calibration replaces the earlier Gaussian working-model calibration.",
+    "primary_design_sha256_at_execution": "42f32729650aeecf50e908cfaf457ec04fe2671f0f023a84e188a5ba8999e54a",
+    "current_design_sha256": "d41d1ea6a788e277a39696ca0788987a9b82482c02ca457ff69744c59bd7c0eb",
+    "input_hashes_and_components_verified": true,
+    "source_results_sha256": {
+      "round_synthetic_core.json": "cae81a0dcca812dc60fd464ffcbe584a4e546475f8d2fb05848f00f4f7a306d0",
+      "round_secondary.json": "adfdd20e90a029681b00f880a7cc2c69de146743c05af977f40c0619fe00ea79",
+      "round_bayesian_binary_calibration.json": "55ddee6fe9bdd8ed6e44a3ce7707930c1f05c8f05da169e7e614309cbdd6f00d"
+    },
+    "assembly_source_sha256": {
+      "report_round.py": "6a49ea864bd1219ac8e616c15db89640f120dd22f0e5ce357ed669f77de05bfe",
+      "secondary_round.py": "4beefde39f8af9d23f4ad387022315d9762df9f170e17ea0cb2d0a2de805bb16",
+      "steadiness.py": "bda5f9d4c0a98edbb6f98b6b4e675cb565705f4c1b245eb9b05c20c0de038a72",
+      "cluster_bootstrap.py": "191ac4bf0cbf3fdd7ce8095956b53d01bc96903ee92b0a3281a71069297bb1a7"
+    }
+  }
+}

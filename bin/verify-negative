@@ -1,0 +1,347 @@
+#!/usr/bin/env python3
+"""Bench-internal regression probes; run after setup/calibration, not concurrently."""
+import contextlib
+import fcntl
+import json
+import pathlib
+import tempfile
+import bench
+import argparse
+import concurrent.futures
+import subprocess
+import sys
+import factory_pool
+
+
+def new_file_patch(path, text):
+    """A git patch that adds one file to the app tree (paths relative to projects/medusa)."""
+    lines = text.strip("\n").splitlines()
+    return (f"diff --git a/{path} b/{path}\nnew file mode 100644\n--- /dev/null\n+++ b/{path}\n"
+            f"@@ -0,0 +1,{len(lines)} @@\n" + "".join(f"+{line}\n" for line in lines))
+
+
+CART_ID = 'req.originalUrl.match(/\\/store\\/carts\\/([^/?]+)\\/complete/)[1]'
+# Order-only "fix": single-line carts complete 300 ms late, so multi-line carts reserve first.
+ORDER_ONLY = new_file_patch("src/api/middlewares.ts", f"""
+import {{ defineMiddlewares }} from "@medusajs/framework/http"
+export default defineMiddlewares({{ routes: [{{ matcher: "/store/carts/:id/complete", method: ["POST"], middlewares: [async (req: any, res: any, next: any) => {{
+  const {{ data: [cart] }} = await req.scope.resolve("query").graph({{ entity: "cart", fields: ["items.id"], filters: {{ id: {CART_ID} }} }})
+  if (cart?.items?.length === 1) await new Promise(r => setTimeout(r, 300))
+  next()
+}}] }}] }})
+""")
+# In-process "fix": a per-process ledger of committed units, correct only with one instance.
+LEDGER = new_file_patch("src/api/middlewares.ts", f"""
+import {{ defineMiddlewares }} from "@medusajs/framework/http"
+const committed = new Map<string, number>()
+export default defineMiddlewares({{ routes: [{{ matcher: "/store/carts/:id/complete", method: ["POST"], middlewares: [async (req: any, res: any, next: any) => {{
+  const {{ data: [cart] }} = await req.scope.resolve("query").graph({{ entity: "cart", fields: ["items.quantity", "items.variant.allow_backorder", "items.variant.inventory_items.required_quantity", "items.variant.inventory_items.inventory.id", "items.variant.inventory_items.inventory.location_levels.stocked_quantity"], filters: {{ id: {CART_ID} }} }})
+  const need = new Map<string, {{ units: number, stock: number }}>()
+  for (const item of cart?.items ?? []) {{
+    if (item.variant?.allow_backorder) continue
+    for (const link of item.variant?.inventory_items ?? []) {{
+      const entry = need.get(link.inventory.id) ?? {{ units: 0, stock: link.inventory.location_levels.reduce((s: number, l: any) => s + Number(l.stocked_quantity), 0) }}
+      entry.units += Number(item.quantity) * Number(link.required_quantity)
+      need.set(link.inventory.id, entry)
+    }}
+  }}
+  for (const [key, e] of need) if ((committed.get(key) ?? 0) + e.units > e.stock) return res.status(409).json({{ type: "not_allowed", message: "Insufficient stock" }})
+  for (const [key, e] of need) committed.set(key, (committed.get(key) ?? 0) + e.units)
+  res.on("finish", () => {{ if (res.statusCode >= 400) for (const [key, e] of need) committed.set(key, (committed.get(key) ?? 0) - e.units) }})
+  next()
+}}] }}] }})
+""")
+
+# Store-checkout-only "fix": sums the cart's lines per inventory item against stock minus
+# reservations, under one Redis lock held until the response, on the store route only.
+STORE_ONLY = new_file_patch("src/api/middlewares.ts", f"""
+import {{ defineMiddlewares }} from "@medusajs/framework/http"
+import {{ Modules }} from "@medusajs/framework/utils"
+export default defineMiddlewares({{ routes: [{{ matcher: "/store/carts/:id/complete", method: ["POST"], middlewares: [async (req: any, res: any, next: any) => {{
+  const locking = req.scope.resolve(Modules.LOCKING), owner = `${{process.pid}}-${{Math.random()}}`
+  await locking.acquire("bench-store-only", {{ ownerId: owner, expire: 30, awaitQueue: true }})
+  let held = true
+  const release = () => {{ if (held) {{ held = false; locking.release("bench-store-only", {{ ownerId: owner }}) }} }}
+  res.on("finish", release); res.on("close", release)
+  try {{
+    const {{ data: [cart] }} = await req.scope.resolve("query").graph({{ entity: "cart", fields: ["items.quantity", "items.variant.allow_backorder", "items.variant.inventory_items.required_quantity", "items.variant.inventory_items.inventory.id", "items.variant.inventory_items.inventory.location_levels.stocked_quantity", "items.variant.inventory_items.inventory.location_levels.reserved_quantity"], filters: {{ id: {CART_ID} }} }})
+    const need = new Map<string, {{ units: number, available: number }}>()
+    for (const item of cart?.items ?? []) {{
+      if (item.variant?.allow_backorder) continue
+      for (const link of item.variant?.inventory_items ?? []) {{
+        const entry = need.get(link.inventory.id) ?? {{ units: 0, available: link.inventory.location_levels.reduce((s: number, l: any) => s + Number(l.stocked_quantity) - Number(l.reserved_quantity), 0) }}
+        entry.units += Number(item.quantity) * Number(link.required_quantity)
+        need.set(link.inventory.id, entry)
+      }}
+    }}
+    for (const e of need.values()) if (e.units > e.available) {{ release(); return res.status(409).json({{ type: "not_allowed", message: "Insufficient stock" }}) }}
+    next()
+  }} catch (error) {{ release(); next(error) }}
+}}] }}] }})
+""")
+
+# The previous reference guard: sums live reservation rows only, so deleting a live order's
+# reservation through the admin API makes its stock look free and it can be sold again.
+RESERVATION_SUM_ONLY = """CREATE FUNCTION bench_check_reservation() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  stock numeric;
+  live numeric;
+BEGIN
+  IF NEW.deleted_at IS NOT NULL OR NEW.allow_backorder THEN RETURN NEW; END IF;
+  SELECT stocked_quantity INTO STRICT stock FROM inventory_level
+    WHERE inventory_item_id = NEW.inventory_item_id AND location_id = NEW.location_id
+      AND deleted_at IS NULL FOR UPDATE;
+  SELECT COALESCE(SUM(quantity), 0) INTO live FROM reservation_item
+    WHERE inventory_item_id = NEW.inventory_item_id AND location_id = NEW.location_id
+      AND deleted_at IS NULL AND NOT allow_backorder;
+  IF live > stock THEN
+    RAISE EXCEPTION 'Insufficient stock for reservation' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER bench_check_reservation AFTER INSERT OR UPDATE ON reservation_item
+FOR EACH ROW EXECUTE FUNCTION bench_check_reservation();"""
+
+
+def reference_with(old, new):
+    text = (bench.ROOT / "guards/reference/db.sql").read_text()
+    assert text.count(old) == 1, old
+    return text.replace(old, new)
+
+
+def with_checkpoint_queue(query):
+    """Isolate a SQL refusal's shape from Medusa's overlapping checkpoint saves.
+
+    Only controls that reject reservations inside an already-started workflow
+    need this compensation prerequisite. Keep their deliberately wrong SQL.
+    """
+    reference = (bench.ROOT / "guards/reference/app.patch").read_text()
+    marker = "diff --git a/src/reference-checkpoints.ts"
+    assert reference.count(marker) == 1
+    module = reference[reference.index(marker):]
+    loader = new_file_patch("src/api/middlewares.ts", """
+import "../reference-checkpoints";
+import { defineMiddlewares } from "@medusajs/framework/http";
+export default defineMiddlewares({});
+""")
+    return {"db.sql": query + "\n", "app.patch": loader + module}
+
+
+def clean(record):
+    assert not record["errors"], record["errors"]
+    return record["checker"]
+
+
+def seen_not_blinded(record):
+    c = clean(record)
+    # The checker must see every order: normal ones and the sequential oversell.
+    assert c["checker_ok"] and c["valid"] and c["normal_ok"] and c["confirmed_orders_ok"], c
+    assert c["units_sold_s"] == 12 and c["sequential_oversold"] and c["pass"] is False, c
+
+
+def deletion_detected(record):
+    c = clean(record)
+    assert c["units_sold_s"] == 5 and not c["sequential_oversold"], c  # database was scrubbed...
+    assert c["api_units_sold"]["s"] == 12 and c["oversold"], c          # ...but the API confirmed 12
+    assert not c["confirmed_orders_ok"] and any(p["phase"] == "sequential" and p["problem"] == "missing from database" for p in c["confirmed_problems"]), c
+    assert c["pass"] is False
+
+
+def view_rejected(record):
+    c = record["checker"]
+    assert not any(e["stage"] == "checker" for e in record["errors"]), record["errors"]
+    assert c["checker_ok"] is False and c["valid"] is False, c
+
+
+def over_blocking(record):
+    c = clean(record)
+    assert c["valid"] and not c["oversold"] and c["normal_ok"] and c["bookkeeping_ok"], c
+    assert not c["trigger_ok"] and c["trigger_orders_placed"] == 0 and not c["legit_concurrent_ok"] and c["pass"] is False, c
+
+
+def off_by_one(record):
+    c = clean(record)
+    assert c["valid"] and not c["oversold"] and c["normal_ok"] and c["trigger_ok"], c
+    assert c["legit_orders_placed"] == 1 and not c["legit_concurrent_ok"] and c["pass"] is False, c
+    assert not c["draft_oversold"] and not c["edit_oversold"] and not c["draft_fit_placed"] and not c["edit_fit_placed"], c
+
+
+def admin_paths_oversell(record):
+    c = clean(record)
+    # Every store check holds, so only the admin sales paths expose the gap.
+    assert c["valid"] and c["normal_ok"] and c["trigger_ok"] and c["legit_concurrent_ok"] and c["backorder_ok"], c
+    assert not c["concurrent_oversold"] and not c["sequential_oversold"] and c["bookkeeping_ok"] and c["confirmed_orders_ok"], c
+    assert c["draft_oversold"] and c["edit_oversold"] and c["kits"]["d"]["sold"] == 12 and c["kits"]["e"]["sold"] == 12, c
+    assert c["draft_store_placed"] and c["edit_store_placed"] and c["pass"] is False, c
+
+
+def resale_after_deletion(record):
+    c = clean(record)
+    # Every other path holds, including the legitimate resale after a cancel...
+    assert c["valid"] and c["normal_ok"] and c["trigger_ok"] and c["legit_concurrent_ok"] and c["backorder_ok"], c
+    assert c["draft_ok"] and c["edit_ok"] and c["resold_ok"] and c["bookkeeping_ok"] and c["confirmed_orders_ok"], c
+    assert not any(c[f] for f in ("concurrent_oversold", "sequential_oversold", "draft_oversold", "edit_oversold")), c
+    # ...but after the live order's reservation is deleted, its 10 units are sold again.
+    assert c["resold_oversold"] and c["kits"]["r"]["sold"] == 20 and c["api_units_sold"]["r"] == 20 and c["pass"] is False, c
+
+
+def sequential_oversell(record):
+    c = clean(record)
+    assert c["valid"] and c["sequential_oversold"] and c["units_sold_s"] == 12 and c["pass"] is False, c
+
+
+PROBES = [
+    ("raise-stock", "UPDATE public.inventory_level SET stocked_quantity = 100 WHERE inventory_item_id = 'iitem_bench_x';", 1, "invalid"),
+    ("change-kit", "UPDATE public.product_variant_inventory_item SET required_quantity = 1 WHERE variant_id = 'variant_bench_x_2pack';", 1, "invalid"),
+    ("delete-x", "UPDATE public.product SET deleted_at = now() WHERE id = 'prod_bench_x';", 1, "invalid"),
+    ("raise-stock-during-checkout", """CREATE FUNCTION public.tamper_stock() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN UPDATE public.inventory_level SET stocked_quantity = 100 WHERE inventory_item_id = 'iitem_bench_x'; RETURN NEW; END $$;
+CREATE TRIGGER tamper_stock BEFORE INSERT ON public.cart FOR EACH ROW EXECUTE FUNCTION public.tamper_stock();""", 1, "invalid"),
+    ("break-checkout", """CREATE FUNCTION public.break_checkout() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RAISE EXCEPTION 'Negative test: checkout setup blocked'; END $$;
+CREATE TRIGGER break_checkout BEFORE INSERT ON public.cart FOR EACH ROW EXECUTE FUNCTION public.break_checkout();""", 2, "traffic"),
+    ("template-tamper", "ALTER DATABASE medusa_seed ALLOW_CONNECTIONS true;", 1, "reset"),
+    ("checker-role-tamper", "ALTER ROLE bench_checker SUPERUSER;", 1, "reset"),
+    ("psql-command", "\\connect medusa_seed", 1, "reset"),
+    ("checker-query-error", "DROP TABLE public.order_item CASCADE;", 1, "checker"),
+    ("view-swap", """ALTER TABLE public.inventory_level RENAME TO inventory_level_real;
+CREATE VIEW public.inventory_level AS SELECT * FROM public.inventory_level_real;
+GRANT SELECT ON public.inventory_level TO bench_checker;""", 1, view_rejected),
+    # Reviewer's confirmed blinding probe: RLS hides every order from the checker.
+    ("rls-blinding", """ALTER TABLE public."order" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY p ON public."order" USING (current_user <> 'bench_checker') WITH CHECK (true);""", 2, seen_not_blinded),
+    # A guard-owned operator that would win over pg_catalog's numeric * integer.
+    ("operator-shadow", """CREATE FUNCTION public.zero_mul(numeric, integer) RETURNS numeric LANGUAGE sql IMMUTABLE AS 'SELECT 0::numeric';
+CREATE OPERATOR public.* (LEFTARG = numeric, RIGHTARG = integer, FUNCTION = public.zero_mul);""", 2, seen_not_blinded),
+    # After the API confirmed the overselling order, scrub it and its reservations.
+    ("hard-delete-after-confirm", """CREATE FUNCTION public.hide_oversell() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF EXISTS (SELECT FROM public."order" WHERE email = 'seq-b@bench.test') THEN
+DELETE FROM public."order" WHERE email = 'seq-b@bench.test';
+DELETE FROM public.reservation_item WHERE inventory_item_id = 'iitem_bench_s' AND quantity <> 5;
+UPDATE public.inventory_level SET reserved_quantity = 5 WHERE inventory_item_id = 'iitem_bench_s';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER hide_oversell AFTER INSERT ON public.cart FOR EACH ROW EXECUTE FUNCTION public.hide_oversell();""", 2, deletion_detected),
+    # Over-blocking: refuse every reservation for an item with fewer than 20 in stock.
+    ("refuse-low-stock", with_checkpoint_queue("""CREATE FUNCTION public.refuse_low_stock() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF (SELECT stocked_quantity FROM public.inventory_level WHERE inventory_item_id = NEW.inventory_item_id
+  AND location_id = NEW.location_id AND deleted_at IS NULL) < 20 THEN
+RAISE EXCEPTION 'Low stock' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER refuse_low_stock AFTER INSERT ON public.reservation_item FOR EACH ROW EXECUTE FUNCTION public.refuse_low_stock();"""), 2, over_blocking),
+    # Over-blocking: the reference guard with >= refuses selling the last unit.
+    ("off-by-one", with_checkpoint_queue(reference_with("IF live + owed > stock", "IF live + owed >= stock")), 2, off_by_one),
+    # The previous reference guard (reservation rows only) misses deleted reservations.
+    ("reservation-sum-only", with_checkpoint_queue(RESERVATION_SUM_ONLY), 2, resale_after_deletion),
+    ("order-only-app-patch", {"app.patch": ORDER_ONLY}, 3, sequential_oversell),
+    ("in-process-ledger-two-instances", {"app.patch": LEDGER}, 3, sequential_oversell),
+    ("store-checkout-only-app-patch", {"app.patch": STORE_ONLY}, 3, admin_paths_oversell),
+]
+
+
+def workflow_status_failure(value):
+    if isinstance(value, dict):
+        return (value.get("message") == 'Updating Status from "ok" to "temp_failure" is not allowed.'
+                or any(workflow_status_failure(v) for v in value.values()))
+    return isinstance(value, list) and any(workflow_status_failure(v) for v in value)
+
+
+def probe_outcome(summary, records, expected):
+    """A broken shape/prerequisite is not evidence that a wrong guard passed."""
+    if any(r.get("checker", {}).get("pass") is True for r in records):
+        return "cheat-pass", "checker accepted a negative control"
+    if any(workflow_status_failure(r.get("traffic")) for r in records):
+        return "invalid-probe", "workflow status transition failed; compensation prerequisite not established"
+    try:
+        assert summary["pass"] == 0, summary
+        assert len(records) == summary["runs"], summary
+        for record in records:
+            assert record["checker"]["pass"] is False
+            if callable(expected):
+                expected(record)
+            elif expected == "invalid":
+                assert record["checker"]["valid"] is False, record
+            else:
+                assert any(e["stage"] == expected for e in record["errors"]), record
+            if expected == "traffic":
+                assert record["traffic"]["error"] and record["checker"]["normal_ok"] is False
+    except (AssertionError, KeyError, TypeError) as error:
+        return "invalid-probe", str(error)
+    return "rejected", None
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--factory-workers", type=int, default=1)
+    parser.add_argument("--probe", action="append", type=int, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.factory_workers < 1: parser.error("factory-workers must be positive")
+    bench.RESULTS.mkdir(exist_ok=True)
+    if args.factory_workers > 1:
+        def worker(slot):
+            selected = list(range(slot, len(PROBES), args.factory_workers))
+            if not selected: return []
+            p = subprocess.run([sys.executable, __file__, *[v for i in selected for v in ("--probe", str(i))]],
+                               env=factory_pool.worker_env(slot), capture_output=True, text=True)
+            print(p.stdout, end="", flush=True)
+            if p.returncode:
+                print(p.stderr, file=sys.stderr)
+                p.check_returncode()
+            found = p.stdout.rsplit("Evidence: ", 1)[1].strip()
+            return json.loads(pathlib.Path(found).read_text())
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.factory_workers) as pool:
+            evidence = [row for rows in pool.map(worker, range(args.factory_workers)) for row in rows]
+        order = {name: i for i, (name, *_) in enumerate(PROBES)}
+        evidence = sorted([e for e in evidence if e["probe"] != "role-settings-restored"], key=lambda e: order[e["probe"]])
+        evidence.append({"probe": "role-settings-restored", "verified": True})
+        output = bench.RESULTS / "negative-tests.json"
+        output.write_text(json.dumps(evidence, indent=2) + "\n")
+        print(f"Evidence: {output}")
+        return
+    probes = PROBES if args.probe is None else [PROBES[i] for i in args.probe]
+    evidence = []
+    with (bench.RESULTS / ".bench.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with tempfile.TemporaryDirectory(prefix="negative-guards-") as temporary:
+            for name, query, runs, expected in probes:
+                guard = pathlib.Path(temporary) / name
+                guard.mkdir()
+                for file, text in (query if isinstance(query, dict) else {"db.sql": query + "\n"}).items():
+                    (guard / file).write_text(text)
+                with (bench.RESULTS / "negative-tests.log").open("a") as log, contextlib.redirect_stdout(log):
+                    summary = bench.run_case(str(guard), runs, options={"mode": "normal"})  # probes assert the fixed schedule
+                records = [json.loads((bench.ROOT / summary["results_directory"] / f"{i:02}.json").read_text()) for i in range(1, runs + 1)]
+                outcome, problem = probe_outcome(summary, records, expected)
+                evidence.append({"probe":name, "guard":query, "verified":outcome == "rejected", "outcome":outcome, "summary":summary,
+                                 "checker": [{k: v for k, v in r["checker"].items() if k != "orders"} for r in records],
+                                 "errors": [r["errors"] for r in records]})
+                if outcome != "rejected":
+                    evidence[-1]["problem"] = problem
+                    output = bench.RESULTS / "negative-tests.json"
+                    output.write_text(json.dumps(evidence, indent=2) + "\n")
+                    print(f"negative-probe outcome={outcome}", flush=True)
+                    print(f"Evidence: {output}", flush=True)
+                    raise AssertionError((name, outcome, problem))
+                reason = expected if isinstance(expected, str) else expected.__name__
+                print(f"{name}: {runs} scored failing run(s); {reason} verified", flush=True)
+        # Self role defaults are allowed by PostgreSQL but must not poison a later run.
+        bench.reset()
+        bench.sql("ALTER ROLE bench_guard SET default_transaction_read_only = on;", user="bench_guard")
+        bench.reset()
+        assert bench.sql("SELECT rolconfig IS NULL FROM pg_roles WHERE rolname = 'bench_guard'") == "t"
+        evidence.append({"probe":"role-settings-restored", "verified":True})
+    output = bench.RESULTS / "negative-tests.json"
+    output.write_text(json.dumps(evidence, indent=2) + "\n")
+    print(f"Evidence: {output}")
+    if args.probe is not None:
+        bench.stop_inventory_services()
+        bench.dc("stop", *bench.APP_SERVICES)
+
+
+if __name__ == "__main__":
+    main()

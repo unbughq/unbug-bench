@@ -1,0 +1,6 @@
+{
+  "id": "U1",
+  "title": "Expired manual hold policy",
+  "kind": "operations",
+  "change": "Ops now clears expired manual holds using the existing reservation API. No policy for manual holds is documented in the change."
+}

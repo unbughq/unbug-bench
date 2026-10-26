@@ -1,0 +1,72 @@
+{
+  "harbor_version": "0.24.0",
+  "trial": "smoke__C3BWp9a",
+  "auth": "ChatGPT subscription auth.json; API-key environment removed",
+  "agent_info": {
+    "name": "codex",
+    "version": "0.162.1",
+    "model_info": {
+      "name": "gpt-6.1-sol",
+      "provider": "openai"
+    }
+  },
+  "agent_result": {
+    "n_input_tokens": 28633,
+    "n_cache_tokens": 26368,
+    "n_output_tokens": 121,
+    "cost_usd": 0.0083768,
+    "model_usage": {
+      "openai/gpt-6.1-sol": {
+        "n_input_tokens": 28633,
+        "n_cache_tokens": 26368,
+        "n_output_tokens": 121,
+        "cost_usd": 0.0083768
+      }
+    },
+    "rollout_details": null,
+    "metadata": null
+  },
+  "verifier_result": {
+    "rewards": {
+      "reward": 1
+    }
+  },
+  "exception_info": null,
+  "trajectory_agent": {
+    "name": "codex",
+    "version": "0.162.1",
+    "model_name": "gpt-6.1-sol",
+    "extra": {
+      "originator": "codex_exec",
+      "cwd": "/app"
+    }
+  },
+  "trajectory_final_metrics": {
+    "total_prompt_tokens": 28633,
+    "total_completion_tokens": 121,
+    "total_cached_tokens": 26368,
+    "total_cost_usd": 0.0083768,
+    "total_steps": 7,
+    "extra": {
+      "reasoning_output_tokens": 0,
+      "total_tokens": 28754,
+      "last_token_usage": {
+        "input_tokens": 14409,
+        "cached_input_tokens": 14080,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 32,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 14441
+      },
+      "total_cache_write_input_tokens": 0
+    }
+  },
+  "tool_calls": [
+    {
+      "name": "exec",
+      "arguments": {
+        "input": "text(await tools.exec_command({cmd:\"printf 'harbor-codex-ok\\\\n' > /app/smoke-answer.txt\",\"max_output_tokens\":100}));\ntext(await tools.exec_command({cmd:\"cat /app/smoke-answer.txt\",\"max_output_tokens\":100}));\n"
+      }
+    }
+  ]
+}

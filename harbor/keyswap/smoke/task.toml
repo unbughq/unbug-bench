@@ -1,0 +1,12 @@
+schema_version = "1.4"
+artifacts = ["/app/keyswap-smoke.txt"]
+[task]
+name = "unbug/keyswap-smoke"
+[environment]
+docker_image = "unbug-bench-box:dev"
+cpus = 1
+memory_mb = 2048
+[agent]
+timeout_sec = 180
+[verifier]
+timeout_sec = 30

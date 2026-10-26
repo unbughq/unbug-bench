@@ -1,0 +1,1 @@
+Infrastructure smoke only. Use your shell tool to create /app/smoke-answer.txt containing exactly harbor-codex-ok followed by a newline. Then read it with your shell tool. Do not access the network or inspect authentication files. Finish with a brief confirmation.

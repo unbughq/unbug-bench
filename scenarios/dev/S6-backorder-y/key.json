@@ -1,0 +1,9 @@
+{"scenario": "S6",
+ "correct_responses": ["keep", "repair"],
+ "escalation": "inappropriate",
+ "claims": {"*": ["protected"]},
+ "judge_checks": ["Y is excluded from oversell; every Y cart (bursts beyond stock) must be placed, a refusal is a false block",
+                  "Every other product stays protected",
+                  "keep if the guard already honours backorder flags; repair if it refuses Y"],
+ "expected_judge": {"reference": {"pass": true, "violated_paths": [], "checks": {"backorder_enabled": true}},
+                    "none": {"pass": false, "checks": {"backorder_enabled": true}}}}

@@ -1,0 +1,8 @@
+case-20261017T120256Z-86b100  sha256:5e7d716be35403e4f00979612255c6749679d8f5b5df3c8f150f6fc642dcc6f5
+gates: passed G1,G2,G3,G4,G5,G6,G13,G14,G15,G7,G8,G9,G10,G11,G12
+reviewers: fairness - approve, realism - approve
+plain app broke the promise -   reference fix -   cheats - passed   scenario keys -
+calibrators: {"strong": {"model": "codex/gpt-6.1-sol", "tries": 3, "solved": 0, "kept": true}, "easy": {"model": "opencode/glm-5.3-flash-free", "tries": 3, "solved": 0, "kept": true}}   fake pass: -
+surprises: 4   scenarios: 6   provenance: 3   source: port   builder rounds: -
+wipe: {"plaintext_files_left": 0, "named_dirs_left": 0, "guard_image_left": false, "db_volume_left": false, "factory_cleanup_ok": true}   wall: 1258.6 min
+models: {"builder": ["openrouter/meta/muse-spark-1.3-contributor"], "attacker": ["claude/claude-opus-5-5"], "reviewers": [["openrouter/xiaomi/mimo-v2.6-pro"]], "strong_calibrator": ["codex/gpt-6.1-sol"], "easy_calibrator": ["opencode/glm-5.3-flash-free"]}

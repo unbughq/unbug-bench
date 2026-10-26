@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "revision": "r6",
+  "status": "deterministic-production-scoring-implemented",
+  "runtime_guard_model_approval_required": false,
+  "approval_cache_required": false,
+  "scoring_model_calls": 0,
+  "ordinary_pre_exam_reviews_preserved": true,
+  "cold_start_production_seam": "passed-controlled-test",
+  "cold_start_G5": "passed-controlled-checkpoint-test",
+  "protected_local_postgresql_roles_and_history": "passed",
+  "private_case_contract_controls": 14,
+  "selected_case_proof_regression": "passed",
+  "claims_regression": "passed",
+  "ordinary_fairness_regression": "passed",
+  "syntax_checks": "passed",
+  "fresh_full_case_runtime_qualification": "deferred",
+  "full_G5_pass_claim": false,
+  "prior_reports_preserved": true
+}

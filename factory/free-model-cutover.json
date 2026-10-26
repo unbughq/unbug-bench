@@ -1,0 +1,1672 @@
+{
+  "schema": 1,
+  "authorized_utc": "2026-10-19T16:32:56.500191+00:00",
+  "expires_utc": "2026-10-23T09:12:40Z",
+  "cases": {
+    "case-20261019T072318Z-04d417": {
+      "before": {
+        "writer": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "stress_tester": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "strong_calibrator": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000,
+        "--max-role-calls": 400
+      },
+      "worker": "bx_9uuss836",
+      "controller_pids": [
+        38100
+      ],
+      "caps_source": "sampled_runner",
+      "status": "collected_existing_controller_resume_authorized",
+      "paused_generation": "c20bb1d3320cabf2b2b831f6a26e5ffe95c292f6ca3cdd9a2215d55f1382234a",
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261019T072318Z-04d417",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:46:57.242414+00:00",
+      "pause_baseline": {
+        "calls": 490,
+        "cost": 0.656525442
+      },
+      "controller_pid": 38100,
+      "retry_count_before": 0,
+      "checkpoint_sha256": "c20bb1d3320cabf2b2b831f6a26e5ffe95c292f6ca3cdd9a2215d55f1382234a",
+      "card_mtime_utc": "2026-10-19T16:47:35.794918+00:00",
+      "preserved_calls": 490,
+      "preserved_cost": 0.656525442,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1
+    },
+    "case-20261019T065843Z-22e434": {
+      "before": {
+        "writer": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "stress_tester": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "strong_calibrator": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000,
+        "--max-role-calls": 400
+      },
+      "worker": "bx_z9ptyprx",
+      "controller_pids": [
+        29480
+      ],
+      "caps_source": "sampled_runner",
+      "status": "collected_existing_controller_resume_authorized",
+      "paused_generation": "f60bb5b38714e978aa840a440ee96ced5c45bb7ffe4114207749deed45d35bbc",
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261019T065843Z-22e434",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:46:57.385923+00:00",
+      "pause_baseline": {
+        "calls": 288,
+        "cost": 0.42209696100000005
+      },
+      "controller_pid": 29480,
+      "retry_count_before": 0,
+      "checkpoint_sha256": "6e3e698d237d2426ac969f40c962ed4d653abf98b511abe34fbe95dd06f34a82",
+      "card_mtime_utc": "2026-10-19T16:47:35.133808+00:00",
+      "preserved_calls": 288,
+      "preserved_cost": 0.42209696100000005,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1,
+      "controller_hold": "released_after_provider_recovered",
+      "provider_recovery_test": {
+        "case": "case-20261019T065843Z-22e434",
+        "worker": "bx_z9ptyprx",
+        "controller_pid": 29480,
+        "checked_utc": "2026-10-19T19:22:33.762401+00:00",
+        "exit": 0,
+        "completed_steps": 1,
+        "cost": 0,
+        "FreeTierError": false,
+        "positive_usage": true
+      },
+      "hold_released_utc": "2026-10-19T19:23:08.096712+00:00"
+    },
+    "case-20261019T061455Z-c4a72b": {
+      "before": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000.0,
+        "--max-role-calls": 400.0
+      },
+      "worker": "bx_sw4597wu",
+      "controller_pids": [
+        12072
+      ],
+      "caps_source": "matching_live_controller",
+      "status": "collected_existing_controller_resume_authorized",
+      "paused_generation": "8839ee41347c257eae12137c27c89578b0e9311f516548d6b7cb7c73e8434b37",
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261019T061455Z-c4a72b",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:46:57.497853+00:00",
+      "pause_baseline": {
+        "calls": 313,
+        "cost": 0.01934443
+      },
+      "controller_pid": 12072,
+      "retry_count_before": 1,
+      "checkpoint_sha256": "8839ee41347c257eae12137c27c89578b0e9311f516548d6b7cb7c73e8434b37",
+      "card_mtime_utc": "2026-10-19T16:47:30.809465+00:00",
+      "preserved_calls": 313,
+      "preserved_cost": 0.01934443,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1
+    },
+    "case-20261019T055203Z-b5521c": {
+      "before": {
+        "writer": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "stress_tester": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "strong_calibrator": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000.0,
+        "--max-role-calls": 400.0
+      },
+      "worker": "bx_jk7myzf6",
+      "controller_pids": [
+        9549
+      ],
+      "caps_source": "matching_live_controller",
+      "status": "free_provider_progress_verified",
+      "paused_generation": "88d6cc2cc76328084b50882fe91d56f2c8d1215daf14f936876acbbd20f276dc",
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261019T055203Z-b5521c",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:40:51.513928+00:00",
+      "pause_baseline": {
+        "calls": 341,
+        "cost": 0.9564709799999999
+      },
+      "controller_pid": 9549,
+      "retry_count_before": 1,
+      "checkpoint_sha256": "88d6cc2cc76328084b50882fe91d56f2c8d1215daf14f936876acbbd20f276dc",
+      "card_mtime_utc": "2026-10-19T16:41:22.410631+00:00",
+      "preserved_calls": 341,
+      "preserved_cost": 0.9564709799999999,
+      "checkpoint_verified": true,
+      "provider_progress": {
+        "checked_utc": "2026-10-19T16:46:50.843365+00:00",
+        "model": "opencode/minimax-m3.1-flash-free",
+        "calls_before": 341,
+        "calls_observed": 365,
+        "positive_tokens_observed": true,
+        "cost_before": 0.9564709799999999,
+        "cost_observed": 0.9564709799999999
+      },
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1,
+      "free_provider_progress": {
+        "observed_utc": "2026-10-19T17:18:58.558501+00:00",
+        "calls": 487,
+        "cost": 0.9564709799999999,
+        "positive_usage_events": {
+          "opencode/minimax-m3.1-flash-free": 143
+        }
+      }
+    },
+    "case-20261019T064341Z-2a7b2a": {
+      "before": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000.0,
+        "--max-role-calls": 400.0
+      },
+      "worker": "bx_aypswafq",
+      "controller_pids": [
+        97584
+      ],
+      "caps_source": "matching_live_controller",
+      "status": "collected_existing_controller_resume_authorized",
+      "paused_generation": "0bd483c02ad5e937575e09922408de28491d29e9856ce779b421e7d3fcf8ddc9",
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261019T064341Z-2a7b2a",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:47:55.209757+00:00",
+      "pause_baseline": {
+        "calls": 200,
+        "cost": 0.02381591
+      },
+      "controller_pid": 97584,
+      "retry_count_before": 1,
+      "checkpoint_sha256": "0bd483c02ad5e937575e09922408de28491d29e9856ce779b421e7d3fcf8ddc9",
+      "card_mtime_utc": "2026-10-19T16:48:27.500337+00:00",
+      "preserved_calls": 200,
+      "preserved_cost": 0.02381591,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1
+    },
+    "case-20261019T061055Z-798600": {
+      "before": {
+        "writer": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "stress_tester": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000,
+        "--max-role-calls": 400
+      },
+      "worker": "bx_qsne3d2u",
+      "controller_pids": [
+        84409
+      ],
+      "caps_source": "sampled_runner",
+      "status": "free_provider_progress_verified",
+      "paused_generation": "48323c4170c93f1171b60b042fb1bc13df5af7a56b7f512feec3647b44ec1eb6",
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261019T061055Z-798600",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:47:56.222645+00:00",
+      "pause_baseline": {
+        "calls": 396,
+        "cost": 0.9009744900000002
+      },
+      "controller_pid": 84409,
+      "retry_count_before": 0,
+      "checkpoint_sha256": "48323c4170c93f1171b60b042fb1bc13df5af7a56b7f512feec3647b44ec1eb6",
+      "card_mtime_utc": "2026-10-19T16:48:27.336211+00:00",
+      "preserved_calls": 396,
+      "preserved_cost": 0.9009744900000002,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1,
+      "controller_hold": "released_after_free_route_fix",
+      "hold_released_utc": "2026-10-19T17:13:38.723138+00:00",
+      "free_provider_progress": {
+        "observed_utc": "2026-10-19T17:18:58.287396+00:00",
+        "calls": 434,
+        "cost": 0.9009744900000002,
+        "positive_usage_events": {
+          "opencode/minimax-m3.1-flash-free": 38
+        }
+      }
+    },
+    "case-20261019T064344Z-03be64": {
+      "before": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000.0,
+        "--max-role-calls": 400.0
+      },
+      "worker": "bx_9cxv6ag8",
+      "controller_pids": [
+        80082
+      ],
+      "caps_source": "matching_live_controller",
+      "status": "collected_existing_controller_resume_authorized",
+      "paused_generation": "e9c5c93dc3e97f04fba464fff2fd378b70f4be64b3c36cff6d3a9d9478f31d67",
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261019T064344Z-03be64",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:47:56.272870+00:00",
+      "pause_baseline": {
+        "calls": 258,
+        "cost": 0.024901030000000005
+      },
+      "controller_pid": 80082,
+      "retry_count_before": 1,
+      "checkpoint_sha256": "e9c5c93dc3e97f04fba464fff2fd378b70f4be64b3c36cff6d3a9d9478f31d67",
+      "card_mtime_utc": "2026-10-19T16:48:27.196095+00:00",
+      "preserved_calls": 258,
+      "preserved_cost": 0.024901030000000005,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1
+    },
+    "case-20261019T061056Z-e3b57a": {
+      "before": {
+        "writer": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "stress_tester": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "stress_tester": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000,
+        "--max-role-calls": 400
+      },
+      "worker": "bx_89ksr45n",
+      "controller_pids": [
+        77273
+      ],
+      "caps_source": "sampled_runner",
+      "status": "free_provider_progress_verified",
+      "paused_generation": "29556b01d2d1711f2e7fb236a430edaf9426e871203540ee6f2ff8e56bc2ed29",
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261019T061056Z-e3b57a",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:48:48.759247+00:00",
+      "pause_baseline": {
+        "calls": 315,
+        "cost": 0.9357433709999992
+      },
+      "controller_pid": 77273,
+      "retry_count_before": 0,
+      "checkpoint_sha256": "29556b01d2d1711f2e7fb236a430edaf9426e871203540ee6f2ff8e56bc2ed29",
+      "card_mtime_utc": "2026-10-19T16:49:21.511949+00:00",
+      "preserved_calls": 315,
+      "preserved_cost": 0.9357433709999992,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1,
+      "controller_hold": "released_after_free_route_fix",
+      "hold_released_utc": "2026-10-19T17:13:38.754157+00:00",
+      "free_provider_progress": {
+        "observed_utc": "2026-10-19T17:18:58.410933+00:00",
+        "calls": 319,
+        "cost": 0.9357433709999992,
+        "positive_usage_events": {
+          "opencode/minimax-m3.1-flash-free": 4
+        }
+      }
+    },
+    "case-20261017T114432Z-000990": {
+      "before": {
+        "writer": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "stress_tester": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000,
+        "--max-role-calls": 400
+      },
+      "worker": "bx_z83q3dpx",
+      "controller_pids": [
+        66452
+      ],
+      "caps_source": "sampled_runner",
+      "status": "free_provider_progress_verified",
+      "paused_generation": "3f6f3a10d1e49a348145a6ef9ba29b522330eeef88160b9442026e9a52f59834",
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261017T114432Z-000990",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:48:49.464630+00:00",
+      "pause_baseline": {
+        "calls": 1435,
+        "cost": 5.580751008600005
+      },
+      "controller_pid": 66452,
+      "retry_count_before": 0,
+      "checkpoint_sha256": "3f6f3a10d1e49a348145a6ef9ba29b522330eeef88160b9442026e9a52f59834",
+      "card_mtime_utc": "2026-10-19T16:49:41.344957+00:00",
+      "preserved_calls": 1435,
+      "preserved_cost": 5.580751008600005,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1,
+      "free_provider_progress": {
+        "observed_utc": "2026-10-19T17:18:59.291314+00:00",
+        "calls": 1474,
+        "cost": 5.580751008600005,
+        "positive_usage_events": {
+          "opencode/deepseek-v4.1-flash-free": 39
+        }
+      }
+    },
+    "case-20261019T061109Z-e9d919": {
+      "before": {
+        "writer": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "stress_tester": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000,
+        "--max-role-calls": 400
+      },
+      "worker": "bx_tdvm3r8s",
+      "controller_pids": [
+        54418
+      ],
+      "caps_source": "sampled_runner",
+      "status": "free_provider_progress_verified",
+      "paused_generation": null,
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261019T061109Z-e9d919",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:48:55.426295+00:00",
+      "pause_baseline": {
+        "calls": 434,
+        "cost": 1.1150887659999984
+      },
+      "controller_pid": 54418,
+      "retry_count_before": 0,
+      "checkpoint_sha256": "557c73dcf2c4879627536c731ec3042402fcecb712a1edec55f77b1a895d49ea",
+      "card_mtime_utc": "2026-10-19T16:48:34.232731+00:00",
+      "preserved_calls": 434,
+      "preserved_cost": 1.1150887659999984,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1,
+      "controller_hold": "released_after_free_route_fix",
+      "hold_released_utc": "2026-10-19T17:13:38.813543+00:00",
+      "free_provider_progress": {
+        "observed_utc": "2026-10-19T17:19:01.377844+00:00",
+        "calls": 482,
+        "cost": 1.1150887659999984,
+        "positive_usage_events": {
+          "opencode/minimax-m3.1-flash-free": 47
+        }
+      }
+    },
+    "case-20261019T061050Z-1bb2ad": {
+      "before": {
+        "writer": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "stress_tester": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "stress_tester": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000,
+        "--max-role-calls": 400
+      },
+      "worker": "bx_865nwjsz",
+      "controller_pids": [
+        50347
+      ],
+      "caps_source": "sampled_runner",
+      "status": "free_provider_progress_verified",
+      "paused_generation": null,
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261019T061050Z-1bb2ad",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:49:25.181844+00:00",
+      "pause_baseline": {
+        "calls": 525,
+        "cost": 1.176532326
+      },
+      "controller_pid": 50347,
+      "retry_count_before": 0,
+      "checkpoint_sha256": "cead915b44c13d9c0f1d51c872f0e6e3df6427b806a4210ade4672e71e06141b",
+      "card_mtime_utc": "2026-10-19T16:49:53.236427+00:00",
+      "preserved_calls": 525,
+      "preserved_cost": 1.176532326,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1,
+      "free_provider_progress": {
+        "observed_utc": "2026-10-19T17:19:01.250126+00:00",
+        "calls": 622,
+        "cost": 1.176532326,
+        "positive_usage_events": {
+          "opencode/minimax-m3.1-flash-free": 97
+        }
+      }
+    },
+    "case-20261018T144333Z-f46dac": {
+      "before": {
+        "writer": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "stress_tester": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "strong_calibrator": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000,
+        "--max-role-calls": 400
+      },
+      "worker": "bx_gpr4cjhk",
+      "controller_pids": [
+        42033
+      ],
+      "caps_source": "sampled_runner",
+      "status": "free_provider_progress_verified",
+      "paused_generation": null,
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261018T144333Z-f46dac",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:49:42.900462+00:00",
+      "pause_baseline": {
+        "calls": 1367,
+        "cost": 4.302293286200006
+      },
+      "controller_pid": 42033,
+      "retry_count_before": 0,
+      "checkpoint_sha256": "666b1ca2fb6b67035131bc032404086cb38fdb4a7646abdd5bc8f31fa547eccd",
+      "card_mtime_utc": "2026-10-19T16:49:00.648227+00:00",
+      "preserved_calls": 1367,
+      "preserved_cost": 4.302293286200006,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1,
+      "controller_hold": "released_after_free_route_fix",
+      "hold_released_utc": "2026-10-19T17:13:38.844603+00:00",
+      "free_provider_progress": {
+        "observed_utc": "2026-10-19T17:19:01.331288+00:00",
+        "calls": 1405,
+        "cost": 4.302293286200006,
+        "positive_usage_events": {
+          "opencode/minimax-m3.1-flash-free": 38
+        }
+      }
+    },
+    "case-20261017T212113Z-5813be": {
+      "before": {
+        "writer": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "stress_tester": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "strong_calibrator": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000,
+        "--max-role-calls": 400
+      },
+      "worker": "bx_8wd3rfu9",
+      "controller_pids": [
+        38950
+      ],
+      "caps_source": "sampled_runner",
+      "status": "free_provider_progress_verified",
+      "paused_generation": "27e5908b4ecc258caa8505df6a696884a752579a0e48227f0115ed9d2ba4e548",
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261017T212113Z-5813be",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:50:04.257208+00:00",
+      "pause_baseline": {
+        "calls": 1840,
+        "cost": 5.7640307669999995
+      },
+      "controller_pid": 38950,
+      "retry_count_before": 0,
+      "checkpoint_sha256": "27e5908b4ecc258caa8505df6a696884a752579a0e48227f0115ed9d2ba4e548",
+      "card_mtime_utc": "2026-10-19T16:50:56.958164+00:00",
+      "preserved_calls": 1840,
+      "preserved_cost": 5.7640307669999995,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1,
+      "controller_hold": "released_after_free_route_fix",
+      "hold_released_utc": "2026-10-19T17:13:38.783157+00:00",
+      "free_provider_progress": {
+        "observed_utc": "2026-10-19T17:19:01.777485+00:00",
+        "calls": 1879,
+        "cost": 5.7640307669999995,
+        "positive_usage_events": {
+          "opencode/minimax-m3.1-flash-free": 39
+        }
+      }
+    },
+    "case-20261019T061459Z-cb5e26": {
+      "before": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000.0,
+        "--max-role-calls": 400.0
+      },
+      "worker": "bx_nkfj8a2p",
+      "controller_pids": [
+        23899
+      ],
+      "caps_source": "matching_live_controller",
+      "status": "collected_existing_controller_resume_authorized",
+      "paused_generation": "2f4f4fb218e6eb88d75cdfb47397ce85cf7863561e3fb0f7cc4f6c828a7094f4",
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261019T061459Z-cb5e26",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:50:15.363197+00:00",
+      "pause_baseline": {
+        "calls": 371,
+        "cost": 0.015621359999999999
+      },
+      "controller_pid": 23899,
+      "retry_count_before": 1,
+      "checkpoint_sha256": "2f4f4fb218e6eb88d75cdfb47397ce85cf7863561e3fb0f7cc4f6c828a7094f4",
+      "card_mtime_utc": "2026-10-19T16:50:48.700086+00:00",
+      "preserved_calls": 371,
+      "preserved_cost": 0.015621359999999999,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1
+    },
+    "case-20261019T061510Z-6a8a7d": {
+      "before": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000.0,
+        "--max-role-calls": 400.0
+      },
+      "worker": "bx_j7eyz6gw",
+      "controller_pids": [
+        21908
+      ],
+      "caps_source": "matching_live_controller",
+      "status": "collected_existing_controller_resume_authorized",
+      "paused_generation": "49721f481f4854e6245e87e6399fee53293a700f394f30d41e92dc429ae182b7",
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261019T061510Z-6a8a7d",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:50:14.865280+00:00",
+      "pause_baseline": {
+        "calls": 353,
+        "cost": 0.014128759999999999
+      },
+      "controller_pid": 21908,
+      "retry_count_before": 1,
+      "checkpoint_sha256": "49721f481f4854e6245e87e6399fee53293a700f394f30d41e92dc429ae182b7",
+      "card_mtime_utc": "2026-10-19T16:50:49.712289+00:00",
+      "preserved_calls": 353,
+      "preserved_cost": 0.014128759999999999,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved"
+    },
+    "case-20261018T144343Z-2b6c68": {
+      "before": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000,
+        "--max-role-calls": 400
+      },
+      "worker": "bx_tcce2qx4",
+      "controller_pids": [
+        57698
+      ],
+      "caps_source": "sampled_runner",
+      "status": "deployed_deferred_during_checks",
+      "paused_generation": null,
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261018T144343Z-2b6c68",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:51:11.562746+00:00",
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1,
+      "controller_hold": "released_after_provider_recovered",
+      "controller_held_utc": "2026-10-19T17:18:00.818264+00:00",
+      "provider_recovery_test": {
+        "case": "case-20261018T144343Z-2b6c68",
+        "worker": "bx_tcce2qx4",
+        "controller_pid": 57698,
+        "checked_utc": "2026-10-19T19:22:32.235892+00:00",
+        "exit": 0,
+        "completed_steps": 1,
+        "cost": 0,
+        "FreeTierError": false,
+        "positive_usage": true
+      },
+      "checkpoint_verified": true,
+      "checkpoint_sha256": "4a01e9f2a8c786caaec6104ddabb90f9447523f0256290f594b10cde06ecbca7",
+      "hold_released_utc": "2026-10-19T19:23:14.697763+00:00"
+    },
+    "case-20261018T144339Z-e5caf7": {
+      "before": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-role-calls": 400,
+        "--max-total-calls": 3000
+      },
+      "worker": "bx_qt3ekv7b",
+      "controller_pids": [
+        54072
+      ],
+      "caps_source": "sampled_runner",
+      "status": "free_provider_progress_verified",
+      "paused_generation": null,
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261018T144339Z-e5caf7",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:51:22.734590+00:00",
+      "pause_baseline": {
+        "calls": 782,
+        "cost": 1.0535299343999995
+      },
+      "controller_pid": 54072,
+      "retry_count_before": 0,
+      "checkpoint_sha256": "ff06035aa2b65b1195d98e3890ba5799c9c1d1cd5fb0d1560e376f6fe05ba97b",
+      "card_mtime_utc": "2026-10-19T16:51:00.860938+00:00",
+      "preserved_calls": 782,
+      "preserved_cost": 1.0535299343999995,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1,
+      "free_provider_progress": {
+        "observed_utc": "2026-10-19T17:19:02.166819+00:00",
+        "calls": 805,
+        "cost": 1.0535299343999995,
+        "positive_usage_events": {
+          "opencode/deepseek-v4.1-flash-free": 18
+        }
+      },
+      "caps_note": "2026-10-20 claude: aligned with the repair job (same $8 / 3000-call caps as every other case); $5 stalled its resume"
+    },
+    "case-20261018T144339Z-8f9762": {
+      "before": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000,
+        "--max-role-calls": 400
+      },
+      "worker": "bx_6dxbgy8v",
+      "controller_pids": [
+        33422
+      ],
+      "caps_source": "sampled_runner",
+      "status": "collected_existing_controller_resume_authorized",
+      "paused_generation": null,
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261018T144339Z-8f9762",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:51:18.232915+00:00",
+      "pause_baseline": {
+        "calls": 786,
+        "cost": 0.6734258507999996
+      },
+      "controller_pid": 33422,
+      "retry_count_before": 0,
+      "checkpoint_sha256": "2a5b8a75b7f07f54c36144a3221abf7bb35a926c810a8dd127c6b4ca478c0e2f",
+      "card_mtime_utc": "2026-10-19T16:50:50.429469+00:00",
+      "preserved_calls": 786,
+      "preserved_cost": 0.6734258507999996,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1,
+      "controller_hold": "released_after_provider_recovered",
+      "provider_recovery_test": {
+        "case": "case-20261018T144339Z-8f9762",
+        "worker": "bx_6dxbgy8v",
+        "controller_pid": 33422,
+        "checked_utc": "2026-10-19T19:22:34.603497+00:00",
+        "exit": 0,
+        "completed_steps": 1,
+        "cost": 0,
+        "FreeTierError": false,
+        "positive_usage": true
+      },
+      "hold_released_utc": "2026-10-19T19:23:11.317260+00:00"
+    },
+    "case-20261017T212118Z-1ad7fa": {
+      "before": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode-go/muse-spark-1.3-contributor",
+          "effort": "xhigh"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode-go/mimo-v2.6-pro",
+          "effort": "default"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "after": {
+        "writer": {
+          "model": "claude/claude-opus-5-5",
+          "effort": "high"
+        },
+        "stress_tester": {
+          "model": "opencode/deepseek-v4.1-flash-free",
+          "effort": "default",
+          "family": "deepseek"
+        },
+        "strong_calibrator": {
+          "model": "codex/gpt-6.1-sol",
+          "effort": "high"
+        },
+        "reviewer": {
+          "model": "opencode/minimax-m3.1-flash-free",
+          "effort": "default",
+          "family": "minimax"
+        },
+        "easy_calibrator": {
+          "model": "opencode/glm-5.3-flash-free",
+          "effort": "default"
+        }
+      },
+      "caps": {
+        "--max-cost": 8.0,
+        "--max-total-calls": 3000.0,
+        "--max-role-calls": 400.0
+      },
+      "worker": "bx_32h83jyh",
+      "controller_pids": [
+        12259
+      ],
+      "caps_source": "matching_live_controller",
+      "status": "collected_existing_controller_resume_authorized",
+      "paused_generation": null,
+      "deployment": {
+        "deployed": true,
+        "case": "case-20261017T212118Z-1ad7fa",
+        "gate_functions_unchanged": true
+      },
+      "deployed_utc": "2026-10-19T16:51:18.557266+00:00",
+      "pause_baseline": {
+        "calls": 1858,
+        "cost": 2.6526313071999987
+      },
+      "controller_pid": 12259,
+      "retry_count_before": 1,
+      "checkpoint_sha256": "0a48f395a3fb3de26cd75723b8e6a9c1d744db57b4d5b6bf3bc9eb48305f7f7e",
+      "card_mtime_utc": "2026-10-19T16:27:57.371484+00:00",
+      "preserved_calls": 1858,
+      "preserved_cost": 2.6526313071999987,
+      "checkpoint_verified": true,
+      "opencode_account": 1,
+      "account_source": "exact matching controller launch receipt; selection preserved",
+      "route_upgrade_deployed_utc": "2026-10-19T17:10:49.856720+00:00",
+      "original_opencode_account": 1
+    }
+  },
+  "extended_by": "claude 2026-10-20: the 07:21Z expiry silently stopped every resume; founder wants these cases finished",
+  "removed": {
+    "18681d,8acb5c": "claude 2026-10-20: planned only, never deployed; a first transition would rerun all their passed gates"
+  },
+  "founder_decision": "2026-10-20: keep the free MiniMax M3.1 Flash / DeepSeek V4.1 Flash roles (cheap, benchmark-competitive)"
+}

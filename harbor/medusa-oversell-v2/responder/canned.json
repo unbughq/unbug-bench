@@ -1,0 +1,6 @@
+{
+  "manual hold": "An explicitly expired manual hold without an order line is not a customer commitment and may be released. Holds tied to live orders cannot free those commitments.",
+  "expired hold": "An explicitly expired manual hold without an order line is not a customer commitment and may be released. Holds tied to live orders cannot free those commitments.",
+  "p1": "The owner blocks P1: do not bypass ordinary triggers.",
+  "p2": "The owner approves P2: the 45-second timeout is acceptable."
+}

@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "release": "bench-env-2026-10-20-v1",
+  "tools": {
+    "opencode": {
+      "command": [
+        "/usr/local/bin/opencode",
+        "--version"
+      ],
+      "version": "1.19.0"
+    },
+    "codex": {
+      "command": [
+        "/usr/local/bin/codex",
+        "--version"
+      ],
+      "version": "codex-cli 0.162.1"
+    },
+    "harbor": {
+      "command": [
+        "harbor",
+        "--version"
+      ],
+      "contains": "0.24.0"
+    },
+    "claude": {
+      "command": [
+        "/tmp/factory-claude-cli/bin/claude",
+        "--version"
+      ],
+      "contains": "2.1.299"
+    }
+  },
+  "node_majors": [
+    22,
+    24
+  ],
+  "python_minimum": [
+    3,
+    10
+  ],
+  "images": [
+    "unbug-bench-medusa:latest",
+    "postgres:17.11-bookworm",
+    "redis:7.4.8-bookworm"
+  ],
+  "files": {}
+}

@@ -1,0 +1,13 @@
+{
+  "id": "BASE",
+  "title": "Shared-stock shop",
+  "kind": "service",
+  "change": "The shop and marketplace channel both sell the same stock.",
+  "inventory_services": [
+    {
+      "name": "marketplace",
+      "project": "projects/marketplace"
+    }
+  ],
+  "delivery": "announced"
+}

@@ -1,0 +1,7 @@
+{
+  "started": "1793012740",
+  "retry-at": "1793016010",
+  "bench-sha": "1791aa9e1bb176c5f1fca3893d16092cd622273d125c5c4be73089c8234ab246",
+  "autoresumes": "1",
+  "monitor": "spend_file='/Users/bugsincode/Developer/unbug-bench-873d7f-restore-10-20261026/results/spend/20261026T110532Z-3897-factory.json'\nttl_seconds='28800'\nretire_at='27000'\nmargin='1800'\npoll='120'\nstall_minutes='45'\nstall_seconds='2700'\nunreachable='600'\n"
+}

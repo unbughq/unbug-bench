@@ -1,0 +1,7 @@
+{"scenario": "S4",
+ "correct_responses": ["keep", "repair"],
+ "escalation": "inappropriate",
+ "claims": {"*": ["protected"]},
+ "judge_checks": ["Every request alternates instance (traffic record)", "No oversell on any path; no false block",
+                  "keep for a database-level guard; repair for any guard holding state in one process"],
+ "expected_judge": {"reference": {"pass": true, "violated_paths": []}, "none": {"pass": false}}}

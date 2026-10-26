@@ -1,0 +1,38 @@
+# Overlay: adds the `responder` sidecar to a Harbor task environment.
+# Usage: harbor run -p harbor/medusa-oversell --extra-docker-compose harbor/responder/docker-compose.responder.yaml ...
+# (flag is repeatable; this file only ADDS a service, it never touches `main`.)
+# The contestant reaches it at http://responder:8080/ask (compose network only:
+# `expose`, no `ports`, so nothing is published to the host).
+#
+# ask-human is in the box image (harbor/images/Dockerfile); main needs
+# env RESPONDER_URL=http://responder:8080/ask (its default).
+services:
+  responder:
+    image: python:3.12-slim
+    working_dir: /srv/responder
+    command: ["python3", "/srv/responder/responder.py"]
+    volumes:
+      - ${RESPONDER_DIR:?set RESPONDER_DIR to the absolute harbor/responder directory}:/srv/responder:ro
+      - responder-logs:/logs/responder
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      ANSWERER: "${ANSWERER:-canned}"
+      CANNED_MAP: "/srv/responder/canned.json"
+      FACT_SHEET: "${FACT_SHEET:-/srv/responder/fact-sheet.txt}"
+      MINUTES_PER_QUESTION: "${MINUTES_PER_QUESTION:-5}"
+      RESPONDER_LOG: "/logs/responder/questions.jsonl"
+      ANSWER_BASE_URL: "${ANSWER_BASE_URL:-}"
+      ANSWER_API_KEY: "${ANSWER_API_KEY:-}"
+      OWNER_URL: "${OWNER_URL:-}"
+      ANSWER_MODEL: "${ANSWER_MODEL:-}"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    expose:
+      - "8080"
+
+volumes:
+  responder-logs:

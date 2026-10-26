@@ -1,0 +1,177 @@
+{
+  "actual_session_agents": [
+    {
+      "name": "codex",
+      "version": "0.162.1",
+      "model_name": "gpt-6.1-sol",
+      "extra": {
+        "originator": "codex_exec",
+        "cwd": "/app"
+      }
+    },
+    {
+      "name": "codex",
+      "version": "0.162.1",
+      "model_name": "gpt-6.1-sol",
+      "extra": {
+        "originator": "codex_exec",
+        "cwd": "/app"
+      }
+    }
+  ],
+  "session_tool_names": [
+    [
+      "exec",
+      "exec"
+    ],
+    [
+      "exec",
+      "exec",
+      "exec"
+    ]
+  ],
+  "agent_info": {
+    "name": "codex",
+    "version": "0.162.1",
+    "model_info": {
+      "name": "gpt-6.1-sol",
+      "provider": "openai"
+    }
+  },
+  "step_usage": [
+    {
+      "n_input_tokens": 35831,
+      "n_cache_tokens": 31360,
+      "n_output_tokens": 146,
+      "cost_usd": 0.013538000000000001,
+      "model_usage": {
+        "openai/gpt-6.1-sol": {
+          "n_input_tokens": 35831,
+          "n_cache_tokens": 31360,
+          "n_output_tokens": 146,
+          "cost_usd": 0.013538000000000001
+        }
+      },
+      "rollout_details": null,
+      "metadata": null
+    },
+    {
+      "n_input_tokens": 48291,
+      "n_cache_tokens": 31744,
+      "n_output_tokens": 344,
+      "cost_usd": 0.03970839999999999,
+      "model_usage": {
+        "openai/gpt-6.1-sol": {
+          "n_input_tokens": 48291,
+          "n_cache_tokens": 31744,
+          "n_output_tokens": 344,
+          "cost_usd": 0.03970839999999999
+        }
+      },
+      "rollout_details": null,
+      "metadata": null
+    }
+  ],
+  "public_web_events": [
+    {
+      "schema": 1,
+      "timestamp": "2026-10-14T21:35:09.373355+00:00",
+      "method": "CONNECT",
+      "url": "https://example.com",
+      "domain": "example.com",
+      "visibility": "tunnel"
+    },
+    {
+      "schema": 1,
+      "timestamp": "2026-10-14T21:35:09.486706+00:00",
+      "method": "GET",
+      "url": "https://example.com/",
+      "domain": "example.com",
+      "visibility": "request"
+    },
+    {
+      "schema": 1,
+      "timestamp": "2026-10-14T21:36:06.557884+00:00",
+      "method": "CONNECT",
+      "url": "https://example.com",
+      "domain": "example.com",
+      "visibility": "tunnel"
+    },
+    {
+      "schema": 1,
+      "timestamp": "2026-10-14T21:36:06.678365+00:00",
+      "method": "GET",
+      "url": "https://example.com/",
+      "domain": "example.com",
+      "visibility": "request"
+    }
+  ],
+  "web_event_count": 45,
+  "web_domains": [
+    "ab.chatgpt.com",
+    "chatgpt.com",
+    "example.com",
+    "sdmntprcentralindia.oaiusercontent.com",
+    "sdmntprcentralus.oaiusercontent.com",
+    "sdmntprsouthcentralus.oaiusercontent.com",
+    "sdmntprwestus3.oaiusercontent.com"
+  ],
+  "tunnel_domains": [
+    "ab.chatgpt.com",
+    "chatgpt.com",
+    "example.com",
+    "sdmntprcentralindia.oaiusercontent.com",
+    "sdmntprcentralus.oaiusercontent.com",
+    "sdmntprsouthcentralus.oaiusercontent.com",
+    "sdmntprwestus3.oaiusercontent.com"
+  ],
+  "agent": "codex",
+  "model_sessions": 2,
+  "steps": 2,
+  "rewards": [
+    1,
+    1
+  ],
+  "questions": 2,
+  "human_minutes_charged": 10,
+  "same_monitor_pid": 1758,
+  "same_monitor_run_id": "3a81e36e-462c-426d-bec8-c823a68a058e",
+  "heartbeat_count": 341,
+  "heartbeat_max_gap_sec": 0.303,
+  "heartbeat_count_during_first_separate_verifier": 52,
+  "first_separate_verifier_window": {
+    "started_at": "2026-10-14T21:35:38.763998Z",
+    "finished_at": "2026-10-14T21:35:52.016659Z"
+  },
+  "verifiers": [
+    {
+      "step": "establish",
+      "start": 1792013743.2364507,
+      "end": 1792013748.2411747,
+      "heartbeat_count": 116,
+      "run_id": "3a81e36e-462c-426d-bec8-c823a68a058e",
+      "monitor_pid": 1758,
+      "fresh_verifier": true
+    },
+    {
+      "step": "observe",
+      "start": 1792013811.139742,
+      "end": 1792013816.1459088,
+      "heartbeat_count": 341,
+      "run_id": "3a81e36e-462c-426d-bec8-c823a68a058e",
+      "monitor_pid": 1758,
+      "fresh_verifier": true
+    }
+  ],
+  "step_agent_windows": [
+    {
+      "started_at": "2026-10-14T21:34:52.180103Z",
+      "finished_at": "2026-10-14T21:35:30.361610Z"
+    },
+    {
+      "started_at": "2026-10-14T21:35:52.130865Z",
+      "finished_at": "2026-10-14T21:36:33.584639Z"
+    }
+  ],
+  "verdict": "PASS"
+}

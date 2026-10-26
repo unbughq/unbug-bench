@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "revision": "r8",
+  "status": "implemented_focused_regressions_passed",
+  "scope": "private_control_cleanup_sequence",
+  "owned_file_count": 2,
+  "production_refusal_modified": false,
+  "strict_cleanup_checks_preserved": true,
+  "regressions": {
+    "control_sequence_cases": 4,
+    "strict_completion_positive_and_negatives": 17,
+    "same_instance_r7_checks": 21,
+    "syntax": "passed"
+  },
+  "archived_diagnostic": {
+    "read_only": true,
+    "downstream_predicate_mismatches_observed": 2,
+    "qualification_claim": false
+  },
+  "fresh_actual_runtime_required": true,
+  "full_case_gate_pass": false,
+  "docker_used": false,
+  "models_used": false,
+  "agents_spawned": false,
+  "created_at": "2026-10-22T17:58:38.524088+00:00"
+}

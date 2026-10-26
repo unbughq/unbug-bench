@@ -1,0 +1,538 @@
+{
+  "synthetic": true,
+  "rule": "C",
+  "interim_look": false,
+  "subset_selection": "Every third synthetic case, fixed before outcomes, demonstration only",
+  "cases": [
+    {
+      "case": "synthetic-00",
+      "tries": [
+        1,
+        2,
+        3
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-01",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-02",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-03",
+      "tries": [
+        1,
+        2,
+        3
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-04",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-05",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-06",
+      "tries": [
+        1,
+        2,
+        3
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-07",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-08",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-09",
+      "tries": [
+        1,
+        2,
+        3
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-10",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-11",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-12",
+      "tries": [
+        1,
+        2,
+        3
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-13",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-14",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-15",
+      "tries": [
+        1,
+        2,
+        3
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-16",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-17",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-18",
+      "tries": [
+        1,
+        2,
+        3
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-19",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-20",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-21",
+      "tries": [
+        1,
+        2,
+        3
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-22",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "case": "synthetic-23",
+      "tries": [
+        1,
+        2
+      ],
+      "same_checkpoint_order_across_tries": true,
+      "maintenance_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  ],
+  "sizing_rule": "After all frozen measurement cases are scored, fit equal-case random-effects covariances to log(1 + charged minutes) and unsafe checkpoint fractions per try. Use the measured-component generator in steadiness.py, retaining case, try and paired covariance, under a fixed planning alternative of 50% time saving and zero safety difference, at the measured baseline mean minutes. For 2 and 3 tries separately, scan the frozen case grid [24,36,48,72,96,128,192,256,384,512]. Use 2500 simulated studies and 999 paired case-then-try bootstrap draws per study, seed 20261017; apply fixed-sample rule C (one-sided 95%, saving >30%, safety <=+5 points, collapsed-safety guard). Select the first grid size whose Wilson 95% Monte Carlo LOWER power bound is at least 80%; stop that design's simulation scan there and report every tested grid point. Check moment reproduction and simulate each null boundary at the candidate size; withhold a recommendation if moments differ materially, any boundary rejection LOWER Monte Carlo bound exceeds 5%, safety is collapsed, or baseline minutes are zero. If none qualifies, report beyond 512/undetermined, never extrapolate. This sizes a future separately frozen round, never adds tries or cases to this measurement round, and is conditional on estimated components and the Gaussian summary model; it does not include component-estimation uncertainty.",
+  "secondary_plan": {
+    "chosen_before_scoring": true,
+    "decision_use": "none; rule C alone decides",
+    "bayesian_priors": {
+      "sceptical": {
+        "saving_mean": 0.0,
+        "saving_sd": 0.35,
+        "safety_mean": 0.0,
+        "safety_sd": 0.1
+      },
+      "neutral_flat": {
+        "saving_mean": 0.0,
+        "saving_sd": 1.5,
+        "safety_mean": 0.0,
+        "safety_sd": 0.25
+      },
+      "optimistic": {
+        "saving_mean": 0.5,
+        "saving_sd": 0.35,
+        "safety_mean": -0.03,
+        "safety_sd": 0.1
+      }
+    },
+    "bayesian_likelihood": "Joint Gaussian paired try summaries (B minutes/100, C minutes/100, C-B unsafe fraction), case and try covariance; bounded population effects, not bounded Gaussian observations",
+    "bayesian_covariance_prior": "Independent inverse-Wishart G,W: df=5, scale=diag(.25,.25,.01); prior mean component SD scales 50 minutes, 50 minutes, 10 safety points; heavy tails; same for every effect prior",
+    "bayesian_baseline_prior": "log(B population mean minutes/100) Normal(0,2.5); saving <1; safety difference in [-1,1]",
+    "bayesian_draws_per_chain": 2000,
+    "bayesian_burn_in": 1000,
+    "bayesian_chains": 2,
+    "calibration_studies_per_scenario": 49,
+    "calibration_draws_per_chain": 600,
+    "calibration_burn_in": 400,
+    "calibration_prior": "sceptical",
+    "calibration_seed": 20261019,
+    "calibration_generator": "steadiness.generate_batch: binary checkpoints and discrete charges, base unsafe .15, base minutes 30/checkpoint, level 0; same 24-case unequal-try design as fixture",
+    "calibration_note": "Shorter chains for computational calibration; record diagnostics and threshold Monte Carlo ambiguity. Model-conditional error rate, not a universal frequentist guarantee.",
+    "mixed_model_bootstrap": 199,
+    "logistic_quadrature_nodes_per_dimension": 5,
+    "mixed_sizing_agreement": "Both fits must converge without singularity or quadrature sensitivity; each model marginal and paired variance within 25% of reference (absolute tolerance 1e-5). Reference cross-outcome covariance retained and resulting covariance projected PSD only if relative change <=10%. Reference sizes remain primary; model feeds a power sensitivity at the reference candidate sizes.",
+    "cuped_folds": 4,
+    "seed": 20261017,
+    "subgroups": []
+  },
+  "covariate_plan": [
+    {
+      "name": "tester_success",
+      "source": "factory_difficulty",
+      "fixed_before_contestants": true,
+      "target_mean": 0.4895833333333333
+    },
+    {
+      "name": "strategy_minutes",
+      "source": "scripted_strategy",
+      "fixed_before_contestants": true,
+      "target_mean": 37.5
+    },
+    {
+      "name": "ingredient_count",
+      "source": "case_ingredients",
+      "fixed_before_contestants": true,
+      "target_mean": 2.0
+    }
+  ],
+  "covariates": {
+    "synthetic-00": {
+      "tester_success": 0.08333333333333333,
+      "strategy_minutes": 20,
+      "ingredient_count": 1
+    },
+    "synthetic-01": {
+      "tester_success": 0.6666666666666666,
+      "strategy_minutes": 25,
+      "ingredient_count": 2
+    },
+    "synthetic-02": {
+      "tester_success": 0.3333333333333333,
+      "strategy_minutes": 30,
+      "ingredient_count": 3
+    },
+    "synthetic-03": {
+      "tester_success": 0.9166666666666666,
+      "strategy_minutes": 35,
+      "ingredient_count": 1
+    },
+    "synthetic-04": {
+      "tester_success": 0.5833333333333334,
+      "strategy_minutes": 40,
+      "ingredient_count": 2
+    },
+    "synthetic-05": {
+      "tester_success": 0.25,
+      "strategy_minutes": 45,
+      "ingredient_count": 3
+    },
+    "synthetic-06": {
+      "tester_success": 0.8333333333333334,
+      "strategy_minutes": 50,
+      "ingredient_count": 1
+    },
+    "synthetic-07": {
+      "tester_success": 0.5,
+      "strategy_minutes": 55,
+      "ingredient_count": 2
+    },
+    "synthetic-08": {
+      "tester_success": 0.16666666666666666,
+      "strategy_minutes": 20,
+      "ingredient_count": 3
+    },
+    "synthetic-09": {
+      "tester_success": 0.75,
+      "strategy_minutes": 25,
+      "ingredient_count": 1
+    },
+    "synthetic-10": {
+      "tester_success": 0.4166666666666667,
+      "strategy_minutes": 30,
+      "ingredient_count": 2
+    },
+    "synthetic-11": {
+      "tester_success": 0.08333333333333333,
+      "strategy_minutes": 35,
+      "ingredient_count": 3
+    },
+    "synthetic-12": {
+      "tester_success": 0.6666666666666666,
+      "strategy_minutes": 40,
+      "ingredient_count": 1
+    },
+    "synthetic-13": {
+      "tester_success": 0.3333333333333333,
+      "strategy_minutes": 45,
+      "ingredient_count": 2
+    },
+    "synthetic-14": {
+      "tester_success": 0.9166666666666666,
+      "strategy_minutes": 50,
+      "ingredient_count": 3
+    },
+    "synthetic-15": {
+      "tester_success": 0.5833333333333334,
+      "strategy_minutes": 55,
+      "ingredient_count": 1
+    },
+    "synthetic-16": {
+      "tester_success": 0.25,
+      "strategy_minutes": 20,
+      "ingredient_count": 2
+    },
+    "synthetic-17": {
+      "tester_success": 0.8333333333333334,
+      "strategy_minutes": 25,
+      "ingredient_count": 3
+    },
+    "synthetic-18": {
+      "tester_success": 0.5,
+      "strategy_minutes": 30,
+      "ingredient_count": 1
+    },
+    "synthetic-19": {
+      "tester_success": 0.16666666666666666,
+      "strategy_minutes": 35,
+      "ingredient_count": 2
+    },
+    "synthetic-20": {
+      "tester_success": 0.75,
+      "strategy_minutes": 40,
+      "ingredient_count": 3
+    },
+    "synthetic-21": {
+      "tester_success": 0.4166666666666667,
+      "strategy_minutes": 45,
+      "ingredient_count": 1
+    },
+    "synthetic-22": {
+      "tester_success": 0.08333333333333333,
+      "strategy_minutes": 50,
+      "ingredient_count": 2
+    },
+    "synthetic-23": {
+      "tester_success": 0.6666666666666666,
+      "strategy_minutes": 55,
+      "ingredient_count": 3
+    }
+  }
+}

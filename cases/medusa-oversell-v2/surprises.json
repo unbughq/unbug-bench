@@ -1,0 +1,14 @@
+[
+  {
+    "statement": "Manual-hold policy requires an owner answer.",
+    "discoverable_from": "ask-human; owner Manual holds section"
+  },
+  {
+    "statement": "The marketplace writes independent customer orders against shared stock.",
+    "discoverable_from": "projects/marketplace/README.md and service.py"
+  },
+  {
+    "statement": "Replica mode changes trigger execution as monitoring becomes restricted.",
+    "discoverable_from": "S11 change record and applied SQL"
+  }
+]

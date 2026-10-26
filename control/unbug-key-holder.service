@@ -1,0 +1,26 @@
+[Unit]
+Description=Unbug unattended control key holder
+Wants=network-online.target unbug-resume-launches.service
+After=network-online.target
+
+[Service]
+Type=simple
+User=user
+Group=user
+WorkingDirectory=/home/user/unbug-bench
+Environment=HOME=/home/user USER=user UNBUG_CLOUD=boat BOAT_CMD=/usr/local/bin/boat BOAT_NO_UPDATE=1
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+UMask=0077
+LimitCORE=0
+LimitMEMLOCK=infinity
+ExecStart=/bin/sh /home/user/unbug-bench/control/holder-command.sh serve
+Restart=on-failure
+RestartSec=10
+# Controllers the holder starts outlive a holder restart; pkg1 locks still exclude duplicates.
+# KillMode=process signals only the wrapper shell, so stop the holder itself explicitly
+# (its SIGTERM handler exits without touching controllers). Found live 2026-10-23.
+ExecStop=/usr/bin/python3 /home/user/unbug-bench/factory/key_holder.py stop
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""Name a boat sandbox so the dashboard says what it is doing: bin/boat-name <id> "<name>".
+The boat CLI has no rename command; this uses the CLI's own login against boat's API."""
+import json, pathlib, sys, urllib.request
+
+sandbox, name = sys.argv[1], sys.argv[2]
+# macOS keeps the CLI login under Application Support; Linux (the control VM) under ~/.config.
+configs = [pathlib.Path.home() / p / "ascii/boat/config.json" for p in ("Library/Application Support", ".config")]
+token = json.loads(next(c for c in configs if c.is_file()).read_text())["token"]
+req = urllib.request.Request(f"https://boat.dev/api/v1/sandboxes/{sandbox}", method="PATCH",
+                             data=json.dumps({"name": name}).encode(),
+                             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+urllib.request.urlopen(req, timeout=30).close()

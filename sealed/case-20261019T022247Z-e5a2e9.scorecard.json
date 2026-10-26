@@ -1,0 +1,83 @@
+{
+  "case": "case-20261019T022247Z-e5a2e9",
+  "dry_run": false,
+  "source": "port",
+  "seed": 76567,
+  "gates": {},
+  "failed_gate": null,
+  "rotation_slot": 4,
+  "factory_slots_prepared": 1,
+  "gate_results": {},
+  "resume": {
+    "case": "case-20261019T022247Z-e5a2e9",
+    "bench_sha": "bf5fac9a16dcc4b71c2b7030b3df10f27e4a5a478ba314ec0a7936e65de91bc7",
+    "work": "/home/user/work/case-20261019T022247Z-e5a2e9",
+    "usage_preserved": true
+  },
+  "roles": {
+    "writer": {
+      "model": "openrouter/xiaomi/mimo-v2.6-pro",
+      "effort": "default",
+      "family": "xiaomi"
+    },
+    "stress_tester": {
+      "model": "openrouter/meta/muse-spark-1.3-contributor",
+      "effort": "xhigh",
+      "family": "meta"
+    },
+    "strong_calibrator": {
+      "model": "claude/claude-opus-5-5",
+      "effort": "high",
+      "family": "anthropic"
+    },
+    "reviewer": {
+      "model": "codex/gpt-6.1-sol",
+      "effort": "high",
+      "family": "openai"
+    },
+    "easy_calibrator": {
+      "model": "opencode/glm-5.3-flash-free",
+      "effort": "default",
+      "family": "z-ai"
+    }
+  },
+  "models": {
+    "builder": [
+      "openrouter/xiaomi/mimo-v2.6-pro"
+    ],
+    "attacker": [
+      "openrouter/meta/muse-spark-1.3-contributor"
+    ],
+    "reviewers": [
+      [
+        "codex/gpt-6.1-sol"
+      ]
+    ],
+    "strong_calibrator": [
+      "claude/claude-opus-5-5"
+    ],
+    "easy_calibrator": [
+      "opencode/glm-5.3-flash-free"
+    ]
+  },
+  "models_used": {
+    "builder-statement": "openrouter/xiaomi/mimo-v2.6-pro"
+  },
+  "terminal_stop": "provider_limit:openrouter/xiaomi/mimo-v2.6-pro",
+  "wall_minutes": 19.1,
+  "continuation_budget": {
+    "cost": 0.0,
+    "calls": 0,
+    "events": [],
+    "terminal_stop": "provider_limit:openrouter/xiaomi/mimo-v2.6-pro",
+    "driver": "opencode",
+    "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+    "previous_stops": [
+      "provider_limit:openrouter/xiaomi/mimo-v2.6-pro"
+    ],
+    "zero_token_streak": 0
+  },
+  "status": "stopped",
+  "sha256": "e15e2360a98a39c200d33a7466cbc6a47875d2b9acbff38658748fd4b2e7ab5d",
+  "archive": "/home/user/sealed/case-20261019T022247Z-e5a2e9.checkpoint.tar.gz.age"
+}

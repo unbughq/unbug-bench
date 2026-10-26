@@ -1,0 +1,13 @@
+--- a/marketplace/service.py
++++ b/marketplace/service.py
+@@ -15,8 +15,8 @@
+         {"Content-Type": "application/json", "Authorization": "Bearer " + token}), timeout=10).read())
+ 
+ def reserve(kit, quantity):
+-    # The channel currently commits locally; the integration sends holds separately.
+-    return None
++    return medusa("/admin/reservations", {"inventory_item_id": "iitem_bench_" + kit,
++        "location_id": "sloc_bench", "quantity": quantity, "description": "Marketplace order hold"})
+ 
+ class Handler(http.server.BaseHTTPRequestHandler):
+     def log_message(self, *_): pass

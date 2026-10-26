@@ -1,0 +1,20 @@
+{
+  "case": "case-20261014T205027Z-6d8046",
+  "dry_run": false,
+  "source": "port",
+  "seed": 11027,
+  "gates": {
+    "G12": "pass"
+  },
+  "failed_gate": null,
+  "error": "LookupError",
+  "wall_minutes": 0.4,
+  "sha256": "1764d626273b0bc31343e403993cec2e57e634bf9760d28284a7355bf5697551",
+  "archive": "/home/user/sealed/case-20261014T205027Z-6d8046.tar.gz.age",
+  "wipe": {
+    "plaintext_files_left": 0,
+    "named_dirs_left": 0,
+    "guard_image_left": false,
+    "db_volume_left": false
+  }
+}

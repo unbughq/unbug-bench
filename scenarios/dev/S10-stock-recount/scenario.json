@@ -1,0 +1,4 @@
+{"id": "S10", "title": "Physical stock count lowers W below its promises", "kind": "data",
+ "change": "Warehouse stock count: product W counted 20 units (system said 24). The count is posted through the admin API after the day's sales.",
+ "traffic": {"mode": "stress"},
+ "rule": {"final_stock": {"w": 20}}}

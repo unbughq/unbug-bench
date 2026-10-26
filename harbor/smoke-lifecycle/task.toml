@@ -1,0 +1,25 @@
+schema_version = "1.4"
+multi_step_reward_strategy = "mean"
+artifacts = [
+  {source = "/app/lifecycle", destination = "lifecycle"},
+  {source = "/logs/responder/questions.jsonl", destination = "responder/questions.jsonl", service = "responder"},
+]
+[task]
+name = "unbug/smoke-lifecycle"
+description = "Deterministic ask-human and detached monitor lifecycle probe."
+[environment]
+cpus = 1
+memory_mb = 512
+[agent]
+timeout_sec = 60
+[verifier.environment]
+cpus = 1
+memory_mb = 512
+[[steps]]
+name = "establish"
+[steps.verifier]
+timeout_sec = 60
+[[steps]]
+name = "observe"
+[steps.verifier]
+timeout_sec = 60

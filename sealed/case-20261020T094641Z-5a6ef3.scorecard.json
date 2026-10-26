@@ -1,0 +1,6523 @@
+{
+  "case": "case-20261020T094641Z-5a6ef3",
+  "dry_run": false,
+  "source": "port",
+  "seed": 89601,
+  "gates": {
+    "G1": "fail",
+    "G12": "pass"
+  },
+  "failed_gate": "G1",
+  "rotation_slot": 4,
+  "factory_slots_prepared": 1,
+  "gate_results": {
+    "G1": {
+      "problems": [
+        "duplicate of case-20261019T055203Z-b5521c"
+      ]
+    }
+  },
+  "roles": {
+    "writer": {
+      "model": "opencode/minimax-m3.1-flash-free",
+      "effort": "default",
+      "family": "minimax"
+    },
+    "stress_tester": {
+      "model": "opencode/deepseek-v4.1-flash-free",
+      "effort": "default",
+      "family": "deepseek"
+    },
+    "strong_calibrator": {
+      "model": "claude/claude-opus-5-5",
+      "effort": "high",
+      "family": "anthropic"
+    },
+    "reviewer": {
+      "model": "codex/gpt-6.1-sol",
+      "effort": "high",
+      "family": "openai"
+    },
+    "easy_calibrator": {
+      "model": "opencode/glm-5.3-flash-free",
+      "effort": "default",
+      "family": "z-ai"
+    }
+  },
+  "models": {
+    "builder": [
+      "opencode/minimax-m3.1-flash-free"
+    ],
+    "attacker": [
+      "opencode/deepseek-v4.1-flash-free"
+    ],
+    "reviewers": [
+      [
+        "codex/gpt-6.1-sol"
+      ]
+    ],
+    "strong_calibrator": [
+      "claude/claude-opus-5-5"
+    ],
+    "easy_calibrator": [
+      "opencode/glm-5.3-flash-free"
+    ]
+  },
+  "models_used": {
+    "builder-statement": "opencode/minimax-m3.1-flash-free",
+    "easy-calibrator-dedup-0": "opencode/glm-5.3-flash-free",
+    "builder-statement-retry": "opencode/minimax-m3.1-flash-free",
+    "easy-calibrator-dedup-1": "opencode/glm-5.3-flash-free"
+  },
+  "dedup": {
+    "checked_against": 28,
+    "duplicate_of": "case-20261019T055203Z-b5521c",
+    "retried": true
+  },
+  "gate_minutes": {
+    "G1": 0.0
+  },
+  "failed_detail": [
+    "duplicate of case-20261019T055203Z-b5521c"
+  ],
+  "wall_minutes": 67.7,
+  "continuation_budget": {
+    "cost": 0.0,
+    "calls": 357,
+    "events": [
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b4d2c7001uq5tyxpV4TitCv:prt_158b4dbfd001uUqSTpKSyyf9nz",
+        "cost": 0,
+        "tokens": {
+          "total": 11662,
+          "input": 541,
+          "output": 113,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 11008
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b4dc07001bfTHeragZn2ytn:prt_158b4e31f001VBTdJBXfdK2Vt0",
+        "cost": 0,
+        "tokens": {
+          "total": 14881,
+          "input": 3487,
+          "output": 72,
+          "reasoning": 58,
+          "cache": {
+            "write": 0,
+            "read": 11264
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b4e327001BRRciqKsudRmHo:prt_158b4f10c001fE9BCoZmTsDtA4",
+        "cost": 0,
+        "tokens": {
+          "total": 25166,
+          "input": 10678,
+          "output": 71,
+          "reasoning": 81,
+          "cache": {
+            "write": 0,
+            "read": 14336
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b4f114001fFWM6hzroz53DY:prt_158b4fd67001Q7nKXUEVwoyaPC",
+        "cost": 0,
+        "tokens": {
+          "total": 36021,
+          "input": 11188,
+          "output": 105,
+          "reasoning": 152,
+          "cache": {
+            "write": 0,
+            "read": 24576
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b4fd6d001RQqQTtMSFSctmw:prt_158b5079b001Zbj9uEL3mgh2T4",
+        "cost": 0,
+        "tokens": {
+          "total": 37999,
+          "input": 2506,
+          "output": 116,
+          "reasoning": 49,
+          "cache": {
+            "write": 0,
+            "read": 35328
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b507a1001XaTUs3TdihqNIr:prt_158b5119b001DVcGhKmTU2sPUF",
+        "cost": 0,
+        "tokens": {
+          "total": 42916,
+          "input": 5388,
+          "output": 116,
+          "reasoning": 36,
+          "cache": {
+            "write": 0,
+            "read": 37376
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b511ab001iQKtfzuir3b0Or:prt_158b5380f001PVT0OSeB0iYO8C",
+        "cost": 0,
+        "tokens": {
+          "total": 45133,
+          "input": 1411,
+          "output": 38,
+          "reasoning": 1188,
+          "cache": {
+            "write": 0,
+            "read": 42496
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b53818001i6PDlFmq1i4fYl:prt_158b54734001DQ5cvaklVkqEv2",
+        "cost": 0,
+        "tokens": {
+          "total": 51288,
+          "input": 7379,
+          "output": 95,
+          "reasoning": 294,
+          "cache": {
+            "write": 0,
+            "read": 43520
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b5473b001Lo3HXCT28p8a5R:prt_158b54f33001bHWtRFFaF1erU4",
+        "cost": 0,
+        "tokens": {
+          "total": 51969,
+          "input": 1392,
+          "output": 145,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 50432
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b54f3a001jqrysJWFeH11G3:prt_158b558e9001MkYahDXb76zU0c",
+        "cost": 0,
+        "tokens": {
+          "total": 52549,
+          "input": 982,
+          "output": 111,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 51456
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b558f00014XMWlncpA41AYb:prt_158b564ff0016udnsIlKQ6oPMs",
+        "cost": 0,
+        "tokens": {
+          "total": 55903,
+          "input": 3735,
+          "output": 118,
+          "reasoning": 82,
+          "cache": {
+            "write": 0,
+            "read": 51968
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b56506001Lwc4ckrff1BIBg:prt_158b56cfa001bI9cKttMxj21iA",
+        "cost": 0,
+        "tokens": {
+          "total": 56793,
+          "input": 1364,
+          "output": 71,
+          "reasoning": 62,
+          "cache": {
+            "write": 0,
+            "read": 55296
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b56d01001KcCQdYXRZ1yezY:prt_158b57503001udeH85e5aC4eLP",
+        "cost": 0,
+        "tokens": {
+          "total": 57018,
+          "input": 619,
+          "output": 79,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 56320
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b57508001IrJwb8s5ZCed5s:prt_158b57bca001Sl8RaDBrv5lZTn",
+        "cost": 0,
+        "tokens": {
+          "total": 57311,
+          "input": 673,
+          "output": 62,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 56576
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b57bd7001DHJgIUwyehUGxt:prt_158b584ee00179uB1WLnP3BAMP",
+        "cost": 0,
+        "tokens": {
+          "total": 58683,
+          "input": 1686,
+          "output": 68,
+          "reasoning": 97,
+          "cache": {
+            "write": 0,
+            "read": 56832
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b584f30017ELOpO2sJc31RE:prt_158b5b4b6001VP5yJujyw2k0vK",
+        "cost": 0,
+        "tokens": {
+          "total": 61544,
+          "input": 1629,
+          "output": 57,
+          "reasoning": 1746,
+          "cache": {
+            "write": 0,
+            "read": 58112
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b5b4be001RN05iX6KMsB2Au:prt_158b5e721001AexdXCUIlXCDys",
+        "cost": 0,
+        "tokens": {
+          "total": 70490,
+          "input": 9247,
+          "output": 157,
+          "reasoning": 1694,
+          "cache": {
+            "write": 0,
+            "read": 59392
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b5e729001vxruJFBYhe9xd9:prt_158b5f518001YWKZps3MnEP3wK",
+        "cost": 0,
+        "tokens": {
+          "total": 73321,
+          "input": 4586,
+          "output": 100,
+          "reasoning": 283,
+          "cache": {
+            "write": 0,
+            "read": 68352
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b5f521001Ernd0JUb3aXSL7:prt_158b5ffde001RA7Mugof8377W0",
+        "cost": 0,
+        "tokens": {
+          "total": 73893,
+          "input": 1312,
+          "output": 54,
+          "reasoning": 79,
+          "cache": {
+            "write": 0,
+            "read": 72448
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b5ffe8001tQAQ6HbmHEXF33:prt_158b62bd2001vn4NiQf8PICQbD",
+        "cost": 0,
+        "tokens": {
+          "total": 75760,
+          "input": 937,
+          "output": 69,
+          "reasoning": 1282,
+          "cache": {
+            "write": 0,
+            "read": 73472
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b62bdb001f5Atjp3igYGkWS:prt_158b634ac00175lJEd1HTPBG4O",
+        "cost": 0,
+        "tokens": {
+          "total": 76116,
+          "input": 2055,
+          "output": 77,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 73984
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b634b3001r4rjhA0KLIZbhw:prt_158b63cba001IiwpSIQ5NSk0GU",
+        "cost": 0,
+        "tokens": {
+          "total": 76471,
+          "input": 594,
+          "output": 74,
+          "reasoning": 27,
+          "cache": {
+            "write": 0,
+            "read": 75776
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b63cc30019oXvaEYgQ7zdTs:prt_158b644d9001jOH4Fl6k74OH86",
+        "cost": 0,
+        "tokens": {
+          "total": 76578,
+          "input": 456,
+          "output": 90,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 76032
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b644df001KBTD3ClOmCblUQ:prt_158b64ba1001YHb7BfUQFeaOA6",
+        "cost": 0,
+        "tokens": {
+          "total": 76734,
+          "input": 641,
+          "output": 61,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 76032
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b64ba6001mXyaV3joukqqhA:prt_158b6554200130JKXScQS4i7fY",
+        "cost": 0,
+        "tokens": {
+          "total": 77227,
+          "input": 755,
+          "output": 94,
+          "reasoning": 90,
+          "cache": {
+            "write": 0,
+            "read": 76288
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b65548001m7On4pmMN5r2Jd:prt_158b65bb4001mxOlF0O0yF5noD",
+        "cost": 0,
+        "tokens": {
+          "total": 77558,
+          "input": 944,
+          "output": 70,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 76544
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b65bba001Ts02DYtMTDq6og:prt_158b664c2001oQQqnJt6X7ga1m",
+        "cost": 0,
+        "tokens": {
+          "total": 77646,
+          "input": 519,
+          "output": 71,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 77056
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b664c8001rs3qrD0ejX1csQ:prt_158b67234001co575zZnj9THGi",
+        "cost": 0,
+        "tokens": {
+          "total": 78635,
+          "input": 1031,
+          "output": 76,
+          "reasoning": 216,
+          "cache": {
+            "write": 0,
+            "read": 77312
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b6723d001N1Qnl2Nfz7MJnk:prt_158b67bfe001HEXiWo4wmnN1yo",
+        "cost": 0,
+        "tokens": {
+          "total": 80240,
+          "input": 2060,
+          "output": 76,
+          "reasoning": 24,
+          "cache": {
+            "write": 0,
+            "read": 78080
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b67c0d001aUpl2XCTSSsOhS:prt_158b6b23e001qvRCaSOYz7u6yx",
+        "cost": 0,
+        "tokens": {
+          "total": 83562,
+          "input": 1905,
+          "output": 75,
+          "reasoning": 1710,
+          "cache": {
+            "write": 0,
+            "read": 79872
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b6b247001FXDLpPxcZICA31:prt_158b6bedd001T2WN21OvEIGMAa",
+        "cost": 0,
+        "tokens": {
+          "total": 84757,
+          "input": 3087,
+          "output": 91,
+          "reasoning": 171,
+          "cache": {
+            "write": 0,
+            "read": 81408
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b6bee9001P6HwR0AaRZg1QN:prt_158b6c7c6001qHbFA1tD3hiH4Z",
+        "cost": 0,
+        "tokens": {
+          "total": 84944,
+          "input": 658,
+          "output": 62,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 84224
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b6c7cc001XTvQQUxVleG2SH:prt_158b6e9530013AelC3b31SbkRF",
+        "cost": 0,
+        "tokens": {
+          "total": 88061,
+          "input": 2505,
+          "output": 72,
+          "reasoning": 1004,
+          "cache": {
+            "write": 0,
+            "read": 84480
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b6e95b001Bpb3XMXA6jwoa0:prt_158b6fdba001pmN0b6rwX8Bvd6",
+        "cost": 0,
+        "tokens": {
+          "total": 88739,
+          "input": 1710,
+          "output": 103,
+          "reasoning": 398,
+          "cache": {
+            "write": 0,
+            "read": 86528
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b6fdc2001JlSA1vP4KRm9lj:prt_158b705cb001cJnRsIxPOdTsBh",
+        "cost": 0,
+        "tokens": {
+          "total": 89072,
+          "input": 1186,
+          "output": 78,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 87808
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b705d9001hKiH7RZAytD80Y:prt_158b712d7001SQ5m8PbQguM4jE",
+        "cost": 0,
+        "tokens": {
+          "total": 90153,
+          "input": 1298,
+          "output": 63,
+          "reasoning": 216,
+          "cache": {
+            "write": 0,
+            "read": 88576
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b712e4001oQmo6EUjyiuE99:prt_158b72cf7001YJJqQ3ucDg2Son",
+        "cost": 0,
+        "tokens": {
+          "total": 92956,
+          "input": 2539,
+          "output": 124,
+          "reasoning": 693,
+          "cache": {
+            "write": 0,
+            "read": 89600
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b72d04001G5kfxsrWss1rai:prt_158b737f6001m2mvk5Z7w1kW1t",
+        "cost": 0,
+        "tokens": {
+          "total": 93192,
+          "input": 1351,
+          "output": 98,
+          "reasoning": 95,
+          "cache": {
+            "write": 0,
+            "read": 91648
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b73804001O2FAQwPnUHR6jT:prt_158b740ac0013tbO43gsRw0aTc",
+        "cost": 0,
+        "tokens": {
+          "total": 93603,
+          "input": 855,
+          "output": 76,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 92672
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b740b5001aie00lm98boWeA:prt_158b75584001gjRDj4e9wRh23o",
+        "cost": 0,
+        "tokens": {
+          "total": 95028,
+          "input": 1424,
+          "output": 102,
+          "reasoning": 318,
+          "cache": {
+            "write": 0,
+            "read": 93184
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b7558f001t5BzmJ4npxb9M6:prt_158b75caf0014991bgzsPBFPgi",
+        "cost": 0,
+        "tokens": {
+          "total": 95348,
+          "input": 1063,
+          "output": 77,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 94208
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b75cb9001UIQFbs4slsqtgB:prt_158b79db6001E3MjH7NdpBN935",
+        "cost": 0,
+        "tokens": {
+          "total": 98746,
+          "input": 1791,
+          "output": 130,
+          "reasoning": 1849,
+          "cache": {
+            "write": 0,
+            "read": 94976
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b79dc1001A33vV74CBISwX3:prt_158b7a632001ppu1ebs2oR50rq",
+        "cost": 0,
+        "tokens": {
+          "total": 98928,
+          "input": 2595,
+          "output": 77,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 96256
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b7a641001OVn2I96SC22I2H:prt_158b7b1a2001DFFZgWF8gkr3Kg",
+        "cost": 0,
+        "tokens": {
+          "total": 99894,
+          "input": 1097,
+          "output": 99,
+          "reasoning": 138,
+          "cache": {
+            "write": 0,
+            "read": 98560
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b7b1b0001aL3aZ4e7rndVMf:prt_158b7c71e0013R5zDqnl2sMPL4",
+        "cost": 0,
+        "tokens": {
+          "total": 100656,
+          "input": 743,
+          "output": 76,
+          "reasoning": 509,
+          "cache": {
+            "write": 0,
+            "read": 99328
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b7c72a001PiWZqD2CFy31Fh:prt_158b7d626001a1TjB2k2lKNgkd",
+        "cost": 0,
+        "tokens": {
+          "total": 101598,
+          "input": 1569,
+          "output": 77,
+          "reasoning": 368,
+          "cache": {
+            "write": 0,
+            "read": 99584
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b7d62f001fqD9YUqZ0HX7CY:prt_158b7de36001WEwz1ArE2NH41Z",
+        "cost": 0,
+        "tokens": {
+          "total": 101783,
+          "input": 842,
+          "output": 77,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 100864
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b7de4f0015Iing4V2eObE1g:prt_158b80956001wZIuq63W5ydBtF",
+        "cost": 0,
+        "tokens": {
+          "total": 104250,
+          "input": 1457,
+          "output": 81,
+          "reasoning": 1336,
+          "cache": {
+            "write": 0,
+            "read": 101376
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b809610017ccWrhvOSMc1al:prt_158b8130a001lwdz9yWECjUjsa",
+        "cost": 0,
+        "tokens": {
+          "total": 104478,
+          "input": 1964,
+          "output": 114,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 102400
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b81311001tS2uFREmqmUWdK:prt_158b84258001b6aGoUgLnt8t91",
+        "cost": 0,
+        "tokens": {
+          "total": 106818,
+          "input": 1439,
+          "output": 63,
+          "reasoning": 1380,
+          "cache": {
+            "write": 0,
+            "read": 103936
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b84263001GzMvrBWjZEgv0n:prt_158b86a55001liHA3TX3TEucgU",
+        "cost": 0,
+        "tokens": {
+          "total": 108428,
+          "input": 2179,
+          "output": 64,
+          "reasoning": 1225,
+          "cache": {
+            "write": 0,
+            "read": 104960
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b86a5d001UuLNtAjwBtHEk5:prt_158b8748a001MceNLix9my9VVA",
+        "cost": 0,
+        "tokens": {
+          "total": 108549,
+          "input": 1693,
+          "output": 104,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 106752
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b87493001OwJRVoGX3OXaNk:prt_158b892be0010G42MVcLHkEVwx",
+        "cost": 0,
+        "tokens": {
+          "total": 109626,
+          "input": 719,
+          "output": 55,
+          "reasoning": 820,
+          "cache": {
+            "write": 0,
+            "read": 108032
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b892c5001rEwf9oYpaW0oKG:prt_158b89cf6001RTgepdbvNh4saw",
+        "cost": 0,
+        "tokens": {
+          "total": 110023,
+          "input": 1610,
+          "output": 87,
+          "reasoning": 38,
+          "cache": {
+            "write": 0,
+            "read": 108288
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b89cff001ExGWor9Mcby8t7:prt_158b8a6eb0010aSH2woBCquM2X",
+        "cost": 0,
+        "tokens": {
+          "total": 110744,
+          "input": 1024,
+          "output": 85,
+          "reasoning": 67,
+          "cache": {
+            "write": 0,
+            "read": 109568
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b8a6f2001ADasCS8ehs9sp5:prt_158b8b5de001461qfosTc3ldpd",
+        "cost": 0,
+        "tokens": {
+          "total": 112468,
+          "input": 1790,
+          "output": 65,
+          "reasoning": 277,
+          "cache": {
+            "write": 0,
+            "read": 110336
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b8b5e9001gpz45XdN5hjV2i:prt_158b8bf430019Vhws1aED5gGTH",
+        "cost": 0,
+        "tokens": {
+          "total": 112992,
+          "input": 1328,
+          "output": 48,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 111616
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b8bf4a001MjZ121a7NHczWT:prt_158b8dc75001RzfwVxnnPKWJnT",
+        "cost": 0,
+        "tokens": {
+          "total": 114592,
+          "input": 1803,
+          "output": 60,
+          "reasoning": 89,
+          "cache": {
+            "write": 0,
+            "read": 112640
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b8dc89001SevpW64AZ6ufFD:prt_158b8e6fc001u5KCSLrHqIGKqd",
+        "cost": 0,
+        "tokens": {
+          "total": 114957,
+          "input": 575,
+          "output": 101,
+          "reasoning": 105,
+          "cache": {
+            "write": 0,
+            "read": 114176
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b8e708001pN5IcC7hvxMhRC:prt_158b8f112001lEmaO9vXYukHPg",
+        "cost": 0,
+        "tokens": {
+          "total": 115484,
+          "input": 893,
+          "output": 75,
+          "reasoning": 84,
+          "cache": {
+            "write": 0,
+            "read": 114432
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b8f11c001R7j91NZHXy5a4j:prt_158b8fa53001pwZCXiL0mAvVAv",
+        "cost": 0,
+        "tokens": {
+          "total": 118031,
+          "input": 3030,
+          "output": 57,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 114944
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b8fa5a001mF32qWO2mGllCm:prt_158b911a5001jgo2KRS2xheNC9",
+        "cost": 0,
+        "tokens": {
+          "total": 120949,
+          "input": 2848,
+          "output": 116,
+          "reasoning": 481,
+          "cache": {
+            "write": 0,
+            "read": 117504
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b911b0001PbqaIlUxpMltTN:prt_158b9202f001LwyOmcFCteDwWK",
+        "cost": 0,
+        "tokens": {
+          "total": 121180,
+          "input": 912,
+          "output": 82,
+          "reasoning": 122,
+          "cache": {
+            "write": 0,
+            "read": 120064
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b920370016Jb18bnCbLbX0Q:prt_158b92a21001uKCyoezhHRMURU",
+        "cost": 0,
+        "tokens": {
+          "total": 121414,
+          "input": 726,
+          "output": 112,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 120576
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b92a2a001XH2W9mVeVjk0MC:prt_158b93c13001fOo2hq04xEu16t",
+        "cost": 0,
+        "tokens": {
+          "total": 122168,
+          "input": 901,
+          "output": 76,
+          "reasoning": 359,
+          "cache": {
+            "write": 0,
+            "read": 120832
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b93c1a001LgYvZhdMIXlKts:prt_158b945960015ElPdK9tuz1EO8",
+        "cost": 0,
+        "tokens": {
+          "total": 122944,
+          "input": 1484,
+          "output": 64,
+          "reasoning": 52,
+          "cache": {
+            "write": 0,
+            "read": 121344
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b9459e0015Hzr43TvSqSseh:prt_158b97642001LW6jqpjIcPF3JL",
+        "cost": 0,
+        "tokens": {
+          "total": 125114,
+          "input": 1065,
+          "output": 119,
+          "reasoning": 1562,
+          "cache": {
+            "write": 0,
+            "read": 122368
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b9764c001t4j7B4VCRpsQcy:prt_158b980f7001okfLP79QugW4xz",
+        "cost": 0,
+        "tokens": {
+          "total": 126352,
+          "input": 3081,
+          "output": 84,
+          "reasoning": 51,
+          "cache": {
+            "write": 0,
+            "read": 123136
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b981010010r5DKwvcD4CAUt:prt_158b98f54001nyOBHssI3qsYoh",
+        "cost": 0,
+        "tokens": {
+          "total": 127019,
+          "input": 789,
+          "output": 100,
+          "reasoning": 178,
+          "cache": {
+            "write": 0,
+            "read": 125952
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b98f5c001Xbw61zYBEdlEzN:prt_158b9aaeb001FWyTcgGwro3QA5",
+        "cost": 0,
+        "tokens": {
+          "total": 129348,
+          "input": 1673,
+          "output": 1161,
+          "reasoning": 50,
+          "cache": {
+            "write": 0,
+            "read": 126464
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b9aaf4001TqyYhwahvOn4lI:prt_158b9b7d2001DWhJNkeDSf8znc",
+        "cost": 0,
+        "tokens": {
+          "total": 129460,
+          "input": 1623,
+          "output": 93,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 127744
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b9b7da001hrJ3TsE2W1J1n8:prt_158b9c01a001AiBR8anyRDWltc",
+        "cost": 0,
+        "tokens": {
+          "total": 129796,
+          "input": 684,
+          "output": 88,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 129024
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b9c022001AeO41SPL8XhwwQ:prt_158b9cdbf001ArZyqjE2QXdquD",
+        "cost": 0,
+        "tokens": {
+          "total": 130157,
+          "input": 705,
+          "output": 67,
+          "reasoning": 105,
+          "cache": {
+            "write": 0,
+            "read": 129280
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b9cdca001syoMudnQZ468WJ:prt_158b9d727001qV3DQF6J6MNZC1",
+        "cost": 0,
+        "tokens": {
+          "total": 131011,
+          "input": 1342,
+          "output": 133,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 129536
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b9d730001Tj06b7VeYWQr2N:prt_158b9e04d0016co15QYJyz3FNk",
+        "cost": 0,
+        "tokens": {
+          "total": 131460,
+          "input": 781,
+          "output": 73,
+          "reasoning": 46,
+          "cache": {
+            "write": 0,
+            "read": 130560
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b9e0550012Mxc3GEhCXBMGd:prt_158b9ebea001a3zIRuUp6cEMRW",
+        "cost": 0,
+        "tokens": {
+          "total": 132328,
+          "input": 931,
+          "output": 325,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 131072
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b9ebf2001LOTrEhtsLd63z2:prt_158b9f81b00118kjThnAB50TMK",
+        "cost": 0,
+        "tokens": {
+          "total": 132723,
+          "input": 871,
+          "output": 78,
+          "reasoning": 190,
+          "cache": {
+            "write": 0,
+            "read": 131584
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158b9f82400178PwLAw6shCNI3:prt_158ba013b001kcB2dJPQrfzltT",
+        "cost": 0,
+        "tokens": {
+          "total": 132856,
+          "input": 686,
+          "output": 74,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 132096
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ba01430015R5ZLjV1PFroXl:prt_158ba0b47001rKhocTDkIH1GZN",
+        "cost": 0,
+        "tokens": {
+          "total": 132957,
+          "input": 521,
+          "output": 84,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 132352
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ba0b4f001C59nuCbGMuaGIO:prt_158ba1a8e001IknntH6byh7b8C",
+        "cost": 0,
+        "tokens": {
+          "total": 134087,
+          "input": 1068,
+          "output": 283,
+          "reasoning": 128,
+          "cache": {
+            "write": 0,
+            "read": 132608
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ba1a98001uPHmr00enVPOTC:prt_158ba40d5001iPQTf0ZBdy8Lnw",
+        "cost": 0,
+        "tokens": {
+          "total": 134184,
+          "input": 730,
+          "output": 78,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 133376
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ba40dc001ZanOuY83ulnYrt:prt_158ba50c0001y1Uw9ZaE94ElOR",
+        "cost": 0,
+        "tokens": {
+          "total": 134981,
+          "input": 989,
+          "output": 79,
+          "reasoning": 281,
+          "cache": {
+            "write": 0,
+            "read": 133632
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ba50ca001svoBc5N18h9XUM:prt_158ba5f1c001nPXdfanj1HS3G8",
+        "cost": 0,
+        "tokens": {
+          "total": 135912,
+          "input": 1428,
+          "output": 144,
+          "reasoning": 196,
+          "cache": {
+            "write": 0,
+            "read": 134144
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ba5f270015acqu1StEE4vS0:prt_158ba94fb001nwbzsK5ksU2X0Q",
+        "cost": 0,
+        "tokens": {
+          "total": 139441,
+          "input": 2277,
+          "output": 78,
+          "reasoning": 1918,
+          "cache": {
+            "write": 0,
+            "read": 135168
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ba9504001eTWsnmZp6XwGqJ:prt_158ba9d39001oOG31rnz4cEB2f",
+        "cost": 0,
+        "tokens": {
+          "total": 140747,
+          "input": 3729,
+          "output": 58,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 136960
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ba9d46001O3GoU2G6638bi7:prt_158bac84a001IjwUu5aRGkpv7v",
+        "cost": 0,
+        "tokens": {
+          "total": 142698,
+          "input": 824,
+          "output": 98,
+          "reasoning": 1488,
+          "cache": {
+            "write": 0,
+            "read": 140288
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bac859001s9MRHmi7whuXqo:prt_158bad880001YFG0XOSXLiQRnH",
+        "cost": 0,
+        "tokens": {
+          "total": 143579,
+          "input": 2279,
+          "output": 500,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 140800
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bad88a001o9f21mPGBoKTTB:prt_158bb0239001L4i0NejsjRGItK",
+        "cost": 0,
+        "tokens": {
+          "total": 143684,
+          "input": 1006,
+          "output": 86,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 142592
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bb0241001idZk4c20BAbguy:prt_158bb0ee9001d7eNqJdAs96dKp",
+        "cost": 0,
+        "tokens": {
+          "total": 144944,
+          "input": 1599,
+          "output": 115,
+          "reasoning": 126,
+          "cache": {
+            "write": 0,
+            "read": 143104
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bb0ef1001OYih9sGf3E8KvJ:prt_158bb1836001MzrlaVFB8ejyUb",
+        "cost": 0,
+        "tokens": {
+          "total": 145548,
+          "input": 1001,
+          "output": 104,
+          "reasoning": 59,
+          "cache": {
+            "write": 0,
+            "read": 144384
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bb184200131DqqOJYnwE6oI:prt_158bb2124001FXZHRDhU9wimlv",
+        "cost": 0,
+        "tokens": {
+          "total": 145816,
+          "input": 824,
+          "output": 96,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 144896
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bb212d001pAbkk07x0fT1hh:prt_158bb2ed0001iJP70w5g6juTsI",
+        "cost": 0,
+        "tokens": {
+          "total": 146407,
+          "input": 741,
+          "output": 74,
+          "reasoning": 184,
+          "cache": {
+            "write": 0,
+            "read": 145408
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bb2eda001GOf61P5Lm409au:prt_158bb5b9c001ffGaervkEi4jSQ",
+        "cost": 0,
+        "tokens": {
+          "total": 146821,
+          "input": 919,
+          "output": 238,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 145664
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bb5ba3001XEuClxawlFCa1I:prt_158bb9112001zd45NjQeLlp8Tz",
+        "cost": 0,
+        "tokens": {
+          "total": 149707,
+          "input": 1759,
+          "output": 84,
+          "reasoning": 1688,
+          "cache": {
+            "write": 0,
+            "read": 146176
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bb91200016FySIM3ywo7sgJ:prt_158bbb85e001i0nJEBZDLXEb13",
+        "cost": 0,
+        "tokens": {
+          "total": 151343,
+          "input": 2603,
+          "output": 54,
+          "reasoning": 1230,
+          "cache": {
+            "write": 0,
+            "read": 147456
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bbb867001O2R32yr7VncytI:prt_158bbc1550018yMrZUf5K6Z4Vh",
+        "cost": 0,
+        "tokens": {
+          "total": 151856,
+          "input": 2042,
+          "output": 54,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 149760
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bbc15d001lJouTbK70p3AqU:prt_158bbecaa001ZwMNPTE5v8sSOx",
+        "cost": 0,
+        "tokens": {
+          "total": 153966,
+          "input": 1211,
+          "output": 74,
+          "reasoning": 1385,
+          "cache": {
+            "write": 0,
+            "read": 151296
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bbecb3001qbP1rdKeuy0Yt3:prt_158bc2dbf001aoXFov7qm6Bupe",
+        "cost": 0,
+        "tokens": {
+          "total": 157384,
+          "input": 2804,
+          "output": 503,
+          "reasoning": 2013,
+          "cache": {
+            "write": 0,
+            "read": 152064
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bc2dcd001xaf5XcdZVF7xh9:prt_158bc551a001KhiL6D2ZkGTkTa",
+        "cost": 0,
+        "tokens": {
+          "total": 157484,
+          "input": 3035,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 154368
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bc55220017nv6Kyizp3Stid:prt_158bc7ffc001Xv8lMJFKuqy4PC",
+        "cost": 0,
+        "tokens": {
+          "total": 158649,
+          "input": 850,
+          "output": 128,
+          "reasoning": 743,
+          "cache": {
+            "write": 0,
+            "read": 156928
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bc80080010hj2X5FQxNpXbL:prt_158bcb66e001L32ubwiutMhHKl",
+        "cost": 0,
+        "tokens": {
+          "total": 174779,
+          "input": 15350,
+          "output": 78,
+          "reasoning": 1911,
+          "cache": {
+            "write": 0,
+            "read": 157440
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bcb678001V2mjR7TWZBuQMw:prt_158bd0977001qd1z6S4R2uB9Qv",
+        "cost": 0,
+        "tokens": {
+          "total": 179433,
+          "input": 4001,
+          "output": 78,
+          "reasoning": 3066,
+          "cache": {
+            "write": 0,
+            "read": 172288
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bd0982001Bhas7nqrtU8o6X:prt_158bd5a62001fDzXRuAI1p1ZkZ",
+        "cost": 0,
+        "tokens": {
+          "total": 183323,
+          "input": 4320,
+          "output": 77,
+          "reasoning": 3054,
+          "cache": {
+            "write": 0,
+            "read": 175872
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bd5a6d001ZdIKnAWRbKSlko:prt_158bd64ae001e7ku44TleZHwEc",
+        "cost": 0,
+        "tokens": {
+          "total": 183682,
+          "input": 3928,
+          "output": 42,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 179712
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bd64b8001l5oRnp6XV4J0x2:prt_158bd9ec1001feOwJvZzmjnNkz",
+        "cost": 0,
+        "tokens": {
+          "total": 190662,
+          "input": 5338,
+          "output": 108,
+          "reasoning": 1920,
+          "cache": {
+            "write": 0,
+            "read": 183296
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bd9ed1001AkJwED5oNydwYc:prt_158bda981001CMo7H2GtHT0pxS",
+        "cost": 0,
+        "tokens": {
+          "total": 190990,
+          "input": 2757,
+          "output": 73,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 188160
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bda98c0011hgxmXxoK3knGA:prt_158bdcb6b0019j6K9oiAfJW3gR",
+        "cost": 0,
+        "tokens": {
+          "total": 193066,
+          "input": 1512,
+          "output": 63,
+          "reasoning": 1027,
+          "cache": {
+            "write": 0,
+            "read": 190464
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bdcb74001N00m83izCGHbIP:prt_158be07c8001CsACM2NDiZJxPj",
+        "cost": 0,
+        "tokens": {
+          "total": 195987,
+          "input": 2217,
+          "output": 115,
+          "reasoning": 2167,
+          "cache": {
+            "write": 0,
+            "read": 191488
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158be07d2001i5pt7DVSTM2zNE:prt_158be526b001yNia73AlAL6T9n",
+        "cost": 0,
+        "tokens": {
+          "total": 198721,
+          "input": 2959,
+          "output": 137,
+          "reasoning": 2345,
+          "cache": {
+            "write": 0,
+            "read": 193280
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158be5279001XTAldVx746hxR4:prt_158be6e60001CO0j0mSqTWLKkc",
+        "cost": 0,
+        "tokens": {
+          "total": 199064,
+          "input": 2953,
+          "output": 200,
+          "reasoning": 71,
+          "cache": {
+            "write": 0,
+            "read": 195840
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158be6e6d001sWZYOTEhjbPXXM:prt_158be977f001pxjV2PSFhmsraK",
+        "cost": 0,
+        "tokens": {
+          "total": 201440,
+          "input": 1658,
+          "output": 77,
+          "reasoning": 1305,
+          "cache": {
+            "write": 0,
+            "read": 198400
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158be97940011v4i3eVP6Lf43v:prt_158bea62a0016Mod7EBY4MthP8",
+        "cost": 0,
+        "tokens": {
+          "total": 202549,
+          "input": 2766,
+          "output": 77,
+          "reasoning": 26,
+          "cache": {
+            "write": 0,
+            "read": 199680
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bea633001Tv1B2GwoT3kHgi:prt_158bec3740011OCWlGouq0hztz",
+        "cost": 0,
+        "tokens": {
+          "total": 204265,
+          "input": 1335,
+          "output": 119,
+          "reasoning": 827,
+          "cache": {
+            "write": 0,
+            "read": 201984
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bec37c001sZhqUEHeeM0fBj:prt_158bed831001PlU40VqqlH25E1",
+        "cost": 0,
+        "tokens": {
+          "total": 204850,
+          "input": 1479,
+          "output": 141,
+          "reasoning": 222,
+          "cache": {
+            "write": 0,
+            "read": 203008
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bed839001nscH1sX1COm7nx:prt_158befb81001FCGW8zsnQw0VZp",
+        "cost": 0,
+        "tokens": {
+          "total": 207340,
+          "input": 2392,
+          "output": 152,
+          "reasoning": 764,
+          "cache": {
+            "write": 0,
+            "read": 204032
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158befb91001iXlo7oSJ7Oj85T:prt_158bf20e80017jDf16O9dVTsdQ",
+        "cost": 0,
+        "tokens": {
+          "total": 208906,
+          "input": 1690,
+          "output": 74,
+          "reasoning": 1062,
+          "cache": {
+            "write": 0,
+            "read": 206080
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bf20f4001tBxGa7a1xSFVGD:prt_158bf30cb001jtoVkir51wl569",
+        "cost": 0,
+        "tokens": {
+          "total": 209144,
+          "input": 1714,
+          "output": 70,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 207360
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bf30e0001FB6Dgk7cyxhxLF:prt_158bf45ea001H5O080U3UwPqfK",
+        "cost": 0,
+        "tokens": {
+          "total": 210063,
+          "input": 1112,
+          "output": 92,
+          "reasoning": 219,
+          "cache": {
+            "write": 0,
+            "read": 208640
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bf4602001Gd8NJm034UMVX9:prt_158bf56e8001ek9GDUlQ1XoX3Y",
+        "cost": 0,
+        "tokens": {
+          "total": 210988,
+          "input": 1500,
+          "output": 80,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 209408
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bf56f6001KiWjhDhd1yq7UE:prt_158bfa6a5001CXMbfQWKpe9Bsc",
+        "cost": 0,
+        "tokens": {
+          "total": 215874,
+          "input": 2352,
+          "output": 95,
+          "reasoning": 2995,
+          "cache": {
+            "write": 0,
+            "read": 210432
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bfa6b20010EvabThg3nxre2:prt_158bfb882001NVuVntcBZmBX2H",
+        "cost": 0,
+        "tokens": {
+          "total": 216957,
+          "input": 4326,
+          "output": 79,
+          "reasoning": 72,
+          "cache": {
+            "write": 0,
+            "read": 212480
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158bfb8980017WmQXqVT6tUJtw:prt_158c04cde001FW7zsLlwG61R3x",
+        "cost": 0,
+        "tokens": {
+          "total": 224713,
+          "input": 2420,
+          "output": 154,
+          "reasoning": 5819,
+          "cache": {
+            "write": 0,
+            "read": 216320
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c04ced001PnKObxTGPIHVUv:prt_158c07368001LUJcumfzH6BkyQ",
+        "cost": 0,
+        "tokens": {
+          "total": 226949,
+          "input": 7545,
+          "output": 157,
+          "reasoning": 879,
+          "cache": {
+            "write": 0,
+            "read": 218368
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c07374001b9WpT9Nv5QozRq:prt_158c08f76001whB9HfH3V7LIfE",
+        "cost": 0,
+        "tokens": {
+          "total": 228870,
+          "input": 2771,
+          "output": 99,
+          "reasoning": 464,
+          "cache": {
+            "write": 0,
+            "read": 225536
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c08f8a001W4YQu56EJFiST2:prt_158c0b82a001KoImToSByrfpev",
+        "cost": 0,
+        "tokens": {
+          "total": 229940,
+          "input": 1208,
+          "output": 92,
+          "reasoning": 800,
+          "cache": {
+            "write": 0,
+            "read": 227840
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c0b83f001A9HIKIXptekijq:prt_158c128e1001A7osg35x5xLzOy",
+        "cost": 0,
+        "tokens": {
+          "total": 234625,
+          "input": 2199,
+          "output": 136,
+          "reasoning": 3682,
+          "cache": {
+            "write": 0,
+            "read": 228608
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c128ed001GK7EiuQB5HTRBr:prt_158c13ba5001J1ymB4K8jJJCIN",
+        "cost": 0,
+        "tokens": {
+          "total": 235119,
+          "input": 4558,
+          "output": 76,
+          "reasoning": 85,
+          "cache": {
+            "write": 0,
+            "read": 230400
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c13bb5001NGyFvYcoCf77b9:prt_158c1981e001mmqt2tKoFcu61W",
+        "cost": 0,
+        "tokens": {
+          "total": 239136,
+          "input": 1331,
+          "output": 135,
+          "reasoning": 3174,
+          "cache": {
+            "write": 0,
+            "read": 234496
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c1982a001tuLAvVUbBloGTy:prt_158c1c095001gOSw71JezgMtSB",
+        "cost": 0,
+        "tokens": {
+          "total": 240454,
+          "input": 3848,
+          "output": 106,
+          "reasoning": 980,
+          "cache": {
+            "write": 0,
+            "read": 235520
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c1c0a5001UgKZ4yBA1YKf6x:prt_158c1d0ec001PRqpuSms4PQ1W6",
+        "cost": 0,
+        "tokens": {
+          "total": 240627,
+          "input": 1455,
+          "output": 68,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 239104
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c1d0f7001nHmxUmkf2UBjwt:prt_158c20817001t1pXRV6dhVTYx6",
+        "cost": 0,
+        "tokens": {
+          "total": 242739,
+          "input": 1038,
+          "output": 138,
+          "reasoning": 1435,
+          "cache": {
+            "write": 0,
+            "read": 240128
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c20825001XtkTg76ffgWaZP:prt_158c27610001PcbuNSZ6XHGhgK",
+        "cost": 0,
+        "tokens": {
+          "total": 247519,
+          "input": 2666,
+          "output": 136,
+          "reasoning": 3821,
+          "cache": {
+            "write": 0,
+            "read": 240896
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c27629001tEF0pRdtCXqiMb:prt_158c29ee8001z92a2vXXnPDCXY",
+        "cost": 0,
+        "tokens": {
+          "total": 248977,
+          "input": 4700,
+          "output": 78,
+          "reasoning": 999,
+          "cache": {
+            "write": 0,
+            "read": 243200
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c29efd001BaY3u8naMKdUMF:prt_158c2bb0b001I7e1TG9ase7JPy",
+        "cost": 0,
+        "tokens": {
+          "total": 250539,
+          "input": 2380,
+          "output": 64,
+          "reasoning": 543,
+          "cache": {
+            "write": 0,
+            "read": 247552
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c2bb23001hR6thJ6DCFFAoP:prt_158c2e5dd001FgJStqvA3x9xM4",
+        "cost": 0,
+        "tokens": {
+          "total": 252097,
+          "input": 1246,
+          "output": 653,
+          "reasoning": 598,
+          "cache": {
+            "write": 0,
+            "read": 249600
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c2e5f7001kt3JoDmAGLyXkc:prt_158c35222001fSI73sq4kRhHlk",
+        "cost": 0,
+        "tokens": {
+          "total": 252197,
+          "input": 1748,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 250368
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c3523b0019ejLmZjGbBU79x:prt_158c3618800101EdLBlqY8NcvL",
+        "cost": 0,
+        "tokens": {
+          "total": 252776,
+          "input": 869,
+          "output": 112,
+          "reasoning": 147,
+          "cache": {
+            "write": 0,
+            "read": 251648
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c3619a001IQZVtu6gM3qkqe:prt_158c39a32001VCHMvsEGVqtixt",
+        "cost": 0,
+        "tokens": {
+          "total": 253414,
+          "input": 952,
+          "output": 302,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 252160
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c39a47001XsxBCvWYJxAdqx:prt_158c3ad0f001SnRSBrS8GjL2Vn",
+        "cost": 0,
+        "tokens": {
+          "total": 254007,
+          "input": 1094,
+          "output": 92,
+          "reasoning": 149,
+          "cache": {
+            "write": 0,
+            "read": 252672
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c3ad1f001MUpTwIu0vKT4wF:prt_158c3bd6f001kmUhGjF0xrYLqd",
+        "cost": 0,
+        "tokens": {
+          "total": 254306,
+          "input": 728,
+          "output": 138,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 253440
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c3bd7e001BDJdLqGCkcWJlL:prt_158c3eba10014nZHGU2SuBgqus",
+        "cost": 0,
+        "tokens": {
+          "total": 256422,
+          "input": 1650,
+          "output": 900,
+          "reasoning": 176,
+          "cache": {
+            "write": 0,
+            "read": 253696
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c3ebac001KBxB8lwiWwp8sW:prt_158c42251001ncbhytpdPNW8Jx",
+        "cost": 0,
+        "tokens": {
+          "total": 256522,
+          "input": 1465,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 254976
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c4225a001geEWA2dkRi6rcg:prt_158c42d8d0012q7jXel67PICBL",
+        "cost": 0,
+        "tokens": {
+          "total": 257281,
+          "input": 1148,
+          "output": 83,
+          "reasoning": 50,
+          "cache": {
+            "write": 0,
+            "read": 256000
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c42da3001VeWoZTppoGGo7v:prt_158c46505001fQwHEdgmpTIKW1",
+        "cost": 0,
+        "tokens": {
+          "total": 259255,
+          "input": 1836,
+          "output": 462,
+          "reasoning": 189,
+          "cache": {
+            "write": 0,
+            "read": 256768
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c46512001CdAxgoJbsh1fEz:prt_158c49994001eIxRCN8Ywyg2T3",
+        "cost": 0,
+        "tokens": {
+          "total": 260795,
+          "input": 1972,
+          "output": 377,
+          "reasoning": 142,
+          "cache": {
+            "write": 0,
+            "read": 258304
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c499a1001IvHRmkHcJsfns5:prt_158c4af11001mWy3e68svgiMuk",
+        "cost": 0,
+        "tokens": {
+          "total": 262316,
+          "input": 1955,
+          "output": 89,
+          "reasoning": 432,
+          "cache": {
+            "write": 0,
+            "read": 259840
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c4af20001ERNFwc2X4QcQOO:prt_158c4d8c6001rEMZV8Tupgc3jY",
+        "cost": 0,
+        "tokens": {
+          "total": 264043,
+          "input": 1461,
+          "output": 72,
+          "reasoning": 1134,
+          "cache": {
+            "write": 0,
+            "read": 261376
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c4d8d10010i1QzB2N2HvWwY:prt_158c511810019MxNYH4i4zOOS7",
+        "cost": 0,
+        "tokens": {
+          "total": 267117,
+          "input": 2909,
+          "output": 179,
+          "reasoning": 1629,
+          "cache": {
+            "write": 0,
+            "read": 262400
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c5118b001LvBnonvC2AOHU3:prt_158c520ad0019JJS74CPO8kMmz",
+        "cost": 0,
+        "tokens": {
+          "total": 268324,
+          "input": 3102,
+          "output": 137,
+          "reasoning": 125,
+          "cache": {
+            "write": 0,
+            "read": 264960
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c520bb001GAuUOnEBiwWajj:prt_158c5761f001uCmfW6n0VEOFJx",
+        "cost": 0,
+        "tokens": {
+          "total": 272335,
+          "input": 1487,
+          "output": 49,
+          "reasoning": 3023,
+          "cache": {
+            "write": 0,
+            "read": 267776
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c5762e001PCVVpyaH8x68mZ:prt_158c591a5001tzgJ2eKvuQ8dKC",
+        "cost": 0,
+        "tokens": {
+          "total": 275565,
+          "input": 5959,
+          "output": 63,
+          "reasoning": 743,
+          "cache": {
+            "write": 0,
+            "read": 268800
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c591b5001I2ifxhU31DCII8:prt_158c59fad0019j8iE5iIaLL3iB",
+        "cost": 0,
+        "tokens": {
+          "total": 276980,
+          "input": 2440,
+          "output": 74,
+          "reasoning": 34,
+          "cache": {
+            "write": 0,
+            "read": 274432
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c59fc3001Q5eu29nvEjSByA:prt_158c5fda7001SZBQq3mGc4dywC",
+        "cost": 0,
+        "tokens": {
+          "total": 281968,
+          "input": 1733,
+          "output": 585,
+          "reasoning": 3170,
+          "cache": {
+            "write": 0,
+            "read": 276480
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c5fdbe00107lqpFeR0dJQ3t:prt_158c63371001xP8J02guBIO7Ao",
+        "cost": 0,
+        "tokens": {
+          "total": 282068,
+          "input": 4227,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 277760
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c63388001LJAYRQFwVStAnO:prt_158c647be00166UfnW2zxu26pF",
+        "cost": 0,
+        "tokens": {
+          "total": 282713,
+          "input": 847,
+          "output": 114,
+          "reasoning": 152,
+          "cache": {
+            "write": 0,
+            "read": 281600
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c647dd001SAKoqpnVli1W4a:prt_158c65f51001nnj467TdGw26bP",
+        "cost": 0,
+        "tokens": {
+          "total": 283355,
+          "input": 737,
+          "output": 116,
+          "reasoning": 390,
+          "cache": {
+            "write": 0,
+            "read": 282112
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c65f6c001UfGIzyZW7baPgt:prt_158c66f180012Y8lPsvzFLuBXs",
+        "cost": 0,
+        "tokens": {
+          "total": 283499,
+          "input": 1044,
+          "output": 87,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 282368
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c66f2a001Z8QX2QGqEPlyTo:prt_158c67d93001WZ91LEjBnD4wyf",
+        "cost": 0,
+        "tokens": {
+          "total": 283601,
+          "input": 387,
+          "output": 78,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 283136
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c67da6001DSk3WxZr89Nv5n:prt_158c68cc6001fTwkkvY6UF5RIm",
+        "cost": 0,
+        "tokens": {
+          "total": 284375,
+          "input": 980,
+          "output": 73,
+          "reasoning": 186,
+          "cache": {
+            "write": 0,
+            "read": 283136
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c68cdd001Ou5zDn8fNYYKb1:prt_158c6a6b6001xjKkykXQGzSF4W",
+        "cost": 0,
+        "tokens": {
+          "total": 285830,
+          "input": 1033,
+          "output": 901,
+          "reasoning": 248,
+          "cache": {
+            "write": 0,
+            "read": 283648
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c6a6c5001Yq45mHrm2W3xoQ:prt_158c6e39a0012XeOP0MD3LxLvA",
+        "cost": 0,
+        "tokens": {
+          "total": 285930,
+          "input": 1433,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 284416
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c6e3ac001cWMrhehgurp0BE:prt_158c727ed001MwXE1PssaG6TOx",
+        "cost": 0,
+        "tokens": {
+          "total": 287143,
+          "input": 1019,
+          "output": 374,
+          "reasoning": 310,
+          "cache": {
+            "write": 0,
+            "read": 285440
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c727fc001ZSyM80gYrHT5Yz:prt_158c7baf7001ZdQI1Wi0HgG2jS",
+        "cost": 0,
+        "tokens": {
+          "total": 293493,
+          "input": 1635,
+          "output": 857,
+          "reasoning": 5049,
+          "cache": {
+            "write": 0,
+            "read": 285952
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c7bb0a001o9VAecEC3gmQXQ:prt_158c7f08e001c7M1fZ3f80eAs6",
+        "cost": 0,
+        "tokens": {
+          "total": 293593,
+          "input": 6280,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 287232
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c7f0a0001527LDcTTIjixka:prt_158c8302b0014hWHMZ0anC7SEP",
+        "cost": 0,
+        "tokens": {
+          "total": 296603,
+          "input": 1121,
+          "output": 565,
+          "reasoning": 1797,
+          "cache": {
+            "write": 0,
+            "read": 293120
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c8304900142xrK4tfJ4UzZL:prt_158c865e40011nF2F2G3CbUs2g",
+        "cost": 0,
+        "tokens": {
+          "total": 296703,
+          "input": 2734,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 293888
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c865f8001RAcvUEGJajBFhF:prt_158c8b0f3001dtkIFXAS4eEUN4",
+        "cost": 0,
+        "tokens": {
+          "total": 298113,
+          "input": 899,
+          "output": 429,
+          "reasoning": 593,
+          "cache": {
+            "write": 0,
+            "read": 296192
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c8b102001ZuUhylDA3tpwPv:prt_158c8ec16001dWuZXVPfXbItPa",
+        "cost": 0,
+        "tokens": {
+          "total": 298452,
+          "input": 1582,
+          "output": 166,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 296704
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c8ec28001W156bpp9WaEOFn:prt_158c9028a001pAUeRR3pO4uoMf",
+        "cost": 0,
+        "tokens": {
+          "total": 299214,
+          "input": 908,
+          "output": 77,
+          "reasoning": 245,
+          "cache": {
+            "write": 0,
+            "read": 297984
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c9029b001pwqO9n31lRWa3N:prt_158c915bd001UpbP5t4fxytlZf",
+        "cost": 0,
+        "tokens": {
+          "total": 299346,
+          "input": 773,
+          "output": 77,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 298496
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c915d3001xnHDbQX96NDQ4s:prt_158c982b7001RXub9dqfiqfP3L",
+        "cost": 0,
+        "tokens": {
+          "total": 303637,
+          "input": 822,
+          "output": 154,
+          "reasoning": 3653,
+          "cache": {
+            "write": 0,
+            "read": 299008
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c982d90010l883bc3xyu1E1:prt_158c9968c001pb04MsNOjgqOxs",
+        "cost": 0,
+        "tokens": {
+          "total": 303809,
+          "input": 4134,
+          "output": 155,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 299520
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c996a5001iARr9rBFlPmEAC:prt_158c9c9df00147S0ZPSKFPQd7v",
+        "cost": 0,
+        "tokens": {
+          "total": 305839,
+          "input": 1064,
+          "output": 196,
+          "reasoning": 1219,
+          "cache": {
+            "write": 0,
+            "read": 303360
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158c9c9f30016XN7yS35YZkQUv:prt_158ca1698001IxjkvGgBfI2iBC",
+        "cost": 0,
+        "tokens": {
+          "total": 308490,
+          "input": 1835,
+          "output": 75,
+          "reasoning": 2452,
+          "cache": {
+            "write": 0,
+            "read": 304128
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ca16d10013M7Tfrm3CTrx1o:prt_158ca6eb1001q6NujJ3RTaYnA6",
+        "cost": 0,
+        "tokens": {
+          "total": 311994,
+          "input": 3579,
+          "output": 75,
+          "reasoning": 2676,
+          "cache": {
+            "write": 0,
+            "read": 305664
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ca6ec6001oLsmMVSdjeucHv:prt_158cac4a5001h2bs7kO3gN3LOP",
+        "cost": 0,
+        "tokens": {
+          "total": 315147,
+          "input": 3969,
+          "output": 111,
+          "reasoning": 2331,
+          "cache": {
+            "write": 0,
+            "read": 308736
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158cac4c4001Gj3Sq8B6C1gqhY:prt_158cb1a29001WnKwNRYFgwjkXA",
+        "cost": 0,
+        "tokens": {
+          "total": 318878,
+          "input": 3732,
+          "output": 656,
+          "reasoning": 2170,
+          "cache": {
+            "write": 0,
+            "read": 312320
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158cb1a4d001AULk61PZO3Uts2:prt_158cb575f001rnyRH41QKX57cJ",
+        "cost": 0,
+        "tokens": {
+          "total": 318978,
+          "input": 3249,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 315648
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158cb57750011TegcDYTrZvPEZ:prt_158cb9a1a001FV4kUVBGId7nRz",
+        "cost": 0,
+        "tokens": {
+          "total": 319450,
+          "input": 812,
+          "output": 132,
+          "reasoning": 42,
+          "cache": {
+            "write": 0,
+            "read": 318464
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158cb9a39001Jfrxivz5G0iEt1:prt_158cbba9f001dsC5g4muadE1yZ",
+        "cost": 0,
+        "tokens": {
+          "total": 320354,
+          "input": 951,
+          "output": 76,
+          "reasoning": 351,
+          "cache": {
+            "write": 0,
+            "read": 318976
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158cbbac6001y3a9Y5vir29KQW:prt_158cc4313001ndfaHH3EDJfV3H",
+        "cost": 0,
+        "tokens": {
+          "total": 323909,
+          "input": 1458,
+          "output": 249,
+          "reasoning": 2714,
+          "cache": {
+            "write": 0,
+            "read": 319488
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158cc4324001cE2QFK2kCOy2se:prt_158cc7320001SR1HI7I9t6Z55G",
+        "cost": 0,
+        "tokens": {
+          "total": 325618,
+          "input": 3914,
+          "output": 705,
+          "reasoning": 487,
+          "cache": {
+            "write": 0,
+            "read": 320512
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158cc7339001xJFZE6i225xWwa:prt_158ccb19a001VgaUh6PnnyRC0I",
+        "cost": 0,
+        "tokens": {
+          "total": 325718,
+          "input": 1541,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 324096
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ccb1aa001JRNugGYbma6dPT:prt_158cdefa50011LDdGE500HF5R9",
+        "cost": 0,
+        "tokens": {
+          "total": 337457,
+          "input": 730,
+          "output": 840,
+          "reasoning": 10511,
+          "cache": {
+            "write": 0,
+            "read": 325376
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158cdefef001E6nN8rIJoBZAVR:prt_158ce4bf4001TfAG3Kx1A63DyA",
+        "cost": 0,
+        "tokens": {
+          "total": 337557,
+          "input": 11844,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 325632
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ce4c1d001kD4YYr2M6x88a7:prt_158ce7636001fP7yOMlmHy4r74",
+        "cost": 0,
+        "tokens": {
+          "total": 339503,
+          "input": 1229,
+          "output": 710,
+          "reasoning": 412,
+          "cache": {
+            "write": 0,
+            "read": 337152
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ce766c001myYSIm83PJ8VQE:prt_158cec235001aeGEd5FZsL30uE",
+        "cost": 0,
+        "tokens": {
+          "total": 339603,
+          "input": 1602,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 337920
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158cec2550011t7eny2kVcMS9G:prt_158cede1a001209rHILb1qC14D",
+        "cost": 0,
+        "tokens": {
+          "total": 340556,
+          "input": 928,
+          "output": 74,
+          "reasoning": 354,
+          "cache": {
+            "write": 0,
+            "read": 339200
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158cede41001YZ3SzZUe3p41xQ:prt_158d001c9001nmA54CTpX5cPjX",
+        "cost": 0,
+        "tokens": {
+          "total": 351110,
+          "input": 2078,
+          "output": 210,
+          "reasoning": 9110,
+          "cache": {
+            "write": 0,
+            "read": 339712
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d001d9001RXFBIS8QId3dEk:prt_158d046f8001vU1po4krkvJVkg",
+        "cost": 0,
+        "tokens": {
+          "total": 353669,
+          "input": 9979,
+          "output": 133,
+          "reasoning": 2053,
+          "cache": {
+            "write": 0,
+            "read": 341504
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d0472a001t7chIFW1eRKt1e:prt_158d0be76001NxSj4pS3HNGgE5",
+        "cost": 0,
+        "tokens": {
+          "total": 359333,
+          "input": 3944,
+          "output": 78,
+          "reasoning": 4335,
+          "cache": {
+            "write": 0,
+            "read": 350976
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d0bea60015YCO0aF4c1l1sY:prt_158d0e02f001wdtoqcoppFLuc6",
+        "cost": 0,
+        "tokens": {
+          "total": 360819,
+          "input": 5121,
+          "output": 466,
+          "reasoning": 672,
+          "cache": {
+            "write": 0,
+            "read": 354560
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d0e049001Jc1OJLzJ8BT9Pw:prt_158d11907001UGozhmLgMv2BZ4",
+        "cost": 0,
+        "tokens": {
+          "total": 360919,
+          "input": 1414,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 359424
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d1191a001nRJQbtTZQgo5az:prt_158d157f5001XzTlu70QDqmMPH",
+        "cost": 0,
+        "tokens": {
+          "total": 361820,
+          "input": 877,
+          "output": 324,
+          "reasoning": 171,
+          "cache": {
+            "write": 0,
+            "read": 360448
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d15805001eLPxic3HGBuRYk:prt_158d19408001016afgZmCuR1Zd",
+        "cost": 0,
+        "tokens": {
+          "total": 363194,
+          "input": 1781,
+          "output": 169,
+          "reasoning": 284,
+          "cache": {
+            "write": 0,
+            "read": 360960
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d1941e001NWTSuHIFcJRW4I:prt_158d216f2001MvL55vq9IInqfV",
+        "cost": 0,
+        "tokens": {
+          "total": 367741,
+          "input": 1727,
+          "output": 172,
+          "reasoning": 3602,
+          "cache": {
+            "write": 0,
+            "read": 362240
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d217050017HVwQ1N0krkQG8:prt_158d267ad001OzUlI6PRo3xYLX",
+        "cost": 0,
+        "tokens": {
+          "total": 371044,
+          "input": 4666,
+          "output": 86,
+          "reasoning": 2772,
+          "cache": {
+            "write": 0,
+            "read": 363520
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d267c4001RsVSz8Wm1gFcHp:prt_158d29191001nI8OIGEk90lNNy",
+        "cost": 0,
+        "tokens": {
+          "total": 372287,
+          "input": 3243,
+          "output": 103,
+          "reasoning": 1069,
+          "cache": {
+            "write": 0,
+            "read": 367872
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d291b3001x1m3TgWjSIBPa1:prt_158d2f50e001USonNWb87HYCen",
+        "cost": 0,
+        "tokens": {
+          "total": 376221,
+          "input": 1676,
+          "output": 522,
+          "reasoning": 3335,
+          "cache": {
+            "write": 0,
+            "read": 370688
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d2f5230014n3e73oXi1PNd9:prt_158d32cbd001YdHj9WwMW5iHC1",
+        "cost": 0,
+        "tokens": {
+          "total": 376321,
+          "input": 4272,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 371968
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d32cd1001zHU4k8tblyyWaP:prt_158d3a9cf0013mvEppqkulaexm",
+        "cost": 0,
+        "tokens": {
+          "total": 380999,
+          "input": 926,
+          "output": 118,
+          "reasoning": 4147,
+          "cache": {
+            "write": 0,
+            "read": 375808
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d3a9ec001OGtJjGjGS7Rh16:prt_158d3be0e001yzg8WEZgZPPRAW",
+        "cost": 0,
+        "tokens": {
+          "total": 381189,
+          "input": 4701,
+          "output": 86,
+          "reasoning": 82,
+          "cache": {
+            "write": 0,
+            "read": 376320
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d3be1d001g7LW6jiHCPwoWj:prt_158d408ad001frxXB86G45EY41",
+        "cost": 0,
+        "tokens": {
+          "total": 383445,
+          "input": 534,
+          "output": 117,
+          "reasoning": 2122,
+          "cache": {
+            "write": 0,
+            "read": 380672
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d408bd0014QApH9kutoAey2:prt_158d52d3f001EKbVnnxErqOHhq",
+        "cost": 0,
+        "tokens": {
+          "total": 395088,
+          "input": 3435,
+          "output": 77,
+          "reasoning": 10648,
+          "cache": {
+            "write": 0,
+            "read": 380928
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d52d63001GWmYioLLyu0p5a:prt_158d5a966001XpD1bBcKJfghZ4",
+        "cost": 0,
+        "tokens": {
+          "total": 398306,
+          "input": 11608,
+          "output": 568,
+          "reasoning": 2130,
+          "cache": {
+            "write": 0,
+            "read": 384000
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d5a984001UkLjYf7G3BuV12:prt_158d5cad1001O30iw1eJmFcTJm",
+        "cost": 0,
+        "tokens": {
+          "total": 399277,
+          "input": 3285,
+          "output": 118,
+          "reasoning": 610,
+          "cache": {
+            "write": 0,
+            "read": 395264
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d5cae7001c1g4h2BSny8rlz:prt_158d724a9001m7r4uLUc33GFrU",
+        "cost": 0,
+        "tokens": {
+          "total": 412371,
+          "input": 1668,
+          "output": 90,
+          "reasoning": 12533,
+          "cache": {
+            "write": 0,
+            "read": 398080
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d724c1001MbTD6HjzGXfwLP:prt_158d74019001LFNp8PeBd9zS3l",
+        "cost": 0,
+        "tokens": {
+          "total": 412736,
+          "input": 13105,
+          "output": 148,
+          "reasoning": 123,
+          "cache": {
+            "write": 0,
+            "read": 399360
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d7403a001j3P2Ots6X2Y6oP:prt_158d76f74001EQeHtsE75Wymyv",
+        "cost": 0,
+        "tokens": {
+          "total": 414374,
+          "input": 1056,
+          "output": 81,
+          "reasoning": 1077,
+          "cache": {
+            "write": 0,
+            "read": 412160
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d76f8a001pJ8Td5N5Mrd3Rd:prt_158d7c510001E6t2n52UR0nrdK",
+        "cost": 0,
+        "tokens": {
+          "total": 416895,
+          "input": 1531,
+          "output": 57,
+          "reasoning": 2379,
+          "cache": {
+            "write": 0,
+            "read": 412928
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d7c521001SS8ee8PNlAuky3:prt_158d93e6b001Brh1NsqLJX3ZRG",
+        "cost": 0,
+        "tokens": {
+          "total": 431898,
+          "input": 4514,
+          "output": 604,
+          "reasoning": 12828,
+          "cache": {
+            "write": 0,
+            "read": 413952
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d93e90001lI8k0ctIb55FqE:prt_158d9738b0015uFr8EY2vsnkZJ",
+        "cost": 0,
+        "tokens": {
+          "total": 431998,
+          "input": 13869,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 418048
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158d9739d001p2S3CFyNYCHCHi:prt_158da43c90015yxGsO9DIjjMRP",
+        "cost": 0,
+        "tokens": {
+          "total": 440257,
+          "input": 787,
+          "output": 51,
+          "reasoning": 7803,
+          "cache": {
+            "write": 0,
+            "read": 431616
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158da43e5001t9CC2K9iauDcnh:prt_158daf81c001BrJtqCI2mEfIHg",
+        "cost": 0,
+        "tokens": {
+          "total": 446976,
+          "input": 8869,
+          "output": 640,
+          "reasoning": 5339,
+          "cache": {
+            "write": 0,
+            "read": 432128
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158daf831001CH9C3HI42LIQTi:prt_158dbddea001fq66rPMfFGuy5K",
+        "cost": 0,
+        "tokens": {
+          "total": 456368,
+          "input": 6737,
+          "output": 89,
+          "reasoning": 8966,
+          "cache": {
+            "write": 0,
+            "read": 440576
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158dbddfc001zYSNOI3EaavYAd:prt_158dbfdcb001dHUC9IVGAKIoEu",
+        "cost": 0,
+        "tokens": {
+          "total": 457363,
+          "input": 9465,
+          "output": 249,
+          "reasoning": 673,
+          "cache": {
+            "write": 0,
+            "read": 446976
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158dbfddf001VZk4tggdacpwQb:prt_158dc2035001WUUaCtEagUrhMp",
+        "cost": 0,
+        "tokens": {
+          "total": 458098,
+          "input": 1446,
+          "output": 202,
+          "reasoning": 514,
+          "cache": {
+            "write": 0,
+            "read": 455936
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158dc2045001PWtpO0w5JDiYgu:prt_158dc7941001Iz3jkTUP2ALwgP",
+        "cost": 0,
+        "tokens": {
+          "total": 467765,
+          "input": 6628,
+          "output": 2358,
+          "reasoning": 1819,
+          "cache": {
+            "write": 0,
+            "read": 456960
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158dc7951001JopAiV3B8NqFly:prt_158dc89fa001rcL6dFtxuZev1J",
+        "cost": 0,
+        "tokens": {
+          "total": 467933,
+          "input": 4680,
+          "output": 149,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 463104
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158dc8a0f0019U7hK3vjFHlnbB:prt_158dccf2b0011GKdXs2Y0t1kGZ",
+        "cost": 0,
+        "tokens": {
+          "total": 469524,
+          "input": 606,
+          "output": 857,
+          "reasoning": 605,
+          "cache": {
+            "write": 0,
+            "read": 467456
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158dccf3b0011OgNyBb9TkK62q:prt_158dd0dfe0010VO9CoTQPF6Xzo",
+        "cost": 0,
+        "tokens": {
+          "total": 470773,
+          "input": 1907,
+          "output": 916,
+          "reasoning": 238,
+          "cache": {
+            "write": 0,
+            "read": 467712
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158dd0e0e001tVcGxa1RzssRN8:prt_158dd4863001HESIWl2Dt8xM7R",
+        "cost": 0,
+        "tokens": {
+          "total": 472001,
+          "input": 1824,
+          "output": 705,
+          "reasoning": 224,
+          "cache": {
+            "write": 0,
+            "read": 469248
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158dd4875001546W6ARgCSO7ni:prt_158dd84e6001xYnzdB78haG0x6",
+        "cost": 0,
+        "tokens": {
+          "total": 472982,
+          "input": 1550,
+          "output": 268,
+          "reasoning": 380,
+          "cache": {
+            "write": 0,
+            "read": 470784
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158dd84fb001jtS2YuaJNnr61w:prt_158dda730001oA3YCiBiRTCCiZ",
+        "cost": 0,
+        "tokens": {
+          "total": 474213,
+          "input": 1136,
+          "output": 309,
+          "reasoning": 704,
+          "cache": {
+            "write": 0,
+            "read": 472064
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158dda743001TptovevEDkbb2j:prt_158ddb7d3001wYnpy883xaZd66",
+        "cost": 0,
+        "tokens": {
+          "total": 474417,
+          "input": 1400,
+          "output": 185,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 472832
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ddb7f0001HG1YbJfp272pRL:prt_158ddd0c40012i9lwEEdz3eSy1",
+        "cost": 0,
+        "tokens": {
+          "total": 475017,
+          "input": 783,
+          "output": 125,
+          "reasoning": 253,
+          "cache": {
+            "write": 0,
+            "read": 473856
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ddd0d6001p152pvKkqbEGpJ:prt_158ddf5dc0013RGfd453bG5wuS",
+        "cost": 0,
+        "tokens": {
+          "total": 476113,
+          "input": 783,
+          "output": 53,
+          "reasoning": 909,
+          "cache": {
+            "write": 0,
+            "read": 474368
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea74b2eafffeekoZdGhWZo91Rm:msg_158ddf5f6001dzsbngapbewfhD:prt_158de0db5001Qgk08HiqqCrQE4",
+        "cost": 0,
+        "tokens": {
+          "total": 476828,
+          "input": 1544,
+          "output": 404,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 474880
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea721ed1fffeifwzvJAw34LQyy:msg_158de14e9001t8386lVHCpCqte:prt_158de3c16001eJjeZAVos7TpPd",
+        "cost": 0,
+        "tokens": {
+          "total": 9244,
+          "input": 8728,
+          "output": 516,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea721ed1fffeifwzvJAw34LQyy:msg_158de3c1c001JdIw4CQkFZC6S7:prt_158de50dc001sz9m3rcw4brs5v",
+        "cost": 0,
+        "tokens": {
+          "total": 12319,
+          "input": 2897,
+          "output": 718,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 8704
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea721ed1fffeifwzvJAw34LQyy:msg_158de50e4001rusOhiMje5JJw9:prt_158de65f8001nSY5yUboCvfUlz",
+        "cost": 0,
+        "tokens": {
+          "total": 16182,
+          "input": 6213,
+          "output": 1009,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 8960
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea721ed1fffeifwzvJAw34LQyy:msg_158de6601001mkpngndOx2uFIA:prt_158df13fe001mlsHqEZoHfikbd",
+        "cost": 0,
+        "tokens": {
+          "total": 22485,
+          "input": 6249,
+          "output": 2796,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 13440
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea721ed1fffeifwzvJAw34LQyy:msg_158df1406001P19Yjr07ayWJf4:prt_158df1a90001jdXFFeA3ew7Ki8",
+        "cost": 0,
+        "tokens": {
+          "total": 22751,
+          "input": 4677,
+          "output": 154,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 17920
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea721ed1fffeifwzvJAw34LQyy:msg_158df1a95001UjNItVPLIo5gEk:prt_158df25360016hEE4AYsECvdLl",
+        "cost": 0,
+        "tokens": {
+          "total": 23174,
+          "input": 462,
+          "output": 312,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 22400
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea721ed1fffeifwzvJAw34LQyy:msg_158df253b001evLBTm5wn5iuxw:prt_158df2d5f001XKWR7Aux3tSrf6",
+        "cost": 0,
+        "tokens": {
+          "total": 23426,
+          "input": 728,
+          "output": 170,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 22528
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158df324f001Jmeo4s2Hc9CDh1:prt_158df4adf001DqpUvaHJrrYq1a",
+        "cost": 0,
+        "tokens": {
+          "total": 11749,
+          "input": 601,
+          "output": 140,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 11008
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158df4ae6001B2TVsbMrMRq9by:prt_158df5b6a001dLUhGF2ec84yzu",
+        "cost": 0,
+        "tokens": {
+          "total": 12954,
+          "input": 1558,
+          "output": 69,
+          "reasoning": 63,
+          "cache": {
+            "write": 0,
+            "read": 11264
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158df5b71001v7VnTrIIu2NP6n:prt_158df699a001zLhc3cNZwxL5p4",
+        "cost": 0,
+        "tokens": {
+          "total": 19603,
+          "input": 6940,
+          "output": 73,
+          "reasoning": 46,
+          "cache": {
+            "write": 0,
+            "read": 12544
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158df69a4001nEhRVo1riCHOMJ:prt_158df7bf1001RkAZAav5P4IzD9",
+        "cost": 0,
+        "tokens": {
+          "total": 27963,
+          "input": 8422,
+          "output": 125,
+          "reasoning": 216,
+          "cache": {
+            "write": 0,
+            "read": 19200
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158df7bf80017L9nqK2HZc7dnw:prt_158df96470014X10OkYPd9WkMj",
+        "cost": 0,
+        "tokens": {
+          "total": 32853,
+          "input": 5394,
+          "output": 135,
+          "reasoning": 188,
+          "cache": {
+            "write": 0,
+            "read": 27136
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158df964e001s2PFpcFvge5jNH:prt_158dfa40a001UbS8NtFtqCglTK",
+        "cost": 0,
+        "tokens": {
+          "total": 33854,
+          "input": 1434,
+          "output": 93,
+          "reasoning": 71,
+          "cache": {
+            "write": 0,
+            "read": 32256
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158dfa412001OlsqgXdnhgYKai:prt_158dfc53f001BdDIuoTERcPnYz",
+        "cost": 0,
+        "tokens": {
+          "total": 35788,
+          "input": 1775,
+          "output": 114,
+          "reasoning": 619,
+          "cache": {
+            "write": 0,
+            "read": 33280
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158dfc549001EETjxU2irmZa3B:prt_158dfdb2f0019qGPJ4w0A9WQZr",
+        "cost": 0,
+        "tokens": {
+          "total": 38728,
+          "input": 3649,
+          "output": 89,
+          "reasoning": 430,
+          "cache": {
+            "write": 0,
+            "read": 34560
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158dfdb3700197GugKAItPH7ip:prt_158dfe472001eiP0bAtiZmjSLP",
+        "cost": 0,
+        "tokens": {
+          "total": 39053,
+          "input": 1028,
+          "output": 137,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 37888
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158dfe47a001UykrleHfCAnf4q:prt_158dfed840019FmSezwJJR63Oi",
+        "cost": 0,
+        "tokens": {
+          "total": 39219,
+          "input": 493,
+          "output": 70,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 38656
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158dfed8b001zNee7WBKHo6c4F:prt_158dff8f0001SAnqROuosALfD3",
+        "cost": 0,
+        "tokens": {
+          "total": 41671,
+          "input": 2884,
+          "output": 70,
+          "reasoning": 61,
+          "cache": {
+            "write": 0,
+            "read": 38656
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158dff8f7001JXMuLR7zlEgoRo:prt_158e00177001X6wZq0jWfFUz9k",
+        "cost": 0,
+        "tokens": {
+          "total": 43503,
+          "input": 2190,
+          "output": 70,
+          "reasoning": 27,
+          "cache": {
+            "write": 0,
+            "read": 41216
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e0017e001RFKDsB3c0HzmeR:prt_158e0174f00196gbwiwkxSCwDH",
+        "cost": 0,
+        "tokens": {
+          "total": 45452,
+          "input": 2002,
+          "output": 130,
+          "reasoning": 312,
+          "cache": {
+            "write": 0,
+            "read": 43008
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e0175a001kzKu1KCqkxol62:prt_158e02594001ukPUrodTOw3qID",
+        "cost": 0,
+        "tokens": {
+          "total": 47657,
+          "input": 2758,
+          "output": 108,
+          "reasoning": 247,
+          "cache": {
+            "write": 0,
+            "read": 44544
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e0259d001zAGeGphbBqS13E:prt_158e04c8d001eM1D0aSxvh9SVY",
+        "cost": 0,
+        "tokens": {
+          "total": 51974,
+          "input": 3824,
+          "output": 95,
+          "reasoning": 1207,
+          "cache": {
+            "write": 0,
+            "read": 46848
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e04c960014IcrYx4iXYjNCc:prt_158e054990010OboYJhZxkwEtf",
+        "cost": 0,
+        "tokens": {
+          "total": 53090,
+          "input": 2803,
+          "output": 54,
+          "reasoning": 57,
+          "cache": {
+            "write": 0,
+            "read": 50176
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e054a1001Pzhclo9HgCMmjP:prt_158e05b4e001vST0Dlrja3IO8I",
+        "cost": 0,
+        "tokens": {
+          "total": 54136,
+          "input": 1586,
+          "output": 70,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 52480
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e05b550014rpc0SXcG88G1C:prt_158e064030019QC6SxlxFhuhAH",
+        "cost": 0,
+        "tokens": {
+          "total": 54635,
+          "input": 795,
+          "output": 80,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 53760
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e0640a001OscEyb8E23h9B7:prt_158e06db30012FPwzmOolFpXwZ",
+        "cost": 0,
+        "tokens": {
+          "total": 57531,
+          "input": 3105,
+          "output": 61,
+          "reasoning": 93,
+          "cache": {
+            "write": 0,
+            "read": 54272
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e06dba001JVYrHNkzwCUg2m:prt_158e086b7001bu6Eyv1EbrslGC",
+        "cost": 0,
+        "tokens": {
+          "total": 60322,
+          "input": 2499,
+          "output": 145,
+          "reasoning": 590,
+          "cache": {
+            "write": 0,
+            "read": 57088
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e086c2001KEUpQutBJRLNkD:prt_158e090c8001QM1MpjILTOtrIF",
+        "cost": 0,
+        "tokens": {
+          "total": 62449,
+          "input": 3156,
+          "output": 72,
+          "reasoning": 85,
+          "cache": {
+            "write": 0,
+            "read": 59136
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e090ce001qkGXqflm4Bt5Cp:prt_158e0a482001m0TkKzW4gQgUZa",
+        "cost": 0,
+        "tokens": {
+          "total": 65993,
+          "input": 3508,
+          "output": 132,
+          "reasoning": 401,
+          "cache": {
+            "write": 0,
+            "read": 61952
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e0a488001Vewo0Cau9X99A8:prt_158e0ad5d001F8Ol2oXKHr819p",
+        "cost": 0,
+        "tokens": {
+          "total": 67999,
+          "input": 2805,
+          "output": 70,
+          "reasoning": 100,
+          "cache": {
+            "write": 0,
+            "read": 65024
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e0ad650018VvWQzBytQ1RaJ:prt_158e0b4a3001PNeURz25eF9T1S",
+        "cost": 0,
+        "tokens": {
+          "total": 68335,
+          "input": 878,
+          "output": 129,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 67328
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e0b4b0001GdVvylxSz6bskq:prt_158e0c527001t91mBaizTs25e6",
+        "cost": 0,
+        "tokens": {
+          "total": 70455,
+          "input": 2150,
+          "output": 114,
+          "reasoning": 351,
+          "cache": {
+            "write": 0,
+            "read": 67840
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e0c53000157o7Q2FPkyrOEf:prt_158e0cfda001B65Gj4ZsJvYz5k",
+        "cost": 0,
+        "tokens": {
+          "total": 72373,
+          "input": 2576,
+          "output": 61,
+          "reasoning": 104,
+          "cache": {
+            "write": 0,
+            "read": 69632
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e0cfe0001dP54Qq7WPDm0PH:prt_158e0df790017YzvWumV727fiz",
+        "cost": 0,
+        "tokens": {
+          "total": 74057,
+          "input": 1704,
+          "output": 58,
+          "reasoning": 359,
+          "cache": {
+            "write": 0,
+            "read": 71936
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e0df7e001sh8BqInK1Gx0Nc:prt_158e0e851001bufELDJx3Q1CwK",
+        "cost": 0,
+        "tokens": {
+          "total": 75478,
+          "input": 2188,
+          "output": 74,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 73216
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e0e858001fyOTHUSzTA4gYR:prt_158e0f7920019UnvH4rJrHdj4s",
+        "cost": 0,
+        "tokens": {
+          "total": 79665,
+          "input": 4298,
+          "output": 94,
+          "reasoning": 265,
+          "cache": {
+            "write": 0,
+            "read": 75008
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e0f799001r3TjkmpucUDH0f:prt_158e10321001OZ5WeJpbiGYWQ2",
+        "cost": 0,
+        "tokens": {
+          "total": 80366,
+          "input": 1306,
+          "output": 57,
+          "reasoning": 155,
+          "cache": {
+            "write": 0,
+            "read": 78848
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e10328001mM0LoS7Mjj8492:prt_158e10ef70019akly6Q8AWYDeH",
+        "cost": 0,
+        "tokens": {
+          "total": 80951,
+          "input": 980,
+          "output": 99,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 79872
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e10eff001pB6uYRdMhiXNMi:prt_158e117a5001AnHZomm1I0M44Y",
+        "cost": 0,
+        "tokens": {
+          "total": 81329,
+          "input": 817,
+          "output": 49,
+          "reasoning": 79,
+          "cache": {
+            "write": 0,
+            "read": 80384
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e117ae001nderGDwrsY17KE:prt_158e154b2001gvamAzXkiTsABU",
+        "cost": 0,
+        "tokens": {
+          "total": 90288,
+          "input": 7106,
+          "output": 140,
+          "reasoning": 2146,
+          "cache": {
+            "write": 0,
+            "read": 80896
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e154b9001ySLXXe5Jl1jhxd:prt_158e195640014G8ATqvmEa8w08",
+        "cost": 0,
+        "tokens": {
+          "total": 91310,
+          "input": 3702,
+          "output": 56,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 87552
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e1956b001GV4LKK5RPpaRGR:prt_158e1fe7f0012X3M9Rwf21EA2E",
+        "cost": 0,
+        "tokens": {
+          "total": 96341,
+          "input": 2091,
+          "output": 68,
+          "reasoning": 3302,
+          "cache": {
+            "write": 0,
+            "read": 90880
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e1fe8a0016SmqPv6UH557yW:prt_158e20e7c001TyGPWVXyVGV5hZ",
+        "cost": 0,
+        "tokens": {
+          "total": 97910,
+          "input": 5080,
+          "output": 68,
+          "reasoning": 90,
+          "cache": {
+            "write": 0,
+            "read": 92672
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e20e86001aPQBxls7HvPsgO:prt_158e24b9a001UsO1eYqEQTTCmv",
+        "cost": 0,
+        "tokens": {
+          "total": 100686,
+          "input": 1595,
+          "output": 69,
+          "reasoning": 1742,
+          "cache": {
+            "write": 0,
+            "read": 97280
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e24ba3001DAV8CubklItRdE:prt_158e256aa001c6YuRAT0oFXgAr",
+        "cost": 0,
+        "tokens": {
+          "total": 102084,
+          "input": 3338,
+          "output": 97,
+          "reasoning": 89,
+          "cache": {
+            "write": 0,
+            "read": 98560
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e256b6001rzxTtKjXaSMLED:prt_158e27bd1001cW9OYUTcWHLkqB",
+        "cost": 0,
+        "tokens": {
+          "total": 103602,
+          "input": 829,
+          "output": 71,
+          "reasoning": 1070,
+          "cache": {
+            "write": 0,
+            "read": 101632
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e27bda001GrN9jQP19Hl6DW:prt_158e28a5d001qSn0BCYAUei2kO",
+        "cost": 0,
+        "tokens": {
+          "total": 107054,
+          "input": 4725,
+          "output": 49,
+          "reasoning": 136,
+          "cache": {
+            "write": 0,
+            "read": 102144
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e28a62001nnnsB5bbaG3pVE:prt_158e2ae82001sHZzCvHUXUSn6u",
+        "cost": 0,
+        "tokens": {
+          "total": 111050,
+          "input": 3587,
+          "output": 75,
+          "reasoning": 892,
+          "cache": {
+            "write": 0,
+            "read": 106496
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e2ae8d001iL7myM2YhE6WHd:prt_158e2d5fb001GLYrskklH4KALd",
+        "cost": 0,
+        "tokens": {
+          "total": 114126,
+          "input": 3182,
+          "output": 61,
+          "reasoning": 1059,
+          "cache": {
+            "write": 0,
+            "read": 109824
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e2d603001lQ7hwWOL7tBEZh:prt_158e3048c001FKdNDkqnrBjlAF",
+        "cost": 0,
+        "tokens": {
+          "total": 116616,
+          "input": 2324,
+          "output": 88,
+          "reasoning": 1564,
+          "cache": {
+            "write": 0,
+            "read": 112640
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e30496001pmwrdS0pRoC8wC:prt_158e33465001TwvdseXlLYy74m",
+        "cost": 0,
+        "tokens": {
+          "total": 120591,
+          "input": 4675,
+          "output": 80,
+          "reasoning": 1148,
+          "cache": {
+            "write": 0,
+            "read": 114688
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e33470001zkEr2tTubgTKKJ:prt_158e35975001soaTD3KMG1FCci",
+        "cost": 0,
+        "tokens": {
+          "total": 122107,
+          "input": 2104,
+          "output": 66,
+          "reasoning": 897,
+          "cache": {
+            "write": 0,
+            "read": 119040
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e3597f001zvlHThOvozu2uy:prt_158e37638001lyUHvaZAFALwFd",
+        "cost": 0,
+        "tokens": {
+          "total": 124075,
+          "input": 3028,
+          "output": 76,
+          "reasoning": 139,
+          "cache": {
+            "write": 0,
+            "read": 120832
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e37644001NqCC2xTPh4mBxh:prt_158e4a815001D6LxUMHcY7vMCJ",
+        "cost": 0,
+        "tokens": {
+          "total": 124417,
+          "input": 754,
+          "output": 106,
+          "reasoning": 165,
+          "cache": {
+            "write": 0,
+            "read": 123392
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e4a823001XMlFvFDn1iboB3:prt_158e4de75001dNFv27RuYznONN",
+        "cost": 0,
+        "tokens": {
+          "total": 131705,
+          "input": 6357,
+          "output": 127,
+          "reasoning": 1573,
+          "cache": {
+            "write": 0,
+            "read": 123648
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e4de83001SMEJpet3DWlZgi:prt_158e51535001P6I2ihE47MAxqd",
+        "cost": 0,
+        "tokens": {
+          "total": 133703,
+          "input": 2323,
+          "output": 66,
+          "reasoning": 1778,
+          "cache": {
+            "write": 0,
+            "read": 129536
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e5153f001O5STpzffu4xs6H:prt_158e52f98001wapsOHr6vyUgtM",
+        "cost": 0,
+        "tokens": {
+          "total": 135688,
+          "input": 3582,
+          "output": 49,
+          "reasoning": 473,
+          "cache": {
+            "write": 0,
+            "read": 131584
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e52fa3001oDgsNk57fFzVYc:prt_158e5592d0016VgaJRw30phY5s",
+        "cost": 0,
+        "tokens": {
+          "total": 139687,
+          "input": 4015,
+          "output": 118,
+          "reasoning": 898,
+          "cache": {
+            "write": 0,
+            "read": 134656
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e55936001Xlmw23HbksNZKl:prt_158e590770019OAYbUdRmeV6hP",
+        "cost": 0,
+        "tokens": {
+          "total": 148734,
+          "input": 8783,
+          "output": 97,
+          "reasoning": 1614,
+          "cache": {
+            "write": 0,
+            "read": 138240
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e5907f0019bvh25YOd5bZP5:prt_158e5c5210013NyTtlfLrkwSTF",
+        "cost": 0,
+        "tokens": {
+          "total": 151513,
+          "input": 3239,
+          "output": 45,
+          "reasoning": 1541,
+          "cache": {
+            "write": 0,
+            "read": 146688
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e5c52d001rDPL5raKVR5nMm:prt_158e5d255001UlcyBHyFw5EXyH",
+        "cost": 0,
+        "tokens": {
+          "total": 153404,
+          "input": 3703,
+          "output": 114,
+          "reasoning": 83,
+          "cache": {
+            "write": 0,
+            "read": 149504
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e5d25d00100HZLS33pxCQFb:prt_158e5f9bc001rZ5uXegI7VMcP0",
+        "cost": 0,
+        "tokens": {
+          "total": 154976,
+          "input": 1088,
+          "output": 69,
+          "reasoning": 987,
+          "cache": {
+            "write": 0,
+            "read": 152832
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e5f9c6001yN7rG4GnGTEfSZ:prt_158e6321d001zNexlyIkPfiCeb",
+        "cost": 0,
+        "tokens": {
+          "total": 157970,
+          "input": 2554,
+          "output": 71,
+          "reasoning": 1745,
+          "cache": {
+            "write": 0,
+            "read": 153600
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e632280015qzrDe37l3ee73:prt_158e65c48001luPW04Emnp13v9",
+        "cost": 0,
+        "tokens": {
+          "total": 159940,
+          "input": 3332,
+          "output": 109,
+          "reasoning": 851,
+          "cache": {
+            "write": 0,
+            "read": 155648
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e65c4f001uLJ5qYRrvLHw6d:prt_158e6a6d2001bpZPeQCt4kVX3p",
+        "cost": 0,
+        "tokens": {
+          "total": 174299,
+          "input": 13085,
+          "output": 120,
+          "reasoning": 2374,
+          "cache": {
+            "write": 0,
+            "read": 158720
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e6a6e1001Tt1sH3pABHFDyT:prt_158e6b1f6001IIA5lGCTOQ3Nfq",
+        "cost": 0,
+        "tokens": {
+          "total": 174715,
+          "input": 3050,
+          "output": 107,
+          "reasoning": 38,
+          "cache": {
+            "write": 0,
+            "read": 171520
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e6b200001A95C4sRMIYHSEV:prt_158e6f5180015wRIrt6E5CpXeQ",
+        "cost": 0,
+        "tokens": {
+          "total": 177993,
+          "input": 1580,
+          "output": 66,
+          "reasoning": 2267,
+          "cache": {
+            "write": 0,
+            "read": 174080
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e6f51f001xd4g8pMid3V69X:prt_158e7317b001Hh9SxA7J4POsS7",
+        "cost": 0,
+        "tokens": {
+          "total": 180943,
+          "input": 3457,
+          "output": 82,
+          "reasoning": 2044,
+          "cache": {
+            "write": 0,
+            "read": 175360
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e731850016UJ4ln7LV1X5qU:prt_158e73fda001ccvsp6K123YTuT",
+        "cost": 0,
+        "tokens": {
+          "total": 181235,
+          "input": 2704,
+          "output": 99,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 178432
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e73fe3001jI7f1yzSn3OgiG:prt_158e749fe001PTBVBjxEqANWUk",
+        "cost": 0,
+        "tokens": {
+          "total": 181337,
+          "input": 521,
+          "output": 80,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 180736
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e74a07001rVoVmt2scYivde:prt_158e7671c001lu0YFYSaHhZ3Q2",
+        "cost": 0,
+        "tokens": {
+          "total": 182803,
+          "input": 849,
+          "output": 697,
+          "reasoning": 265,
+          "cache": {
+            "write": 0,
+            "read": 180992
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e76724001oONXBoWZvSVxIL:prt_158e793130016uH1DBmbRyfncD",
+        "cost": 0,
+        "tokens": {
+          "total": 184284,
+          "input": 1386,
+          "output": 126,
+          "reasoning": 1268,
+          "cache": {
+            "write": 0,
+            "read": 181504
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e7931d001CdFWgrC8OTnVfx:prt_158e7e662001JShD9NjwayP6m4",
+        "cost": 0,
+        "tokens": {
+          "total": 189352,
+          "input": 3803,
+          "output": 70,
+          "reasoning": 2951,
+          "cache": {
+            "write": 0,
+            "read": 182528
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e7e66b001h60kAKyzk5na2r:prt_158e85e95001ZFOhicvlndHaC2",
+        "cost": 0,
+        "tokens": {
+          "total": 195620,
+          "input": 4498,
+          "output": 878,
+          "reasoning": 4388,
+          "cache": {
+            "write": 0,
+            "read": 185856
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e85ea3001e2eV252HJmXvvM:prt_158e86b93001KZq8DkAQy1bjaq",
+        "cost": 0,
+        "tokens": {
+          "total": 195848,
+          "input": 5771,
+          "output": 92,
+          "reasoning": 33,
+          "cache": {
+            "write": 0,
+            "read": 189952
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e86b9d001xmy4kzp19wFG68:prt_158e87621001STiP0DhZ4IUg9M",
+        "cost": 0,
+        "tokens": {
+          "total": 195966,
+          "input": 559,
+          "output": 79,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 195328
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e8762a001A3DKXW7e2uawG0:prt_158e8808c001SN00FS758IGN7c",
+        "cost": 0,
+        "tokens": {
+          "total": 196135,
+          "input": 470,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 195584
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e88096001sEngaQkdLs1Cet:prt_158e88beb001ts407POhzFalga",
+        "cost": 0,
+        "tokens": {
+          "total": 196318,
+          "input": 611,
+          "output": 89,
+          "reasoning": 34,
+          "cache": {
+            "write": 0,
+            "read": 195584
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e88bf5001bZb112MjrD50Ai:prt_158e896e20017hombmy2caCkau",
+        "cost": 0,
+        "tokens": {
+          "total": 196662,
+          "input": 729,
+          "output": 93,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 195840
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e896eb001aD5kJEVrrjO7Ln:prt_158e8a5d90015NwgZws2modo5w",
+        "cost": 0,
+        "tokens": {
+          "total": 196991,
+          "input": 591,
+          "output": 100,
+          "reasoning": 204,
+          "cache": {
+            "write": 0,
+            "read": 196096
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e8a5e2001EzIe06c5sXZGsX:prt_158e8b305001Bwt8vV7ndv1iIy",
+        "cost": 0,
+        "tokens": {
+          "total": 197560,
+          "input": 1073,
+          "output": 135,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 196352
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e8b30d001IzX7OGTYNjiRdc:prt_158e8bcfe0014LpfFPdy6WU1jM",
+        "cost": 0,
+        "tokens": {
+          "total": 197658,
+          "input": 465,
+          "output": 73,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 197120
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e8bd05001BQsFLTbBv9q1R9:prt_158e8c98f001Pb306JJM4Z7B1j",
+        "cost": 0,
+        "tokens": {
+          "total": 197999,
+          "input": 678,
+          "output": 73,
+          "reasoning": 128,
+          "cache": {
+            "write": 0,
+            "read": 197120
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e8c9970012jOAWT01MkwvGW:prt_158e8f4110019zTfPoTrhK9gBy",
+        "cost": 0,
+        "tokens": {
+          "total": 198498,
+          "input": 727,
+          "output": 248,
+          "reasoning": 147,
+          "cache": {
+            "write": 0,
+            "read": 197376
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e8f41e001B0d27IQ41b2NUz:prt_158e902240013cbmWIKzMnKjRq",
+        "cost": 0,
+        "tokens": {
+          "total": 198622,
+          "input": 917,
+          "output": 47,
+          "reasoning": 26,
+          "cache": {
+            "write": 0,
+            "read": 197632
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e9022d00196Zz0PjAHaNNe3:prt_158e9120e001xQnqcjf8YUm9O9",
+        "cost": 0,
+        "tokens": {
+          "total": 199090,
+          "input": 745,
+          "output": 169,
+          "reasoning": 32,
+          "cache": {
+            "write": 0,
+            "read": 198144
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e91216001FQur7wCRB49OFL:prt_158e94ffa001mOAs7XmOSpSMG7",
+        "cost": 0,
+        "tokens": {
+          "total": 201763,
+          "input": 1052,
+          "output": 81,
+          "reasoning": 2230,
+          "cache": {
+            "write": 0,
+            "read": 198400
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e95006001UlWUmffxOvQ2Wd:prt_158e967da001J9Ukhrdiz1Kzr4",
+        "cost": 0,
+        "tokens": {
+          "total": 203727,
+          "input": 3872,
+          "output": 83,
+          "reasoning": 604,
+          "cache": {
+            "write": 0,
+            "read": 199168
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e967e9001PBUd7tcOvYrNOW:prt_158e9759f0014Sye4hhFNN5Ulz",
+        "cost": 0,
+        "tokens": {
+          "total": 204850,
+          "input": 1960,
+          "output": 86,
+          "reasoning": 52,
+          "cache": {
+            "write": 0,
+            "read": 202752
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e975ab001cBk0j7YnuOV44S:prt_158e981d4001vBU6HOfmej0O4L",
+        "cost": 0,
+        "tokens": {
+          "total": 206658,
+          "input": 2210,
+          "output": 60,
+          "reasoning": 100,
+          "cache": {
+            "write": 0,
+            "read": 204288
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e981e0001uoI4ovsu94N2hs:prt_158e9c46f001kOYWdjnEjAHuIS",
+        "cost": 0,
+        "tokens": {
+          "total": 208930,
+          "input": 1032,
+          "output": 946,
+          "reasoning": 872,
+          "cache": {
+            "write": 0,
+            "read": 206080
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158e9c4790010jFb2ldsPRM4JQ:prt_158ea1e3c001qCb8qY2376VcEO",
+        "cost": 0,
+        "tokens": {
+          "total": 212662,
+          "input": 2301,
+          "output": 76,
+          "reasoning": 3437,
+          "cache": {
+            "write": 0,
+            "read": 206848
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ea1e4f001KAdUBfpEPiJpxr:prt_158ea6d52001AFH5MKAGIiHUMl",
+        "cost": 0,
+        "tokens": {
+          "total": 214367,
+          "input": 4248,
+          "output": 1241,
+          "reasoning": 238,
+          "cache": {
+            "write": 0,
+            "read": 208640
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ea6d62001Epdt0nduq0rOmy:prt_158ea92f30019pFOjI6fsjRRQs",
+        "cost": 0,
+        "tokens": {
+          "total": 215634,
+          "input": 2145,
+          "output": 79,
+          "reasoning": 930,
+          "cache": {
+            "write": 0,
+            "read": 212480
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ea9305001uu8ThDOAGeMuHH:prt_158eaa2c80011O5feFKjzlnuRy",
+        "cost": 0,
+        "tokens": {
+          "total": 216896,
+          "input": 2277,
+          "output": 82,
+          "reasoning": 265,
+          "cache": {
+            "write": 0,
+            "read": 214272
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158eaa2d8001RO8k6PI2z4IYAV:prt_158eac395001sLjvqaP0rX221M",
+        "cost": 0,
+        "tokens": {
+          "total": 219233,
+          "input": 2213,
+          "output": 86,
+          "reasoning": 870,
+          "cache": {
+            "write": 0,
+            "read": 216064
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158eac3a2001PHE6WC06WRb1vx:prt_158eb4cf4001pupXltNjyNnlVD",
+        "cost": 0,
+        "tokens": {
+          "total": 225754,
+          "input": 2497,
+          "output": 74,
+          "reasoning": 5327,
+          "cache": {
+            "write": 0,
+            "read": 217856
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158eb4d07001nPHeTR2a8So2at:prt_158eb6d66001IF972DtZXSgAi5",
+        "cost": 0,
+        "tokens": {
+          "total": 228792,
+          "input": 7830,
+          "output": 99,
+          "reasoning": 959,
+          "cache": {
+            "write": 0,
+            "read": 219904
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158eb6d7a0019DCVM2nFZXrIQi:prt_158eb79fb001M3kf2lBiYOL8Fr",
+        "cost": 0,
+        "tokens": {
+          "total": 229502,
+          "input": 1903,
+          "output": 95,
+          "reasoning": 176,
+          "cache": {
+            "write": 0,
+            "read": 227328
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158eb7a06001rcFzYc8B6lFkJB:prt_158eb8beb0011Dfc18aXOd3UYg",
+        "cost": 0,
+        "tokens": {
+          "total": 231871,
+          "input": 2586,
+          "output": 120,
+          "reasoning": 301,
+          "cache": {
+            "write": 0,
+            "read": 228864
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158eb8bf60015MPH6A7GfvpgFg:prt_158eb9b30001yqgfJ5s14P5zTi",
+        "cost": 0,
+        "tokens": {
+          "total": 232292,
+          "input": 796,
+          "output": 95,
+          "reasoning": 233,
+          "cache": {
+            "write": 0,
+            "read": 231168
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158eb9b3c001N9ZQERVBI5sEpx:prt_158ebed89001hZpDZbi3yOORCm",
+        "cost": 0,
+        "tokens": {
+          "total": 234909,
+          "input": 1577,
+          "output": 1580,
+          "reasoning": 72,
+          "cache": {
+            "write": 0,
+            "read": 231680
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ebed98001EHjb8x0sVxtxDX:prt_158ec5e55001I2xjMCWzBXfzmT",
+        "cost": 0,
+        "tokens": {
+          "total": 240195,
+          "input": 2647,
+          "output": 97,
+          "reasoning": 4491,
+          "cache": {
+            "write": 0,
+            "read": 232960
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ec5e62001Xy1B4HKWhuSZkq:prt_158ec76f5001erCkgGI4Assiuh",
+        "cost": 0,
+        "tokens": {
+          "total": 241279,
+          "input": 5383,
+          "output": 55,
+          "reasoning": 577,
+          "cache": {
+            "write": 0,
+            "read": 235264
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ec7708001VEkXLxfayVDSiT:prt_158eca219001xmsRLMbeawJ8I9",
+        "cost": 0,
+        "tokens": {
+          "total": 243443,
+          "input": 1679,
+          "output": 69,
+          "reasoning": 1311,
+          "cache": {
+            "write": 0,
+            "read": 240384
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158eca236001LO6W9urAlWGY9m:prt_158ecdf8100130Cg1eVQPilvO7",
+        "cost": 0,
+        "tokens": {
+          "total": 245951,
+          "input": 2351,
+          "output": 159,
+          "reasoning": 1777,
+          "cache": {
+            "write": 0,
+            "read": 241664
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ecdf8d001s71par7iwJRXcT:prt_158ecf0a8001mq1Zoy2cVuQ9fQ",
+        "cost": 0,
+        "tokens": {
+          "total": 246467,
+          "input": 2488,
+          "output": 162,
+          "reasoning": 105,
+          "cache": {
+            "write": 0,
+            "read": 243712
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ecf0b5001xFXUAM3Vbz1j6r:prt_158ed3d72001iLx8rXMzGCLxu0",
+        "cost": 0,
+        "tokens": {
+          "total": 249682,
+          "input": 1758,
+          "output": 1456,
+          "reasoning": 708,
+          "cache": {
+            "write": 0,
+            "read": 245760
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ed3d82001bgLXlrM7r0Vur7:prt_158ed61dc001gMQjQNIwNQmAIu",
+        "cost": 0,
+        "tokens": {
+          "total": 251077,
+          "input": 2881,
+          "output": 64,
+          "reasoning": 1092,
+          "cache": {
+            "write": 0,
+            "read": 247040
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ed61e6001zr0AFOftErpFr5:prt_158ed6c00001NG20MrXVOMNChQ",
+        "cost": 0,
+        "tokens": {
+          "total": 251337,
+          "input": 1678,
+          "output": 59,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 249600
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ed6c13001dxPiFGMZ02Dnt1:prt_158ee0c59001KZq3D2tqwh2P0b",
+        "cost": 0,
+        "tokens": {
+          "total": 257442,
+          "input": 1193,
+          "output": 1000,
+          "reasoning": 4369,
+          "cache": {
+            "write": 0,
+            "read": 250880
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ee0c6f001irqFp1yjl8Sh59:prt_158ee3601001vY04NgnIYY6Epg",
+        "cost": 0,
+        "tokens": {
+          "total": 258957,
+          "input": 5964,
+          "output": 87,
+          "reasoning": 1258,
+          "cache": {
+            "write": 0,
+            "read": 251648
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ee360d001LMce7hWphGLja1:prt_158ee5f5a0011F3WE7cHm0ud8t",
+        "cost": 0,
+        "tokens": {
+          "total": 259551,
+          "input": 1883,
+          "output": 388,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 257280
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ee5f630010USMAfIoR2QsL2:prt_158eea755001Di8vAvDE3h4mA7",
+        "cost": 0,
+        "tokens": {
+          "total": 262351,
+          "input": 1086,
+          "output": 109,
+          "reasoning": 2340,
+          "cache": {
+            "write": 0,
+            "read": 258816
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158eea762001QkkLuwzr5F10fi:prt_158eefa06001DxDg4RWwauRRH6",
+        "cost": 0,
+        "tokens": {
+          "total": 264581,
+          "input": 2810,
+          "output": 1432,
+          "reasoning": 755,
+          "cache": {
+            "write": 0,
+            "read": 259584
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158eefa10001kGiPY2iTeYMo7A:prt_158ef0db4001oiIkutqwVColVq",
+        "cost": 0,
+        "tokens": {
+          "total": 265506,
+          "input": 3062,
+          "output": 76,
+          "reasoning": 480,
+          "cache": {
+            "write": 0,
+            "read": 261888
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ef0dc1001hk3tfUzRb7war6:prt_158ef411c001EjmIhiQIp0ugTe",
+        "cost": 0,
+        "tokens": {
+          "total": 266509,
+          "input": 1809,
+          "output": 90,
+          "reasoning": 162,
+          "cache": {
+            "write": 0,
+            "read": 264448
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ef412a001dDBbuBIngsI96M:prt_158ef7ad8001KpC4DOajfyMaod",
+        "cost": 0,
+        "tokens": {
+          "total": 268881,
+          "input": 760,
+          "output": 53,
+          "reasoning": 2084,
+          "cache": {
+            "write": 0,
+            "read": 265984
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ef7ae9001slV5tj0ny8jL8c:prt_158ef9415001JPTvXa5SXbjhJI",
+        "cost": 0,
+        "tokens": {
+          "total": 270330,
+          "input": 3619,
+          "output": 54,
+          "reasoning": 417,
+          "cache": {
+            "write": 0,
+            "read": 266240
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158ef9424001LltZnZxqSROKZo:prt_158efb00b0016XMRraH57MRgSq",
+        "cost": 0,
+        "tokens": {
+          "total": 272971,
+          "input": 2656,
+          "output": 94,
+          "reasoning": 653,
+          "cache": {
+            "write": 0,
+            "read": 269568
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158efb017001E2zehyZmg8OFHg:prt_158eff0a3001wEuVs1IRe7t2K8",
+        "cost": 0,
+        "tokens": {
+          "total": 274847,
+          "input": 1595,
+          "output": 1380,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 271872
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158eff0b0001OF783X10P3ylek:prt_158f02273001aMr3Oocw8swbHO",
+        "cost": 0,
+        "tokens": {
+          "total": 275483,
+          "input": 2051,
+          "output": 189,
+          "reasoning": 91,
+          "cache": {
+            "write": 0,
+            "read": 273152
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea720cf1effegQlEAYyqxcAGt1:msg_158f0227f0011ONvKuCS3ZhBdV:prt_158f1e1a0001avwNE04z7zUfY5",
+        "cost": 0,
+        "tokens": {
+          "total": 307981,
+          "input": 1037,
+          "output": 1,
+          "reasoning": 31999,
+          "cache": {
+            "write": 0,
+            "read": 274944
+          }
+        },
+        "configured_model": "opencode/minimax-m3.1-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea70e192cffeHjJgRuWjbI3gfQ:msg_158f1e93b001bYTBxK1GAC4SA4:prt_158f1f9df001uW4nqz2mLGsBHs",
+        "cost": 0,
+        "tokens": {
+          "total": 9158,
+          "input": 8728,
+          "output": 430,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea70e192cffeHjJgRuWjbI3gfQ:msg_158f1f9e8001l5Apoyt08gf5r5:prt_158f22435001akAWfdUH8nT6Op",
+        "cost": 0,
+        "tokens": {
+          "total": 11869,
+          "input": 10381,
+          "output": 400,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 1088
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea70e192cffeHjJgRuWjbI3gfQ:msg_158f224390013szVIQ5DYRZVhs:prt_158f2477a001si6ExboOOO750E",
+        "cost": 0,
+        "tokens": {
+          "total": 14417,
+          "input": 3129,
+          "output": 408,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 10880
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea70e192cffeHjJgRuWjbI3gfQ:msg_158f2477f001VMEMRT63KyUpHe:prt_158f26290001dspfJCiAt40NlW",
+        "cost": 0,
+        "tokens": {
+          "total": 17222,
+          "input": 3906,
+          "output": 260,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 13056
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea70e192cffeHjJgRuWjbI3gfQ:msg_158f26295001FGCpwtrqGzRJqs:prt_158f29740001J4ftn7Oov0udGE",
+        "cost": 0,
+        "tokens": {
+          "total": 19558,
+          "input": 2580,
+          "output": 180,
+          "reasoning": 478,
+          "cache": {
+            "write": 0,
+            "read": 16320
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_ea70e192cffeHjJgRuWjbI3gfQ:msg_158f29745001i3kOmrjKf1x7zy:prt_158f2afbb0011uqeGoYyEgMJhs",
+        "cost": 0,
+        "tokens": {
+          "total": 19592,
+          "input": 1071,
+          "output": 25,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 18496
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      }
+    ],
+    "terminal_stop": "complete",
+    "driver": "opencode",
+    "configured_model": "opencode/glm-5.3-flash-free",
+    "zero_token_streak": 0
+  },
+  "sha256": "5ea5cfa90ed79a3e6daebfb2be74d292ad303bb718d003aaca0a350f58e932ba",
+  "archive": "/home/user/sealed/case-20261020T094641Z-5a6ef3.tar.gz.age",
+  "wipe": "deferred: VM parked for an in-place resume"
+}

@@ -1,0 +1,53 @@
+#!/bin/sh
+# Rebuild boat's bench-env snapshot from this tree (Hetzner: bin/hcloud-bake). Starts from the current
+# bench-env, re-pins the agent CLIs to hcloud-bake's versions, replaces ~/unbug-bench with this tree (keeping
+# Medusa's node_modules), runs bin/bake-image.sh, then saves the sandbox as bench-env (reusing the name replaces it).
+# One default sandbox (~$0.01-0.02), deleted on exit, error or signal.
+# Read whole before running: editing this file while it runs must not change what it executes.
+{
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd)
+b="$root/bin/boat-call"
+export BOAT_COMMAND_TIMEOUT_SECONDS=1800
+tmp=$(mktemp -d); id=""
+trap 'rm -rf "$tmp"; [ -z "$id" ] || "$b" delete "$id" --yes >/dev/null 2>&1 || echo "!!! delete boat sandbox $id by hand" >&2' 0
+trap 'exit 130' INT; trap 'exit 143' TERM
+stage() { echo "bake: $* ($(date +%H:%M:%S))" >&2; }
+stage create
+"$b" new --from bench-env --no-env --no-monitoring --ttl 7200 --json > "$tmp/new" || true
+id=$(python3 -c 'import json,sys
+for l in open(sys.argv[1]):
+    try: e=json.loads(l)
+    except ValueError: continue
+    if e.get("event")=="created" and e.get("id"): print(e["id"]); break' "$tmp/new")
+[ -n "$id" ] || { echo "bake: create failed" >&2; cat "$tmp/new" >&2; exit 1; }
+stage "toolchain pins on $id"
+"$b" ssh "$id" 'set -eux
+export OPENCODE_DISABLE_AUTOUPDATE=1
+sudo DEBIAN_FRONTEND=noninteractive apt-get update -q && sudo DEBIAN_FRONTEND=noninteractive apt-get install -yq age jq rsync  # as hcloud-bake
+# The boat image Node 24 comes first on PATH (Hetzner: Node 22); it only runs the agent CLIs. The shop is pinned to
+# node:22.22.2 inside Docker on both providers, and the exam runs on one provider (2026-10-18).
+sudo npm install -g --force --prefix /usr/local --no-audit --no-fund @openai/codex@0.162.1 opencode-ai@1.19.0
+command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
+"$(command -v uv || echo ~/.local/bin/uv)" tool install --force harbor==0.24.0
+[ -e /usr/local/bin/uv ] || sudo ln -s ~/.local/bin/uv /usr/local/bin/uv
+[ -e /usr/local/bin/harbor ] || sudo ln -s ~/.local/bin/harbor /usr/local/bin/harbor
+sudo loginctl enable-linger "$(id -un)" || true
+codex --version; /usr/local/bin/opencode --version; age --version; docker --version; node --version
+[ "$(/usr/local/bin/opencode --version)" = 1.19.0 ]'
+stage "sync tree"
+COPYFILE_DISABLE=1 tar --no-xattrs -C "$root" --exclude node_modules --exclude .medusa --exclude ./results --exclude ./sealed \
+  --exclude ./.git --exclude ./contestants --exclude __pycache__ --exclude '._*' -czf "$tmp/tree.tgz" .
+"$b" scp "$tmp/tree.tgz" "$id:/tmp/tree.tgz" >/dev/null
+"$b" ssh "$id" 'set -eu; nm=~/unbug-bench/projects/medusa/node_modules
+[ ! -d "$nm" ] || mv "$nm" /tmp/medusa-node_modules
+rm -rf ~/unbug-bench && mkdir ~/unbug-bench && tar -xzf /tmp/tree.tgz -C ~/unbug-bench && rm /tmp/tree.tgz
+[ ! -d /tmp/medusa-node_modules ] || mv /tmp/medusa-node_modules "$nm"'
+stage "medusa deps + bench setup + images"
+"$b" ssh "$id" 'sh ~/unbug-bench/bin/bake-image.sh'
+"$b" ssh "$id" 'rm -f ~/.bash_history; sync'
+stage "save as bench-env"
+"$b" snapshot "$id" bench-env
+stage done
+exit
+}

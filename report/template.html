@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Does an AI owner need less human help? A pilot of unbug-bench</title>
+<script>(()=>{let t="auto";try{t=localStorage.getItem("unbug-report-theme")||"auto"}catch(e){}if(t!=="auto")document.documentElement.dataset.theme=t})();</script>
+<style>
+__FONTS__
+:root{
+  --paper:#FCFCFA; --ink:#15171C; --ink-2:#474C57; --ink-3:#6A707C; --rule:#D7D9DE; --rule-2:#ECEDF0;
+  --blue:#1D4F91; --blue-tint:#E9EFF8; --red:#A3261C; --red-tint:#F8E9E7; --amber:#8A5A00;
+  --serif:"Source Serif 4", Charter, Georgia, serif; --sans:"Source Sans 3", "Helvetica Neue", Arial, sans-serif;
+  --measure:68ch;
+  --surface:#FFFFFF; --connector:#C7CAD1; --harm-rule:#E2B8B2; color-scheme:light;
+}
+html[data-theme="dark"]{
+  --paper:#121418; --ink:#E7E8EB; --ink-2:#B4B8C1; --ink-3:#8C929D; --rule:#2F333B; --rule-2:#22252B;
+  --blue:#86ADE8; --blue-tint:#172338; --red:#F0897F; --red-tint:#2B1816; --surface:#181B20; --connector:#3D424C; --harm-rule:#6E322B; color-scheme:dark;
+}
+@media (prefers-color-scheme:dark){html:not([data-theme="light"]){
+  --paper:#121418; --ink:#E7E8EB; --ink-2:#B4B8C1; --ink-3:#8C929D; --rule:#2F333B; --rule-2:#22252B;
+  --blue:#86ADE8; --blue-tint:#172338; --red:#F0897F; --red-tint:#2B1816; --surface:#181B20; --connector:#3D424C; --harm-rule:#6E322B; color-scheme:dark;
+}}
+.theme{display:inline-flex;align-items:center;gap:8px}
+.theme .sw{display:inline-flex;border:1px solid var(--rule);border-radius:999px;padding:2px}
+.theme input{position:absolute;opacity:0;pointer-events:none}
+.theme label{font:600 12px/1 var(--sans);letter-spacing:.02em;color:var(--ink-2);padding:6px 10px;border-radius:999px;cursor:pointer;transition:background .2s,color .2s}
+.theme input:checked+label{background:var(--ink);color:var(--paper)}
+.theme input:focus-visible+label{outline:2px solid var(--blue);outline-offset:2px}
+.runhead .right{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+html,body,.cbox,.cside{transition:background-color .25s ease,color .25s ease,border-color .25s ease}
+@media (prefers-reduced-motion:reduce){html,body,.cbox,.cside{transition:none}}
+
+*{box-sizing:border-box}
+html{background:var(--paper);color:var(--ink);-webkit-text-size-adjust:100%}
+body{margin:0;font-family:var(--serif);font-size:18px;line-height:1.6;font-optical-sizing:auto;text-rendering:optimizeLegibility}
+::selection{background:var(--blue);color:var(--paper)}
+a{color:var(--blue);text-underline-offset:.18em;text-decoration-thickness:1px}
+a:hover{text-decoration-thickness:2px}
+:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+html{scrollbar-color:var(--ink-3) var(--paper)}
+.num,td.n,.tab{font-variant-numeric:tabular-nums lining-nums}
+
+.page{max-width:1180px;margin:0 auto;padding:0 40px 96px}
+.runhead{display:flex;justify-content:space-between;gap:16px;font:600 13px/1 var(--sans);letter-spacing:.04em;color:var(--ink-2);padding:22px 0 14px;border-bottom:1px solid var(--ink)}
+.runhead span:last-child{font-weight:400}
+
+.lead{display:grid;grid-template-columns:minmax(0,1fr) 340px;grid-template-areas:"title rail" "abstract rail";column-gap:56px;padding-top:44px}
+.titleblock{grid-area:title}
+.subtitle{font:400 clamp(22px,2.2vw,27px)/1.25 var(--serif);color:var(--ink-2);margin:0 0 18px}
+h1{font-weight:600;font-size:clamp(30px,3.4vw,40px);line-height:1.12;letter-spacing:-.02em;margin:0 0 8px;max-width:27ch;text-wrap:balance}
+.byline{font:400 15px/1.5 var(--sans);color:var(--ink-2);margin:0 0 6px}
+.byline b{font-weight:600;color:var(--ink)}
+.status{display:block;font:600 14px/1.4 var(--sans);color:var(--ink);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:9px 0;margin:10px 0 30px;max-width:46ch}
+.status span{font-weight:400;color:var(--ink-2)}
+
+.abstract{grid-area:abstract;margin:0;border-top:1px solid var(--rule);padding-top:22px}
+.abstract div{display:grid;grid-template-columns:118px minmax(0,1fr);gap:20px;padding:0 0 18px}
+.abstract dt{font:700 13px/1.9 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink)}
+.abstract dd{margin:0;max-width:var(--measure)}
+
+.rail{grid-area:rail;align-self:start;position:sticky;top:24px}
+.endpoint{border-top:3px solid var(--blue);border-bottom:1px solid var(--blue);padding:16px 0 14px}
+.endpoint h2{font:700 13px/1.3 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--blue);margin:0 0 12px}
+.endpoint ol{margin:0 0 16px;padding-left:20px;font-size:16px;line-height:1.5}
+.endpoint li{margin-bottom:8px}
+.endpoint li::marker{font:700 14px var(--sans);color:var(--blue)}
+.verdict{font:600 15px/1.45 var(--sans);border-top:1px solid var(--rule);padding-top:14px;margin:0}
+.hbar{margin-top:16px;font:400 12.5px/1.45 var(--sans);color:var(--ink-2)}
+.hbar svg{display:block;width:100%;height:auto;margin:6px 0 4px}
+.verdict strong{display:block;font-size:19px;color:var(--ink);margin-bottom:4px}
+.verdict span{font-weight:400;color:var(--ink-2)}
+.mini{margin-top:14px}
+.mini svg{display:block;width:100%;height:auto}
+.mini figcaption{font:400 12.5px/1.45 var(--sans);color:var(--ink-2);margin-top:6px}
+
+section{padding-top:64px}
+section>h2{font-weight:600;font-size:28px;line-height:1.2;letter-spacing:-.015em;margin:0 0 14px;text-wrap:balance}
+section>p,section>ul,section>ol{max-width:var(--measure)}
+.body{max-width:var(--measure)}
+.body p{margin:0 0 16px}
+
+figure{margin:28px 0 0}
+figure.wide{max-width:none}
+figcaption.cap{font:400 15px/1.5 var(--sans);color:var(--ink-2);max-width:78ch;margin-top:12px}
+figcaption.cap b{color:var(--ink);font-weight:700}
+
+table{border-collapse:collapse;width:100%;font:400 15px/1.45 var(--sans)}
+th{font-weight:700;font-size:12.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:10px 12px 10px 0;border-bottom:1px solid var(--ink);vertical-align:bottom}
+td{padding:11px 12px 11px 0;border-bottom:1px solid var(--rule);vertical-align:top}
+td.n,th.n{text-align:right}
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.arm{font-weight:700;color:var(--ink);white-space:nowrap}
+.arm small{display:block;font-weight:400;color:var(--ink-3);font-size:13px}
+
+/* linked focus across figures */
+[data-arm]{transition:opacity .25s cubic-bezier(.2,.8,.2,1)}
+body[data-focus] [data-arm]:not(.on){opacity:.28}
+tr[data-arm],.mrow[data-arm],g[data-arm]{cursor:default}
+
+/* steps list */
+.steps{list-style:none;padding:0;margin:20px 0 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border-top:1px solid var(--ink);max-width:none}
+.steps li{padding:14px 18px 6px 0;font:400 15px/1.45 var(--sans);color:var(--ink-2)}
+.steps b{display:block;font:600 17px/1.3 var(--serif);color:var(--ink);margin-bottom:6px}
+
+/* flow diagram */
+.consort{display:grid;grid-template-columns:minmax(0,380px) 56px minmax(0,300px);row-gap:30px;font:400 14.5px/1.45 var(--sans);color:var(--ink-2)}
+.cbox{grid-column:1;border:1px solid var(--ink);padding:12px 16px;background:var(--surface);position:relative}
+.cbox:not(.last)::after{content:"";position:absolute;left:50%;top:100%;width:1px;height:30px;background:var(--ink)}
+.cbox:not(.last)::before{content:"";position:absolute;left:calc(50% - 4px);top:calc(100% + 24px);border:4px solid transparent;border-top:6px solid var(--ink);z-index:1}
+.cbox b,.cside b{display:block;font:600 16px/1.3 var(--serif);color:var(--ink);margin-bottom:2px}
+.cbox .num{font-weight:700;color:var(--ink)}
+.cside{grid-column:3;border:1px solid var(--rule);padding:10px 14px;position:relative;align-self:end;margin-bottom:-22px;font-size:13.5px}
+.cside::before{content:"";position:absolute;right:100%;top:50%;width:56px;height:1px;background:var(--ink-3)}
+.cside.warn{border-color:var(--harm-rule);background:var(--red-tint)}
+
+/* results matrix */
+.toggle{display:inline-flex;border:1px solid var(--ink);border-radius:999px;padding:3px;margin:4px 0 18px;font:600 14px/1 var(--sans)}
+.toggle input{position:absolute;opacity:0;pointer-events:none}
+.toggle label{padding:8px 14px;border-radius:999px;cursor:pointer;color:var(--ink-2);transition:background .2s,color .2s}
+.toggle input:checked+label{background:var(--ink);color:var(--paper)}
+.toggle input:focus-visible+label{outline:2px solid var(--blue);outline-offset:2px}
+.matrix{display:grid;grid-template-columns:200px repeat(4,minmax(64px,1fr)) 22px repeat(4,minmax(64px,1fr));min-width:820px;font:400 13px/1.3 var(--sans)}
+.matrix .hd{font-weight:700;font-size:12px;letter-spacing:.04em;color:var(--ink-2);padding:0 6px 8px 0;border-bottom:1px solid var(--ink);align-self:end}
+.matrix .grp{grid-column:span 4;font:600 15px/1.2 var(--serif);color:var(--ink);padding-bottom:6px}
+.matrix .gap{border:none}
+.mrow{display:contents}
+.matrix .lab{padding:12px 8px 12px 0;border-bottom:1px solid var(--rule);font-weight:700;font-size:14px}
+.matrix .lab small{display:block;font-weight:400;color:var(--ink-3);font-size:12.5px}
+.cell{border-bottom:1px solid var(--rule);padding:12px 6px 12px 0;display:flex;flex-direction:column;gap:5px;color:var(--ink-2)}
+.mark{width:16px;height:16px;display:block}
+.cell .r{font-variant-numeric:tabular-nums}
+.cell.fail .r{color:var(--red);font-weight:600}
+.cell.na{color:var(--ink-3)}
+.cell sup{color:var(--blue);font-weight:700}
+.matrix [data-fixed]{display:contents}.matrix [data-orig]{display:none}
+.show-orig .matrix [data-orig]{display:contents}
+.show-orig .matrix [data-fixed]{display:none}
+
+/* svg figures */
+.fig svg{display:block;width:100%;height:auto;overflow:visible}
+.ax{font:400 12px var(--sans);fill:var(--ink-2)}
+.axb{font:700 12px var(--sans);fill:var(--ink)}
+.lbl{font:700 13px var(--sans);fill:var(--ink)}
+.lbl2{font:400 12px var(--sans);fill:var(--ink-3)}
+.ci{stroke:var(--ink);stroke-width:1.6}
+.ci-grow{transform-box:fill-box;transform-origin:center;animation:grow 1.1s cubic-bezier(.16,1,.3,1) .35s both}
+@keyframes grow{from{transform:scaleX(.04)}to{transform:scaleX(1)}}
+@media (prefers-reduced-motion:reduce){.ci-grow{animation:none}[data-arm]{transition:none}}
+
+.twocol{display:grid;grid-template-columns:1fr 1fr;gap:40px}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font:400 13px/1.4 var(--sans);color:var(--ink-2);margin:4px 0 8px}
+.legend svg{vertical-align:-3px;margin-right:6px}
+
+/* deviation log */
+.devlog{list-style:none;margin:20px 0 0;padding:0;max-width:none;counter-reset:dev}
+.devlog li{display:grid;grid-template-columns:44px minmax(0,1fr) 260px;gap:20px;padding:18px 0;border-top:1px solid var(--rule)}
+.devlog li:last-child{border-bottom:1px solid var(--rule)}
+.devlog li::before{counter-increment:dev;content:"D" counter(dev);font:700 14px/1.6 var(--sans);color:var(--blue)}
+.devlog h3{font:600 18px/1.35 var(--serif);margin:0 0 6px}
+.devlog p{margin:0;font-size:16px;line-height:1.55;color:var(--ink-2)}
+.devlog .fix{font:400 14px/1.5 var(--sans);color:var(--ink-2);border-left:1px solid var(--rule);padding-left:16px}
+.devlog .fix b{display:block;font-weight:700;color:var(--ink);font-size:12.5px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px}
+
+.findings{counter-reset:f;list-style:none;padding:0;margin:20px 0 0;max-width:var(--measure)}
+.findings li{position:relative;padding:0 0 18px 40px}
+.findings li::before{counter-increment:f;content:counter(f);position:absolute;left:0;top:2px;width:26px;height:26px;border-radius:50%;border:1px solid var(--ink);font:700 13px/24px var(--sans);text-align:center}
+.findings b{font-weight:600}
+
+.limits{columns:2;column-gap:48px;max-width:none;padding-left:20px;font-size:16px;line-height:1.55}
+.limits li{break-inside:avoid;margin-bottom:10px}
+
+.methods{font-size:16px;line-height:1.55}
+.methods h3{font:700 13px/1.3 var(--sans);letter-spacing:.06em;text-transform:uppercase;margin:28px 0 8px}
+.methods .grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:36px}
+.methods p{margin:0 0 12px;color:var(--ink-2)}
+.fns{max-width:var(--measure);padding-left:20px;margin:0;color:var(--ink-2)}
+.fns li{margin-bottom:8px}
+.fnref a{text-decoration:none;font:700 .7em var(--sans);padding-left:1px}
+
+footer{margin-top:72px;border-top:1px solid var(--ink);padding-top:16px;font:400 13px/1.55 var(--sans);color:var(--ink-2);display:grid;grid-template-columns:1fr 1fr;gap:32px}
+
+@media (max-width:980px){
+  .lead{grid-template-columns:1fr;grid-template-areas:"title" "rail" "abstract";column-gap:0}
+  .rail{position:static;margin-bottom:32px}
+  .twocol,.methods .grid3{grid-template-columns:1fr}
+  .devlog li{grid-template-columns:36px minmax(0,1fr)}
+  .devlog .fix{grid-column:2;border-left:none;padding-left:0}
+  .limits{columns:1}
+  footer{grid-template-columns:1fr}
+}
+@media (max-width:640px){
+  body{font-size:17px}
+  .page{padding:0 18px 64px}
+  .runhead{flex-direction:column;gap:6px}
+  .abstract div{grid-template-columns:1fr;gap:4px}
+  .steps{grid-template-columns:1fr}
+  .consort{grid-template-columns:1fr;row-gap:12px}.cside{grid-column:1;margin:0 0 6px 24px;align-self:auto}.cside::before{width:16px}.cbox:not(.last)::after,.cbox:not(.last)::before{display:none}
+  #t-arms{min-width:760px}
+  section{padding-top:48px}
+  section>h2{font-size:24px}
+}
+@media print{
+  html,html[data-theme="dark"]{--paper:#fff;--ink:#000;--ink-2:#333;--ink-3:#555;--rule:#ccc;--rule-2:#eee;--blue:#1D4F91;--blue-tint:#E9EFF8;--red:#A3261C;--red-tint:#F8E9E7;--surface:#fff;--connector:#bbb;--harm-rule:#E2B8B2;color-scheme:light}
+  .theme{display:none}
+  .toggle,.rail{position:static}.toggle{display:none}
+  body{font-size:11pt}.page{max-width:none;padding:0}
+  section{break-inside:avoid-page}
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="runhead"><span>unbug-bench · Pilot report 1</span><span class="right"><span>15 October 2026 · Private: founder and investors</span><span class="theme" role="radiogroup" aria-label="Colour theme"><span class="sw"><input type="radio" name="theme" id="th-light" value="light"><label for="th-light">Light</label><input type="radio" name="theme" id="th-dark" value="dark"><label for="th-dark">Dark</label><input type="radio" name="theme" id="th-auto" value="auto"><label for="th-auto">Auto</label></span></span></span></div>
+
+  <div class="lead">
+    <div class="titleblock">
+      <h1>Does an AI owner need less human help?</h1>
+      <p class="subtitle">A pilot of unbug-bench</p>
+      <p class="byline"><b>Unbug, grader team.</b> Two practice rounds, six contestant versions, one public practice case.</p>
+      <p class="status">Status: pilot. <span>The scored exam on sealed cases has not run.</span></p>
+    </div>
+
+    <dl class="abstract">
+      <div><dt>Background</dt><dd>Unbug is an AI that owns one business promise end to end: here, a shop must never sell more stock than it has. It writes the protection, maps every way to break the promise, says honestly what is and is not protected, and responds when the code changes. Our hypothesis: Unbug is at most 5 points less safe than a strong AI baseline and needs at least 30% fewer human minutes.</dd></div>
+      <div><dt>Methods</dt><dd>One public practice case on a real open-source shop (Medusa 2.19.0), in four steps: build the protection, absorb a harmless change, cover a new checkout path, and survive a change that blinds monitoring. Contestants ran on Claude Opus 5.5 at high effort unless noted: plain Claude Code, Claude Code with property-based and mutation testing, Unbug, a one-shot Unbug, and GPT 6.1 Sol via Codex. A separate judge rebuilt the shop and replayed heavy concurrent shopping traffic 30 times per step in round 1 and 10 times in round 2.</dd></div>
+      <div><dt>Results</dt><dd>Once our own grading error was corrected, every contestant kept the shop safe at every step: no overselling, no false claims, no questions to a human. In round 2 every contestant found and repaired a protection switch-off hidden inside an innocent-looking change. Unbug v0.1 used <span class="num" id="ab-ratio"></span> the model usage of plain Claude Code<sup class="fnref"><a href="#fn1">1</a></sup> and took longer.</dd></div>
+      <div><dt>Conclusions</dt><dd>The pilot cannot test the hypothesis. With every contestant at zero human minutes there is nothing to reduce, and the safety interval is 98 points wide against a 5-point margin. Announced changes do not separate today's agents. The decisive test is a failure nobody announces, which only a contestant that keeps watching between changes can catch.</dd></div>
+    </dl>
+
+    <aside class="rail" aria-label="Primary endpoint">
+      <div class="endpoint">
+        <h2>Primary endpoint, fixed before any run</h2>
+        <ol>
+          <li><b>Safety:</b> Unbug's rate of safe checkpoints is no more than 5 points below the strong baseline (B).</li>
+          <li><b>Human time:</b> Unbug needs at least 30% fewer charged human minutes than B.</li>
+        </ol>
+        <p class="verdict"><strong>Not testable yet</strong><span>Safety difference vs B: 0 points, 95% interval −49 to +49 (margin −5). Human minutes: 0 for every contestant.</span></p>
+        <figure class="mini" id="mini"></figure>
+        <div class="hbar"><b style="color:var(--ink)">Human-time reduction vs B</b>
+          <svg viewBox="0 0 300 34" role="img" aria-label="Required reduction 30 percent; observed reduction cannot be computed because both are zero minutes."><line x1="0" y1="12" x2="300" y2="12" style="stroke:var(--rule)" stroke-width="8"/><line x1="90" y1="2" x2="90" y2="22" style="stroke:var(--blue)" stroke-width="1.5" stroke-dasharray="3 2"/><text x="94" y="31" font-family="Source Sans 3" font-size="11" style="fill:var(--blue)">required 30%</text><text x="0" y="31" font-family="Source Sans 3" font-size="11" style="fill:var(--ink-2)">0%</text><text x="300" y="31" text-anchor="end" font-family="Source Sans 3" font-size="11" style="fill:var(--ink-2)">100%</text></svg>
+          No bar: B and every contestant used 0 human minutes, so a reduction cannot be computed.</div>
+      </div>
+    </aside>
+  </div>
+
+  <section id="tested">
+    <h2>What we tested</h2>
+    <div class="body"><p>Every contestant sat the same four-step practice case inside its own container, with the shop running, a pretend shop owner it could ask questions (each question is charged as human time), and every web visit logged. After each step a fresh judge, which the contestants never see, rebuilt the shop, applied every change so far, and replayed bursts of conflicting orders to count oversold units, refused legitimate sales, and claims that did not match what happened.</p></div>
+    <ol class="steps">
+      <li><b>1. Build protection</b>Stop the shop overselling on every sales path.</li>
+      <li><b>2. Harmless change</b>A change lands that needs no response. Do not cry wolf.</li>
+      <li><b>3. New checkout path</b>Express checkout appears. Notice it and protect it.</li>
+      <li><b>4. Monitoring goes blind</b>Round 2: a privacy change hides orders and quietly switches protection off.</li>
+    </ol>
+    <figure>
+      <div class="tw"><table id="t-arms">
+        <thead><tr><th>Contestant</th><th>Model</th><th>Harness</th><th>Extra tools</th><th>Memory across changes</th><th>Runs between changes</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <figcaption class="cap"><b>Table 1. The contestants.</b> Claude contestants share one pinned Claude Code version (2.1.299) and model setting, so differences come from method, not model. Hosted web search was disabled or unused: zero searches across all runs.</figcaption>
+    </figure>
+  </section>
+
+  <section id="flow">
+    <h2>How every try was accounted for</h2>
+    <figure>
+      <div class="consort">
+        <div class="cbox"><b>Planned</b>5 contestants × 4 steps, one try each per round</div>
+        <div class="cside"><b>Not in round 1</b>Claude + testing tools (B): not yet built</div>
+        <div class="cbox"><b>Round 1</b>4 contestants · 30 judge runs per step<br><span class="num">16</span> checkpoints graded</div>
+        <div class="cside warn"><b>Grades corrected</b>4 step-4 grades regraded as pass after review (D1)</div>
+        <div class="cbox"><b>Round 2</b>6 contestants · 10 judge runs per step · step 4 redesigned<br><span class="num" id="r2n"></span> checkpoints graded. <span id="r2pending"></span></div>
+        <div class="cside"><b>Added before round 2</b>B, and Unbug v0.2 with a watcher (frozen 16:45 UTC)</div>
+        <div class="cbox last"><b>Scored exam</b>0 of 5 sealed cases ready. Written and attacked by other model families; nobody on the Unbug team can read one</div>
+      </div>
+      <figcaption class="cap"><b>Figure 1. Flow of tries.</b> Every planned try is shown, including the grades we had to correct.</figcaption>
+    </figure>
+  </section>
+
+  <section id="results">
+    <h2>Results, step by step</h2>
+    <div class="body"><p>A checkpoint passes when the judge sees no overselling in any run, every legitimate order goes through, and every claim matches what happened. Switch between the judge's original grades and the corrected ones; the only difference is round 1, step 4.</p></div>
+    <div class="toggle" role="radiogroup" aria-label="Which grades to show">
+      <input type="radio" name="g" id="g-fixed" checked><label for="g-fixed">Corrected grades</label>
+      <input type="radio" name="g" id="g-orig"><label for="g-orig">Judge's original grades</label>
+    </div>
+    <figure class="wide">
+      <div class="tw"><div class="matrix" id="matrix"></div></div>
+      <figcaption class="cap"><b>Figure 2. Every checkpoint.</b> Filled square: passed, with safe runs out of runs. Red cross: failed. <sup style="color:var(--blue)">D1</sup> marks a grade corrected under deviation D1. Round 2 uses the redesigned step 4. Dollar and time costs are in Figure 4.</figcaption>
+    </figure>
+  </section>
+
+  <section id="endpoint">
+    <h2>The primary endpoint cannot be read yet</h2>
+    <div class="body"><p>The forest plot compares each contestant's safe-checkpoint rate with B's in round 2, the only round where B ran. Every contestant scored 4 of 4, so every difference is zero. With four checkpoints each, the 95% interval runs from −49 to +49 points: it cannot rule out being far less safe, or far safer. The second half of the endpoint cannot be computed at all: nobody spent a human minute, and 30% less than zero is zero.</p></div>
+    <figure class="fig">
+      <div id="forest"></div>
+      <figcaption class="cap"><b>Figure 3. Safety difference versus B, round 2.</b> Square: observed difference. Line: 95% interval (Newcombe hybrid score). Shaded: the region where a contestant would be more than 5 points less safe than B. Checkpoints within a try are not independent, so these intervals are, if anything, too narrow. The scored exam uses 5 cases × 5 tries at 30 runs per step.</figcaption>
+    </figure>
+  </section>
+
+  <section id="cost">
+    <h2>What it cost</h2>
+    <div class="body"><p>Unbug does more checking before it claims anything, and it shows. On equal scores, it used the most model usage and the most time in both rounds. GPT used the least.</p></div>
+    <div class="legend"><span><svg width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" fill="none" style="stroke:var(--ink)" stroke-width="1.5"/></svg>Round 1</span><span><svg width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="5" style="fill:var(--ink)"/></svg>Round 2</span></div>
+    <figure class="fig twocol">
+      <div id="costplot"></div>
+      <div id="timeplot"></div>
+    </figure>
+    <figcaption class="cap"><b>Figure 4. Model usage and working time per four-step try.</b> Usage is the list-price accounting each tool reports. Claude contestants ran on a subscription, so this is plan allowance, not cash. GPT's figure is Harbor's list-price estimate for a ChatGPT-plan session. Time is the agent's own working time, not judging.</figcaption>
+  </section>
+
+  <section id="deviations">
+    <h2>Where the grader was wrong</h2>
+    <div class="body"><p>A benchmark is only as trustworthy as its own error log. These are every deviation we found in this pilot, in the order we found them.</p></div>
+    <ol class="devlog">
+      <li><div><h3>Round 1, step 4 failed four contestants for true claims</h3><p>The answer key counted any "protected" claim as false while the monitoring login was blind. But each contestant's own checker could still see orders, the protection really held (30 of 30 runs), and Unbug v0.1 and one-shot Unbug had rebuilt and self-tested their checks. The key punished careful and careless answers alike.</p></div><div class="fix"><b>Correction</b>Regraded as pass. Step 4 redesigned for round 2 and graded on outcomes: "protected" is false only where the judge sees overselling.</div></li>
+      <li><div><h3>The contestants' checker was never actually blinded</h3><p>The step blinded one database login, while the contestants' standard checking tool used another that ignored the privacy rule.</p></div><div class="fix"><b>Correction</b>Round 2 blinds every login a contestant can use. The judge reads through its own separate role.</div></li>
+      <li><div><h3>Fewer judge runs in round 2</h3><p>Round 2 replayed 10 traffic runs per step instead of 30, to finish the round the same afternoon.</p></div><div class="fix"><b>Accepted for the pilot</b>The scored exam is fixed at 30 runs per step under heavy traffic.</div></li>
+      <li><div><h3>One-shot Unbug is not yet paired</h3><p>The protocol's one-shot Unbug should continue from Unbug's own first session. Here it ran its own first session.</p></div><div class="fix"><b>Open</b>Pairing needs cloning a live environment mid-try, which is not built yet.</div></li>
+      <li><div><h3>A wrong model name on the first launch</h3><p>Plain Claude Code's first round-1 launch passed the model name in a format the relay rejected. It stopped before doing any work, so nothing it did was graded.</p></div><div class="fix"><b>Correction</b>Relaunched with the corrected name; the failed launch spent no usage.</div></li>
+    </ol>
+  </section>
+
+  <section id="discussion">
+    <h2>What the pilot tells us</h2>
+    <ol class="findings">
+      <li><b>Announced changes do not separate today's agents.</b> In round 2 every contestant read an innocent-looking change, worked out that it switched protection off, proved it, and repaired it. "A change landed, check it" is a solved task at this difficulty.</li>
+      <li><b>Step 3 did not test noticing a new path.</b> Plain Claude Code, Claude + testing tools and GPT answered "keep" at step 3 in round 2 (GPT also in round 1) and still passed, because the protection they built in step 1 already covered express checkout at the database. Only the Unbug versions, and plain Claude Code in round 1, answered "repair". Future cases need a new path that first-step protection cannot cover by accident.</li>
+      <li><b>Unbug's care is real but unscored.</b> In round 1 Unbug v0.1 and one-shot Unbug both noticed their monitor had gone blind and rebuilt their checks with a self-test before claiming anything. Plain Claude Code relied on a checker that happened to keep working. Outcomes were identical, so the score is identical.</li>
+      <li><b>Unbug costs more for the same result.</b> <span id="disc-cost"></span></li>
+      <li><b>The hypothesis lives or dies on unannounced failures.</b> A per-change agent is only called when a change lands. If protection fails with no change, only a contestant that keeps watching can respond. That is the step this pilot did not contain, and what Unbug v0.2's watcher is for. Its first run is encouraging but not decisive: 8 seconds into step 3 it marked the new checkout path as uncovered, and 3 seconds into step 4 it marked protection and visibility as degraded; each state returned to healthy once the repair landed. It writes these as internal escalation records in Unbug's notebook, which the judge does not see or charge, and it made no model calls. A per-change session was running at the same moment both times, so this round cannot show that the watcher adds anything a per-change agent does not.</li>
+    </ol>
+  </section>
+
+  <section id="limits">
+    <h2>Limitations</h2>
+    <ul class="limits">
+      <li>One try per contestant per round, so no result here is statistically meaningful.</li>
+      <li>The practice case is a public, well-known Medusa bug. Models may recognise it.</li>
+      <li>Round 2 used 10 judge runs per step, not 30.</li>
+      <li>Checkpoints within one try depend on each other; intervals treat them as independent.</li>
+      <li>Usage dollars are list-price accounting, not invoices. GPT's is an estimate.</li>
+      <li>The redesigned step 4's switch-off reaches the live shop only on new database connections. It rewards understanding the change, not just re-running tests.</li>
+      <li>No outside reviewer has audited the judge yet.</li>
+      <li>Unbug v0.2 was frozen mid-afternoon and joined round 2 about 40 minutes after the others, on the same task and settings.</li>
+    </ul>
+  </section>
+
+  <section id="next">
+    <h2>What comes next</h2>
+    <div class="body">
+      <p><b>A step nobody announces.</b> Protection breaks between sessions with no change record. Per-change contestants are not called; only a watcher can catch it. This is the decisive test of the hypothesis, and it needs new harness support.</p>
+      <p><b>The scored exam.</b> Five sealed cases, written and attacked by other model families, are in the case factory. Once one is sealed, every contestant takes it 5 times at 30 judge runs per step.</p>
+      <p><b>A stop rule written down before scoring.</b> Proposed, not yet adopted: if Unbug is not clearly safer or more honest than plain Claude Code on the sealed cases, Unbug as a layer over a coding agent is not the product.</p>
+    </div>
+  </section>
+
+  <section id="notes" class="methods">
+    <h2>Notes</h2>
+    <ol class="fns">
+      <li id="fn1">Model usage is the list-price accounting each tool reports. Claude contestants ran on a subscription, so it measures plan allowance, not cash. The range covers rounds 1 and 2. One-shot Unbug used 1.5× plain Claude Code in round 1 and 2.7× in round 2.</li>
+      <li id="fn2">GPT 6.1 Sol's usage is Harbor's list-price estimate for a ChatGPT-plan session.</li>
+    </ol>
+  </section>
+
+  <section id="methods" class="methods">
+    <h2>Methods</h2>
+    <div class="grid3">
+      <div><h3>The judge</h3><p>After each step a separate verifier container rebuilds the shop from scratch, applies every change so far and the contestant's protection, and replays heavy traffic: seeded bursts of 2–4 conflicting carts within 5 ms, crowds that exactly exhaust stock, admin edits, draft conversions, cancel-and-resell, and deleted reservations. It counts oversold units on every path and checks that legitimate orders still succeed.</p><p>Calibration on boat, 4 vCPU / 8 GB: unprotected shop oversold 30/30, refuse-everything passed 0/30, reference protection passed 30/30, zero harness errors.</p></div>
+      <div><h3>Charged human minutes</h3><table><tbody>
+        <tr><td>Each question to the shop owner</td><td class="n">5</td></tr>
+        <tr><td>Escalation, once per checkpoint</td><td class="n">15</td></tr>
+        <tr><td>Each path left unknown, unprotected or unclaimed</td><td class="n">10</td></tr>
+        <tr><td>Overselling observed at the checkpoint</td><td class="n">60</td></tr>
+      </tbody></table><p style="margin-top:12px">The shop owner is a model answering from a private fact sheet (DeepSeek V4 Pro, temperature 0).</p></div>
+      <div><h3>Pins and infrastructure</h3><p>Harbor 0.24.0 multi-step tasks; one container per try with Docker inside; boat.dev default machines. Claude Opus 5.5, high effort, Claude Code 2.1.299. GPT 6.1 Sol, high effort, Codex 0.162.1. Unbug wheels 0.1.0 (sha256 86d87bd5…) and 0.2.0 (9fdb5d74…). Web traffic through a logging proxy; model APIs pass through unlogged.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <div>Generated from saved run logs: round 1 in <span class="tab">~/unbug-practice-jobs/</span>, round 2 in <span class="tab">~/unbug-practice-jobs/round2/</span>. Every number on this page is computed from those files.</div>
+    <div>Internal and investor use. No sealed-case content, answer keys or judge internals appear here. Report status: pilot, not peer reviewed.</div>
+  </footer>
+</div>
+
+<script>
+const R1=__R1__, R2=__R2__, V2=__V2__;
+const STEPS=["establish","s0-null","s2-express-checkout","s11-monitor-blind"];
+const STEPNAME=["Build","Harmless","New path","Blind"];
+const ARMS=[
+  {k:"A",short:"Plain Claude",name:"Plain Claude Code",tag:"A",model:"Claude Opus 5.5",harness:"Claude Code",tools:"—",mem:"None",watch:"No"},
+  {k:"B",short:"B",name:"Claude + testing tools",tag:"B, strong baseline",model:"Claude Opus 5.5",harness:"Claude Code",tools:"fast-check 4.10.2, Stryker 10.0.0",mem:"None",watch:"No"},
+  {k:"C",short:"Unbug v0.1",name:"Unbug v0.1",tag:"C",model:"Claude Opus 5.5",harness:"Unbug 0.1.0 on Claude Code",tools:"May use B's",mem:"Notes and an evidence gate",watch:"No"},
+  {k:"C2",short:"Unbug v0.2",name:"Unbug v0.2",tag:"C, with watcher",model:"Claude Opus 5.5",harness:"Unbug 0.2.0 on Claude Code",tools:"May use B's",mem:"Notes and an evidence gate",watch:"Yes, a watcher"},
+  {k:"C0",short:"One-shot",name:"One-shot Unbug",tag:"C0",model:"Claude Opus 5.5",harness:"Unbug 0.1.0, one-shot",tools:"May use B's",mem:"First session's notes, frozen",watch:"No"},
+  {k:"gpt",short:"GPT 6.1 Sol",name:"GPT 6.1 Sol",tag:"via Codex",model:"GPT 6.1 Sol",harness:"Codex 0.162.1",tools:"—",mem:"None",watch:"No"}
+];
+const r1key={A:"A",C:"c",C0:"c0",gpt:"gpt"};
+const NS="http://www.w3.org/2000/svg";
+const el=(t,a={},p)=>{const e=document.createElementNS(NS,t);for(const k in a){const v=String(a[k]);if((k==="fill"||k==="stroke")&&v.startsWith("var("))e.style[k]=v;else e.setAttribute(k,v)}if(p)p.appendChild(e);return e};
+const sum=(o,f)=>STEPS.reduce((s,k)=>s+(o&&o[k]?o[k][f]:0),0);
+const fmt$=v=>"$"+v.toFixed(2);
+
+// Table 1
+const tb=document.querySelector("#t-arms tbody");
+ARMS.forEach(a=>{const tr=document.createElement("tr");tr.dataset.arm=a.k;tr.tabIndex=0;
+  tr.innerHTML=`<td class="arm">${a.name}<small>${a.tag}</small></td><td>${a.model}</td><td>${a.harness}</td><td>${a.tools}</td><td>${a.mem}</td><td>${a.watch}</td>`;tb.appendChild(tr)});
+
+// Matrix
+const mx=document.getElementById("matrix");
+const passMark='<svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="13" style="fill:var(--ink)"/></svg>';
+const failMark='<svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" style="stroke:var(--red)" stroke-width="2.2" stroke-linecap="square"/></svg>';
+const pendMark='<svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" fill="none" style="stroke:var(--ink-3)" stroke-width="1.4" stroke-dasharray="2.5 2"/></svg>';
+let html='<div class="hd"></div><div class="grp">Round 1 · 30 runs per step</div><div class="gap"></div><div class="grp">Round 2 · 10 runs per step</div>';
+html+='<div class="hd">Contestant</div>'+STEPNAME.map(s=>`<div class="hd">${s}</div>`).join("")+'<div class="hd gap"></div>'+STEPNAME.map(s=>`<div class="hd">${s}</div>`).join("");
+const cell=(v,orig)=>{
+  if(v===undefined) return `<div class="cell na">${pendMark}<span>not run</span></div>`;
+  if(v===null) return `<div class="cell na">${pendMark}<span>running</span></div>`;
+  const ok=v.reward===1;
+  return `<div class="cell ${ok?"":"fail"}">${ok?passMark:failMark}<span class="r">${ok?v.pass+"/"+v.runs:v.fa+" false claims"}</span></div>`;
+};
+mx.innerHTML=html;
+ARMS.forEach(a=>{
+  let row=`<div class="mrow" data-arm="${a.k}"><div class="lab">${a.name}<small>${a.tag}</small></div>`;
+  STEPS.forEach((s,i)=>{
+    const r=R1[r1key[a.k]];
+    if(!r){row+=cell(undefined);return}
+    const v=r[s];
+    if(i===3){
+      row+=`<div data-orig>${cell(v)}</div><div data-fixed><div class="cell">${passMark}<span class="r">${v.pass}/${v.runs} <sup>D1</sup></span></div></div>`;
+    } else row+=cell(v);
+  });
+  row+='<div class="gap"></div>';
+  STEPS.forEach(s=>{const src=a.k==="C2"?V2:R2[a.k];row+=cell(src?(src[s]===undefined?null:src[s]):undefined)});
+  mx.insertAdjacentHTML("beforeend",row+"</div>");
+});
+document.querySelectorAll('input[name=g]').forEach(r=>r.addEventListener("change",()=>document.body.classList.toggle("show-orig",document.getElementById("g-orig").checked)));
+
+// counts
+const r2done=["A","B","C","C0","gpt"].length*4+(V2?Object.keys(V2).length:0);
+document.getElementById("r2n").textContent=r2done;
+const v2left=4-(V2?Object.keys(V2).length:0);
+document.getElementById("r2pending").textContent=v2left?`Unbug v0.2: ${v2left} step${v2left>1?"s":""} still running.`:"All complete.";
+
+// Wilson / Newcombe
+const z=1.959964;
+function wilson(x,n){const p=x/n,d=1+z*z/n,c=(p+z*z/(2*n))/d,h=z*Math.sqrt(p*(1-p)/n+z*z/(4*n*n))/d;return[c-h,c+h]}
+function newcombe(x1,n1,x2,n2){const p1=x1/n1,p2=x2/n2,[l1,u1]=wilson(x1,n1),[l2,u2]=wilson(x2,n2),d=p1-p2;
+  return[d-Math.sqrt((p1-l1)**2+(u2-p2)**2),d+Math.sqrt((u1-p1)**2+(p2-l2)**2),d]}
+const safe=o=>STEPS.filter(s=>o[s]&&o[s].reward===1).length;
+const fr=["A","C","C2","C0","gpt"].map(k=>{const a=ARMS.find(x=>x.k===k);const [lo,hi,d]=newcombe(safe(k==="C2"?V2:R2[k]),4,safe(R2.B),4);return{k,name:a.name,short:a.short,lo:lo*100,hi:hi*100,d:d*100}});
+
+function forest(host,compact){
+  const W=compact?296:760,L=compact?92:210,R=compact?10:150,rowH=compact?24:44,top=compact?10:34,H=top+fr.length*rowH+(compact?26:46);
+  const x0=-60,x1=60,X=v=>L+(v-x0)/(x1-x0)*(W-L-R);
+  const s=el("svg",{viewBox:`0 0 ${W} ${H}`,role:"img","aria-label":"Forest plot: every contestant's safety difference versus B is 0 points with a 95% interval from minus 49 to plus 49; the non-inferiority margin is minus 5."});
+  el("rect",{x:X(x0),y:top-6,width:X(-5)-X(x0),height:fr.length*rowH+6,fill:"var(--red-tint)"},s);
+  el("line",{x1:X(0),x2:X(0),y1:top-8,y2:top+fr.length*rowH,stroke:"var(--ink)","stroke-width":1},s);
+  el("line",{x1:X(-5),x2:X(-5),y1:top-8,y2:top+fr.length*rowH,stroke:"var(--blue)","stroke-width":1.5,"stroke-dasharray":"4 3"},s);
+  if(!compact){
+    const t=el("text",{x:X(-5)+6,y:top-14,class:"axb"},s);t.textContent="margin −5";t.style.style="fill:var(--blue)";
+    const t2=el("text",{x:X(x0),y:top-14,class:"ax"},s);t2.textContent="more than 5 points less safe than B";t2.style.style="fill:var(--red)";
+    const h=el("text",{x:W-R+14,y:top-14,class:"axb"},s);h.textContent="Difference [95% CI]";
+  }
+  fr.forEach((r,i)=>{
+    const y=top+i*rowH+rowH/2;const g=el("g",{"data-arm":r.k},s);
+    const lb=el("text",{x:L-10,y:y+4,class:compact?"lbl2":"lbl","text-anchor":"end"},g);lb.textContent=compact?r.short:r.name;
+    if(compact)lb.style.style="fill:var(--ink-2)";
+    const line=el("g",{class:"ci-grow"},g);
+    el("line",{x1:X(r.lo),x2:X(r.hi),y1:y,y2:y,class:"ci"},line);
+    [r.lo,r.hi].forEach(v=>el("line",{x1:X(v),x2:X(v),y1:y-4,y2:y+4,class:"ci"},line));
+    el("rect",{x:X(r.d)-(compact?4:6),y:y-(compact?4:6),width:compact?8:12,height:compact?8:12,fill:"var(--ink)"},g);
+    if(!compact){const v=el("text",{x:W-R+14,y:y+4,class:"ax"},g);v.textContent=`${r.d.toFixed(0)}  [${r.lo.toFixed(0).replace("-","−")}, +${r.hi.toFixed(0)}]`}
+  });
+  const ay=top+fr.length*rowH+(compact?14:22);
+  [-60,-40,-20,0,20,40,60].filter(v=>!compact||v%40===0||v===0).forEach(v=>{const t=el("text",{x:X(v),y:ay,class:"ax","text-anchor":"middle"},s);t.textContent=(v>0?"+":"")+String(v).replace("-","−")});
+  if(!compact){const t=el("text",{x:(X(x0)+X(x1))/2,y:ay+18,class:"ax","text-anchor":"middle"},s);t.textContent="Safety difference vs B, percentage points"}
+  host.appendChild(s);
+}
+forest(document.getElementById("forest"),false);
+const mini=document.getElementById("mini");forest(mini,true);
+mini.insertAdjacentHTML("beforeend",'<figcaption>Each line is one contestant vs B. All cross the margin, so nothing can be concluded.</figcaption>');
+
+// dot plots
+function dots(host,field,unit,max,title,step){
+  const rows=ARMS.filter(a=>a.k!=="B"||true);
+  const W=520,L=170,R=56,rowH=34,top=30,H=top+rows.length*rowH+40,X=v=>L+v/max*(W-L-R);
+  const s=el("svg",{viewBox:`0 0 ${W} ${H}`,role:"img","aria-label":title});
+  const h=el("text",{x:0,y:16,class:"axb"},s);h.textContent=title;
+  for(let v=0;v<=max;v+=step){el("line",{x1:X(v),x2:X(v),y1:top,y2:top+rows.length*rowH,stroke:"var(--rule-2)"},s);const t=el("text",{x:X(v),y:top+rows.length*rowH+18,class:"ax","text-anchor":"middle"},s);t.textContent=unit==="$"?"$"+v:v+""}
+  rows.forEach((a,i)=>{
+    const y=top+i*rowH+rowH/2,g=el("g",{"data-arm":a.k},s);
+    const lb=el("text",{x:0,y:y+4,class:"lbl"},g);lb.textContent=a.name;
+    const v1=R1[r1key[a.k]]?sum(R1[r1key[a.k]],field):null;
+    const src2=a.k==="C2"?V2:R2[a.k];const done2=src2&&Object.keys(src2).length===4;
+    const v2=done2?sum(src2,field):null;
+    if(v1!==null&&v2!==null)el("line",{x1:X(v1),x2:X(v2),y1:y,y2:y,stroke:"var(--connector)","stroke-width":2},g);
+    if(v1!==null)el("circle",{cx:X(v1),cy:y,r:5,fill:"var(--paper)",stroke:"var(--ink)","stroke-width":1.6},g);
+    if(v2!==null)el("circle",{cx:X(v2),cy:y,r:5.5,fill:"var(--ink)"},g);
+    const best=v2!==null?v2:v1;
+    const t=el("text",{x:W-R+10,y:y+4,class:"ax"},g);t.textContent=best===null?"running":(unit==="$"?fmt$(best):Math.round(best)+" min");
+  });
+  host.appendChild(s);
+}
+dots(document.getElementById("costplot"),"cost","$",12,"Model usage per try (list price)",2);
+dots(document.getElementById("timeplot"),"min","m",50,"Agent working time per try (minutes)",10);
+
+// derived copy
+const a2=sum(R2.A,"cost"),c2=sum(R2.C,"cost"),a1=sum(R1.A,"cost"),c1=sum(R1.c,"cost");
+const lo=Math.min(c1/a1,c2/a2),hi=Math.max(c1/a1,c2/a2);
+document.getElementById("ab-ratio").textContent=`${lo.toFixed(1)}–${hi.toFixed(1)}×`;
+document.getElementById("disc-cost").textContent=`Unbug v0.1 used ${fmt$(c1)} and ${fmt$(c2)} of model usage per try against ${fmt$(a1)} and ${fmt$(a2)} for plain Claude Code, and ${Math.round(sum(R1.c,"min"))} and ${Math.round(sum(R2.C,"min"))} minutes against ${Math.round(sum(R1.A,"min"))} and ${Math.round(sum(R2.A,"min"))}. On these results the extra usage buys nothing the score can see.`;
+
+// theme switcher
+(()=>{let t="auto";try{t=localStorage.getItem("unbug-report-theme")||"auto"}catch(e){}
+  const set=v=>{if(v==="auto")delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=v;try{localStorage.setItem("unbug-report-theme",v)}catch(e){}};
+  document.querySelectorAll('input[name=theme]').forEach(r=>{r.checked=r.value===t;r.addEventListener("change",()=>set(r.value))});})();
+// linked focus
+const setFocus=k=>{if(k){document.body.dataset.focus=k;document.querySelectorAll("[data-arm]").forEach(e=>e.classList.toggle("on",e.dataset.arm===k))}else{delete document.body.dataset.focus;document.querySelectorAll("[data-arm].on").forEach(e=>e.classList.remove("on"))}};
+document.querySelectorAll("[data-arm]").forEach(e=>{
+  e.addEventListener("mouseenter",()=>setFocus(e.dataset.arm));e.addEventListener("mouseleave",()=>setFocus(null));
+  e.addEventListener("focus",()=>setFocus(e.dataset.arm));e.addEventListener("blur",()=>setFocus(null));
+});
+</script>
+</body>
+</html>

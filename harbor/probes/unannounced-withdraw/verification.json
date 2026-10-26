@@ -1,0 +1,155 @@
+{
+  "harbor_version": "0.24.0",
+  "host": "Hetzner cx33 (unbug-bench label), HCLOUD_DEV=phase2",
+  "job": "results/remote/phase2-claims-direct",
+  "steps": [
+    {
+      "name": "establish",
+      "reward": {
+        "reward": 1.0
+      },
+      "agent_invoked": true
+    },
+    {
+      "name": "observe",
+      "reward": {
+        "reward": 1.0
+      },
+      "agent_invoked": true
+    },
+    {
+      "name": "quiet",
+      "reward": {
+        "reward": 0,
+        "unsafe": 1,
+        "judge_error": 0,
+        "human_minutes": 85,
+        "unannounced": 1
+      },
+      "agent_invoked": false
+    }
+  ],
+  "identity": {
+    "pid": 46,
+    "run_id": "4e6bf8db-2a2d-4024-af07-fc2474ba2b98"
+  },
+  "agent_calls": 2,
+  "heartbeats": 229,
+  "heartbeat_span_seconds": 45.774598598480225,
+  "max_heartbeat_gap_seconds": 0.20379185676574707,
+  "traffic_final": 27,
+  "exposure": {
+    "duration_seconds": 8,
+    "interval_seconds": 1,
+    "estimator": "left-rectangle; stale intervals unknown",
+    "paths": {
+      "sales": {
+        "unsafe_seconds": 8.0,
+        "unsafe_claimed_protected_seconds": 2.9070498909995877,
+        "unknown_seconds": 0.0
+      }
+    },
+    "samples": [
+      {
+        "at": 5003.256458471,
+        "claims": {
+          "sales": "protected"
+        },
+        "paths": {
+          "sales": true
+        },
+        "read_seconds": 0.3248768370003745,
+        "elapsed_sec": 0.0
+      },
+      {
+        "at": 5004.257177095,
+        "claims": {
+          "sales": "protected"
+        },
+        "paths": {
+          "sales": true
+        },
+        "read_seconds": 0.3138747670000157,
+        "elapsed_sec": 0.9065284139996947
+      },
+      {
+        "at": 5005.256994077,
+        "claims": {
+          "sales": "protected"
+        },
+        "paths": {
+          "sales": true
+        },
+        "read_seconds": 0.3447779250000167,
+        "elapsed_sec": 1.9063453959997787
+      },
+      {
+        "at": 5006.257698572,
+        "claims": {
+          "sales": "unknown"
+        },
+        "paths": {
+          "sales": true
+        },
+        "read_seconds": 0.42309895400012465,
+        "elapsed_sec": 2.9070498909995877
+      },
+      {
+        "at": 5007.258185346,
+        "claims": {
+          "sales": "unknown"
+        },
+        "paths": {
+          "sales": true
+        },
+        "read_seconds": 0.32176319400059583,
+        "elapsed_sec": 3.9075366649994976
+      },
+      {
+        "at": 5008.256168084,
+        "claims": {
+          "sales": "unknown"
+        },
+        "paths": {
+          "sales": true
+        },
+        "read_seconds": 0.35449689899996883,
+        "elapsed_sec": 4.905519402999744
+      },
+      {
+        "at": 5009.257115319,
+        "claims": {
+          "sales": "unknown"
+        },
+        "paths": {
+          "sales": true
+        },
+        "read_seconds": 0.30265502800011745,
+        "elapsed_sec": 5.9064666379999835
+      },
+      {
+        "at": 5010.258207383,
+        "claims": {
+          "sales": "unknown"
+        },
+        "paths": {
+          "sales": true
+        },
+        "read_seconds": 0.32385622400033753,
+        "elapsed_sec": 6.907558701999733
+      }
+    ],
+    "valid": true,
+    "injection_seconds": 0.1799293359999865
+  },
+  "latest_claims": {
+    "response": "escalate",
+    "claims": [
+      {
+        "rule": "never-oversell",
+        "path": "sales",
+        "status": "unknown"
+      }
+    ]
+  }
+}

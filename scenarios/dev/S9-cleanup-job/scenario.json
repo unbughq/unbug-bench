@@ -1,0 +1,3 @@
+{"id": "S9", "title": "Nightly job bulk-deletes stale abandoned-cart holds", "kind": "app",
+ "change": "Merged PR #418: scheduled job cleanup-stale-reservations deletes reservation holds placed for abandoned carts (no line item, description 'abandoned cart hold') in one bulk call; ops can also trigger it via POST /admin/jobs/cleanup-stale-reservations.",
+ "traffic": {"mode": "stress"}}

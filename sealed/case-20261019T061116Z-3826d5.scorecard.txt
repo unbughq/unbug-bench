@@ -1,0 +1,9 @@
+case-20261019T061116Z-3826d5  sha256:c232b2b1e8ea9bf7a798d94cd0e9815c92ac94058b564ee1bf500e7b7327569f
+gates: passed G12
+reviewers: fairness - approve, realism - approve
+plain app broke the promise -   reference fix -   cheats - passed   scenario keys -
+calibrators: {}   fake pass: -
+surprises: 3   scenarios: 6   provenance: 3   source: port   builder rounds: -
+wipe: null   wall: 4651.8 min
+STOPPED: paused
+models: {"builder": ["opencode-go/muse-spark-1.3-contributor"], "attacker": ["opencode-go/mimo-v2.6-pro"], "reviewers": [["codex/gpt-6.1-sol"]], "strong_calibrator": ["claude/claude-opus-5-5"], "easy_calibrator": ["opencode/glm-5.3-flash-free"]}

@@ -1,0 +1,35 @@
+diff --git a/src/jobs/cleanup-stale-reservations.ts b/src/jobs/cleanup-stale-reservations.ts
+new file mode 100644
+--- /dev/null
++++ b/src/jobs/cleanup-stale-reservations.ts
+@@ -0,0 +1,18 @@
++import { MedusaContainer } from "@medusajs/framework/types"
++import { Modules } from "@medusajs/framework/utils"
++
++// Nightly cleanup: holds placed for abandoned carts (manual reservations without a line item,
++// described "abandoned cart hold") are deleted in one bulk call.
++export async function cleanupStaleReservations(container: MedusaContainer) {
++  const inventory = container.resolve(Modules.INVENTORY)
++  const holds = await inventory.listReservationItems({ description: "abandoned cart hold" }, { take: 1000 })
++  const stale = holds.filter((r: any) => !r.line_item_id)
++  if (stale.length) await inventory.deleteReservationItems(stale.map((r: any) => r.id))
++  return { deleted: stale.length }
++}
++
++export default async function job(container: MedusaContainer) {
++  await cleanupStaleReservations(container)
++}
++
++export const config = { name: "cleanup-stale-reservations", schedule: "0 3 * * *" }
+diff --git a/src/api/admin/jobs/cleanup-stale-reservations/route.ts b/src/api/admin/jobs/cleanup-stale-reservations/route.ts
+new file mode 100644
+--- /dev/null
++++ b/src/api/admin/jobs/cleanup-stale-reservations/route.ts
+@@ -0,0 +1,7 @@
++import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
++import { cleanupStaleReservations } from "../../../../jobs/cleanup-stale-reservations"
++
++// Runs the nightly job on demand (ops tooling).
++export async function POST(req: MedusaRequest, res: MedusaResponse) {
++  res.json(await cleanupStaleReservations(req.scope))
++}

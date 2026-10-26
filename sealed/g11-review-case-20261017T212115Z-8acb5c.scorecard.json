@@ -1,0 +1,5374 @@
+{
+  "kind": "g11-independent-review",
+  "case": "case-20261017T212115Z-8acb5c",
+  "model": "openrouter/meta/muse-spark-1.3-contributor",
+  "dry_run": false,
+  "roles": {
+    "writer": {
+      "model": "claude/claude-opus-5-5",
+      "effort": "high",
+      "family": "anthropic"
+    },
+    "stress_tester": {
+      "model": "openrouter/xiaomi/mimo-v2.6-pro",
+      "effort": "default",
+      "family": "xiaomi"
+    },
+    "strong_calibrator": {
+      "model": "codex/gpt-6.1-sol",
+      "effort": "high",
+      "family": "openai"
+    },
+    "reviewer": {
+      "model": "openrouter/meta/muse-spark-1.3-contributor",
+      "effort": "xhigh",
+      "family": "meta"
+    },
+    "easy_calibrator": {
+      "model": "opencode/glm-5.3-flash-free",
+      "effort": "default",
+      "family": "z-ai"
+    }
+  },
+  "status": "stopped",
+  "verdict": "inconclusive",
+  "digest_version": 2,
+  "limits": {
+    "max_cost": 0.7386117149999999,
+    "max_total_calls": 977,
+    "max_role_calls": 21,
+    "timeout_seconds": 1200
+  },
+  "continuations": 2,
+  "source_inputs_sha256": "7a28d7c8f6ed73ff9bf873d1cc56fa4b6b76ffd0a919cba5102f9310b6ab55a8",
+  "review_bench_sha256": "6b364f29507b9cb3d8a41d9b2a70bcd8a4b2e1a4d94e9dc43c9b4a86e858b907",
+  "audit_inputs_sha256": "c5137b0fd16629873c0803aca155a7b8d243ebbf1e2db37cde4f72b10bbad200",
+  "models_used": {
+    "reviewer-g11-audit": "openrouter/meta/muse-spark-1.3-contributor"
+  },
+  "terminal_stop": "total_call_limit",
+  "inputs_unchanged": true,
+  "cost_delta": 0.08144588,
+  "calls_delta": 21,
+  "audit_cost_total": 0.29075858,
+  "audit_calls_total": 80,
+  "continuation_budget": {
+    "cost": 0.5293702969999999,
+    "calls": 977,
+    "events": [
+      {
+        "id": "e7bcaaeb-93d1-4fb0-baea-7c07a729507c:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 34,
+          "cache_creation_input_tokens": 60529,
+          "cache_read_input_tokens": 672599,
+          "output_tokens": 12117,
+          "output_tokens_details": {
+            "thinking_tokens": 8018
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 60529,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 709,
+              "cache_read_input_tokens": 63802,
+              "cache_creation_input_tokens": 777,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 777
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 17,
+        "list_cost_usd": 0.8612278000000001
+      },
+      {
+        "id": "ses_eb2e5a633ffegJk3LNkBUSUOi8:msg_14d1a5c57001WV376ayq5VYWgg:prt_14d1b1ba7001373kdEJadyr0KY",
+        "cost": 0,
+        "tokens": {
+          "total": 6955,
+          "input": 6866,
+          "output": 80,
+          "reasoning": 9,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb2e5a633ffegJk3LNkBUSUOi8:msg_14d1b1bb3001zIwUCMdZS29mMO:prt_14d1b39c60019hI5z4kRn4yekV",
+        "cost": 0,
+        "tokens": {
+          "total": 7578,
+          "input": 937,
+          "output": 113,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 6528
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb2e5a633ffegJk3LNkBUSUOi8:msg_14d1b39cc0015bKeShpNTxYHzS:prt_14d1b553f001zklMp6xmRXTm9a",
+        "cost": 0,
+        "tokens": {
+          "total": 7665,
+          "input": 1059,
+          "output": 39,
+          "reasoning": 39,
+          "cache": {
+            "write": 0,
+            "read": 6528
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "f3d992d2-06eb-4cdc-8763-f0b74f365149:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 24,
+          "cache_creation_input_tokens": 32286,
+          "cache_read_input_tokens": 277943,
+          "output_tokens": 6178,
+          "output_tokens_details": {
+            "thinking_tokens": 3197
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 32286,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 643,
+              "cache_read_input_tokens": 35764,
+              "cache_creation_input_tokens": 572,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 572
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 12,
+        "list_cost_usd": 0.43753259999999994
+      },
+      {
+        "id": "ses_eb2e2faafffepObubTotiRpO1t:msg_14d1d07ef001STlJzKxUn62GGC:prt_14d1d6b8c0016aETpm8IuxS3dj",
+        "cost": 0,
+        "tokens": {
+          "total": 6985,
+          "input": 4946,
+          "output": 80,
+          "reasoning": 39,
+          "cache": {
+            "write": 0,
+            "read": 1920
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb2e2faafffepObubTotiRpO1t:msg_14d1d6b96001GFQnkFMHfmCgh0:prt_14d1d9c33001eAlxBCRoNdzpgr",
+        "cost": 0,
+        "tokens": {
+          "total": 7754,
+          "input": 5598,
+          "output": 107,
+          "reasoning": 129,
+          "cache": {
+            "write": 0,
+            "read": 1920
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb2e2faafffepObubTotiRpO1t:msg_14d1d9c41001y7jmENYe0D0chs:prt_14d1e0df50018d9BI5MdGqVni3",
+        "cost": 0,
+        "tokens": {
+          "total": 7816,
+          "input": 7763,
+          "output": 53,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "63607fad-36b2-4228-9895-a52fdb828542:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 374,
+          "cache_creation_input_tokens": 592588,
+          "cache_read_input_tokens": 72101735,
+          "output_tokens": 284455,
+          "output_tokens_details": {
+            "thinking_tokens": 197940
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 592588,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 1423,
+              "cache_read_input_tokens": 596158,
+              "cache_creation_input_tokens": 480,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 480
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 187,
+        "list_cost_usd": 24.995428099999977
+      },
+      {
+        "id": "1fc38469-5a8b-47eb-a80e-2dca13a4a443:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 18,
+          "cache_creation_input_tokens": 29938,
+          "cache_read_input_tokens": 199010,
+          "output_tokens": 3531,
+          "output_tokens_details": {
+            "thinking_tokens": 1417
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 29938,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 565,
+              "cache_read_input_tokens": 33775,
+              "cache_creation_input_tokens": 213,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 213
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 9,
+        "list_cost_usd": 0.3499979999999999
+      },
+      {
+        "id": "ses_eb2497bd2ffeCzNmuGWe0SRV5V:msg_14db68677001VmweCnL6WedaiG:prt_14db69109001I0uLU8ubwQbdXG",
+        "cost": 0,
+        "tokens": {
+          "total": 7010,
+          "input": 6911,
+          "output": 99,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb2497bd2ffeCzNmuGWe0SRV5V:msg_14db69113001z6PZuYt0IKSVsV:prt_14db6bf6c001Gk6N4aPLcD9ooD",
+        "cost": 0,
+        "tokens": {
+          "total": 7819,
+          "input": 3058,
+          "output": 281,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 4480
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb2497bd2ffeCzNmuGWe0SRV5V:msg_14db6bf75001XsB8XPJpeKYtva:prt_14db6c56a001h2s2MWBR4xNUYj",
+        "cost": 0,
+        "tokens": {
+          "total": 7850,
+          "input": 960,
+          "output": 106,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 6784
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb2497bd2ffeCzNmuGWe0SRV5V:msg_14db6c5740010PHI33Copn3DCh:prt_14db6d290001CQOdsjNs6aa0Mg",
+        "cost": 0,
+        "tokens": {
+          "total": 8226,
+          "input": 516,
+          "output": 286,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 7424
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb2497bd2ffeCzNmuGWe0SRV5V:msg_14db6d296001Eia2Y6goHbQSRH:prt_14db76bc8001IMoP3YOSHqKfJg",
+        "cost": 0,
+        "tokens": {
+          "total": 8506,
+          "input": 8429,
+          "output": 77,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "b245cb27-4368-498d-9e59-ea20430257a0:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 30,
+          "cache_creation_input_tokens": 39111,
+          "cache_read_input_tokens": 448058,
+          "output_tokens": 4672,
+          "output_tokens_details": {
+            "thinking_tokens": 1545
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 39111,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 487,
+              "cache_read_input_tokens": 42626,
+              "cache_creation_input_tokens": 535,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 535
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 15,
+        "list_cost_usd": 0.49605959999999993
+      },
+      {
+        "id": "4ce5117e-14eb-481e-9be3-070080a3c843:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 58,
+          "cache_creation_input_tokens": 79698,
+          "cache_read_input_tokens": 1445321,
+          "output_tokens": 15281,
+          "output_tokens_details": {
+            "thinking_tokens": 7034
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 79698,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 772,
+              "cache_read_input_tokens": 82470,
+              "cache_creation_input_tokens": 1278,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 1278
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 29,
+        "list_cost_usd": 1.2325001999999998
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14dd493a7001EFFT9A1w4jSLg0:prt_14dd4a3ce001QYZb028tn0UVfz",
+        "cost": 0.0016224024,
+        "tokens": {
+          "total": 7155,
+          "input": 3442,
+          "output": 104,
+          "reasoning": 25,
+          "cache": {
+            "write": 0,
+            "read": 3584
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14dd4a3d7001g8cX7eMIO801WI:prt_14dd4b4c0001CIRJEHClgkH36F",
+        "cost": 0.0023025432,
+        "tokens": {
+          "total": 11967,
+          "input": 4874,
+          "output": 144,
+          "reasoning": 37,
+          "cache": {
+            "write": 0,
+            "read": 6912
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14dd4b4ce001HTB04Q0QOavjrL:prt_14dd4d5ec001QPKDUNDoDBnigD",
+        "cost": 0.0015757686,
+        "tokens": {
+          "total": 14823,
+          "input": 2569,
+          "output": 269,
+          "reasoning": 209,
+          "cache": {
+            "write": 0,
+            "read": 11776
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14dd4d5f3001UxyPbYZi9PNIxN:prt_14dd4fd8a001XVoiI571i2tF0d",
+        "cost": 0.0021000246,
+        "tokens": {
+          "total": 18586,
+          "input": 3791,
+          "output": 167,
+          "reasoning": 292,
+          "cache": {
+            "write": 0,
+            "read": 14336
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14dd4fd98001i8D07eE1GKHpxV:prt_14dd5319a001P9DY1a6sJaa2Uj",
+        "cost": 0.0007731528,
+        "tokens": {
+          "total": 19271,
+          "input": 818,
+          "output": 127,
+          "reasoning": 278,
+          "cache": {
+            "write": 0,
+            "read": 18048
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14dd531a6001XE0aeQ5Y4m8dG1:prt_14dd63018001J25TevQHOxxGR7",
+        "cost": 0.0084319176,
+        "tokens": {
+          "total": 35046,
+          "input": 13232,
+          "output": 131,
+          "reasoning": 2867,
+          "cache": {
+            "write": 0,
+            "read": 18816
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14dd63027001MsRRTBN5nyCaYl:prt_14dd6ab70001dtoXU6ToEZkgU1",
+        "cost": 0.0067098,
+        "tokens": {
+          "total": 45701,
+          "input": 12242,
+          "output": 165,
+          "reasoning": 1294,
+          "cache": {
+            "write": 0,
+            "read": 32000
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14dd6ab78001i19JesS5i2UzM9:prt_14dd7abc4001e87EQz3fV5FF0K",
+        "cost": 0.004574226,
+        "tokens": {
+          "total": 51304,
+          "input": 4138,
+          "output": 157,
+          "reasoning": 2849,
+          "cache": {
+            "write": 0,
+            "read": 44160
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14dd7abd3001l78zhpj50M1I63:prt_14dda3c0e001OS9mJxQirVt5Xz",
+        "cost": 0.0173897166,
+        "tokens": {
+          "total": 81170,
+          "input": 26251,
+          "output": 165,
+          "reasoning": 6498,
+          "cache": {
+            "write": 0,
+            "read": 48256
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14dda3c20001kfRLyPkmL9LjFv:prt_14dda58290013z8ooW2VD52KTq",
+        "cost": 0.0032705556,
+        "tokens": {
+          "total": 81301,
+          "input": 6708,
+          "output": 86,
+          "reasoning": 11,
+          "cache": {
+            "write": 0,
+            "read": 74496
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14dda5838001FwGVdoTNdFKXta:prt_14ddc7aec001G8Fktbcjk0sbDN",
+        "cost": 0.0055182372,
+        "tokens": {
+          "total": 87399,
+          "input": 480,
+          "output": 118,
+          "reasoning": 5649,
+          "cache": {
+            "write": 0,
+            "read": 81152
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14ddc7afa001Y2GKS8FYJxwazj:prt_14dde64c0001X4M6A9UUj5t1f3",
+        "cost": 0.0080504496,
+        "tokens": {
+          "total": 93472,
+          "input": 6040,
+          "output": 107,
+          "reasoning": 5789,
+          "cache": {
+            "write": 0,
+            "read": 81536
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14dde64d0001wTOsXhcp8TXE19:prt_14ddfec42001lEmKfoYq9Y2dok",
+        "cost": 0.0070450722,
+        "tokens": {
+          "total": 98466,
+          "input": 6357,
+          "output": 1375,
+          "reasoning": 3182,
+          "cache": {
+            "write": 0,
+            "read": 87552
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14ddfec53001s3haGlenX04OFu:prt_14de01777001v2mCUCsL3MK2WJ",
+        "cost": 0.0026123814,
+        "tokens": {
+          "total": 98763,
+          "input": 4649,
+          "output": 276,
+          "reasoning": 14,
+          "cache": {
+            "write": 0,
+            "read": 93824
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb22b6ed4ffeZTIeUPRHS6bseQ:msg_14de01780001baQLmIA0SLxqEW:prt_14de071ee001iiksyz9Tzfx4uS",
+        "cost": 0.0011034252,
+        "tokens": {
+          "total": 99785,
+          "input": 984,
+          "output": 324,
+          "reasoning": 45,
+          "cache": {
+            "write": 0,
+            "read": 98432
+          }
+        },
+        "configured_model": "openrouter/xiaomi/mimo-v2.6-pro",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2d4a24001zePs1CYkc7JIsO:prt_14f2d57e30010bthjWuoCj9BAD",
+        "cost": 0.000850326,
+        "tokens": {
+          "total": 8387,
+          "input": 8047,
+          "output": 153,
+          "reasoning": 74,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2d57ee001HosSmnJq4GTbO8:prt_14f2d674c001EJPnwWIVkbFIdq",
+        "cost": 0.001356326,
+        "tokens": {
+          "total": 12977,
+          "input": 12167,
+          "output": 687,
+          "reasoning": 10,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2d6754001JvSGAkKqtqmFkW:prt_14f2d7fab001KxpNKR39rQ6ib3",
+        "cost": 0.001116046,
+        "tokens": {
+          "total": 22676,
+          "input": 9891,
+          "output": 466,
+          "reasoning": 46,
+          "cache": {
+            "write": 0,
+            "read": 12273
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2d7fb8001LUbQdgUl3y6Y72:prt_14f2dab24001WouwZp1X7ODSOw",
+        "cost": 0.003669426,
+        "tokens": {
+          "total": 36587,
+          "input": 36256,
+          "output": 218,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2dab2e001UJJ6XkeKSKmuOT:prt_14f2db644001uuZVgg5591phsv",
+        "cost": 0.003916,
+        "tokens": {
+          "total": 39033,
+          "input": 38906,
+          "output": 127,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2db656001f3h8B0HatOxivs:prt_14f2dcfc8001cGVftq5eGmgoWU",
+        "cost": 0.004040926,
+        "tokens": {
+          "total": 39901,
+          "input": 39169,
+          "output": 619,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2dcfd6001XnMnZCBOGUGQQN:prt_14f2ddf54001L3TBgjbhz9nzuY",
+        "cost": 0.004451226,
+        "tokens": {
+          "total": 43772,
+          "input": 42808,
+          "output": 851,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2ddf5f001YSXxrjyYzeQJEf:prt_14f2df4f70016NgpjhGd3uJXJW",
+        "cost": 0.003950298,
+        "tokens": {
+          "total": 46887,
+          "input": 38334,
+          "output": 167,
+          "reasoning": 337,
+          "cache": {
+            "write": 0,
+            "read": 8049
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2df4ff001p3mSYwGA51osMe:prt_14f2dfe3d0010qHS9PGpzkA0qA",
+        "cost": 0.00070683,
+        "tokens": {
+          "total": 48849,
+          "input": 5757,
+          "output": 227,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 42865
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2dfe45001A0hWRFwHAsNZDg:prt_14f2e0a17001u59pBiflUlRnup",
+        "cost": 0.000701442,
+        "tokens": {
+          "total": 52273,
+          "input": 5816,
+          "output": 136,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 46321
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2e0a1f001OVQbHqAJE36Kak:prt_14f2e12a1001vc2WyoEZEOaOjF",
+        "cost": 0.005783926,
+        "tokens": {
+          "total": 57709,
+          "input": 57355,
+          "output": 241,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2e12a7001Bv6jgyzAQYvFAe:prt_14f2e1db1001F7DR5gfsQUfJKW",
+        "cost": 0.002254662,
+        "tokens": {
+          "total": 60895,
+          "input": 21467,
+          "output": 147,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 39281
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2e1dbe001ufuupVgAqwFP6F:prt_14f2f25d70011QGFjXA9gM5MfQ",
+        "cost": 0.003831394,
+        "tokens": {
+          "total": 70319,
+          "input": 25308,
+          "output": 369,
+          "reasoning": 5745,
+          "cache": {
+            "write": 0,
+            "read": 38897
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2f25e2001B7bgaYXWLkWd5R:prt_14f2f35b4001MMS41hmsRfFK7h",
+        "cost": 0.006588426,
+        "tokens": {
+          "total": 65748,
+          "input": 65388,
+          "output": 247,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2f35bc001rSga2Qpipzu6zK:prt_14f2f46e8001Il7T3tYl7SAzyC",
+        "cost": 0.006618426,
+        "tokens": {
+          "total": 66151,
+          "input": 65894,
+          "output": 144,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2f46f1001UT6sZlgJcZzsco:prt_14f2f5e68001MAdg334UeGxMzn",
+        "cost": 0.0084563,
+        "tokens": {
+          "total": 84418,
+          "input": 84273,
+          "output": 145,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f2f5e71001QGAkXi3spUPxm4:prt_14f309e37001ODCXqEEAQoAAd3",
+        "cost": 0.005308086,
+        "tokens": {
+          "total": 103906,
+          "input": 25253,
+          "output": 416,
+          "reasoning": 12844,
+          "cache": {
+            "write": 0,
+            "read": 65393
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f309e48001KjTJ7TJ1uHvj5h:prt_14f3529320013RGatHN21Y4p7e",
+        "cost": 0.0112924,
+        "tokens": {
+          "total": 102129,
+          "input": 91334,
+          "output": 394,
+          "reasoning": 10401,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f352945001ymaxarckzhxY0P:prt_14f3ad0a4001nBnp17zDLIktGM",
+        "cost": 0.003466598,
+        "tokens": {
+          "total": 110676,
+          "input": 6013,
+          "output": 417,
+          "reasoning": 12997,
+          "cache": {
+            "write": 0,
+            "read": 91249
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f3ad0b40012Z4Zwie8uvE71u:prt_14f3b1e2b0015pGf56En734H6g",
+        "cost": 0.003715426,
+        "tokens": {
+          "total": 99830,
+          "input": 35562,
+          "output": 155,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 64113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f3b1e3d0017dWlQo85fSoflr:prt_14f3c385c001eC8VTJ4CcULwzm",
+        "cost": 0.00592301,
+        "tokens": {
+          "total": 112737,
+          "input": 35752,
+          "output": 362,
+          "reasoning": 10718,
+          "cache": {
+            "write": 0,
+            "read": 65905
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f3c3867001J8Zu6h5ylkLJ9e:prt_14f3e9302001a0wv8YuobXF5ta",
+        "cost": 0.002704038,
+        "tokens": {
+          "total": 113222,
+          "input": 2257,
+          "output": 345,
+          "reasoning": 11051,
+          "cache": {
+            "write": 0,
+            "read": 99569
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f3e930c0013zqnpB7EaZn8P1:prt_14f3ffdab001N3yFRYRvTnceUE",
+        "cost": 0.011218,
+        "tokens": {
+          "total": 107076,
+          "input": 101972,
+          "output": 246,
+          "reasoning": 4858,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0d2b81cffeMaLHuDXJLf5KCd:msg_14f3ffdbe001y8DL2eGfPXhiln:prt_14f42b3ae0014V8X2oQCGB3821",
+        "cost": 0.010561358,
+        "tokens": {
+          "total": 114730,
+          "input": 80031,
+          "output": 258,
+          "reasoning": 12312,
+          "cache": {
+            "write": 0,
+            "read": 22129
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "01a14f42-fb7c-7813-b853-faf3611a69a3:turn-1",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 6750350,
+          "cached_input_tokens": 6565504,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 51952,
+          "reasoning_output_tokens": 28820
+        },
+        "configured_model": "codex/gpt-6.1-sol",
+        "calls": 91
+      },
+      {
+        "id": "01a14f5f-aeda-7962-9dea-ae71cc16544e:turn-1",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 6703892,
+          "cached_input_tokens": 6508160,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 54066,
+          "reasoning_output_tokens": 31316
+        },
+        "configured_model": "codex/gpt-6.1-sol",
+        "calls": 91
+      },
+      {
+        "id": "01a14f7d-c0d7-76d2-8c88-561905b248b1:turn-1",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 8781755,
+          "cached_input_tokens": 8584448,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 52936,
+          "reasoning_output_tokens": 28607
+        },
+        "configured_model": "codex/gpt-6.1-sol",
+        "calls": 104
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14f9d7b91001AcS7P9cFKUZU9q:prt_14f9d9dd6001o31zfiXnc3Y8KL",
+        "cost": 0.000267908,
+        "tokens": {
+          "total": 7145,
+          "input": 4037,
+          "output": 47,
+          "reasoning": 239,
+          "cache": {
+            "write": 0,
+            "read": 2822
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14f9d9de3001uvCP8TGLfRXWzb:prt_14f9dc611001BzNNBIZM4E9DA5",
+        "cost": 0.000632568,
+        "tokens": {
+          "total": 10946,
+          "input": 10241,
+          "output": 59,
+          "reasoning": 646,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14f9dc6190018QKgHS7e5bfCIe:prt_14f9de84c001xggnB1r3RAoqRv",
+        "cost": 0.00041329,
+        "tokens": {
+          "total": 11799,
+          "input": 4889,
+          "output": 28,
+          "reasoning": 679,
+          "cache": {
+            "write": 0,
+            "read": 6203
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14f9de85a001V0mxYk6kDLfW4F:prt_14f9e1d6a001IA4s0S5cnCyrvP",
+        "cost": 0.000869828,
+        "tokens": {
+          "total": 14672,
+          "input": 12263,
+          "output": 84,
+          "reasoning": 1291,
+          "cache": {
+            "write": 0,
+            "read": 1034
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14f9e1d75001bBCQLuMIvXs0oE:prt_14f9e5fee0010Bpre5QdoQXZ4K",
+        "cost": 0.000647932,
+        "tokens": {
+          "total": 16949,
+          "input": 9449,
+          "output": 39,
+          "reasoning": 731,
+          "cache": {
+            "write": 0,
+            "read": 6730
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14f9e5ff5001T7SyR1NrN6CzzR:prt_14f9eb04f001mhDKKr7XWy44MK",
+        "cost": 0.00080692,
+        "tokens": {
+          "total": 18459,
+          "input": 10372,
+          "output": 28,
+          "reasoning": 1315,
+          "cache": {
+            "write": 0,
+            "read": 6744
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14f9eb058001zdhkgiMKB7i4nU:prt_14f9efd8e0014Nc1r6oqrO0nA0",
+        "cost": 0.000689936,
+        "tokens": {
+          "total": 20263,
+          "input": 6225,
+          "output": 65,
+          "reasoning": 1517,
+          "cache": {
+            "write": 0,
+            "read": 12456
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14f9efd95001NytxM7BEBsKSaJ:prt_14f9f430b001E8xTv9drV2toOh",
+        "cost": 0.000516094,
+        "tokens": {
+          "total": 20928,
+          "input": 2596,
+          "output": 55,
+          "reasoning": 1396,
+          "cache": {
+            "write": 0,
+            "read": 16881
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14f9f4315001mH8fp51sj1Sn52:prt_14f9f6d89001q3WNUxcfBBu5lM",
+        "cost": 0.000262216,
+        "tokens": {
+          "total": 20709,
+          "input": 1973,
+          "output": 65,
+          "reasoning": 219,
+          "cache": {
+            "write": 0,
+            "read": 18452
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14f9f6d91001PmAe0R8np5vkHj:prt_14f9f9b10001rvWr9yVuh425W1",
+        "cost": 0.00041009,
+        "tokens": {
+          "total": 22123,
+          "input": 1846,
+          "output": 38,
+          "reasoning": 992,
+          "cache": {
+            "write": 0,
+            "read": 19247
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14f9f9b19001KGGp1icl5cIqEd:prt_14f9fe29f001sgHpDAjuJcmBt7",
+        "cost": 0.000449612,
+        "tokens": {
+          "total": 23930,
+          "input": 3970,
+          "output": 87,
+          "reasoning": 631,
+          "cache": {
+            "write": 0,
+            "read": 19242
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14f9fe2a6001e1hZkFSKjHVTS5:prt_14fa03576001SKxeZXqxE8v0Kt",
+        "cost": 0.001256272,
+        "tokens": {
+          "total": 24323,
+          "input": 23739,
+          "output": 57,
+          "reasoning": 527,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa0357f001lRj5O2NIuQNSmy:prt_14fa06a66001fRHWrdeYdxJe26",
+        "cost": 0.000483096,
+        "tokens": {
+          "total": 25461,
+          "input": 3403,
+          "output": 37,
+          "reasoning": 929,
+          "cache": {
+            "write": 0,
+            "read": 21092
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa06a6e001GA38TOGsO44epd:prt_14fa096b0001rSom4dfGCZC4lg",
+        "cost": 0.000464474,
+        "tokens": {
+          "total": 26251,
+          "input": 1886,
+          "output": 89,
+          "reasoning": 1085,
+          "cache": {
+            "write": 0,
+            "read": 23191
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa096b9001wjzKVMJCVN0V0F:prt_14fa0fb6e001r3olhwu1Z8wLU1",
+        "cost": 0.001434984,
+        "tokens": {
+          "total": 26713,
+          "input": 25708,
+          "output": 130,
+          "reasoning": 875,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa0fb7a0012rcbt07954hmYl:prt_14fa1562a001bRo1zfb0cnnBFH",
+        "cost": 0.00061726,
+        "tokens": {
+          "total": 28197,
+          "input": 3412,
+          "output": 215,
+          "reasoning": 1356,
+          "cache": {
+            "write": 0,
+            "read": 23214
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa15630001axfQejXuIXtFjj:prt_14fa232b6001VEJKWTm04VeHoG",
+        "cost": 0.001285648,
+        "tokens": {
+          "total": 33499,
+          "input": 6014,
+          "output": 108,
+          "reasoning": 4181,
+          "cache": {
+            "write": 0,
+            "read": 23196
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa232c5001uqbuW2G92PwudC:prt_14fa273930012v81WWPEXTCPdq",
+        "cost": 0.00086464,
+        "tokens": {
+          "total": 33960,
+          "input": 9421,
+          "output": 67,
+          "reasoning": 1300,
+          "cache": {
+            "write": 0,
+            "read": 23172
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa2739b001Z7529T0rNAY0rg:prt_14fa29bdb001qk2lZxAiwBYlP7",
+        "cost": 0.00053427,
+        "tokens": {
+          "total": 34345,
+          "input": 4447,
+          "output": 35,
+          "reasoning": 694,
+          "cache": {
+            "write": 0,
+            "read": 29169
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa29be500134mV2oM7FnCd2i:prt_14fa367da001ci1uo4oz8HoaAn",
+        "cost": 0.001730618,
+        "tokens": {
+          "total": 38640,
+          "input": 23514,
+          "output": 39,
+          "reasoning": 2596,
+          "cache": {
+            "write": 0,
+            "read": 12491
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa367e6001ZW2GrB96TOZ7mo:prt_14fa3c1550016Bj1mXbBb2z0K3",
+        "cost": 0.001972606,
+        "tokens": {
+          "total": 40406,
+          "input": 37139,
+          "output": 46,
+          "reasoning": 832,
+          "cache": {
+            "write": 0,
+            "read": 2389
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa3c15e001OsQKlkA2V1UYWr:prt_14fa4084b001UbwhT1qPamTkRY",
+        "cost": 0.001955638,
+        "tokens": {
+          "total": 41392,
+          "input": 38548,
+          "output": 35,
+          "reasoning": 420,
+          "cache": {
+            "write": 0,
+            "read": 2389
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa40858001nmf5n0sGGeT82r:prt_14fa42924001zUokpDz7yLtpwy",
+        "cost": 0.000639518,
+        "tokens": {
+          "total": 44453,
+          "input": 6987,
+          "output": 29,
+          "reasoning": 380,
+          "cache": {
+            "write": 0,
+            "read": 37057
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa42935001HFesfVTkAdDm0X:prt_14fa462d9001v20z23dpXJ03ES",
+        "cost": 0.000742146,
+        "tokens": {
+          "total": 46810,
+          "input": 7491,
+          "output": 333,
+          "reasoning": 423,
+          "cache": {
+            "write": 0,
+            "read": 38563
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa462e6001sjHiShAZLPC59S:prt_14fa4d628001rmwEFHVCjSPEgP",
+        "cost": 0.002218286,
+        "tokens": {
+          "total": 47095,
+          "input": 44324,
+          "output": 217,
+          "reasoning": 165,
+          "cache": {
+            "write": 0,
+            "read": 2389
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa4d635001z9DYiVmTcYJrf6:prt_14fa50f93001jR4K64antiiInb",
+        "cost": 0.000638476,
+        "tokens": {
+          "total": 48730,
+          "input": 6014,
+          "output": 260,
+          "reasoning": 222,
+          "cache": {
+            "write": 0,
+            "read": 42234
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa50fa3001XUDRqMWjYH3C45:prt_14fa54eda001WZ2ub4FR8NVJXH",
+        "cost": 0.000627922,
+        "tokens": {
+          "total": 49018,
+          "input": 6650,
+          "output": 85,
+          "reasoning": 196,
+          "cache": {
+            "write": 0,
+            "read": 42087
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb06286d1ffeTmeOO9gEf39qg2:msg_14fa54ee4001VMWz1aUaJ61pG9:prt_14fa58e050015y5nwFrJMaVYIw",
+        "cost": 0.000662022,
+        "tokens": {
+          "total": 49350,
+          "input": 6911,
+          "output": 227,
+          "reasoning": 163,
+          "cache": {
+            "write": 0,
+            "read": 42049
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14faba6580018aE1D5dMc41825:prt_14fabcc50001wgi3jisZoz3CCR",
+        "cost": 0.000392432,
+        "tokens": {
+          "total": 7175,
+          "input": 6859,
+          "output": 47,
+          "reasoning": 269,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fabcc5c001j0TS6wh35a58EV:prt_14fac0f55001R54gl5YgFb3Ezz",
+        "cost": 0.000680312,
+        "tokens": {
+          "total": 11206,
+          "input": 10269,
+          "output": 51,
+          "reasoning": 886,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fac0f5d0016lds57ouLI5Gv5:prt_14fac57c0001Oy2r4qoBNR3kAh",
+        "cost": 0.00062832,
+        "tokens": {
+          "total": 11722,
+          "input": 11290,
+          "output": 66,
+          "reasoning": 366,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fac57c6001uvWUndA9rMt8P7:prt_14fac7fb3001qKzfsesp5wUo3E",
+        "cost": 0.000384662,
+        "tokens": {
+          "total": 13479,
+          "input": 2323,
+          "output": 56,
+          "reasoning": 1007,
+          "cache": {
+            "write": 0,
+            "read": 10093
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fac7fbb001NW3q9Lzw4a60BF:prt_14facb8c6001ldNwfcPR0nnH4S",
+        "cost": 0.000620088,
+        "tokens": {
+          "total": 17582,
+          "input": 6169,
+          "output": 56,
+          "reasoning": 1261,
+          "cache": {
+            "write": 0,
+            "read": 10096
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14facb8d4001EhLTHWesve573W:prt_14facea7800133oJsP88U66UgH",
+        "cost": 0.000397162,
+        "tokens": {
+          "total": 17509,
+          "input": 4881,
+          "output": 60,
+          "reasoning": 389,
+          "cache": {
+            "write": 0,
+            "read": 12179
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14facea83001MVX1HumgpdXK8G:prt_14fad2241001G3TnEt7aQ1ONi4",
+        "cost": 0.000352792,
+        "tokens": {
+          "total": 18416,
+          "input": 1367,
+          "output": 59,
+          "reasoning": 894,
+          "cache": {
+            "write": 0,
+            "read": 16096
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fad224b0015puXD0eExf4h0q:prt_14faf00ce001Sl40wPfcw1YF3a",
+        "cost": 0.001860188,
+        "tokens": {
+          "total": 26570,
+          "input": 2161,
+          "output": 31,
+          "reasoning": 8268,
+          "cache": {
+            "write": 0,
+            "read": 16110
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14faf00d6001QgCmI6oA0MBouh:prt_14faf59eb001eQ4HyEFdoSVqEI",
+        "cost": 0.001403946,
+        "tokens": {
+          "total": 27422,
+          "input": 23870,
+          "output": 64,
+          "reasoning": 1157,
+          "cache": {
+            "write": 0,
+            "read": 2331
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14faf59f6001xsr4lx8Z1soUDI:prt_14fafbbef001RqomDY5R620OkN",
+        "cost": 0.00145004,
+        "tokens": {
+          "total": 27679,
+          "input": 26880,
+          "output": 368,
+          "reasoning": 431,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fafbbf9001Fd3sxjXd8y1eCB:prt_14faff570001C40l9aTIM2fMEI",
+        "cost": 0.00095981,
+        "tokens": {
+          "total": 29331,
+          "input": 11757,
+          "output": 79,
+          "reasoning": 1416,
+          "cache": {
+            "write": 0,
+            "read": 16079
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14faff57d001i4WU2Dx08AU3uQ:prt_14fb06b840011F2SR6fLwxkNNs",
+        "cost": 0.00154713,
+        "tokens": {
+          "total": 30076,
+          "input": 26415,
+          "output": 78,
+          "reasoning": 1248,
+          "cache": {
+            "write": 0,
+            "read": 2335
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fb06b8f001cpOA2BgL6krFNW:prt_14fb0d47d001Z8Yc3ZBoT1HZsF",
+        "cost": 0.001153066,
+        "tokens": {
+          "total": 31696,
+          "input": 13577,
+          "output": 639,
+          "reasoning": 1385,
+          "cache": {
+            "write": 0,
+            "read": 16095
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fb0d48d001URx3bVHReOsaR1:prt_14fb1478e001i9JkXxWSXpHk7Z",
+        "cost": 0.001038448,
+        "tokens": {
+          "total": 32109,
+          "input": 14863,
+          "output": 404,
+          "reasoning": 738,
+          "cache": {
+            "write": 0,
+            "read": 16104
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fb14799001VIozAjcgl7Ud2H:prt_14fb1a611001rqqa5liy1FFl5f",
+        "cost": 0.000980878,
+        "tokens": {
+          "total": 32681,
+          "input": 15988,
+          "output": 82,
+          "reasoning": 502,
+          "cache": {
+            "write": 0,
+            "read": 16109
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fb1a6190011IZVrpcJzgTmt8:prt_14fb20041001Lvz7eoFo5idt6N",
+        "cost": 0.001172758,
+        "tokens": {
+          "total": 34111,
+          "input": 16597,
+          "output": 193,
+          "reasoning": 1204,
+          "cache": {
+            "write": 0,
+            "read": 16117
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fb2004f001C5mw4yBmhg9GQ1:prt_14fb255b20015XViBdC3WbIn1C",
+        "cost": 0.0012092,
+        "tokens": {
+          "total": 34870,
+          "input": 17347,
+          "output": 118,
+          "reasoning": 1281,
+          "cache": {
+            "write": 0,
+            "read": 16124
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fb255ba001QJtAvd29fZv5uB:prt_14fb2b289001wMeOdGN8tjsZfB",
+        "cost": 0.001559454,
+        "tokens": {
+          "total": 35745,
+          "input": 23432,
+          "output": 154,
+          "reasoning": 1706,
+          "cache": {
+            "write": 0,
+            "read": 10453
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fb2b297001FTwc55jG7GFZFh:prt_14fb2fdb6001eV49y7GmINDjCz",
+        "cost": 0.00183566,
+        "tokens": {
+          "total": 35334,
+          "input": 33887,
+          "output": 28,
+          "reasoning": 1005,
+          "cache": {
+            "write": 0,
+            "read": 414
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fb2fdc0001BWPmmc63P0vVQ3:prt_14fb3265b00174xrXOBqSUlulb",
+        "cost": 0.000714258,
+        "tokens": {
+          "total": 35352,
+          "input": 8547,
+          "output": 25,
+          "reasoning": 713,
+          "cache": {
+            "write": 0,
+            "read": 26067
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fb3266c001Cs3UN6QY0SLjKD:prt_14fb3612b001ZBgVDA5csRbuXx",
+        "cost": 0.00048837,
+        "tokens": {
+          "total": 36139,
+          "input": 4054,
+          "output": 65,
+          "reasoning": 457,
+          "cache": {
+            "write": 0,
+            "read": 31563
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fb36134001opG1dzIvq3H3ah:prt_14fb472bc001WYLDHgZlvbwcl5",
+        "cost": 0.001047496,
+        "tokens": {
+          "total": 39611,
+          "input": 3600,
+          "output": 65,
+          "reasoning": 3330,
+          "cache": {
+            "write": 0,
+            "read": 32616
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0545beeffelCjYFKi5VYgC4F:msg_14fb472cd00110SLVwtgDOycj6:prt_14fbc006e001kmDo4BbB5P6Glm",
+        "cost": 0.007080406,
+        "tokens": {
+          "total": 71814,
+          "input": 9487,
+          "output": 0,
+          "reasoning": 32222,
+          "cache": {
+            "write": 0,
+            "read": 30105
+          }
+        },
+        "configured_model": "openrouter/z-ai/glm-5.3-flash",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fbf64a2001X6NTLCRoVIzHT4:prt_14fc00719001dVUQ0GSf42nUaw",
+        "cost": 0,
+        "tokens": {
+          "total": 6901,
+          "input": 5750,
+          "output": 47,
+          "reasoning": 16,
+          "cache": {
+            "write": 0,
+            "read": 1088
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc0072b0014YM8aTBUOMl95X:prt_14fc01739001FAa33oMHW1oorZ",
+        "cost": 0,
+        "tokens": {
+          "total": 10049,
+          "input": 3478,
+          "output": 32,
+          "reasoning": 11,
+          "cache": {
+            "write": 0,
+            "read": 6528
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc01763001kbAwmHo123N2q3:prt_14fc020420012G9OdZ26TU11Ah",
+        "cost": 0,
+        "tokens": {
+          "total": 10236,
+          "input": 419,
+          "output": 25,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 9792
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc0204e001fI1GNdmuB4Q1n7:prt_14fc02ef9001zGXo8zGSgoCPru",
+        "cost": 0,
+        "tokens": {
+          "total": 10862,
+          "input": 1014,
+          "output": 56,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 9792
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc02f05001R2ufNia4dTjp7D:prt_14fc03ada001n3EHy3AxvX6hq9",
+        "cost": 0,
+        "tokens": {
+          "total": 10900,
+          "input": 1080,
+          "output": 28,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 9792
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc03ae1001fW75bso9g33Who:prt_14fc04bf8001Au4cInh5nVBtQF",
+        "cost": 0,
+        "tokens": {
+          "total": 11035,
+          "input": 1153,
+          "output": 28,
+          "reasoning": 62,
+          "cache": {
+            "write": 0,
+            "read": 9792
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc04c00001nZ5RHjeayubIen:prt_14fc07b1e0012BV90TyV8qOQAI",
+        "cost": 0,
+        "tokens": {
+          "total": 14204,
+          "input": 2858,
+          "output": 33,
+          "reasoning": 433,
+          "cache": {
+            "write": 0,
+            "read": 10880
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc07b24001I5X9YIWKCR5kJq:prt_14fc0962d00149ojAFCWjvUyKQ",
+        "cost": 0,
+        "tokens": {
+          "total": 16322,
+          "input": 3133,
+          "output": 25,
+          "reasoning": 108,
+          "cache": {
+            "write": 0,
+            "read": 13056
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc0963900185xwU1VQpOTJJy:prt_14fc0a785001xy5nsSxpIlRs1q",
+        "cost": 0,
+        "tokens": {
+          "total": 16465,
+          "input": 1121,
+          "output": 112,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 15232
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc0a791001joP708tZEhgzmt:prt_14fc0df860013k2hDMSUtzSPnh",
+        "cost": 0,
+        "tokens": {
+          "total": 17084,
+          "input": 207,
+          "output": 37,
+          "reasoning": 520,
+          "cache": {
+            "write": 0,
+            "read": 16320
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc0df8f001qgXkc1g9PwblwM:prt_14fc0eff60012F0lpSJuDZTHsJ",
+        "cost": 0,
+        "tokens": {
+          "total": 17172,
+          "input": 784,
+          "output": 30,
+          "reasoning": 38,
+          "cache": {
+            "write": 0,
+            "read": 16320
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc0f0040019FGR3j1DvuyMfV:prt_14fc1009a0015yaTONmab1hj9p",
+        "cost": 0,
+        "tokens": {
+          "total": 17677,
+          "input": 1230,
+          "output": 50,
+          "reasoning": 77,
+          "cache": {
+            "write": 0,
+            "read": 16320
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc100a1001IW1jdRyhImhfke:prt_14fc11f90001GZqsfLtrSvtbEv",
+        "cost": 0,
+        "tokens": {
+          "total": 19312,
+          "input": 1865,
+          "output": 39,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 17408
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc11f96001VCieNmajr3IWDh:prt_14fc12b0a001EvETpAhnSiHTW7",
+        "cost": 0,
+        "tokens": {
+          "total": 20750,
+          "input": 2221,
+          "output": 33,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 18496
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc12b10001bcFvDfdJubab4p:prt_14fc2f446001jO4LI53BYCjmRD",
+        "cost": 0,
+        "tokens": {
+          "total": 27392,
+          "input": 1246,
+          "output": 109,
+          "reasoning": 5365,
+          "cache": {
+            "write": 0,
+            "read": 20672
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc2f450001woMV942rz5ZNUN:prt_14fc30cbb001dfYCSGRwOm3G3S",
+        "cost": 0,
+        "tokens": {
+          "total": 27607,
+          "input": 5683,
+          "output": 164,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 21760
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc30cc6001qSAdtV8uidblIe:prt_14fc31c0f001yp9wbDp5C2qHXk",
+        "cost": 0,
+        "tokens": {
+          "total": 28304,
+          "input": 975,
+          "output": 129,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 27200
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc31c16001knqkICRV09Pr36:prt_14fc345170014N00Ps2Lii7cpA",
+        "cost": 0,
+        "tokens": {
+          "total": 28846,
+          "input": 1457,
+          "output": 176,
+          "reasoning": 13,
+          "cache": {
+            "write": 0,
+            "read": 27200
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc3452100171Kbw3fO8OYBgZ:prt_14fc37584001r6mFc6XF6CbVby",
+        "cost": 0,
+        "tokens": {
+          "total": 29497,
+          "input": 783,
+          "output": 81,
+          "reasoning": 345,
+          "cache": {
+            "write": 0,
+            "read": 28288
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc3758e001fal7xHQ8W2lg4y:prt_14fc38ac00017w58HdoaCHj8Z5",
+        "cost": 0,
+        "tokens": {
+          "total": 29560,
+          "input": 1229,
+          "output": 43,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 28288
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc38ac8001ikeXrZyUtI94BG:prt_14fc4818a001Nkonto3ToGuOeU",
+        "cost": 0,
+        "tokens": {
+          "total": 29794,
+          "input": 260,
+          "output": 73,
+          "reasoning": 85,
+          "cache": {
+            "write": 0,
+            "read": 29376
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc48195001DavSxtfvb7IJ25:prt_14fc49707001Z8cdanW43YQY27",
+        "cost": 0,
+        "tokens": {
+          "total": 29947,
+          "input": 492,
+          "output": 79,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 29376
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc49712001AQU9iEYxoV8sVa:prt_14fc4a308001G7GpdTaTcxKQrP",
+        "cost": 0,
+        "tokens": {
+          "total": 30009,
+          "input": 578,
+          "output": 55,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 29376
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc4a316001noVAPrCppkfIuF:prt_14fc4b0a5001u8aWWGUjNf0bOa",
+        "cost": 0,
+        "tokens": {
+          "total": 30440,
+          "input": 997,
+          "output": 67,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 29376
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc4b0af001krSt5opoGXmaX7:prt_14fc4c114001mFn71xrxrdzABV",
+        "cost": 0,
+        "tokens": {
+          "total": 30756,
+          "input": 1286,
+          "output": 94,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 29376
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc4c11e001IKBo7vEXwgNI74:prt_14fc4c9a7001c03xGg0ehS47fJ",
+        "cost": 0,
+        "tokens": {
+          "total": 30831,
+          "input": 330,
+          "output": 37,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 30464
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc4c9b4001Le1aRACy6ScMAP:prt_14fc4db6c001Vd72GcNZlf1R7i",
+        "cost": 0,
+        "tokens": {
+          "total": 32335,
+          "input": 1752,
+          "output": 65,
+          "reasoning": 54,
+          "cache": {
+            "write": 0,
+            "read": 30464
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc4db76001kbfiCJE1IZqxWO:prt_14fc4e8bf001dy0ljpMUqonrvb",
+        "cost": 0,
+        "tokens": {
+          "total": 33493,
+          "input": 1907,
+          "output": 34,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 31552
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc4e8c6001Kf6l46TB2dSktr:prt_14fc50094001NVaScsMkoWe6KP",
+        "cost": 0,
+        "tokens": {
+          "total": 34156,
+          "input": 1406,
+          "output": 61,
+          "reasoning": 49,
+          "cache": {
+            "write": 0,
+            "read": 32640
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc500a0001RPSe2X1cNMxqv7:prt_14fc50b58001rz1LqYkgrooVu3",
+        "cost": 0,
+        "tokens": {
+          "total": 34418,
+          "input": 653,
+          "output": 37,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 33728
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc50b620013O4f4YOaBN0jie:prt_14fc5171b001a6Q6etFMdHm0oK",
+        "cost": 0,
+        "tokens": {
+          "total": 35171,
+          "input": 1406,
+          "output": 37,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 33728
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc517230016c544xKZzUyob4:prt_14fc7cd9f001GQ6NfOghq7ZIiM",
+        "cost": 0,
+        "tokens": {
+          "total": 43851,
+          "input": 955,
+          "output": 118,
+          "reasoning": 7962,
+          "cache": {
+            "write": 0,
+            "read": 34816
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc7cda9001pLJgQO5K9i0Cen:prt_14fc7eedf001JffCuB72mvCkyH",
+        "cost": 0,
+        "tokens": {
+          "total": 44348,
+          "input": 9421,
+          "output": 111,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 34816
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc7eeeb001hF8j8IXVrGc0zL:prt_14fc7fc59001HV4FQydhjmYerX",
+        "cost": 0,
+        "tokens": {
+          "total": 44438,
+          "input": 876,
+          "output": 42,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 43520
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc7fc67001zAZeNr65GgpFIg:prt_14fc8108a001RlCR3I7mb45hih",
+        "cost": 0,
+        "tokens": {
+          "total": 45591,
+          "input": 2021,
+          "output": 50,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 43520
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc81093001zR7hbIXBlNoZvi:prt_14fc82c45001OrGAxKs8Afueep",
+        "cost": 0,
+        "tokens": {
+          "total": 47263,
+          "input": 2392,
+          "output": 155,
+          "reasoning": 108,
+          "cache": {
+            "write": 0,
+            "read": 44608
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc82c4c001fG04iD5goGqU4d:prt_14fc845bd0017JDaBmRMuSuiTX",
+        "cost": 0,
+        "tokens": {
+          "total": 48917,
+          "input": 2024,
+          "output": 109,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 46784
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fc845c3001xtKQs0hTBgLk09:prt_14fcc719b0017s4xSphi05XeYf",
+        "cost": 0,
+        "tokens": {
+          "total": 61983,
+          "input": 1909,
+          "output": 91,
+          "reasoning": 12111,
+          "cache": {
+            "write": 0,
+            "read": 47872
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fcc71ae001pcim0RQP6xYqqy:prt_14fcc9174001zJJIOERUkqAzgv",
+        "cost": 0,
+        "tokens": {
+          "total": 62052,
+          "input": 13031,
+          "output": 61,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 48960
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fcc917d0011hcyqNu5Lx167P:prt_14fcc9d08001LcqwuD5h534Yja",
+        "cost": 0,
+        "tokens": {
+          "total": 62274,
+          "input": 1302,
+          "output": 44,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 60928
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fcc9d19001qyj54R1W8h09s2:prt_14fcca93c001IXl0z34H5okk3D",
+        "cost": 0,
+        "tokens": {
+          "total": 63044,
+          "input": 949,
+          "output": 79,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 62016
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fcca949001yNeDoztBEgTZ7K:prt_14fccb895001tT6w0ERwOpMQC5",
+        "cost": 0,
+        "tokens": {
+          "total": 63111,
+          "input": 1035,
+          "output": 60,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 62016
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fccb8a00011bCmIaWJVzL5XY:prt_14fccc8510011h5DWEYr9uYLxT",
+        "cost": 0,
+        "tokens": {
+          "total": 63636,
+          "input": 1541,
+          "output": 79,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 62016
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fccc85c001VPO7A1R9kP1ogu:prt_14fce97de001tNLtU3s3WWPhWw",
+        "cost": 0,
+        "tokens": {
+          "total": 70422,
+          "input": 2219,
+          "output": 34,
+          "reasoning": 5065,
+          "cache": {
+            "write": 0,
+            "read": 63104
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fce97eb001vdsVEt5JmNSW2d:prt_14fceb4120010yac7Fktqeemh3",
+        "cost": 0,
+        "tokens": {
+          "total": 70500,
+          "input": 5148,
+          "output": 72,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 65280
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fceb41f00189VpwNSPKRVBp4:prt_14fcf2a1d001b4XehvWPPj8cKN",
+        "cost": 0,
+        "tokens": {
+          "total": 71854,
+          "input": 968,
+          "output": 243,
+          "reasoning": 1011,
+          "cache": {
+            "write": 0,
+            "read": 69632
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fcf2a27001JYsJGejGSSOj5W:prt_14fcf8fb1001v1kTvJyLu0rVIH",
+        "cost": 0,
+        "tokens": {
+          "total": 72953,
+          "input": 2390,
+          "output": 200,
+          "reasoning": 731,
+          "cache": {
+            "write": 0,
+            "read": 69632
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fcf8fbe001jnxqTD0K1Gg81M:prt_14fcfa50c001vS7CWyrrW2OW9p",
+        "cost": 0,
+        "tokens": {
+          "total": 73141,
+          "input": 1178,
+          "output": 155,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 71808
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fcfa519001EmPou4LTlnEYYL:prt_14fcfbdf00018s9rcUPo2ENpjD",
+        "cost": 0,
+        "tokens": {
+          "total": 73503,
+          "input": 355,
+          "output": 252,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 72896
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fcfbdf8001PFJJnOXrHsYuSK:prt_14fcfd7ed001LeF3lJReIRmefc",
+        "cost": 0,
+        "tokens": {
+          "total": 73738,
+          "input": 622,
+          "output": 220,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 72896
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fcfd7f7001EuUMaiq5QdRkqc:prt_14fcff414001M1S61i4If4anhL",
+        "cost": 0,
+        "tokens": {
+          "total": 73889,
+          "input": 867,
+          "output": 126,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 72896
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fcff421001YM3NWV6w6I4Fna:prt_14fd00d1a001ohJZjvWBxLcPP0",
+        "cost": 0,
+        "tokens": {
+          "total": 74226,
+          "input": 1027,
+          "output": 303,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 72896
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd00d24001ajyRceDhQWCV6k:prt_14fd01b56001qRtCh6wYBW2gY6",
+        "cost": 0,
+        "tokens": {
+          "total": 74336,
+          "input": 1417,
+          "output": 23,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 72896
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd01b62001dgIJEidYYlw2Qu:prt_14fd02ebe001UqyHIgZwk5bscF",
+        "cost": 0,
+        "tokens": {
+          "total": 74531,
+          "input": 376,
+          "output": 171,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 73984
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd02eca001laElG42CRpm3ZU:prt_14fd0470f001gBmZbT7ixxGZcK",
+        "cost": 0,
+        "tokens": {
+          "total": 74714,
+          "input": 577,
+          "output": 153,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 73984
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd047180016XCKMDModufXIo:prt_14fd05f6d001ngFfAwHg2s0Z1f",
+        "cost": 0,
+        "tokens": {
+          "total": 74984,
+          "input": 836,
+          "output": 140,
+          "reasoning": 24,
+          "cache": {
+            "write": 0,
+            "read": 73984
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd05f83001uFClM8vEtOGT84:prt_14fd0866a001OGOSnEB0nKUgpl",
+        "cost": 0,
+        "tokens": {
+          "total": 75493,
+          "input": 1031,
+          "output": 478,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 73984
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd08685001w9a1BQawOpwAEE:prt_14fd0ae4d001GpUUWbro9iFn6Y",
+        "cost": 0,
+        "tokens": {
+          "total": 76172,
+          "input": 1881,
+          "output": 218,
+          "reasoning": 89,
+          "cache": {
+            "write": 0,
+            "read": 73984
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd0ae60001zyh6ULk50b0RZ9:prt_14fd0ec31001jrK2Y5k9XyY3CM",
+        "cost": 0,
+        "tokens": {
+          "total": 77005,
+          "input": 1368,
+          "output": 193,
+          "reasoning": 372,
+          "cache": {
+            "write": 0,
+            "read": 75072
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd0ec3e001eDIfGN7m76CmOC:prt_14fd119e3001Av3d1iFsgs4rZ4",
+        "cost": 0,
+        "tokens": {
+          "total": 77591,
+          "input": 941,
+          "output": 490,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 76160
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd119ee0010bAMsWIiLhYNbV:prt_14fd146eb001EkmQRDA6MrEPhc",
+        "cost": 0,
+        "tokens": {
+          "total": 78066,
+          "input": 1552,
+          "output": 288,
+          "reasoning": 66,
+          "cache": {
+            "write": 0,
+            "read": 76160
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd146f8001On2FNAeoDaKTKU:prt_14fd17fdc001JMQSVaJgOqOmwc",
+        "cost": 0,
+        "tokens": {
+          "total": 78664,
+          "input": 908,
+          "output": 448,
+          "reasoning": 60,
+          "cache": {
+            "write": 0,
+            "read": 77248
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd17fe7001huRZv8djIfiEjv:prt_14fd19faa001TFrhbUBqU1m5y1",
+        "cost": 0,
+        "tokens": {
+          "total": 78994,
+          "input": 1534,
+          "output": 212,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 77248
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd19fb8001TRq6gC68hv8oei:prt_14fd4827b001yg3pMkCDp1Yyn4",
+        "cost": 0,
+        "tokens": {
+          "total": 86781,
+          "input": 691,
+          "output": 116,
+          "reasoning": 7638,
+          "cache": {
+            "write": 0,
+            "read": 78336
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd482880013dMME25ahLOnf6:prt_14fd4acb400129HvBCdQbZGZlK",
+        "cost": 0,
+        "tokens": {
+          "total": 87578,
+          "input": 9169,
+          "output": 73,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 78336
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd4acc10012sYKj6rz0LmbMZ:prt_14fd4ced30013DfNutht6SjpBI",
+        "cost": 0,
+        "tokens": {
+          "total": 89824,
+          "input": 2522,
+          "output": 105,
+          "reasoning": 157,
+          "cache": {
+            "write": 0,
+            "read": 87040
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd4cede001SK9AcbbEr2b6w5:prt_14fd4e753001SgxBOGuXNVgXb1",
+        "cost": 0,
+        "tokens": {
+          "total": 90515,
+          "input": 1255,
+          "output": 44,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 89216
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd4e75e001UBcgNGsyrmmvJ7:prt_14fd625c0001H6P6K5ETfl36ce",
+        "cost": 0,
+        "tokens": {
+          "total": 94359,
+          "input": 677,
+          "output": 186,
+          "reasoning": 3192,
+          "cache": {
+            "write": 0,
+            "read": 90304
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd625d1001LlUIpozZ3cg8qk:prt_14fd65530001Ry3bWOYzdGDZtk",
+        "cost": 0,
+        "tokens": {
+          "total": 94769,
+          "input": 4095,
+          "output": 370,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 90304
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd6553f001qUyJUnr1eZm2ct:prt_14fd678d00014U0cfLAoZcP1OI",
+        "cost": 0,
+        "tokens": {
+          "total": 95103,
+          "input": 1350,
+          "output": 138,
+          "reasoning": 47,
+          "cache": {
+            "write": 0,
+            "read": 93568
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd678da001yN3zaWVBtiRucg:prt_14fd69b5300113OrHqGwr47Red",
+        "cost": 0,
+        "tokens": {
+          "total": 95474,
+          "input": 496,
+          "output": 322,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 94656
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd69b5f001ntpowHhIRpOMbn:prt_14fd6c29c001fVLjL3BuxQ8Oep",
+        "cost": 0,
+        "tokens": {
+          "total": 95810,
+          "input": 937,
+          "output": 182,
+          "reasoning": 35,
+          "cache": {
+            "write": 0,
+            "read": 94656
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd6c2af001IJ681adl7QVJgN:prt_14fd6e75d001S2dDnFdwIpJlOj",
+        "cost": 0,
+        "tokens": {
+          "total": 96013,
+          "input": 1161,
+          "output": 196,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 94656
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd6e76d001zb3iFIY2Wa1y5c:prt_14fd71ffd001p02aqZX0hYoRS2",
+        "cost": 0,
+        "tokens": {
+          "total": 96746,
+          "input": 442,
+          "output": 314,
+          "reasoning": 246,
+          "cache": {
+            "write": 0,
+            "read": 95744
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd72007001lePeAEmsXIu7Dz:prt_14fd746b90010oyuoLx58GNDDf",
+        "cost": 0,
+        "tokens": {
+          "total": 97279,
+          "input": 1328,
+          "output": 207,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 95744
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd746c400174iVP1mN6PayUC:prt_14fd7631a001F0AV1aklbG9NbO",
+        "cost": 0,
+        "tokens": {
+          "total": 97650,
+          "input": 505,
+          "output": 313,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 96832
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd76328001IR30Z1Xs4MtiGH:prt_14fd7891400167S3tvTqZwNz9t",
+        "cost": 0,
+        "tokens": {
+          "total": 97933,
+          "input": 870,
+          "output": 50,
+          "reasoning": 181,
+          "cache": {
+            "write": 0,
+            "read": 96832
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd78925001aK3d0QKjA9t35w:prt_14fd7b16d001QBjQEHCjmzaaq7",
+        "cost": 0,
+        "tokens": {
+          "total": 98558,
+          "input": 1260,
+          "output": 466,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 96832
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd7b1770015hnJp5S0a1wxbt:prt_14fd7ca60001WyuBoDTnPdTLcr",
+        "cost": 0,
+        "tokens": {
+          "total": 98725,
+          "input": 713,
+          "output": 92,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 97920
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd7ca6a001JUyCjPI0OsfOO9:prt_14fd7e4bf001L1V5TPGqARAV8h",
+        "cost": 0,
+        "tokens": {
+          "total": 99478,
+          "input": 1364,
+          "output": 194,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 97920
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd7e4d3001ci0R7TBEhnlySQ:prt_14fd80edc001mCk1iBy5QiNonE",
+        "cost": 0,
+        "tokens": {
+          "total": 99866,
+          "input": 540,
+          "output": 318,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 99008
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd80eeb001kaB6FV93g5IwfA:prt_14fd82c50001qpgKPt7MrrZeLY",
+        "cost": 0,
+        "tokens": {
+          "total": 100160,
+          "input": 950,
+          "output": 25,
+          "reasoning": 177,
+          "cache": {
+            "write": 0,
+            "read": 99008
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd82c5a001511OPCc9At0h7M:prt_14fd83f7a0010oL3N0f36x392i",
+        "cost": 0,
+        "tokens": {
+          "total": 100925,
+          "input": 1892,
+          "output": 25,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 99008
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd83f8e001a5VCVdRhCSdeJg:prt_14fd86c5e001fE4topFLo5CDnv",
+        "cost": 0,
+        "tokens": {
+          "total": 101936,
+          "input": 1570,
+          "output": 85,
+          "reasoning": 185,
+          "cache": {
+            "write": 0,
+            "read": 100096
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd86c6b0011dIwYs98k4erXi:prt_14fd8856a001F0YSfJDaArswm0",
+        "cost": 0,
+        "tokens": {
+          "total": 102121,
+          "input": 858,
+          "output": 79,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 101184
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd8857c001G206PQu44KWaGg:prt_14fd8a6ce001QsoqtwZB3tXQDe",
+        "cost": 0,
+        "tokens": {
+          "total": 103249,
+          "input": 1722,
+          "output": 188,
+          "reasoning": 155,
+          "cache": {
+            "write": 0,
+            "read": 101184
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd8a6dc001NnQHZtxiJacCi9:prt_14fd8ca30001kp1vQ0hOlXEVZg",
+        "cost": 0,
+        "tokens": {
+          "total": 103578,
+          "input": 1031,
+          "output": 275,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 102272
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd8ca3e001616A2rHYS31pyU:prt_14fd90d56001vvN9X4XIekYKtY",
+        "cost": 0,
+        "tokens": {
+          "total": 104884,
+          "input": 2042,
+          "output": 301,
+          "reasoning": 269,
+          "cache": {
+            "write": 0,
+            "read": 102272
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd90d62001t0Z2hyAmF0rb1f:prt_14fd93fc6001TSsrjvP8g8WN5W",
+        "cost": 0,
+        "tokens": {
+          "total": 105425,
+          "input": 1645,
+          "output": 420,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 103360
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd93fd7001BGzwneOhgUcnz4:prt_14fd9af96001xmE3CyAV1uCU2q",
+        "cost": 0,
+        "tokens": {
+          "total": 106539,
+          "input": 1103,
+          "output": 280,
+          "reasoning": 708,
+          "cache": {
+            "write": 0,
+            "read": 104448
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd9afaa001V62mZJVl0TMa0I:prt_14fd9e39c001OBZuoFNaPRyr3X",
+        "cost": 0,
+        "tokens": {
+          "total": 107089,
+          "input": 1032,
+          "output": 521,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 105536
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fd9e3a9001k7UpENP6oqDr4k:prt_14fda1cf2001w1NpayYJyXylI6",
+        "cost": 0,
+        "tokens": {
+          "total": 107751,
+          "input": 1594,
+          "output": 621,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 105536
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fda1cff001Ng91neUBbbCwgI:prt_14fda58bb0012Kx3d0cET3tjQr",
+        "cost": 0,
+        "tokens": {
+          "total": 108199,
+          "input": 1209,
+          "output": 108,
+          "reasoning": 258,
+          "cache": {
+            "write": 0,
+            "read": 106624
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fda58cb0011Rizc4wPAsao68:prt_14fda78ea001N9llIfpRPXNBGV",
+        "cost": 0,
+        "tokens": {
+          "total": 108366,
+          "input": 577,
+          "output": 77,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 107712
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fda78f9001uDvBf6hJFCqWzk:prt_14fda9837001H9qbcXCzeGYv0z",
+        "cost": 0,
+        "tokens": {
+          "total": 108740,
+          "input": 941,
+          "output": 87,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 107712
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fda9854001gWoLE0yUxA87Za:prt_14fdab3a4001fagcvTE0OTiQF1",
+        "cost": 0,
+        "tokens": {
+          "total": 109182,
+          "input": 1374,
+          "output": 96,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 107712
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eb0409dc7ffevkPvJhYZdsSiNV:msg_14fdab3b0001UEwt30AzAQ8igc:prt_14fdacd1a001V3T6MIOr6kOghY",
+        "cost": 0,
+        "tokens": {
+          "total": 109304,
+          "input": 413,
+          "output": 91,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 108800
+          }
+        },
+        "configured_model": "opencode/glm-5.3-flash-free",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1507cc4f2001n2Ts48d2u0H31O:prt_1507cd8680014PxKFDkrhT10sS",
+        "cost": 0.000585734,
+        "tokens": {
+          "total": 7937,
+          "input": 5231,
+          "output": 97,
+          "reasoning": 192,
+          "cache": {
+            "write": 0,
+            "read": 2417
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1507cd86f001KwAone9GPatIUw:prt_1507ce748001J6dHQWlPEguHr5",
+        "cost": 0.000607434,
+        "tokens": {
+          "total": 8129,
+          "input": 5398,
+          "output": 305,
+          "reasoning": 9,
+          "cache": {
+            "write": 0,
+            "read": 2417
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1507ce74d001iPOxk5igYKn0W3:prt_1507cf24e0015KBB6yNUOLQhFs",
+        "cost": 0.000165774,
+        "tokens": {
+          "total": 8744,
+          "input": 907,
+          "output": 281,
+          "reasoning": 19,
+          "cache": {
+            "write": 0,
+            "read": 7537
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1507cf253001cYMgX9LSuQpEaS:prt_1507d06a8001tqjcAfKYmkaLaL",
+        "cost": 0.002526666,
+        "tokens": {
+          "total": 33050,
+          "input": 24136,
+          "output": 136,
+          "reasoning": 345,
+          "cache": {
+            "write": 0,
+            "read": 8433
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1507d06ad001y8RIaLaT3RlkTZ:prt_1507d3fff001Ae8p0qs0UdFVYC",
+        "cost": 0.002823186,
+        "tokens": {
+          "total": 35196,
+          "input": 26730,
+          "output": 169,
+          "reasoning": 504,
+          "cache": {
+            "write": 0,
+            "read": 7793
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1507d400600114fi7zb1YBULe8:prt_1507d7a20001sMxWKx4DTj49Ym",
+        "cost": 0.000742294,
+        "tokens": {
+          "total": 38388,
+          "input": 5009,
+          "output": 213,
+          "reasoning": 669,
+          "cache": {
+            "write": 0,
+            "read": 32497
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1507d7a27001Cng2exLgCV4PCs:prt_1507df221001cG3gL06RPfSIF5",
+        "cost": 0.000602778,
+        "tokens": {
+          "total": 40378,
+          "input": 500,
+          "output": 244,
+          "reasoning": 2145,
+          "cache": {
+            "write": 0,
+            "read": 37489
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1507df226001UeRbQBNtG2QYjm:prt_1507e3086001klrjDhZu6EaNQJ",
+        "cost": 0.000617334,
+        "tokens": {
+          "total": 39081,
+          "input": 3843,
+          "output": 162,
+          "reasoning": 659,
+          "cache": {
+            "write": 0,
+            "read": 34417
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1507e308c001cM5CFY0wxnc2Yq:prt_1507e423500120GpPqb39Pcgbi",
+        "cost": 0.000263414,
+        "tokens": {
+          "total": 39875,
+          "input": 1367,
+          "output": 162,
+          "reasoning": 89,
+          "cache": {
+            "write": 0,
+            "read": 38257
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1507e423a001seAnyrSyHCkw1P:prt_1507e61ea001U1K4XCnVEhEvfZ",
+        "cost": 0.000787374,
+        "tokens": {
+          "total": 46000,
+          "input": 5843,
+          "output": 358,
+          "reasoning": 262,
+          "cache": {
+            "write": 0,
+            "read": 39537
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1507e61ef001nk46MfpxAoMfhT:prt_1507eb7c000115Tx2MOuE3O7dG",
+        "cost": 0.005476434,
+        "tokens": {
+          "total": 55381,
+          "input": 51212,
+          "output": 311,
+          "reasoning": 1441,
+          "cache": {
+            "write": 0,
+            "read": 2417
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1507eb7c8001XZbPgFUX64cvU0:prt_1507fa17a001wO8ISW2UIx8o5T",
+        "cost": 0.002625994,
+        "tokens": {
+          "total": 67145,
+          "input": 18342,
+          "output": 370,
+          "reasoning": 3136,
+          "cache": {
+            "write": 0,
+            "read": 45297
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1507fa180001NiNEnW88YzHN6V:prt_15080f9b30010YR9uHwogty0GO",
+        "cost": 0.001619502,
+        "tokens": {
+          "total": 73440,
+          "input": 4755,
+          "output": 466,
+          "reasoning": 4618,
+          "cache": {
+            "write": 0,
+            "read": 63601
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_15080f9ba001C1bkwaOecVvaXO:prt_1508279e5001YH7GmSRM4SSwjE",
+        "cost": 0.002877634,
+        "tokens": {
+          "total": 75372,
+          "input": 15806,
+          "output": 317,
+          "reasoning": 5632,
+          "cache": {
+            "write": 0,
+            "read": 53617
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1508279ec0019f6JTs7AxHkGhx:prt_15083bb530012uYrpqlSgAbkBY",
+        "cost": 0.004314446,
+        "tokens": {
+          "total": 75090,
+          "input": 32047,
+          "output": 388,
+          "reasoning": 4782,
+          "cache": {
+            "write": 0,
+            "read": 37873
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_15083bb5a001k7ts2WlyQTm52Q:prt_1508683f10018GsTgi1z0Z2PwH",
+        "cost": 0.004090122,
+        "tokens": {
+          "total": 98216,
+          "input": 18196,
+          "output": 522,
+          "reasoning": 10137,
+          "cache": {
+            "write": 0,
+            "read": 69361
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1508683fd001jsj4hwT4BR101x:prt_1508815e5001H179aWruPWiwSZ",
+        "cost": 0.001537774,
+        "tokens": {
+          "total": 94567,
+          "input": 433,
+          "output": 337,
+          "reasoning": 6260,
+          "cache": {
+            "write": 0,
+            "read": 87537
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1508815ec0019jpcPlWfLlcm4d:prt_150881ef9001oAoUvrzQTAyM0y",
+        "cost": 0.000256442,
+        "tokens": {
+          "total": 88646,
+          "input": 644,
+          "output": 81,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 87921
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_150881f0b001oDsMeOVYMaUZAQ:prt_15088283c00196WCPvmX4okTYB",
+        "cost": 0.002319974,
+        "tokens": {
+          "total": 90108,
+          "input": 21709,
+          "output": 62,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 68337
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_150882843001jc1iLsLGarc5Ub:prt_1508b23a2001gTth1qsF7C9Qxf",
+        "cost": 0.002426222,
+        "tokens": {
+          "total": 101484,
+          "input": 3355,
+          "output": 497,
+          "reasoning": 9071,
+          "cache": {
+            "write": 0,
+            "read": 88561
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1508b23aa001lv5NYDQIilZysa:prt_1508b3736001VpVznXr0BNzs5K",
+        "cost": 0.0094387,
+        "tokens": {
+          "total": 94253,
+          "input": 94119,
+          "output": 134,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1508b373f001cBI1hHtZYY4MYr:prt_1508c4aee001PwoIlNaNHYdwjS",
+        "cost": 0.010124734,
+        "tokens": {
+          "total": 99125,
+          "input": 92217,
+          "output": 260,
+          "reasoning": 4231,
+          "cache": {
+            "write": 0,
+            "read": 2417
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1508c4af5001DLRlxNd1dovuw9:prt_1508c5645001ana7GuZmIA3ZnQ",
+        "cost": 0.000852338,
+        "tokens": {
+          "total": 96508,
+          "input": 6354,
+          "output": 185,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 89969
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1508c564c001qvfBjQcO6i037u:prt_1508c62c80019mgutY3fe0umYU",
+        "cost": 0.000301382,
+        "tokens": {
+          "total": 97136,
+          "input": 701,
+          "output": 194,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 96241
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1508c62d10017Hzjg7z6AJZQLh:prt_1508c71f400156lidH0RgeqywA",
+        "cost": 0.003178046,
+        "tokens": {
+          "total": 100110,
+          "input": 30091,
+          "output": 146,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 69873
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1508c71fd001sSpsRfrBFYsoH2:prt_1508c9a31001MHlzbCDhHyA02C",
+        "cost": 0.009965534,
+        "tokens": {
+          "total": 101131,
+          "input": 97821,
+          "output": 893,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 2417
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1508c9a3e001WdUd7GCnFOgqqO:prt_1508e81e9001zWA9ynmz47JIYp",
+        "cost": 0.002356054,
+        "tokens": {
+          "total": 108933,
+          "input": 7043,
+          "output": 313,
+          "reasoning": 7000,
+          "cache": {
+            "write": 0,
+            "read": 94577
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1508e81f1001xpX9Ar0FW0T0BT:prt_1508e8795001pclPH1i4QSjRO6",
+        "cost": 0.000412406,
+        "tokens": {
+          "total": 102016,
+          "input": 2001,
+          "output": 62,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 99953
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf833c8fffeZF5owdQXJd5nXP:msg_1508e879b001fvJ4qAa1EbDqy9:prt_1508e987d001EQ6PlWHILQcMnb",
+        "cost": 0.000459934,
+        "tokens": {
+          "total": 103995,
+          "input": 2189,
+          "output": 189,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 101617
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b1512c001ApztbqMjxZ479O:prt_150b1583100165VoFTiNpP1W3f",
+        "cost": 0.000797826,
+        "tokens": {
+          "total": 7932,
+          "input": 7662,
+          "output": 94,
+          "reasoning": 63,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b15851001R1Udp1IBjs40jX:prt_150b15c8c001h95FhJefOzD3H9",
+        "cost": 7.603e-05,
+        "tokens": {
+          "total": 8112,
+          "input": 287,
+          "output": 113,
+          "reasoning": 47,
+          "cache": {
+            "write": 0,
+            "read": 7665
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b15c92001ghiXYwO4KTPzhN:prt_150b1684e001geaeghyWKx5RE8",
+        "cost": 0.001906942,
+        "tokens": {
+          "total": 26341,
+          "input": 17929,
+          "output": 320,
+          "reasoning": 171,
+          "cache": {
+            "write": 0,
+            "read": 7921
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b16853001GFlCYgUmVA8IuC:prt_150b174f1001YVI88e0nVr0YyD",
+        "cost": 0.005222926,
+        "tokens": {
+          "total": 51906,
+          "input": 51359,
+          "output": 323,
+          "reasoning": 111,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b174f8001cm2P6lXT2Ojw9r:prt_150b1a130001d1oEhGmGdvlKlJ",
+        "cost": 0.000768882,
+        "tokens": {
+          "total": 56713,
+          "input": 3884,
+          "output": 288,
+          "reasoning": 1100,
+          "cache": {
+            "write": 0,
+            "read": 51441
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b1a13c0011iRCaGuGOJ1M8K:prt_150b1cb300010mIkliWBAO7BpG",
+        "cost": 0.0067409,
+        "tokens": {
+          "total": 66201,
+          "input": 64993,
+          "output": 298,
+          "reasoning": 910,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b1cb3b001wdszX6iDyHsSA5:prt_150b22a4f001jh1AHHUV5W6JSw",
+        "cost": 0.001738762,
+        "tokens": {
+          "total": 77653,
+          "input": 9454,
+          "output": 352,
+          "reasoning": 2966,
+          "cache": {
+            "write": 0,
+            "read": 64881
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b22a55001vrpdnBGaPSQQyz:prt_150b29cee001KBlYoiQzUwnwa4",
+        "cost": 0.00110535,
+        "tokens": {
+          "total": 79899,
+          "input": 1779,
+          "output": 645,
+          "reasoning": 3250,
+          "cache": {
+            "write": 0,
+            "read": 74225
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b29cfb001Tm0oS2ic8s3423:prt_150b458bb0014Vpqh7mhW1qP0B",
+        "cost": 0.0091961,
+        "tokens": {
+          "total": 85258,
+          "input": 78555,
+          "output": 379,
+          "reasoning": 6324,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b458cc001LQHgureaAWTYJ3:prt_150b50fd3001Oz6Fnc6jlNCZQE",
+        "cost": 0.001907278,
+        "tokens": {
+          "total": 86627,
+          "input": 3921,
+          "output": 519,
+          "reasoning": 6298,
+          "cache": {
+            "write": 0,
+            "read": 75889
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b50fee001aJvsFVG7gl6Lli:prt_150b52dfa001yoq9wtt3KsbzYC",
+        "cost": 0.008405282,
+        "tokens": {
+          "total": 108182,
+          "input": 81146,
+          "output": 157,
+          "reasoning": 1038,
+          "cache": {
+            "write": 0,
+            "read": 25841
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b52e06001Zk2Tt71JN7Qcmp:prt_150b61f2c001zPfTVdEg6q2HoN",
+        "cost": 0.003937698,
+        "tokens": {
+          "total": 112305,
+          "input": 29904,
+          "output": 235,
+          "reasoning": 3717,
+          "cache": {
+            "write": 0,
+            "read": 78449
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b61f5d001AvOSWikSEu3mF3:prt_150b6b914001kLphsFiCntvZ9X",
+        "cost": 0.00335063,
+        "tokens": {
+          "total": 132073,
+          "input": 19047,
+          "output": 657,
+          "reasoning": 5504,
+          "cache": {
+            "write": 0,
+            "read": 106865
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b6b9240010x3OZ2NuobhB8N:prt_150b7b381001N8GndTKwkUfQ5u",
+        "cost": 0.013256134,
+        "tokens": {
+          "total": 131021,
+          "input": 124695,
+          "output": 367,
+          "reasoning": 3542,
+          "cache": {
+            "write": 0,
+            "read": 2417
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b7b392001YNWxyxDHSf8S0p:prt_150b87709001FAQsJMnryAuJ9S",
+        "cost": 0.006535058,
+        "tokens": {
+          "total": 136642,
+          "input": 50070,
+          "output": 663,
+          "reasoning": 6180,
+          "cache": {
+            "write": 0,
+            "read": 79729
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b87713001fFhZ4ezhHP6OLG:prt_150b91e70001G2nJ6C993c2BxG",
+        "cost": 0.001938318,
+        "tokens": {
+          "total": 136797,
+          "input": 5109,
+          "output": 427,
+          "reasoning": 5452,
+          "cache": {
+            "write": 0,
+            "read": 125809
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b91e8d001kHtTN5OfptdUA7:prt_150b9c8f9001vjFytYbhANpwrg",
+        "cost": 0.009409662,
+        "tokens": {
+          "total": 142430,
+          "input": 81307,
+          "output": 419,
+          "reasoning": 5423,
+          "cache": {
+            "write": 0,
+            "read": 55281
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150b9c910001BxhZePhNGmCoFp:prt_150ba765a0019F5zZnebH7OoXX",
+        "cost": 0.002905454,
+        "tokens": {
+          "total": 150920,
+          "input": 15827,
+          "output": 310,
+          "reasoning": 5006,
+          "cache": {
+            "write": 0,
+            "read": 129777
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150ba7677001H0GCFxtPripd44:prt_150bb6254001yixNDS0wnHKVT3",
+        "cost": 0.016458626,
+        "tokens": {
+          "total": 157620,
+          "input": 150430,
+          "output": 410,
+          "reasoning": 6667,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150bb626a001lU72oAw4BXxf3E:prt_150bbeebe001zMzC3FlrU5ZMJM",
+        "cost": 0.002648422,
+        "tokens": {
+          "total": 156065,
+          "input": 15255,
+          "output": 438,
+          "reasoning": 3811,
+          "cache": {
+            "write": 0,
+            "read": 136561
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150bbeed4001AE1f5gEaVAg8IF:prt_150bd3a730014nCvBSu3gkMWZD",
+        "cost": 0.003117742,
+        "tokens": {
+          "total": 163253,
+          "input": 7197,
+          "output": 1473,
+          "reasoning": 9062,
+          "cache": {
+            "write": 0,
+            "read": 145521
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150bd3a89001iEoH4wzZ0QT6sO:prt_150bd4641001ke3mjkq6cHT7z0",
+        "cost": 0.002600602,
+        "tokens": {
+          "total": 154092,
+          "input": 23192,
+          "output": 99,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 130801
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150bd4656001m500MBGepG2dia:prt_150be4722001yecuS9rQH7lBWl",
+        "cost": 0.001862738,
+        "tokens": {
+          "total": 162178,
+          "input": 870,
+          "output": 349,
+          "reasoning": 6990,
+          "cache": {
+            "write": 0,
+            "read": 153969
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150be473b001rmiF0q4QhmZXRD:prt_150bf260f001sFeYrsQLpL3YSG",
+        "cost": 0.001996678,
+        "tokens": {
+          "total": 163859,
+          "input": 5427,
+          "output": 289,
+          "reasoning": 5454,
+          "cache": {
+            "write": 0,
+            "read": 152689
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150bf2627001BvOueROrzQEwPo:prt_150bf3d25001kS9gpFjg1FBiUX",
+        "cost": 0.0159021,
+        "tokens": {
+          "total": 158944,
+          "input": 158867,
+          "output": 77,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150bf3d40001Uc3IviQ7gCurPg:prt_150c0713e001hhBYGD8hKTBWR2",
+        "cost": 0.002591074,
+        "tokens": {
+          "total": 169026,
+          "input": 5762,
+          "output": 392,
+          "reasoning": 8135,
+          "cache": {
+            "write": 0,
+            "read": 154737
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150c071540015B6FIWRyEjlSuU:prt_150c248f6001x7xxHi9oqVYFN0",
+        "cost": 0.00378033,
+        "tokens": {
+          "total": 178288,
+          "input": 5804,
+          "output": 601,
+          "reasoning": 13818,
+          "cache": {
+            "write": 0,
+            "read": 158065
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150c24943001GCovdKTAAKp9TE:prt_150c252a2001FiXlBPGJUao3Wt",
+        "cost": 0.000722394,
+        "tokens": {
+          "total": 164388,
+          "input": 3768,
+          "output": 123,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 160497
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150c252c800100aQCRzPIWV1wZ:prt_150c38c3d001NgfH6u6dI26lYB",
+        "cost": 0.002324518,
+        "tokens": {
+          "total": 174635,
+          "input": 891,
+          "output": 790,
+          "reasoning": 8745,
+          "cache": {
+            "write": 0,
+            "read": 164209
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eaf4eb04effeBYXNSrQRR0hdTd:msg_150c38c93001p9N5LQCL70ADXG:prt_150c399700016ADtgDEwMh47qP",
+        "cost": 0.001752586,
+        "tokens": {
+          "total": 165987,
+          "input": 13898,
+          "output": 296,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 151793
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_15174f3cb001UJOzHcNTQSWfQM:prt_15174fb7f001o7pXdEmqWS7r2M",
+        "cost": 0.000800826,
+        "tokens": {
+          "total": 7957,
+          "input": 7682,
+          "output": 97,
+          "reasoning": 65,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_15174fb85001Q3AjBw6QR8HNFe:prt_1517506a90010uFqLqh5qqw5OQ",
+        "cost": 0.0008457,
+        "tokens": {
+          "total": 8216,
+          "input": 7975,
+          "output": 217,
+          "reasoning": 24,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_1517506ad001Z4SxS1JwlS0r30:prt_15175145e001TnXT98GzVr03sO",
+        "cost": 0.000128286,
+        "tokens": {
+          "total": 8723,
+          "input": 733,
+          "output": 153,
+          "reasoning": 44,
+          "cache": {
+            "write": 0,
+            "read": 7793
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_151751462001hEoyAGKD9TLj6j:prt_151753355001Mx36SilzajV9Xj",
+        "cost": 0.001453026,
+        "tokens": {
+          "total": 13585,
+          "input": 12416,
+          "output": 287,
+          "reasoning": 769,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_151753359001nUg3NATbxK3aS4:prt_151754dfd001n86eGrFlE05qpI",
+        "cost": 0.001948666,
+        "tokens": {
+          "total": 26971,
+          "input": 17758,
+          "output": 412,
+          "reasoning": 368,
+          "cache": {
+            "write": 0,
+            "read": 8433
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_151754e01001ok9fblLgDIWYdl:prt_15175911a001WGDoRyOYiKpX0K",
+        "cost": 0.003859526,
+        "tokens": {
+          "total": 37518,
+          "input": 36217,
+          "output": 219,
+          "reasoning": 969,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_15175911e001ZKAf6ZIOZPnEms:prt_151761e14001QQ1Ig6AoNqWCXn",
+        "cost": 0.004136126,
+        "tokens": {
+          "total": 39730,
+          "input": 37875,
+          "output": 383,
+          "reasoning": 1359,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_151761e1a001bQoNSC6Dq8gtNY:prt_1517696f40011uO9SrHWzAWL8g",
+        "cost": 0.004711326,
+        "tokens": {
+          "total": 45392,
+          "input": 43447,
+          "output": 265,
+          "reasoning": 1567,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_1517696fa001NF4eLTD7yIuqGp:prt_15176b5a4001O7qtJ0kFXD0VjU",
+        "cost": 0.0050198,
+        "tokens": {
+          "total": 49601,
+          "input": 49004,
+          "output": 125,
+          "reasoning": 472,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_15176b5a9001Un0WROxcVVqkAI:prt_151773a26001p8x8QKSLGVeITp",
+        "cost": 0.005638726,
+        "tokens": {
+          "total": 53138,
+          "input": 49665,
+          "output": 330,
+          "reasoning": 3030,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_151773a300016LC6jv2nEnheN9:prt_15177f863001t2Whm7hYkyagud",
+        "cost": 0.002425118,
+        "tokens": {
+          "total": 56465,
+          "input": 16985,
+          "output": 467,
+          "reasoning": 2804,
+          "cache": {
+            "write": 0,
+            "read": 36209
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_15177f8690012BSuMmHgLdt5YK:prt_15178b6a1001uTGmDc16LcbdiN",
+        "cost": 0.0064483,
+        "tokens": {
+          "total": 60707,
+          "input": 56931,
+          "output": 298,
+          "reasoning": 3478,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_15178b6a6001CKY2kfNhZs3VN1:prt_15178f76e001KKYKTHQ21Yc4KD",
+        "cost": 0.006181226,
+        "tokens": {
+          "total": 60687,
+          "input": 59338,
+          "output": 280,
+          "reasoning": 956,
+          "cache": {
+            "write": 0,
+            "read": 113
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_15178f775001JxJb0nQU6irGeM:prt_1517a12c50014unuI8pOJEdZtM",
+        "cost": 0.002261862,
+        "tokens": {
+          "total": 65706,
+          "input": 12009,
+          "output": 440,
+          "reasoning": 4376,
+          "cache": {
+            "write": 0,
+            "read": 48881
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_1517a12cc001WBFAzHcVDnK4yU:prt_1517a93a5001ybGLkcBCTmE2rO",
+        "cost": 0.00303231,
+        "tokens": {
+          "total": 68697,
+          "input": 20931,
+          "output": 339,
+          "reasoning": 3922,
+          "cache": {
+            "write": 0,
+            "read": 43505
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_1517a93aa00198qmZQgVtx25Jc:prt_1517c33d5001LI8tMyFwW8gyIu",
+        "cost": 0.002978354,
+        "tokens": {
+          "total": 79897,
+          "input": 12444,
+          "output": 412,
+          "reasoning": 7664,
+          "cache": {
+            "write": 0,
+            "read": 59377
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_1517c33db001BJ4dzmIW3Pwhad:prt_1517dbaee0014V9Gk0V8uspELk",
+        "cost": 0.00306171,
+        "tokens": {
+          "total": 77381,
+          "input": 18997,
+          "output": 357,
+          "reasoning": 4922,
+          "cache": {
+            "write": 0,
+            "read": 53105
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_1517dbaf5001LuwX98eGlELQZc:prt_1517e7307001rWyT0a9VSfZPdE",
+        "cost": 0.003422354,
+        "tokens": {
+          "total": 77733,
+          "input": 22684,
+          "output": 320,
+          "reasoning": 4952,
+          "cache": {
+            "write": 0,
+            "read": 49777
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_1517e730e001yHeJ1nrTTUQTQz:prt_1517f0840001hXb677NagC5ApI",
+        "cost": 0.0083894,
+        "tokens": {
+          "total": 79199,
+          "input": 74504,
+          "output": 455,
+          "reasoning": 4240,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_1517f0845001R9HUaw7ZgvISkr:prt_1517fc4d4001xutVq1pameqTvw",
+        "cost": 0.010037,
+        "tokens": {
+          "total": 94438,
+          "input": 88506,
+          "output": 381,
+          "reasoning": 5551,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      },
+      {
+        "id": "ses_eae8b0d61ffeqZd3eD1fPFSPXd:msg_1517fc4da001sbDbYx1MOHzk7z:prt_1518101e30010fKcXAZt6WPMJo",
+        "cost": 0.004666238,
+        "tokens": {
+          "total": 99872,
+          "input": 25631,
+          "output": 391,
+          "reasoning": 9481,
+          "cache": {
+            "write": 0,
+            "read": 64369
+          }
+        },
+        "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+        "model": null,
+        "modelID": null,
+        "providerID": null
+      }
+    ],
+    "terminal_stop": "total_call_limit",
+    "driver": "opencode",
+    "configured_model": "openrouter/meta/muse-spark-1.3-contributor",
+    "zero_token_streak": 0,
+    "list_cost_usd": 28.372746299999974,
+    "previous_stops": [
+      "provider_limit:claude/claude-opus-5-5",
+      "opencode_error",
+      "opencode_error",
+      "timeout",
+      "timeout",
+      "timeout"
+    ]
+  },
+  "sha256": "4e67bd722510fb156d9d82d3049e25f13f7215c36a67c6f69d4cde3b8456284a",
+  "archive": "/home/user/sealed/g11-review-case-20261017T212115Z-8acb5c.tar.gz.age"
+}

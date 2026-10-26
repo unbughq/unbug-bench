@@ -1,0 +1,3 @@
+{"id":"S13", "title":"Marketplace channel sells shared stock from its own ledger", "kind":"service",
+ "change":"The marketplace channel now accepts orders against the same S stock as Medusa. It has its own SQLite orders and availability cache. Its code and read-only monitor login are in projects/marketplace/README.md. Sales path: service:marketplace.",
+ "inventory_services":[{"name":"marketplace", "project":"projects/marketplace", "host_ports":[9010]}]}

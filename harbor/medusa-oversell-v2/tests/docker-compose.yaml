@@ -1,0 +1,25 @@
+# Separate verifier box (main = unbug-bench-judge:dev). Same Docker-in-Docker setup as the
+# agent box; a fresh one per step, so nothing the agent did to its own engine reaches the judge.
+services:
+  main:
+    privileged: true  # ASSUMPTION: as in environment/docker-compose.yaml
+    command: ["start-dockerd"]  # cgroup v2 nesting + dockerd (images/start-dockerd.sh)
+    volumes:
+      - judge-docker:/var/lib/docker
+      - type: bind
+        source: ${HOST_VERIFIER_LOGS_PATH:?Harbor verifier log mount is required}/../pending-state
+        target: /judge-state
+        bind:
+          create_host_path: true
+      - type: bind
+        source: ${HOST_VERIFIER_LOGS_PATH:?}/../deployment-state
+        target: /deployment-out
+        bind:
+          create_host_path: true
+    healthcheck:
+      test: ["CMD-SHELL", "docker info >/dev/null 2>&1 && test -f /tmp/runtime-images-ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 180
+volumes:
+  judge-docker:

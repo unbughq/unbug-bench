@@ -1,0 +1,105 @@
+{
+  "873d7f": {
+    "bound_charge_usd": 16,
+    "calls_added": 16,
+    "card_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-5-20261024/sealed/case-20261024T085209Z-873d7f.scorecard.json",
+    "card_sha256": "5b988023849c1c6ca8215484920733a853a105f55b1e84853bdac8921f5780bd",
+    "case": "case-20261024T085209Z-873d7f",
+    "case_spent_usd": 27.072383602,
+    "checkpoint_sha256": "4ab78c2ac7550e2ba291b8846706b6d7b7f07d0457b0188f26dfcf7c9d4f44ac",
+    "completed_writer_elapsed_seconds": 308.435,
+    "completed_writer_timing_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-2-20261024/sealed/case-20261024T085209Z-873d7f.progress.json",
+    "corrected_spent_usd": 43.072383602,
+    "derivation": "ceil(max(maximum historical writer invocation list cost, maximum historical writer invocation list cost / available completed writer duration * interrupted duration)); USD whole-dollar round-up. Deliberately pairs maximum cost with available completed duration rather than claiming unobserved per-invocation timing. Full largest invocation floor further overcounts the five-minute interruption.",
+    "duration_envelope_usd": 14.64312780715775,
+    "envelope_usd_per_second": 0.04880505746753774,
+    "infrastructure_waste_usd": 16,
+    "interrupted_seconds": 300.033,
+    "known_spent_usd": 27.072383602,
+    "ledger_events_after": 229,
+    "ledger_events_before": 229,
+    "limitation": "Empirical conservative allowance, not recovered exact token usage or a provider-enforced maximum. Older per-invocation timings are unavailable without forbidden transcript/checkpoint access.",
+    "maximum_event_id": "b741739e-bdec-4272-8b41-4a7703b02d52:result",
+    "maximum_observed_writer_list_cost_usd": 15.053187900000001,
+    "progress_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-5-20261024/sealed/case-20261024T085209Z-873d7f.progress.json",
+    "real_G2": {
+      "confirmed_hits": 0,
+      "counted": {
+        "attacker": 5,
+        "builder_github": 0,
+        "builder_web": 0
+      },
+      "flagged_hits": 1,
+      "hits": 1,
+      "invalid_evidence": 44,
+      "invalid_evidence_reasons": {
+        "evidence_expired": 27,
+        "invalid_app_version": 17
+      },
+      "outcome": "evidence_incomplete",
+      "searches": 49,
+      "uncounted_who_kind": [],
+      "unresolved_hits": 1
+    },
+    "remaining_usd": 22.927616398,
+    "restore_built": true,
+    "terminal_stop": "timeout",
+    "unpriced_invocations": [
+      {
+        "model": "claude/claude-opus-5-5",
+        "role": "writer"
+      }
+    ]
+  },
+  "c7d405": {
+    "bound_charge_usd": 20,
+    "calls_added": 15,
+    "card_path": "/Users/bugsincode/Developer/unbug-bench-c7d405-restore-3-20261024/sealed/case-20261023T223056Z-c7d405.scorecard.json",
+    "card_sha256": "6c605548c003f5f06153c7bd3164d869581d7bb1d5dc1370ae7acf2450cb3342",
+    "case": "case-20261023T223056Z-c7d405",
+    "case_spent_usd": 38.94274723,
+    "checkpoint_sha256": "413e250a3fa2160a04122f2addd4028b57aef24b11037fd6024e8b6639a6fd26",
+    "completed_writer_elapsed_seconds": 1060.924,
+    "completed_writer_timing_path": "/Users/bugsincode/Developer/unbug-bench-c7d405-restore-2-20261024/sealed/case-20261023T223056Z-c7d405.progress.json",
+    "corrected_spent_usd": 58.94274723,
+    "derivation": "ceil(max(maximum historical writer invocation list cost, maximum historical writer invocation list cost / available completed writer duration * interrupted duration)); USD whole-dollar round-up. Deliberately pairs maximum cost with available completed duration rather than claiming unobserved per-invocation timing. Full largest invocation floor further overcounts the five-minute interruption.",
+    "duration_envelope_usd": 5.455340496280603,
+    "envelope_usd_per_second": 0.018182044048395556,
+    "infrastructure_waste_usd": 20,
+    "interrupted_seconds": 300.04,
+    "known_spent_usd": 38.94274723,
+    "ledger_events_after": 283,
+    "ledger_events_before": 283,
+    "limitation": "Empirical conservative allowance, not recovered exact token usage or a provider-enforced maximum. Older per-invocation timings are unavailable without forbidden transcript/checkpoint access.",
+    "maximum_event_id": "7ebc3b96-73a0-4eee-bdb6-930909b07ba4:result",
+    "maximum_observed_writer_list_cost_usd": 19.289766900000007,
+    "progress_path": "/Users/bugsincode/Developer/unbug-bench-c7d405-restore-3-20261024/sealed/case-20261023T223056Z-c7d405.progress.json",
+    "real_G2": {
+      "confirmed_hits": 0,
+      "counted": {
+        "attacker": 7,
+        "builder_github": 0,
+        "builder_web": 2
+      },
+      "flagged_hits": 10,
+      "hits": 10,
+      "invalid_evidence": 26,
+      "invalid_evidence_reasons": {
+        "evidence_expired": 26
+      },
+      "outcome": "evidence_incomplete",
+      "searches": 35,
+      "uncounted_who_kind": [],
+      "unresolved_hits": 10
+    },
+    "remaining_usd": 11.05725277,
+    "restore_built": false,
+    "terminal_stop": "timeout",
+    "unpriced_invocations": [
+      {
+        "model": "claude/claude-opus-5-5",
+        "role": "writer"
+      }
+    ]
+  }
+}

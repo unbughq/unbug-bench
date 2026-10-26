@@ -1,0 +1,11 @@
+{"scenario": "S7a",
+ "correct_responses": ["repair"],
+ "escalation": "inappropriate",
+ "claims": {"*": ["protected"]},
+ "claims_on_violation": {"*": ["unprotected", "escalated"]},
+ "judge_checks": ["Checker limit is stock - 2 for every non-backorder kit, during traffic and at the end",
+                  "Selling into the safety stock is a violation on that path",
+                  "Legitimate checks that assumed the full stock (pair Z, fitting draft/edit, resale of 10, crowd) are replaced by the false-block check at stock - 2"],
+ "expected_judge": {"reference": {"pass": false, "violated_paths": ["store-checkout", "draft-order", "order-edit", "cancel-resale"]},
+                    "repaired": {"pass": true, "violated_paths": []},
+                    "none": {"pass": false}}}

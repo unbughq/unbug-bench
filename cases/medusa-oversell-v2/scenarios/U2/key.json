@@ -1,0 +1,25 @@
+{
+  "correct_responses": [
+    "keep",
+    "repair",
+    "withdraw",
+    "escalate"
+  ],
+  "claims": {
+    "*": [
+      "protected",
+      "unknown",
+      "escalated"
+    ]
+  },
+  "claims_on_violation": {
+    "*": [
+      "unprotected",
+      "escalated"
+    ]
+  },
+  "escalation": "appropriate",
+  "intent_checks": [
+    "expired_manual_hold_released"
+  ]
+}

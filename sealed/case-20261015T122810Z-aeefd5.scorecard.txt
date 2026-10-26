@@ -1,0 +1,8 @@
+case-20261015T122810Z-aeefd5  sha256:d581872f757506d235803f95e0de451247902d105f6636deca0aea89caf43963
+gates: passed G12; FAILED G1
+reviewers: fairness - approve, realism - approve
+plain app broke the promise -   reference fix -   cheats - passed   scenario keys -
+pilot (-, 0 tries) solved -/0, failures fair: -   fake pass: -
+surprises: 4   scenarios: 6   provenance: 3   source: port   builder rounds: 3
+wipe: {"plaintext_files_left": 0, "named_dirs_left": 0, "guard_image_left": false, "db_volume_left": false}   wall: 211.4 min
+models: {"builder": ["opencode-go/muse-spark-1.3-contributor"], "attacker": ["opencode-go/deepseek-v4-pro"], "reviewers": [["opencode-go/grok-4.7"], ["opencode-go/qwen3.8-max"]], "pilot": ["opencode-go/deepseek-v4-pro"]}

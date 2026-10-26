@@ -1,0 +1,22 @@
+[Unit]
+Description=Resume orphaned Unbug launch controllers through the holder
+Wants=network-online.target unbug-key-holder.service
+BindsTo=unbug-key-holder.service
+After=network-online.target unbug-key-holder.service
+
+[Service]
+Type=oneshot
+User=user
+Group=user
+WorkingDirectory=/home/user/unbug-bench
+Environment=HOME=/home/user USER=user UNBUG_CLOUD=boat BOAT_CMD=/usr/local/bin/boat BOAT_NO_UPDATE=1
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+UMask=0077
+LimitCORE=0
+ExecStart=/bin/sh /home/user/unbug-bench/control/holder-command.sh resume
+TimeoutStartSec=infinity
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,167 @@
+{
+  "guards": [
+    {
+      "guard": "none",
+      "runs": 30,
+      "traffic_options": {
+        "mode": "stress",
+        "seed_base": 1
+      },
+      "guard_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "scenarios": [],
+      "crowd_oversold": 30,
+      "crowd_ok": 30,
+      "oversold": 30,
+      "concurrent_oversold": 17,
+      "sequential_oversold": 30,
+      "draft_oversold": 30,
+      "edit_oversold": 30,
+      "normal_ok": 30,
+      "trigger_ok": 30,
+      "legit_concurrent_ok": 30,
+      "backorder_ok": 30,
+      "draft_ok": 0,
+      "edit_ok": 0,
+      "resold_oversold": 30,
+      "resold_ok": 30,
+      "bookkeeping_ok": 30,
+      "confirmed_orders_ok": 30,
+      "pass": 0,
+      "errors": 0,
+      "invalid": 0,
+      "by_dispatch_offset_ms": {
+        "None": {
+          "runs": 30,
+          "concurrent_oversold": 17,
+          "concurrent_placed": {
+            "B": 13,
+            "both": 17
+          }
+        }
+      },
+      "reset_seconds": {
+        "min": 5.249957964000714,
+        "max": 7.173065986999973,
+        "mean": 5.637694100666674
+      },
+      "results_directory": "results/runs/20261014T212407429349Z-none"
+    },
+    {
+      "guard": "refuse-all",
+      "runs": 30,
+      "traffic_options": {
+        "mode": "stress",
+        "seed_base": 1
+      },
+      "guard_sha256": "5d4fc18228e620b2904af2eca47310ad5d4b9cc57d66f5a88ef1a9db44fe2fa0",
+      "scenarios": [],
+      "crowd_oversold": 0,
+      "crowd_ok": 0,
+      "oversold": 0,
+      "concurrent_oversold": 0,
+      "sequential_oversold": 0,
+      "draft_oversold": 0,
+      "edit_oversold": 0,
+      "normal_ok": 0,
+      "trigger_ok": 0,
+      "legit_concurrent_ok": 0,
+      "backorder_ok": 0,
+      "draft_ok": 0,
+      "edit_ok": 0,
+      "resold_oversold": 0,
+      "resold_ok": 0,
+      "bookkeeping_ok": 30,
+      "confirmed_orders_ok": 30,
+      "pass": 0,
+      "errors": 0,
+      "invalid": 0,
+      "by_dispatch_offset_ms": {
+        "None": {
+          "runs": 30,
+          "concurrent_oversold": 0,
+          "concurrent_placed": {
+            "none": 30
+          }
+        }
+      },
+      "reset_seconds": {
+        "min": 4.991412342999865,
+        "max": 6.504768371999489,
+        "mean": 5.297934213333368
+      },
+      "results_directory": "results/runs/20261014T213344492413Z-refuse-all"
+    },
+    {
+      "guard": "reference",
+      "runs": 30,
+      "traffic_options": {
+        "mode": "stress",
+        "seed_base": 1
+      },
+      "guard_sha256": "ac5308ad43c99d658c1475b0a2d6c6c8c718990ce96c94274d58cc2a23e72460",
+      "scenarios": [],
+      "crowd_oversold": 0,
+      "crowd_ok": 30,
+      "oversold": 0,
+      "concurrent_oversold": 0,
+      "sequential_oversold": 0,
+      "draft_oversold": 0,
+      "edit_oversold": 0,
+      "normal_ok": 30,
+      "trigger_ok": 30,
+      "legit_concurrent_ok": 30,
+      "backorder_ok": 30,
+      "draft_ok": 30,
+      "edit_ok": 30,
+      "resold_oversold": 0,
+      "resold_ok": 30,
+      "bookkeeping_ok": 30,
+      "confirmed_orders_ok": 30,
+      "pass": 30,
+      "errors": 0,
+      "invalid": 0,
+      "by_dispatch_offset_ms": {
+        "None": {
+          "runs": 30,
+          "concurrent_oversold": 0,
+          "concurrent_placed": {
+            "B": 14,
+            "A": 16
+          }
+        }
+      },
+      "reset_seconds": {
+        "min": 5.007894856999883,
+        "max": 6.084529259000192,
+        "mean": 5.318705141866667
+      },
+      "results_directory": "results/runs/20261014T214507383430Z-reference"
+    }
+  ],
+  "calibrated": true,
+  "scenario_changed": false,
+  "variations_tried": [
+    {
+      "transport": "http",
+      "instances": 2,
+      "locking": "redis",
+      "timing": "warmed keep-alive socket per instance; second cart dispatched 0, 5 or 20 ms after the first by run number"
+    },
+    {
+      "sequential": "cart A completes, then cart B, on a separate kit product"
+    },
+    {
+      "admin": "draft-order conversion (product D) and order edit (product E) after a 5-unit store order, sequential, admin API"
+    },
+    {
+      "resale": "product R: 10-unit order canceled via admin API then resold (must place); resale order's reservation deleted via admin API, then another 10 units (must be refused)"
+    },
+    {
+      "stress": "default traffic: seeded random instance per request group, random pair order and 0-50 ms gaps, normal orders released together, W crowd (6 x 4 units = stock, all must be placed) and up to 10 Y bursts of 2-4 conflicting carts released within 5 ms, canceled between bursts; seed per run = (base 1 x 1000003 + run) mod 2^31"
+    }
+  ],
+  "traffic": {
+    "mode": "stress",
+    "seed_base": 1
+  }
+}

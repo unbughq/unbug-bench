@@ -1,0 +1,181 @@
+{
+  "case": "case-20261017T121326Z-832462",
+  "dry_run": false,
+  "source": "port",
+  "seed": 39206,
+  "gates": {
+    "G1": "fail",
+    "G12": "pass"
+  },
+  "failed_gate": "G1",
+  "roles": {
+    "writer": {
+      "model": "claude/claude-opus-5-5",
+      "effort": "high",
+      "family": "anthropic"
+    },
+    "stress_tester": {
+      "model": "opencode-go/mimo-v2.6-pro",
+      "effort": "default",
+      "family": "xiaomi"
+    },
+    "strong_calibrator": {
+      "model": "codex/gpt-6.1-sol",
+      "effort": "high",
+      "family": "openai"
+    },
+    "reviewer": {
+      "model": "openrouter/meta/muse-spark-1.3-contributor",
+      "effort": "xhigh",
+      "family": "meta"
+    },
+    "easy_calibrator": {
+      "model": "opencode/glm-5.3-flash-free",
+      "effort": "default",
+      "family": "z-ai"
+    }
+  },
+  "rotation_slot": 3,
+  "models": {
+    "builder": [
+      "claude/claude-opus-5-5"
+    ],
+    "attacker": [
+      "opencode-go/mimo-v2.6-pro"
+    ],
+    "reviewers": [
+      [
+        "openrouter/meta/muse-spark-1.3-contributor"
+      ]
+    ],
+    "strong_calibrator": [
+      "codex/gpt-6.1-sol"
+    ],
+    "easy_calibrator": [
+      "opencode/glm-5.3-flash-free"
+    ]
+  },
+  "models_used": {
+    "builder-1": "claude/claude-opus-5-5",
+    "builder-precheck": "claude/claude-opus-5-5"
+  },
+  "builder_rounds": 1,
+  "builder_note": "final prechecks failed",
+  "gate_results": {
+    "G1": {
+      "problems": [
+        "case.json missing or not JSON"
+      ]
+    }
+  },
+  "gate_minutes": {
+    "G1": 0.0
+  },
+  "failed_detail": [
+    "case.json missing or not JSON"
+  ],
+  "wall_minutes": 22.2,
+  "continuation_budget": {
+    "cost": 0.0,
+    "calls": 106,
+    "events": [
+      {
+        "id": "d4a0b43c-b018-46f6-8199-13b4822eca25:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 194,
+          "cache_creation_input_tokens": 388593,
+          "cache_read_input_tokens": 22353920,
+          "output_tokens": 85721,
+          "output_tokens_details": {
+            "thinking_tokens": 66970
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 388593,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 904,
+              "cache_read_input_tokens": 386623,
+              "cache_creation_input_tokens": 2620,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 2620
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 97,
+        "list_cost_usd": 9.294723999999999
+      },
+      {
+        "id": "75e84821-ecd3-4dbd-86f3-54a8bf94b7b8:result",
+        "cost": 0,
+        "priced": "subscription",
+        "tokens": {
+          "input_tokens": 18,
+          "cache_creation_input_tokens": 32311,
+          "cache_read_input_tokens": 171338,
+          "output_tokens": 3919,
+          "output_tokens_details": {
+            "thinking_tokens": 1197
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 32311,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "global",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 517,
+              "cache_read_input_tokens": 34531,
+              "cache_creation_input_tokens": 981,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 981
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard",
+          "fallback_credit": null
+        },
+        "configured_model": "claude/claude-opus-5-5",
+        "calls": 9,
+        "list_cost_usd": 0.3712076
+      }
+    ],
+    "terminal_stop": "complete",
+    "driver": "claude",
+    "configured_model": "claude/claude-opus-5-5",
+    "zero_token_streak": 0,
+    "list_cost_usd": 9.665931599999999
+  },
+  "sha256": "d761b1733458fa91271f60c9edd69085de5762fbba9cbf43ea0950bb16eb2a39",
+  "archive": "/home/user/sealed/case-20261017T121326Z-832462.tar.gz.age",
+  "wipe": {
+    "plaintext_files_left": 0,
+    "named_dirs_left": 0,
+    "guard_image_left": false,
+    "db_volume_left": false
+  }
+}

@@ -1,0 +1,24 @@
+# Merged by Harbor over its prebuilt base (main = unbug-bench-box:dev, `sleep infinity`).
+# The contestant runs the bench like on a laptop: its own Docker engine inside `main`, so the
+# two Medusa instances, Postgres and Redis are nested and isolated per trial (no host ports).
+services:
+  main:
+    # ASSUMPTION: nested dockerd needs privileged. A privileged container is host-root
+    # equivalent; on Hetzner prefer `runtime: sysbox-runc` (sysbox installed on the host).
+    privileged: true
+    command: ["start-dockerd"]  # cgroup v2 nesting + dockerd (images/start-dockerd.sh)
+    volumes:
+      - box-docker:/var/lib/docker
+      - type: bind
+        source: ${HOST_VERIFIER_LOGS_PATH:?}/../deployment-state
+        target: /deployments
+        read_only: true
+        bind:
+          create_host_path: true
+    healthcheck:  # Harbor runs `compose up --wait`, so the agent starts after dockerd is up
+      test: ["CMD-SHELL", "docker info >/dev/null 2>&1 && test -f /tmp/runtime-images-ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 180
+volumes:
+  box-docker:

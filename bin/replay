@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""Replay stored runs: re-apply the stored guard on a fresh reset with the stored run number
+(dispatch offset) and traffic options (stress seed), then compare verdicts.
+
+  bin/replay <run-directory | run.json> [--runs 1,2,3]
+
+The verdict is `pass` and `valid`; it must match or the command exits 1. Every other boolean
+checker field that differs is listed. Fields driven by the concurrent race (which cart wins
+Medusa's lock) can differ between runs of the same guard and are labelled stochastic.
+"""
+import argparse, datetime, fcntl, json, pathlib, sys
+import bench
+from checkpoint_evidence import record_paths
+
+VERDICT = ("pass", "valid")
+STOCHASTIC = {"concurrent_oversold", "concurrent_placed", "trigger_orders_placed", "units_sold_x",
+              "reserved_x", "available_x", "reservation_rows_sum_x", "crowd_oversold", "api_oversold", "db_oversold", "oversold"}
+
+
+def stored_runs(path, wanted):
+    path = pathlib.Path(path).resolve()
+    if path.is_file():
+        return path.parent, [json.loads(path.read_text())]
+    files = record_paths(path)
+    records = [json.loads(f.read_text()) for f in files]
+    if wanted: records = [r for r in records if r["run"] in wanted]
+    if not records: raise SystemExit(f"No stored runs selected in {path}")
+    return path, records
+
+
+def guard_for(directory, record, notes):
+    stored = directory / "guard"
+    if stored.is_dir():
+        files = {f: (stored / f).read_text() for f in bench.GUARD_FILES if (stored / f).exists()}
+        if record.get("guard_sha256") and bench.digest(files) != record["guard_sha256"]:
+            raise SystemExit(f"Stored guard in {stored} does not match the run's guard_sha256")
+        return stored
+    # Runs recorded before guards were stored with them: fall back to the named bench guard.
+    fallback = bench.ROOT / "guards" / record["guard"]
+    if not fallback.is_dir():
+        raise SystemExit(f"Guard for {directory} was not stored and guards/{record['guard']} does not exist")
+    notes.append(f"guard not stored with the run; using guards/{record['guard']} (hash unverifiable)")
+    return fallback
+
+
+def flat(record):
+    fields = {k: v for k, v in record["checker"].items() if isinstance(v, (bool, int, float, str)) or v is None}
+    judge = record.get("judge")
+    if judge:  # checkpoint runs: the verdict is the scenario judge's
+        fields.update({"pass": judge["pass"], **{f"path:{p}": v for p, v in judge["paths"].items()},
+                       **{f"check:{c}": v for c, v in judge["checks"].items()}})
+    return fields
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("path"); p.add_argument("--runs", default="")
+    a = p.parse_args()
+    wanted = {int(n) for n in a.runs.split(",") if n}
+    directory, records = stored_runs(a.path, wanted)
+    notes = []
+    guard = guard_for(directory, records[0], notes)
+    current = bench.bench_fingerprint()
+    for r in records:
+        if "bench_sha256" not in r:
+            notes.append(f"run {r['run']}: recorded before bench hashes were stored; judge version unverifiable")
+        elif r["bench_sha256"] != current:
+            changed = sorted(f for f in current if r["bench_sha256"].get(f) != current[f])
+            notes.append(f"run {r['run']}: bench files changed since the run: {changed}")
+    options = {r["run"]: {k: v for k, v in (r.get("traffic_options") or {"mode": "normal"}).items() if k != "scenarios"} for r in records}
+    # Scenarios are re-applied from the copies stored with the run, checked against their hashes.
+    scenarios = []
+    for s in records[0].get("scenarios") or []:
+        loaded = bench.load_scenario(bench.ROOT / s["dir"])
+        if bench.digest(bench.scenario_files(loaded)) != s["sha256"]:
+            raise SystemExit(f"Stored scenario {s['dir']} does not match its sha256")
+        scenarios.append(loaded)
+    with (bench.RESULTS / ".bench.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        summary = bench.run_case(str(guard), len(records), run_numbers=sorted(options), label=f"replay-{records[0]['guard']}", per_run_options=options, scenarios=scenarios)
+    replay_dir = bench.ROOT / summary["results_directory"]
+    comparisons, ok = [], True
+    for r in sorted(records, key=lambda r: r["run"]):
+        new = json.loads((replay_dir / f"{r['run']:02}.json").read_text())
+        old_c, new_c = flat(r), flat(new)
+        differ = sorted(k for k in set(old_c) | set(new_c) if old_c.get(k) != new_c.get(k)
+                        and isinstance(old_c.get(k, new_c.get(k)), bool))
+        verdict_match = all(old_c.get(k) == new_c.get(k) for k in VERDICT) and bool(r["errors"]) == bool(new["errors"])
+        ok &= verdict_match
+        comparisons.append({"run": r["run"], "traffic_options": options[r["run"]],
+            "stored": {k: old_c.get(k) for k in VERDICT}, "replayed": {k: new_c.get(k) for k in VERDICT},
+            "verdict_match": verdict_match,
+            "differing_fields": {k: {"stored": old_c.get(k), "replayed": new_c.get(k),
+                                     "stochastic": k in STOCHASTIC} for k in differ},
+            "replay_errors": new["errors"]})
+    report = {"source": str(directory), "guard": str(guard), "notes": notes, "replay_directory": summary["results_directory"],
+              "verdicts_match": ok, "runs": comparisons}
+    out = bench.RESULTS / "replays"
+    out.mkdir(exist_ok=True)
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = out / f"{stamp}-{records[0]['guard']}.json"
+    path.write_text(json.dumps(report, indent=2) + "\n")
+    for c in comparisons:
+        print(f"run {c['run']:>2}: stored pass={c['stored']['pass']} replayed pass={c['replayed']['pass']} "
+              f"{'MATCH' if c['verdict_match'] else 'MISMATCH'}; other differing fields: "
+              f"{ {k: (v['stored'], v['replayed']) for k, v in c['differing_fields'].items()} or 'none'}")
+    for n in notes: print("note:", n)
+    print(f"Report: {path}")
+    sys.exit(0 if ok else 1)
+
+
+if __name__ == "__main__":
+    main()
