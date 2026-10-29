@@ -159,12 +159,12 @@ class StrategyTests(unittest.TestCase):
                 self.assertEqual(state.parent, pathlib.Path(argv[argv.index('--claims') + 1]).parent)
                 self.assertFalse(state.exists(), 'independent strategy checkpoints must not inherit decisions')
                 return subprocess.CompletedProcess(argv, 0, 'Checkpoint: ' + str(summary) + '\n')
-            with patch.object(strategy.subprocess, 'run', command):
+            with patch.object(strategy.processes, 'run', command):
                 result = strategy.checkpoint([root / 'base', root / 'pending'], root / 'guard', {'pending_decision': 'block'}, 1, 7, 'fixture')
                 self.assertEqual(result['runs'], 1)
                 self.assertEqual(result['_evidence_path'], str(summary.resolve()))
             summary.write_text('{"error_runs": 1}')
-            with patch.object(strategy.subprocess, 'run', command), self.assertRaises(RuntimeError):
+            with patch.object(strategy.processes, 'run', command), self.assertRaises(RuntimeError):
                 strategy.checkpoint([root / 'base', root / 'pending'], root / 'guard', {'pending_decision': 'block'}, 1, 7, 'fixture')
 
     def test_cli_workers_reach_checkpoints_without_changing_history_or_trials(self):
@@ -186,7 +186,7 @@ class StrategyTests(unittest.TestCase):
                     checkpoint_files(summary, execute(scenarios, guard, report, 5, 41, label))
                     return subprocess.CompletedProcess(argv, 0, 'Checkpoint: ' + str(summary) + '\n')
                 argv = ['strategy', '--case', str(case), '--strategy', 'honest-reference', '--runs', '5', '--seed', '41', *flags]
-                with patch.object(strategy.sys, 'argv', argv), patch.object(strategy.subprocess, 'run', command), contextlib.redirect_stdout(io.StringIO()) as output:
+                with patch.object(strategy.sys, 'argv', argv), patch.object(strategy.processes, 'run', command), contextlib.redirect_stdout(io.StringIO()) as output:
                     strategy.main()
                 self.assertEqual(json.loads(output.getvalue())['_evidence_paths'], [str((case / 'checkpoint.json').resolve())] * 4)
                 self.assertEqual(seen, [['establish'], ['establish', 'blind'],
@@ -196,7 +196,7 @@ class StrategyTests(unittest.TestCase):
 
     def test_cli_rejects_nonpositive_workers_before_execution(self):
         for workers in ('0', '-1'):
-            with patch.object(strategy.sys, 'argv', ['strategy', '--case', '.', '--strategy', 'honest-reference', '--factory-workers', workers]), patch.object(strategy.subprocess, 'run') as command, contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as stopped:
+            with patch.object(strategy.sys, 'argv', ['strategy', '--case', '.', '--strategy', 'honest-reference', '--factory-workers', workers]), patch.object(strategy.processes, 'run') as command, contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as stopped:
                 strategy.main()
             self.assertEqual(stopped.exception.code, 2)
             command.assert_not_called()

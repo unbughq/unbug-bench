@@ -45,7 +45,10 @@ class GatePipeline:
                               "fingerprint_version": c.gate_fingerprint_versions[gate]}
             signature = gate_state.fingerprint(c, gate, self.bench)
             before = {key: gate_state.digest(path) for key, path in gate_state.inventory(c, self.bench).items()}
-        ok, info = self.evaluate(c, gate)
+        import processes
+        with (processes.deadline(getattr(getattr(c, 'args', None), 'agent_timeout', 14400))
+              if gate in ('G13', 'G14', 'G15') else __import__('contextlib').nullcontext()):
+            ok, info = self.evaluate(c, gate)
         if reusable and ok and signature == gate_state.fingerprint(c, gate, self.bench):
             gate_state.save(c, gate, info, signature, before, self.bench)
         return ok, info

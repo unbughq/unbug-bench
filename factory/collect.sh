@@ -17,6 +17,24 @@ pause_status=0
   while [ ! -f ~/sealed/DONE ] && [ $i -lt 105 ]; do sleep 10; i=$((i + 1)); done
   [ -f ~/sealed/DONE ] && echo "paused and checkpointed" >&2 || { echo "pause requested; no DONE after 17.5 min" >&2; exit 1; }
 fi; true' ) || pause_status=1
+# Supervisor diagnostics contain allowlisted public metadata, independently of case archives.
+if boat ssh "$id" 'test ! -f ~/sealed/runner-status.json || cat ~/sealed/runner-status.json' | python3 -c '
+import json, math, sys
+raw = sys.stdin.read(16385)
+if not raw.strip(): sys.exit(0)
+if len(raw) > 16384: sys.exit(1)
+d = json.loads(raw)
+if (d.get("schema") != 1 or type(d.get("attempt")) is not int or not 1 <= d["attempt"] <= 3 or
+    d.get("phase") not in ("running", "startup", "finished", "stopped") or
+    d.get("reason") not in ("running", "startup_retry", "startup_failed", "finished", "cancelled", "timeout") or
+    (d.get("exit_status") is not None and type(d["exit_status"]) is not int) or
+    type(d.get("observed_at")) not in (int, float) or not math.isfinite(d["observed_at"])): sys.exit(1)
+print(json.dumps({k:d[k] for k in ("schema", "attempt", "phase", "reason", "exit_status", "observed_at")}))
+' > "$dest/$id.runner-status.json.tmp"; then
+  if [ -s "$dest/$id.runner-status.json.tmp" ]; then
+    mv "$dest/$id.runner-status.json.tmp" "$dest/$id.runner-status.json"
+  else rm -f "$dest/$id.runner-status.json.tmp"; fi
+else rm -f "$dest/$id.runner-status.json.tmp"; fi
 # Empty patterns and a VM that never got as far as ~/sealed are normal (nothing to collect); a failed SSH stays an error.
 # WORK = unwiped case work is still on the VM (a final seal wipes it; a stop keeps it beside its checkpoint).
 files=$(boat ssh "$id" "for d in ~/work/case-*/case ~/work/case-*/g11-audit/case; do [ -d \"\$d\" ] && [ -n \"\$(ls -A \"\$d\")\" ] && { echo WORK; [ -f ~/sealed/DONE ] || echo UNFINISHED; break; }; done; [ -d ~/sealed ] || exit 0; cd ~/sealed || exit 1; ls *.age *.scorecard.json *.scorecard.txt *.progress.json *.throwaway-key.txt 2>/dev/null; true") || exit 1

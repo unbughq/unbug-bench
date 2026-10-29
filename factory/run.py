@@ -143,27 +143,15 @@ def sh(c, cmd, *, capture=False, timeout=None, input=None, cwd=None, check=False
         env = {**os.environ, "UNBUG_FACTORY_SLOT": str(c.factory_slot)}
     log(c, "$", " ".join(map(str, cmd))[:400])
     with open(c.work / "logs/commands.log", "a") as out:
-        if getattr(getattr(c, "args", None), "bench_workers", 1) > 1 or hasattr(c, "factory_slot"):
-            process = subprocess.Popen(list(map(str, cmd)), cwd=cwd, env=env, text=True, start_new_session=True,
-                                       stdin=subprocess.PIPE if input is not None else None,
-                                       stdout=subprocess.PIPE if capture else out, stderr=out if capture else subprocess.STDOUT)
-            try:
-                stdout, _ = process.communicate(input, timeout=timeout)
-            except BaseException:
-                # A timeout must stop the whole bench tree before seal/wipe starts.
-                try: os.killpg(process.pid, signal.SIGTERM)
-                except ProcessLookupError: pass
-                try: process.communicate(timeout=5)
-                except subprocess.TimeoutExpired: pass
-                finally:
-                    try: os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError: pass
-                    process.communicate()
-                raise
-            p = subprocess.CompletedProcess(process.args, process.returncode, stdout)
-        else:
-            p = subprocess.run(list(map(str, cmd)), cwd=cwd, env=env, input=input, text=True, timeout=timeout,
-                               stdout=subprocess.PIPE if capture else out, stderr=out if capture else subprocess.STDOUT)
+        import processes
+        try:
+            p = processes.run(list(map(str, cmd)), cwd=cwd, env=env, input=input, text=True,
+                              timeout=timeout if timeout is not None else getattr(getattr(c, 'args', None), 'agent_timeout', 14400),
+                              cancel=getattr(c, 'role_cancel', None),
+                              stdout=subprocess.PIPE if capture else out,
+                              stderr=out if capture else subprocess.STDOUT)
+        except processes.Cancelled:
+            raise BudgetError('cancelled') from None
         if capture: out.write(p.stdout)
     if check and p.returncode: raise RuntimeError(f"exit {p.returncode}")
     return p if capture else p.returncode
@@ -2483,6 +2471,8 @@ def main():
     for d in ("logs", "transcripts"): (c.work / d).mkdir(parents=True, exist_ok=bool(a.resume))
     c.ledger = SEALED / f"{c.case_id}.continuation-budget.json"
     signal.signal(signal.SIGTERM, pause_on_term)
+    if os.environ.get('FACTORY_RUNNER_READY'):
+        pathlib.Path(os.environ['FACTORY_RUNNER_READY']).touch()
     c.stopped = False
     if a.resume: (SEALED / 'DONE').unlink(missing_ok=True)
     if a.resume and not c.ledger.exists() and (c.work / "continuation-budget.json").exists():

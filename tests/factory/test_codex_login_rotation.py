@@ -56,7 +56,7 @@ class LoginTests(unittest.TestCase):
     def test_bundle_gate_is_before_worker_creation_and_restore(self):
         launch = (ROOT / 'factory/launch.sh').read_text()
         self.assertLess(launch.index('codex_login_gate\n'), launch.index('if [ -n "$restore" ] &&'))
-        self.assertLess(launch.index('  codex_login_gate\n'), launch.index('else guard_new; fi'))
+        self.assertLess(launch.index('if ! codex_login_gate;'), launch.index('if ! guard_new;'))
         for valid in (False, True):
             stream = io.BytesIO()
             with tarfile.open(fileobj=stream, mode='w') as archive:

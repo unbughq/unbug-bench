@@ -312,7 +312,7 @@ class AttackRecoveryTests(unittest.TestCase):
              patch.object(run, "pilot_homes", return_value=[]), patch.object(run.RunArtifacts, "results_since", return_value=[]), \
              patch.object(run, "STATEMENTS_RECIPIENT", c.work / "no-recipient"), \
              patch.object(r2_upload, "case_recipient", return_value=None), \
-             patch.object(run.subprocess, "run", side_effect=synthetic_encrypt):
+             patch("run_artifacts.processes.run", side_effect=synthetic_encrypt):
             run.seal(c, checkpoint=True)
         archive = archives / "synthetic.checkpoint.tar.gz.age"
         with tarfile.open(archive, "r:gz") as saved:

@@ -31,9 +31,10 @@ class ControlResumeTests(unittest.TestCase):
         f = self.f
         for name in ('launch.sh', 'control_resume.py', 'codex_login.py'):
             if (HERE / name).exists(): shutil.copyfile(HERE / name, f.root / 'factory' / name)
-        for name in ('boat-launch-guards.sh', 'boat-spend'):
+        for name in ('boat-launch-guards.sh', 'boat-spend', 'processes.py'):
             shutil.copyfile(HERE.parent / 'bin' / name, f.root / 'bin' / name)
             (f.root / 'bin' / name).chmod(0o755)
+        shutil.copyfile(HERE / 'runner_supervisor.py', f.remote / 'factory/runner_supervisor.py')
         guards=f.root/'bin/boat-launch-guards.sh'
         guards.write_text(guards.read_text().replace('guard_delete_receipt() {',
             'guard_delete_receipt() {\n  "$root/bin/boat-call" test-gate before-delete',1).replace(

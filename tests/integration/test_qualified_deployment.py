@@ -386,7 +386,7 @@ boat() {
   /bin/sh -c "$3"
 }
 guard_new() { id=fixture; }
-''' + LAUNCHER[start:end] + '\ntouch "$HOME/credentials-delivered"\n'
+''' + LAUNCHER[start:end] + '\n)\nstatus=$?\n[ "$status" -eq 0 ] || exit "$status"\ntouch "$HOME/credentials-delivered"\n'
         return subprocess.run(['/bin/sh', '-c', script], env={**os.environ, 'HOME': str(self.home)}, capture_output=True, text=True)
 
     def test_readiness_refusals_never_transfer_install_or_deliver(self):

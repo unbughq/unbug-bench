@@ -36,8 +36,11 @@ def stamp(root, output):
 
 
 def output(command):
-    return subprocess.check_output(command, text=True, stderr=subprocess.STDOUT, timeout=30,
-                                   env={**os.environ, 'OPENCODE_DISABLE_AUTOUPDATE': '1'}).strip()
+    sys.path.insert(0, str(Path(os.environ.get('BENCH', Path.home() / 'unbug-bench')) / 'bin'))
+    import processes
+    return processes.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         timeout=30, check=True,
+                         env={**os.environ, 'OPENCODE_DISABLE_AUTOUPDATE': '1'}).stdout.strip()
 
 
 def verify_driver(driver, executable=None, policy=None):

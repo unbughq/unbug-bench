@@ -2,19 +2,22 @@
 """Print boat dollars left (BOAT_CMD supported). Launchers also use --check/--finish.
 --check VMS TTL_HOURS MAX_SPEND RECORD; --finish RECORD EXIT_CODE IDS_FILE.
 --total prints every Hetzner server's cost so far (results/spend/hcloud-hosts.jsonl, live ones to now).
-Records account balance deltas, including any concurrent account activity. With
+Observes account balance deltas without attributing concurrent activity to a worker. With
 BOAT_CMD=bin/hcloud-boat (Hetzner: no balance API) the cap uses the dearest type in HCLOUD_PLACES at its live
 Hetzner price, and the finish record prices each server's billed hours. On boat the cap uses BOAT_TYPE's rate.
 2026-10-18: a fixed cx price under-reported cpx servers 2-4x and the cap never fired; prices are now live.
 """
 import datetime
 import decimal
+import fcntl
 import json
 import math
 import os
 import pathlib
 import subprocess
 import sys
+import time
+import processes
 
 D = decimal.Decimal
 CALL = pathlib.Path(__file__).with_name("boat-call")
@@ -28,7 +31,7 @@ _prices = {}
 def eur_per_hour(stype, location=None):
     """Live gross hourly list price + IPv4 at location (unknown location: the dearest); unknown types raise."""
     if stype not in _prices:
-        info = json.loads(subprocess.check_output(["hcloud", "server-type", "describe", stype, "-o", "json"], text=True))
+        info = json.loads(processes.run(["hcloud", "server-type", "describe", stype, "-o", "json"], capture_output=True, text=True, check=True).stdout)
         _prices[stype] = {p["location"]: D(p["price_hourly"]["gross"]) + D("0.0008") for p in info["prices"]}
     return _prices[stype].get(location) or max(_prices[stype].values())
 
@@ -50,7 +53,7 @@ def hetzner_cost(ids=None):
 
 
 def balance():
-    data = json.loads(subprocess.check_output([str(CALL), "billing", "--json"], text=True))
+    data = json.loads(processes.run([str(CALL), "billing", "--json"], capture_output=True, text=True, check=True).stdout)
     value = D(str(data["limits"]["creditBalanceSeconds"])) / 100000
     if not value.is_finite() or value < 0:
         raise ValueError("invalid credit balance")
@@ -70,6 +73,22 @@ def write(path, data):
 
 
 def main():
+    # One control host owns admission. Never silently drop an uncertain hold.
+    home = pathlib.Path(os.environ.get('UNBUG_CONTROL_HOME', str(pathlib.Path.home() / '.unbug-control')))
+    if not HETZNER and len(sys.argv) > 1 and sys.argv[1] in ('--check', '--finish'):
+        home.mkdir(parents=True, exist_ok=True)
+        with (home / 'boat-reservations.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            return accounting(home / 'boat-reservations.json')
+    return accounting(None)
+
+
+def accounting(ledger_path):
+    ledger = (json.loads(ledger_path.read_text()) if ledger_path and ledger_path.exists()
+              else {'version': 1, 'reservations': {}})
+    if ledger.get('version') != 1: raise ValueError('unknown reservation ledger')
+    def save_ledger():
+        if ledger_path: write(ledger_path, ledger)
     if len(sys.argv) == 1:
         print(balance())
     elif sys.argv[1] == "--total":
@@ -88,7 +107,33 @@ def main():
         else:
             rate = BOAT_USD_PER_HOUR[os.environ.get("BOAT_TYPE", "default")]
         estimate = count * hours * rate
-        allowed = (HETZNER or estimate <= before) and estimate <= cap
+        key = str(pathlib.Path(path).resolve())
+        holds = ledger['reservations']
+        expired = [v for v in holds.values() if v['status'] == 'reserved' and time.time() >= v['expires_at']]
+        if expired:
+            # A later worker may have been created after the original batch check.
+            # TTL alone is not proof of deletion. Reconcile only a complete idle fleet.
+            fleet = json.loads(processes.run([str(CALL), 'list', '--all', '--json'],
+                capture_output=True, text=True, check=True).stdout)
+            inactive = {'deleted', 'stopped', 'destroyed', 'terminated', 'archived'}
+            if (isinstance(fleet.get('sandboxes'), list) and
+                    (fleet.get('pageInfo') or {}).get('hasMore') is False and
+                    all(isinstance(v, dict) and v.get('state', v.get('status')) in inactive
+                        for v in fleet['sandboxes'])):
+                for hold in expired:
+                    hold.update(status='reconciled_expired', reconciled_at=now())
+        reserved = sum(D(str(v['usd'])) for k, v in holds.items()
+                       if k != key and v['status'] == 'reserved')
+        allowed = (HETZNER or estimate + reserved <= before) and estimate <= cap
+        if allowed and ledger_path:
+            previous = holds.get(key)
+            if previous and previous['status'] != 'reserved':
+                raise ValueError('completed reservation cannot be reused')
+            if previous and D(str(previous['usd'])) != estimate:
+                raise ValueError('reservation envelope changed')
+            holds[key] = previous or dict(usd=str(estimate), expires_at=time.time() + seconds + 1800,
+                                         status='reserved')
+        save_ledger()
         write(path, dict(started_at=now(), vms=count, ttl_seconds=seconds,
                          estimated_usd=float(estimate), max_spend_usd=float(cap),
                          provider="hetzner" if HETZNER else "boat",
@@ -102,7 +147,12 @@ def main():
     elif sys.argv[1] == "--finish":
         path, code, ids_file = sys.argv[2:]
         data = json.loads(pathlib.Path(path).read_text())
-        if data.get("finished_at"): return
+        if data.get("finished_at"):
+            hold = ledger['reservations'].get(str(pathlib.Path(path).resolve()))
+            if hold:
+                hold.update(status='finished', finished_at=data['finished_at'])
+                save_ledger()
+            return
         data.update(finished_at=now(), exit_code=int(code), ids=pathlib.Path(ids_file).read_text().split())
         if data.get("provider") == "hetzner":
             cost = hetzner_cost(data["ids"])
@@ -112,13 +162,18 @@ def main():
             return
         try:
             after = balance()
-            actual = D(str(data["balance_before_usd"])) - after
-            data.update(balance_after_usd=float(after), actual_spend_usd=float(actual))
-            print(f"Actual spend (account balance delta): ${actual:.5f}; balance ${after:.5f}", file=sys.stderr)
+            delta = D(str(data["balance_before_usd"])) - after
+            data.update(balance_after_usd=float(after), actual_spend_usd=None,
+                        account_balance_delta_usd=float(delta), attribution='account_observation')
+            print(f"Account observation (not lifecycle spend): delta ${delta:.5f}; balance ${after:.5f}", file=sys.stderr)
         except Exception as exc:
             data["balance_after_error"] = str(exc)
             print(f"WARNING: actual spend unavailable: {exc}", file=sys.stderr)
         write(path, data)
+        hold = ledger['reservations'].get(str(pathlib.Path(path).resolve()))
+        if hold:
+            hold.update(status='finished', finished_at=now())
+            save_ledger()
     else:
         raise ValueError(__doc__)
 

@@ -68,5 +68,6 @@
     "opencode/deepseek-v4.1-flash-free",
     "--easy-calibrator-effort",
     "default"
-  ]
+  ],
+  "bench_sha": "2745cddbd6458b5de4da4e5ef626df38cf3b64337987a5d8a004824664b68959"
 }

@@ -15,6 +15,7 @@ TRUSTED_FILES = ('factory/control_resume.py',
  'factory/collect.sh',
  'bin/boat-launch-guards.sh',
  'bin/boat-call',
+ 'bin/processes.py',
  'bin/boat-name',
  'bin/boat-spend',
  'bin/hcloud-boat',
@@ -58,6 +59,7 @@ WORKER_BENCH = ('bin/bench.py',
  'bin/strategy',
  'bin/boat-launch-guards.sh',
  'bin/boat-call',
+ 'bin/processes.py',
  'bin/push-secrets',
  'bin/setup',
  'bin/reset',
@@ -143,3 +145,13 @@ def worker_upload(root, release_manifest, output):
                 sha(root/name)  # same regular-file boundary as release stamping
                 archive.add(root/name, arcname=name, recursive=False)
         archive.add(release_manifest, arcname='worker-release-manifest.json', recursive=False)
+
+
+def verify_worker_runtime(root, bundle):
+    """The launcher must never detach a supervisor absent from the frozen release."""
+    import tarfile
+    with tarfile.open(bundle) as archive:
+        manifest = json.load(archive.extractfile('worker-release-manifest.json'))
+    for name in ('factory/runner_supervisor.py', 'bin/processes.py'):
+        if manifest.get('files', {}).get(name) != sha(root / name):
+            raise ValueError('frozen worker runtime is incompatible with launcher: ' + name)

@@ -18,9 +18,9 @@ CALL = (_BENCH_ROOT / "bin" / 'boat-call')
 
 
 class BoatCallTests(unittest.TestCase):
-    def test_shell_sessions_disabled_and_stdin_preserved(self):
+    def test_updates_disabled_and_stdin_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:
-            fake = Path(tmp) / 'zsh'
+            fake = Path(tmp) / 'fake-transport'
             fake.write_text('''#!/usr/bin/env python3
 import json,os,sys
 if os.environ.get('SHELL_SESSIONS_DISABLE') != '1': print('Restored session: synthetic terminal')
@@ -28,8 +28,7 @@ print(json.dumps({'stdin':sys.stdin.read(),'args':sys.argv[1:]}))
 ''')
             fake.chmod(0o755)
             env = {**os.environ, 'PATH':tmp + os.pathsep + os.environ['PATH'],
-                   'SHELL_SESSIONS_DISABLE':'0'}
-            env.pop('BOAT_CMD', None)
+                   'SHELL_SESSIONS_DISABLE':'0', 'BOAT_CMD':str(fake)}
             p = subprocess.run([str(CALL), '--stdin', 'ssh', 'fake', 'cat'],
                                env=env, input='synthetic input\n',capture_output=True,text=True,timeout=5)
             self.assertEqual(p.returncode, 0, p.stderr)

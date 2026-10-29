@@ -162,7 +162,7 @@ def main():
         check_vm_trial(root)
         bench = root / 'bench'
         (bench / 'bin').mkdir(parents=True)
-        for name in ('exam-round', 'exam_meter.py', 'boat-call'):
+        for name in ('exam-round', 'exam_meter.py', 'boat-call', 'processes.py'):
             shutil.copy2(ROOT / 'bin' / name, bench / 'bin' / name)
         fake, boat = root / 'fake-exam', root / 'fake-boat'
         for path, content in ((fake, FAKE), (boat, BOAT)):

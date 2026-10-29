@@ -325,7 +325,7 @@ if [ -n "$reuse_worker" ]; then
 import json, pathlib, subprocess, sys
 card = json.load(sys.stdin); home = pathlib.Path.home(); case = card['case']
 if (home / 'sealed/DONE').exists(): sys.exit('reuse worker already finished')
-if subprocess.run(['pgrep', '-f', '^python3 [^ ]*/factory/run.py( |$)'], stdout=subprocess.DEVNULL).returncode != 1:
+if subprocess.run(['pgrep', '-f', '^python3 [^ ]*/factory/(run|runner_supervisor)[.]py( |$)'], stdout=subprocess.DEVNULL).returncode != 1:
     sys.exit('reuse worker runner is active or uncertain')
 if subprocess.run(['pgrep', '-f', '(^|/)(opencode|claude|codex)( |$)'], stdout=subprocess.DEVNULL).returncode != 1:
     sys.exit('reuse worker model process is active or uncertain')
@@ -365,12 +365,22 @@ from launch_manifest import worker_upload
 worker_upload(*(Path(p) for p in sys.argv[1:]))
 PYCODE
 fi
+PYTHONPATH="$here" python3 -B - "$root" "$bundle" <<'PYCODE'
+from pathlib import Path
+import sys
+from launch_manifest import verify_worker_runtime
+verify_worker_runtime(*(Path(p) for p in sys.argv[1:]))
+PYCODE
 fi
 probe_python=$(cat <<'PYCODE'
 import glob, os, time
 home = os.path.expanduser("~")
+import json
+status = home + "/sealed/runner-status.json"
 if os.path.isfile(home + "/sealed/DONE"):
     print("DONE")
+elif os.path.isfile(status) and (lambda s: s.get('reason') == 'startup_failed' or s.get('phase') in ('finished', 'stopped'))(json.load(open(status))):
+    print("STARTUP_FAILED")
 else:
     paths = [home + "/.boat-launch-start"] + glob.glob(home + "/sealed/*.continuation-budget.json")
     # Gates and strategy runs write bench evidence under ~/unbug-bench/results, not ~/work.
@@ -519,7 +529,7 @@ if [ -z \"$admission_proof\" ]; then
 mkdir ~/sealed/.factory-restart.lock
 trap 'rmdir ~/sealed/.factory-restart.lock' 0
 fi
-if pgrep -f '^python3 .*factory/run.py' >/dev/null; then echo 'runner already running' >&2; exit 1; fi
+if pgrep -f '^python3 .*factory/(run|runner_supervisor)[.]py' >/dev/null; then echo 'runner already running' >&2; exit 1; fi
 $admission_guard
 test -d ~/work/$resume_case/case
 test -f ~/sealed/$resume_case.continuation-budget.json
@@ -529,7 +539,7 @@ $resume_creds
 rm -f ~/sealed/DONE
 touch ~/.boat-launch-start
 $admission_trap
-FACTORY_DEFER_WIPE=1 FACTORY_OPENCODE_BIN=/usr/local/bin/opencode python3 ~/factory/run.py $args $workers_arg --resume $resume_case --resume-bench-sha $sha --seed $original_seed > ~/sealed/scorecard.stdout 2>/dev/null < /dev/null" >/dev/null; then
+FACTORY_DEFER_WIPE=1 FACTORY_OPENCODE_BIN=/usr/local/bin/opencode FACTORY_RUNNER_SECONDS=$remaining FACTORY_RUNNER_GRACE_SECONDS=$((margin / 2 < 720 ? margin / 2 : 720)) python3 ~/factory/runner_supervisor.py -- python3 ~/factory/run.py $args $workers_arg --resume $resume_case --resume-bench-sha $sha --seed $original_seed > ~/sealed/scorecard.stdout 2>/dev/null < /dev/null" >/dev/null; then
     touch "$state/$resume_id.keep"
     echo "$resume_id: KEEPING VM: detached restart outcome is uncertain; reconcile before deletion" >&2
     collect_vm "$resume_id" || true
@@ -547,12 +557,27 @@ if [ "${UNBUG_RESUME_LAUNCH:-}" = 1 ]; then
   exit "$batch_status"
 fi
 while [ "$serial" -lt "$n" ]; do
-  codex_login_gate
+  if ! codex_login_gate; then batch_status=1; break; fi
   if [ -n "$qualified_release" ]; then
     readiness_mono=$(python3 -c 'import time; print(time.monotonic())')
     readiness_wall=$(python3 -c 'import time; print(time.time())')
   fi
-  if [ -n "$reuse_worker" ]; then serial=$((serial + 1)); else guard_new; fi
+  if [ -n "$reuse_worker" ]; then serial=$((serial + 1)); else
+    if ! guard_new; then
+      batch_status=1
+      if [ -n "$id" ]; then
+        date +%s > "$state/$id.started"
+        guard_retire "$id" || true
+        touch "$state/$id.retired"
+      fi
+      continue
+    fi
+  fi
+  # Standalone subshell: conditional subshells disable errexit in POSIX shells.
+  set +e
+  (
+  trap - 0 INT TERM
+  set -e
   if [ -n "$qualified_release" ]; then qualified_readiness; fi
   # Reuse the restore stream instead of a separate SCP transport.
   # Verify the complete public bundle before unpacking or sending credentials.
@@ -564,7 +589,8 @@ while [ "$serial" -lt "$n" ]; do
   fi
   # Fork hydration can replace the baked CLI. Re-pin before keys or case data arrive;
   # v2 omits the usage event the budget guard needs. Keep updates off for the worker too.
-  ( BOAT_COMMAND_TIMEOUT_SECONDS=${BOAT_PIN_TIMEOUT_SECONDS:-300} boat ssh "$id" "$opencode_pin" ) || { echo "$id: could not pin agent CLIs (OpenCode 1.19.0, Codex 0.162.1)" >&2; exit 1; }
+  ( BOAT_COMMAND_TIMEOUT_SECONDS=${BOAT_PIN_TIMEOUT_SECONDS:-300} boat ssh "$id" "$opencode_pin" ) ||
+    { sleep 1; BOAT_COMMAND_TIMEOUT_SECONDS=${BOAT_PIN_TIMEOUT_SECONDS:-300} boat ssh "$id" "$opencode_pin"; } || { echo "$id: could not pin agent CLIs (OpenCode 1.19.0, Codex 0.162.1)" >&2; exit 1; }
   if [ -n "$qualified_release" ]; then
     boat ssh "$id" 'python3 -B ~/qualified-release/deploy.py verify --release ~/qualified-release' > "$state/$id.source-preimport.json" || { echo "$id: full source verification failed before credentials" >&2; exit 1; }
   fi
@@ -572,7 +598,8 @@ while [ "$serial" -lt "$n" ]; do
   ( BOAT_COMMAND_TIMEOUT_SECONDS=${BOAT_IMAGE_TIMEOUT_SECONDS:-1800} boat ssh "$id" 'cd ~/unbug-bench; docker image inspect unbug-bench-medusa:latest >/dev/null 2>&1 || { docker compose -f projects/medusa/compose.yaml pull postgres redis && docker compose -f projects/medusa/compose.yaml build medusa; }' ) || { echo "$id: Medusa image preparation failed before credentials" >&2; exit 1; }
   # Qualification is read-only: no model calls or credentials. Driver defaults
   # match the existing pin block; selected Claude is checked by run.py before use.
-  boat ssh "$id" 'OPENCODE_DISABLE_AUTOUPDATE=1 python3 -B ~/factory/worker_release.py --manifest ~/worker-release-manifest.json --root ~/unbug-bench --factory-root ~/factory --drivers opencode,codex' > "$state/$id.worker-release.json" || { echo "$id: worker release qualification failed" >&2; exit 1; }
+  boat ssh "$id" 'OPENCODE_DISABLE_AUTOUPDATE=1 python3 -B ~/factory/worker_release.py --manifest ~/worker-release-manifest.json --root ~/unbug-bench --factory-root ~/factory --drivers opencode,codex' > "$state/$id.worker-release.json" ||
+    { sleep 1; boat ssh "$id" 'OPENCODE_DISABLE_AUTOUPDATE=1 python3 -B ~/factory/worker_release.py --manifest ~/worker-release-manifest.json --root ~/unbug-bench --factory-root ~/factory --drivers opencode,codex' > "$state/$id.worker-release.json"; } || { echo "$id: worker release qualification failed" >&2; exit 1; }
   if [ -n "$qualified_release" ]; then
     boat ssh "$id" 'python3 -B ~/qualified-release/deploy.py verify --release ~/qualified-release' > "$state/$id.source-verify.json" || { echo "$id: full source verification failed before credentials" >&2; exit 1; }
   fi
@@ -648,10 +675,22 @@ PYCODE
     python3 -c 'import json,sys; print(json.dumps({"prefix": "vm/" + sys.argv[1], "checkpoint": sys.argv[2], "final": sys.argv[3]}))' "$id" "$put_ckpt" "$put_final" |
       boat --stdin ssh "$id" "umask 077; cat > ~/.factory-r2" >/dev/null || echo "$id: R2 links not stored; archives stay host-collected only" >&2
   fi
+  remaining=$((retire_at - $(date +%s) + $(cat "$state/$id.started")))
+  [ "$remaining" -gt 0 ] || exit 1
   review_lock_exit=""
   if [ -n "$reuse_worker" ]; then review_lock_exit="set -eu; trap 'rmdir ~/sealed/.factory-review-restore.lock' 0;"; fi
-  boat exec "$id" --detach -- sh -c "$review_lock_exit mkdir -p ~/sealed ~/.codex && touch ~/.boat-launch-start && $vm_creds && FACTORY_DEFER_WIPE=1 FACTORY_OPENCODE_BIN=/usr/local/bin/opencode FACTORY_CODEX_BIN=/usr/local/bin/codex python3 ~/factory/run.py $args $workers_arg > ~/sealed/scorecard.stdout 2>/dev/null < /dev/null" >/dev/null
+  boat exec "$id" --detach -- sh -c "$review_lock_exit mkdir -p ~/sealed ~/.codex && touch ~/.boat-launch-start && $vm_creds && FACTORY_DEFER_WIPE=1 FACTORY_OPENCODE_BIN=/usr/local/bin/opencode FACTORY_CODEX_BIN=/usr/local/bin/codex FACTORY_RUNNER_SECONDS=$remaining FACTORY_RUNNER_GRACE_SECONDS=$((margin / 2 < 720 ? margin / 2 : 720)) python3 ~/factory/runner_supervisor.py -- python3 ~/factory/run.py $args $workers_arg > ~/sealed/scorecard.stdout 2>/dev/null < /dev/null" >/dev/null
   echo "started $id" >&2
+  )
+  setup_status=$?
+  set -e
+  printf '%s\n' "$setup_status" > "$state/$id.setup-status"
+  if [ "$setup_status" -ne 0 ]; then
+    batch_status=1
+    echo "$id: setup failed; retiring this worker while peers continue" >&2
+    guard_retire "$id" || true
+    touch "$state/$id.retired"
+  fi
   guard_wait once || batch_status=1
 done
 guard_wait || batch_status=1

@@ -175,7 +175,7 @@ with tempfile.TemporaryDirectory() as tmp:
         return subprocess.CompletedProcess(cmd, 0)
     with mock.patch.object(run, "SEALED", sealed), mock.patch.object(run, "STATEMENTS_RECIPIENT", recipient), \
          mock.patch.object(run, "AGENT_STATE", []), mock.patch.object(run, "PILOT_HOME", root / "no-pilot"), \
-         mock.patch.object(run.RunArtifacts, "results_since", return_value=[]), mock.patch.object(run.subprocess, "run", encrypt), \
+         mock.patch.object(run.RunArtifacts, "results_since", return_value=[]), mock.patch("run_artifacts.processes.run", encrypt), \
          mock.patch("r2_upload.case_recipient", return_value=None):  # the case key has its own test (test_r2_upload.py)
         run.seal(c)
     assert (sealed / "case-2new.statement.age").read_bytes() == b"fake ciphertext"

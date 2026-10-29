@@ -206,7 +206,7 @@ with tempfile.TemporaryDirectory() as tmp:
          mock.patch.object(run, 'HOME', root / 'runner'), \
          mock.patch.object(run.RunArtifacts, 'results_since', return_value=[]), \
          mock.patch.object(run.RunArtifacts, 'result_dirs_since', return_value=[]), \
-         mock.patch.object(run.subprocess, 'run', command):
+         mock.patch('run_artifacts.processes.run', command):
         run.seal(c)
         for user, _ in homes:
             assert (c.work / f'agent-state/{user}-home/fixture').is_file()

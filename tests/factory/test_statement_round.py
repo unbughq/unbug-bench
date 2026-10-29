@@ -96,7 +96,7 @@ class StatementRoundTests(unittest.TestCase):
 
     def test_launcher_preflights_before_creation_and_installs_before_execution(self):
         script = (pathlib.Path(__file__).resolve().parents[2] / "factory" / 'launch.sh').read_text()
-        self.assertLess(script.index('snapshot = prepare_restore('), script.index('else guard_new; fi'))
+        self.assertLess(script.index('snapshot = prepare_restore('), script.index('if ! guard_new;'))
         self.assertLess(script.index("install(*sys.argv[1:], provider='boat')"), script.index('boat exec "$id" --detach'))
         self.assertIn('[ "$audit_g11" = no ] && [ -z "$sealed_audit" ]', script)
 

@@ -192,7 +192,7 @@ reservation and honest account observations; 17 remains open because cross-host 
 Rows 42/43 gain gate deadlines and shared ownership for the named paths, but
 remain open until all direct subprocess callsites (including stream A's model
 setup and stream B's transfer/collection paths) use remaining-time bounds.
-Rows 28/29/30/32/37/45/50 remain open: complete paginated/queued inventory,
+Rows 29/30/32/37/45/50 remain open (row 28 moved to B): complete paginated/queued inventory,
 operation-ID reconciliation, explicit batch contract, complete frozen release
 installation/digest-pinned image distribution, disk/host-memory admission,
 and restart-safe provider/UTC clock handling require subsequent changes. Do
@@ -289,3 +289,60 @@ repeated TERM is safe under the runner's pause handler. A held/uncertain VM
 never releases its wallet reservation via finish: guard_exit checks all IDs
 are deleted/verified before --finish regardless of launch-state mode. Expired
 reservation reconciliation remains the provider TTL backstop.
+
+## Implementation clarifications
+
+The parent owns row 28 after the interfaces.md contract; E drops it. Unknown
+launch outcomes stay pending. Startup_failed is a runner phase and never a
+claim that Boat created no worker. Row 29 remains open for operation-ID retry
+and reconciliation integration. On the runner's work deadline, supervisor
+requests the normal pause/seal path before killing. It passes that monotonic
+deadline to children and reserves a separate grace of min(720, margin/2)
+seconds inside the already allocated provider collection margin. The remaining
+margin belongs to collection. This prevents the supervisor racing normal TTL
+retirement and killing a checkpoint in progress. No provider TTL is extended.
+The only live consumer of actual_spend_usd is public-qualification/finish.py;
+it already refuses unknown spend. This remains safe but blocks financial
+finalization until authoritative per-lifecycle provider usage is supplied (49
+open). Parked Hetzner servers bypass the Boat-wallet ledger entirely.
+
+Expired wallet holds reconcile only after a complete --all inventory proves
+there are no compute-active workers. TTL alone cannot prove this, because the
+last worker may be created much later than batch admission. An incomplete
+inventory or any live worker retains the hold. This is deliberately conservative
+until B supplies paginated, per-operation lifecycle inventory.
+
+Nested helpers inherit UNBUG_PROCESS_GROUP_OWNED=1 and stay in the already
+owned outer group. Top-level foreground calls still create a session. This
+prevents nested owners from escaping when an intermediate shell exits; shared
+diagnostic ownership is preserved. A shared child kills only its own PID tree,
+never the owner's group. Strategy watcher cleanup uses the same helper.
+
+A creation response without an owned worker ID is unknown, not failed.
+guard_new writes new.<serial>.pending; guard_exit retains the batch wallet
+reservation and leaves the launch incomplete. It never retries that creation.
+A new real-envelope lost-response test proves pending survives the exit path.
+Operation-ID reconciliation still belongs to the remaining row 29 work.
+
+Before allocation, launch_manifest.verify_worker_runtime checks the frozen
+bundle's supervisor and process-helper hashes against the reviewed launcher
+checkout. Historical qualified releases without these files refuse before a
+worker is allocated; otherwise the new launcher would detach a missing
+supervisor and recreate row 46. Deployment therefore requires a newly qualified
+complete release built from the integrated checkout, as already required by
+the rollout section. This is a compatibility check, not a new upload path or
+a claim that rows 32/37 are closed.
+
+## Validation and closure
+
+Mandatory offline suite completed on 2026-10-29: 130 scripts, 0 failed.
+Command: uv run --with numpy --with scipy python -B tests/run.py. Focused
+real-envelope fault tests pass (15), controller recovery tests pass (14),
+launch guard tests pass, and the final runtime compatibility guard is checked
+against both a real historical source inventory and a current stamped bundle.
+The final supervisor-attempt cleanup adjustment is rechecked by the focused
+fault suite. No real VM was launched, no restore bundle changed, and no real
+ciphertext was decrypted. Only public metadata was copied from the read-only
+restore directories. Existing offline tests use throwaway synthetic keys.
+Rows 31/44/46/52 are marked closed with their test paths in this fix commit,
+pending diff-goldfish confirmation. Other E rows remain open as documented.
