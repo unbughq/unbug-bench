@@ -345,3 +345,8 @@ The orphan test_restore_failover_bundle.py referenced an absent, untracked rescu
 finalizer. It is deleted, matching E commit e26fb55's cleanup; unified finalization
 remains covered by tests/tools/test_late_restore_bundle.py. No rescue helper or
 alternative launch path is restored.
+
+Generic negative probes also apply shared validity before claiming a checker pass,
+including run-count agreement and the existing workflow-compensation prerequisite.
+This closes a positive-result bypass in addition to all-invalid cheat rejection.
+The saved mixed G11 batch reproduces that path without inventing trial output.

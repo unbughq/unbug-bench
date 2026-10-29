@@ -262,6 +262,15 @@ class InvalidRunsTests(unittest.TestCase):
             row = next(row for row in controls if row['probe'] == name)
             self.assertEqual(row['outcome'], 'rejected'); self.assertTrue(row['verified'])
 
+    def test_negative_probe_cannot_claim_a_cheat_pass_from_a_mixed_invalid_batch(self):
+        import runpy
+        outcome = runpy.run_path(str(ROOT / 'bin/verify-negative'))['probe_outcome']
+        summary, records = batch('g11-mixed')
+        self.assertTrue(any(row['checker']['pass'] for row in records))
+        self.assertEqual(outcome(summary, records, 'invalid')[0], 'invalid-probe')
+        summary, records = batch('reference')
+        self.assertEqual(outcome(summary, records, 'invalid')[0], 'cheat-pass')
+
     def test_row_40_real_g11_runtime_failure_is_unknown(self):
         report = copy.deepcopy(next(iter(REAL['fake-pass-report']['files'].values())))
         guard = ROOT / 'guards/reference'; report['guards'][0]['guard'] = str(guard)

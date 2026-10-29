@@ -55,7 +55,7 @@ class NegativeProbeTests(unittest.TestCase):
 
     def test_shape_failure_is_invalid_and_actual_pass_is_separate(self):
         record = {'errors': [], 'checker': {'valid': True, 'sequential_oversold': True,
-                  'units_sold_s': 12, 'pass': False}}
+                  'units_sold_s': 12, 'pass': False}, 'judge': {'paths': {}, 'checks': {}, 'pass': False}}
         summary = {'pass': 0, 'runs': 1}
         self.assertEqual(negative.probe_outcome(summary, [record], negative.sequential_oversell)[0], 'rejected')
         record['traffic'] = {'response': {'data': {'message': 'Updating Status from "ok" to "temp_failure" is not allowed.'}}}
@@ -63,7 +63,7 @@ class NegativeProbeTests(unittest.TestCase):
         record.pop('traffic')
         record['checker']['units_sold_s'] = 5
         self.assertEqual(negative.probe_outcome(summary, [record], negative.sequential_oversell)[0], 'invalid-probe')
-        record['checker']['pass'] = True
+        record['checker']['pass'] = record['judge']['pass'] = True
         self.assertEqual(negative.probe_outcome(summary, [record], negative.sequential_oversell)[0], 'cheat-pass')
 
 
