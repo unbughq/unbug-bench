@@ -119,7 +119,9 @@ sys.path.insert(0, str(BENCH / "bin"))
 
 
 class Ctx:  # one run's state
-    pass
+    def __init__(self):
+        # Shared by shallow role contexts, never checkpointed on the public card.
+        self.router_waits, self.router_interrupted_calls = [], []
 
 
 def log(c, *parts):
@@ -187,16 +189,16 @@ def pick_models(c):
 
 def opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None):
     runtime = model_runtime.ModelRuntime(HOME, sh, public_progress, shred_tree, pilot_home)
-    c.card.setdefault('router_waits', [])
-    c.card.setdefault('router_interrupted_calls', [])
+    if not hasattr(c, 'router_waits'): c.router_waits = []
+    if not hasattr(c, 'router_interrupted_calls'): c.router_interrupted_calls = []
     try:
         result = runtime.call(c, models, text, cwd, name, user=user, timeout=timeout, deadline=deadline,
                               **({'before_attempt': before_attempt} if before_attempt is not None else {}),
                               **({'lease': lease} if lease is not None else {}))
     except model_router.ProviderWait as error:
         with PROVIDER_WAIT_LOCK:
-            c.card['router_waits'].extend(getattr(error, 'previous_waits', []))
-            c.card['router_waits'].append({'role': error.role, **model_runtime.asdict(error.wait)})
+            c.router_waits.extend(getattr(error, 'previous_waits', []))
+            c.router_waits.append({'role': error.role, **model_runtime.asdict(error.wait)})
         raise
     if (not user and hasattr(c, "recipient") and not c.args.dry_run
             and not hasattr(c, "calibrator_slot_offset")):
@@ -218,13 +220,17 @@ def write_provider_wait(c, error):
     """
     from registry import atomic_json
     with PROVIDER_WAIT_LOCK:
-        waits = list(c.card.pop('router_waits', []))
+        waits = list(getattr(c, 'router_waits', []))
+        if hasattr(c, 'router_waits'): c.router_waits.clear()
+        c.card.pop('router_waits', None)  # Drop stale scratch fields from older checkpoints.
+        c.card.pop('router_interrupted_calls', None)
         if isinstance(error, model_router.ProviderWait):
             candidate = {'role': error.role, **model_runtime.asdict(error.wait)}
             if candidate not in waits: waits.append(candidate)
         if not waits: raise BudgetError('provider_wait_record_missing')
         selected = max(waits, key=lambda row: (row['evidence'] == 'interrupted', row['retry_after']))
-        interrupted = c.card.pop('router_interrupted_calls', [])
+        interrupted = list(getattr(c, 'router_interrupted_calls', []))
+        if hasattr(c, 'router_interrupted_calls'): c.router_interrupted_calls.clear()
         retry = max(row['retry_after'] for row in waits)
         batch, job, deadline = model_router.metadata(c)
         record = {'wait_id': str(__import__('uuid').uuid4()), 'case': c.case_id, 'job': job, 'batch': batch,
@@ -2630,7 +2636,7 @@ def main():
             validate_and_repair(c)
     except (BudgetError, PauseRequested) as error:
         c.stopped = True
-        if str(error) == 'provider_wait' or (str(error) == 'cancelled' and c.card.get('router_waits')):
+        if str(error) == 'provider_wait' or (str(error) == 'cancelled' and getattr(c, 'router_waits', [])):
             write_provider_wait(c, error)
         else:
             c.card['terminal_stop'] = 'paused' if isinstance(error, PauseRequested) else str(error)

@@ -343,7 +343,8 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             try: lines = log.read_text(errors='replace').splitlines()[-2000:]
             except OSError: continue
             if any('usage limit exceeded' in l.lower() and l[10:29] >= started_utc for l in lines if l.startswith('timestamp=')):
-                raise BudgetError('provider_limit:' + provider_model, provider_failure=classify_provider_failure('usage limit', provider_model))
+                raise BudgetError('provider_limit:' + provider_model, provider_failure={
+                    **classify_provider_failure('usage limit', provider_model), 'per_call': True})
 
     def check_limits():
         if collecting_usage: return  # accounting buffered output after the process was stopped
@@ -361,7 +362,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         _save(path, ledger)
         if not collecting_usage and ledger['zero_token_streak'] >= max_zero_tokens: raise BudgetError('zero_tokens')
 
-    def diagnostic(text, response=False, partial=False, reset_at=None, retry_after=None, status_code=None, error_type=None, allow_outage=True):
+    def diagnostic(text, response=False, partial=False, reset_at=None, retry_after=None, status_code=None, error_type=None, allow_outage=True, shared=False):
         nonlocal rate_limits
         text = text.lower()
         if driver == 'codex' and not response and (('refresh token' in text and any(s in text for s in (
@@ -372,14 +373,15 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 or 'workspace routing discovery unauthorized' in text
                 or 'authentication token has expired' in text
                 or ('401' in text and ('unauthorized' in text or 'authentication' in text))):
-            raise BudgetError('codex_login_expired', provider_failure={'reason': 'credential_expiring', 'scope': 'account', 'model': provider_model})
+            raise BudgetError('codex_login_expired', provider_failure={'reason': 'credential_expiring', 'scope': 'account',
+                'model': provider_model, **({} if shared else {'per_call': True})})
         if driver == 'codex' and 'cybersecurity' in text and any(w in text for w in ('flagged', 'refus', "can't", 'cannot')):
             raise BudgetError('refusal:' + provider_model)
-        if response and not re.search(r"gousagelimiterror|insufficient credits|\bhttp [45]\d\d\b|^(?:error[: ]|you(?:'ve| have)? (?:hit|reached|exceeded)|usage limit\b|rate limit\b|limit reached)", text.strip()):
-            return False  # Assistant prose may discuss business usage limits.
+        if response: return False  # Assistant prose cannot establish provider health.
         observation = classify_provider_failure(text, provider_model, reset_at=reset_at, retry_after=retry_after,
             status_code=status_code, error_type=error_type, allow_outage=allow_outage and not response)
         if observation:
+            if not shared: observation['per_call'] = True
             if observation['reason'] == 'rate':
                 if partial: return False
                 rate_limits += 1
@@ -503,11 +505,11 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         # Never scan tool output or echoed command/prompt text for provider errors.
         if kind == 'error' or (kind == 'system' and event.get('subtype') in ('error', 'api_retry', 'retry')) or (kind == 'result' and event.get('is_error')) or (driver == 'claude' and kind == 'assistant' and event.get('error')):
             info = provider_diagnostic(event)
-            if diagnostic(**info, allow_outage=kind != 'system'): return
+            if diagnostic(**info, allow_outage=kind != 'system', shared=kind != 'system'): return
         elif driver == 'claude' and kind == 'result':
             diagnostic(str(event.get('result', '')), response=True)
         elif driver == 'codex' and kind == 'turn.failed':
-            diagnostic(**provider_diagnostic(event))
+            diagnostic(**provider_diagnostic(event), shared=True)
         elif driver == 'codex' and kind == 'item.completed' and (event.get('item') or {}).get('type') == 'agent_message':
             diagnostic(str(event['item'].get('text', '')), response=True)
         elif driver == 'opencode' and kind == 'text':

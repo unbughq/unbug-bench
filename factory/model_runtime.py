@@ -222,6 +222,8 @@ class ModelRuntime:
             if lease is not None: model_router.finish(lease.lease_id, 'denied', None)
             raise
         context = copy.copy(c)
+        if not hasattr(c, 'router_interrupted_calls'): c.router_interrupted_calls = []
+        context.router_interrupted_calls = c.router_interrupted_calls
         context.router_model = requested
         context.role_cancel = getattr(c, 'role_cancel', None) or threading.Event()
         context.model_env = dict(getattr(c, 'model_env', {}))
@@ -278,10 +280,10 @@ class ModelRuntime:
                     reason = ('quota' if label.startswith('provider_limit') else 'credential_expiring' if label in ('codex_login_expired', 'credential_expiring') else
                               'outage' if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:') else None)
                     if reason: failure = {'reason': reason, 'model': lease.route}
-                    if label.startswith('refusal:'):
-                        failure['per_call'] = True
-                        context.router_excluded = (*getattr(context, 'router_excluded', ()), lease.route)
+                    if label.startswith('refusal:'): failure['per_call'] = True
                 if not failure: raise
+                if failure.get('per_call'):
+                    context.router_excluded = (*getattr(context, 'router_excluded', ()), lease.route)
                 context.router_condition_since = time.monotonic()
                 if failure.get('reason') == 'quota' and lease.route.startswith('claude/'):
                     reset = _read_json(getattr(c, 'ledger', '/nonexistent'), {}).get('claude_resets_at')
@@ -313,7 +315,7 @@ class ModelRuntime:
                     receipt_row.update(outcome=outcome, call_id=receipt)
                     if cancelled and invoked and receipt:
                         with INTERRUPTED_LOCK:
-                            c.card.setdefault('router_interrupted_calls', []).append({
+                            c.router_interrupted_calls.append({
                                 'role': role, 'lease_id': lease.lease_id, 'call_id': receipt,
                                 'route': lease.route, 'account': lease.account})
                 finally:

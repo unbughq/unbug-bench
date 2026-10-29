@@ -342,10 +342,13 @@ an uncertain finish is retried with the same lease and receipt before new work.
 The 60-second condition timer starts at the provider failure, including when
 finish reconciliation follows that failure, rather than at invocation start.
 
-Outage detection uses structured provider status/error fields only. Assistant
-prose mentioning HTTP 404 or HTTP 500 and CLI api_retry metadata never marks a
-route unhealthy. A refusal excludes its effective route for that logical call;
-it does not change shared account health. Admission freezes account order for
+Outage detection uses structured provider status/error fields only. All shared
+health observations require structured provider errors. Normal assistant prose,
+including HTTP 402/404/429/500, credits and quota descriptions, never marks a
+route unhealthy. Unstructured CLI diagnostics stay per-call, as do refusals:
+they exclude their effective route for that logical call. With the rollout flag
+off, exhausting all candidates raises provider_routes_exhausted immediately.
+Admission freezes account order for
 each request ID, including retries after a lost response. Unknown paid OpenCode
 models use the Go account pools rather than the native free pool.
 
@@ -355,6 +358,21 @@ interrupted evidence winning over denied-before-work. restart accepts the real
 budget ledger's cancelled stop only when the public card establishes a provider
 wait. A supplied lease remains in the record if initial renewal fails before
 execution, so D can match its pending reservation; its usage is known zero.
+Scratch wait/peer lists live on the in-memory case context, shared by shallow
+role copies, never on the public card. A fresh process cannot mistake old
+cancelled-call entries for a current interrupted lease. c.model_lease remains
+available for serial callbacks; concurrent code uses its explicit lease or the
+private execution context, since peers overwrite that convenience field.
+
+TLS acceptance does not perform a handshake on the server's accept loop. Each
+handler performs its handshake under a five-second timeout, so an idle raw TCP
+client cannot delay a concurrent capacity, renewal or finish RPC.
+
+Legacy Claude provider_limit restart waits use the actual future reset without
+the old six-hour cap; an already-expired reset uses the quota fallback (15
+minutes plus the two-minute legacy margin). A reset beyond the worker's remaining
+collection deadline refuses that legacy same-worker restart. B owns fresh-worker
+continuation before the batch deadline for provider_wait cards.
 
 The FIFO check is deliberately conservative: an older request sharing a possible
 pool can delay a newer request even if another pool could serve the older one.

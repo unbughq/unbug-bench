@@ -9,6 +9,8 @@ from dataclasses import asdict
 import gzip
 import json
 import os
+import socket
+import ssl
 import tempfile
 import subprocess
 import threading
@@ -253,7 +255,7 @@ class RouterTests(unittest.TestCase):
             event = copy.deepcopy(PAID[0]['continuation_budget']['events'][number])
             (self.root/f'usage-receipts/{number}.json').write_text(json.dumps({'events':[event],
                 'final_usage_known':number == 1, 'booked_event_ids':[event['id']]}))
-        c.card['router_waits'] = [dict(role='writer', reason='quota', retry_after=time.time()+100,
+        c.router_waits = [dict(role='writer', reason='quota', retry_after=time.time()+100,
             evidence='interrupted', route='claude/claude-opus-5-5', account='claude-token', lease_id='a'*32,
             call_id='usage-receipts/1.json'), dict(role='reviewer', reason='outage', retry_after=time.time()+200,
             evidence='interrupted', route='codex/gpt-6.1-sol', account='codex-auth.json', lease_id='b'*32,
@@ -419,7 +421,9 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
 
     def test_assistant_http_prose_and_retry_metadata_are_not_outages(self):
         from test_budget import BudgetTests,event,emit
-        for index,text in enumerate(('The endpoint returns HTTP 404.', 'The endpoint returns HTTP 500.')):
+        for index,text in enumerate(('The endpoint returns HTTP 404.', 'The endpoint returns HTTP 500.',
+                'The endpoint returns HTTP 402.', 'The handler reports insufficient credits.',
+                'The endpoint returns HTTP 429.', 'Usage limit reached is a business rule.')):
             for driver in ('opencode','codex','claude'):
                 directory=self.root/f'{index}-{driver}';directory.mkdir()
                 if driver=='opencode':
@@ -436,6 +440,42 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
                 ledger=json.loads((directory/'ledger').read_text())
                 self.assertEqual(ledger['terminal_stop'],'complete')
                 self.assertNotIn('provider_failure',ledger)
+
+    def test_idle_tcp_client_does_not_block_tls_capacity(self):
+        cert,key=self.root/'cert.pem',self.root/'key.pem'
+        subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(key),
+            '-out',str(cert),'-subj','/CN=localhost','-days','1'],check=True,capture_output=True,timeout=10)
+        server=router.Server(('127.0.0.1',0),self.store,'synthetic-token')
+        context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.load_cert_chain(cert,key)
+        server.socket=context.wrap_socket(server.socket,server_side=True,do_handshake_on_connect=False)
+        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        try:
+            with socket.create_connection(server.server_address,timeout=2):
+                request=urllib.request.Request(f'https://localhost:{server.server_port}/capacity',
+                    json.dumps({'route':router.CHAINS[0][0]}).encode(),
+                    {'Authorization':'Bearer synthetic-token','Content-Type':'application/json'})
+                trust=ssl.create_default_context(cafile=str(cert))
+                with urllib.request.urlopen(request,context=trust,timeout=2) as response:
+                    self.assertEqual(json.load(response)['slots'],1)
+        finally:server.shutdown();server.server_close();thread.join(timeout=2)
+
+    def test_old_cancelled_receipts_are_not_checkpointed_or_reused(self):
+        c,_,_=self.context()
+        c.card['router_interrupted_calls']=[{'lease_id':'old-generation','call_id':'missing-old-receipt'}]
+        c.card['router_waits']=[]
+        wait=router.ProviderWait('writer',router.Wait('quota',time.time()+900,route='claude/claude-opus-5-5'))
+        record=run.write_provider_wait(c,wait)
+        self.assertEqual(record['evidence'],'denied_before_work')
+        self.assertIsNone(record['lease_id']);self.assertIsNone(record['call_id'])
+        public=json.loads((c.work/'scorecard.json').read_text())
+        self.assertNotIn('router_waits',public);self.assertNotIn('router_interrupted_calls',public)
+
+    def test_flag_off_exhausted_refusal_routes_do_not_wait(self):
+        c,_,_=self.context();c.router_model='codex/gpt-6.1-sol';c.router_excluded=(c.router_model,)
+        with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'0'}),patch.object(router,'_rpc') as rpc:
+            with self.assertRaisesRegex(budget.BudgetError,'^provider_routes_exhausted$'):
+                router.await_lease('writer',c)
+        rpc.assert_not_called()
 
     def test_real_budget_cancel_peer_receipt_survives_into_restart(self):
         import restart,hashlib

@@ -378,7 +378,9 @@ def await_lease(role, case, deadline=None):
     """
     enabled = os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
-    routes(model, getattr(case, 'router_accounts', ACCOUNTS))  # Configuration errors are not outages.
+    choices = routes(model, getattr(case, 'router_accounts', ACCOUNTS))  # Configuration errors are not outages.
+    if not enabled and choices and all(r['route'] in getattr(case, 'router_excluded', ()) for r in choices):
+        raise BudgetError('provider_routes_exhausted')
     if hasattr(case, 'work'):
         live = Path(case.work) / 'provider_wait.json'
         if live.is_file():
@@ -481,6 +483,10 @@ class Server(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def setup(self):
+        self.request.settimeout(5)
+        if isinstance(self.request, ssl.SSLSocket): self.request.do_handshake()
+        super().setup()
     def log_message(self, *args): pass
     def do_POST(self):
         self.connection.settimeout(5)
@@ -510,7 +516,8 @@ def main():
     server = Server(('0.0.0.0', 8765), Store(config['database'], capacities=config.get('capacities'), accounts=config.get('accounts', ACCOUNTS)), token)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(os.environ['FACTORY_ROUTER_CERT'], os.environ['FACTORY_ROUTER_KEY'])
-    server.socket = context.wrap_socket(server.socket, server_side=True)
+    # Handshake in each handler thread, never in the single accept loop.
+    server.socket = context.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
     server.serve_forever()
 
 

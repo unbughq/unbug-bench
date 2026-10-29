@@ -94,6 +94,8 @@ def plan(path, retries, remaining, args, *, claude_account_handoff=False, openco
                                            'process_error', 'claude_error', 'codex_error', 'opencode_error')
             or str(budget.get('terminal_stop')).startswith(('provider_limit:', 'refusal:'))):
         raise ValueError('provider wait cannot override a non-provider ledger stop')
+    # A provider wait may end a peer's ledger as cancelled; the allowlist above
+    # replaces ordinary label equality while D settles the retained receipts.
     if not provider_wait and not ledger_agrees(card, route='restart',
                          pause_raised=paused_rounds_exhausted(card)):
         raise ValueError("scorecard and cumulative ledger disagree")
