@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT/'results/infrastructure/2026-10-29-real-relaunch/open-g2-verdicts.py'
+SCRIPT = ROOT/'tools/open-g2-verdicts.py'
 
 
 class DiagnosisTests(unittest.TestCase):
