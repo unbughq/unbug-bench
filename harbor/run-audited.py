@@ -180,7 +180,7 @@ def main():
         # Freeze host-side judge code/data too: unlike ordinary verifiers, live
         # windows do not get their implementation from the immutable judge image.
         runtime = stage / 'runtime'
-        for name in ('bench.py', 'bench_judging.py', 'claims.py', 'checkpoint_evidence.py', 'exposure.py', 'live_shop.py', 'silent_window.py', 'live_traffic.py', 'shoppers'):
+        for name in ('bench.py', 'bench_judging.py', 'claims.py', 'checkpoint_evidence.py', 'run_validity.py', 'exposure.py', 'live_shop.py', 'silent_window.py', 'live_traffic.py', 'shoppers'):
             target = runtime / 'bin' / name; target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(HERE.parent / 'bin' / name, target)
         (runtime / 'factory').mkdir()

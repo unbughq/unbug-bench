@@ -39,6 +39,7 @@ def batch(label):
 
 class InvalidRunsTests(unittest.TestCase):
     def setUp(self):
+        bench = patch.object(run, 'BENCH', ROOT); bench.start(); self.addCleanup(bench.stop)
         tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
         self.work = Path(tmp.name)
         case = self.work / 'case'; case.mkdir()

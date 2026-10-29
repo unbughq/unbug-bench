@@ -5,7 +5,8 @@
     "bin/run_validity.py": null,
     "bin/strategy": "edce96b9b016524df809074a714e59217488c6acd14c69a4cc4a31b3804d1db4",
     "factory/calibration.py": "56a83fcb339f4d432932c3b8206df5257888e9e13edba52f8f0c606a1fcde4b5",
-    "factory/gate_state.py": "e7b9f3fb6c6cb2fa2d5e364ad4001ed8005ea309741dbd024378efc2967e01b5"
+    "factory/gate_state.py": "e7b9f3fb6c6cb2fa2d5e364ad4001ed8005ea309741dbd024378efc2967e01b5",
+    "harbor/run-audited.py": "23f060203659c70e3db053dd8ac8ef737b6cbbbceaf84a5bd8a8dbdf3eea512d"
   },
   "base_runner": {
     "calibrate": "006fed7a7ba6d4a208c1a304f709c4fcd6f22f370a1dd008d9c3cfa925624d0e",
@@ -19,7 +20,8 @@
     "bin/run_validity.py": "cc343d61d3d77bc75cfc17dad359d3b05c31e97240610bed7f7b62c99fb01332",
     "bin/strategy": "69c294e4e9eebc87387ad97597878ebb9fe8dbe2dbde0b07b19c6bb3e3774405",
     "factory/calibration.py": "826a8af28b38927b225b5b06b29fade681aea7f3e14bdc6f7bd40cd0d723775d",
-    "factory/gate_state.py": "f7a3eb40b4b9fac77f026b7b6e5ce3ce82bf5caa0b719e7964d785fa86181306"
+    "factory/gate_state.py": "f7a3eb40b4b9fac77f026b7b6e5ce3ce82bf5caa0b719e7964d785fa86181306",
+    "harbor/run-audited.py": "2b231eb560cdbe5abcef4ec31ec91910bae6a71a7c0b061f85d889679d8655b9"
   },
   "current_runner": {
     "calibrate": "49660ac10925de4b53a6b2bcf8d531dd1ae1f214e19d174fc2dfe538a304a34b",

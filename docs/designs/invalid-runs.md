@@ -338,3 +338,10 @@ The tracked tools/open-g2-verdicts.py diagnostic reader consumes the same receip
 contract. It loads verified runner bytes for current confirmations and reports
 legacy assertion-only rows as unresolved, keeping the historical counter separate.
 Its interactive unsealing/credential path is unchanged and was never invoked here.
+
+Full-suite integration adds run_validity.py to Harbor's existing frozen runtime
+copy list and names the four C worker additions in the independent upload test.
+The orphan test_restore_failover_bundle.py referenced an absent, untracked rescue
+finalizer. It is deleted, matching E commit e26fb55's cleanup; unified finalization
+remains covered by tests/tools/test_late_restore_bundle.py. No rescue helper or
+alternative launch path is restored.
