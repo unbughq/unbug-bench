@@ -102,13 +102,24 @@ design.
 - Broken runs are never scored. An infrastructure failure is retried. It is
   never counted as a case pass, a case fail, or writer feedback.
 - A case that runs out of rounds or budget goes to an automatic diagnosis
-  agent, which picks one of three outcomes:
+  agent. A replacement case launches at once and never waits on the
+  diagnosis. If both the original and the replacement seal, both are kept
+  as exam candidates. The diagnosis then picks one of three outcomes:
   - **factory bug:** resume after the fix, with the cost on the infra-waste
-    line;
-  - **close to passing:** one extension at most;
-  - **not converging:** retire the case and start a replacement.
+    line. A case gets at most 3 factory-bug resumes, then it retires.
+  - **close to passing:** an extension. The limits:
+    - at most 5 extensions per case;
+    - each extension is one writer round, plus its stress round, plus a
+      gate re-run;
+    - each gets a $15 allowance drawn from the batch's money cap;
+    - a further extension needs progress, meaning the case gets further
+      through the pipeline and nothing it already passed breaks;
+    - the diagnosis agent proposes each extension, and code enforces these
+      limits.
 
-  The replacement launches at once and never waits on the diagnosis.
+    The mechanism is in `docs/designs/extensions.md`.
+    - No progress means the case retires.
+  - **not converging:** retire the case.
 - Plumbing updates roll onto running cases at the next checkpoint. Plumbing
   means the launcher, router, retries, collection and publication.
 - A gate change re-runs only the gates that changed for the affected cases.
