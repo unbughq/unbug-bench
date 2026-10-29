@@ -12,6 +12,7 @@ from unittest import TestCase, main, mock
 import run
 import model_runtime
 import model_router
+from budget import classify_provider_failure
 from router_test_support import offline_router
 _ROUTING = offline_router()
 
@@ -68,7 +69,9 @@ class ProviderRoutesTest(TestCase):
         tried = []
         def invoke(runtime, context, models, *args, **kwargs):
             tried.append(models[0])
-            if models[0].endswith('-free'): raise model_runtime.BudgetError('opencode_error')
+            if models[0].endswith('-free'):
+                raise model_runtime.BudgetError('opencode_error', provider_failure=
+                    classify_provider_failure('model removed', models[0], status_code=404))
             return 0
         runtime = model_runtime.ModelRuntime(None, None, None, None, None)
         with mock.patch.object(model_runtime.ModelRuntime, '_invoke', invoke):

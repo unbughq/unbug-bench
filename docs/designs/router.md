@@ -393,3 +393,21 @@ pool can delay a newer request even if another pool could serve the older one.
 This trades utilization for simple shared admission; it is not a throughput claim.
 Regression tests for these corrections are in test_model_router.py, including
 the actual budget subprocess cancellation boundary and restart validation.
+
+## Passing diff-review follow-ups
+
+Diff review 4 passes A with these recorded boundaries; none closes a Murphy row.
+
+- B/D should treat repeated label-only exhaustion as a case/factory-bug diagnosis
+  candidate, rather than spending all outage relaunches on identical case content.
+  A retains the approved per-call outage behavior; B's relaunch cap bounds it.
+- The non-response Codex 401/authentication pattern is broader than the exact CLI
+  phrases. Its shared credential-expiring scope is accepted here: responses and
+  tool output cannot enter it, and B's renewal/healthy observation clears the
+  block. Narrow it if a non-CLI source is evidenced. Row 20 stays B-owned/open.
+- The per-call Go test proves lane exclusion preserves key 2. The existing
+  silent-limit parser test covers the timestamped real Go signal separately;
+  combined real-log-to-key-2 lifecycle proof remains part of B's integration.
+- The inherited Go log check has a subsecond alias window: a line from key 1
+  may share key 2's start second. This narrow scheduling risk is accepted for A,
+  with both the real-account lifecycle and paid-fallback proof still open.
