@@ -258,7 +258,10 @@ def decision(policy, snapshot, journal, name, status, *, now, deadline, max_age=
         if actions:
             previous = actions[-1]
             verified = previous["id"] in reconciled or (previous.get("state") == "collected" and previous.get("successor") == generation)
-            if verified and previous["generation"] != generation and card.get("terminal_stop") in {"provider_limit:" + m for m, e in required}:
+            from account_handoff import limited_provider
+            if (verified and previous["generation"] != generation and
+                    limited_provider(card.get("terminal_stop", "")) == provider and
+                    card.get("terminal_stop") in {"provider_limit:" + m for m, e in required}):
                 previous_account = previous.get(provider + "_account")
         for account in sorted(snapshot.get(provider + "_accounts", []), key=lambda a: (a["id"] == previous_account, a["id"])):
             quota = account["quota"]

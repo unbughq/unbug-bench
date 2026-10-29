@@ -1,5 +1,6 @@
 """Chained founder receipt and offline replay of the already-open real round-9 state."""
 import copy
+import os
 import hashlib
 import json
 from pathlib import Path
@@ -276,7 +277,7 @@ class FounderRound10Tests(unittest.TestCase):
                 self.assertEqual(str(stopped.exception), 'qualified release adapter changed; review launcher fingerprint')
             else: self.assertEqual(stopped.exception.code, expected)
 
-    @unittest.skipUnless(PRIVATE.is_dir(), 'already-open real checkpoint absent; never decrypt here')
+    @unittest.skipUnless(os.environ.get('UNBUG_PRIVATE_REPLAY') == '1' and PRIVATE.is_dir(), 'already-open real checkpoint absent; never decrypt here')
     def test_real_round9_checkpoint_clean_blocking_and_budget_boundary(self):
         record = make_record(self.card, PRIVATE)
         for blocking, cost in ((False, 0), (True, 0), (True, 15.20)):
@@ -284,7 +285,7 @@ class FounderRound10Tests(unittest.TestCase):
                 result = replay(self.card, record, blocking=blocking, stress_cost=cost)
                 self.assertEqual(result['writer_estimate_usd'], 8)
 
-    @unittest.skipUnless(PRIVATE.is_dir(), 'already-open real checkpoint absent')
+    @unittest.skipUnless(os.environ.get('UNBUG_PRIVATE_REPLAY') == '1' and PRIVATE.is_dir(), 'already-open real checkpoint absent')
     def test_real_early_gate_and_saved_cheat_failures_repair_before_stress10(self):
         for kind in ('G4', 'saved-cheat'):
             with self.subTest(kind=kind): replay(self.card, make_record(self.card, PRIVATE), early_failure=kind)

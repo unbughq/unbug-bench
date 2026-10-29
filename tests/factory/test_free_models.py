@@ -64,8 +64,9 @@ with tempfile.TemporaryDirectory() as tmp:
                 generated = model_runtime.opencode_config(model, case='case-fixture')
                 config_paths.append(generated)
                 actual = json.loads(generated.read_text())
-                assert actual['small_model'] == model
-                assert actual['provider']['opencode']['whitelist'] == [model.split('/', 1)[1]]
+                target = model_runtime.PROVIDER_ROUTES.get(model, model)
+                assert actual['small_model'] == target
+                assert actual['provider']['opencode']['options']['baseURL'] == 'https://opencode.ai/zen/v1'
             assert len(set(config_paths)) == 2  # parallel free roles cannot overwrite each other's route
         finally:
             for generated in config_paths:

@@ -29,7 +29,7 @@ class ControlResumeTests(unittest.TestCase):
         self.f.setUp()
         self.addCleanup(self.f.doCleanups)
         f = self.f
-        for name in ('launch.sh', 'control_resume.py'):
+        for name in ('launch.sh', 'control_resume.py', 'codex_login.py'):
             if (HERE / name).exists(): shutil.copyfile(HERE / name, f.root / 'factory' / name)
         for name in ('boat-launch-guards.sh', 'boat-spend'):
             shutil.copyfile(HERE.parent / 'bin' / name, f.root / 'bin' / name)
@@ -60,6 +60,9 @@ class ControlResumeTests(unittest.TestCase):
         with tarfile.open(fileobj=output, mode='w') as tar:
             for name in ('claude-token','codex-auth.json','opencode-go-key','openrouter-key','statements-key'):
                 value = b'synthetic credential'
+                if name == 'codex-auth.json':
+                    value = json.dumps({'tokens':{'access_token':'e30.eyJleHAiOjQxMDI0NDQ4MDB9.synthetic'},
+                                        'last_refresh':'2026-10-28T00:00:00Z'}).encode()
                 info = tarfile.TarInfo(name); info.size=len(value); tar.addfile(info, io.BytesIO(value))
         (f.base / 'bundle').write_bytes(output.getvalue())
         age = f.base / 'tools/age'

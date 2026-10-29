@@ -103,7 +103,7 @@ class GatePipeline:
         problems = []
         for gate, part in (("G8", "fairness"), ("G9", "realism")):
             outcome = gate_attempt.execute(
-                lambda: self.evaluate(c, gate),
+                lambda: self.check(c, gate),
                 publish=lambda *args: self.publish(c, 'early:' + gate, *args),
                 record_crash=lambda error: self.record_crash(c, gate, error),
                 interruption=BudgetError, raise_crash=True)
@@ -127,7 +127,8 @@ class GatePipeline:
                 return self.check(c, gate)
             outcome = gate_attempt.execute(
                 invoke, publish=lambda *args: self.publish(c, gate, *args),
-                record_crash=lambda error: self.record_crash(c, gate, error), interruption=BudgetError)
+                record_crash=lambda error: self.record_crash(c, gate, error), interruption=BudgetError,
+                attempts=2 if gate in ("G16", "G17") else 1)
             if outcome.crashed:
                 c.stopped = True
                 c.card["terminal_stop"] = "runner_error:" + outcome.info["error"]

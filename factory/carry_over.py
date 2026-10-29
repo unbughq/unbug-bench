@@ -22,7 +22,7 @@ negative_probes_ok reviewers_fairness reviewers_realism difficulty calibrators
 calibration_progress calibration_interruptions early_probe strategy_reuse flakiness_rerun
 stress_review admission admission_freshness selection_board rejected_candidates dedup
 dedup_skipped idea_realism public_search prototype freshness_repair freshness_reverify
-freshness_confirmation freshness_topup loop_freshness repair_blocked builder_note
+freshness_confirmation freshness_topup loop_freshness freshness_archive_ruling repair_blocked builder_note
 build_deferred budget_raised rounds_raised recovery_config limits restore_adjustment
 resume_rereview salvaged_from kept_from_previous_run kept_gate_source free_model_fallback
 model_transition provider_routes provider_preflight driver_qualification audit_source
@@ -30,7 +30,7 @@ audit_inputs_sha256 source_inputs_sha256 review_bench_sha256 digest_version inpu
 audit_runtime_preparation delivery_provenance owner_contract archive sha256 r2_object
 statement_sha256 statement_cipher_sha256 durable_checkpoint dry_run_roundtrip wall_minutes
 gate_minutes error checkpoint_error public_progress_error wipe calls_delta cost_delta
-audit_calls_total audit_cost_total continuations continuation_budget
+audit_calls_total audit_cost_total continuations continuation_budget cleanup_errors
 """.split())
 DERIVED = frozenset("builder_rounds candidate_attempts repairs case_budget".split())
 VOLATILE = frozenset("resume bench_workers_effective factory_slots_prepared".split())

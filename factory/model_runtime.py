@@ -13,6 +13,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from budget import BudgetError, run_budgeted, case_spending, require_case_budget, invocation_role
@@ -24,6 +25,8 @@ CLAUDE_PREFIX = pathlib.Path("/tmp/factory-claude-cli")
 CODEX_OFF = ["multi_agent", "apps", "plugins", "remote_plugin", "browser_use", "browser_use_external",
              "in_app_browser", "computer_use", "image_generation"]
 PROVIDER_ROUTES = {
+    # 2026-10-26: same DeepSeek weights on paid OpenRouter; keep recorded role names.
+    "opencode/deepseek-v4.1-flash-free": "openrouter/deepseek/deepseek-v4.1-flash",
     "opencode-go/mimo-v2.6-pro": "openrouter/xiaomi/mimo-v2.6-pro",
     "opencode/minimax-m3.1-flash-free": "openrouter/minimax/minimax-m3.1-flash:free",
 }
@@ -113,11 +116,14 @@ def opencode_config(model=None, case=None):
     """Merged over the user config: provider keys come from the environment (factory/launch.sh loads
     them from ~/.secrets; boat's paid relay is off since 2026-10-16), and boat's desktop `computer`
     MCP off (about 28k prompt tokens a call, unneeded). In /tmp so the pilot user can read it; no secret."""
+    model = PROVIDER_ROUTES.get(model, model)
     path = pathlib.Path("/tmp/factory-opencode.json")
     base = os.environ.get("OPENCODE_API_KEY_BASE_URL")
     cfg = {"mcp": {"computer": {"enabled": False}},
            "compaction": {"auto": True}, "permission": {"task": "deny"},  # on since 2026-10-17: off, MiMo re-read ~500k tokens a step
-           "provider": {"openrouter": {"models": {"meta/muse-spark-1.3-contributor": {
+           "provider": {"openrouter": {"models": {
+               "deepseek/deepseek-v4.1-flash": {"cost": {"input": 0.02, "output": 1.00}},
+               "meta/muse-spark-1.3-contributor": {
                "cost": {"input": 0.10, "output": 0.20, "cache_read": 0.002, "cache_write": 0.10}}}}}}
     # OpenCode v1.19 does not know Muse Contributor's price; without one the budget guard stops the run.
     go = {"models": {"muse-spark-1.3-contributor": {"cost": {"input": 0.10, "output": 0.20, "cache_read": 0.002, "cache_write": 0.10}}}}
@@ -126,7 +132,7 @@ def opencode_config(model=None, case=None):
     cfg["provider"]["opencode-go"] = go
     # Founder 2026-10-19: OpenCode v1.x answers Muse with "Invalid credential" unless the opencode provider points at Zen.
     cfg["provider"]["opencode"] = {"options": {"baseURL": "https://opencode.ai/zen/v1"}}
-    if model in {"opencode/minimax-m3.1-flash-free", "opencode/deepseek-v4.1-flash-free"}:
+    if model == "opencode/minimax-m3.1-flash-free":
         from free_models import provider_config
         cfg["provider"]["opencode"] = provider_config(case, model)
         cfg["small_model"] = model
@@ -266,9 +272,7 @@ class ModelRuntime:
         env = diagnostic_env(c, name, role, env)
         if user: env.pop("UNBUG_JUDGE", None)  # calibrators solve like contestants: no administrator judge reads
         if driver == "opencode":
-            # 2026-10-20: OpenCode refuses its anonymous free DeepSeek from boat's shared IPs and Go lists it as unavailable;
-            # the same model on the Go plan (priced, cheap) stands in. Roles and cards keep the recorded name.
-            cli_model = {"opencode/deepseek-v4.1-flash-free": "opencode-go/deepseek-v4.1-flash"}.get(model, model)
+            cli_model = model
             cmd = [OPENCODE_BIN, "run", *_opencode_flags(OPENCODE_BIN), "-m", cli_model, "--format", "json", "--auto", "--title", f"factory-{name}", text]
             if effort != 'default': cmd[2:2] = ['--variant', effort]
             if user: cmd = ["sudo", "--preserve-env", "-H", "-u", user] + cmd
@@ -285,7 +289,18 @@ class ModelRuntime:
         if driver == "codex":
             # ChatGPT subscription: ~/.codex/auth.json (a dedicated login pushed by launch.sh), never an API key.
             src = pathlib.Path(env.get("CODEX_HOME", self.home / ".codex"))
-            if (src / "auth.json").is_file(): shutil.copy(src / "auth.json", scratch / "auth.json")
+            if (src / "auth.json").is_file():
+                from codex_login import worker_auth
+                try:
+                    auth = worker_auth(json.loads((src / "auth.json").read_text()))
+                    target = scratch / "auth.json"
+                    target.touch(mode=0o600)
+                    target.write_text(json.dumps(auth))
+                except (OSError, ValueError, KeyError, TypeError):
+                    try: self.cleanup(scratch)
+                    except Exception as error:
+                        c.card.setdefault('cleanup_errors', []).append({'stage':'model_scratch', 'error':type(error).__name__})
+                    raise BudgetError('codex_login_expired') from None
             keep, lines = True, []  # config minus MCP servers (boat's `computer` desktop tool)
             for line in ((src / "config.toml").read_text().splitlines() if (src / "config.toml").is_file() else []):
                 if line.lstrip().startswith("["): keep = not line.lstrip().lstrip("[").startswith("mcp_servers")
@@ -348,8 +363,17 @@ class ModelRuntime:
             self.progress(c, 'role:' + progress_role, 'interrupted', time.monotonic() - progress_started)
             raise
         finally:
+            original = sys.exc_info()[1]
+            cleanup_error = None
             # sudo cannot pass SIGKILL on: after any stop the isolated user's CLI may survive the process-group kill.
-            if user: self.command(c, ["sudo", "pkill", "-KILL", "-u", user])
-            if scratch: self.cleanup(scratch, sudo=bool(user))  # CLI state dbs hold transcript text; the stdout transcript is kept
+            for stage, action in (
+                    ('model_process', lambda: self.command(c, ["sudo", "pkill", "-KILL", "-u", user]) if user else None),
+                    ('model_scratch', lambda: self.cleanup(scratch, sudo=bool(user)) if scratch else None)):
+                try: action()
+                except Exception as error:
+                    c.card.setdefault('cleanup_errors', []).append({'stage':stage, 'error':type(error).__name__})
+                    cleanup_error = error
+            if cleanup_error is not None and original is None:
+                raise BudgetError('cleanup_failed') from cleanup_error
         return result.returncode
 

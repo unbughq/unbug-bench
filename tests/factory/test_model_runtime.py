@@ -63,6 +63,50 @@ class ModelRuntimeTests(unittest.TestCase):
             u = seen[-1][0].index('pilot')  # the isolated user enters its own private dir; the runner never chdirs there
             assert seen[-1][0][u + 1:u + 4] == ['sh', '-c', 'cd "$1" && shift && exec "$@"'], seen[-1][0][:12]
 
+    def test_deepseek_openrouter_fresh_and_restored_execution(self):
+        import json
+        from budget import run_budgeted
+        source = 'opencode/deepseek-v4.1-flash-free'
+        target = 'openrouter/deepseek/deepseek-v4.1-flash'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary); (root / 'transcripts').mkdir()
+            roles = {'stress_tester': {'model': source, 'effort': 'default', 'family': 'deepseek'}}
+            c = types.SimpleNamespace(work=root, case=root / 'case', case_id='synthetic',
+                card={'roles': roles}, ledger=root / 'ledger.json',
+                args=argparse.Namespace(agent_timeout=3, max_cost=5, max_role_calls=10,
+                    max_total_calls=20, no_progress_minutes=1, max_zero_tokens=3, resume=None))
+            runtime = model_runtime.ModelRuntime(root, mock.Mock(), mock.Mock(), mock.Mock(), mock.Mock())
+            def budgeted(cmd, cwd, env, *args, **kwargs):
+                self.assertEqual(cmd[cmd.index('-m') + 1], target)
+                self.assertEqual(kwargs['configured_model'], target)
+                cfg = json.loads(pathlib.Path(env['OPENCODE_CONFIG']).read_text())
+                self.assertEqual(cfg['small_model'], target)
+                rates = cfg['provider']['openrouter']['models']['deepseek/deepseek-v4.1-flash']['cost']
+                self.assertEqual(rates, {'input': .02, 'output': 1.0})
+                receipt = {'type': 'step_finish', 'sessionID': 'synthetic', 'part': {
+                    'id': str(kwargs['resume']), 'messageID': str(kwargs['resume']),
+                    'cost': rates['input'] + rates['output'], 'tokens': {
+                        'input': 1000000, 'output': 1000000, 'reasoning': 0,
+                        'cache': {'read': 0, 'write': 0}}}}
+                return run_budgeted([sys.executable, '-c', 'print(' + repr(json.dumps(receipt)) + ')'],
+                                    cwd, env, *args, **kwargs)
+            with mock.patch.object(model_runtime, '_opencode_flags', return_value=()), \
+                 mock.patch.object(model_runtime, 'run_budgeted', side_effect=budgeted):
+                runtime.call(c, [source], 'synthetic', root, 'attacker-1')
+                # A restored context has no in-memory route cache; an old cached Go route also loses.
+                c.routes = {source: 'opencode-go/deepseek-v4.1-flash'}
+                c.args.resume = 'synthetic'; c.budget_resumed = False
+                runtime.call(c, [source], 'synthetic', root, 'attacker-2')
+            self.assertEqual(c.card['roles'], roles)
+            self.assertNotIn('model_transition', c.card)
+            self.assertEqual(c.card['provider_routes'][source], target)
+            self.assertEqual(c.card['models_used'], {'attacker-1': target, 'attacker-2': target})
+            ledger = json.loads(c.ledger.read_text())
+            self.assertAlmostEqual(ledger['cost'], 2.04)
+            self.assertEqual(ledger['calls'], 2)
+            self.assertTrue(all(e['configured_model'] == target for e in ledger['events']))
+            self.assertAlmostEqual(c.card['case_budget']['spent_usd'], 2.04)
+
     def test_import_does_not_probe_or_install_a_cli(self):
         code = ("import sys; from unittest.mock import patch; "
                 "sys.path.insert(0, sys.argv[1]); "

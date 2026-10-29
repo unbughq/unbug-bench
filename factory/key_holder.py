@@ -103,7 +103,8 @@ def read_control_identity(path):
 PINNED = ('factory/qualified-adapter.sha256', 'factory/control_resume.py', 'factory/key_holder.py', 'factory/launch.sh', 'factory/collect.sh', 'bin/boat-launch-guards.sh', 'bin/boat-call',
           'bin/boat-name', 'bin/boat-spend', 'bin/hcloud-boat', 'bin/hcloud-park', 'bin/push-secrets',
           'factory/sealed_audit.py', 'factory/ttl_continuation.py', 'factory/coordinator.py', 'factory/restart.py', 'factory/recovery.py', 'factory/registry.py',
-          'factory/statement_round.py', 'factory/admission.py', 'factory/calibration.py', 'factory/account_handoff.py')
+          'factory/statement_round.py', 'factory/admission.py', 'factory/calibration.py', 'factory/account_handoff.py',
+          'factory/codex_login.py')
 
 
 def fingerprint(root):

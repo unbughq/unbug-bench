@@ -167,7 +167,8 @@ class ModelInterruptionTests(unittest.TestCase):
                     (exam_responder, "owner_channel", lambda *a: contextlib.nullcontext("")),
                     (run, "make_pilots", lambda *a: None), (run, "pilot_wall", lambda *a, **k: None),
                     (run, "g10_overlap_reason", lambda *a: "serial"), (run, "log", lambda *a: None),
-                    (run.subprocess, "run", lambda *a, **k: None),
+                    # budget shares subprocess: Darwin cancellation may inspect returncode.
+                    (run.subprocess, "run", lambda argv, **k: run.subprocess.CompletedProcess(argv, 0)),
                 ]
                 for owner, name, value in replacements:
                     stack.enter_context(patch.object(owner, name, value))

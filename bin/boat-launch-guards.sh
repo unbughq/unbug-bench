@@ -208,8 +208,15 @@ guard_retire() {
   return "$retire_status"
 }
 
+guard_cleanup_error() {
+  guard_cleanup_failed=true
+  [ "$exit_code" -ne 0 ] || exit_code=1
+}
+
 guard_exit() {
   exit_code=$1
+  guard_primary_exit_code=$1
+  guard_cleanup_failed=false
   trap - 0
   trap '' INT TERM
   set +e
@@ -220,7 +227,7 @@ guard_exit() {
   done
   guard_ids > "$state/all-ids"
   cp "$state/all-ids" "$state/ids"
-  for exit_id in $(cat "$state/ids"); do guard_retire "$exit_id" || exit_code=1; done
+  for exit_id in $(cat "$state/ids"); do guard_retire "$exit_id" || guard_cleanup_error; done
   if [ -s "$state/ids" ]; then
     if boat list --json > "$state/list.json"; then
       python3 - "$state/ids" "$state/list.json" "$state" <<'PY'
@@ -238,10 +245,10 @@ def walk(value):
     return any([walk(v) for v in value]) if isinstance(value, list) else False
 sys.exit(1 if walk(json.loads(pathlib.Path(sys.argv[2]).read_text())) else 0)
 PY
-      [ "$?" -eq 0 ] || { echo "!!! ORPHAN CHECK: verify deletion of this launch's VMs !!!" >&2; exit_code=1; }
+      [ "$?" -eq 0 ] || { echo "!!! ORPHAN CHECK: verify deletion of this launch's VMs !!!" >&2; guard_cleanup_error; }
     else
       echo "!!! ORPHAN CHECK FAILED: verify these VMs are deleted: $(cat "$state/ids") !!!" >&2
-      exit_code=1
+      guard_cleanup_error
     fi
   fi
   unfinished=0
@@ -252,11 +259,12 @@ PY
     if [ ! -f "$state/spend-finished" ]; then
       if "$root/bin/boat-spend" --finish "$spend_file" "$exit_code" "$state/ids"; then
         touch "$state/spend-finished"
-      else exit_code=1; fi
+      else guard_cleanup_error; fi
     fi
   fi
   [ -z "$bundle" ] || rm -f "$bundle"
   if [ -n "${UNBUG_LAUNCH_STATE:-}" ]; then
+    printf '{"primary_exit_code":%s,"cleanup_failed":%s}\n' "$guard_primary_exit_code" "$guard_cleanup_failed" > "$state/cleanup-status.json"
     if [ "$unfinished" -eq 0 ] && [ -f "$state/spend-finished" ]; then touch "$state/complete"; fi
   else
     rm -rf "$state"

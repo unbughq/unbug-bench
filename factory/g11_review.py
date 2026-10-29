@@ -217,12 +217,21 @@ def review(c, factory):
             c.card["verdict"] = "inconclusive"
             if c.card["status"] == "complete": c.card["status"] = "invalidated"
         latest = factory.jload(c.ledger, {})
-        c.card["cost_delta"] = round(latest.get("cost", budget["cost"]) - budget["cost"], 8)
-        c.card["calls_delta"] = latest.get("calls", budget["calls"]) - budget["calls"]
-        c.card["audit_cost_total"] = round((prior.get("audit_cost_total", prior.get("cost_delta", 0)) if continuing else 0) + c.card["cost_delta"], 8)
-        c.card["audit_calls_total"] = (prior.get("audit_calls_total", prior.get("calls_delta", 0)) if continuing else 0) + c.card["calls_delta"]
         c.card["continuation_budget"] = latest
-        factory.seal(c)
+        try:
+            c.card["cost_delta"] = round(latest.get("cost", budget["cost"]) - budget["cost"], 8)
+            c.card["calls_delta"] = latest.get("calls", budget["calls"]) - budget["calls"]
+            c.card["audit_cost_total"] = round((prior.get("audit_cost_total", prior.get("cost_delta", 0)) if continuing else 0) + c.card["cost_delta"], 8)
+            c.card["audit_calls_total"] = (prior.get("audit_calls_total", prior.get("calls_delta", 0)) if continuing else 0) + c.card["calls_delta"]
+        except Exception as error:
+            c.card.setdefault('cleanup_errors', []).append({'stage':'audit_accounting', 'error':type(error).__name__})
+            c.card.setdefault('terminal_stop', 'runner_error:' + type(error).__name__)
+            c.card.update(status='stopped', verdict='inconclusive')
+        try: factory.seal(c)
+        except Exception as error:
+            c.card['checkpoint_error'] = type(error).__name__
+            c.card.setdefault('terminal_stop', 'seal_error:' + type(error).__name__)
+            c.card.update(status='stopped', verdict='inconclusive')
         public = factory.SEALED / (c.case_id + ".scorecard.json")
         public.write_text(json.dumps(c.card, indent=2) + "\n")
         (factory.SEALED / (c.case_id + ".scorecard.txt")).write_text(json.dumps({

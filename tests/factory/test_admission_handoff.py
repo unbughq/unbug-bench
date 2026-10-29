@@ -134,6 +134,9 @@ class AdmissionHandoffTests(unittest.TestCase):
             'args=' + shlex.quote(self.args),
             'boat() { "$root/bin/boat-call" "$@"; }',
             'collect_vm() { /bin/sh "$here/collect.sh" "$1"; }',
+            # This extracts only admission restart logic; real bundle gating is
+            # exercised through the full launcher in test_codex_login_rotation.
+            'codex_login_gate() { :; }',
             'factory_auto_resume ' + self.worker])
         return subprocess.run(['/bin/sh', '-c', script], capture_output=True, text=True)
 

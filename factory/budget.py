@@ -15,6 +15,7 @@ from pathlib import Path
 import selectors
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -320,6 +321,15 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     def diagnostic(text, response=False, partial=False):
         nonlocal rate_limits
         text = text.lower()
+        if driver == 'codex' and not response and (('refresh token' in text and any(s in text for s in (
+                'already used', 'expired', 'revoked', 'invalidated', 'could not be refreshed')))
+                or 'refresh_token_reused' in text or 'refresh_token_expired' in text
+                or 'refresh_token_invalidated' in text
+                or 'access token could not be refreshed' in text
+                or 'workspace routing discovery unauthorized' in text
+                or 'authentication token has expired' in text
+                or ('401' in text and ('unauthorized' in text or 'authentication' in text))):
+            raise BudgetError('codex_login_expired')
         if driver == 'codex' and 'cybersecurity' in text and any(w in text for w in ('flagged', 'refus', "can't", 'cannot')):
             raise BudgetError('refusal:' + provider_model)
         if response and not re.search(r"gousagelimiterror|insufficient credits|\bhttp [45]\d\d\b|^(?:error[: ]|you(?:'ve| have)? (?:hit|reached|exceeded)|usage limit\b|rate limit\b|limit reached)", text.strip()):
@@ -332,7 +342,8 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         if 'rate limit' in text or re.search(r'\b429\b', text):
             if partial: return False  # Count an unterminated notice only once, at newline/EOF.
             rate_limits += 1
-            if rate_limits >= 2: raise BudgetError('provider_limit:' + provider_model)
+            if rate_limits >= 2 or provider_model.startswith('openrouter/'):
+                raise BudgetError('provider_limit:' + provider_model)
             return True  # Allow one transient rate-limit retry, never an endless loop.
         return False
 
@@ -605,9 +616,11 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 # cannot bypass the durable unknown-usage record below, even if
                 # this invocation already recorded an earlier complete turn.
                 starts.add('cancellation-failed:' + invocation)
+                with transaction():
+                    ledger.setdefault('cleanup_errors', []).append({
+                        'stage':'process_cancellation', 'error':type(cleanup_error).__name__})
                 if isinstance(cleanup_error, Exception):
-                    error = BudgetError('cancellation_failed')
-                    error.__cause__ = cleanup_error
+                    pass  # Keep the first stop; unknown usage still blocks recovery.
                 else:
                     error = cleanup_error
             else:
@@ -674,8 +687,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 ledger.setdefault('unpriced_invocations', []).append({'role': role, 'model': configured_model})
             if invocation in ledger.get('active', []): ledger['active'].remove(invocation)
             if not ledger.get('active'): ledger.pop('active', None)
-            if (ledger.get('terminal_stop') in (None, 'running', 'complete')
-                    or isinstance(error, BudgetError) and str(error) == 'cancellation_failed'):
+            if ledger.get('terminal_stop') in (None, 'running', 'complete'):
                 ledger['terminal_stop'] = str(error) if isinstance(error, BudgetError) else type(error).__name__
                 if isinstance(error, BudgetError) and str(error) == 'process_error':
                     # Keep the last natural CLI failure diagnosable without exposing transcript text.
@@ -683,8 +695,16 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                                                     'configured_model': configured_model}
         raise error
     finally:
+        original = sys.exc_info()[1]
         selector.close()
         try:
             stop_process()
+        except Exception as cleanup_error:
+            with transaction():
+                ledger.setdefault('cleanup_errors', []).append({
+                    'stage':'process_cancellation', 'error':type(cleanup_error).__name__})
+                # A failure on the success path is itself a stop; never return success.
+                if original is None: ledger['terminal_stop'] = 'cancellation_failed'
+            if original is None: raise BudgetError('cancellation_failed') from cleanup_error
         finally:
             if process is not None: process.stdout.close()

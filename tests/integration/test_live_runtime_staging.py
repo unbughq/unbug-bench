@@ -26,6 +26,7 @@ class LiveRuntimeStagingTests(unittest.TestCase):
             harbor.mkdir(parents=True)
             # Minimal input tree, with real judge code and no prepared shop required.
             (source / "bin").symlink_to(ROOT / "bin", target_is_directory=True)
+            (source / "factory").symlink_to(ROOT / "factory", target_is_directory=True)
             (source / "cases").symlink_to(ROOT / "cases", target_is_directory=True)
             (harbor / "phase2").symlink_to(ROOT / "harbor/phase2", target_is_directory=True)
             for name in ("webproxy", "responder", "keyswap"):

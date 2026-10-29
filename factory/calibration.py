@@ -406,6 +406,6 @@ def interruption_label(error):
     if reason == "stalled": return "no_progress_limit"
     if reason == "timeout": return "time_limit"
     if reason == "call_limit": return "call_limit"
-    if reason in ("provider_limit", "cost_limit", "total_call_limit", "cancelled", "zero_tokens", "refusal"):
+    if reason in ("codex_login_expired", "provider_limit", "cost_limit", "total_call_limit", "cancelled", "zero_tokens", "refusal"):
         return reason
     return "unknown"

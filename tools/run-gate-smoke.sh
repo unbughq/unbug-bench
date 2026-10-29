@@ -3,26 +3,28 @@
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 usage() {
-  echo "Usage: $0 --release DIR --adapter FILE --adapter-sha256 SHA --approved-by-founder [--output DIR]"
+  echo "Usage: $0 --release DIR --adapter FILE --adapter-sha256 SHA --approved-by-founder [--output DIR] [--ttl-hours 8|16]"
   echo "Use a newly qualified release containing the smoke sources; old pinned releases are refused."
 }
-release=""; adapter=""; adapter_sha=""; approved=no
+release=""; adapter=""; adapter_sha=""; approved=no; smoke_ttl=8
 output="$root/results/infrastructure/2026-10-24-gate-smoke/live"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --help|-h) usage; exit 0 ;;
     --approved-by-founder) approved=yes; shift ;;
-    --release|--adapter|--adapter-sha256|--output)
+    --release|--adapter|--adapter-sha256|--output|--ttl-hours)
       [ "$#" -ge 2 ] || { usage >&2; exit 2; }
       case "$1" in
         --release) release=$2 ;; --adapter) adapter=$2 ;;
         --adapter-sha256) adapter_sha=$2 ;; --output) output=$2 ;;
+        --ttl-hours) smoke_ttl=$2 ;;
       esac
       shift 2 ;;
     *) usage >&2; exit 2 ;;
   esac
 done
 [ "$approved" = yes ] && [ -n "$release" ] && [ -n "$adapter" ] && [ -n "$adapter_sha" ] || { usage >&2; exit 2; }
+case "$smoke_ttl" in 8|16) ;; *) echo "smoke TTL must be 8 or 16 hours" >&2; exit 2 ;; esac
 # Refuse inherited alternative clouds, profiles or launch states; this owns ONE new Boat worker.
 [ -z "${BOAT_CMD:-}" ] && [ -z "${UNBUG_LAUNCH_STATE:-}" ] || { echo "clear BOAT_CMD/UNBUG_LAUNCH_STATE" >&2; exit 2; }
 mkdir -p "$output"
@@ -37,27 +39,24 @@ if adapter.is_symlink() or hashlib.sha256(adapter.read_bytes()).hexdigest() != s
 module = runpy.run_path(str(adapter), run_name='gate_smoke_release')
 _, _, files = module['load'](release)
 for name in ('factory/account_handoff.py', 'factory/restart.py', 'factory/control_resume.py', 'bin/push-secrets', 'tests/factory/test_account_handoff.py', 'tests/factory/test_control_resume.py', 'tests/factory/test_admission_handoff.py', 'tests/factory/fixtures/opencode-failover/policy.restore.json', 'tests/factory/fixtures/opencode-failover/launch.json', 'tests/factory/fixtures/opencode-failover/input-scorecard.json', 'tests/factory/fixtures/opencode-failover/launch-state.json', 'bin/gate-smoke', 'bin/bench.py', 'bin/bench_judging.py', 'bin/factory_pool.py',
-             'factory/gate_pipeline.py', 'factory/case_contract.py',
+             'factory/gate_pipeline.py', 'factory/case_contract.py', 'factory/fairness.py',
+             'factory/founder_ruling.py', 'factory/restore_ledger.py', 'factory/recovery.py',
+             'factory/late_recovery.py', 'factory/founder_decisions.py', 'factory/late_rehearsal.py', 'factory/restore_bundle.py', 'bin/fake-pass-check',
              'factory/run_artifacts.py', 'factory/run.py', 'factory/case_permissions.py'):
     if files.get(name) != hashlib.sha256((root / name).read_bytes()).hexdigest():
         raise SystemExit('qualify current smoke source first: ' + name)
-# 2026-10-24: the refactor moved the canary model-route line into model_runtime.py;
-# the smoke calls no model. Accept that exact rewrite of the current source, nothing else.
-code = (root / 'factory/model_runtime.py').read_text()
-paid = 'cli_model = {"opencode/deepseek-v4.1-flash-free": "opencode-go/deepseek-v4.1-flash"}.get(model, model)'
-note = ("            # 2026-10-20: OpenCode refuses its anonymous free DeepSeek from boat's shared IPs and Go lists it as unavailable;\n"
-        "            # the same model on the Go plan (priced, cheap) stands in. Roles and cards keep the recorded name.\n")
-routed = code.replace(paid, 'cli_model = model  # isolated one-case candidate: preserve selected free route').replace(note, '')
-if files.get('factory/model_runtime.py') not in {hashlib.sha256(c.encode()).hexdigest() for c in (code, routed)}:
+# This release has one approved runtime route; smoke the exact qualified source.
+if files.get('factory/model_runtime.py') != hashlib.sha256((root / 'factory/model_runtime.py').read_bytes()).hexdigest():
     raise SystemExit('qualify current smoke source first: factory/model_runtime.py')
 module['prepare'](release, pathlib.Path(sys.argv[5]))
 PYCODE
-# Same canary envelope: 8-hour TTL, $0.50 maximum reservation. This harness has
+# Standard envelope: 8-hour TTL/$0.50; optional 16-hour TTL/$0.75 also verifies long-TTL support. This harness has
 # a separate 45-minute controller deadline and 30-minute remote test deadline.
 UNBUG_CLOUD=boat; BOAT_TYPE=default; export UNBUG_CLOUD BOAT_TYPE
 UNBUG_LAUNCH_STATE=$state; export UNBUG_LAUNCH_STATE
 BOAT_TTL_MARGIN_SECONDS=600; export BOAT_TTL_MARGIN_SECONDS
-label=gate-smoke; purpose=public-gate-smoke; n=1; ttl_hours=8; max_spend=0.50
+label=gate-smoke; purpose=public-gate-smoke; n=1; ttl_hours=$smoke_ttl; max_spend=0.50
+[ "$smoke_ttl" = 8 ] || max_spend=0.75
 . "$root/bin/boat-launch-guards.sh"
 collect_vm() {
   # Public fixture only: a failed collection must never strand a paid test worker.

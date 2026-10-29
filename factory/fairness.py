@@ -9,7 +9,7 @@ VERSION = 1
 
 def verdict(payload, attempts):
     rows = payload.get("tries") if isinstance(payload, dict) else None
-    if not attempts or not isinstance(rows, list) or len(rows) != len(attempts):
+    if (isinstance(payload, dict) and payload.get("inconclusive") is True) or not attempts or not isinstance(rows, list) or len(rows) != len(attempts):
         return None
     if any(not isinstance(a, dict) or type(a.get("try")) is not int for a in attempts):
         return None
@@ -67,7 +67,8 @@ def review_attempts(c, r, gate, folder):
         "For judge_too_narrow identify the valid behavior rejected and the offending judge condition. "
         "For wrong_fix explain the concrete error against the promise, not merely that the judge rejected it. "
         "A missing/capped attempt or infrastructure failure alone does not prove wrong_fix; if evidence is "
-        "insufficient write an inconclusive verdict instead of guessing. Findings and evidence citations required. "
+        'insufficient write {"inconclusive":true,"reason":"specific missing evidence"} instead of guessing. '
+        "Findings and evidence citations required. "
         "Write {\"tries\":[{\"try\":1,\"label\":\"wrong_fix\",\"finding\":\"...\",\"evidence\":\"...\"}]} to "
         + str(output) + ".")
     code = r.model_call(c, c.models["reviewers"][0], text, directory, "reviewer-" + gate.lower())
@@ -76,6 +77,8 @@ def review_attempts(c, r, gate, folder):
     details = c.work / "gate-details"
     details.mkdir(exist_ok=True)
     (details / (gate + ".json")).write_text(json.dumps({"verdict": payload, "valid": counts is not None}))
+    if counts is None:
+        raise ValueError("fairness review unavailable, invalid or inconclusive")
     return counts
 
 
@@ -102,7 +105,7 @@ def diagnose(c, r):
     c.card.pop("difficulty", None)
     if (type(strong.get("solved")) is not int or type(strong.get("tries")) is not int or
             strong["tries"] < 1 or not 0 <= strong["solved"] <= strong["tries"]):
-        return False, {"version": VERSION, "verdict_valid": False, "review_inconclusive": True}
+        raise ValueError("missing valid strong calibration results")
     if strong["solved"] > 0:
         c.card["difficulty"] = "normal"
         return True, {"version": VERSION, "needed": False}

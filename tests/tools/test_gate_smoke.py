@@ -106,14 +106,16 @@ class SmokeTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError): smoke.owned('bx_fixture')
             command.assert_not_called()
 
-    def test_preallocation_accepts_only_exact_model_runtime_route_rewrite(self):
+    def test_preallocation_accepts_only_exact_model_runtime_source(self):
         # Execute only the driver's actual Python preflight; never reach allocation.
         driver = (ROOT / 'tools/run-gate-smoke.sh').read_text()
         preflight = driver.split("<<'PYCODE'\n", 1)[1].split('\nPYCODE', 1)[0]
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             names = ('factory/account_handoff.py', 'factory/restart.py', 'factory/control_resume.py', 'bin/push-secrets', 'tests/factory/test_account_handoff.py', 'tests/factory/test_control_resume.py', 'tests/factory/test_admission_handoff.py', 'tests/factory/fixtures/opencode-failover/policy.restore.json', 'tests/factory/fixtures/opencode-failover/launch.json', 'tests/factory/fixtures/opencode-failover/input-scorecard.json', 'tests/factory/fixtures/opencode-failover/launch-state.json', 'bin/gate-smoke', 'bin/bench.py', 'bin/bench_judging.py', 'bin/factory_pool.py',
-                     'factory/gate_pipeline.py', 'factory/case_contract.py',
+                     'factory/gate_pipeline.py', 'factory/case_contract.py', 'factory/fairness.py',
+                     'factory/founder_ruling.py', 'factory/restore_ledger.py', 'factory/recovery.py',
+                     'factory/late_recovery.py', 'factory/founder_decisions.py', 'factory/late_rehearsal.py', 'factory/restore_bundle.py', 'bin/fake-pass-check',
                      'factory/run_artifacts.py', 'factory/run.py', 'factory/case_permissions.py', 'factory/model_runtime.py')
             for name in names:
                 path = root / name; path.parent.mkdir(parents=True, exist_ok=True)
@@ -122,12 +124,6 @@ class SmokeTests(unittest.TestCase):
             adapter.write_text("import json\ndef load(release): return None,None,json.loads((release/'files.json').read_text())\n"
                                "def prepare(release,output): output.write_bytes(b'verified')\n")
             original = (root / 'factory/model_runtime.py').read_text()
-            paid = 'cli_model = {"opencode/deepseek-v4.1-flash-free": "opencode-go/deepseek-v4.1-flash"}.get(model, model)'
-            note = ("            # 2026-10-20: OpenCode refuses its anonymous free DeepSeek from boat's shared IPs and Go lists it as unavailable;\n"
-                    "            # the same model on the Go plan (priced, cheap) stands in. Roles and cards keep the recorded name.\n")
-            self.assertEqual(original.count(paid), 1)
-            self.assertEqual(original.count(note), 1)
-            routed = original.replace(paid, 'cli_model = model  # isolated one-case candidate: preserve selected free route').replace(note, '')
             files = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in names}
             output = root / 'bundle.tgz'
             def check(changes, accepted):
@@ -140,9 +136,8 @@ class SmokeTests(unittest.TestCase):
                 self.assertEqual(output.exists(), accepted)
             sha = lambda code: hashlib.sha256(code.encode()).hexdigest()
             check({}, True)
-            check({'factory/model_runtime.py': sha(routed)}, True)
-            for invalid in (routed + '\n# unrelated edit\n', original.replace(paid, 'cli_model = model'),
-                            original.replace(paid, 'cli_model = model  # isolated one-case candidate: preserve selected free route')):
+            for invalid in (original + '\n# unrelated edit\n', original.replace(
+                    'openrouter/deepseek/deepseek-v4.1-flash', 'opencode-go/deepseek-v4.1-flash')):
                 check({'factory/model_runtime.py': sha(invalid)}, False)
             check({'factory/model_runtime.py': None}, False)
             check({'factory/run.py': sha((root / 'factory/run.py').read_text() + '\n')}, False)
@@ -157,7 +152,9 @@ class SmokeTests(unittest.TestCase):
             for name in ('boat-launch-guards.sh', 'boat-spend'):
                 target = root / 'bin' / name; target.write_bytes((ROOT / 'bin' / name).read_bytes()); target.chmod(0o755)
             names = ('factory/account_handoff.py', 'factory/restart.py', 'factory/control_resume.py', 'bin/push-secrets', 'tests/factory/test_account_handoff.py', 'tests/factory/test_control_resume.py', 'tests/factory/test_admission_handoff.py', 'tests/factory/fixtures/opencode-failover/policy.restore.json', 'tests/factory/fixtures/opencode-failover/launch.json', 'tests/factory/fixtures/opencode-failover/input-scorecard.json', 'tests/factory/fixtures/opencode-failover/launch-state.json', 'bin/gate-smoke', 'bin/bench.py', 'bin/bench_judging.py', 'bin/factory_pool.py', 'factory/run.py',
-                     'factory/gate_pipeline.py', 'factory/case_contract.py',
+                     'factory/gate_pipeline.py', 'factory/case_contract.py', 'factory/fairness.py',
+                     'factory/founder_ruling.py', 'factory/restore_ledger.py', 'factory/recovery.py',
+                     'factory/late_recovery.py', 'factory/founder_decisions.py', 'factory/late_rehearsal.py', 'factory/restore_bundle.py', 'bin/fake-pass-check',
                      'factory/run_artifacts.py', 'factory/case_permissions.py', 'factory/model_runtime.py')
             for name in names:
                 p = root / name; p.parent.mkdir(parents=True, exist_ok=True); p.write_text('synthetic source')

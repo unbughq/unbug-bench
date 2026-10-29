@@ -41,6 +41,16 @@ def current(state):
                          for p, rows in ACCOUNTS.items()}, 'limited': {}, 'history': []}
 
 
+def limited_provider(stop):
+    # DeepSeek's old checkpoint/CLI names now use OpenRouter, never a Go handoff.
+    if not stop.startswith('provider_limit:'): return None
+    model = stop.removeprefix('provider_limit:')
+    if model in ('opencode/deepseek-v4.1-flash-free', 'opencode-go/deepseek-v4.1-flash'):
+        return None
+    return next((p for p in ACCOUNTS if model.startswith(p + '/') or
+                 (p == 'opencode' and model.startswith('opencode-go/'))), None)
+
+
 def initial_state(card, policy, accounts=None):
     """Carry public account history across transports, including explicit selections."""
     observed = {'opencode': 1, 'claude': 1, **(card.get('provider_accounts') or {})}
@@ -52,8 +62,7 @@ def initial_state(card, policy, accounts=None):
     selected = dict(observed if accounts is None else accounts)
     for provider, labels in ACCOUNTS.items():
         old, new = observed[provider], selected[provider]
-        if (stop.startswith('provider_limit:' + provider + '/') or
-                (provider == 'opencode' and stop.startswith('provider_limit:opencode-go/'))):
+        if limited_provider(stop) == provider:
             limited[provider].add(old)
             if new != old:
                 history.append(dict(provider=provider, **{'from': old}, to=new, secret=labels[new],
@@ -63,8 +72,7 @@ def initial_state(card, policy, accounts=None):
 
 def choose(card, state, policy, held):
     stop = card.get('terminal_stop', '')
-    provider = next((p for p in ACCOUNTS if stop.startswith('provider_limit:' + p + '/') or
-                     (p == 'opencode' and stop.startswith('provider_limit:opencode-go/'))), None)
+    provider = limited_provider(stop)
     if provider is None: return None
     old = state['accounts'][provider]
     limited = set(state['limited'].get(provider, [])) | {old}

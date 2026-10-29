@@ -1,4 +1,5 @@
 """Typed stress feedback and retained-cheat repair regressions; private replay is optional."""
+import os
 import sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,7 +40,7 @@ class StressLoopTests(unittest.TestCase):
             for resume in (False, True):
                 with self.subTest(legacy=legacy, resume=resume):
                     h = self.harness()
-                    result = {'complete': True, 'blocking': ['A synthetic case defect.']}
+                    result = {'complete': True, 'blocking': ['review incomplete'] if legacy else []}
                     if legacy: result['blocking'].append('Validation unfinished: tester command failed.')
                     else: result['unfinished_validation'] = ['A diagnostic was never executed.']
                     calls = []
@@ -55,6 +56,41 @@ class StressLoopTests(unittest.TestCase):
                     self.assertEqual(calls, [] if resume else ['attacker-1'])
                     h.early_review.assert_not_called()
                     h.doCleanups()
+
+    def test_blocking_defects_precede_unfinished_validation_live_and_saved(self):
+        # Synthetic shape of attempt 5: broken judge/reset prevented diagnostics.
+        result = {'complete': False, 'blocking': ['Judge raises KeyError on establish.',
+                  'Guard reset collides with the baseline function.'],
+                  'unfinished_validation': ['No checkpoint or strategy could produce a verdict.']}
+        for resume in (False, True):
+            with self.subTest(resume=resume):
+                h = self.harness()
+                if resume: h.interrupt(result)
+                calls = []
+                def model(c, models, text, cwd, name):
+                    calls.append(name)
+                    if name == 'builder-2':
+                        self.assertIn(result['blocking'][0], text)
+                        (c.case / 'repair.txt').write_text('judge and reset repaired')
+                    else:
+                        h.report_path(text).write_text(json.dumps(result if name == 'attacker-1'
+                            else {'complete': True, 'blocking': []}))
+                with patch.object(run, 'opencode', model): run.build(h.c)
+                self.assertEqual(calls, ([] if resume else ['attacker-1']) + ['builder-2', 'attacker-2'])
+                self.assertEqual(h.c.card['stress_review'], {'status': 'completed', 'round': 2})
+                h.early_review.assert_called_once()
+                h.doCleanups()
+
+    def test_mixed_report_at_round_limit_cannot_grant_stress_pass(self):
+        h = self.harness(); h.c.args.rounds = 1
+        h.interrupt({'complete': False, 'blocking': ['Broken judge.'],
+                     'unfinished_validation': ['Diagnostics blocked.']})
+        with patch.object(run, 'opencode', return_value=0) as model, self.assertRaisesRegex(
+                run.BudgetError, 'rounds_exhausted'):
+            run.build(h.c)
+        self.assertEqual([call.args[4] for call in model.call_args_list], ['builder-precheck'])
+        h.early_review.assert_not_called()
+        self.assertEqual(h.c.card['stress_review']['status'], 'unresolved')
 
     def test_early_saved_cheats_run_once_each_and_reopenings_are_writer_feedback(self):
         h = self.harness()
@@ -128,7 +164,7 @@ class StressLoopTests(unittest.TestCase):
         h.early_checks.assert_called_once()
         self.assertEqual(h.c.card['stress_review']['status'], 'unresolved')
 
-    @unittest.skipUnless(PRIVATE.is_dir(), 'private e15450 replay artifacts absent')
+    @unittest.skipUnless(os.environ.get('UNBUG_PRIVATE_REPLAY') == '1' and PRIVATE.is_dir(), 'private e15450 replay artifacts absent')
     def test_private_e15450_replay(self):
         reports = {int(p.stem.split('-')[1]): run.attack_report(p)
                    for p in (PRIVATE / 'attacks').glob('round-*.json')}

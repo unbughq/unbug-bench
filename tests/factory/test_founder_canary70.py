@@ -1,5 +1,6 @@
 """Canary pending-writer authority and private real-artifact decision replay."""
 import copy
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -67,6 +68,17 @@ class CanaryFounderTests(unittest.TestCase):
         self.assertEqual(founder_ruling.apply(self.work, accepted), receipt)
         self.assertEqual(read(self.work/'attack-state.json')['round'], 9)
 
+    def test_pending_writer_accepts_defects_that_prevented_validation(self):
+        save(self.work/'attacks/round-8.json', dict(complete=False,
+            blocking=['Synthetic broken judge.', 'Synthetic reset collision.'],
+            unfinished_validation=['No diagnostic produced a valid verdict.']))
+        self.record = make_record(self.card, self.work)
+        self.record['diagnosis']['path'] = '/private/tmp/synthetic-canary-state.json'
+        accepted = self.accepted()
+        receipt = founder_ruling.apply(self.work, accepted)
+        self.assertFalse(receipt['stress_verdict_granted'])
+        self.assertEqual(read(self.work/'attack-state.json')['round_limit'], 9)
+
     def test_wrong_round_money_feedback_or_added_allowance_refused(self):
         for change in (dict(allowances=dict(case_budget_usd=70, round_limit=10)),
                 dict(case_spent_usd=34.423835415), dict(infrastructure_waste_usd=16.744762),
@@ -80,7 +92,49 @@ class CanaryFounderTests(unittest.TestCase):
         (self.work/'attacks/round-8.json').write_text('{}')
         with self.assertRaises(restore_ledger.Refused): founder_ruling.apply(self.work, accepted)
 
-    @unittest.skipUnless(PRIVATE.is_dir(), 'already-open checkpoint absent; never decrypt')
+    def test_ordinary_successor_preserves_pending_writer_authority_without_reapplying(self):
+        applied = founder_ruling.apply(self.work, self.accepted())
+        before = read(self.work / 'attack-state.json')
+        successor = copy.deepcopy(self.card)
+        successor.update(sha256='e'*64, founder_ruling=applied, terminal_stop='provider_limit:openrouter/deepseek/deepseek-v4.1-flash')
+        successor['recovery_config'].update(case_budget=70, rounds=9)
+        successor['case_budget']['limit_usd'] = 70
+        save(self.work/'scorecard.json', successor)
+        save(self.work/'continuation-budget.json', successor['continuation_budget'])
+        fresh = self.work/'freshness-repair.json'; save(fresh, {'attempts':2})
+        sealed = self.home/'successor-sealed'
+        with patch.object(founder_ruling, 'apply', side_effect=AssertionError('ruling reapplied')):
+            imported = restore_ledger.install(self.work, sealed, successor['case'], successor['sha256'], successor)
+        self.assertTrue(imported['ruling_carried_forward'])
+        self.assertEqual(read(self.work/'attack-state.json'),before)
+        self.assertEqual(read(fresh),{'attempts':2})
+        args=SimpleNamespace(**{**successor['recovery_config'],'resume':successor['case'],
+            'dry_run':False,'source':'hunt','rounds':9,'case_budget':70,'skip_build':False})
+        c=SimpleNamespace(work=self.work,case=self.work/'case',case_id=successor['case'],
+            card=copy.deepcopy(successor),args=args,models=successor['models'],
+            ledger=sealed/(successor['case']+'.continuation-budget.json'))
+        calls=[]
+        def model(ctx,models,text,cwd,name):
+            calls.append(name)
+            if name=='builder-9':
+                self.assertIn('Synthetic defect',text)
+                (c.case/'fixed.txt').write_text('synthetic repair')
+            elif name=='attacker-9': save(c.work/'attacks/round-9.json',{'complete':True,'blocking':[]})
+            else: self.fail(name)
+            return 0
+        with patch.object(run,'g1',return_value=(True,{'problems':[]})), \
+             patch.object(run,'attack_binding',return_value=before['binding']), \
+             patch.object(run,'early_checks',return_value=None), patch.object(run,'early_review',return_value=None), \
+             patch.object(run,'opencode',side_effect=model), \
+             patch.object(run,'loop_freshness',side_effect=lambda c,r,p:(r,p)):
+            run.write_and_attack(c,successor)
+        self.assertEqual(calls,['builder-9','attacker-9'])
+        self.assertEqual(c.card['founder_ruling'],applied)
+        tampered=copy.deepcopy(successor); tampered['founder_ruling']['reset_once']=False
+        with self.assertRaises(restore_ledger.Refused):
+            restore_ledger.install(self.work,self.home/'refused',successor['case'],successor['sha256'],tampered)
+
+    @unittest.skipUnless(os.environ.get('UNBUG_PRIVATE_REPLAY') == '1' and PRIVATE.is_dir(), 'already-open checkpoint absent; never decrypt')
     def test_real_clean_blocking_and_budget_branches(self):
         card = read(FIXTURE); record = make_record(card, PRIVATE)
         for blocking, cost in ((False, 0), (True, 0), (True, 20)):

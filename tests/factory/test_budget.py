@@ -241,6 +241,8 @@ class BudgetTests(unittest.TestCase):
     def test_provider_limits_and_refusals_stop_before_retry(self):
         cases = [('opencode-go/test', 'opencode', {'type': 'error', 'error': {'name': 'GoUsageLimitError', 'limitName': 'weekly'}}, 'provider_limit'),
                  ('openrouter/test', 'opencode', 'HTTP 402 insufficient credits', 'provider_limit'),
+                 ('openrouter/deepseek/deepseek-v4.1-flash', 'opencode', {'type': 'error', 'error': {'statusCode': 429}}, 'provider_limit'),
+                 ('openrouter/deepseek/deepseek-v4.1-flash', 'opencode', {'type': 'error', 'error': {'statusCode': 402}}, 'provider_limit'),
                  ('claude/test', 'claude', {'type': 'result', 'is_error': True, 'result': 'Usage limit reached'}, 'provider_limit'),
                  ('claude/test', 'claude', {'type': 'assistant', 'error': 'rate_limit', 'message': {'content': []}}, 'provider_limit'),
                  ('claude/test', 'claude', {'type': 'result', 'is_error': True, 'result': "You've hit your limit · resets tomorrow"}, 'provider_limit'),
@@ -625,13 +627,14 @@ class BudgetTests(unittest.TestCase):
             if len(calls) == 1: raise OSError('synthetic cancellation failure')
             return original_kill(pid, sig)
         with patch('budget.os.killpg', side_effect=fail_first_stop):
-            with self.assertRaisesRegex(BudgetError, '^cancellation_failed$'):
+            with self.assertRaisesRegex(BudgetError, '^call_limit$'):
                 self.run_script(f'import os; os.write(1, {payload!r})',
                                 driver='codex', concurrent=True, max_calls=3)
         data = self.data()
         self.assertEqual(len(data['events']), 1)  # Earlier priced turn is preserved.
         self.assertEqual(len(data['unpriced_invocations']), 1)
-        self.assertEqual(data['terminal_stop'], 'cancellation_failed')
+        self.assertEqual(data['terminal_stop'], 'call_limit')
+        self.assertEqual(data['cleanup_errors'], [{'stage':'process_cancellation', 'error':'OSError'}])
         self.assertNotIn('active', data)
         self.assertIsNone(case_spending(data)['spent_usd'])
         with self.assertRaisesRegex(BudgetError, '^budget_exhausted$'):

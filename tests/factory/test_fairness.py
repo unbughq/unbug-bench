@@ -48,6 +48,7 @@ class FairnessTests(unittest.TestCase):
                  "evidence": "guard/db.sql"} for i in (1, 2)]
         counts = fairness.verdict({"tries": rows}, attempts)
         self.assertEqual(counts["wrong_fix"], 2)
+        self.assertIsNone(fairness.verdict({"inconclusive": True, "reason": "uncertain", "tries": rows}, attempts))
         self.assertIsNone(fairness.verdict({"tries": rows[:1]}, attempts))
         self.assertIsNone(fairness.verdict({"tries": [rows[0], rows[0]]}, attempts))
         self.assertIsNone(fairness.verdict({"tries": [{**rows[0], "evidence": ""}, rows[1]]}, attempts))

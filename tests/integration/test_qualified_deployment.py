@@ -79,7 +79,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(binary.read_text(), 'public CLI fixture')
         self.assertEqual(deployment.deploy(self.release, self.home, True)['source_files_verified'], len(self.source_files))
 
-    def boundary(self, drift=''):
+    def boundary(self, drift='', image_failure=False):
         start = LAUNCHER.index('  if [ -n "$qualified_release" ]; then\n    boat ssh', LAUNCHER.index('batch_status=0'))
         end = LAUNCHER.index('  # Real keys, not boat', start)
         script = '''set -eu
@@ -89,13 +89,14 @@ boat() {
   test "$1" = ssh
   case "$3" in
     *"--version"*) DRIFT ;;
-    *factory/worker_release.py*) touch "$HOME/runtime-imported" ;;
+    *"docker image inspect unbug-bench-medusa:latest"*) IMAGE_STEP ;;
+    *factory/worker_release.py*) test -f "$HOME/medusa-image-prepared"; touch "$HOME/runtime-imported" ;;
     *"print(run.bench_manifest())"*) printf '%064d\n' 0 ;;
     *) /bin/sh -c "$3" ;;
   esac
 }
 opencode_pin='--version'
-''' .replace('DRIFT', drift or ':')
+''' .replace('DRIFT', drift or ':').replace('IMAGE_STEP', 'return 1' if image_failure else 'touch "$HOME/medusa-image-prepared"')
         script += LAUNCHER[start:end] + '\ntouch "$HOME/credentials-delivered"\n'
         return subprocess.run(['/bin/sh', '-c', script], env={**os.environ, 'HOME': str(self.home)}, capture_output=True, text=True)
 
@@ -103,7 +104,15 @@ opencode_pin='--version'
         result = self.boundary()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((self.home / 'credentials-delivered').exists())
+        self.assertTrue((self.home / 'medusa-image-prepared').exists())
         self.assertEqual(json.loads((self.home / 'fixture.source-verify.json').read_text())['source_files_verified'], len(self.source_files))
+
+    def test_image_fallback_failure_blocks_import_and_delivery(self):
+        result = self.boundary(image_failure=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Medusa image preparation failed before credentials', result.stderr)
+        self.assertFalse((self.home / 'runtime-imported').exists())
+        self.assertFalse((self.home / 'credentials-delivered').exists())
 
     def test_full_source_mismatch_and_extra_factory_stop_before_delivery(self):
         for command in ('echo drift > "$HOME/unbug-bench/bin/check"',

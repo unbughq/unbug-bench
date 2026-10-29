@@ -139,12 +139,12 @@ def static_scan(guard):
     return findings
 
 
-def check_guard(guard, runs, seed, base, dynamic_tables, seed_digests, seed_stock, factory_workers=1):
+def check_guard(guard, runs, seed, base, dynamic_tables, seed_digests, seed_stock, factory_workers=1, scenarios=()):
     findings = static_scan(guard)
     # Catalog and install-time data diff.
     try:
-        bench.prepare_app_guard(guard)
-        bench.reset(str(guard), app_prepared=True)
+        bench.prepare_app_guard(guard, scenarios)
+        bench.reset(str(guard), app_prepared=True, scenarios=scenarios)
         installed = catalog()
         for k in FLAG_IF_NEW:
             new = sorted(set(map(str, installed[k])) - set(map(str, base[k])))
@@ -161,7 +161,7 @@ def check_guard(guard, runs, seed, base, dynamic_tables, seed_digests, seed_stoc
     # Re-runs: stress with a fresh seed, then one normal run; data diff after the last run.
     summaries = []
     for options, n in (({"mode": "stress", "seed_base": seed}, runs), ({"mode": "normal"}, 1)):
-        s = bench.run_case(str(guard), n, options=options, label=f"fakepass-{guard.name}", factory_workers=factory_workers)
+        s = bench.run_case(str(guard), n, options=options, label=f"fakepass-{guard.name}", factory_workers=factory_workers, scenarios=scenarios)
         summaries.append({k: s[k] for k in ("traffic_options", "runs", "pass", "oversold", "errors", "invalid", "results_directory")})
         if s["pass"] < s["runs"]:
             where = f"stress runs (seed base {seed})" if options["mode"] == "stress" else "normal-schedule runs"
@@ -184,7 +184,9 @@ def main():
     p.add_argument("--negative-probes", default="", help="bin/verify-negative probe names to check as guards")
     p.add_argument("--seed", type=int, default=int(time.time()) % 100000, help="stress seed base (default: from the clock, recorded)")
     p.add_argument("--factory-workers", type=int, default=1)
+    p.add_argument("--scenario", action="append", default=[], help="case baseline used for calibration")
     a = p.parse_args()
+    scenarios = [bench.load_scenario(path) for path in a.scenario]
     if a.factory_workers < 1: p.error("factory-workers must be positive")
     report = {"seed_base": a.seed, "runs": a.runs, "guards": []}
     temporary = tempfile.TemporaryDirectory(prefix="fake-pass-probes-")
@@ -193,16 +195,16 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         # Baseline: the seed with no guard, then which tables traffic itself changes, on paths
         # where orders succeed (`none`) and where every reservation is refused (`refuse-all`).
-        bench.reset("none")
+        bench.reset("none", scenarios=scenarios)
         base = catalog(); seed_digests = digests(base["tables"]); seed_stock = stocked()
         dynamic = set()
         for g in ("none", "refuse-all"):
-            bench.run_case(g, 1, options={"mode": "stress", "seed_base": a.seed}, label=f"fakepass-baseline-{g}")
+            bench.run_case(g, 1, options={"mode": "stress", "seed_base": a.seed}, label=f"fakepass-baseline-{g}", scenarios=scenarios)
             dynamic |= {t for t, d in digests(base["tables"]).items() if d != seed_digests[t]}
         dynamic = sorted(dynamic)
         report["tables_changed_by_traffic"] = dynamic
         for g in guards:
-            result = check_guard(bench.resolve_guard(g), a.runs, a.seed, base, set(dynamic), seed_digests, seed_stock, a.factory_workers)
+            result = check_guard(bench.resolve_guard(g), a.runs, a.seed, base, set(dynamic), seed_digests, seed_stock, a.factory_workers, scenarios)
             report["guards"].append(result)
             print(f"{pathlib.Path(g).name}: {result['verdict'].upper()}", flush=True)
             for f in result["findings"]: print(f"  [{f['severity']}] {f['where']}: {f['reason']} {f['match']}", flush=True)

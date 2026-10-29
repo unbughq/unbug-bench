@@ -56,6 +56,12 @@ class PausedRecoveryTests(unittest.TestCase):
                          {'rounds_raised':{'from':8,'to':9}})
         self.assertEqual(self.card,original)
 
+    def test_authenticated_final_gate_phase_allows_unchanged_exhausted_round_cap(self):
+        card={**self.card,'gate_continuation':dict(version=1,phase='final_gates',round=8,
+            case_sha256='a'*64,stress_receipt_sha256='b'*64,report_sha256='c'*64)}
+        self.policies(card,'--case-budget 50 --rounds 8',True)
+        self.assertEqual(restart.raised_limits(card,50,8),{})
+
     def test_unraised_exhausted_pause_is_refused_by_both(self):
         for options in ('','--rounds 8','--rounds=7','--case-budget 60',
                         '--case-budget 60 --rounds 8','--rounds 9 --rounds 8'):

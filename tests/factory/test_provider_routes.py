@@ -34,14 +34,17 @@ class ProviderRoutesTest(TestCase):
         self.assertNotIn("gates", c.card)
 
     def test_bad_preflight_route_stops_before_other_roles(self):
-        c = self.preflight_context()
-        with mock.patch.object(run, "opencode", side_effect=run.BudgetError("provider_limit:opencode/deepseek-v4.1-flash-free")) as call:
-            with self.assertRaisesRegex(run.BudgetError, "^provider_preflight_failed$"):
-                run.provider_preflight(c)
-        self.assertEqual(call.call_count, 1)
-        self.assertEqual(c.card["provider_preflight"][0]["status"], "failed")
-        self.assertTrue(c.card["provider_preflight"][0]["reason"].startswith("provider_limit:"))
-        self.assertNotIn("gates", c.card)
+        for reason, stop in (("provider_limit:openrouter/deepseek/deepseek-v4.1-flash",
+                              "provider_limit:openrouter/deepseek/deepseek-v4.1-flash"),
+                             ("opencode_error", "provider_preflight_failed")):
+            c = self.preflight_context()
+            with mock.patch.object(run, "opencode", side_effect=run.BudgetError(reason)) as call:
+                with self.assertRaisesRegex(run.BudgetError, "^" + stop + "$"):
+                    run.provider_preflight(c)
+            self.assertEqual(call.call_count, 1)
+            self.assertEqual(c.card["provider_preflight"][0]["status"], "failed")
+            self.assertEqual(c.card["provider_preflight"][0]["reason"], reason)
+            self.assertNotIn("gates", c.card)
 
     def test_direct_routes_preserve_roles_and_do_not_spill_to_other_models(self):
         roles = {"stress_tester": {"model": "opencode-go/mimo-v2.6-pro", "family": "xiaomi"}}
@@ -57,8 +60,8 @@ class ProviderRoutesTest(TestCase):
                     p = model_runtime.opencode_config(target)
                     paths.append(p)
                     self.assertEqual(json.loads(p.read_text())["small_model"], target)
-                self.assertEqual(len(set(paths)), 2)
-                for source in ["opencode-go/muse-spark-1.3-contributor", "opencode/deepseek-v4.1-flash-free",
+                self.assertEqual(len(set(paths)), 3)
+                for source in ["opencode-go/muse-spark-1.3-contributor",
                                "opencode/glm-5.3-flash-free", "codex/gpt-6.1-sol", "claude/claude-opus-5-5"]:
                     run.opencode(c, [source], "synthetic", ".", "fixture")
                     self.assertEqual(call.call_args.args[1], [source])

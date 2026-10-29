@@ -22,7 +22,7 @@ class RepairProgressTests(unittest.TestCase):
         c = types.SimpleNamespace(
             work=root / "work", case=root / "work/case", manifest0="trusted", seed=7,
             card={"gates": {}}, models={}, args=types.SimpleNamespace(
-                runs=10, scenario_runs=3, dry_run=False, max_repairs=2))
+                runs=10, scenario_runs=3, dry_run=False, max_repairs=2, rounds=8))
         c.case.mkdir(parents=True)
         (c.work / "logs").mkdir()
         (c.case / "base").mkdir()

@@ -117,6 +117,14 @@ secrets_file=${UNBUG_SECRETS_FILE:-$HOME/.config/unbug-bench/secrets.age}
 identity=$(cat)  # in memory only: decrypts the key bundle and, with --restore, a checkpoint
 secrets_b64=$(printf '%s\n' "$identity" | age -d -i /dev/stdin "$secrets_file" | base64) || true
 [ -n "$secrets_b64" ] || { echo "could not decrypt $secrets_file (run bin/setup-secrets?)" >&2; exit 1; }
+codex_login_gate() {
+  printf '%s' "$secrets_b64" | base64 -d | python3 -B "$here/codex_login.py" --ttl-hours "${1:-$ttl_hours}"
+}
+# Before restores, guard ownership or any paid worker operation. Recheck each
+# creation too: provisioning a large batch consumes part of the safe lifetime.
+if [ "${UNBUG_RESUME_LAUNCH:-}" != 1 ]; then
+  codex_login_gate
+fi
 # 2026-10-20: R2 keys stay on this host; VMs only get pre-signed links for single objects.
 held_secrets_b64=$secrets_b64
 held_secret_labels=$(printf '%s' "$held_secrets_b64" | base64 -d | tar -tf - | sed '/^\._/d' | tr '\n' ' ')
@@ -404,6 +412,8 @@ factory_auto_resume() {
   now=$(date +%s)
   remaining=$((retire_at - now + $(cat "$state/$resume_id.started")))
   [ "$remaining" -gt 60 ] || return 1
+  # Monitoring/collection remains possible with an old login; new model work does not.
+  codex_login_gate "$(python3 -c 'import sys; print(int(sys.argv[1]) / 3600)' "$remaining")" || return 1
   # A detached resume may still be checking its checkpoint while old DONE exists.
   # Its lock owns that transition; polling must not collect/resume it again.
   restart_lock=$(boat ssh "$resume_id" 'if test -d ~/sealed/.factory-restart.lock; then echo locked; else echo unlocked; fi') || { touch "$state/$resume_id.keep"; return 1; }
@@ -542,6 +552,7 @@ if [ "${UNBUG_RESUME_LAUNCH:-}" = 1 ]; then
   exit "$batch_status"
 fi
 while [ "$serial" -lt "$n" ]; do
+  codex_login_gate
   if [ -n "$qualified_release" ]; then
     readiness_mono=$(python3 -c 'import time; print(time.monotonic())')
     readiness_wall=$(python3 -c 'import time; print(time.time())')
@@ -562,6 +573,8 @@ while [ "$serial" -lt "$n" ]; do
   if [ -n "$qualified_release" ]; then
     boat ssh "$id" 'python3 -B ~/qualified-release/deploy.py verify --release ~/qualified-release' > "$state/$id.source-preimport.json" || { echo "$id: full source verification failed before credentials" >&2; exit 1; }
   fi
+  # Fresh images may lack Medusa. Build before read-only qualification or keys.
+  ( BOAT_COMMAND_TIMEOUT_SECONDS=${BOAT_IMAGE_TIMEOUT_SECONDS:-1800} boat ssh "$id" 'cd ~/unbug-bench; docker image inspect unbug-bench-medusa:latest >/dev/null 2>&1 || { docker compose -f projects/medusa/compose.yaml pull postgres redis && docker compose -f projects/medusa/compose.yaml build medusa; }' ) || { echo "$id: Medusa image preparation failed before credentials" >&2; exit 1; }
   # Qualification is read-only: no model calls or credentials. Driver defaults
   # match the existing pin block; selected Claude is checked by run.py before use.
   boat ssh "$id" 'OPENCODE_DISABLE_AUTOUPDATE=1 python3 -B ~/factory/worker_release.py --manifest ~/worker-release-manifest.json --root ~/unbug-bench --factory-root ~/factory --drivers opencode,codex' > "$state/$id.worker-release.json" || { echo "$id: worker release qualification failed" >&2; exit 1; }

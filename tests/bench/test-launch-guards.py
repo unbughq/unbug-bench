@@ -123,7 +123,13 @@ elif cmd == "ssh":
             input=sys.stdin.buffer.read(), env={**os.environ, "HOME": str(vm)}).returncode)
     elif "print(run.bench_manifest())" in command:
         print("a" * 64)
+    elif 'docker image inspect unbug-bench-medusa:latest' in command:
+        assert not (vm / 'secrets-ok').exists(), 'image preparation must precede credentials'
+        assert 'pull postgres redis && docker compose -f projects/medusa/compose.yaml build medusa' in command
+        if mode == 'image-fail': sys.exit(1)
+        (vm / 'medusa-image-prepared').touch()
     elif 'factory/worker_release.py' in command:
+        assert (vm / 'medusa-image-prepared').exists(), 'image fallback must precede qualification'
         assert not (vm / 'secrets-ok').exists(), 'qualification must precede credentials'
         if mode == 'qualification-fail': sys.exit(1)
         print(json.dumps({'schema':1,'verified_drivers':['opencode','codex']}))
@@ -149,7 +155,8 @@ elif cmd == "ssh":
         shm = vm / "shm-secrets"; shm.mkdir(exist_ok=True)
         tarfile.open(fileobj=io.BytesIO(base64.b64decode(sys.stdin.read()))).extractall(shm, filter="data")
         names = re.search(r"for n in (.*?); do", command).group(1).split()
-        if not all((shm / n).read_text() == "fake-" + n + "\n" for n in names): sys.exit(1)
+        if not all((json.loads((shm / n).read_text())['tokens']['access_token'].endswith('.synthetic')
+                    if n == 'codex-auth.json' else (shm / n).read_text() == "fake-" + n + "\n") for n in names): sys.exit(1)
         (vm / "secrets-ok").touch()
     elif command == "cp /dev/shm/secrets/claude-token-2 /dev/shm/secrets/claude-token":
         (vm / "shm-secrets/claude-token").write_text((vm / "shm-secrets/claude-token-2").read_text())
@@ -292,6 +299,9 @@ def main():
         plain = base / "plain"; plain.mkdir()
         for name in ("claude-token", "claude-token-2", "codex-auth.json", "openrouter-key", "opencode-go-key", "statements-key"):
             (plain / name).write_text("fake-" + name + "\n")
+        (plain / 'codex-auth.json').write_text(json.dumps({
+            'tokens': {'access_token':'e30.eyJleHAiOjQxMDI0NDQ4MDB9.synthetic'},
+            'last_refresh':'2026-10-28T00:00:00Z'}))
         bundle_file = base / "secrets.age"
         tar = subprocess.run(["tar", "-C", str(plain), "-cf", "-", "claude-token", "claude-token-2", "codex-auth.json", "openrouter-key", "opencode-go-key", "statements-key"],
                              check=True, capture_output=True).stdout
@@ -540,6 +550,12 @@ exit "$status"
         assert code != 0 and 'worker release qualification failed' in err
         assert not any(c[0] == 'exec' or (c[0] == 'ssh' and 'base64 -d | tar' in c[2]) for c in calls)
         print('PASS worker release qualification failure precedes secrets and model work')
+
+        code, _, err, calls, _ = run(mode='image-fail')
+        assert code != 0 and 'Medusa image preparation failed before credentials' in err
+        assert not any(c[0] == 'exec' or (c[0] == 'ssh' and
+            ('base64 -d | tar' in c[2] or 'factory/worker_release.py' in c[2])) for c in calls)
+        print('PASS Medusa image fallback precedes qualification; build failure prevents credentials and model work')
 
         for version in ("1.19.0", "1.19.3"):
             code, _, err, calls, _ = run(FAKE_OPENCODE_VERSION=version)

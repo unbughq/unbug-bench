@@ -1,4 +1,4 @@
-"""Replay canary 6's real public policy/launch and reported limit; no model calls."""
+"""Replay canary 6's public policy/launch with a synthetic Go limit; no model calls."""
 import base64
 import copy
 import io
@@ -27,6 +27,9 @@ def bundle():
         for name in ('claude-token', 'claude-factory-token-2', 'opencode-go-key', 'opencode-go-key-2',
                      'openrouter-key', 'codex-auth.json'):
             value = b'synthetic fixture only:' + name.encode()
+            if name == 'codex-auth.json':
+                value = json.dumps({'tokens':{'access_token':'e30.eyJleHAiOjQxMDI0NDQ4MDB9.synthetic'},
+                                    'last_refresh':'2026-10-28T00:00:00Z'}).encode()
             member = tarfile.TarInfo(name); member.size = len(value)
             archive.addfile(member, io.BytesIO(value))
     return output.getvalue()
@@ -40,7 +43,7 @@ class AccountHandoffTests(unittest.TestCase):
         self.policy = next(iter(json.loads((FIXTURE / 'policy.restore.json').read_text())['jobs'].values()))
         launch = json.loads((FIXTURE / 'launch.json').read_text())
         self.env = {**launch['environment'], 'FACTORY_ACCOUNT_POLICY': json.dumps(self.policy)}
-        self.stop = 'provider_limit:opencode/deepseek-v4.1-flash-free'
+        self.stop = 'provider_limit:opencode-go/glm-5.3-flash'
         self.card['terminal_stop'] = self.card['continuation_budget']['terminal_stop'] = self.stop
         self.card['continuation_budget']['active'] = None
         archive = self.root / (self.card['case'] + '.checkpoint.tar.gz.age')
@@ -83,6 +86,13 @@ class AccountHandoffTests(unittest.TestCase):
             with self.assertRaises(ValueError): self.prepare(retries=3)
 
     def test_no_key_or_authorization_uses_normal_backoff(self):
+        for model in ('opencode/deepseek-v4.1-flash-free', 'opencode-go/deepseek-v4.1-flash',
+                      'openrouter/deepseek/deepseek-v4.1-flash'):
+            card = {**self.card, 'terminal_stop': 'provider_limit:' + model}
+            state = handoff.initial_state(card, self.policy)
+            self.assertEqual(state['limited']['opencode'], [])
+            self.assertIsNone(handoff.choose(card, state, self.policy, self.held))
+            self.assertEqual(handoff.launch_accounts(card, self.policy, {}, self.held)[0], 1)
         for held, allowed in (({'opencode-go-key'}, [1, 2]), (self.held, [1])):
             with patch.dict(os.environ, {**self.env, 'FACTORY_ACCOUNT_POLICY': json.dumps({'opencode_accounts': allowed})}):
                 self.assertEqual(self.prepare(held=held)[1], 900)

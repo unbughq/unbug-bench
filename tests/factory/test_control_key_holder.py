@@ -33,7 +33,7 @@ class ControlKeyHolderTests(unittest.TestCase):
         self.root = Path(self.tmp.name).resolve()
         for name in ('factory', 'bin', 'home', 'sealed'):
             (self.root/name).mkdir()
-        for name in ('key_holder.py', 'recovery.py', 'control_resume.py', 'launch.sh', 'account_handoff.py'):
+        for name in ('key_holder.py', 'recovery.py', 'control_resume.py', 'launch.sh', 'account_handoff.py', 'codex_login.py'):
             shutil.copyfile(HERE/name, self.root/'factory'/name)
         shutil.copyfile(HERE.parent/'bin/setup-secrets', self.root/'bin/setup-secrets')
         setup = self.root/'bin/setup-secrets'
@@ -54,6 +54,9 @@ class ControlKeyHolderTests(unittest.TestCase):
         with tarfile.open(fileobj=data, mode='w') as archive:
             for name in ('claude-token', 'codex-auth.json', 'openrouter-key', 'opencode-go-key', 'statements-key'):
                 value = self.keys[2].read_bytes() if name == 'statements-key' else b'synthetic credential'
+                if name == 'codex-auth.json':
+                    value = json.dumps({'tokens':{'access_token':'e30.eyJleHAiOjQxMDI0NDQ4MDB9.synthetic'},
+                                        'last_refresh':'2026-10-28T00:00:00Z'}).encode()
                 info = tarfile.TarInfo(name); info.size = len(value)
                 archive.addfile(info, io.BytesIO(value))
         subprocess.run(['age', '-r', self.recipients[0], '-r', self.recipients[1], '-o', str(self.bundle)],

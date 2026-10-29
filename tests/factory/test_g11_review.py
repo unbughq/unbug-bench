@@ -58,7 +58,7 @@ import argparse
 import types
 with tempfile.TemporaryDirectory() as tmp:
     root = pathlib.Path(tmp)
-    for mode in ("success", "interrupted", "changed", "copy_changed", "preparation_interrupted"):
+    for mode in ("success", "interrupted", "changed", "copy_changed", "preparation_interrupted", "interrupted_seal_failure"):
         original = root / mode / "case-synthetic"; (original / "case").mkdir(parents=True)
         (original / "case/contract.md").write_text(secret)
         guard = original / "guard"; guard.mkdir(); (guard / "db.sql").write_text("-- synthetic")
@@ -78,10 +78,12 @@ with tempfile.TemporaryDirectory() as tmp:
             assert models == [roles["reviewer"]["model"]]
             assert (c.args.max_cost, c.args.max_total_calls, c.args.max_role_calls, c.args.agent_timeout) == (0.75, 100, 80, 1200)
             if mode == "interrupted": raise run.BudgetError("cost_limit")
+            if mode == "interrupted_seal_failure": raise run.BudgetError('codex_login_expired')
             (cwd / "verdict.json").write_text(json.dumps({"fixes": [{"classification": "checker_false_positive", "evidence": secret}]}))
             if mode == "changed": (guard / "db.sql").write_text("changed")
             if mode == "copy_changed": (cwd / "fixes/0/db.sql").write_text("changed")
         def seal(c):
+            if mode == 'interrupted_seal_failure': raise OSError(secret)
             assert (c.work / "verdict.json").exists() or mode in ("interrupted", "preparation_interrupted")
             c.card["sha256"] = "a" * 64
         factory = types.SimpleNamespace(jload=load, family=run.family, bench_manifest=lambda: "bench-sha",
@@ -97,7 +99,9 @@ with tempfile.TemporaryDirectory() as tmp:
         assert secret not in json.dumps(public)
         assert (sealed / "DONE").read_text().strip() == "g11-review-case-synthetic"
         assert load(original / "scorecard.json") == prior
-        assert public["status"] == {"success": "complete", "interrupted": "stopped", "changed": "invalidated", "copy_changed": "invalidated", "preparation_interrupted": "stopped"}[mode]
+        assert public["status"] == {"success": "complete", "interrupted": "stopped", "changed": "invalidated", "copy_changed": "invalidated", "preparation_interrupted": "stopped", "interrupted_seal_failure":"stopped"}[mode]
+        if mode == 'interrupted_seal_failure':
+            assert public['terminal_stop'] == 'codex_login_expired' and public['checkpoint_error'] == 'OSError'
         assert public["verdict"] == ("checker_false_positive" if mode == "success" else "inconclusive")
 print("PASS audit caps, separate reports, interrupted sealing, protected-input drift and unchanged original gate")
 

@@ -3,7 +3,8 @@
 The trusted transport supplies the digest of the archive it actually restored.
 An archived scorecard need not equal the final public card. Accounting, however,
 must match a retained ledger exactly: a public correction is not its own proof.
-This guard authenticates accounting only; it grants no attempt/gate allowances.
+This guard carries already-applied authority only when archive and public card agree;
+it never resets allowances on ordinary restore.
 """
 import argparse
 import copy
@@ -54,6 +55,11 @@ def authenticate(work, case, generation, public_card, *, founder_ruling=None):
         require(embedded is None or digest(retained) == digest(embedded), "retained accounting snapshots disagree")
     else:
         retained = embedded
+    # A public phase marker is provisional until its encrypted evidence matches.
+    if public_card.get('gate_continuation') is not None:
+        from late_recovery import authenticate_gates
+        from types import SimpleNamespace
+        authenticate_gates(SimpleNamespace(work=work, case=work / 'case', card={}), public_card)
     usage_facts(retained)
     imported = public_card.get("continuation_budget")
     usage_facts(imported)
@@ -71,6 +77,16 @@ def authenticate(work, case, generation, public_card, *, founder_ruling=None):
         "infrastructure_waste_usd": summary["infrastructure_waste_usd"],
         "attempt_allowances_authenticated": False,
     }
+    applied_path = work / "founder-ruling-applied.json"
+    if founder_ruling is None and (applied_path.exists() or applied_path.is_symlink()):
+        applied = read_object(applied_path)
+        authorization = applied.get('authorization') or {}
+        record = authorization.get('record') or {}
+        require(applied == public_card.get('founder_ruling') and
+                digest(record) == authorization.get('record_sha256') and record.get('case') == case,
+                "applied founder ruling differs from authenticated successor")
+        receipt.update(founder_ruling=applied, attempt_allowances_authenticated=True,
+                       ruling_carried_forward=True)
     if founder_ruling is not None:
         receipt.update(founder_ruling=founder_ruling, retained_ledger_sha256=digest(retained),
                        accounting_authority='explicit founder ruling for exact generation and public ledger')

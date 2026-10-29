@@ -83,6 +83,12 @@ def freshness_retry_stop(card):
     if (card.get('status') != 'stopped' or card.get('failed_gate') or card.get('checkpoint_error')
             or 'fail' in (card.get('gates') or {}).values()): return False
     if expiry_freshness_stop(card): return True
+    # A completed unresolved verdict needs a ruling, not another paid review.
+    # Only a review that did not complete is eligible for an automatic retry.
+    if card.get('terminal_stop') == 'freshness_review_unavailable':
+        info = card.get('admission_freshness')
+        return (isinstance(info, dict) and info.get('outcome') == 'review_unresolved'
+                and (card.get('freshness_confirmation') or {}).get('status') != 'completed')
     info = card.get('loop_freshness')
     return (card.get('terminal_stop') == 'freshness_unresolved'
             and isinstance(info, dict) and info.get('outcome') == 'unresolved'
@@ -90,18 +96,30 @@ def freshness_retry_stop(card):
                  or legacy_freshness_coverage_gap(card) or pinned_version_freshness_gap(card)))
 
 
+def gate_only_continuation(card):
+    """Public eligibility; the importer/runner verifies the sealed stress evidence."""
+    marker = card.get('gate_continuation') or {}
+    return (card.get('status') == 'stopped' and not card.get('failed_gate') and
+            not card.get('checkpoint_error') and 'fail' not in (card.get('gates') or {}).values() and
+            marker.get('version') == 1 and marker.get('phase') == 'final_gates' and
+            type(marker.get('round')) is int and marker['round'] >= card.get('builder_rounds', 0) and
+            all(isinstance(marker.get(k), str) and re.fullmatch('[0-9a-f]{64}', marker[k])
+                for k in ('case_sha256', 'stress_receipt_sha256', 'report_sha256')))
+
+
 def paused_rounds_exhausted(card):
     """Legacy TTL retirement can publish a pause after its round allowance is spent."""
     saved = (card.get('recovery_config') or {}).get('rounds')
     completed = card.get('builder_rounds')
-    return (card.get('terminal_stop') == 'paused' and type(saved) is int and saved > 0
+    return (card.get('terminal_stop') == 'paused' and not gate_only_continuation(card) and type(saved) is int and saved > 0
             and type(completed) is int and completed >= saved)
 
 
 def raised_limits(card, limit, rounds, *, explicit_budget=False, explicit_rounds=False):
     """Only an explicit economic/round decision reopens an exhausted case."""
     paused = paused_rounds_exhausted(card)
-    if not paused and card.get('terminal_stop') not in (*BUDGET_STOPS, *REREVIEW_STOPS):
+    late = str(card.get('terminal_stop', '')).startswith('late_defect_needs_ruling:')
+    if not late and not paused and card.get('terminal_stop') not in (*BUDGET_STOPS, *REREVIEW_STOPS):
         return {}
     if (card.get('status') != 'stopped' or card.get('failed_gate') or card.get('checkpoint_error') or
             'fail' in (card.get('gates') or {}).values()):
@@ -133,6 +151,8 @@ def raised_limits(card, limit, rounds, *, explicit_budget=False, explicit_rounds
         changes['budget_raised'] = {'from': old_limit, 'to': limit, 'spent_at_raise': spent}
     if explicit_rounds and rounds > old_rounds:
         changes['rounds_raised'] = {'from': old_rounds, 'to': rounds}
+    if late and 'rounds_raised' not in changes:
+        raise ValueError('late defect requires a new one-round founder ruling')
     if not changes and rereview_stop(card) and math.isfinite(limit) and limit > spent:
         return {}
     if not changes or not math.isfinite(limit) or limit <= spent:
@@ -164,6 +184,8 @@ def limits_from_args(card, argv):
         return value
     explicit = lambda name: any(item == name or item.startswith(name + '=') for item in argv)
     limit = float(option('--case-budget', 50))
+    if str(card.get('terminal_stop', '')).startswith('late_defect_needs_ruling:') and not explicit('--founder-ruling-sha256'):
+        raise ValueError('late defect requires a pinned founder ruling')
     return limit, raised_limits(card, limit, int(option('--rounds', 8)),
                                explicit_budget=explicit('--case-budget'), explicit_rounds=explicit('--rounds'))
 
@@ -180,12 +202,12 @@ def require_restart_stop(card, argv, *, admission=False):
     from free_models import approved_pause
     raised_pause = paused_rounds_exhausted(card) and 'rounds_raised' in raised
     model_cutover = stop == 'paused' and not raised_pause and approved_pause(card, argv)
-    if stop == 'paused' and not (model_cutover or raised_pause):
+    if stop == 'paused' and not (model_cutover or raised_pause or gate_only_continuation(card)):
         raise ValueError('an explicit pause requires a deliberate resume')
     return model_cutover
 
 
-HOLDER_STOPS = ('codex_cli_not_0.162.1', 'stalled', 'provider_limit', 'timeout', 'paused',
+HOLDER_STOPS = ('codex_login_expired', 'codex_cli_not_0.162.1', 'stalled', 'provider_limit', 'timeout', 'paused',
                 'ttl_retired', 'process_error', 'opencode_error', 'runner_error',
                 'Budget ledger stopped', 'usage_monitor')
 
@@ -228,7 +250,7 @@ def ledger_agrees(card, *, route, mode='case', model_cutover=False, rereview=Fal
     if ledger in (None, 'complete', stop) or str(stop).startswith('runner_error:'):
         return True
     if route == 'restart':
-        return bool(((model_cutover or (pause_raised and stop == 'paused')) and ledger == 'PauseRequested') or
+        return bool(((model_cutover or ((pause_raised or gate_only_continuation(card)) and stop == 'paused')) and ledger == 'PauseRequested') or
                     (rereview_stop(card) and RETRY.fullmatch(ledger or '')))
     return bool((mode == 'review' and stop == 'time_limit' and ledger == 'timeout') or
                 (stop in ('paused', 'ttl_retired') and ledger == 'PauseRequested') or
