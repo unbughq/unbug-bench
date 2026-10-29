@@ -57,6 +57,19 @@ with `provider_wait` (section 3). It only ever returns a `Lease`.
 **Checking capacity.** `model_router.capacity(route)` returns the number of
 free slots without taking a lease. B uses it (section 4).
 
+**Clearing a blocked pool.** `credit` and `credential_expiring` never clear
+just because time passes. After B verifies a top-up or a Codex renewal, it
+calls `model_router.observe(pool, healthy=True, observation_id=<receipt ID>)`.
+This call:
+- uses the batch-scoped router token;
+- is idempotent on `observation_id`;
+- frees the pool, after which `capacity(route)` shows free slots and
+  `await_lease` admits again.
+
+B delivers a renewed Codex login with an atomic write-and-replace to
+`/dev/shm/secrets/codex-auth.json`. Workers read that file on every call and
+keep no copy under `~/.codex`.
+
 - `run.py` writes recovery reservations only after `await_lease` returns a
   `Lease`, and records `lease_id` in them. This covers writer
   `repair_pending` and the stress re-review counters.
