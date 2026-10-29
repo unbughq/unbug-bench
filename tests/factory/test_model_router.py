@@ -371,5 +371,14 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
         receipt=json.loads((c.work/stopped.exception.wait.call_id).read_text())
         self.assertFalse(receipt['final_usage_known'])
 
+    def test_receipt_write_error_still_releases_lease(self):
+        c,secrets,_=self.context()
+        runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
+        with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}), patch.object(router,'_rpc',self.store.rpc), \
+             patch.object(router,'SECRETS',secrets), patch.object(model_runtime.ModelRuntime,'_invoke',return_value=0), \
+             patch.object(model_runtime,'atomic_json',side_effect=OSError('synthetic disk failure')):
+            with self.assertRaises(OSError): runtime.call(c,[router.CHAINS[0][0]],'',c.case,'attacker-1')
+        self.assertEqual(self.store.rpc('status',{})['leases'],[])
+
 
 if __name__ == '__main__': unittest.main()

@@ -156,16 +156,15 @@ it never chooses another account independently. Permanent blacklist logic is
 deleted. Its transport remains for B to reuse; A makes no claim that
 --merge currently deletes displaced credentials. B owns installation hygiene and
 Codex access-token delivery. Runtime reads /dev/shm/secrets/codex-auth.json
-(FACTORY_SECRETS_DIR is a test-only path override), then uses
+(tests patch the module path directly), then uses
 codex_login.worker_auth to strip refresh authority. A missing/expired source is
 credential_expiring; there is no stale ~/.codex/auth.json fallback for credentials.
 CODEX_HOME still supplies CLI config.toml only. Parent explicitly accepted this exact RAM path, per-call re-read with no cache,
 and removal of launch.sh's copy into ~/.codex/auth.json. A makes that minimal
 launch.sh edit in E/B's area; CODEX_HOME supplies config.toml only. A implements both the reader and launch edit now. A missing or
 expired RAM file enters await_lease's credential_expiring path. Parent owns the
-matching update to interfaces.md, so A does not mutate that passed contract. This
-intermediate A slice may defer Codex until B provisions it, as expected: no batch
-runs between A and B merges.
+matching update to interfaces.md, so A does not mutate that passed contract. Until B provisions that file, Codex routes resolve to credential_expiring;
+no batch runs between A and B merges.
 
 ## Failure classification (A owns this parser-only budget.py seam)
 
@@ -209,8 +208,11 @@ concurrent waits in one shared list under a lock; after peers join, the main sto
 handler takes the latest retry_after and lets interrupted evidence win. It writes
 one record and, for multiple interrupted calls, one aggregate usage receipt with
 the union of already-booked event IDs and all per-lease receipts; no last-writer
-wins. D settles these by event ID/wait_id. The selected lease/route/account belongs
-to an interrupted call if one exists; latest retry_after covers all queued waits.
+wins. D settles these by event ID/wait_id. The lease_id identifies an interrupted attempt if one exists. route/account name
+the effective candidate awaiting admission or credential delivery. Its usage
+receipt keeps the original lease/account evidence. Earlier serial fallback
+receipts inherit the current condition rather than extending another route's
+cooldown; concurrent calls still merge at the latest retry_after.
 
 Fields exactly follow interfaces.md: wait_id, case, job, batch,
 lease_id (null before admission), role, route, account, reason, retry_after UTC,
@@ -323,3 +325,10 @@ otherwise its generic interruption label would swallow provider_wait outside
 run.main. This changes no audit verdict or gate scoring rule. The existing launch
 manifest includes model_router.py in host trust and required worker release files;
 no second file inventory is introduced.
+
+Admission checks credential presence (and Codex expiry) before returning a Lease
+to D. It prefers the worker's installed/current authorized account while retaining
+other authorized accounts as handoff candidates. Every CLI still re-reads its RAM
+credential at execution. Receipt-write failures cannot skip finish; interrupted
+final usage is conservatively unknown, while already-booked IDs remain retained.
+Queue entries without a poll expire after 180 seconds as well as running leases.

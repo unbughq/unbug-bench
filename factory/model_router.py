@@ -82,6 +82,7 @@ def routes(model, accounts=ACCOUNTS):
         labels = (ACCOUNTS[:2] if route.startswith('claude/') else ('codex-auth.json',) if route.startswith('codex/') else
                   ('openrouter-key',) if route.startswith('openrouter/') else
                   ACCOUNTS[2:4] if route.startswith('opencode-go/') or 'minimax-m3.1-flash-free' in route else (None,))
+        if labels != (None,): labels = tuple(a for a in accounts if a in labels)
         for account in labels:
             if account is not None and account not in accounts: continue
             result.append(dict(route=route, account=account, billing=billing, family=family(route),
@@ -201,14 +202,15 @@ class Store:
                         result = dict(kind='lease', lease_id=identity, **route, expires_at=expires)
                         break
                     if result is None:
-                        limits = [(blocked(r), r) for r in choices if blocked(r)]
-                        if limits:
-                            limit, route = min(limits, key=lambda pair: pair[0].get('blocked_until', now + 900))
-                            result = dict(kind='wait', reason=limit['reason'], retry_after=max(now + 1, limit.get('blocked_until', now + 900)),
-                                          route=route['route'], account=route['account'])
-                        else:
-                            route = choices[0] if choices else dict(route=data['model'], account=None)
-                            result = dict(kind='wait', reason='rate', retry_after=now + 15, route=route['route'], account=route['account'])
+                        alternatives = []
+                        active = [(json.loads(r)['pool'], e) for r,e in db.execute('SELECT route,expires FROM leases WHERE outcome IS NULL')]
+                        for route in choices:
+                            limit = blocked(route)
+                            ready = (max(now + 1, limit.get('blocked_until', now + 900)) if limit else
+                                     min((e for pool,e in active if pool == route['pool']), default=now + 15))
+                            alternatives.append((ready, limit['reason'] if limit else 'rate', route))
+                        ready, reason, route = min(alternatives, key=lambda row: row[0]) if alternatives else (now + 900, 'rate', dict(route=data['model'],account=None))
+                        result = dict(kind='wait', reason=reason, retry_after=ready, route=route['route'], account=route['account'])
             elif operation in ('renew', 'finish'):
                 row = db.execute('SELECT route,expires,outcome,receipt FROM leases WHERE id=?', (data['lease_id'],)).fetchone()
                 if not row: raise ValueError('unknown lease')
@@ -291,7 +293,10 @@ def metadata(case):
 
 def _admit(role, case, deadline, identity):
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
-    accounts = getattr(case, 'router_accounts', ACCOUNTS)
+    from account_handoff import ACCOUNTS as LABELS
+    preferred = {LABELS[p].get(n) for p,n in (case.card.get('provider_accounts') or {}).items() if p in LABELS}
+    accounts = sorted(getattr(case, 'router_accounts', ACCOUNTS),
+                      key=lambda a: (not (SECRETS / a).is_file(), a not in preferred))
     data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role)
     result = _rpc('acquire', data)
     if result.get('kind') == 'lease':
@@ -306,6 +311,18 @@ def _admit(role, case, deadline, identity):
         raise RouterUnavailable('invalid admission response')
     result.pop('kind')
     return Wait(**result)
+
+
+def _credential_ready(lease):
+    if lease.account is None: return True
+    try:
+        raw = (SECRETS / lease.account).read_text()
+        if lease.account == 'codex-auth.json':
+            from codex_login import worker_auth
+            worker_auth(json.loads(raw))
+        elif not raw.strip(): return False
+    except (OSError, ValueError, KeyError, TypeError): return False
+    return True
 
 
 def await_lease(role, case, deadline=None):
@@ -331,18 +348,23 @@ def await_lease(role, case, deadline=None):
     identity = uuid.uuid4().hex
     started = time.monotonic()
     wait = getattr(case, 'router_wait', None)
+    deferred = getattr(case, 'router_deferred', False)
     while True:
         cancellation = getattr(case, 'role_cancel', None)
         if cancellation is not None and cancellation.is_set(): raise BudgetError('cancelled')
         try:
             if getattr(case, 'router_uncertain', False): raise RouterUnavailable('ownership uncertain')
             if stop_at <= time.time(): raise RouterUnavailable('admission deadline')
-            result = wait if getattr(case, 'router_deferred', False) else _admit(role, case, stop_at, identity)
-            if isinstance(result, Lease): return result
+            result = wait if deferred else _admit(role, case, stop_at, identity)
+            if isinstance(result, Lease):
+                if _credential_ready(result): return result
+                finish(result.lease_id, 'denied', None)
+                result = Wait('credential_expiring', retry_at('credential_expiring'),
+                              route=result.route, account=result.account)
+                deferred = True
             wait = Wait(result.reason, result.retry_after,
                         evidence=wait.evidence if wait else result.evidence,
-                        route=wait.route if wait and wait.evidence == 'interrupted' else result.route,
-                        account=wait.account if wait and wait.evidence == 'interrupted' else result.account,
+                        route=result.route, account=result.account,
                         lease_id=wait.lease_id if wait else None, call_id=wait.call_id if wait else None)
         except RouterUnavailable:
             wait = Wait('router_unavailable', retry_at('router_unavailable'),

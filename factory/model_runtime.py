@@ -209,11 +209,15 @@ class ModelRuntime:
 
     def call(self, c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None):
         """One family, shared admission, preserved accounting across provider attempts."""
-        if len(models) != 1: raise ValueError('Select one requested model per role')
-        requested, role = models[0], invocation_role(name)
-        if hasattr(c, 'args'): case_budget_boundary(c, requested)
-        pinned = c.card.get('roles', {}).get(role, {}).get('model')
-        if pinned and family(pinned) != family(requested): raise ValueError('role family changed')
+        try:
+            if len(models) != 1: raise ValueError('Select one requested model per role')
+            requested, role = models[0], invocation_role(name)
+            if hasattr(c, 'args'): case_budget_boundary(c, requested)
+            pinned = c.card.get('roles', {}).get(role, {}).get('model')
+            if pinned and family(pinned) != family(requested): raise ValueError('role family changed')
+        except BaseException:
+            if lease is not None: model_router.finish(lease.lease_id, 'denied', None)
+            raise
         context = copy.copy(c)
         context.router_model = requested
         context.role_cancel = getattr(c, 'role_cancel', None) or threading.Event()
@@ -225,7 +229,12 @@ class ModelRuntime:
             if lease is None:
                 try: lease = model_router.await_lease(role, context, deadline)
                 except model_router.ProviderWait as error:
-                    error.previous_waits = prior_waits
+                    # Earlier serial attempts contribute usage, not additional
+                    # reset constraints: only the currently awaited alternative
+                    # controls when this logical call can continue.
+                    error.previous_waits = [{**row, 'reason': error.wait.reason,
+                        'retry_after': error.wait.retry_after, 'route': error.wait.route,
+                        'account': error.wait.account} for row in prior_waits]
                     raise
             if family(lease.route) != family(requested):
                 model_router.finish(lease.lease_id, 'denied', None)
@@ -274,34 +283,36 @@ class ModelRuntime:
                 active_seconds += time.monotonic() - started
                 for key in ('budget_resumed', 'force_budget_resume'):
                     if hasattr(context, key): setattr(c, key, getattr(context, key))
-                if invoked and hasattr(c, 'work'):
-                    after = _read_json(getattr(c, 'ledger', '/nonexistent'), {})
-                    old_ids = {e['id'] for e in before.get('events', []) if e.get('id')}
-                    events = [e for e in after.get('events', []) if e.get('id') and e['id'] not in old_ids and e.get('invocation') == name]
-                    unidentified = max(0, sum(not e.get('id') and e.get('invocation') == name for e in after.get('events', []))
-                        - sum(not e.get('id') and e.get('invocation') == name for e in before.get('events', [])))
-                    receipt = 'usage-receipts/' + lease.lease_id + '.json'
-                    (c.work / 'usage-receipts').mkdir(exist_ok=True)
-                    atomic_json(c.work / receipt, {'lease_id': lease.lease_id, 'invocation': name,
-                        'booked_event_ids': [e['id'] for e in events],
-                        'usage_delta': {k: sum(e.get(k, 0) for e in events) for k in ('cost', 'list_cost_usd', 'estimated_subscription_cost_usd')},
-                        'events': events, 'unidentified_events': unidentified,
-                        'final_usage_known': outcome == 'done' and not unidentified and case_spending(after)['spent_usd'] is not None
-                            and len(c.card.get('cleanup_errors', [])) == cleanup_before,
-                        'outcome': outcome})
-                receipt_row.update(outcome=outcome, call_id=receipt)
-                # Publish the shared limit before freeing its slot, closing the
-                # finish->observe race that would admit another worker to it.
-                if invoked and failure and failure['reason'] != 'router_unavailable':
-                    try:
-                        model_router.observe(lease=lease, reason=failure['reason'], reset_at=failure.get('reset_at'),
-                            observation_id=lease.lease_id + ':failure')
+                try:
+                    if invoked and hasattr(c, 'work'):
+                        after = _read_json(getattr(c, 'ledger', '/nonexistent'), {})
+                        old_ids = {e['id'] for e in before.get('events', []) if e.get('id')}
+                        events = [e for e in after.get('events', []) if e.get('id') and e['id'] not in old_ids and e.get('invocation') == name]
+                        unidentified = max(0, sum(not e.get('id') and e.get('invocation') == name for e in after.get('events', []))
+                            - sum(not e.get('id') and e.get('invocation') == name for e in before.get('events', [])))
+                        receipt = 'usage-receipts/' + lease.lease_id + '.json'
+                        (c.work / 'usage-receipts').mkdir(exist_ok=True)
+                        atomic_json(c.work / receipt, {'lease_id': lease.lease_id, 'invocation': name,
+                            'booked_event_ids': [e['id'] for e in events],
+                            'usage_delta': {k: sum(e.get(k, 0) for e in events) for k in ('cost', 'list_cost_usd', 'estimated_subscription_cost_usd')},
+                            'events': events, 'unidentified_events': unidentified,
+                            'final_usage_known': outcome == 'done' and not unidentified and case_spending(after)['spent_usd'] is not None
+                                and len(c.card.get('cleanup_errors', [])) == cleanup_before,
+                            'outcome': outcome})
+                    receipt_row.update(outcome=outcome, call_id=receipt)
+                finally:
+                    # Publish the shared limit before freeing its slot, closing the
+                    # finish->observe race that would admit another worker to it.
+                    if invoked and failure and failure['reason'] != 'router_unavailable':
+                        try:
+                            model_router.observe(lease=lease, reason=failure['reason'], reset_at=failure.get('reset_at'),
+                                observation_id=lease.lease_id + ':failure')
+                        except model_router.RouterUnavailable:
+                            failure = {'reason': 'router_unavailable', 'model': lease.route}
+                    # Every exit attempts release. A lost acknowledgement must never cause another CLI call.
+                    try: model_router.finish(lease.lease_id, outcome, receipt)
                     except model_router.RouterUnavailable:
                         failure = {'reason': 'router_unavailable', 'model': lease.route}
-                # Every exit attempts release. A lost acknowledgement must never cause another CLI call.
-                try: model_router.finish(lease.lease_id, outcome, receipt)
-                except model_router.RouterUnavailable:
-                    failure = {'reason': 'router_unavailable', 'model': lease.route}
             if failure is None: return code
             last_wait = model_router.Wait(failure['reason'], model_router.retry_at(failure['reason'], reset_at=failure.get('reset_at')),
                 evidence='interrupted' if invoked else 'denied_before_work', route=lease.route, account=lease.account,
