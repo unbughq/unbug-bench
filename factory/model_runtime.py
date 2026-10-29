@@ -4,7 +4,10 @@ The runner supplies command, progress and cleanup adapters. This module owns
 provider routing, credentials, CLI policy and budget integration; it never imports
 or inspects the factory runner. Durable run checkpointing stays with the caller.
 """
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+import copy
+import threading
+import uuid
 from functools import lru_cache
 from typing import Callable
 import json
@@ -17,6 +20,9 @@ import sys
 import tempfile
 import time
 from budget import BudgetError, run_budgeted, case_spending, require_case_budget, invocation_role
+import model_router
+from model_router import family
+from registry import atomic_json
 
 PROMPTS = pathlib.Path(__file__).resolve().parent / "prompts"
 OPENCODE_BIN = os.environ.get("FACTORY_OPENCODE_BIN", "opencode")
@@ -24,13 +30,6 @@ CODEX_VERSION, CLAUDE_VERSION = "0.162.1", "2.1.299"
 CLAUDE_PREFIX = pathlib.Path("/tmp/factory-claude-cli")
 CODEX_OFF = ["multi_agent", "apps", "plugins", "remote_plugin", "browser_use", "browser_use_external",
              "in_app_browser", "computer_use", "image_generation"]
-PROVIDER_ROUTES = {
-    # 2026-10-26: same DeepSeek weights on paid OpenRouter; keep recorded role names.
-    "opencode/deepseek-v4.1-flash-free": "openrouter/deepseek/deepseek-v4.1-flash",
-    "opencode-go/mimo-v2.6-pro": "openrouter/xiaomi/mimo-v2.6-pro",
-    "opencode/minimax-m3.1-flash-free": "openrouter/minimax/minimax-m3.1-flash:free",
-}
-FREE_FALLBACK = {"opencode/glm-5.3-flash-free": "opencode-go/glm-5.3-flash"}
 def attacker_timeout(c):
     # Stress review reads the case's files. Keep a twenty-minute exploration
     # base, add a minute per input file, bounded by forty minutes/operator cap.
@@ -53,7 +52,7 @@ def _opencode_flags(binary):
 
 
 def select_models(c, *, log):
-    """One explicit model per role; quota/provider failure stops the factory."""
+    """Pin role families/effort; the shared router selects effective provider/account."""
     a = c.args
     roles = rotation(a.rotation_slot or 1, getattr(a, 'rotation_table', None))
     flags = {'writer': 'builder', 'stress_tester': 'attacker', 'reviewer': 'reviewer1', 'strong_calibrator': 'strong_calibrator'}
@@ -76,23 +75,9 @@ def select_models(c, *, log):
          "reviewers": [[roles['reviewer']['model']]] + ([[a.reviewer2]] if a.reviewer2 else []),
          "strong_calibrator": [roles['strong_calibrator']['model']], "easy_calibrator": [a.easy_calibrator]}
     if any(len(chain) != 1 or ',' in chain[0] for chain in [m['builder'], m['attacker'], *m['reviewers'], m['strong_calibrator'], m['easy_calibrator']]):
-        raise ValueError("Automatic model fallback is disabled; select one model per role")
+        raise ValueError("Select one requested model per role; the router owns approved fallbacks")
     log(c, "models", json.dumps(m))
     return m
-
-
-def family(model):
-    if model.startswith(('claude/', 'anthropic/')) or '/anthropic/' in model: return 'anthropic'
-    if model.startswith(('codex/', 'openai/')) or '/openai/' in model: return 'openai'
-    if 'minimax' in model.lower(): return 'minimax'
-    if 'deepseek' in model.lower(): return 'deepseek'
-    if 'mimo' in model.lower(): return 'xiaomi'
-    if 'muse-spark' in model.lower(): return 'meta'
-    if 'grok' in model.lower(): return 'xai'
-    if 'qwen' in model.lower(): return 'alibaba'
-    if 'glm' in model.lower(): return 'z-ai'
-    if model.startswith('openrouter/'): return model.split('/')[1]
-    return model.split('/')[0]
 
 
 def model_effort(model):
@@ -116,8 +101,7 @@ def opencode_config(model=None, case=None):
     """Merged over the user config: provider keys come from the environment (factory/launch.sh loads
     them from ~/.secrets; boat's paid relay is off since 2026-10-16), and boat's desktop `computer`
     MCP off (about 28k prompt tokens a call, unneeded). In /tmp so the pilot user can read it; no secret."""
-    model = PROVIDER_ROUTES.get(model, model)
-    path = pathlib.Path("/tmp/factory-opencode.json")
+    path = pathlib.Path("/tmp/factory-" + model.replace("/", "-").replace(":", "-") + ".json") if model else pathlib.Path("/tmp/factory-opencode.json")
     base = os.environ.get("OPENCODE_API_KEY_BASE_URL")
     cfg = {"mcp": {"computer": {"enabled": False}},
            "compaction": {"auto": True}, "permission": {"task": "deny"},  # on since 2026-10-17: off, MiMo re-read ~500k tokens a step
@@ -125,6 +109,7 @@ def opencode_config(model=None, case=None):
                "deepseek/deepseek-v4.1-flash": {"cost": {"input": 0.02, "output": 1.00}},
                "meta/muse-spark-1.3-contributor": {
                "cost": {"input": 0.10, "output": 0.20, "cache_read": 0.002, "cache_write": 0.10}}}}}}
+    if model: cfg["small_model"] = model  # Compaction shares the admitted model/family/account.
     # OpenCode v1.19 does not know Muse Contributor's price; without one the budget guard stops the run.
     go = {"models": {"muse-spark-1.3-contributor": {"cost": {"input": 0.10, "output": 0.20, "cache_read": 0.002, "cache_write": 0.10}}}}
     go["options"] = {"apiKey": "{env:OPENCODE_API_KEY}"}
@@ -132,12 +117,12 @@ def opencode_config(model=None, case=None):
     cfg["provider"]["opencode-go"] = go
     # Founder 2026-10-19: OpenCode v1.x answers Muse with "Invalid credential" unless the opencode provider points at Zen.
     cfg["provider"]["opencode"] = {"options": {"baseURL": "https://opencode.ai/zen/v1"}}
-    if model == "opencode/minimax-m3.1-flash-free":
+    if model in ("opencode/minimax-m3.1-flash-free", "opencode/deepseek-v4.1-flash-free"):
         from free_models import provider_config
         cfg["provider"]["opencode"] = provider_config(case, model)
         cfg["small_model"] = model
         path = path.with_name("factory-opencode-" + model.split("/", 1)[1] + ".json")
-    elif model in PROVIDER_ROUTES.values():
+    elif model and model.startswith(("openrouter/", "opencode-go/")):
         cfg["small_model"] = model  # compaction follows the same approved provider/model
         path = path.with_name("factory-" + model.replace("/", "-").replace(":", "-") + ".json")
     with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, prefix=path.name, delete=False) as staged:
@@ -222,28 +207,117 @@ class ModelRuntime:
     cleanup: Callable
     pilot_home: Callable
 
-    def call(self, c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None):
-        """Apply explicit provider routes, then the remaining same-model OpenCode fallback."""
-        routes = c.__dict__.setdefault("routes", {})
-        model = PROVIDER_ROUTES.get(models[0], routes.get(models[0], models[0]))
-        if models[0] in PROVIDER_ROUTES:
-            c.card.setdefault("provider_routes", {})[models[0]] = model
-        def invoke(selected):
-            limit = timeout
-            if deadline is not None:
-                limit = min(timeout or c.args.agent_timeout, deadline - time.monotonic())
-                if limit <= 0: raise BudgetError('timeout')
-            if before_attempt is not None: before_attempt()
-            return self._invoke(c, [selected], text, cwd, name, user=user, timeout=limit, deadline=deadline)
-        try:
-            return invoke(model)
-        except BudgetError as error:
-            alt = None if c.card.get("model_transition") else FREE_FALLBACK.get(model)
-            if not alt or not (str(error) in ("opencode_error", "process_error") or str(error).startswith("provider_limit")): raise
-            routes[models[0]] = alt
-            c.card.setdefault("free_model_fallback", []).append({"from": model, "to": alt, "why": str(error)})
-            c.force_budget_resume = True  # the failed call left a terminal stop in the ledger; archive it and go on
-            return invoke(alt)
+    def call(self, c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None):
+        """One family, shared admission, preserved accounting across provider attempts."""
+        if len(models) != 1: raise ValueError('Select one requested model per role')
+        requested, role = models[0], invocation_role(name)
+        if hasattr(c, 'args'): case_budget_boundary(c, requested)
+        pinned = c.card.get('roles', {}).get(role, {}).get('model')
+        if pinned and family(pinned) != family(requested): raise ValueError('role family changed')
+        context = copy.copy(c)
+        context.router_model = requested
+        context.role_cancel = getattr(c, 'role_cancel', None) or threading.Event()
+        context.model_env = dict(getattr(c, 'model_env', {}))
+        active_seconds, last_wait, prior_waits = 0, None, []
+        call_group = uuid.uuid4().hex
+        duration = timeout or getattr(getattr(c, 'args', None), 'agent_timeout', 2400)
+        while True:
+            if lease is None:
+                try: lease = model_router.await_lease(role, context, deadline)
+                except model_router.ProviderWait as error:
+                    error.previous_waits = prior_waits
+                    raise
+            if family(lease.route) != family(requested):
+                model_router.finish(lease.lease_id, 'denied', None)
+                raise ValueError('router changed family')
+            c.model_lease = context.model_lease = lease
+            receipt_row = {'invocation': name, 'requested_model': requested, 'call_group_id': call_group,
+                           **asdict(lease), 'outcome': 'admitted'}
+            c.card.setdefault('route_receipts', []).append(receipt_row)
+            before = _read_json(getattr(c, 'ledger', '/nonexistent'), {})
+            cleanup_before = len(c.card.get('cleanup_errors', []))
+            outcome, receipt, failure, invoked, lost = 'denied', None, None, False, None
+            started = time.monotonic()
+            try:
+                with model_router.running(lease, context.role_cancel) as lost:
+                    if lease.account and not (model_router.SECRETS / lease.account).is_file():
+                        raise BudgetError('codex_login_expired' if lease.account == 'codex-auth.json' else 'credential_expiring',
+                            provider_failure={'reason': 'credential_expiring', 'scope': 'account', 'model': lease.route})
+                    if lease.account and lease.account != 'codex-auth.json':
+                        key = ('CLAUDE_CODE_OAUTH_TOKEN' if lease.account.startswith('claude') else
+                               'OPENROUTER_API_KEY' if lease.account == 'openrouter-key' else 'OPENCODE_API_KEY')
+                        context.model_env[key] = (model_router.SECRETS / lease.account).read_text().rstrip('\n')
+                    limit = duration - active_seconds
+                    if deadline is not None: limit = min(limit, deadline - time.monotonic())
+                    if limit <= 0: raise BudgetError('timeout')
+                    if before_attempt is not None: before_attempt()
+                    invoked, outcome = True, 'interrupted'
+                    code = self._invoke(context, [lease.route], text, cwd, name, user=user, timeout=limit, deadline=deadline)
+                    if lost.is_set(): raise model_router.RouterUnavailable('lease renewal uncertain')
+                    if code: raise BudgetError('process_error')
+                    outcome = 'done'
+            except BudgetError as error:
+                failure = ({'reason': 'router_unavailable', 'model': lease.route} if lost is not None and lost.is_set()
+                           else getattr(error, 'provider_failure', None))
+                if failure is None:
+                    label = str(error)
+                    reason = ('quota' if label.startswith('provider_limit') else 'credential_expiring' if label in ('codex_login_expired', 'credential_expiring') else
+                              'outage' if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:') else None)
+                    if reason: failure = {'reason': reason, 'model': lease.route}
+                if not failure: raise
+                if failure.get('reason') == 'quota' and lease.route.startswith('claude/'):
+                    reset = _read_json(getattr(c, 'ledger', '/nonexistent'), {}).get('claude_resets_at')
+                    if model_router.finite(reset): failure = {**failure, 'reset_at': reset}
+            except model_router.RouterUnavailable:
+                failure = {'reason': 'router_unavailable', 'model': lease.route}
+            finally:
+                active_seconds += time.monotonic() - started
+                for key in ('budget_resumed', 'force_budget_resume'):
+                    if hasattr(context, key): setattr(c, key, getattr(context, key))
+                if invoked and hasattr(c, 'work'):
+                    after = _read_json(getattr(c, 'ledger', '/nonexistent'), {})
+                    old_ids = {e['id'] for e in before.get('events', []) if e.get('id')}
+                    events = [e for e in after.get('events', []) if e.get('id') and e['id'] not in old_ids and e.get('invocation') == name]
+                    unidentified = max(0, sum(not e.get('id') and e.get('invocation') == name for e in after.get('events', []))
+                        - sum(not e.get('id') and e.get('invocation') == name for e in before.get('events', [])))
+                    receipt = 'usage-receipts/' + lease.lease_id + '.json'
+                    (c.work / 'usage-receipts').mkdir(exist_ok=True)
+                    atomic_json(c.work / receipt, {'lease_id': lease.lease_id, 'invocation': name,
+                        'booked_event_ids': [e['id'] for e in events],
+                        'usage_delta': {k: sum(e.get(k, 0) for e in events) for k in ('cost', 'list_cost_usd', 'estimated_subscription_cost_usd')},
+                        'events': events, 'unidentified_events': unidentified,
+                        'final_usage_known': outcome == 'done' and not unidentified and case_spending(after)['spent_usd'] is not None
+                            and len(c.card.get('cleanup_errors', [])) == cleanup_before,
+                        'outcome': outcome})
+                receipt_row.update(outcome=outcome, call_id=receipt)
+                # Publish the shared limit before freeing its slot, closing the
+                # finish->observe race that would admit another worker to it.
+                if invoked and failure and failure['reason'] != 'router_unavailable':
+                    try:
+                        model_router.observe(lease=lease, reason=failure['reason'], reset_at=failure.get('reset_at'),
+                            observation_id=lease.lease_id + ':failure')
+                    except model_router.RouterUnavailable:
+                        failure = {'reason': 'router_unavailable', 'model': lease.route}
+                # Every exit attempts release. A lost acknowledgement must never cause another CLI call.
+                try: model_router.finish(lease.lease_id, outcome, receipt)
+                except model_router.RouterUnavailable:
+                    failure = {'reason': 'router_unavailable', 'model': lease.route}
+            if failure is None: return code
+            last_wait = model_router.Wait(failure['reason'], model_router.retry_at(failure['reason'], reset_at=failure.get('reset_at')),
+                evidence='interrupted' if invoked else 'denied_before_work', route=lease.route, account=lease.account,
+                lease_id=lease.lease_id if invoked else None, call_id=receipt)
+            if invoked:
+                prior_waits.append({'role': role, **asdict(last_wait)})
+            context.router_wait = last_wait
+            context.router_uncertain = last_wait.reason == 'router_unavailable'
+            if context.router_uncertain and context.role_cancel.is_set():
+                # Renewal cancelled the old CLI/peers. Waiting itself must not
+                # turn that internal cancellation into a case recovery attempt.
+                context.role_cancel = threading.Event()
+            context.router_deferred = ((not invoked and last_wait.reason == 'credential_expiring')
+                                       or len(c.card.get('cleanup_errors', [])) > cleanup_before)
+            context.force_budget_resume = c.force_budget_resume = True
+            lease = None
 
 
     def _hand_to(self, c, user, staged):
@@ -289,18 +363,18 @@ class ModelRuntime:
         if driver == "codex":
             # ChatGPT subscription: ~/.codex/auth.json (a dedicated login pushed by launch.sh), never an API key.
             src = pathlib.Path(env.get("CODEX_HOME", self.home / ".codex"))
-            if (src / "auth.json").is_file():
-                from codex_login import worker_auth
-                try:
-                    auth = worker_auth(json.loads((src / "auth.json").read_text()))
-                    target = scratch / "auth.json"
-                    target.touch(mode=0o600)
-                    target.write_text(json.dumps(auth))
-                except (OSError, ValueError, KeyError, TypeError):
-                    try: self.cleanup(scratch)
-                    except Exception as error:
-                        c.card.setdefault('cleanup_errors', []).append({'stage':'model_scratch', 'error':type(error).__name__})
-                    raise BudgetError('codex_login_expired') from None
+            auth_source = model_router.SECRETS / "codex-auth.json"
+            from codex_login import worker_auth
+            try:
+                auth = worker_auth(json.loads(auth_source.read_text()))
+                target = scratch / "auth.json"
+                target.touch(mode=0o600)
+                target.write_text(json.dumps(auth))
+            except (OSError, ValueError, KeyError, TypeError):
+                try: self.cleanup(scratch)
+                except Exception as error:
+                    c.card.setdefault('cleanup_errors', []).append({'stage':'model_scratch', 'error':type(error).__name__})
+                raise BudgetError('codex_login_expired') from None
             keep, lines = True, []  # config minus MCP servers (boat's `computer` desktop tool)
             for line in ((src / "config.toml").read_text().splitlines() if (src / "config.toml").is_file() else []):
                 if line.lstrip().startswith("["): keep = not line.lstrip().lstrip("[").startswith("mcp_servers")

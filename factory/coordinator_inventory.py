@@ -34,28 +34,6 @@ def capacity_check(config, now):
         raise ValueError("invalid_operator_capacity_timestamp")
     if "expires_at" in config and (not coordinator.finite(config["expires_at"]) or now >= config["expires_at"]):
         raise ValueError("expired_operator_capacity")
-    for provider in ("opencode", "codex"):
-        coordinator.provider_accounts_check(config.get(provider + "_accounts", []), provider, now)
-        assignments = config.get(provider + "_worker_accounts", {})
-        accounts = {row["id"] for row in config.get(provider + "_accounts", [])}
-        if (not isinstance(assignments, dict) or len(assignments) > 1000 or
-                any(not isinstance(worker, str) or type(account) is not int or account not in accounts for worker, account in assignments.items())):
-            raise ValueError("invalid_provider_worker_assignment")
-    accounts = set()
-    for account in config["claude_accounts"]:
-        if (not isinstance(account, dict) or type(account.get("id")) is not int or account["id"] not in key_holder.CLAUDE_ACCOUNTS or
-                account["id"] in accounts or type(account.get("available")) is not bool or
-                type(account.get("capacity")) is not int or not 0 <= account["capacity"] <= 10 or
-                not coordinator.finite(account.get("blocked_until", 0)) or not isinstance(account.get("models"), list) or
-                not account["models"] or len(account["models"]) > 20):
-            raise ValueError("invalid_operator_capacity")
-        for model in account["models"]:
-            if (not isinstance(model, dict) or not isinstance(model.get("model"), str) or not model["model"].startswith("claude/") or
-                    not isinstance(model.get("effort"), str) or not model["effort"]): raise ValueError("invalid_capacity_model")
-        accounts.add(account["id"])
-    for worker, account in config.get("worker_accounts", {}).items():
-        if not isinstance(worker, str) or type(account) is not int or account not in accounts:
-            raise ValueError("invalid_worker_account_assignment")
     unrelated = config.get("unrelated_worker_ids", [])
     if len(unrelated) > 1000 or len(set(unrelated)) != len(unrelated) or any(not isinstance(value, str) for value in unrelated):
         raise ValueError("invalid_unrelated_worker_scope")
@@ -81,7 +59,7 @@ def build_snapshot(policy, fleet, states, config, status, *, now):
     if (not isinstance(fleet, dict) or not isinstance(fleet.get("sandboxes"), list) or len(fleet["sandboxes"]) > 1000 or
             not isinstance(fleet.get("pageInfo"), dict) or fleet["pageInfo"].get("hasMore") is not False):
         raise ValueError("provider_inventory_incomplete")
-    mappings, retired, assignments = {}, {}, {}
+    mappings, retired = {}, {}
     def bind(worker, case):
         if case is None: return
         if worker in mappings and mappings[worker] != case: raise ValueError("conflicting_worker_case")
@@ -90,24 +68,16 @@ def build_snapshot(policy, fleet, states, config, status, *, now):
         bind(row["id"], row["case"])
         # Conflicting retirement hints remain unknown; provider presence always wins.
         retired[row["id"]] = retired.get(row["id"], True) and row["retired"]
-        account = row["claude_account"]
-        if account is not None:
-            if type(account) is not int or account not in key_holder.CLAUDE_ACCOUNTS: raise ValueError("invalid_monitor_account")
-            if row["id"] in assignments and assignments[row["id"]] != account: raise ValueError("conflicting_worker_account")
-            assignments[row["id"]] = account
     cases = set(mappings.values())
-    for job in policy["jobs"].values():
-        case = job.get("case")
+    for job in policy['jobs'].values():
+        case = job.get('case')
         if not isinstance(case, str) or not CASE.fullmatch(case): continue
         cases.add(case)
-        for worker in job.get("known_worker_ids", []): bind(worker, case)
-    for worker, account in config.get("worker_accounts", {}).items():
-        if worker in assignments and assignments[worker] != account: raise ValueError("conflicting_worker_account")
-        assignments[worker] = account
+        for worker in job.get('known_worker_ids', []): bind(worker, case)
     unrelated = set(config.get("unrelated_worker_ids", []))
     if any(worker in mappings for worker in unrelated): raise ValueError("known_case_worker_cannot_be_unrelated")
     workers, present, present_cases, unknown_case = [], set(), {}, False
-    occupied, unattributed = {number: 0 for number in key_holder.CLAUDE_ACCOUNTS}, False
+    unattributed = False
     for item in fleet["sandboxes"]:
         if (not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"] or item["id"] in present):
             raise ValueError("provider_inventory_malformed")
@@ -119,15 +89,12 @@ def build_snapshot(policy, fleet, states, config, status, *, now):
             matches = [value for value in cases if name.endswith(value.rsplit("-", 1)[-1])]
             if len(matches) == 1: case = matches[0]
         if case is None: unknown_case = True
+        else: present_cases.setdefault(case, set()).add(worker)
         workers.append({"id": worker, "case": case or "unassigned", "state": "running" if case else "unknown"})
-        account = assignments.get(worker)
-        if account is None: unattributed = True
-        else:
-            occupied[account] += 1
-            if case: present_cases.setdefault(case, set()).add(account)
     for worker, case in mappings.items():
         if worker not in present:
             workers.append({"id": worker, "case": case, "state": "retired" if retired.get(worker) else "unknown"})
+    unattributed = unknown_case
     # Status reports credential presence, not quota. A controller can have an
     # in-flight launch before its worker appears; do not guess its chosen account.
     active_jobs = [job for job, value in status.get("jobs", {}).items()
@@ -135,31 +102,10 @@ def build_snapshot(policy, fleet, states, config, status, *, now):
     for name in active_jobs:
         case = (policy["jobs"].get(name) or {}).get("case")
         if case not in present_cases: unattributed = True
-    accounts = []
-    for account in config["claude_accounts"]:
-        number, capacity = account["id"], account["capacity"]
-        accounts.append({"id": number, "capacity": capacity,
-                         "used": capacity if unattributed else min(capacity, occupied[number]),
-                         "available": account["available"] and account.get("blocked_until", 0) <= now and
-                                      status.get("claude_accounts", {}).get(str(number)) is True,
-                         "blocked_until": account.get("blocked_until", 0),
-                         "models": [{"model": value["model"], "effort": value["effort"]} for value in account["models"]]})
     snapshot = {"version": 1, "observed_at": now, "inventory_complete": not unknown_case,
-                "workers": workers, "claude_accounts": accounts,
+                "workers": workers, "claude_accounts": [],
                 "holder_policy_sha256": key_holder.policy_digest(policy),
-                "capacity_source": "operator_concurrency_limits",
-                "unattributed_active_work": unattributed}
-    for provider in ("opencode", "codex"):
-        assignments = config.get(provider + "_worker_accounts", {})
-        active = present - unrelated
-        uncertain = any(worker not in assignments for worker in active) or bool(active_jobs)
-        snapshot[provider + "_accounts"] = [
-            {"id": row["id"], "available": row["available"], "capacity": row["capacity"],
-             "blocked_until": row.get("blocked_until", 0),
-             "models": [{"model": m["model"], "effort": m["effort"]} for m in row["models"]],
-             "quota": {key: row["quota"][key] for key in ("state", "source", "observed_at", "expires_at", "credit_remaining") if key in row["quota"]},
-             "used": row["capacity"] if uncertain else min(row["capacity"], sum(assignments[w] == row["id"] for w in active))}
-            for row in config.get(provider + "_accounts", [])]
+                "capacity_source": "model_router", "unattributed_active_work": unattributed}
     if "expires_at" in config: snapshot["capacity_expires_at"] = config["expires_at"]
     if snapshot["inventory_complete"]: coordinator.snapshot_check(snapshot, now, 120)
     return snapshot

@@ -12,11 +12,15 @@ import run
 import recovery
 import g11_review
 import model_runtime
+import model_router
+from router_test_support import offline_router
+_ROUTING = offline_router()
 from test_freshness_restore_fixes import FreshnessRestoreTests
 
 
 class ConfirmDeadlineTests(FreshnessRestoreTests):
     def test_deadline_formula_cap_and_agent_timeout(self):
+        self.addCleanup(offline_router()[0].close)
         for rows, agent, seconds in ((1,14400,420),(5,14400,900),(20,14400,1800),(10,600,600)):
             self.c.args.agent_timeout = agent
             self.assertEqual(run.confirm_timeout(self.c, rows), seconds)
@@ -47,6 +51,7 @@ class ConfirmDeadlineTests(FreshnessRestoreTests):
         return state
 
     def test_real_collected_restore_reaches_confirm_without_reset(self):
+        self.addCleanup(offline_router()[0].close)
         for card, seconds in self.cards():
             with self.subTest(case=card['case']):
                 self.assertTrue(recovery.freshness_retry_stop(card))
@@ -63,6 +68,7 @@ class ConfirmDeadlineTests(FreshnessRestoreTests):
                 self.assertEqual(json.loads((self.c.work / 'freshness-repair.json').read_text()), state)
 
     def test_in_loop_real_url_counts_get_same_deadlines(self):
+        self.addCleanup(offline_router()[0].close)
         for card, seconds in self.cards():
             self.prepare(card)
             self.result['freshness_review'] = [self.rows[0]['url']]
@@ -72,12 +78,14 @@ class ConfirmDeadlineTests(FreshnessRestoreTests):
             self.assertEqual(call.call_args.kwargs['timeout'], seconds)
 
     def test_deadline_floor_cap_and_agent_limit(self):
+        self.addCleanup(offline_router()[0].close)
         for count, agent, expected in [(0, 14400, 300), (5, 14400, 900), (10, 14400, 1500),
                                         (100, 14400, 1800), (10, 600, 600), (1, 60, 60)]:
             self.c.args.agent_timeout = agent
             self.assertEqual(run.confirm_timeout(self.c, count), expected)
 
     def test_file_and_fix_review_deadlines_scale_and_obey_operator_limit(self):
+        self.addCleanup(offline_router()[0].close)
         self.c.args.agent_timeout = 14400
         files = sum(p.is_file() for p in self.c.case.rglob('*'))
         self.assertEqual(model_runtime.attacker_timeout(self.c), 1200 + 60 * files)
@@ -95,16 +103,19 @@ class ConfirmDeadlineTests(FreshnessRestoreTests):
         self.assertEqual(model_runtime.attacker_timeout(self.c), 60)
 
     def test_killed_full_shaped_partial_verdict_is_reasked(self):
+        self.addCleanup(offline_router()[0].close)
         self.retain_verdict(self.answer())
         with patch.object(run, 'opencode', side_effect=self.reviewer) as call:
             run.loop_freshness(self.c, self.result, self.report)
         call.assert_called_once()
 
     def test_confirmation_fallback_shares_one_wall_deadline(self):
+        self.addCleanup(offline_router()[0].close)
         card, seconds = next(self.cards())
         self.prepare(card)
-        primary = next(iter(model_runtime.FREE_FALLBACK))
+        primary = "opencode/glm-5.3-flash-free"
         self.c.models['reviewers'] = [[primary]]
+        self.c.card.setdefault('roles', {}).setdefault('reviewer', {})['model'] = primary
         runtime = model_runtime.ModelRuntime(self.c.work, None, lambda *a: None, None, None)
         now = [1000]
         seen = []
@@ -126,8 +137,10 @@ class ConfirmDeadlineTests(FreshnessRestoreTests):
         self.assertEqual(seen, [seconds, 10])
 
     def test_fallback_cannot_certify_failed_primary_partial_verdict(self):
-        primary = next(iter(model_runtime.FREE_FALLBACK))
+        self.addCleanup(offline_router()[0].close)
+        primary = "opencode/glm-5.3-flash-free"
         self.c.models['reviewers'] = [[primary]]
+        self.c.card.setdefault('roles', {}).setdefault('reviewer', {})['model'] = primary
         runtime = model_runtime.ModelRuntime(self.c.work, None, lambda *a: None, None, None)
         seen = []
         def invoke(ctx, models, text, cwd, name, **kwargs):
@@ -144,10 +157,11 @@ class ConfirmDeadlineTests(FreshnessRestoreTests):
              patch.object(run, 'opencode', side_effect=call):
             with self.assertRaisesRegex(run.BudgetError, '^freshness_unresolved$'):
                 run.loop_freshness(self.c, self.result, self.report)
-        self.assertEqual(seen, [primary, model_runtime.FREE_FALLBACK[primary]])
+        self.assertEqual(seen, [primary, "opencode-go/glm-5.3-flash"])
         self.assertFalse((self.c.work / 'freshness-verdict.json').exists())
 
     def test_confirm_timeout_does_not_charge_saved_stress_rereviews(self):
+        self.addCleanup(offline_router()[0].close)
         for card, seconds in self.cards():
             self.prepare(card)
             self.c.args.rounds = 9

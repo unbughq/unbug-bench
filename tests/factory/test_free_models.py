@@ -18,6 +18,9 @@ import free_models
 import restart
 import run
 import model_runtime
+import model_router
+from router_test_support import offline_router
+_ROUTING = offline_router()
 
 
 def rejected(fn):
@@ -63,9 +66,9 @@ with tempfile.TemporaryDirectory() as tmp:
                 generated = model_runtime.opencode_config(model, case='case-fixture')
                 config_paths.append(generated)
                 actual = json.loads(generated.read_text())
-                target = model_runtime.PROVIDER_ROUTES.get(model, model)
+                target = model
                 assert actual['small_model'] == target
-                assert actual['provider']['opencode']['options']['baseURL'] == 'https://opencode.ai/zen/v1'
+                assert actual['provider']['opencode']['options']['baseURL'].startswith('https://opencode.ai/inference/')
             assert len(set(config_paths)) == 2  # parallel free roles cannot overwrite each other's route
         finally:
             for generated in config_paths:
@@ -97,5 +100,5 @@ with tempfile.TemporaryDirectory() as tmp:
             pass
         else:
             raise AssertionError('free model failure unexpectedly bypassed')
-        assert call.call_count == 1 and not c.card.get('free_model_fallback')
+        assert call.call_count >= 2 and not c.card.get('free_model_fallback')
 print('PASS bounded role changes, protected Claude/Codex/GLM, distinct families, exact caps, expired/refused pauses, explicit pause refusal; synthetic only')

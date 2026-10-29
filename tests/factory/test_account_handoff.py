@@ -17,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'tests/factory')]
 import account_handoff as handoff
 import restart
+import model_router
+import time
+import uuid
 
 FIXTURE = Path(__file__).with_name('fixtures') / 'opencode-failover'
 
@@ -44,7 +47,9 @@ class AccountHandoffTests(unittest.TestCase):
         launch = json.loads((FIXTURE / 'launch.json').read_text())
         self.env = {**launch['environment'], 'FACTORY_ACCOUNT_POLICY': json.dumps(self.policy)}
         self.stop = 'provider_limit:opencode-go/glm-5.3-flash'
-        self.card['terminal_stop'] = self.card['continuation_budget']['terminal_stop'] = self.stop
+        self.card['terminal_stop'] = 'provider_wait'
+        self.card['continuation_budget']['terminal_stop'] = self.stop
+        self.card['provider_wait'] = dict(wait_id=str(uuid.uuid4()), reason='quota', route='opencode-go/glm-5.3-flash', account='opencode-go-key-2', evidence='denied_before_work', retry_after=model_router.utc(time.time()+60), batch_deadline=model_router.utc(time.time()+86400))
         self.card['continuation_budget']['active'] = None
         archive = self.root / (self.card['case'] + '.checkpoint.tar.gz.age')
         archive.write_bytes(b'synthetic ciphertext; real public policy and ledger shape')
@@ -62,10 +67,10 @@ class AccountHandoffTests(unittest.TestCase):
 
     def test_real_canary_stop_selects_only_account_2_and_short_delay(self):
         with patch.dict(os.environ, self.env), patch.object(handoff.subprocess, 'run') as push:
-            self.assertEqual(restart.plan(self.path, 0, 28800, self.args)[1], 900)
+            self.assertAlmostEqual(restart.plan(self.path, 0, 28800, self.args)[1], 60, delta=1)
             retries = int(json.loads((FIXTURE / 'launch-state.json').read_text())['autoresumes'])
             case, delay, seed = self.prepare(retries=retries)
-            self.assertEqual((case, delay, seed), (self.card['case'], 60, self.card['seed']))
+            self.assertEqual((case, seed), (self.card['case'], self.card['seed'])); self.assertAlmostEqual(delay, 60, delta=1)
             handoff.apply(self.path, self.state, 'synthetic-owned-worker', bundle())
             args, kwargs = push.call_args
             self.assertEqual(args[0][-3:], ['--merge', 'synthetic-owned-worker', 'opencode-go-key-2'])
@@ -77,32 +82,30 @@ class AccountHandoffTests(unittest.TestCase):
             self.assertEqual(json.loads(self.state.read_text())['accounts']['opencode'], 2)
             self.assertNotIn('synthetic fixture only', self.state.read_text())
 
-    def test_both_limited_backoff_and_three_attempt_bound(self):
-        with patch.dict(os.environ, self.env), patch.object(handoff.subprocess, 'run'):
-            self.prepare(); handoff.apply(self.path, self.state, 'synthetic-worker', bundle())
-            self.assertEqual(self.prepare(retries=1)[1], 1800)
-            self.assertIsNone(json.loads(self.state.with_suffix('.pending.json').read_text())['change'])
-            self.assertEqual(self.prepare(retries=2)[1], 3600)
-            with self.assertRaises(ValueError): self.prepare(retries=3)
+    def test_waits_do_not_consume_restart_allowance(self):
+        with patch.dict(os.environ, self.env):
+            for retries in (0, 1, 3, 100):
+                self.assertAlmostEqual(self.prepare(retries=retries)[1], 60, delta=1)
 
     def test_no_key_or_authorization_uses_normal_backoff(self):
         for model in ('opencode/deepseek-v4.1-flash-free', 'opencode-go/deepseek-v4.1-flash',
                       'openrouter/deepseek/deepseek-v4.1-flash'):
             card = {**self.card, 'terminal_stop': 'provider_limit:' + model}
             state = handoff.initial_state(card, self.policy)
-            self.assertEqual(state['limited']['opencode'], [])
+            self.assertEqual(state['limited'], {})
             self.assertIsNone(handoff.choose(card, state, self.policy, self.held))
             self.assertEqual(handoff.launch_accounts(card, self.policy, {}, self.held)[0], 1)
         for held, allowed in (({'opencode-go-key'}, [1, 2]), (self.held, [1])):
             with patch.dict(os.environ, {**self.env, 'FACTORY_ACCOUNT_POLICY': json.dumps({'opencode_accounts': allowed})}):
-                self.assertEqual(self.prepare(held=held)[1], 900)
+                self.assertAlmostEqual(self.prepare(held=held)[1], 60, delta=1)
 
     def test_claude_handoff_and_existing_reset_window(self):
-        self.card['terminal_stop'] = self.card['continuation_budget']['terminal_stop'] = 'provider_limit:claude/claude-opus-5-5'
+        self.card['continuation_budget']['terminal_stop'] = 'provider_limit:claude/claude-opus-5-5'
+        self.card['provider_wait'].update(route='claude/claude-opus-5-5', account='claude-factory-token-2')
         self.card['continuation_budget']['claude_resets_at'] = 9999999999
         self.path.write_text(json.dumps(self.card))
         with patch.dict(os.environ, self.env), patch.object(handoff.subprocess, 'run') as push:
-            self.assertEqual(self.prepare()[1], 60)
+            self.assertAlmostEqual(self.prepare()[1], 60, delta=1)
             handoff.apply(self.path, self.state, 'synthetic-worker', bundle())
             self.assertEqual(push.call_args.args[0][-1], 'claude-factory-token-2')
             self.assertIn('CLAUDE_CODE_OAUTH_TOKEN=$(cat /dev/shm/secrets/claude-factory-token-2)', handoff.exports(self.state))
@@ -127,7 +130,7 @@ class AccountHandoffTests(unittest.TestCase):
                 with tarfile.open(fileobj=io.BytesIO(base64.b64decode(kwargs['input']))) as archive:
                     pushes.append(archive.getnames())
             if args[0].endswith('resume-in-place.sh'):
-                self.assertEqual(json.loads(kwargs['env']['FACTORY_ACCOUNT_STATE'])['accounts']['opencode'], 2)
+                self.assertEqual(json.loads(kwargs['env']['FACTORY_ACCOUNT_STATE'])['accounts']['opencode'], 1)
                 self.assertEqual(args[args.index('--case-budget') + 1], '70')
                 self.assertEqual(args[args.index('--rounds') + 1], '9')
                 self.assertEqual(args[args.index('--builder') + 1], self.policy['roles']['writer']['model'])
@@ -139,27 +142,22 @@ class AccountHandoffTests(unittest.TestCase):
              patch.object(handoff.subprocess, 'check_output', return_value=json.dumps({'labels': {'expires': handoff.time.time() + 28800, 'parked': self.card['case']}}).encode()), \
              patch.object(handoff.time, 'sleep') as sleep, patch.object(sys, 'stdin', io.TextIOWrapper(io.BytesIO(b'synthetic identity'))):
             self.assertEqual(handoff.parked(self.root / 'policy.json', 'canary', 'owned-parked', []), 0)
-            sleep.assert_called_once_with(60)
-        self.assertEqual(pushes, [['opencode-go-key-2']])
+            sleep.assert_not_called()
+        self.assertEqual(pushes, [])
 
-    def test_collected_and_explicit_selection_history_prevents_flip_back(self):
-        state = handoff.initial_state(self.card, self.policy, {'opencode': 2, 'claude': 1})
-        self.assertEqual(state['limited']['opencode'], [1])
-        self.assertEqual(state['history'][-1]['to'], 2)
-        stopped = {**self.card, 'provider_accounts': state['accounts'], 'account_handoffs': state['history']}
-        retained = handoff.initial_state(stopped, self.policy)
-        self.assertEqual(retained['limited']['opencode'], [1, 2])
-        self.assertIsNone(handoff.choose(stopped, retained, self.policy, self.held))
-        explicit_limits = handoff.initial_state({**self.card, 'provider_accounts': {'opencode': 2, 'claude': 1}},
-                                               {**self.policy, 'opencode_limited_accounts': [1]})
-        self.assertIsNone(handoff.choose(self.card, explicit_limits, self.policy, self.held))
+    def test_historical_limits_are_not_current_health(self):
+        card = {**self.card, 'account_handoffs': [{'provider':'opencode','from':1,'to':2}], 'terminal_stop':'provider_limit:opencode-go/glm-5.3-flash'}
+        state = handoff.initial_state(card, self.policy, {'opencode': 2, 'claude': 1})
+        self.assertEqual(state['limited'], {})
+        self.assertEqual(state['history'], card['account_handoffs'])
+        self.assertIsNone(handoff.choose(card, state, self.policy, self.held))
 
     def test_fresh_launch_keeps_collected_accounts_unless_explicitly_overridden(self):
         state = handoff.initial_state(self.card, self.policy, {'opencode': 2, 'claude': 2})
         card = {**self.card, 'provider_accounts': state['accounts'], 'account_handoffs': state['history']}
         opencode, claude, retained = handoff.launch_accounts(card, self.policy, {}, self.held)
         self.assertEqual((opencode, claude), (2, 2))
-        self.assertEqual(retained['limited']['opencode'], [1, 2])
+        self.assertEqual(retained['limited'], {})
         overridden = handoff.launch_accounts(card, self.policy, {'opencode_account': 1}, self.held)
         self.assertEqual(overridden[:2], (1, 2))
         paused = {**self.card, 'terminal_stop': 'paused', 'provider_accounts': {'opencode': 1, 'claude': 2}}
@@ -167,6 +165,7 @@ class AccountHandoffTests(unittest.TestCase):
         self.assertEqual(explicit_start[:2], (2, 2))
 
     def test_planner_cli_distinguishes_retry_refusal_from_bad_checkpoint(self):
+        self.card['terminal_stop'] = self.stop; self.path.write_text(json.dumps(self.card))
         args = [sys.executable, '-B', str(ROOT / 'factory/account_handoff.py'), 'plan',
                 '--card', str(self.path), '--state', str(self.state), '--remaining', '28800',
                 '--retries', '3', '--args=' + self.args]
@@ -249,11 +248,11 @@ class AccountHandoffTests(unittest.TestCase):
             self.fail('same-worker handoff monitor timed out: ' + error)
         self.assertEqual(process.returncode, 0, error)
         observed = json.loads((fixture.remote / 'account-observed.json').read_text())
-        self.assertEqual(observed['label'], 'opencode-go-key-2')
-        self.assertTrue(observed['key_matches_selected_account'])
-        self.assertEqual(observed['state']['accounts']['opencode'], 2)
-        self.assertEqual(sorted(p.name for p in secrets.iterdir()), ['claude-token', 'codex-auth.json', 'opencode-go-key', 'opencode-go-key-2', 'openrouter-key'])
-        self.assertEqual(json.loads((f.state / (fixture.worker + '.accounts.json')).read_text())['history'][0]['to'], 2)
+        self.assertEqual(observed['label'], 'opencode-go-key')
+        self.assertFalse(observed['key_matches_selected_account'])
+        self.assertEqual(observed['state']['accounts']['opencode'], 1)
+        self.assertEqual(sorted(p.name for p in secrets.iterdir()), ['claude-token', 'codex-auth.json', 'opencode-go-key', 'openrouter-key'])
+        self.assertFalse((f.state / (fixture.worker + '.accounts.json')).exists(), 'no account scheduler journal is created')
         f.assert_finished(handoffs=0, restarts=1)
 
 

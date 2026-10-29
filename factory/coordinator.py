@@ -65,46 +65,6 @@ def snapshot_check(snapshot, now, max_age):
                 not isinstance(worker.get("case"), str) or worker.get("state") not in ("running", "retired", "unknown")):
             raise ValueError("invalid worker inventory")
         ids.add(worker["id"])
-    for provider in ("opencode", "codex"):
-        provider_accounts_check(snapshot.get(provider + "_accounts", []), provider, now)
-    accounts = set()
-    for account in snapshot["claude_accounts"]:
-        if (not isinstance(account, dict) or type(account.get("id")) is not int or account["id"] not in key_holder.CLAUDE_ACCOUNTS or
-                account["id"] in accounts or type(account.get("available")) is not bool or
-                type(account.get("capacity")) is not int or not 0 <= account["capacity"] <= 100 or
-                type(account.get("used")) is not int or not 0 <= account["used"] <= account["capacity"] or
-                not finite(account.get("blocked_until", 0))):
-            raise ValueError("invalid account capacity")
-        accounts.add(account["id"])
-
-
-def provider_accounts_check(accounts, provider, now):
-    """Public observations are evidence, never inferred from credential presence."""
-    allowed = key_holder.OPENCODE_ACCOUNTS if provider == "opencode" else {1: "codex-auth.json"}
-    if not isinstance(accounts, list) or len(accounts) > len(allowed): raise ValueError("invalid provider accounts")
-    seen = set()
-    for row in accounts:
-        if (not isinstance(row, dict) or type(row.get("id")) is not int or row["id"] not in allowed or row["id"] in seen or
-                type(row.get("capacity")) is not int or not 0 <= row["capacity"] <= 10 or
-                type(row.get("used", 0)) is not int or not 0 <= row.get("used", 0) <= row["capacity"] or
-                type(row.get("available")) is not bool or not finite(row.get("blocked_until", 0)) or
-                not isinstance(row.get("models"), list) or not row["models"] or len(row["models"]) > 20):
-            raise ValueError("invalid provider capacity")
-        seen.add(row["id"])
-        for model in row["models"]:
-            prefix = ("codex/",) if provider == "codex" else ("opencode/", "opencode-go/")
-            if (not isinstance(model, dict) or not isinstance(model.get("model"), str) or
-                    not model["model"].startswith(prefix) or not isinstance(model.get("effort"), str) or not model["effort"]):
-                raise ValueError("invalid provider model")
-        quota = row.get("quota", {})
-        if (not isinstance(quota, dict) or quota.get("state") not in ("available", "unknown", "exhausted") or
-                not finite(quota.get("observed_at")) or not finite(quota.get("expires_at")) or
-                not quota["observed_at"] <= now < quota["expires_at"] or
-                quota["expires_at"] - quota["observed_at"] > 3600 or
-                quota.get("source") != "operator_observation" or
-                (quota.get("credit_remaining") is not None and
-                 (not finite(quota["credit_remaining"]) or quota["credit_remaining"] < 0))):
-            raise ValueError("unverified provider quota")
 
 
 def journal_check(journal, digest):
@@ -223,59 +183,10 @@ def decision(policy, snapshot, journal, name, status, *, now, deadline, max_age=
                 return stop("previous_launch_outcome_unknown", "reconcile", generation=generation)
             reconciled.append(row["id"])
     if len(actions) >= 3 or len(journal["actions"]) >= MAX_ACTIONS: return stop("launch_allowance_exhausted")
-    conditions = roles(job["roles"])
-    claude = sorted(set(value for value in conditions.values() if value[0].startswith("claude/")))
-    account_id = None
-    limited_account = None
-    if claude:
-        allowed = set(job.get("claude_accounts") or [1])
-        if actions:
-            previous = actions[-1]
-            verified_successor = (previous["id"] in reconciled or
-                                  (previous.get("state") == "collected" and previous.get("successor") == generation))
-            if (verified_successor and previous["generation"] != generation and
-                    card.get("terminal_stop") in {"provider_limit:" + model for model, effort in claude}):
-                limited_account = previous.get("claude_account")
-        # A verified Claude limit prefers another authorized account. This does
-        # not declare the first account unavailable or bypass the normal backoff.
-        for account in sorted(snapshot["claude_accounts"], key=lambda value: (value["id"] == limited_account, value["id"])):
-            used = sum(row.get("claude_account") == account["id"] and row.get("state") != "collected" and row.get("id") not in reconciled
-                       for row in journal["actions"])
-            if (account["id"] not in allowed or not account["available"] or account.get("blocked_until", 0) > now or
-                    max(account["used"], used) >= account["capacity"] or
-                    status.get("claude_accounts", {}).get(str(account["id"])) is not True): continue
-            supported = {(v.get("model"), v.get("effort")) for v in account.get("models", []) if isinstance(v, dict)}
-            if not set(claude) <= supported: continue
-            account_id = account["id"]; break
-        if account_id is None: return stop("authorized_account_capacity_unavailable")
-    selected = {}
-    opencode_handoff = False
-    for provider, prefix in (("opencode", ("opencode/", "opencode-go/")), ("codex", ("codex/",))):
-        required = {value for value in conditions.values() if value[0].startswith(prefix)}
-        if not required: continue
-        allowed = set(job.get("opencode_accounts", [])) if provider == "opencode" else {1}
-        previous_account = None
-        if actions:
-            previous = actions[-1]
-            verified = previous["id"] in reconciled or (previous.get("state") == "collected" and previous.get("successor") == generation)
-            from account_handoff import limited_provider
-            if (verified and previous["generation"] != generation and
-                    limited_provider(card.get("terminal_stop", "")) == provider and
-                    card.get("terminal_stop") in {"provider_limit:" + m for m, e in required}):
-                previous_account = previous.get(provider + "_account")
-        for account in sorted(snapshot.get(provider + "_accounts", []), key=lambda a: (a["id"] == previous_account, a["id"])):
-            quota = account["quota"]
-            used = sum(row.get(provider + "_account") == account["id"] and row.get("state") != "collected" and row["id"] not in reconciled for row in journal["actions"])
-            supported = {(m["model"], m["effort"]) for m in account["models"]}
-            if (account["id"] not in allowed or not account["available"] or account.get("blocked_until", 0) > now or
-                    max(account.get("used", 0), used) >= account["capacity"] or not required <= supported or
-                    quota["state"] != "available" or quota.get("credit_remaining") == 0 or
-                    (provider == "opencode" and status.get("opencode_accounts", {}).get(str(account["id"])) is not True)):
-                continue
-            selected[provider + "_account"] = account["id"]
-            if provider == "opencode" and previous_account is not None and previous_account != account["id"]: opencode_handoff = True
-            break
-        else: return stop(provider + "_capacity_or_quota_unverified")
+    # Model-call admission belongs solely to model_router. Cloud ownership and
+    # checkpoint replay checks remain this coordinator's responsibility.
+    account_id, selected = None, {}
+    limited_account, opencode_handoff = None, False
     try:
         if ttl_retired:
             from ttl_continuation import ready

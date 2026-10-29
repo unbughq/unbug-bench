@@ -17,6 +17,9 @@ sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/fact
 import run
 import recovery
 import model_runtime
+import model_router
+from router_test_support import offline_router
+_ROUTING = offline_router()
 from test_admission import evidence
 
 SYNC = ROOT / 'factory/restore_sync.py'
@@ -55,12 +58,14 @@ class FreshnessRestoreTests(unittest.TestCase):
         return 0
 
     def test_requested_url_uses_leading_semver_with_commit_sha(self):
+        self.addCleanup(offline_router()[0].close)
         with patch.object(run, 'opencode', self.reviewer):
             result, _ = run.loop_freshness(self.c, self.result, self.report)
         self.assertEqual(result['blocking'], [])
         self.assertEqual(self.c.card['loop_freshness']['outcome'], 'excluded')
 
     def test_canary_shape_flagged_search_and_requested_PR_both_excluded(self):
+        self.addCleanup(offline_router()[0].close)
         search = 'https://github.com/search?q=repo%3Amedusajs%2Fmedusa+reservation&type=issues'
         self.rows.append(evidence('attacker', 'github', 99, url=search, ambiguous=True))
         self.save()
@@ -75,6 +80,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         self.assertEqual((info['rows'], info['requested'], info['outcome']), (2, 1, 'excluded'))
 
     def test_pinned_version_supports_prerelease_and_build_metadata(self):
+        self.addCleanup(offline_router()[0].close)
         version = '2.19.0-rc.1+build.42'
         (self.c.case / 'case.json').write_text(json.dumps({'app': {
             'commit': '87d77fa1b5', 'version': version + ' (pinned commit)'}}))
@@ -86,6 +92,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         self.assertEqual(self.c.card['loop_freshness']['outcome'], 'excluded')
 
     def test_provider_fallback_preserves_expiry_deadline(self):
+        self.addCleanup(offline_router()[0].close)
         now = [1000]
         runtime = model_runtime.ModelRuntime(self.c.work, None, None, None, None)
         durations = []
@@ -94,7 +101,7 @@ class FreshnessRestoreTests(unittest.TestCase):
             now[0] += kwargs['timeout'] - (10 if len(durations) == 1 else 0)
             if len(durations) == 1: raise run.BudgetError('provider_limit')
             return 0
-        model = next(iter(model_runtime.FREE_FALLBACK))
+        model = "opencode/glm-5.3-flash-free"
         with patch.object(model_runtime.time, 'monotonic', side_effect=lambda: now[0]), \
              patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=invoke):
             self.assertEqual(runtime.call(self.c, [model], '', self.c.case,
@@ -103,6 +110,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         self.assertEqual(now[0], 2200)
 
     def test_expired_deadline_prevents_provider_fallback(self):
+        self.addCleanup(offline_router()[0].close)
         now = [1000]
         runtime = model_runtime.ModelRuntime(self.c.work, None, None, None, None)
         def fail(*args, **kwargs):
@@ -110,12 +118,13 @@ class FreshnessRestoreTests(unittest.TestCase):
             raise run.BudgetError('provider_limit')
         with patch.object(model_runtime.time, 'monotonic', side_effect=lambda: now[0]), \
              patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=fail) as call, \
-             self.assertRaisesRegex(run.BudgetError, '^timeout$'):
-            runtime.call(self.c, [next(iter(model_runtime.FREE_FALLBACK))], '', self.c.case,
+             self.assertRaisesRegex(run.BudgetError, '^provider_wait$'):
+            runtime.call(self.c, ["opencode/glm-5.3-flash-free"], '', self.c.case,
                          'builder-freshness', timeout=1200, deadline=2200)
         call.assert_called_once()
 
     def test_unknown_version_stops_before_review(self):
+        self.addCleanup(offline_router()[0].close)
         (self.c.case / 'case.json').write_text(json.dumps({'app': {'commit': '87d77fa1b5'}}))
         with patch.object(run, 'opencode') as call, self.assertRaisesRegex(run.BudgetError, '^freshness_unresolved$'):
             run.loop_freshness(self.c, self.result, self.report)
@@ -130,6 +139,7 @@ class FreshnessRestoreTests(unittest.TestCase):
             'loop_freshness': {'outcome': 'unresolved', 'verdict_path': path.name + '/verdict.json'}}))
 
     def test_restore_rechecks_retained_verdict_with_correct_version(self):
+        self.addCleanup(offline_router()[0].close)
         self.retain_verdict(self.answer())
         from admission import search_binding
         directory = self.c.work / 'g2-confirm-1792916679897600904'
@@ -144,6 +154,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         self.assertEqual(self.c.card['loop_freshness']['outcome'], 'excluded')
 
     def test_restore_reasks_invalid_retained_version_or_changed_case(self):
+        self.addCleanup(offline_router()[0].close)
         self.retain_verdict(self.answer('9.9.9'))
         with patch.object(run, 'opencode', side_effect=self.reviewer) as call:
             run.loop_freshness(self.c, self.result, self.report)
@@ -155,6 +166,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         call.assert_called_once()
 
     def test_stale_retained_verdict_requires_a_new_review(self):
+        self.addCleanup(offline_router()[0].close)
         self.retain_verdict(self.answer())
         path = self.c.work / 'g2-confirm-1792916679897600904/verdict.json'
         os.utime(path, (1, 1))
@@ -183,6 +195,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         return 0
 
     def test_restore_expiry_research_does_not_consume_defect_allowance(self):
+        self.addCleanup(offline_router()[0].close)
         state = self.expire()
         with patch.object(run, 'opencode', self.refresh):
             self.assertTrue(run.ensure_freshness(self.c)[0])
@@ -191,6 +204,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         self.assertTrue(self.c.card['freshness_reverify']['at'])
 
     def test_expiry_reverify_is_bounded_once_per_restore_and_retryable_after_timeout(self):
+        self.addCleanup(offline_router()[0].close)
         state = self.expire()
         with patch.object(run, 'opencode', side_effect=run.BudgetError('timeout')) as call:
             with self.assertRaisesRegex(run.BudgetError, '^timeout$'): run.ensure_freshness(self.c)
@@ -201,6 +215,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         with patch.object(run, 'opencode', self.refresh): self.assertTrue(run.ensure_freshness(resumed)[0])
 
     def test_unsuccessful_expiry_research_does_not_spend_unused_defect_attempts(self):
+        self.addCleanup(offline_router()[0].close)
         state = self.expire(attempts=0)
         with patch.object(run, 'opencode', return_value=0) as call, \
              self.assertRaisesRegex(run.BudgetError, 'freshness_evidence_unavailable'):
@@ -209,6 +224,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         self.assertEqual(json.loads((self.c.work / 'freshness-repair.json').read_text()), state)
 
     def test_expiry_roles_share_twenty_minute_wall_budget(self):
+        self.addCleanup(offline_router()[0].close)
         self.expire()
         with patch.object(run.time, 'monotonic', side_effect=[1000, 1000, 1900]), \
              patch.object(run, 'opencode', return_value=0) as call, \
@@ -217,6 +233,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         self.assertEqual([item.kwargs['timeout'] for item in call.call_args_list], [1200, 300])
 
     def test_expiry_does_not_reset_defects_or_changed_statement(self):
+        self.addCleanup(offline_router()[0].close)
         for defect in ('retrieval', 'statement', 'not_resume'):
             with self.subTest(defect=defect):
                 self.expire()
@@ -230,6 +247,7 @@ class FreshnessRestoreTests(unittest.TestCase):
                 self.assertNotIn('freshness_reverify', self.c.card)
 
     def test_expiry_research_keeps_case_budget_boundary(self):
+        self.addCleanup(offline_router()[0].close)
         self.expire()
         with patch.object(run, 'case_budget_boundary', side_effect=run.BudgetError('budget_exhausted')), \
              patch.object(run, 'opencode') as call, self.assertRaisesRegex(run.BudgetError, 'budget_exhausted'):
@@ -237,6 +255,7 @@ class FreshnessRestoreTests(unittest.TestCase):
         call.assert_not_called()
 
     def test_public_expiry_eligibility_refuses_mixed_reasons(self):
+        self.addCleanup(offline_router()[0].close)
         state = self.expire()
         card = {'status': 'stopped', 'terminal_stop': 'freshness_evidence_unavailable',
                 'freshness_repair': state, 'admission_freshness': {
@@ -285,10 +304,12 @@ class RestoreSyncTests(unittest.TestCase):
         return module
 
     def test_stopped_before_reseal_uses_matching_prior_card_receipt(self):
+        self.addCleanup(offline_router()[0].close)
         request = self.module().prepare()
         self.assertTrue(request['original_plaintext_identity_verified'])
 
     def test_prior_receipt_cannot_authorize_changed_cipher_or_wrong_identity(self):
+        self.addCleanup(offline_router()[0].close)
         module = self.module()
         (self.root / 'sealed' / self.names[2]).write_bytes(b'genuine mismatch')
         with self.assertRaisesRegex(AssertionError, 'ciphertext mismatch'): module.prepare()

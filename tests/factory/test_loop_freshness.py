@@ -15,6 +15,8 @@ from unittest.mock import patch
 
 import run
 import model_runtime
+from router_test_support import offline_router
+_ROUTING = offline_router()
 from test_admission import evidence
 
 

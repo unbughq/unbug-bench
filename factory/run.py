@@ -13,6 +13,7 @@ from gate_pipeline import GatePipeline
 from case_contract import CaseContract, ingredient_problems as case_ingredients
 from run_artifacts import RunArtifacts, shred_tree
 import model_runtime
+import model_router
 from model_runtime import (family, model_effort, rotation, update_case_budget,
                            case_budget_boundary, writer_round_estimate, pinned_cli, OPENCODE_BIN)
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -184,10 +185,18 @@ def pick_models(c):
     return model_runtime.select_models(c, log=log)
 
 
-def opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None):
+def opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None):
     runtime = model_runtime.ModelRuntime(HOME, sh, public_progress, shred_tree, pilot_home)
-    result = runtime.call(c, models, text, cwd, name, user=user, timeout=timeout, deadline=deadline,
-                          **({'before_attempt': before_attempt} if before_attempt is not None else {}))
+    c.card.setdefault('router_waits', [])
+    try:
+        result = runtime.call(c, models, text, cwd, name, user=user, timeout=timeout, deadline=deadline,
+                              **({'before_attempt': before_attempt} if before_attempt is not None else {}),
+                              **({'lease': lease} if lease is not None else {}))
+    except model_router.ProviderWait as error:
+        with PROVIDER_WAIT_LOCK:
+            c.card['router_waits'].extend(getattr(error, 'previous_waits', []))
+            c.card['router_waits'].append({'role': error.role, **model_runtime.asdict(error.wait)})
+        raise
     if (not user and hasattr(c, "recipient") and not c.args.dry_run
             and not hasattr(c, "calibrator_slot_offset")):
         # A completed serial author/reviewer call is a safe snapshot boundary.
@@ -195,6 +204,47 @@ def opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None,
         from durable_checkpoint import checkpoint_progress
         checkpoint_progress(c, seal, quiescent=True)
     return result
+
+
+PROVIDER_WAIT_LOCK = threading.Lock()
+
+
+def write_provider_wait(c, error):
+    """Publish one content-free wait and stop label through one scorecard write.
+
+    This does not settle usage. Concurrent calls have already joined before the
+    runner's stop handler invokes it; preserve every interrupted usage receipt.
+    """
+    from registry import atomic_json
+    with PROVIDER_WAIT_LOCK:
+        waits = list(c.card.pop('router_waits', []))
+        if isinstance(error, model_router.ProviderWait):
+            candidate = {'role': error.role, **model_runtime.asdict(error.wait)}
+            if candidate not in waits: waits.append(candidate)
+        if not waits: raise BudgetError('provider_wait_record_missing')
+        selected = max(waits, key=lambda row: (row['evidence'] == 'interrupted', row['retry_after']))
+        retry = max(row['retry_after'] for row in waits)
+        batch, job, deadline = model_router.metadata(c)
+        record = {'wait_id': str(__import__('uuid').uuid4()), 'case': c.case_id, 'job': job, 'batch': batch,
+                  'role': selected['role'], 'route': selected['route'], 'account': selected['account'],
+                  'reason': selected['reason'], 'retry_after': model_router.utc(retry),
+                  'evidence': selected['evidence'], 'lease_id': selected.get('lease_id'),
+                  'call_id': selected.get('call_id'), 'settled': False,
+                  'batch_deadline': model_router.utc(deadline)}
+        receipts = sorted({row['call_id'] for row in waits if row.get('call_id')})
+        if len(receipts) > 1:
+            records = [json.loads((c.work / name).read_text()) for name in receipts]
+            events = {event['id']: event for row in records for event in row.get('events', [])}
+            path = 'usage-receipts/' + record['wait_id'] + '.json'
+            atomic_json(c.work / path, {'receipts': receipts, 'booked_event_ids': sorted(events), 'events': list(events.values()),
+                'usage_delta': {k: sum(e.get(k, 0) for e in events.values()) for k in ('cost', 'list_cost_usd', 'estimated_subscription_cost_usd')},
+                'final_usage_known': all(row['final_usage_known'] for row in records)})
+            record['call_id'] = path
+        atomic_json(c.work / 'provider_wait.json', record)
+        projection = {key: record[key] for key in ('wait_id', 'reason', 'retry_after', 'role', 'route', 'account', 'evidence', 'batch_deadline')}
+        c.card.update(terminal_stop='provider_wait', provider_wait=projection)
+        atomic_json(c.work / 'scorecard.json', c.card)
+    return record
 
 
 def model_call(c, models, *args, **kw):  # tester and dedup calls; same backup routes as every role
@@ -242,7 +292,7 @@ def provider_preflight(c):
             if code: raise BudgetError("process_error")
             row["status"] = "completed"
         except BudgetError as error:
-            if str(error) in ("budget_exhausted", "codex_login_expired"): raise
+            if str(error) in ("budget_exhausted", "codex_login_expired", "provider_wait"): raise
             row.update(status="failed", reason=str(error))
             if str(error).startswith("provider_limit:"): raise
             # A bad startup route needs a decision, not an automatic new authoring attempt.
@@ -2086,7 +2136,8 @@ def early_probe(c):
         with isolated_attempt_context(c, slot=slot, user="pilot") as child:
             r = calibrate(child, "strong_calibrator", tries=1, name="early_probe")
         r["label"] = "solvable" if r["solved"] else "likely_hard"
-    except Exception as error:  # includes BudgetError (e.g. a provider limit): the probe is optional
+    except Exception as error:  # Provider waits are plumbing, even for this optional probe.
+        if str(error) == "provider_wait": raise
         r = {"skipped": f"{type(error).__name__}: {error}"[:200]}
     finally:
         home = pilot_home("pilot")
@@ -2575,7 +2626,10 @@ def main():
             validate_and_repair(c)
     except (BudgetError, PauseRequested) as error:
         c.stopped = True
-        c.card['terminal_stop'] = 'paused' if isinstance(error, PauseRequested) else str(error)
+        if str(error) == 'provider_wait' or (str(error) == 'cancelled' and c.card.get('router_waits')):
+            write_provider_wait(c, error)
+        else:
+            c.card['terminal_stop'] = 'paused' if isinstance(error, PauseRequested) else str(error)
         if isinstance(error, PauseRequested): c.card.update(pause_terminal(error, c.case_id))
         if str(error) == 'budget_exhausted' and (c.work / 'attack-state.json').exists() and c.card.get('stress_review', {}).get('status') != 'completed':
             c.card['stress_review'] = {'status': 'unresolved', 'reason': 'budget_exhausted'}
@@ -2614,7 +2668,8 @@ def main():
             except Exception as error: c.card["wipe"] = {"error": type(error).__name__}
         SEALED.mkdir(exist_ok=True)
         try:
-            (SEALED / f"{c.case_id}.scorecard.json").write_text(json.dumps(c.card, indent=2) + "\n")
+            from registry import atomic_json
+            atomic_json(SEALED / f"{c.case_id}.scorecard.json", c.card)
             text = scorecard_text(c.card)
             (SEALED / f"{c.case_id}.scorecard.txt").write_text(text + "\n")
             print(text, file=real_stdout, flush=True)

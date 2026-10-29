@@ -55,33 +55,22 @@ def initial_state(card, policy, accounts=None):
     """Carry public account history across transports, including explicit selections."""
     observed = {'opencode': 1, 'claude': 1, **(card.get('provider_accounts') or {})}
     history = copy.deepcopy(card.get('account_handoffs') or [])
-    limited = {p: set(policy.get(p + '_limited_accounts', [])) for p in ACCOUNTS}
-    for row in history:
-        limited[row['provider']].add(row['from'])
-    stop = card.get('terminal_stop', '')
     selected = dict(observed if accounts is None else accounts)
-    for provider, labels in ACCOUNTS.items():
-        old, new = observed[provider], selected[provider]
-        if limited_provider(stop) == provider:
-            limited[provider].add(old)
-            if new != old:
-                history.append(dict(provider=provider, **{'from': old}, to=new, secret=labels[new],
-                                    stop=stop, generation=card['sha256']))
-    return {'accounts': selected, 'limited': {p: sorted(v) for p, v in limited.items()}, 'history': history}
+    return {'accounts': selected, 'limited': {}, 'history': history}
 
 
 def choose(card, state, policy, held):
-    stop = card.get('terminal_stop', '')
-    provider = limited_provider(stop)
-    if provider is None: return None
+    """Transport a router selection; never schedule or blacklist accounts here."""
+    wait = card.get('provider_wait') or {}
+    label = wait.get('account')
+    provider = next((p for p, labels in ACCOUNTS.items() if label in labels.values()), None)
+    if provider is None or card.get('terminal_stop') != 'provider_wait': return None
+    account = next(a for a, value in ACCOUNTS[provider].items() if value == label)
+    if provider == 'claude' and account not in (1, 2): return None
     old = state['accounts'][provider]
-    limited = set(state['limited'].get(provider, [])) | {old}
-    allowed = policy.get(provider + '_accounts', [])
-    for account, label in ACCOUNTS[provider].items():
-        if account in allowed and account not in limited and label in held:
-            return {'provider': provider, 'from': old, 'to': account, 'secret': label,
-                    'stop': stop, 'generation': card['sha256']}
-    return None
+    if account == old or account not in policy.get(provider + '_accounts', []) or label not in held: return None
+    return {'provider': provider, 'from': old, 'to': account, 'secret': label,
+            'stop': 'provider_wait', 'generation': card['sha256']}
 
 
 def launch_accounts(card, policy, request, held):
@@ -141,7 +130,7 @@ def apply(card_path, state_path, worker, bundle):
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     provider = change['provider']
     state['accounts'][provider] = change['to']
-    state['limited'][provider] = sorted(set(state['limited'].get(provider, [])) | {change['from']})
+    state['limited'] = {}  # Historical failures are not current account health.
     state['history'].append(change)
     write(state_path, state)
     marker.unlink()

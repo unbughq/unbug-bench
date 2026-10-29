@@ -39,7 +39,7 @@ class AdmissionHandoffTests(unittest.TestCase):
                      self.remote / 'sealed', self.remote / 'statements', self.remote / 'factory',
                      self.history / 'sealed', self.state, self.base / 'tools'):
             path.mkdir(parents=True)
-        for name in ('statement_round.py', 'restart.py', 'recovery.py', 'budget.py', 'token_prices.py', 'registry.py', 'admission.py',
+        for name in ('statement_round.py', 'model_router.py', 'restart.py', 'recovery.py', 'budget.py', 'token_prices.py', 'registry.py', 'admission.py',
                      'calibration.py', 'free_models.py', 'collect.sh', 'transfer.py'):
             shutil.copyfile(HERE / name, self.root / 'factory' / name)
         shutil.copyfile(HERE / 'runner_supervisor.py', self.remote / 'factory/runner_supervisor.py')

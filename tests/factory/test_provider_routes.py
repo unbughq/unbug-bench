@@ -11,6 +11,9 @@ from unittest import TestCase, main, mock
 
 import run
 import model_runtime
+import model_router
+from router_test_support import offline_router
+_ROUTING = offline_router()
 
 
 class ProviderRoutesTest(TestCase):
@@ -23,6 +26,7 @@ class ProviderRoutesTest(TestCase):
             "easy_calibrator": ["opencode/deepseek-v4.1-flash-free"]})
 
     def test_preflight_checks_distinct_nonwriter_routes_without_gate_credit(self):
+        self.addCleanup(offline_router()[0].close)
         c = self.preflight_context()
         with mock.patch.object(run, "opencode", return_value=0) as call:
             run.provider_preflight(c)
@@ -34,6 +38,7 @@ class ProviderRoutesTest(TestCase):
         self.assertNotIn("gates", c.card)
 
     def test_bad_preflight_route_stops_before_other_roles(self):
+        self.addCleanup(offline_router()[0].close)
         for reason, stop in (("provider_limit:openrouter/deepseek/deepseek-v4.1-flash",
                               "provider_limit:openrouter/deepseek/deepseek-v4.1-flash"),
                              ("opencode_error", "provider_preflight_failed")):
@@ -46,60 +51,35 @@ class ProviderRoutesTest(TestCase):
             self.assertEqual(c.card["provider_preflight"][0]["reason"], reason)
             self.assertNotIn("gates", c.card)
 
-    def test_direct_routes_preserve_roles_and_do_not_spill_to_other_models(self):
-        roles = {"stress_tester": {"model": "opencode-go/mimo-v2.6-pro", "family": "xiaomi"}}
-        ledger = {"calls": 526, "cost": .995370312}
-        c = SimpleNamespace(card={"roles": roles, "continuation_budget": ledger})
-        paths = []
-        try:
+    def test_every_configured_chain_enters_shared_routing(self):
+        self.addCleanup(offline_router()[0].close)
+        for chain in model_router.CHAINS:
+            c = SimpleNamespace(card={})
             with mock.patch.object(model_runtime.ModelRuntime, "_invoke", return_value=0) as call:
-                for source, target in model_runtime.PROVIDER_ROUTES.items():
-                    run.model_call(c, [source], "synthetic", ".", "attacker-fixture")
-                    self.assertEqual(call.call_args.args[1], [target])
-                    self.assertEqual(run.family(source), run.family(target))
-                    p = model_runtime.opencode_config(target)
-                    paths.append(p)
-                    self.assertEqual(json.loads(p.read_text())["small_model"], target)
-                self.assertEqual(len(set(paths)), 3)
-                for source in ["opencode-go/muse-spark-1.3-contributor",
-                               "opencode/glm-5.3-flash-free", "codex/gpt-6.1-sol", "claude/claude-opus-5-5"]:
-                    run.opencode(c, [source], "synthetic", ".", "fixture")
-                    self.assertEqual(call.call_args.args[1], [source])
-            self.assertEqual(c.card["provider_routes"], model_runtime.PROVIDER_ROUTES)
-            self.assertIs(c.card["roles"], roles)
-            self.assertEqual(c.card["continuation_budget"], {"calls": 526, "cost": .995370312})
-            self.assertFalse(any(v.startswith("openrouter/") for v in model_runtime.FREE_FALLBACK.values()))
-            for source in [*model_runtime.PROVIDER_ROUTES, "opencode-go/muse-spark-1.3-contributor"]:
-                with mock.patch.object(model_runtime.ModelRuntime, "_invoke", side_effect=run.BudgetError("provider_limit")) as call:
-                    with self.assertRaises(run.BudgetError):
-                        run.opencode(c, [source], "synthetic", ".", "fixture")
-                    self.assertEqual(call.call_count, 1)  # no paid MiniMax or unrelated provider fallback
-        finally:
-            for p in paths:
-                p.unlink(missing_ok=True)
+                run.model_call(c, [chain[0]], "synthetic", ".", "fixture")
+            self.assertEqual(call.call_args.args[1], [chain[0]])
+            row = c.card['route_receipts'][-1]
+            self.assertEqual((row['route'], row['family'], row['outcome']), (chain[0], model_runtime.family(chain[0]), 'done'))
+            self.assertNotIn('routes', c.__dict__)
 
-
-    def test_free_route_fallback_is_recorded_and_reused_without_paid_spillover(self):
-        c = SimpleNamespace(card={}, force_budget_resume=False)
+    def test_fallback_is_shared_and_billing_is_explicit(self):
+        self.addCleanup(offline_router()[0].close)
+        c = SimpleNamespace(card={})
         tried = []
         def invoke(runtime, context, models, *args, **kwargs):
             tried.append(models[0])
-            if models[0].endswith("-free") or "paid" in models[0]:
-                raise model_runtime.BudgetError("opencode_error")
+            if models[0].endswith('-free'): raise model_runtime.BudgetError('opencode_error')
             return 0
         runtime = model_runtime.ModelRuntime(None, None, None, None, None)
-        with mock.patch.object(model_runtime.ModelRuntime, "_invoke", invoke):
-            self.assertEqual(runtime.call(c, ["opencode/glm-5.3-flash-free"], "t", ".", "fixture"), 0)
-            self.assertEqual(tried, ["opencode/glm-5.3-flash-free", "opencode-go/glm-5.3-flash"])
-            self.assertTrue(c.card["free_model_fallback"])
-            self.assertTrue(c.force_budget_resume)
+        with mock.patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
+            runtime.call(c, [model_router.CHAINS[-1][0]], 't', '.', 'fixture')
+            self.assertEqual(tried, list(model_router.CHAINS[-1]))
+            other = SimpleNamespace(card={})
             tried.clear()
-            self.assertEqual(runtime.call(c, ["opencode/glm-5.3-flash-free"], "t", ".", "fixture"), 0)
-            self.assertEqual(tried, ["opencode-go/glm-5.3-flash"])
-            with self.assertRaises(model_runtime.BudgetError):
-                runtime.call(c, ["opencode-go/paid-model"], "t", ".", "fixture")
+            runtime.call(other, [model_router.CHAINS[-1][0]], 't', '.', 'fixture')
+            self.assertEqual(tried, [model_router.CHAINS[-1][1]])
+        self.assertEqual(c.card['route_receipts'][-1]['billing'], 'subscription')
+        self.assertTrue(c.force_budget_resume)
 
 
-if __name__ == "__main__":
-    main()
-    unittest.main()
+if __name__ == "__main__": main()
