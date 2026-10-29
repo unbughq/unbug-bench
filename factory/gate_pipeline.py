@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Callable
 
 from budget import BudgetError
+from case_contract import CaseProblem
 import gate_attempt
 import gate_state
 
@@ -47,9 +48,12 @@ class GatePipeline:
             signature = gate_state.fingerprint(c, gate, self.bench)
             before = {key: gate_state.digest(path) for key, path in gate_state.inventory(c, self.bench).items()}
         import processes  # run.py installs the bench bin path after importing this module
-        with (processes.deadline(getattr(getattr(c, 'args', None), 'agent_timeout', 14400))
-              if gate in ('G13', 'G14', 'G15') else contextlib.nullcontext()):
-            ok, info = self.evaluate(c, gate)
+        try:
+            with (processes.deadline(getattr(getattr(c, 'args', None), 'agent_timeout', 14400))
+                  if gate in ('G13', 'G14', 'G15') else contextlib.nullcontext()):
+                ok, info = self.evaluate(c, gate)
+        except CaseProblem as error:
+            return False, {'problems': [str(error)]}
         if info.get('classification') == 'invalid-infra':
             from run_validity import InvalidInfra
             raise InvalidInfra('gate execution evidence is incomplete')
@@ -143,6 +147,7 @@ class GatePipeline:
             return outcome
 
         def stop_infrastructure(gate, outcome):
+            if c.card.get('infrastructure_gate', {}).get('exhausted'): return
             c.stopped = True
             c.card["terminal_stop"] = "infrastructure_exhausted"
             c.card["infrastructure_gate"] = {"gate": gate, "error_type": outcome.info["error"],

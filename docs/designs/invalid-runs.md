@@ -402,3 +402,35 @@ covers missing-first/valid-later submissions, completed no-fix replacement reuse
 early-probe inputs plus owner transcripts, repeated provider waits, fail/pass then
 fail/pass retry allowances, freshness alternatives, changing scanner output paths
 and single crash diagnostics.
+
+
+## Diff-review-2 resolutions (normative)
+
+- **Dead unflagged URLs (B1):** a runner receipt with retrieved_from=none (404,
+  410 or DNS-not-found and no Wayback snapshot) is also excluded from search
+  minima. This proves an unavailable page, not that a search happened. Preserve
+  the row and request an alternative through the existing topup. The regression
+  replays 404 plus an empty archived_snapshots response through the HTTP seam.
+- **Missing promised observations (M1):** after require_valid confirms execution,
+  compare case.json's promised path/check names with each completed judge's keys.
+  A missing key is an authored contract defect, represented by CaseProblem in
+  case_contract.py. GatePipeline.check converts it to False with concrete private
+  problems, so early G4/G5 return writer repair and final gates use their normal
+  failure flow. Prototype and saved-cheat screening use the same structural rule.
+  This is not a third execution classification: invalid execution still raises
+  InvalidInfra before inspecting contract names and never reaches writer feedback.
+  Real saved valid reference records with a misnamed path/check exercise both
+  early gates and prototype; real reset-invalid records still stop operationally.
+- **N1–N3:** evaluate a fully validity-checked cheat-pass before the workflow
+  prerequisite diagnostic; key a missing-fix replacement on try, relative workspace
+  and artifacts (not migrated identity); retain the first exhausted gate when an
+  overlapping G10 also crashes. Regression assertions cover all three.
+- **E integration:** rebase onto the merged E increment, preserving its deadline
+  context in GatePipeline.check and its supervisor upload inventory. No change to
+  E's processes.py/sh behavior. Add processes.py to the existing frozen live-judge
+  bundle, since E's bench.py now imports it; test import under isolated Python.
+  Refresh exact compatibility digests after rebase, including the new CaseProblem
+  declaration. Remove a retired AST dependency when its pinned target is absent
+  (E moved signal use behind processes); do not retain a spurious None-valued key.
+  Unknown dependency changes still invalidate reuse; C does not authorize arbitrary
+  E or other-source identity migrations.

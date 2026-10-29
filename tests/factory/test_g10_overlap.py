@@ -28,7 +28,7 @@ def exercise(mode, *, reason=None):
             assert release.wait(3), 'foreground gate did not overlap G10'
             if mode == 'budget': raise run.BudgetError('provider_limit')
             if mode == 'pause': raise run.PauseRequested()
-            if mode == 'infra':
+            if mode in ('infra', 'dual-infra'):
                 from run_validity import InvalidInfra
                 raise InvalidInfra('saved reset failure')
             c.card['calibrators'] = {'synthetic': True}; c.card['difficulty'] = 'hard'
@@ -42,6 +42,9 @@ def exercise(mode, *, reason=None):
             assert started.wait(3), 'G10 did not start before G6 finished'
             assert c.calibrator_slot_offset == c.args.bench_workers
         seen.append('G6'); release.set()
+        if mode == 'dual-infra':
+            from run_validity import InfrastructureExhausted
+            raise InfrastructureExhausted('foreground invalid')
         return mode != 'cancel', {'bench': True}
     def final(c):
         assert finished.is_set(), 'G11 ran before G10 joined'
@@ -68,6 +71,10 @@ def exercise(mode, *, reason=None):
     elif mode == 'reject':
         assert c.card['failed_gate'] == 'G10' and 'G11' not in seen
         assert c.card['gates']['G10'] == 'fail'
+    elif mode == 'dual-infra':
+        assert c.card['infrastructure_gate']['gate'] == 'G6'
+        assert c.card['gates'].get('G10') != 'invalid-infra'
+        assert c.card['gates']['G6'] == 'invalid-infra'
     elif mode == 'infra':
         assert not c.card.get('failed_gate') and 'G11' not in seen
         assert c.card['gates']['G10'] == 'invalid-infra'
@@ -80,7 +87,7 @@ def exercise(mode, *, reason=None):
     temporary.cleanup()
 
 
-for mode in ('pass', 'cancel', 'reject', 'budget', 'pause', 'infra'):
+for mode in ('pass', 'cancel', 'reject', 'budget', 'pause', 'infra', 'dual-infra'):
     exercise(mode)
     print('PASS G10 overlap ' + mode)
 exercise('pass', reason='memory allowance')

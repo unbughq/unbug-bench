@@ -53,7 +53,9 @@ def review_attempts(c, r, gate, folder):
         if not guard_submitted(guard):
             # Obtain only this missing try. A separate durable series retains its
             # completed no-fix result too, so resume never buys it again.
-            key = hashlib.sha256(json.dumps(original, sort_keys=True).encode()).hexdigest()
+            binding = {'try': original['try'], 'workspace': str(workspace.relative_to(c.work.resolve())),
+                       'artifacts': original.get('artifacts')}
+            key = hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest()
             replacement = 'fairness-replacement-' + key
             transcript_folders.add(replacement)
             path = c.work / replacement / 'results.json'

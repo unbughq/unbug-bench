@@ -218,6 +218,43 @@ class InvalidRunsTests(unittest.TestCase):
         self.assertGreater(info['unfetched_searches'], 0)
         self.assertEqual(json.loads(path.read_text().splitlines()[0]), rows[0])
 
+    def test_dead_unflagged_results_with_no_archive_never_count_as_searches(self):
+        rows = [json.loads(line) for line in PRACTICE['files']['freshness.jsonl'].splitlines() if line]
+        for row in rows:
+            row.update(at=datetime.datetime.now(datetime.timezone.utc).isoformat(), hit=False, ambiguous=False)
+        (self.c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+        def fetch(url):
+            status, body = (200, b'{"archived_snapshots":{}}') if url.startswith('https://archive.org/') else (404, b'')
+            return {'url':url, 'final_url':url, 'status':status}, body
+        with patch.object(retrieval, 'fetch', side_effect=fetch), patch.object(run, 'opencode') as paid:
+            ok, info = run.g2(self.c)
+        self.assertFalse(ok); self.assertEqual(info['outcome'], 'evidence_incomplete')
+        self.assertEqual(info['counted'], {'builder_web':0, 'builder_github':0, 'attacker':0})
+        self.assertEqual(info['unfetched_searches'], len(rows)); paid.assert_not_called()
+        self.assertFalse((self.work / 'public-search.json').exists())
+
+    def test_missing_promised_observations_are_structural_writer_problems(self):
+        (self.c.case / 'answer-key.json').unlink(missing_ok=True)
+        for field, gate in (('promise_paths', 'G4'), ('promise_checks', 'G5')):
+            meta = copy.deepcopy(REAL['suffix-case']['files']['case.json'])
+            meta[field].append('writer_misspelled_observation')
+            (self.c.case / 'case.json').write_text(json.dumps(meta))
+            pipeline = run._gate_pipeline(); pipeline.early_gates = (gate,)
+            pipeline.publish = Mock(); pipeline.log = Mock(); pipeline.saved_cheat_check = Mock()
+            with patch.object(run, 'checkpoint', return_value=batch('reference')) as execute:
+                problems = pipeline.early_checks(self.c)
+            self.assertIn('writer_misspelled_observation', problems[0])
+            execute.assert_called_once(); pipeline.saved_cheat_check.assert_not_called()
+            self.assertFalse(self.c.stopped); self.assertNotIn('terminal_stop', self.c.card)
+            with self.assertRaises(InvalidInfra): run.verdicts(self.c, batch('reset-invalid')[1])
+        if not list((self.c.case / 'guards/cheats').glob('*')):
+            shutil.copytree(ROOT / 'guards/refuse-all', self.c.case / 'guards/cheats/public-control')
+        with patch.object(run, 'g3', return_value=(True, {})), \
+             patch.object(run, 'checkpoint', return_value=batch('reference')) as execute:
+            ok, info = admission.prototype(run, self.c)
+        self.assertFalse(ok); self.assertIn('writer_misspelled_observation', info['problems'][0])
+        execute.assert_called_once()
+
     def test_collection_requires_each_real_cards_exact_generation(self):
         rows = fixture('invalid-runs-public-cards.json.gz')[:2]
         for index, row in enumerate(rows):
@@ -297,6 +334,8 @@ class InvalidRunsTests(unittest.TestCase):
         self.assertTrue(any(row['checker']['pass'] for row in records))
         self.assertEqual(outcome(summary, records, 'invalid')[0], 'invalid-probe')
         summary, records = batch('reference')
+        self.assertEqual(outcome(summary, records, 'invalid')[0], 'cheat-pass')
+        records[0]['traffic'] = {'message':'Updating Status from "ok" to "temp_failure" is not allowed.'}
         self.assertEqual(outcome(summary, records, 'invalid')[0], 'cheat-pass')
 
     def test_row_40_real_g11_runtime_failure_is_unknown(self):
@@ -427,6 +466,8 @@ class InvalidRunsTests(unittest.TestCase):
         with patch.object(run, 'calibrate', side_effect=replacement) as obtain, \
              patch.object(run, 'make_pilots'), patch.object(run, 'model_call', side_effect=reviewer) as review:
             self.assertTrue(fairness.diagnose(self.c, run)[0])
+            migrated = json.loads(path.read_text()); migrated[0]['identity'] = {'migrated_policy': True}
+            calibration.atomic_results(path, migrated)
             self.assertTrue(fairness.diagnose(self.c, run)[0])
         obtain.assert_called_once(); review.assert_called_once()
         self.assertEqual(json.loads(path.read_text())[1], row2)

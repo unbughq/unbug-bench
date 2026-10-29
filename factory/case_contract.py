@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Callable
 from calibration import guard_submitted
 
+
+class CaseProblem(ValueError):
+    """A completed observation demonstrates a defect in the authored contract."""
+
 LEAK_WORDS = ["surprise", "answer key", "reference fix", "fact sheet", "provenance", "planted",
               "expected_judge", "judge.py", "hooks.mjs", "key.json", "case factory"]
 

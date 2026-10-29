@@ -253,8 +253,6 @@ def workflow_status_failure(value):
 
 def probe_outcome(summary, records, expected):
     """A broken shape/prerequisite is not evidence that a wrong guard passed."""
-    if any(workflow_status_failure(r.get("traffic")) for r in records):
-        return "invalid-probe", "workflow status transition failed; compensation prerequisite not established"
     if any(r.get("checker", {}).get("pass") is True for r in records):
         from run_validity import classify
         validity = {'runs': summary.get('runs'), 'error_runs': summary.get('error_runs', summary.get('errors')),
@@ -262,6 +260,8 @@ def probe_outcome(summary, records, expected):
         if classify(validity, records) != 'valid':
             return "invalid-probe", "passing observation has invalid execution evidence"
         return "cheat-pass", "checker accepted a negative control"
+    if any(workflow_status_failure(r.get("traffic")) for r in records):
+        return "invalid-probe", "workflow status transition failed; compensation prerequisite not established"
     try:
         assert summary["pass"] == 0, summary
         assert len(records) == summary["runs"], summary

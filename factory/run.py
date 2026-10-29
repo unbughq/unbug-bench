@@ -1276,8 +1276,10 @@ def verdicts(c, records):
     for r in records:
         j = r.get("judge") or {}
         if not set(paths) <= j.get('paths', {}).keys() or not set(checks) <= j.get('checks', {}).keys():
-            from run_validity import InvalidInfra
-            raise InvalidInfra('checkpoint omitted a promised observation')
+            from case_contract import CaseProblem
+            missing = {'paths': sorted(set(paths) - j.get('paths', {}).keys()),
+                       'checks': sorted(set(checks) - j.get('checks', {}).keys())}
+            raise CaseProblem('case.json promises observations absent from the completed judge: ' + json.dumps(missing))
         clean = not r.get("errors") and (r.get("checker") or {}).get("valid") and not j.get("invalid")
         violated = any((j.get("paths") or {}).get(p) for p in paths)
         broken = violated or any(not (j.get("checks") or {}).get(k) for k in checks)
@@ -1329,12 +1331,15 @@ def cheat_runs(c, seed, tag, *, guards=None, runs=None, deadline=None, failures=
 
 def early_cheat_check(c):
     """One run per retained case cheat; no models, retries, or full-G6 receipt."""
+    from case_contract import CaseProblem
     guards = sorted(p for p in (c.case / "guards/cheats").glob("*") if p.is_dir())
     if not guards: return None
     reopened = []
     try:
         passed, total = cheat_runs(c, c.seed, "early-g6", guards=guards, runs=1,
             deadline=time.monotonic() + 1800, failures=reopened)
+    except CaseProblem as error:
+        return [str(error)]
     except (RuntimeError, TimeoutError, subprocess.TimeoutExpired) as error:
         _gate_pipeline().record_crash(c, "saved-cheats", error)
         raise
@@ -1647,6 +1652,8 @@ def g2(c):
                     # alternatives; it cannot establish a public match or clearance.
                     c.freshness_unfetched.add(row['url'])
                     result = []
+                if any(receipt['retrieved_from'] == 'none' for receipt in result):
+                    c.freshness_unfetched.add(row['url'])
             fetched.extend(result)
         counted = freshness_counts(c)
         retrieval_sha256 = retrieval_digest(fetched)

@@ -63,7 +63,7 @@ class LiveRuntimeStagingTests(unittest.TestCase):
             runtime = stage / "runtime/bin"
             # -I excludes repository/PYTHONPATH imports that could conceal an omitted file.
             result = subprocess.run([sys.executable, "-I", "-c",
-                "import sys; sys.path.insert(0, sys.argv[1]); import silent_window; "
+                "import sys; sys.path.insert(0, sys.argv[1]); import silent_window, processes; "
                 "from checkpoint_evidence import record_paths", str(runtime)],
                 cwd=root, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

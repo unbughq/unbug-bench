@@ -258,7 +258,8 @@ def compatible_identity(prior, current):
                 if old.get(name) == new.get(name): continue
                 if old.get(name) != policy['base_' + section].get(name) or new.get(name) != target:
                     return False
-                old[name] = target
+                if target is None: old.pop(name, None)
+                else: old[name] = target
         return upgraded == current
     except (OSError, ValueError, KeyError, TypeError):
         return False

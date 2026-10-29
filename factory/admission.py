@@ -160,7 +160,11 @@ def _prototype(run, c):
 
 def prototype(run, c):
     from run_validity import retry
+    from case_contract import CaseProblem
+    def invoke():
+        try: return _prototype(run, c)
+        except CaseProblem as error: return False, {'problems': [str(error)]}
     return retry(c.work / "infra-attempts.json",
                  {"operation": "prototype", "case": run.case_hash(c), "seed": c.seed,
                   "bench": getattr(c, 'manifest0', None)},
-                 lambda: _prototype(run, c), interruption=run.BudgetError)
+                 invoke, interruption=run.BudgetError)
