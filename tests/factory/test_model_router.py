@@ -18,6 +18,7 @@ import unittest
 from unittest.mock import patch, Mock
 import urllib.request
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 import model_router as router
 import model_runtime
 import budget
@@ -166,7 +167,7 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(failure, dict(reason='quota', scope='account', model='claude/claude-opus-5-5', reset_at=reset))
         self.assertEqual(budget.classify_provider_failure('HTTP 402', 'openrouter/deepseek/deepseek-v4.1-flash')['scope'], 'wallet')
         self.assertEqual(budget.classify_provider_failure('HTTP 429', 'openrouter/deepseek/deepseek-v4.1-flash')['reason'], 'rate')
-        self.assertEqual(budget.classify_provider_failure('HTTP 503', 'opencode/deepseek-v4.1-flash-free')['scope'], 'route')
+        self.assertEqual(budget.classify_provider_failure('Unavailable', 'opencode/deepseek-v4.1-flash-free', status_code=503)['scope'], 'route')
 
     def context(self):
         card = copy.deepcopy(PAID[0])
@@ -379,6 +380,154 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
              patch.object(model_runtime,'atomic_json',side_effect=OSError('synthetic disk failure')):
             with self.assertRaises(OSError): runtime.call(c,[router.CHAINS[0][0]],'',c.case,'attacker-1')
         self.assertEqual(self.store.rpc('status',{})['leases'],[])
+
+    def test_flag_off_deadlines_and_credentials_that_appear(self):
+        c,secrets,auth=self.context(); clock=[1000.0]; c.batch_deadline=20000
+        source=secrets/'codex-auth.json'; source.unlink()
+        self.store=router.Store(self.root/'flag-off.sqlite',clock=lambda:clock[0])
+        c.router_model='codex/gpt-6.1-sol'
+        def sleep(seconds):
+            clock[0]+=seconds
+            source.write_text(json.dumps(auth))
+        with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'0'}),patch.object(router,'_rpc',self.store.rpc), \
+             patch.object(router,'SECRETS',secrets),patch.object(router.time,'time',side_effect=lambda:clock[0]), \
+             patch.object(router.time,'monotonic',side_effect=lambda:clock[0]),patch.object(router.time,'sleep',side_effect=sleep):
+            lease=router.await_lease('strong_calibrator',c,deadline=1030)
+            self.assertEqual(lease.account,'codex-auth.json')
+            self.assertEqual(lease.expires_at,clock[0]+180)  # Caller timeout is not lease heartbeat expiry.
+            router.finish(lease.lease_id,'denied',None)
+            clock[0]=1031
+            with self.assertRaisesRegex(budget.BudgetError,'^timeout$'):router.await_lease('strong_calibrator',c,deadline=1030)
+            c.batch_deadline=1030
+            with self.assertRaisesRegex(budget.BudgetError,'^provider_wait_deadline$'):router.await_lease('strong_calibrator',c)
+
+    def test_flag_off_finish_retries_without_repeating_work(self):
+        c,secrets,_=self.context(); attempts=[0]; clock=[time.time()]
+        def rpc(operation,data):
+            result=self.store.rpc(operation,data)
+            if operation=='finish':
+                attempts[0]+=1
+                if attempts[0]<3:raise router.RouterUnavailable('lost acknowledgement')
+            return result
+        runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
+        with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'0'}),patch.object(router,'_rpc',side_effect=rpc), \
+             patch.object(router,'SECRETS',secrets),patch.object(router.time,'sleep',side_effect=lambda n:clock.__setitem__(0,clock[0]+n)), \
+             patch.object(model_runtime.ModelRuntime,'_invoke',return_value=0) as execute:
+            self.assertEqual(runtime.call(c,[router.CHAINS[0][0]],'',c.case,'attacker-1'),0)
+        self.assertEqual(execute.call_count,1)
+        self.assertEqual(attempts[0],3)
+
+    def test_assistant_http_prose_and_retry_metadata_are_not_outages(self):
+        from test_budget import BudgetTests,event,emit
+        for index,text in enumerate(('The endpoint returns HTTP 404.', 'The endpoint returns HTTP 500.')):
+            for driver in ('opencode','codex','claude'):
+                directory=self.root/f'{index}-{driver}';directory.mkdir()
+                if driver=='opencode':
+                    events=[{'type':'text','part':{'text':text}},event()];model='openrouter/deepseek/deepseek-v4.1-flash'
+                elif driver=='codex':
+                    events=copy.deepcopy(BudgetTests.CODEX);model='codex/gpt-6.1-sol'
+                    events.insert(-1,{'type':'item.completed','item':{'type':'agent_message','text':text}})
+                else:
+                    events=BudgetTests().claude();model='claude/claude-opus-5-5'
+                    events[-1]['result']=text
+                    events.insert(0,{'type':'system','subtype':'api_retry','retry_delay_ms':500,'error_status':529})
+                budget.run_budgeted([sys.executable,'-c',''.join(emit(e) for e in events)],directory,os.environ.copy(),
+                    directory/'transcript',directory/'ledger',10,driver=driver,configured_model=model)
+                ledger=json.loads((directory/'ledger').read_text())
+                self.assertEqual(ledger['terminal_stop'],'complete')
+                self.assertNotIn('provider_failure',ledger)
+
+    def test_real_budget_cancel_peer_receipt_survives_into_restart(self):
+        import restart,hashlib
+        from test_budget import event,emit
+        c,secrets,_=self.context();c.role_cancel=threading.Event();c.force_budget_resume=True
+        original=budget.run_budgeted;before=json.loads(c.ledger.read_text())['calls']
+        def execute(cmd,cwd,env,transcript,ledger,timeout,**kwargs):
+            return original([sys.executable,'-c',emit(event('cancelled-peer',cost=.01))+'import time;time.sleep(30)'],
+                cwd,env,transcript,ledger,5,**kwargs)
+        runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
+        with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
+             patch.object(router,'SECRETS',secrets),patch.object(model_runtime,'_opencode_flags',return_value=()), \
+             patch.object(model_runtime,'run_budgeted',side_effect=execute),ThreadPoolExecutor() as pool:
+            future=pool.submit(runtime.call,c,['openrouter/deepseek/deepseek-v4.1-flash'],'',c.case,'attacker-1')
+            end=time.monotonic()+3
+            while time.monotonic()<end:
+                try:
+                    if json.loads(c.ledger.read_text())['calls']>before:break
+                except (OSError,ValueError):pass
+                time.sleep(.005)
+            c.role_cancel.set()
+            with self.assertRaisesRegex(budget.BudgetError,'^cancelled$'):future.result(timeout=3)
+        ledger=json.loads(c.ledger.read_text());self.assertEqual(ledger['terminal_stop'],'cancelled')
+        denied=router.ProviderWait('writer',router.Wait('quota',time.time()+900,route='claude/claude-opus-5-5',account='claude-token'))
+        record=run.write_provider_wait(c,denied)
+        self.assertEqual(record['evidence'],'interrupted')
+        receipt=json.loads((c.work/record['call_id']).read_text())
+        self.assertTrue(receipt['booked_event_ids']);self.assertFalse(receipt['final_usage_known'])
+        c.card.update(status='stopped',failed_gate=None,continuation_budget=ledger)
+        archive=self.root/(c.case_id+'.checkpoint.tar.gz.age');archive.write_bytes(b'synthetic opaque checkpoint')
+        c.card['sha256']=hashlib.sha256(archive.read_bytes()).hexdigest()
+        path=self.root/(c.case_id+'.scorecard.json');path.write_text(json.dumps(c.card))
+        planned=restart.plan(path,100,86400,'--case-budget 1000 --max-cost 100 --max-total-calls 10000')
+        self.assertEqual(planned[0],c.case_id)
+        self.assertEqual(json.loads(c.ledger.read_text()),ledger)  # Planning/receipts never book usage.
+
+    def test_refusal_does_not_block_other_cases(self):
+        c,secrets,_=self.context();runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
+        with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
+             patch.object(router,'SECRETS',secrets),patch.object(router,'WAIT_SECONDS',0):
+            with patch.object(model_runtime.ModelRuntime,'_invoke',side_effect=budget.BudgetError('refusal:codex/gpt-6.1-sol')) as call:
+                with self.assertRaises(router.ProviderWait):runtime.call(c,['codex/gpt-6.1-sol'],'',c.case,'strong-calibrator-1')
+                self.assertEqual(call.call_count,1)
+            self.assertEqual(router.capacity('codex/gpt-6.1-sol'),1)
+            with patch.object(model_runtime.ModelRuntime,'_invoke',return_value=0):
+                runtime.call(c,['codex/gpt-6.1-sol'],'',c.case,'strong-calibrator-2')
+        self.assertFalse(self.store.rpc('status',{})['health'].get('codex-auth.json',{}).get('blocked_until'))
+
+    def test_lost_acquire_keeps_payload_frozen_when_files_change(self):
+        c,secrets,_=self.context();c.router_model=c.card['roles']['writer']['model'];seen=[]
+        def rpc(operation,data):
+            result=self.store.rpc(operation,data)
+            if operation=='acquire':
+                seen.append(copy.deepcopy(data))
+                if len(seen)==1:
+                    (secrets/'claude-token').unlink()
+                    raise router.RouterUnavailable('lost reply')
+            return result
+        with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'0'}),patch.object(router,'_rpc',side_effect=rpc), \
+             patch.object(router,'SECRETS',secrets),patch.object(router.time,'sleep',return_value=None):
+            lease=router.await_lease('writer',c)
+            router.finish(lease.lease_id,'denied',None)
+        self.assertEqual(seen[0],seen[1])
+        self.assertEqual(lease.account,'claude-factory-token-2')
+
+    def test_unknown_paid_model_uses_paid_account_pool(self):
+        rows=router.routes('opencode/operator-selected-paid-model')
+        self.assertTrue(all(r['billing']=='paid' and r['pool'] in router.ACCOUNTS[2:4] for r in rows))
+
+    def test_second_reviewer_cannot_share_writer_or_stress_family(self):
+        for model in ('claude/claude-opus-5-5','opencode/minimax-m3.1-flash-free'):
+            args=run.argument_parser().parse_args(['--source','hunt','--reviewer2',model])
+            with self.assertRaisesRegex(ValueError,'Every reviewer must be independent'):
+                model_runtime.select_models(SimpleNamespace(args=args,card={},case_id='practice-case'),log=Mock())
+
+    def test_supplied_lease_is_retained_when_initial_renewal_fails(self):
+        c,secrets,_=self.context();c.router_model=c.card['roles']['writer']['model']
+        runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock());before=c.ledger.read_bytes()
+        def rpc(operation,data):
+            if operation=='renew':raise router.RouterUnavailable('synthetic connection failure')
+            return self.store.rpc(operation,data)
+        with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc),patch.object(router,'SECRETS',secrets):
+            lease=router.await_lease('writer',c)
+            with patch.object(router,'_rpc',side_effect=rpc),patch.object(router,'WAIT_SECONDS',0), \
+                 patch.object(model_runtime.ModelRuntime,'_invoke') as execute:
+                with self.assertRaises(router.ProviderWait) as stopped:
+                    runtime.call(c,[c.router_model],'',c.case,'builder-1',lease=lease)
+        self.assertEqual(stopped.exception.wait.lease_id,lease.lease_id)
+        self.assertEqual(stopped.exception.wait.evidence,'interrupted')
+        receipt=json.loads((c.work/stopped.exception.wait.call_id).read_text())
+        self.assertTrue(receipt['final_usage_known']);self.assertEqual(receipt['booked_event_ids'],[])
+        execute.assert_not_called();self.assertEqual(c.ledger.read_bytes(),before)
 
 
 if __name__ == '__main__': unittest.main()

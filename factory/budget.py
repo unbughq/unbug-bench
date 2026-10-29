@@ -28,17 +28,21 @@ class BudgetError(RuntimeError):
         self.provider_failure = provider_failure
 
 
-def classify_provider_failure(text, model, *, reset_at=None, retry_after=None, now=None):
+def classify_provider_failure(text, model, *, reset_at=None, retry_after=None, now=None,
+                              status_code=None, error_type=None, allow_outage=True):
     """Sanitized metadata from trusted provider diagnostics, never tool output."""
     text = text.lower()
     reason, scope = None, 'account'
-    if re.search(r'insufficient[_ ]?credits|\b402\b', text):
+    if status_code == 402 or re.search(r'insufficient[_ ]?credits|\b402\b', text):
         reason, scope = 'credit', 'wallet'
-    elif 'rate limit' in text or re.search(r'\b429\b', text): reason = 'rate'
+    elif status_code == 429 or 'rate limit' in text or re.search(r'\b429\b', text): reason = 'rate'
     elif ('gousagelimiterror' in text or 'usage limit' in text or 'limit reached' in text
           or re.search(r'\b(?:hit|reached|exceeded) (?:your |the )?(?:usage |rate )?limit\b', text)
           or ('weekly' in text and ('limit' in text or 'quota' in text))): reason = 'quota'
-    elif re.search(r'\b(?:404|5\d\d)\b|model[_ ]?not[_ ]?found|model[_ ]?unavailable|service unavailable|model.*removed', text):
+    elif allow_outage and ((type(status_code) is int and (status_code == 404 or 500 <= status_code <= 599))
+          or re.sub(r'[^a-z]', '', str(error_type).lower()) in
+          ('providermodelnotfounderror', 'modelnotfounderror', 'modelunavailableerror',
+           'serviceunavailableerror', 'servererror', 'overloadederror')):
         reason, scope = 'outage', 'route'
     if reason is None: return None
     observation = {'reason': reason, 'scope': scope, 'model': model}
@@ -47,6 +51,21 @@ def classify_provider_failure(text, model, *, reset_at=None, retry_after=None, n
     elif type(retry_after) in (int, float) and math.isfinite(retry_after) and retry_after > 0:
         observation['reset_at'] = (time.time() if now is None else now) + retry_after
     return observation
+
+
+def provider_diagnostic(event):
+    """Extract provider fields, excluding retry counters and ordinary response prose."""
+    error = event.get('error')
+    rows = [event] + ([error] if isinstance(error, dict) else [])
+    if isinstance(error, dict) and isinstance(error.get('data'), dict): rows.append(error['data'])
+    def first(keys, predicate):
+        return next((row[key] for row in rows for key in keys if key in row and predicate(row[key])), None)
+    text = (first(('message', 'result'), lambda v: isinstance(v, str)) or
+            (error if isinstance(error, str) else '') or first(('name',), lambda v: isinstance(v, str)) or '')
+    return dict(text=text, status_code=first(('statusCode', 'status_code', 'http_status', 'error_status'), lambda v: type(v) is int),
+                error_type=first(('name', 'error_type'), lambda v: isinstance(v, str)),
+                reset_at=first(('resetsAt', 'reset_at', 'resetAt'), lambda v: type(v) in (int, float)),
+                retry_after=first(('retry_after', 'retryAfter'), lambda v: type(v) in (int, float)))
 
 
 # Codex items that end a model response (reasoning items accompany one of these).
@@ -342,7 +361,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         _save(path, ledger)
         if not collecting_usage and ledger['zero_token_streak'] >= max_zero_tokens: raise BudgetError('zero_tokens')
 
-    def diagnostic(text, response=False, partial=False, reset_at=None, retry_after=None):
+    def diagnostic(text, response=False, partial=False, reset_at=None, retry_after=None, status_code=None, error_type=None, allow_outage=True):
         nonlocal rate_limits
         text = text.lower()
         if driver == 'codex' and not response and (('refresh token' in text and any(s in text for s in (
@@ -358,7 +377,8 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             raise BudgetError('refusal:' + provider_model)
         if response and not re.search(r"gousagelimiterror|insufficient credits|\bhttp [45]\d\d\b|^(?:error[: ]|you(?:'ve| have)? (?:hit|reached|exceeded)|usage limit\b|rate limit\b|limit reached)", text.strip()):
             return False  # Assistant prose may discuss business usage limits.
-        observation = classify_provider_failure(text, provider_model, reset_at=reset_at, retry_after=retry_after)
+        observation = classify_provider_failure(text, provider_model, reset_at=reset_at, retry_after=retry_after,
+            status_code=status_code, error_type=error_type, allow_outage=allow_outage and not response)
         if observation:
             if observation['reason'] == 'rate':
                 if partial: return False
@@ -482,11 +502,12 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             raise BudgetError('provider_limit:' + provider_model, provider_failure=classify_provider_failure('usage limit', provider_model))
         # Never scan tool output or echoed command/prompt text for provider errors.
         if kind == 'error' or (kind == 'system' and event.get('subtype') in ('error', 'api_retry', 'retry')) or (kind == 'result' and event.get('is_error')) or (driver == 'claude' and kind == 'assistant' and event.get('error')):
-            if diagnostic(json.dumps(event), reset_at=event.get('resetsAt'), retry_after=event.get('retry_after')): return
+            info = provider_diagnostic(event)
+            if diagnostic(**info, allow_outage=kind != 'system'): return
         elif driver == 'claude' and kind == 'result':
             diagnostic(str(event.get('result', '')), response=True)
         elif driver == 'codex' and kind == 'turn.failed':
-            diagnostic(json.dumps(event.get('error', {})))
+            diagnostic(**provider_diagnostic(event))
         elif driver == 'codex' and kind == 'item.completed' and (event.get('item') or {}).get('type') == 'agent_message':
             diagnostic(str(event['item'].get('text', '')), response=True)
         elif driver == 'opencode' and kind == 'text':

@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import argparse
-import hashlib
 import hmac
 import json
 import math
@@ -81,12 +80,13 @@ def routes(model, accounts=ACCOUNTS):
                    'free' if route.endswith(('-free', ':free')) else 'paid')
         labels = (ACCOUNTS[:2] if route.startswith('claude/') else ('codex-auth.json',) if route.startswith('codex/') else
                   ('openrouter-key',) if route.startswith('openrouter/') else
-                  ACCOUNTS[2:4] if route.startswith('opencode-go/') or 'minimax-m3.1-flash-free' in route else (None,))
+                  ACCOUNTS[2:4] if route.startswith('opencode-go/') or 'minimax-m3.1-flash-free' in route
+                  or (route.startswith('opencode/') and billing == 'paid') else (None,))
         if labels != (None,): labels = tuple(a for a in accounts if a in labels)
         for account in labels:
             if account is not None and account not in accounts: continue
             result.append(dict(route=route, account=account, billing=billing, family=family(route),
-                               pool=account or 'opencode-free'))
+                               pool=account or ('opencode-free' if billing == 'free' else 'provider:' + route.partition('/')[0])))
     if any(r['family'] != family(model) for r in result): raise ValueError('fallback changed family')
     return result
 
@@ -175,12 +175,13 @@ class Store:
                 db.execute("UPDATE leases SET outcome='denied' WHERE id=? AND outcome IS NULL", (identity,))
                 result = {'cancelled': True}
             elif operation == 'acquire':
-                if set(data) != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
+                if set(data) - {'excluded_routes'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
                 if not isinstance(data['role'], str) or not re.fullmatch(r'[a-z_0-9]{1,40}', data['role']): raise ValueError('invalid role')
                 identity = data['id']
                 if not re.fullmatch(r'[a-f0-9]{32}', identity): raise ValueError('invalid attempt id')
                 if not finite(data['deadline']) or not now < data['deadline']: raise ValueError('expired admission deadline')
-                choices = routes(data['model'], [a for a in data['accounts'] if a in self.accounts])
+                choices = [r for r in routes(data['model'], [a for a in data['accounts'] if a in self.accounts])
+                           if r['route'] not in data.get('excluded_routes', [])]
                 payload = json.dumps(data, sort_keys=True, allow_nan=False)
                 previous = db.execute('SELECT payload FROM requests WHERE id=?', (identity,)).fetchone()
                 if previous and previous[0] != payload: raise ValueError('attempt id changed')
@@ -196,7 +197,8 @@ class Store:
                              if json.loads(p)['deadline'] > now and not db.execute('SELECT 1 FROM leases WHERE id=?', (json.loads(p)['id'],)).fetchone()]
                     for route in choices:
                         if not free(route): continue
-                        if any(any(r['pool'] == route['pool'] for r in routes(p['model'], p['accounts'])) for p in older): continue
+                        if any(any(r['pool'] == route['pool'] and r['route'] not in p.get('excluded_routes', [])
+                                   for r in routes(p['model'], p['accounts'])) for p in older): continue
                         expires = min(now + LEASE_SECONDS, data['deadline'])
                         db.execute('INSERT INTO leases VALUES (?,?,?,NULL,NULL)', (identity, json.dumps(route), expires))
                         result = dict(kind='lease', lease_id=identity, **route, expires_at=expires)
@@ -209,7 +211,7 @@ class Store:
                             ready = (max(now + 1, limit.get('blocked_until', now + 900)) if limit else
                                      min((e for pool,e in active if pool == route['pool']), default=now + 15))
                             alternatives.append((ready, limit['reason'] if limit else 'rate', route))
-                        ready, reason, route = min(alternatives, key=lambda row: row[0]) if alternatives else (now + 900, 'rate', dict(route=data['model'],account=None))
+                        ready, reason, route = min(alternatives, key=lambda row: row[0]) if alternatives else (now + 900, 'outage', dict(route=data['model'],account=None))
                         result = dict(kind='wait', reason=reason, retry_after=ready, route=route['route'], account=route['account'])
             elif operation in ('renew', 'finish'):
                 row = db.execute('SELECT route,expires,outcome,receipt FROM leases WHERE id=?', (data['lease_id'],)).fetchone()
@@ -240,7 +242,9 @@ class Store:
                 if not db.execute('SELECT 1 FROM observations WHERE id=?', (identity,)).fetchone():
                     if data.get('healthy') is True:
                         pool = data['pool']
-                        if pool not in (*self.accounts, 'opencode-free'): raise ValueError('unapproved pool')
+                        if pool not in (*self.accounts, 'opencode-free') and not any(
+                                key == pool or key.startswith(pool + '/') for key in health):
+                            raise ValueError('unapproved pool')
                         for key in list(health):
                             if key == pool or key.startswith(pool + '/'):
                                 health[key].update(blocked_until=0, reason=None, observed_at=now, credit='unknown')
@@ -291,17 +295,20 @@ def metadata(case):
     return batch, job, deadline
 
 
-def _admit(role, case, deadline, identity):
-    model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
+def _account_order(case):
     from account_handoff import ACCOUNTS as LABELS
     preferred = {LABELS[p].get(n) for p,n in (case.card.get('provider_accounts') or {}).items() if p in LABELS}
-    accounts = sorted(getattr(case, 'router_accounts', ACCOUNTS),
-                      key=lambda a: (not (SECRETS / a).is_file(), a not in preferred))
-    data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role)
+    return sorted(getattr(case, 'router_accounts', ACCOUNTS),
+                  key=lambda a: (not (SECRETS / a).is_file(), a not in preferred))
+
+
+def _admit(role, case, deadline, identity, accounts, excluded=()):
+    model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
+    data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_routes=list(excluded))
     result = _rpc('acquire', data)
     if result.get('kind') == 'lease':
         result.pop('kind')
-        allowed = routes(model, accounts)
+        allowed = [r for r in routes(model, accounts) if r['route'] not in excluded]
         if (result.get('lease_id') != identity or not finite(result.get('expires_at'))
                 or result['expires_at'] <= time.time() or result['expires_at'] > deadline
                 or {k: result.get(k) for k in ('route', 'account', 'pool', 'family', 'billing')} not in allowed):
@@ -325,6 +332,44 @@ def _credential_ready(lease):
     return True
 
 
+def _deadlines(case, deadline):
+    enabled = os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
+    value = getattr(case, 'batch_deadline', None) or os.environ.get('FACTORY_BATCH_DEADLINE')
+    batch_end = metadata(case)[2] if enabled else epoch(value) if value is not None else time.time() + 7 * 86400
+    stop_at = min(batch_end, time.time() + max(0, deadline - time.monotonic())) if deadline is not None else batch_end
+    return enabled, batch_end, stop_at
+
+
+def _heartbeat(case, seconds):
+    if hasattr(case, 'work'): (Path(case.work) / '.router-wait').touch()
+    cancel = getattr(case, 'role_cancel', None)
+    if cancel is None: time.sleep(seconds)
+    else: cancel.wait(seconds)
+
+
+def _finish_until_known(lease, outcome, receipt, role, case, deadline, *, since=None):
+    """Retry one idempotent finish; never rerun completed model work."""
+    enabled, batch_end, stop_at = _deadlines(case, deadline)
+    started = time.monotonic() if since is None else since
+    while True:
+        try: return finish(lease.lease_id, outcome, receipt)
+        except RouterUnavailable:
+            if time.time() >= stop_at and not enabled:
+                raise BudgetError('provider_wait_deadline' if time.time() >= batch_end else 'timeout') from None
+            if enabled and (time.monotonic() - started >= WAIT_SECONDS or time.time() >= stop_at):
+                raise ProviderWait(role, Wait('router_unavailable', retry_at('router_unavailable'),
+                    evidence='interrupted', route=lease.route,
+                    account=lease.account, lease_id=lease.lease_id, call_id=receipt)) from None
+            seconds = min(15, max(.01, stop_at - time.time()))
+            if enabled: seconds = min(seconds, max(.01, WAIT_SECONDS - (time.monotonic() - started)))
+            # A renewal may have cancelled the old CLI. Cleanup reconciliation
+            # still needs a bounded sleep rather than spinning on that event.
+            if getattr(case, 'role_cancel', None) is not None and case.role_cancel.is_set():
+                if hasattr(case, 'work'): (Path(case.work) / '.router-wait').touch()
+                time.sleep(seconds)
+            else: _heartbeat(case, seconds)
+
+
 def await_lease(role, case, deadline=None):
     """The only admission seam, including D's pre-reservation calls.
 
@@ -343,25 +388,34 @@ def await_lease(role, case, deadline=None):
             archive = live.parent / 'provider_waits'
             archive.mkdir(exist_ok=True)
             live.replace(archive / (identity + '.json'))
-    batch_deadline = metadata(case)[2] if enabled else time.time() + 7 * 86400
-    stop_at = min(batch_deadline, time.time() + max(0, deadline - time.monotonic())) if deadline is not None else batch_deadline
+    enabled, batch_deadline, stop_at = _deadlines(case, deadline)
     identity = uuid.uuid4().hex
-    started = time.monotonic()
+    accounts = _account_order(case)  # Frozen for this request ID, including lost replies.
+    excluded = tuple(sorted(getattr(case, 'router_excluded', ())))
+    started = getattr(case, 'router_condition_since', None) or time.monotonic()
     wait = getattr(case, 'router_wait', None)
     deferred = getattr(case, 'router_deferred', False)
     while True:
         cancellation = getattr(case, 'role_cancel', None)
         if cancellation is not None and cancellation.is_set(): raise BudgetError('cancelled')
+        if time.time() >= stop_at and not enabled:
+            try: _rpc('cancel', {'id': identity})
+            except RouterUnavailable: pass
+            raise BudgetError('provider_wait_deadline' if time.time() >= batch_deadline else 'timeout')
         try:
-            if getattr(case, 'router_uncertain', False): raise RouterUnavailable('ownership uncertain')
+            if getattr(case, 'router_uncertain', False):
+                _rpc('status', {})  # The old CLI is stopped and finish was acknowledged.
+                case.router_uncertain = False
             if stop_at <= time.time(): raise RouterUnavailable('admission deadline')
-            result = wait if deferred else _admit(role, case, stop_at, identity)
+            result = wait if enabled and deferred else _admit(role, case, batch_deadline, identity, accounts, excluded)
             if isinstance(result, Lease):
                 if _credential_ready(result): return result
                 finish(result.lease_id, 'denied', None)
                 result = Wait('credential_expiring', retry_at('credential_expiring'),
                               route=result.route, account=result.account)
                 deferred = True
+                if not enabled:
+                    identity, accounts = uuid.uuid4().hex, _account_order(case)
             wait = Wait(result.reason, result.retry_after,
                         evidence=wait.evidence if wait else result.evidence,
                         route=result.route, account=result.account,
@@ -377,12 +431,10 @@ def await_lease(role, case, deadline=None):
             except RouterUnavailable:
                 case.card.setdefault('router_pending_requests', []).append(identity)
             raise ProviderWait(role, wait)
-        if hasattr(case, 'work'):
-            (Path(case.work) / '.router-wait').touch()
         seconds = min(15, max(.01, wait.retry_after - time.time()))
+        seconds = min(seconds, max(.01, stop_at - time.time()))
         if enabled: seconds = min(seconds, max(.01, WAIT_SECONDS - (time.monotonic() - started)))
-        if cancellation is None: time.sleep(seconds)
-        else: cancellation.wait(seconds)
+        _heartbeat(case, seconds)
 
 
 def finish(lease_id, outcome, receipt):

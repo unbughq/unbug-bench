@@ -30,6 +30,7 @@ CODEX_VERSION, CLAUDE_VERSION = "0.162.1", "2.1.299"
 CLAUDE_PREFIX = pathlib.Path("/tmp/factory-claude-cli")
 CODEX_OFF = ["multi_agent", "apps", "plugins", "remote_plugin", "browser_use", "browser_use_external",
              "in_app_browser", "computer_use", "image_generation"]
+INTERRUPTED_LOCK = threading.Lock()
 def attacker_timeout(c):
     # Stress review reads the case's files. Keep a twenty-minute exploration
     # base, add a minute per input file, bounded by forty minutes/operator cap.
@@ -65,6 +66,8 @@ def select_models(c, *, log):
     roles = apply_free_models(c, roles)
     families = [family(roles[r]['model']) for r in flags]
     if len(set(families)) != 4: raise ValueError('Writer, stress-tester, strong calibrator and reviewer must be four different families')
+    if a.reviewer2 and family(a.reviewer2) in (family(roles['writer']['model']), family(roles['stress_tester']['model'])):
+        raise ValueError('Every reviewer must be independent from the writer and stress tester')
     if not roles['strong_calibrator']['model'].startswith(('claude/', 'codex/')):
         raise ValueError('Strong calibrator must use the Claude or Codex subscription')
     if family(roles['easy_calibrator']['model']) in ('anthropic', 'openai'):
@@ -245,7 +248,8 @@ class ModelRuntime:
             c.card.setdefault('route_receipts', []).append(receipt_row)
             before = _read_json(getattr(c, 'ledger', '/nonexistent'), {})
             cleanup_before = len(c.card.get('cleanup_errors', []))
-            outcome, receipt, failure, invoked, lost = 'denied', None, None, False, None
+            outcome, receipt, failure, invoked, lost, cancelled = 'denied', None, None, False, None, False
+            context.router_condition_since = None
             started = time.monotonic()
             try:
                 with model_router.running(lease, context.role_cancel) as lost:
@@ -266,6 +270,7 @@ class ModelRuntime:
                     if code: raise BudgetError('process_error')
                     outcome = 'done'
             except BudgetError as error:
+                cancelled = str(error) == 'cancelled'
                 failure = ({'reason': 'router_unavailable', 'model': lease.route} if lost is not None and lost.is_set()
                            else getattr(error, 'provider_failure', None))
                 if failure is None:
@@ -273,21 +278,26 @@ class ModelRuntime:
                     reason = ('quota' if label.startswith('provider_limit') else 'credential_expiring' if label in ('codex_login_expired', 'credential_expiring') else
                               'outage' if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:') else None)
                     if reason: failure = {'reason': reason, 'model': lease.route}
+                    if label.startswith('refusal:'):
+                        failure['per_call'] = True
+                        context.router_excluded = (*getattr(context, 'router_excluded', ()), lease.route)
                 if not failure: raise
+                context.router_condition_since = time.monotonic()
                 if failure.get('reason') == 'quota' and lease.route.startswith('claude/'):
                     reset = _read_json(getattr(c, 'ledger', '/nonexistent'), {}).get('claude_resets_at')
                     if model_router.finite(reset): failure = {**failure, 'reset_at': reset}
             except model_router.RouterUnavailable:
                 failure = {'reason': 'router_unavailable', 'model': lease.route}
+                context.router_condition_since = time.monotonic()
             finally:
                 active_seconds += time.monotonic() - started
                 for key in ('budget_resumed', 'force_budget_resume'):
                     if hasattr(context, key): setattr(c, key, getattr(context, key))
                 try:
-                    if invoked and hasattr(c, 'work'):
+                    if hasattr(c, 'work'):
                         after = _read_json(getattr(c, 'ledger', '/nonexistent'), {})
                         old_ids = {e['id'] for e in before.get('events', []) if e.get('id')}
-                        events = [e for e in after.get('events', []) if e.get('id') and e['id'] not in old_ids and e.get('invocation') == name]
+                        events = [e for e in after.get('events', []) if invoked and e.get('id') and e['id'] not in old_ids and e.get('invocation') == name]
                         unidentified = max(0, sum(not e.get('id') and e.get('invocation') == name for e in after.get('events', []))
                             - sum(not e.get('id') and e.get('invocation') == name for e in before.get('events', [])))
                         receipt = 'usage-receipts/' + lease.lease_id + '.json'
@@ -296,27 +306,42 @@ class ModelRuntime:
                             'booked_event_ids': [e['id'] for e in events],
                             'usage_delta': {k: sum(e.get(k, 0) for e in events) for k in ('cost', 'list_cost_usd', 'estimated_subscription_cost_usd')},
                             'events': events, 'unidentified_events': unidentified,
-                            'final_usage_known': outcome == 'done' and not unidentified and case_spending(after)['spent_usd'] is not None
-                                and len(c.card.get('cleanup_errors', [])) == cleanup_before,
+                            'final_usage_known': not invoked or (outcome == 'done' and not unidentified
+                                and case_spending(after)['spent_usd'] is not None
+                                and len(c.card.get('cleanup_errors', [])) == cleanup_before),
                             'outcome': outcome})
                     receipt_row.update(outcome=outcome, call_id=receipt)
+                    if cancelled and invoked and receipt:
+                        with INTERRUPTED_LOCK:
+                            c.card.setdefault('router_interrupted_calls', []).append({
+                                'role': role, 'lease_id': lease.lease_id, 'call_id': receipt,
+                                'route': lease.route, 'account': lease.account})
                 finally:
                     # Publish the shared limit before freeing its slot, closing the
                     # finish->observe race that would admit another worker to it.
-                    if invoked and failure and failure['reason'] != 'router_unavailable':
+                    if invoked and failure and failure['reason'] != 'router_unavailable' and not failure.get('per_call'):
                         try:
                             model_router.observe(lease=lease, reason=failure['reason'], reset_at=failure.get('reset_at'),
                                 observation_id=lease.lease_id + ':failure')
                         except model_router.RouterUnavailable:
                             failure = {'reason': 'router_unavailable', 'model': lease.route}
                     # Every exit attempts release. A lost acknowledgement must never cause another CLI call.
+                    release_started = time.monotonic()
                     try: model_router.finish(lease.lease_id, outcome, receipt)
                     except model_router.RouterUnavailable:
-                        failure = {'reason': 'router_unavailable', 'model': lease.route}
+                        if sys.exc_info()[1] is not None and failure is None and outcome != 'done':
+                            c.card.setdefault('cleanup_errors', []).append({'stage':'lease_finish', 'error':'RouterUnavailable'})
+                        else:
+                            try:
+                                model_router._finish_until_known(lease, outcome, receipt, role, context, deadline,
+                                    since=context.router_condition_since or release_started)
+                            except model_router.ProviderWait as error:
+                                error.previous_waits = prior_waits
+                                raise
             if failure is None: return code
             last_wait = model_router.Wait(failure['reason'], model_router.retry_at(failure['reason'], reset_at=failure.get('reset_at')),
-                evidence='interrupted' if invoked else 'denied_before_work', route=lease.route, account=lease.account,
-                lease_id=lease.lease_id if invoked else None, call_id=receipt)
+                evidence='interrupted', route=lease.route, account=lease.account,
+                lease_id=lease.lease_id, call_id=receipt)
             if invoked:
                 prior_waits.append({'role': role, **asdict(last_wait)})
             context.router_wait = last_wait
@@ -326,7 +351,9 @@ class ModelRuntime:
                 # turn that internal cancellation into a case recovery attempt.
                 context.role_cancel = threading.Event()
             context.router_deferred = ((not invoked and last_wait.reason == 'credential_expiring')
-                                       or len(c.card.get('cleanup_errors', [])) > cleanup_before)
+                                       or len(c.card.get('cleanup_errors', [])) > cleanup_before
+                                       or (last_wait.reason == 'router_unavailable'
+                                           and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'))
             context.force_budget_resume = c.force_budget_resume = True
             lease = None
 
@@ -372,7 +399,7 @@ class ModelRuntime:
             base = self.home / ".cache"; base.mkdir(exist_ok=True)
             scratch = pathlib.Path(tempfile.mkdtemp(prefix=f"factory-{driver}-", dir=base))
         if driver == "codex":
-            # ChatGPT subscription: ~/.codex/auth.json (a dedicated login pushed by launch.sh), never an API key.
+            # ChatGPT access token is re-read from RAM; CODEX_HOME supplies config.toml only.
             src = pathlib.Path(env.get("CODEX_HOME", self.home / ".codex"))
             auth_source = model_router.SECRETS / "codex-auth.json"
             from codex_login import worker_auth

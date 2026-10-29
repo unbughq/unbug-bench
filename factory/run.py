@@ -188,6 +188,7 @@ def pick_models(c):
 def opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None):
     runtime = model_runtime.ModelRuntime(HOME, sh, public_progress, shred_tree, pilot_home)
     c.card.setdefault('router_waits', [])
+    c.card.setdefault('router_interrupted_calls', [])
     try:
         result = runtime.call(c, models, text, cwd, name, user=user, timeout=timeout, deadline=deadline,
                               **({'before_attempt': before_attempt} if before_attempt is not None else {}),
@@ -223,6 +224,7 @@ def write_provider_wait(c, error):
             if candidate not in waits: waits.append(candidate)
         if not waits: raise BudgetError('provider_wait_record_missing')
         selected = max(waits, key=lambda row: (row['evidence'] == 'interrupted', row['retry_after']))
+        interrupted = c.card.pop('router_interrupted_calls', [])
         retry = max(row['retry_after'] for row in waits)
         batch, job, deadline = model_router.metadata(c)
         record = {'wait_id': str(__import__('uuid').uuid4()), 'case': c.case_id, 'job': job, 'batch': batch,
@@ -231,7 +233,9 @@ def write_provider_wait(c, error):
                   'evidence': selected['evidence'], 'lease_id': selected.get('lease_id'),
                   'call_id': selected.get('call_id'), 'settled': False,
                   'batch_deadline': model_router.utc(deadline)}
-        receipts = sorted({row['call_id'] for row in waits if row.get('call_id')})
+        if interrupted and record['evidence'] != 'interrupted':
+            record.update(evidence='interrupted', lease_id=interrupted[0]['lease_id'], call_id=interrupted[0]['call_id'])
+        receipts = sorted({row['call_id'] for row in [*waits, *interrupted] if row.get('call_id')})
         if len(receipts) > 1:
             records = [json.loads((c.work / name).read_text()) for name in receipts]
             events = {event['id']: event for row in records for event in row.get('events', [])}

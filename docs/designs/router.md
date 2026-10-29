@@ -332,3 +332,32 @@ other authorized accounts as handoff candidates. Every CLI still re-reads its RA
 credential at execution. Receipt-write failures cannot skip finish; interrupted
 final usage is conservatively unknown, while already-booked IDs remain retained.
 Queue entries without a poll expire after 180 seconds as well as running leases.
+
+## Diff-review corrections
+
+Flag-off "never exits" means no 60-second provider_wait exit. Explicit caller
+and batch deadlines still raise sanitized timeout or provider_wait_deadline.
+Flag-off admission polls again after router recovery or credential installation;
+an uncertain finish is retried with the same lease and receipt before new work.
+The 60-second condition timer starts at the provider failure, including when
+finish reconciliation follows that failure, rather than at invocation start.
+
+Outage detection uses structured provider status/error fields only. Assistant
+prose mentioning HTTP 404 or HTTP 500 and CLI api_retry metadata never marks a
+route unhealthy. A refusal excludes its effective route for that logical call;
+it does not change shared account health. Admission freezes account order for
+each request ID, including retries after a lost response. Unknown paid OpenCode
+models use the Go account pools rather than the native free pool.
+
+Every cancelled peer that invoked a CLI retains a per-lease usage receipt. The
+main provider-wait record unions those receipts with the failing call's, with
+interrupted evidence winning over denied-before-work. restart accepts the real
+budget ledger's cancelled stop only when the public card establishes a provider
+wait. A supplied lease remains in the record if initial renewal fails before
+execution, so D can match its pending reservation; its usage is known zero.
+
+The FIFO check is deliberately conservative: an older request sharing a possible
+pool can delay a newer request even if another pool could serve the older one.
+This trades utilization for simple shared admission; it is not a throughput claim.
+Regression tests for these corrections are in test_model_router.py, including
+the actual budget subprocess cancellation boundary and restart validation.

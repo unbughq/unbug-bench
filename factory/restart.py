@@ -90,7 +90,7 @@ def plan(path, retries, remaining, args, *, claude_account_handoff=False, openco
     try: require_case_budget(budget, option('--case-budget', 50))
     except BudgetError as error: raise ValueError('exhausted or unknown case list-price budget') from error
     if provider_wait and not (
-            budget.get('terminal_stop') in (None, 'complete', 'codex_login_expired', 'credential_expiring',
+            budget.get('terminal_stop') in (None, 'complete', 'cancelled', 'codex_login_expired', 'credential_expiring',
                                            'process_error', 'claude_error', 'codex_error', 'opencode_error')
             or str(budget.get('terminal_stop')).startswith(('provider_limit:', 'refusal:'))):
         raise ValueError('provider wait cannot override a non-provider ledger stop')
