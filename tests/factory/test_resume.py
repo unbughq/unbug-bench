@@ -6,6 +6,7 @@ from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -148,7 +149,7 @@ class ResumeTests(unittest.TestCase):
                     args=SimpleNamespace(dry_run=dry_run), card={**saved, 'batch_release_sha256': 'a' * 64})
                 with patch.object(artifacts, 'results_since', return_value=[]), \
                      patch.object(r2_upload, 'case_recipient', side_effect=OSError('unavailable')) as case_key, \
-                     patch('run_artifacts.subprocess.run', side_effect=BeforeEncryption):
+                     patch('run_artifacts.processes.run', side_effect=BeforeEncryption):
                     if dry_run:
                         with self.assertRaises(BeforeEncryption): artifacts.seal(c, checkpoint=True)
                         case_key.assert_not_called()
@@ -161,7 +162,7 @@ class ResumeTests(unittest.TestCase):
     def test_gate_results_and_failed_detail(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = subprocess.run([sys.executable, '-c', HARNESS, tmp, 'rejected'],
-                                    cwd=(pathlib.Path(__file__).resolve().parents[2] / "factory"), capture_output=True, text=True)
+                                    cwd=_TEST_ROOT / "factory", env={**os.environ, 'BENCH': str(_TEST_ROOT)}, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             card = json.loads((pathlib.Path(tmp) / 'sealed/case-test.scorecard.json').read_text())
             self.assertEqual(card['gate_results']['G1'], {'verified': {'rules': 0}})
@@ -172,7 +173,7 @@ class ResumeTests(unittest.TestCase):
         for mode in ('gate', 'seal', 'budget', 'limit', 'stall', 'zero', 'restore', 'defaults', 'qualification'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
                 result = subprocess.run([sys.executable, '-c', HARNESS, tmp, mode],
-                                        cwd=(pathlib.Path(__file__).resolve().parents[2] / "factory"), capture_output=True, text=True)
+                                        cwd=_TEST_ROOT / "factory", env={**os.environ, 'BENCH': str(_TEST_ROOT)}, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 root = pathlib.Path(tmp)
                 card = json.loads((root / 'sealed/case-test.scorecard.json').read_text())
@@ -202,7 +203,7 @@ class ResumeTests(unittest.TestCase):
         for mode in ('resume', 'fresh'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
                 result = subprocess.run([sys.executable, '-c', DRY_RUN_HARNESS, tmp, mode],
-                                        cwd=(pathlib.Path(__file__).resolve().parents[2] / "factory"), capture_output=True, text=True)
+                                        cwd=_TEST_ROOT / "factory", env={**os.environ, 'BENCH': str(_TEST_ROOT)}, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 root = pathlib.Path(tmp)
                 self.assertTrue((root / 'verified').exists(), result.stdout)

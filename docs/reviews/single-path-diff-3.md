@@ -66,5 +66,8 @@ The passing review above is preserved verbatim from the T3 task "Goldfish diff r
 - **Nit 2:** refuse non-HEAD or dirty release inputs before qualification or release creation. Update the public release regression to prove rejection instead of accepting dirty source.
 - **Nit 3:** qualify the inventory that exists without requiring an unwrapped legacy archive or a 500 MB sample. Keep conditional coverage for each available shape, and hand off post-wrapping qualification to stream B as `new-single-path-1`.
 
-Rebase conflicts and final full-suite validation are recorded below after completion.
+- **Rebase onto `3f7521b`:** two text conflicts. In `tests/tools/test_launch_manifest.py`, retain E's `runner_supervisor.py` and the slice's `batch.py` in the expected worker inventory. In `docs/murphy-register.md`, retain E's closed row 52 and its evidence, then append the open stream-B hand-off row.
+- **E integration:** `launch.sh`, `run.py` and the artifact lifecycle merged without text conflicts. Retain E's per-worker setup isolation, runner supervisor, process-group deadlines and separate seal/wipe bounds. Adapt the batch key regression to mock `processes.run`; give child resume harnesses the checkout's `BENCH` path, as the suite runner does. Assert the public batch launcher uses E's supervisor and runtime/grace bounds.
+
+Focused public batch, resume, manifest and E isolation tests pass. Final full-suite validation is recorded below after completion.
 

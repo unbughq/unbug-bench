@@ -83,6 +83,8 @@ elif cmd == 'info':
         error=None,setupError=None,setupStatus=None,degradedSince=None,hydrated=True,hydration=None)}))
 elif cmd == 'exec':
     vm = cloud/args[1]
+    assert 'runner_supervisor.py -- python3 ~/factory/run.py' in args[-1]
+    assert 'FACTORY_RUNNER_SECONDS=' in args[-1] and 'FACTORY_RUNNER_GRACE_SECONDS=' in args[-1]
     command = args[-1].split('python3 ~/factory/run.py ',1)[1].split('> ~/sealed/',1)[0]
     argv = shlex.split(command.split(' --bench-workers ',1)[0]) + ['--bench-workers','1']
     result = subprocess.run([sys.executable,RUNNER,str(vm),*argv], env={**os.environ,'HOME':str(vm)},
