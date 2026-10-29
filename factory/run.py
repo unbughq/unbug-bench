@@ -2389,6 +2389,8 @@ def argument_parser():
     p.add_argument("--max-role-calls", type=int, default=400)  # founder, 2026-10-17: a MiMo writer hit 246 of 250
     p.add_argument("--max-total-calls", type=int, default=5000)  # D1: whole-case ceiling; lower explicit caps stay lower
     p.add_argument("--resume", help="preserved case directory name; reruns all gates")
+    p.add_argument("--case-id", help="stable approved batch job identity")
+    p.add_argument("--batch-release-sha256", help="complete approved batch release digest")
     p.add_argument("--resume-bench-sha", help="trusted clean-template bench fingerprint, required with --resume")
     p.add_argument("--agent-timeout", type=int, default=4 * 3600)
     p.add_argument("--no-progress-minutes", type=float, default=float(os.environ.get("FACTORY_NO_PROGRESS_MINUTES", "45")),
@@ -2433,7 +2435,15 @@ def main():
     if a.resume and (not re.fullmatch(r"case-[A-Za-z0-9-]+", a.resume) or not a.resume_bench_sha):
         p.error("--resume needs a case directory name and trusted --resume-bench-sha")
     c.t0, c.seed = time.time() - 1, a.seed
-    c.case_id = a.resume or "case-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(3)
+    if a.case_id and (not a.batch_release_sha256 or not re.fullmatch(r'case-[A-Za-z0-9-]+', a.case_id) or
+                      (a.resume and a.resume != a.case_id)):
+        p.error('--case-id requires the matching approved batch job')
+    if a.batch_release_sha256:
+        manifest = HOME / 'batch-release.json'
+        if (not re.fullmatch('[0-9a-f]{64}', a.batch_release_sha256) or manifest.is_symlink() or
+                not manifest.is_file() or hashlib.sha256(manifest.read_bytes()).hexdigest() != a.batch_release_sha256):
+            p.error('batch release differs before case execution')
+    c.case_id = a.resume or a.case_id or "case-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(3)
     if a.rehearsal_interrupt_g10 and not a.late_gate_rehearsal:
         p.error("G10 interruption is restricted to late-gate rehearsal")
     if a.late_gate_rehearsal and (not a.resume or not c.case_id.startswith('case-late-rehearsal-')):
@@ -2493,6 +2503,10 @@ def main():
         c.card['provider_accounts'] = accounts['accounts']
         c.card['account_handoffs'] = accounts['history']
     prev_card = jload(c.work / "scorecard.json", {}) if a.resume else {}
+    if a.batch_release_sha256:
+        if a.resume and prev_card.get('batch_release_sha256') != a.batch_release_sha256:
+            p.error('checkpoint release differs from batch; explicit migration required')
+        c.card['batch_release_sha256'] = a.batch_release_sha256
     if a.resume:
         from founder_ruling import context as ruling_context
         ruling_context(c)

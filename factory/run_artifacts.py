@@ -99,7 +99,10 @@ class RunArtifacts:
         out = self.sealed / f"{c.case_id}{'.checkpoint' if checkpoint else ''}.tar.gz.age"
         import r2_upload  # 2026-10-20: also sealed to the case's own key, so a restore can fetch it from R2
         try: case_key = None if c.args.dry_run else r2_upload.case_recipient(work, self.sealed, c.case_id, c.recipient)
-        except (OSError, subprocess.CalledProcessError): case_key = None  # never block a seal: the host path still restores it
+        except (OSError, subprocess.CalledProcessError):
+            if c.card.get('batch_release_sha256'):
+                raise RuntimeError('batch checkpoint requires a wrapped case key') from None
+            case_key = None  # Legacy restores retain their streaming path until migration.
         # Streamed, then atomically replaced: a resumed stop must not lose its previous checkpoint.
         with tempfile.TemporaryDirectory(dir=self.sealed) as tmp:
             staged = pathlib.Path(tmp) / "archive.age"

@@ -35,6 +35,10 @@ OPENCODE_ACCOUNTS = {1: 'opencode-go-key', 2: 'opencode-go-key-2'}
 CLAUDE_ACCOUNTS = {1: 'claude-token', 2: 'claude-factory-token-2', 3: 'claude-factory-token-3'}
 
 
+class CheckpointUsed(ValueError):
+    """Public operational refusal; no private request detail is exported."""
+
+
 def concurrent_peer_cancel(card, budget, job):
     """The last cancelled calibrator can overwrite its peer's primary process error."""
     if (job.get('allow_parallel_peer_cancellation') is not True or job['mode'] != 'case' or
@@ -115,6 +119,14 @@ def policy_load(path):
     policy = json.loads(path.read_text())
     if policy['root'] != str(ROOT) or policy['code_sha256'] != fingerprint(ROOT):
         raise ValueError('trusted launcher code changed; unlock requires a reviewed policy')
+    if 'batch' in policy:
+        batch = policy['batch']
+        if (not re.fullmatch('[a-z0-9-]+', batch['id']) or
+                type(batch['max_concurrency']) is not int or
+                not 1 <= batch['max_concurrency'] <= len(policy['jobs']) or
+                policy.get('resolved_before') or policy.get('retry_failed_launches') or
+                any(j['mode'] != 'batch' for j in policy['jobs'].values())):
+            raise ValueError('invalid bounded batch policy')
     for name, job in policy['jobs'].items():
         if not re.fullmatch(r'[a-z0-9-]+', name):
             raise ValueError('invalid job name')
@@ -130,7 +142,13 @@ def policy_load(path):
         elif audit_flag:
             raise ValueError("sealed audit policy is missing its mode flag")
         restore_flags = [i for i, value in enumerate(args) if value in ('--restore', '--restore-review')]
-        if job['mode'] == 'any':  # 2026-10-19: repair or rerun any collected case; the case id comes with the launch request
+        if job['mode'] == 'batch':
+            from batch import bind
+            bind(policy, name, None, ROOT)
+            if (type(job['max_calls']) is not int or job['max_calls'] < 1 or
+                    type(job['max_cost']) not in (int, float) or not 0 < job['max_cost'] < math.inf):
+                raise ValueError('invalid batch job bounds')
+        elif job['mode'] == 'any':  # 2026-10-19: repair or rerun any collected case; the case id comes with the launch request
             if restore_flags or job.get('variant') not in ('repair', 'rerun') or '--skip-build' in args or '--source' in args or '--rotation-slot' in args:
                 raise ValueError('an any-case job names a variant and only common options')
         elif job['mode'] == 'new':  # founder 2026-10-19: wave-2 cases launch through the holder too, one VM per job
@@ -269,6 +287,31 @@ def request(payload):
                 break
             data.extend(part)
     return json.loads(data)
+
+
+def batch_controller_complete(row):
+    launch_id = row.get('launch_id', '')
+    return (isinstance(launch_id, str) and re.fullmatch('[0-9a-f]{32}', launch_id) and
+            (CONTROL_HOME / 'launches' / launch_id / 'complete').is_file())
+
+
+def reconcile_batch_receipts(policy, receipts):
+    """Record verified lifecycle completion, without unconsuming any generation."""
+    batch = policy.get('batch')
+    if not batch: return False
+    changed = False
+    for row in receipts:
+        if (row.get('batch_id') == batch['id'] and row.get('batch_release_sha256') == batch['sha256']
+                and not row.get('completed_ok') and batch_controller_complete(row)):
+            row['completed_ok'] = True; changed = True
+    return changed
+
+
+def batch_live_reservations(policy, receipts):
+    """A holder restart cannot release capacity for live or uncertain controllers."""
+    batch = policy['batch']
+    return sum(row.get('batch_id') == batch['id'] and row.get('batch_release_sha256') == batch['sha256']
+               and not row.get('completed_ok') for row in receipts)
 
 
 def same_roles(roles):
@@ -432,7 +475,7 @@ def serve(policy_path, hours, identity_file=None):
             json.dump(receipts, f); f.flush(); os.fsync(f.fileno())
         os.replace(f.name, receipts_path)
     def reap():
-        changed = False
+        changed = reconcile_batch_receipts(policy, receipts)
         for p in jobs.values():
             code = p.poll()
             if code is None: continue
@@ -511,8 +554,20 @@ def serve(policy_path, hours, identity_file=None):
                                 row.update(pid=p.pid, completed_ok=False); row.pop('exit', None); save_receipts()
                                 p.stdin.write(memoryview(key)[:length]); p.stdin.close()
                             result = {'resumed': len(pending), 'refused': refused}
-                        elif set(req) - {'opencode_account', 'claude_account', 'case', 'machine', 'expected_generation', 'expected_recovery_config_sha256', 'additional_attempt_generation'} == {'op', 'job'} and req['op'] == 'launch':
+                        elif set(req) - {'batch', 'checkpoint', 'opencode_account', 'claude_account', 'case', 'machine', 'expected_generation', 'expected_recovery_config_sha256', 'additional_attempt_generation'} == {'op', 'job'} and req['op'] == 'launch':
                             name = req['job']; job = policy['jobs'][name]
+                            batch_job = job['mode'] == 'batch'
+                            if batch_job:
+                                if req.get('batch') != policy['batch']['id']:
+                                    raise ValueError('batch differs from unlocked policy')
+                                if req.get('checkpoint') is not None and (job['case'], req['checkpoint']) in consumed:
+                                    raise CheckpointUsed()
+                                if batch_live_reservations(policy, receipts) >= policy['batch']['max_concurrency']:
+                                    raise ValueError('batch concurrency exhausted')
+                                from batch import bind
+                                job = bind(policy, name, req.get('checkpoint'), ROOT)
+                            elif 'batch' in req or 'checkpoint' in req:
+                                raise ValueError('batch request requires a batch job')
                             if control_identity and job['mode'] != 'new':
                                 conn.sendall(json.dumps({'error': 'founder identity required to restore a checkpoint onto a new worker'}).encode() + b'\n')
                                 continue
@@ -555,6 +610,8 @@ def serve(policy_path, hours, identity_file=None):
                                 if sum(v.get('job') == name and not resolved(v) for v in receipts) >= 3: raise ValueError('new-case job launched 3 times')
                                 generation = 'new'
                             else: generation = current_generation(job)
+                            if batch_job and req.get('checkpoint') is not None and generation != req['checkpoint']:
+                                raise ValueError('requested checkpoint changed before reservation')
                             stamp = (job['case'], generation)
                             if job.get('ttl_continuation'):
                                 from ttl_continuation import admit
@@ -562,7 +619,7 @@ def serve(policy_path, hours, identity_file=None):
                                 admit(ROOT, job, ttl_card, generation, req, receipts, consumed)
                             # 2026-10-19: a launch that failed (boat SSH resets while uploading) may be retried; the cap is 3 launches
                             # per case since this policy, never two at once. The run's own ledger keeps the cumulative budget.
-                            if policy.get('retry_failed_launches') is not True and job['mode'] != 'new' and stamp in consumed: raise ValueError('checkpoint already used; reconcile before retrying')
+                            if policy.get('retry_failed_launches') is not True and (batch_job or job['mode'] != 'new') and stamp in consumed: raise CheckpointUsed()
                             state = json.loads(state_path.read_text()) if state_path.is_file() else {}
                             for row in receipts:
                                 if row['case'] != job['case'] or row.get('completed_ok') or row.get('resolved_by_verified_generation'): continue
@@ -581,6 +638,8 @@ def serve(policy_path, hours, identity_file=None):
                             receipts.append({'case': job['case'], 'job': name, 'generation': generation, 'at': time.time(), 'completed_ok': False,
                                              'budget_calls': budget['calls'], 'budget_cost': budget['cost'], 'opencode_account': account,
                                              'claude_account': claude_account})
+                            if batch_job:
+                                receipts[-1].update(batch_id=policy['batch']['id'], batch_release_sha256=policy['batch']['sha256'])
                             if additional_attempt is not None:
                                 receipts[-1]['additional_attempt'] = additional_attempt
                             save_receipts()
@@ -607,6 +666,8 @@ def serve(policy_path, hours, identity_file=None):
                             p.stdin.write(memoryview(key)[:length]); p.stdin.close()
                             result = {'started': True, 'job': name, 'pid': p.pid}
                         else: raise ValueError('operation not allowed')
+                    except CheckpointUsed:
+                        result = {'error': 'checkpoint already used; reconcile before retrying'}
                     except Exception:
                         result = {'error': 'request refused; no key or private output returned'}
                     try: conn.sendall(json.dumps(result).encode() + b'\n')
@@ -616,6 +677,7 @@ def serve(policy_path, hours, identity_file=None):
         libc.munlock(ctypes.c_void_p(address), mmap.PAGESIZE); key.close()
         SOCKET.unlink(missing_ok=True)
         if awake: awake.terminate()
+        os.close(lock_fd)
 
 
 def main():
@@ -625,6 +687,8 @@ def main():
     parser.add_argument('--identity-file', type=pathlib.Path, help='serve: control age key in an owner-only 0600 file')
     parser.add_argument('--hours', type=float, default=24)
     parser.add_argument('--job')
+    parser.add_argument('--batch', help='approved batch id; fresh and resume use the same interface')
+    parser.add_argument('--checkpoint', help='exact checkpoint digest; omitted for a fresh job')
     parser.add_argument('--resume-launches', action='store_true', help='launch: resume reserved orphan controllers without another job attempt')
     parser.add_argument('--opencode-account', type=int, choices=[1, 2])
     parser.add_argument('--claude-account', type=int, choices=[1, 2, 3])
@@ -635,6 +699,14 @@ def main():
     parser.add_argument('--additional-attempt-generation', help='manual opt-in to a policy-authorized additional attempt on this exact ciphertext digest')
     parser.add_argument('--start', nargs='*', default=[])
     args = parser.parse_args()
+    if args.batch or args.checkpoint:
+        if args.op != 'launch' or not args.batch or not args.job or any((args.resume_launches,
+                args.case, args.machine, args.opencode_account, args.claude_account,
+                args.expected_generation, args.expected_recovery_config_sha256, args.additional_attempt_generation)):
+            parser.error('batch launch requires --batch and --job without legacy overrides')
+        from batch import launch
+        print(json.dumps(launch(args.batch, args.job, args.checkpoint)))
+        return
     if args.identity_file and args.op != 'serve': parser.error('--identity-file requires serve')
     if args.resume_launches and (args.op != 'launch' or args.job or args.case or args.machine or args.opencode_account is not None or args.claude_account is not None or args.expected_generation or args.expected_recovery_config_sha256 or args.additional_attempt_generation):
         parser.error('--resume-launches requires launch without job overrides')

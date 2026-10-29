@@ -8,6 +8,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import subprocess
@@ -217,6 +218,10 @@ class WorkerLedgerTests(unittest.TestCase):
         result = subprocess.run(["sh", "-c", script, "sh", str(card_path), str(archive), self.case, str(state)],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+        stale = subprocess.run(["sh", "-c", script, "sh", str(card_path), str(archive), self.case, str(state)],
+                               capture_output=True, text=True, env={**os.environ, 'checkpoint_sha': '0' * 64})
+        self.assertNotEqual(stale.returncode, 0)
+        self.assertIn('requested checkpoint generation changed; no VM created', stale.stderr)
         archive.write_bytes(b"different collected generation after preflight")
         self.save(card_path, {**self.public, "sha256": "f" * 64})
         frozen = state / "restore-input.tar.gz.age"
