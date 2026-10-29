@@ -684,6 +684,7 @@ PYCODE
   )
   setup_status=$?
   set -e
+  [ -z "$restore" ] || unset identity
   printf '%s\n' "$setup_status" > "$state/$id.setup-status"
   if [ "$setup_status" -ne 0 ]; then
     batch_status=1

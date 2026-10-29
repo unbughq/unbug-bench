@@ -346,3 +346,46 @@ ciphertext was decrypted. Only public metadata was copied from the read-only
 restore directories. Existing offline tests use throwaway synthetic keys.
 Rows 31/44/46/52 are marked closed with their test paths in this fix commit,
 pending diff-goldfish confirmation. Other E rows remain open as documented.
+
+## Diff review 1 responses
+
+B1: import processes in the real wipe child snippet. New regression executes
+the real copied bench/process/permission sources and real compose file against
+a local Docker executable adapter, using the saved two-slot launch configuration.
+It asserts guard-1 removal and factory_cleanup_ok; no process call is mocked.
+B2: bench.command explicitly permits 3600 seconds for standalone build/setup
+commands, still taking the minimum inherited deadline. The real process test
+advances a clock by 121 seconds after a child signals readiness: standalone
+execution completes, and an inherited 60-second limit kills the still-blocked
+child. The general helper's 120-second default remains unchanged.
+M1: execute byte-identical real run.py copies through the real supervisor.
+A poisoned gate_pipeline dependency fails before setup and retries exactly
+three times without a ready marker/work. A poisoned free_models import fails
+after the real ready marker and is not retried. Both use saved routes/caps in
+a fresh dry-run namespace; no provider, Docker or encryption is reached.
+M2: default ~/.ascii/bin/boat discovery now has pass/mismatch tests with no
+BOAT_CMD; register explicitly states mismatch refusal and the deployment install
+prerequisite. M3: parent unsets restore identity after subshell completion.
+M4: smoke fixture uses its own temporary control home and the fix is committed.
+Four finished synthetic holds from earlier runs were removed under the ledger
+lock; other entries were untouched. No real worker was launched.
+
+The repeated-failure launch test has a 60-second harness budget (production
+command deadlines stay unchanged). Its previous 30-second limit could expire
+while six bounded collection attempts performed their per-file one-second
+timeouts; the committed-tree rerun exposed this once. The earlier full suite
+passed 130/0. Re-run the final full suite after these fixes.
+
+Kill-tree snapshots also retain numeric PGIDs, avoid duplicate signals to one
+group, and skip a reaped leader's group if the snapshot has no members. Direct
+children are joined and streams closed even if tree cleanup raises.
+contextlib now imports normally; processes stays function-local in GatePipeline
+because run.py installs the bench bin path after importing that module. This
+optional import-style nit cannot justify breaking real worker import order.
+
+Round-1 fix validation: 20 focused fault tests pass, including executable slot
+cleanup, real runner pre/post-ready failures, default Boat discovery, a 121s
+accelerated standalone command with an earlier inherited-deadline countercase,
+concurrent 503 handling, and an actual body trickle. Gate setup, parallel
+cleanup and owner protocol regression scripts also pass. Full suite is rerun
+on the committed fixes. No blocking review finding was rejected.

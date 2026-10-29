@@ -183,6 +183,7 @@ elif args[0]=='ssh' and 'summary.json' in args[2]: print(json.dumps({'status':'F
             events = root / 'events.jsonl'
             env = {k: v for k, v in os.environ.items() if k not in ('BOAT_CMD', 'UNBUG_LAUNCH_STATE')}
             env['FIXTURE_EVENTS'] = str(events)
+            env['UNBUG_CONTROL_HOME'] = str(root / 'control-home')
             args = ['sh', str(driver), '--release', str(root), '--adapter', str(adapter),
                     '--adapter-sha256', hashlib.sha256(adapter.read_bytes()).hexdigest(),
                     '--approved-by-founder', '--output', str(root / 'evidence')]

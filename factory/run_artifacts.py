@@ -127,7 +127,7 @@ class RunArtifacts:
         factory_cleanup = []
         for slot in range(1, max(self.factory_slots(c), getattr(c, 'prepared_factory_slots', 1))):
             import factory_pool
-            result = processes.run([sys.executable, "-c", "import bench, subprocess; bench.stop_inventory_services(); bench.dc('down', '-v', '--remove-orphans'); processes.run(['docker', 'image', 'rm', '-f', bench.GUARD_IMAGE], capture_output=True); assert not bench.command(['docker', 'images', '-q', bench.GUARD_IMAGE])"],
+            result = processes.run([sys.executable, "-c", "import bench, processes; bench.stop_inventory_services(); bench.dc('down', '-v', '--remove-orphans'); processes.run(['docker', 'image', 'rm', '-f', bench.GUARD_IMAGE], capture_output=True); assert not bench.command(['docker', 'images', '-q', bench.GUARD_IMAGE])"],
                                     cwd=self.bench / "bin", env=factory_pool.worker_env(slot), capture_output=True)
             factory_cleanup.append(result.returncode == 0)
         for user, home in self.pilot_homes():

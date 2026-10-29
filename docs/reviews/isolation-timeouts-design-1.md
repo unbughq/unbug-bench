@@ -145,3 +145,10 @@ None of the "remains open" claims overstates closure. The risk is that the four 
 
 ## Re-review
 Fix B1–B5 in the design, and resolve or reject M1–M4. Then send it back to a fresh goldfish. Per ENGINEERING §1, a rejected blocking finding goes to a second goldfish from a different model family.
+
+
+---
+
+Elephant disposition
+
+B1–B5 and M1–M4 were fixed in the design: explicit fingerprint migration, control executable version checks, bounded hold reconciliation, concrete supervisor/controller semantics, actual call-site tests, independent deadline contexts, correct errexit isolation, factory-only total HTTP parsing bounds and committed public fixtures. No blocking finding was rejected. Fresh rounds 2 and 3 verified the fixes.

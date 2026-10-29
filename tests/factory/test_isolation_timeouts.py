@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import signal
 import socket
 import subprocess
@@ -16,6 +17,8 @@ import threading
 import time
 import types
 import unittest
+import urllib.error
+import urllib.request
 from unittest.mock import patch
 from urllib.parse import urlparse
 
@@ -145,6 +148,69 @@ except subprocess.TimeoutExpired: print('owner survived')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), 'owner survived')
 
+    def test_standalone_bench_build_allows_over_120_seconds_but_honors_inherited_deadline(self):
+        import bench
+        actual_popen = subprocess.Popen
+        clock = [time.monotonic()]
+        ready, finished = self.home / 'ready', self.home / 'finished'
+        complete = [True]
+        code = (f'import pathlib,time; ready=pathlib.Path({str(ready)!r}); '
+                f'finished=pathlib.Path({str(finished)!r}); ready.touch()\n'
+                'while not finished.exists(): time.sleep(.01)\n'
+                f'print({LOAD("boat-version.json")["version"]!r})')
+        command = [sys.executable, '-c', code]
+        def elapsed(args, **kwargs):
+            child = actual_popen(args, **kwargs)
+            if args == command:
+                for _ in range(200):
+                    if ready.exists(): break
+                    time.sleep(.01)
+                self.assertTrue(ready.exists())
+                clock[0] += 121  # advance only after the real child has started
+                if complete[0]: finished.touch()
+            return child
+        with patch.dict(os.environ):
+            os.environ.pop('UNBUG_PROCESS_DEADLINE', None)
+            with patch.object(processes.time, 'monotonic', lambda: clock[0]), \
+                 patch.object(processes.subprocess, 'Popen', elapsed):
+                self.assertEqual(bench.command(command), LOAD('boat-version.json')['version'])
+                ready.unlink(); finished.unlink(); complete[0] = False
+                os.environ['UNBUG_PROCESS_DEADLINE'] = str(clock[0] + 60)
+                with self.assertRaises(subprocess.TimeoutExpired): bench.command(command)
+
+    def test_parallel_wipe_executes_real_child_and_removes_slot_guard(self):
+        from run_artifacts import RunArtifacts
+        bench = self.home / 'bench'
+        for name in ('bin/bench.py', 'bin/bench_judging.py', 'bin/processes.py',
+                     'factory/case_permissions.py', 'projects/medusa/compose.yaml'):
+            target = bench / name; target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / name, target)
+        tools = self.home / 'tools'; tools.mkdir()
+        calls = self.home / 'docker.jsonl'
+        docker = tools / 'docker'
+        docker.write_text('''#!/usr/bin/env python3
+import json,os,sys
+with open(os.environ['TEST_DOCKER_CALLS'],'a') as f:
+ f.write(json.dumps({'slot':os.environ.get('UNBUG_FACTORY_SLOT'),'args':sys.argv[1:]})+'\\n')
+''')
+        docker.chmod(0o755)
+        home = self.home / 'runner'; home.mkdir()
+        c = types.SimpleNamespace(work=home / 'work' / LOAD('scorecard.json')['case'],
+                                  card=LOAD('scorecard.json'), t0=time.time() - 1)
+        c.work.mkdir(parents=True)
+        def cleanup(path, **kwargs):
+            if path.is_dir(): shutil.rmtree(path)
+            else: path.unlink(missing_ok=True)
+        artifacts = RunArtifacts(home, bench, home / 'sealed', ROOT / 'factory/statements-recipient.txt',
+            (), lambda: [], lambda *a, **k: None, lambda c: int(option('--bench-workers')),
+            lambda c: None, cleanup)
+        with patch.dict(os.environ, {'PATH':str(tools)+os.pathsep+os.environ['PATH'],
+                                     'TEST_DOCKER_CALLS':str(calls)}):
+            artifacts.wipe(c)  # execute the actual python -c snippet, not a process mock
+        self.assertTrue(c.card['wipe']['factory_cleanup_ok'])
+        events = [json.loads(line) for line in calls.read_text().splitlines()]
+        self.assertIn({'slot':'1','args':['image','rm','-f','unbug-bench-medusa:guard-1']}, events)
+
     def test_gate_deadline_is_operational_and_does_not_send_writer_feedback(self):
         c = types.SimpleNamespace(args=run.argument_parser().parse_args(worker_args()),
                                   work=self.home, card=LOAD('scorecard.json'), audit_gates=['G13'])
@@ -165,6 +231,32 @@ except subprocess.TimeoutExpired: print('owner survived')
 
 
 class SupervisorTests(unittest.TestCase):
+    def test_real_runner_early_import_and_ready_boundary(self):
+        for dependency, ready, attempts in (('gate_pipeline.py', False, 3), ('free_models.py', True, 1)):
+            with self.subTest(dependency=dependency), tempfile.TemporaryDirectory() as tmp:
+                home = Path(tmp); factory = home / 'factory'
+                factory.mkdir()
+                for path in (ROOT / 'factory').glob('*.py'):
+                    shutil.copy2(path, factory / path.name)
+                self.assertEqual((factory / 'run.py').read_bytes(), (ROOT / 'factory/run.py').read_bytes())
+                (factory / dependency).write_text('raise ImportError("injected dependency unavailable")\n')
+                # Preserve the recorded source/routes/caps, using a fresh dry-run namespace.
+                args = worker_args(); fresh = []; i = 0
+                while i < len(args):
+                    if args[i] in ('--resume', '--resume-bench-sha'): i += 2
+                    else: fresh.append(args[i]); i += 1
+                result = subprocess.run([sys.executable, str(ROOT / 'factory/runner_supervisor.py'), '--',
+                    sys.executable, '-B', str(factory / 'run.py'), *fresh, '--dry-run'],
+                    env={**os.environ,'HOME':str(home),'FACTORY_RUNNER_SECONDS':'10'},
+                    capture_output=True, text=True, timeout=15)
+                self.assertEqual(result.returncode, 1)
+                data = json.loads((home / 'sealed/runner-status.json').read_text())
+                self.assertEqual((data['attempt'], data['exit_status']), (attempts, 1))
+                self.assertEqual(data['reason'], 'finished' if ready else 'startup_failed')
+                self.assertEqual((home / 'sealed/runner-ready-1').exists(), ready)
+                self.assertFalse((home / 'sealed/DONE').exists())
+                self.assertEqual(len(list((home / 'work').glob('*'))), 1 if ready else 0)
+
     def invoke(self, code, *, prior_work=False, seconds=8):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.home = Path(self.tmp.name)
@@ -240,6 +332,19 @@ else: raise SystemExit(9)
         self.assertNotEqual(bad.returncode, 0)
         self.assertEqual(bad.stdout, '')
 
+    def test_default_home_discovery_pins_without_an_interactive_shell(self):
+        installed = self.home / '.ascii/bin/boat'; installed.parent.mkdir(parents=True)
+        shutil.copy2(self.cli, installed)
+        env = {**self.env, 'HOME':str(self.home)}; env.pop('BOAT_CMD')
+        result = subprocess.run([str(ROOT / 'bin/boat-call'), 'list', '--json'],
+            env=env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), LOAD('list.json'))
+        bad = subprocess.run([str(ROOT / 'bin/boat-call'), 'list', '--json'],
+            env={**env,'TEST_VERSION':'boat wrong'}, capture_output=True, text=True, timeout=5)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertEqual(bad.stdout, '')
+
     def test_unknown_creation_stays_pending_and_does_not_finish_reservation(self):
         state = self.home / 'launch'; state.mkdir()
         (state / 'ids').touch()
@@ -295,6 +400,34 @@ guard_exit 1
 
 
 class OwnerTests(unittest.TestCase):
+    def test_concurrent_owner_ask_is_bounded_and_does_not_overlap_model_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp); case = home / option('--restore'); case.mkdir()
+            (case / 'fact-sheet.md').write_text('Synthetic owner fact for concurrent request injection.')
+            c = types.SimpleNamespace(case=case, args=argparse.Namespace(), card={}, models={'reviewers': [['unused']]})
+            entered, release = threading.Event(), threading.Event()
+            def call(ctx, chain, text, directory, name, **kwargs):
+                entered.set(); release.wait(2)
+                (directory / 'answer.json').write_text('{"answer":"synthetic answer"}')
+                return 0
+            r = types.SimpleNamespace(BENCH=ROOT, model_call=call, BudgetError=run.BudgetError,
+                jload=lambda path, default: json.loads(path.read_text()))
+            results = []
+            with exam_responder.owner_server(c, r, home) as url:
+                def ask():
+                    with urllib.request.urlopen(urllib.request.Request(url,
+                            data=b'{"question":"synthetic question"}'), timeout=3) as response:
+                        results.append(response.status)
+                thread = threading.Thread(target=ask); thread.start()
+                try:
+                    self.assertTrue(entered.wait(2))
+                    with self.assertRaises(urllib.error.HTTPError) as error: ask()
+                    self.assertEqual(error.exception.code, 503); error.exception.close()
+                finally:
+                    release.set(); thread.join(timeout=3)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(results, [200])
+
     def test_body_admission_rejects_oversize_missing_length_and_nonobject(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp); case = home / option('--restore'); case.mkdir()
@@ -325,8 +458,14 @@ class OwnerTests(unittest.TestCase):
                         healthy = socket.create_connection((parsed.hostname, parsed.port), timeout=2)
                         healthy.sendall(b'GET /healthz HTTP/1.0\r\n\r\n')
                         self.assertIn(b'200', healthy.recv(100)); healthy.close()
-                        time.sleep(.3)
-                        self.assertIn(slow.recv(100)[:4], (b'', b'HTTP'))
+                        for _ in range(6):
+                            try: slow.sendall(b' ')
+                            except OSError: break
+                            time.sleep(.05)  # activity must not refresh the total parsing deadline
+                        slow.settimeout(.05)
+                        try: reply = slow.recv(100)
+                        except ConnectionResetError: reply = b''
+                        self.assertIn(reply[:4], (b'', b'HTTP'))
                     finally: slow.close()
             self.assertLess(time.monotonic() - start, 2)
 

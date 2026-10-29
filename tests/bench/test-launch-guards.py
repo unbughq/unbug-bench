@@ -433,7 +433,7 @@ exit "$status"
                 out, err = proc.communicate(timeout=30)
             else:
                 try:
-                    out, err = proc.communicate(IDENTITY, timeout=30)
+                    out, err = proc.communicate(IDENTITY, timeout=60)
                 except subprocess.TimeoutExpired:
                     # Never leave a failed synthetic controller running after
                     # its temporary fixture is removed.

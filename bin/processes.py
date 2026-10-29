@@ -53,11 +53,15 @@ def kill_tree(pid, *, owned_group=True, alive=True):
     Docker daemon-owned services intentionally are not local descendants.
     """
     descendants = []
-    probe = subprocess.Popen(['ps', '-axo', 'pid=,ppid='], stdout=subprocess.PIPE,
+    group_present = True
+    killed_groups = set()
+    probe = subprocess.Popen(['ps', '-axo', 'pid=,ppid=,pgid='], stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, start_new_session=True, text=True)
     try:
         rows, _ = probe.communicate(timeout=2)
-        pairs = [tuple(map(int, row.split())) for row in rows.splitlines() if len(row.split()) == 2]
+        entries = [tuple(map(int, row.split())) for row in rows.splitlines() if len(row.split()) == 3]
+        group_present = any(group == pid for _, _, group in entries)
+        pairs = [(child, parent) for child, parent, _ in entries]
         owned = {pid}
         while True:
             found = {child for child, parent in pairs if parent in owned} - owned
@@ -73,12 +77,13 @@ def kill_tree(pid, *, owned_group=True, alive=True):
             if ((child != pid or owned_group) and group == child and
                     group != os.getpgrp() and group != os.getsid(0)):
                 os.killpg(group, signal.SIGKILL)
+                killed_groups.add(group)
             else:
                 os.kill(child, signal.SIGKILL)
         except ProcessLookupError:
             pass
     # The leader may already have exited while its group still has descendants.
-    if owned_group and pid not in (os.getpgrp(), os.getsid(0)):
+    if owned_group and group_present and pid not in killed_groups and pid not in (os.getpgrp(), os.getsid(0)):
         try: os.killpg(pid, signal.SIGKILL)
         except ProcessLookupError: pass
 
@@ -112,11 +117,13 @@ def run(args, *, timeout=None, deadline=None, cancel=None, input=None,
         if check: result.check_returncode()
         return result
     finally:
-        kill_tree(process.pid, owned_group=owned, alive=process.poll() is None)
-        # A detached, reparented process may retain a pipe: never drain forever.
-        for stream in (process.stdin, process.stdout, process.stderr):
-            if stream is not None: stream.close()
-        process.wait(timeout=2)
+        try:
+            kill_tree(process.pid, owned_group=owned, alive=process.poll() is None)
+        finally:
+            # A detached, reparented process may retain a pipe: never drain forever.
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is not None: stream.close()
+            process.wait(timeout=2)
 
 
 async def shell(command, *, timeout=120, cwd=None):
@@ -132,9 +139,11 @@ async def shell(command, *, timeout=120, cwd=None):
         out, err = await asyncio.wait_for(asyncio.shield(communication), max(0, end - time.monotonic()))
         return subprocess.CompletedProcess(command, process.returncode, out, err)
     finally:
-        kill_tree(process.pid, owned_group=owned, alive=process.returncode is None)
         try:
-            await asyncio.wait_for(asyncio.shield(communication), 2)
-            await asyncio.wait_for(process.wait(), 2)
+            kill_tree(process.pid, owned_group=owned, alive=process.returncode is None)
         finally:
-            if not communication.done(): communication.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(communication), 2)
+                await asyncio.wait_for(process.wait(), 2)
+            finally:
+                if not communication.done(): communication.cancel()

@@ -85,3 +85,10 @@ Also say where `bin/processes.py` is registered. It must be in `WORKER_BENCH` so
 | 28, 29, 30, 32, 37, 45, 50 | Open with reasons | Correct. |
 
 Resubmit after N1 is resolved. M-A through M-E should be fixed or answered in the same pass.
+
+
+---
+
+Elephant disposition
+
+N1 was fixed by specifying trusted fingerprint/policy/root rollout, founder approval before unlock, preservation of old checkout reservations, and helper registration. M-A–M-E were addressed with self-group guards, check-only VM pin prerequisite, operational gate timeout classification, explicit cache invalidation and subshell state ownership. No blocking finding was rejected. Round 3 passed.

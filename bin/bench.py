@@ -86,9 +86,9 @@ class BenchProgress:
 def phase(name):
     return _PROGRESS.phase(name) if _PROGRESS is not None else contextlib.nullcontext()
 
-def command(args, *, data=None, capture=True, cwd=ROOT):
+def command(args, *, data=None, capture=True, cwd=ROOT, timeout=3600):
     import processes
-    p = processes.run(args, cwd=cwd, input=data, text=True, stdout=subprocess.PIPE if capture else None, stderr=subprocess.PIPE if capture else None)
+    p = processes.run(args, cwd=cwd, input=data, text=True, timeout=timeout, stdout=subprocess.PIPE if capture else None, stderr=subprocess.PIPE if capture else None)
     if p.returncode:
         raise RuntimeError(f"Command failed: {args}\n{p.stdout or ''}\n{p.stderr or ''}")
     return (p.stdout or "").strip()

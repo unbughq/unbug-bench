@@ -48,3 +48,10 @@ The round-2 nits are also handled. The garbled line 104 was replaced. The reason
 Proceed to implementation. Closure of rows 31, 44, 46 and 52 still needs the diff goldfish to confirm each test proves its row on real artifacts.
 
 I did not write `docs/reviews/isolation-timeouts-design-3.md`, because you said no edits. I can write it if you want.
+
+
+---
+
+Elephant disposition
+
+PASS accepted. Root and code_sha256 must both match the final deployed checkout policy. Cross-generation wallet coordination remains open (17); parked Hetzner servers bypass the Boat wallet ledger. No blocker remains; no blocking finding was rejected.
