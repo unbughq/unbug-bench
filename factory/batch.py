@@ -5,9 +5,11 @@ import gzip
 import hashlib
 import io
 import json
+import math
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tarfile
 
 from launch_manifest import BATCH_SOURCE, HOST_FILES, WORKER_GLOBS, WORKER_BENCH, WORKER_CONFIG, sha
@@ -31,8 +33,23 @@ def save(path, value):
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
 
 
+def restore_inventory(root):
+    """Find canonical ciphertext through Git's common directory, then this checkout."""
+    common = Path(subprocess.check_output(['git', '-C', str(root), 'rev-parse',
+                                          '--git-common-dir'], text=True).strip())
+    common = (root / common).resolve() if not common.is_absolute() else common.resolve()
+    for directory in dict.fromkeys((common.parent / 'sealed', root / 'sealed')):
+        archives = sorted(directory.glob('*.checkpoint.tar.gz.age'))
+        if archives:
+            return archives
+    return []
+
+
 def build(root, commit, destination):
     """Read git objects, never working-tree files or private case storage."""
+    qualification = Path(__file__).resolve().parents[1] / 'tests/factory/test_restore_inventory.py'
+    subprocess.run([sys.executable, '-B', str(qualification), '--require-inventory'],
+                   check=True, stdout=sys.stderr)
     commit = subprocess.check_output(['git', '-C', str(root), 'rev-parse', '--verify',
                                       commit + '^{commit}'], text=True).strip()
     paths = (*BATCH_SOURCE, *HOST_FILES, 'tools/install_source.py')
@@ -130,10 +147,22 @@ def bind(policy, name, checkpoint, root):
                 card.get('batch_release_sha256') != batch['sha256']):
             raise ValueError('checkpoint differs from batch release or requested generation')
         mode = 'case'
+    caps = {}
+    for flag, field, cast in (('--max-total-calls', 'max_calls', int), ('--max-cost', 'max_cost', float)):
+        cap = cast(job[field])
+        for i, arg in enumerate(args):
+            if arg == flag:
+                if i + 1 == len(args): raise ValueError('missing job cap: ' + flag)
+                value = cast(args[i + 1])
+            elif arg.startswith(flag + '='): value = cast(arg.split('=', 1)[1])
+            else: continue
+            if not math.isfinite(value) or value <= 0: raise ValueError('invalid job cap: ' + flag)
+            cap = min(cap, value)
+        caps[field] = cap
     args = [*args, '--batch-release', batch['release'], '--batch-sha256', batch['sha256'],
-            '--case-id', case, '--max-total-calls', str(job['max_calls']), '--max-cost', str(job['max_cost'])]
+            '--case-id', case, '--max-total-calls', str(caps['max_calls']), '--max-cost', str(caps['max_cost'])]
     if checkpoint is not None: args += ['--restore', case, '--checkpoint-sha256', checkpoint]
-    return {**job, 'mode': mode, 'args': args, 'card': case + '.scorecard.json', 'archive_prefix': case}
+    return {**job, **caps, 'mode': mode, 'args': args, 'card': case + '.scorecard.json', 'archive_prefix': case}
 
 
 def main():

@@ -127,6 +127,40 @@ else: raise AssertionError('unexpected offline cloud operation: '+cmd)
 
 
 class BatchLaunchTests(unittest.TestCase):
+    def test_no_inventory_skips_suite_but_blocks_batch_build(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for name in ('factory/batch.py', 'factory/launch_manifest.py', 'factory/launch.sh',
+                         'tests/factory/test_restore_inventory.py'):
+                target = root / name; target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / name, target)
+            subprocess.run(['git', 'init', '-q', str(root)], check=True)
+            ordinary = subprocess.run([sys.executable, '-B', str(root / 'tests/factory/test_restore_inventory.py')],
+                                      capture_output=True, text=True)
+            self.assertEqual(ordinary.returncode, 0, ordinary.stderr)
+            self.assertIn('SKIPPING: REAL RESTORE INVENTORY ABSENT', ordinary.stderr)
+            release = root / 'must-not-build'
+            required = subprocess.run([sys.executable, '-B', str(root / 'factory/batch.py'), 'build',
+                                       '--root', str(root), '--release', str(release)], capture_output=True, text=True)
+            self.assertNotEqual(required.returncode, 0)
+            self.assertIn('REQUIRED REAL RESTORE INVENTORY ABSENT', required.stderr)
+            self.assertFalse(release.exists())
+
+    def test_job_caps_keep_the_lower_explicit_value_and_batch_bound(self):
+        for arguments, calls, cost in ((['--max-total-calls', '750', '--max-cost=0.5'], 750, .5),
+                                        (['--max-total-calls=9000', '--max-cost', '10'], 5000, 5),
+                                        (['--max-total-calls=750', '--max-total-calls', '9000',
+                                          '--max-cost', '.5', '--max-cost=10'], 750, .5)):
+            with self.subTest(arguments=arguments), patch.object(batch, 'verify'):
+                policy = {'batch': {'id': 'public', 'release': 'unused', 'sha256': 'a' * 64},
+                          'jobs': {'a': {'mode': 'batch', 'case': 'case-public-a', 'max_calls': 5000,
+                                         'max_cost': 5, 'args': ['1', '--source', 'port', '--rotation-slot', '1',
+                                                               *arguments]}}}
+                job = batch.bind(policy, 'a', None, ROOT)
+                self.assertEqual((job['max_calls'], job['max_cost']), (calls, cost))
+                # Last values are the runner's effective caps; admission uses the same values.
+                self.assertEqual(job['args'][-4:], ['--max-total-calls', str(calls), '--max-cost', str(float(cost))])
+
     def test_capacity_counts_durable_unknown_outcomes_without_in_memory_jobs(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(holder,'CONTROL_HOME',Path(temp)):
             policy={'batch':{'id':'public','sha256':'a'*64}}
@@ -144,6 +178,8 @@ class BatchLaunchTests(unittest.TestCase):
             self.assertFalse(holder.reconcile_batch_receipts(policy,[row]))
 
     def test_public_fresh_interruption_resume_and_two_jobs_on_one_unlock(self):
+        if not batch.restore_inventory(ROOT):
+            self.skipTest('REAL RESTORE INVENTORY ABSENT: public release build qualification is unavailable; builds stay blocked')
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp).resolve(); root = base/'source'; root.mkdir()
             cloud = base/'cloud'; cloud.mkdir()

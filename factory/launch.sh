@@ -155,12 +155,20 @@ print(max(int(sys.argv[2]), 2 + (size + 262143) // 262144))
 PYCODE
 }
 restore_ciphertext() {
-  if [ -n "$r2_object" ] && url=$(r2_sign GET "$r2_object" "$((restore_timeout + 300))") &&
-      BOAT_COMMAND_TIMEOUT_SECONDS=$restore_timeout boat ssh "$id" "set -e; umask 077; curl -fsS --retry 3 -o ~/restore.age '$url'; test \"\$(sha256sum < ~/restore.age | cut -c1-64)\" = $r2_sha" >/dev/null; then
-    :
-  else
-    BOAT_COMMAND_TIMEOUT_SECONDS=$restore_timeout boat --stdin ssh "$id" 'umask 077; cat > ~/restore.age' < "$ckpt" >/dev/null
+  fallback_reason='no R2 object on the selected card'
+  if [ -n "$r2_object" ]; then
+    fallback_reason='R2 signing unavailable'
+    if url=$(r2_sign GET "$r2_object" "$((restore_timeout + 300))"); then
+      echo "$id: restore ciphertext download from R2 (timeout ${restore_timeout}s)" >&2
+      if BOAT_COMMAND_TIMEOUT_SECONDS=$restore_timeout boat ssh "$id" "set -e; umask 077; curl -fsS --retry 3 -o ~/restore.age '$url'; test \"\$(sha256sum < ~/restore.age | cut -c1-64)\" = $r2_sha" >/dev/null; then
+        echo "$id: restore ciphertext downloaded and verified from R2" >&2
+        return 0
+      fi
+      fallback_reason='R2 download or checksum verification failed'
+    fi
   fi
+  echo "$id: restore ciphertext local upload: $fallback_reason (timeout ${restore_timeout}s)" >&2
+  BOAT_COMMAND_TIMEOUT_SECONDS=$restore_timeout boat --stdin ssh "$id" 'umask 077; cat > ~/restore.age' < "$ckpt" >/dev/null
 }
 # --restore CASE_ID resumes a case from sealed/CASE_ID.checkpoint.tar.gz.age, or from its final
 # CASE_ID.tar.gz.age after a failed gate. Batch plaintext stays on workers;
@@ -692,6 +700,7 @@ PYCODE
           age -d -i /dev/shm/casekey ~/restore.age | python3 -B ~/factory/case_permissions.py --extract-to $restore_to --case-tree ~/work/$restore/$restored_case" >/dev/null
     else
       # Compatibility only: stream B migrates these legacy case keys on the VM.
+      echo "$id: restore via legacy plaintext stream: no wrapped case key (timeout ${restore_timeout}s)" >&2
       printf '%s\n' "$identity" | age -d -i /dev/stdin "$ckpt" |
         BOAT_COMMAND_TIMEOUT_SECONDS=$restore_timeout boat --stdin ssh "$id" "python3 -B ~/factory/case_permissions.py --extract-to $restore_to --case-tree ~/work/$restore/$restored_case" >/dev/null
     fi
