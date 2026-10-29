@@ -111,13 +111,17 @@ design.
     - at most 5 extensions per case;
     - each extension is one writer round, plus its stress round, plus a
       gate re-run;
-    - each gets a $15 allowance drawn from the batch's money cap;
+    - extensions draw from the batch's cumulative money bound, which is set
+      by the founder at launch and enforced by stream B's money channel.
+      There is no fixed amount per extension, because real receipts show
+      one writer round alone can cost up to $15.05 (`docs/designs/stream-d.md`);
     - a further extension needs progress, meaning the case gets further
       through the pipeline and nothing it already passed breaks;
     - the diagnosis agent proposes each extension, and code enforces these
       limits.
 
-    The mechanism is in `docs/designs/extensions.md`.
+    The mechanism is in `docs/designs/stream-d.md`, which supersedes
+    `docs/designs/extensions.md`.
     - No progress means the case retires.
   - **not converging:** retire the case.
 - Plumbing updates roll onto running cases at the next checkpoint. Plumbing
