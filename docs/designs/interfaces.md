@@ -227,3 +227,27 @@ wait → checkpoint → retire → relaunch from the collected generation → se
 
 That test runs on the practice case, with a real or recorded provider
 denial.
+
+## 7. Router API details (from stream A's implementation, ef01df3)
+
+- **`await_lease(role, case, deadline=None)`.** `deadline` is the caller's
+  existing monotonic deadline, the same as `opencode`.
+  - The batch deadline comes from `case.batch_deadline` (UTC epoch or ISO),
+    or else from `FACTORY_BATCH_DEADLINE`.
+  - With the flag on, `case.batch_id` and `case.job_id` (or
+    `FACTORY_BATCH_ID` and `FACTORY_JOB_ID`) are required.
+- **Requested route.** It is `case.card['roles'][role]['model']`. The wrapper
+  applies any fallback override internally.
+- **Passing a lease (D).** D passes `lease=Lease` to `opencode` and
+  `model_call`. `case.model_lease` exposes the current lease to callbacks.
+- **Starting the router (B).** B sets `FACTORY_ROUTER_URL` and
+  `FACTORY_ROUTER_TOKEN`, plus a per-batch JSON config with the database
+  path, capacities and accounts.
+- **`capacity(route)`.** It returns free slots for that exact effective
+  route only. Fallback routes are not added in. B asks per route.
+- **`finish` and the receipt.** `finish` releases capacity. The per-lease
+  receipt books nothing. Usage of an interrupted call stays conservative
+  until D's `settle()`.
+- **Codex login.** The Codex login is read from
+  `/dev/shm/secrets/codex-auth.json` on every call. `launch.sh` no longer
+  copies it to `~/.codex`.
