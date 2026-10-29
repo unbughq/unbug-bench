@@ -57,7 +57,7 @@ with `provider_wait` (section 3). It only ever returns a `Lease`.
 **Checking capacity.** `model_router.capacity(route)` returns the number of
 free slots without taking a lease. B uses it (section 4).
 
-- `run.py` writes recovery reservations only after `admit` returns a
+- `run.py` writes recovery reservations only after `await_lease` returns a
   `Lease`, and records `lease_id` in them. This covers writer
   `repair_pending` and the stress re-review counters.
 - A `Wait` before admission therefore leaves no reservation behind.
@@ -130,8 +130,8 @@ The worker then:
   receipt means a provider wait. A pending receipt is the writer's
   `repair_pending` or the stress review's `review_pending`. It never counts
   as `interrupted_review` and never uses up a re-review attempt. Resume continues from the receipt,
-  and never stops as `interrupted_repair`. A `repair_pending` with no
-  matching record is a crash and follows D's ordinary crash rules.
+  and never stops as `interrupted_repair`. A `repair_pending` or `review_pending`
+  with no matching record is a crash and follows D's ordinary crash rules.
 - **Clean-up on resume.** Before its first model call, the resumed worker
   moves `provider_wait.json` to `provider_waits/<wait_id>.json`. Later
   checkpoints therefore never carry a live record.
@@ -154,7 +154,10 @@ relaunch.
 1. B keeps a journal on the control VM, keyed on `(case, collected
    generation)`, with state `pending`, `launched` or `failed`. Each key is
    successfully launched at most once. A `failed` launch, such as one where
-   VM provisioning failed, is retried under E's infrastructure-retry rule. Replaying the journal
+   VM provisioning failed, is retried under E's infrastructure-retry rule (Murphy row 29). `failed`
+   means the launch verifiably started no worker. An unknown outcome, such as
+   a holder timeout, stays `pending` until reconciled, so one generation can
+   never get two workers. Replaying the journal
    after a VM restart, or collecting the same card twice, cannot launch a
    case twice.
 2. Before starting workers, B calls `capacity(route)` from the VM. It
@@ -201,7 +204,8 @@ Each step merges only after its diff review passes.
 5. D: caps, resume and settlement.
 6. B: batch service. B turns the record writer on.
 
-No batch runs on `factory-simplify` between steps 4 and 6.
+No batch runs on `factory-simplify` between steps 4 and 6. While the flag is
+off, `await_lease()` uses the old in-worker wait and never exits.
 
 Rows 2, 4, 20, 47 and 48 close only when B's end-to-end test passes:
 
