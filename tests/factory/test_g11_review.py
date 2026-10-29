@@ -11,7 +11,7 @@ import sys
 import tempfile
 from unittest import mock
 sys.path.insert(0, str((pathlib.Path(__file__).resolve().parents[2] / "factory")))
-from g11_review import public_verdict, digest, legacy_digest
+from g11_review import public_verdict, digest
 
 secret = "SYNTHETIC_PRIVATE_CASE_DETAIL"
 for labels, expected in [(["checker_false_positive"] * 2, "checker_false_positive"),
@@ -30,13 +30,13 @@ with tempfile.TemporaryDirectory() as tmp:
 print("PASS G11 review labels, mixed/malformed verdicts, redaction and input drift")
 with tempfile.TemporaryDirectory() as tmp:
     root = pathlib.Path(tmp); (root / "a").write_text("b"); (root / "b").write_text("different contents")
-    old, framed = legacy_digest([root]), digest([root])
+    framed = digest([root])
     (root / "a").unlink(); (root / "a").symlink_to("b")
-    assert legacy_digest([root]) == old and digest([root]) != framed
+    assert digest([root]) != framed
     (root / "a").unlink(); (root / "a").write_bytes(b"x"); (root / "b").write_bytes(b"b\0y")
-    old, framed = legacy_digest([root]), digest([root])
+    framed = digest([root])
     (root / "a").write_bytes(b"xb\0"); (root / "b").write_bytes(b"y")
-    assert legacy_digest([root]) == old and digest([root]) != framed
+    assert digest([root]) != framed
 print("PASS framed digests reject symlink/type substitution and ambiguous file boundaries")
 
 # Audit dispatch happens before the normal builder, Docker setup, or any case gate.
@@ -107,7 +107,7 @@ print("PASS audit caps, separate reports, interrupted sealing, protected-input d
 
 # A resumed audit needs only its sealed audit tree, never a rebuilt case or reset ledger.
 with tempfile.TemporaryDirectory() as tmp:
-    for mode in ("resume", "tampered", "bench_changed", "ledger_changed", "exhausted", "legacy_resume", "legacy_collision", "legacy_evidence_collision"):
+    for mode in ("resume", "tampered", "bench_changed", "ledger_changed", "exhausted"):
         root = pathlib.Path(tmp) / mode; original = root / "case-synthetic"
         (original / "case").mkdir(parents=True); (original / "case/contract.md").write_text(secret)
         guard = original / "guard"; guard.mkdir(); (guard / "db.sql").write_text("-- synthetic")
@@ -133,7 +133,7 @@ with tempfile.TemporaryDirectory() as tmp:
             assert (c.args.max_cost, c.args.max_total_calls, c.args.max_role_calls, c.args.agent_timeout) == (.75, 100, 51, 1200)
             assert (cwd / "notes.txt").read_text() == secret and "transcripts/prior.jsonl" in prompt
             assert not (cwd / "verdict.json").exists() and (cwd / "history/verdict-1.json").is_file()
-            assert (original / "case").exists() == mode.startswith("legacy_")
+            assert not (original / "case").exists()
             (cwd / "verdict.json").write_text(json.dumps({"fixes": [{"classification": "checker_false_positive", "evidence": secret}]}))
             ledger.write_text(json.dumps({"cost": .33, "calls": 51, "active": [], "terminal_stop": "complete"}))
         def seal(c):
@@ -151,18 +151,7 @@ with tempfile.TemporaryDirectory() as tmp:
         stopped = load(original / "g11-audit/scorecard.json")
         assert stopped["terminal_stop"] == "time_limit" and stopped["inputs_unchanged"] is True
         import shutil
-        if mode.startswith("legacy_"):
-            stopped["digest_version"] = 1
-            stopped["source_inputs_sha256"] = legacy_digest([original / "case", guard])
-            stopped["audit_inputs_sha256"] = legacy_digest([original / "g11-audit" / n for n in ("case", "fixes", "evidence")])
-            (original / "g11-audit/scorecard.json").write_text(json.dumps(stopped))
-            if mode == "legacy_collision":
-                copied = original / "g11-audit/fixes/0/db.sql"; copied.unlink(); copied.symlink_to("-- synthetic")
-            if mode == "legacy_evidence_collision":
-                copied = original / "g11-audit/evidence/fake-pass.json"; value = copied.read_text()
-                copied.unlink(); copied.symlink_to(value)
-        else:
-            for path in (original / "case", guard, original / "bench-results"): shutil.rmtree(path)
+        for path in (original / "case", guard, original / "bench-results"): shutil.rmtree(path)
         if mode == "tampered": (original / "g11-audit/fixes/0/db.sql").write_text("tampered")
         if mode == "bench_changed": factory.bench_manifest = lambda: "different-bench"
         if mode == "ledger_changed": ledger.write_text(json.dumps({"cost": .25, "calls": 20}))
@@ -177,7 +166,7 @@ with tempfile.TemporaryDirectory() as tmp:
             g11_review.review(context(True), factory)
             result = load(sealed / "g11-review-case-synthetic.scorecard.json")
             assert secret not in json.dumps(result)
-            if mode in ("resume", "legacy_resume"):
+            if mode in ("resume",):
                 assert calls == [False, True] and result["status"] == "complete"
                 assert result["verdict"] == "checker_false_positive" and result["inputs_unchanged"] is True
                 assert result["limits"]["max_cost"] == .75 and result["limits"]["max_total_calls"] == 100
@@ -186,7 +175,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 assert result["digest_version"] == 2
             else:
                 assert result["status"] == "stopped" and result["inputs_unchanged"] is False
-        if mode not in ("resume", "legacy_resume"): assert calls == [False]
+        if mode not in ("resume",): assert calls == [False]
 print("PASS audit continuation preserves notes, cumulative limits, prior spending and input identities; rejects reset/exhausted ledgers")
 
 # Standalone restored audit dispatch has no original case tree or Docker setup.

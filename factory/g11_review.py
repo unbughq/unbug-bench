@@ -5,7 +5,6 @@ import math
 import pathlib
 import shutil
 import signal
-import tempfile
 import time
 
 VERDICTS = ("rule_violation", "checker_false_positive", "inconclusive")
@@ -19,16 +18,6 @@ def public_verdict(payload, count):
     counts = {label: sum(r["classification"] == label for r in rows) for label in VERDICTS}
     overall = next((label for label in VERDICTS if counts[label] == count), "inconclusive")
     return {"verdict": overall, "fix_verdicts": counts}
-
-
-def legacy_digest(roots):
-    h = hashlib.sha256()
-    for root in roots:
-        for p in sorted(root.rglob("*")):
-            h.update(str(p.relative_to(root)).encode() + b"\0")
-            if p.is_symlink(): h.update(str(p.readlink()).encode())
-            elif p.is_file(): h.update(p.read_bytes())
-    return h.hexdigest()
 
 
 def digest(roots):
@@ -91,20 +80,8 @@ def review(c, factory):
         if not guards or any(not g.is_dir() or original.resolve() not in g.parents for g in guards):
             raise ValueError("missing preserved candidate fixes")
     protected = [c.case, *guards]
-    legacy = continuing and prior.get("digest_version", 1) == 1
-    if continuing and prior.get("digest_version", 1) not in (1, 2): raise ValueError("unknown audit digest version")
-    if legacy:
-        # Old ambiguous hashes cannot establish copy identity. Restore the separately verified
-        # original encrypted case too and compare its originals with the audit copies using v2.
-        source = factory.jload(original / "scorecard.json", {})
-        if source.get("failed_gate") != "G11" or source.get("roles") != prior["roles"]:
-            raise ValueError("legacy audit needs its verified original source case")
-        reports = sorted((original / "bench-results/fake-pass").glob("*.json"), key=lambda p: p.stat().st_mtime)
-        report = factory.jload(reports[-1], {}) if reports else {}
-        source_guards = [pathlib.Path(row["guard"]).resolve() for row in report.get("guards", [])]
-        if len(source_guards) != len(guards) or any(not g.is_dir() or original.resolve() not in g.parents for g in source_guards):
-            raise ValueError("missing legacy source fixes")
-        protected = [original / "case", *source_guards]
+    if continuing and prior.get("digest_version") != 2:
+        raise ValueError("old audit digest generations are retired")
     before = bench_before = copied_before = None
     baseline_verified = not continuing
     c.case_id = "g11-review-" + source_case
@@ -157,16 +134,8 @@ def review(c, factory):
         copied_before = digest(audit_inputs)
         c.card["audit_inputs_sha256"] = copied_before
         if continuing:
-            evidence_matches = True
-            if legacy:
-                with tempfile.TemporaryDirectory(prefix="legacy-baseline-", dir=c.work) as tmp:
-                    expected = pathlib.Path(tmp)
-                    copy_evidence(original, reports[-1], expected)
-                    evidence_matches = digest([expected]) == digest([c.work / "evidence"])
-            hashes_match = ((legacy_digest(protected) == prior.get("source_inputs_sha256") and
-                             legacy_digest(audit_inputs) == prior.get("audit_inputs_sha256") and
-                             digest([c.case, *guards]) == before and evidence_matches) if legacy else
-                            before == prior.get("source_inputs_sha256") and copied_before == prior.get("audit_inputs_sha256"))
+            hashes_match = (before == prior.get("source_inputs_sha256") and
+                            copied_before == prior.get("audit_inputs_sha256"))
             if not hashes_match or bench_before != prior.get("review_bench_sha256"):
                 raise ValueError("saved audit inputs or trusted bench changed")
             baseline_verified = True

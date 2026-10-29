@@ -117,6 +117,7 @@ class ArchiveTests(unittest.TestCase):
                     'freshness_confirmation':{'status':status}}))
 
     def test_ruling_recorded_for_ordinary_cases(self):
+        self.c.args.max_total_calls = run.argument_parser().parse_args([]).max_total_calls
         founder_decisions.record(self.c)
         self.assertEqual(self.c.card['freshness_archive_ruling']['authority'], 'founder-2026-10-28')
         self.assertEqual(self.c.card['freshness_archive_ruling']['decision'], 'G2 archive check')

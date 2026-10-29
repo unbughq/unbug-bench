@@ -1,0 +1,2397 @@
+[
+  {
+    "card_sha256": "cd21194ff36ac8ff4c284244737cd7ad45eab736a139960140c301e565d59730",
+    "decisions": {
+      "adopter": "stop unknown is not a passing one",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "missing or invalid usage ledger"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {},
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0,
+        "total_spent_usd": 0.0
+      }
+    },
+    "generation": "d93308338261cf32d468ec21ca5e619eea06b6585451a2cf51b644e2102ba9c8",
+    "name": "case-20261014T130816Z-a869de.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "0f12205da4dda3abf4284a329f1292b5da6328b1ed7767252140398ca3dd5e10",
+    "decisions": {
+      "adopter": "stop unknown is not a passing one",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "missing or invalid usage ledger"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {},
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0,
+        "total_spent_usd": 0.0
+      }
+    },
+    "generation": "1764d626273b0bc31343e403993cec2e57e634bf9760d28284a7355bf5697551",
+    "name": "case-20261014T205027Z-6d8046.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "970f3fae64c82a9962856fdf5dfb7042acb12112c16dbd3812d7e0ca0a33d7ef",
+    "decisions": {
+      "adopter": "failed G1: needs a repair decision",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "stress_tester": 1.270940396,
+          "writer": 0.306456966
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 1.577397362,
+        "total_spent_usd": 1.577397362
+      }
+    },
+    "generation": "d581872f757506d235803f95e0de451247902d105f6636deca0aea89caf43963",
+    "name": "case-20261015T122810Z-aeefd5.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "33c464eb861747e564b423b3ab132bfa40565a1dcab43c465c9fce793ae98f9d",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "spent": {
+        "breakdown_by_role": {},
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0,
+        "total_spent_usd": 0.0
+      }
+    },
+    "generation": "b7b1a14ea967d981667c8c8fb0d318b7ae6ac063211b659e48e1c9ca9d12fb59",
+    "name": "case-20261017T114415Z-11a9f1.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "7a2afb717fdcd13a915b5eb6db1a52965db6165f1de4da24c05ceec42990c01e",
+    "decisions": {
+      "adopter": "stop call_limit is not a passing one",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "writer": 1.061795734
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 1.061795734,
+        "total_spent_usd": 1.061795734
+      }
+    },
+    "generation": "7a12f531ed64c3cdbadaa5fa551aec50ee3927a940b5b33f9e914f771cf75ac6",
+    "name": "case-20261017T114422Z-0f3b37.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "491e3ef85b1bd2a5486b2e99fafc622c5b9934c49d0a6b6a52b841bd034a8e9b",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "spent": {
+        "breakdown_by_role": {},
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0,
+        "total_spent_usd": 0.0
+      }
+    },
+    "generation": "25d259709add6b13bf04853377dad0c6ce70bfa39ccc2f50ab8553b9ae09f77e",
+    "name": "case-20261017T114423Z-d4a7b8.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "953103fdb5668de50a866b22e7201dc424c1fd6707d24f3b7c6cf00a1845ad46",
+    "decisions": {
+      "adopter": "stop unknown is not a passing one",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 33.455073922
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 33.455073922,
+        "total_spent_usd": 33.455073922
+      }
+    },
+    "generation": "7f936886fe56d736f09bcfdd4cbffd148b94b0c5e82458f2113f4ea6fa8b49c6",
+    "name": "case-20261017T114426Z-fcde6b.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "4dd69e9d591655015f4eab83f6f2fe31704ce6f2b2e39d9760d1becd0cff8af3",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "writer": 0.642389092
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0.642389092,
+        "total_spent_usd": 0.642389092
+      }
+    },
+    "generation": "4982654da0739b3f7172709e335be1f2022c6fb2186ed5f2ee4b8ba062b209fb",
+    "name": "case-20261017T114431Z-9d2b0e.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "c6612f2ef3c0a6148fea0cc9cb39ada478587b5805917d0fb353ecf251c336cd",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 11.104800809,
+          "stress_tester": 0.246046842,
+          "writer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 11.350847651,
+        "total_spent_usd": 11.350847651
+      }
+    },
+    "generation": "5116be00ed8d30ec1718cb0adcac5c0ab90ceda0e937549889cbf4e836e0c8c4",
+    "name": "case-20261017T114432Z-000990.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "4894d67101f051184e40575383ccb0b7819642c7a7e77e3b257228c51666e89e",
+    "decisions": {
+      "adopter": "failed G1: needs a repair decision",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "writer": 0.93633538
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0.93633538,
+        "total_spent_usd": 0.93633538
+      }
+    },
+    "generation": "1ffd01dc7db823e93d813250d7e6f4ab0402fc2ddda423e4315caed64f0cf5cb",
+    "name": "case-20261017T120254Z-01eae8.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "3b8c2f58b7e6a321733ba6580b39cf765db26263b4c85204c018c9b51b14a1af",
+    "decisions": {
+      "adopter": "stop unknown is not a passing one",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 16.608670036
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 16.608670036,
+        "total_spent_usd": 16.608670036
+      }
+    },
+    "generation": "5e7d716be35403e4f00979612255c6749679d8f5b5df3c8f150f6fc642dcc6f5",
+    "name": "case-20261017T120256Z-86b100.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "f9274bf602498331b75d7681363cecd448476e80fc1598eac1af8aa1a37f5521",
+    "decisions": {
+      "adopter": "failed G5: needs a repair decision",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 49.47698836
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 49.47698836,
+        "total_spent_usd": 49.47698836
+      }
+    },
+    "generation": "de0e87c3f39e81caaad7e04086d65dacbcdad9bf1f022ffab3767cf7bbb03a97",
+    "name": "case-20261017T121257Z-195b92.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "b7c7d6dcf726c58dc1646dbd9cbfa8f485d3397d4c069932283ecd2dbb557445",
+    "decisions": {
+      "adopter": "failed G1: needs a repair decision",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "writer": 9.6659316
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 9.6659316,
+        "total_spent_usd": 9.6659316
+      }
+    },
+    "generation": "d761b1733458fa91271f60c9edd69085de5762fbba9cbf43ea0950bb16eb2a39",
+    "name": "case-20261017T121326Z-832462.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "0ad36e6692bbdc05ad29126c4172524ecb6b2f498094b2217573aa56f730348c",
+    "decisions": {
+      "adopter": "stop unknown is not a passing one",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 1.14041165,
+          "legacy_unattributed": 59.877158617
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 61.017570267,
+        "total_spent_usd": 61.017570267
+      }
+    },
+    "generation": "90fa095feff8923aed90516356e7e975991ee9e342fb7b8f6176579b2c826a40",
+    "name": "case-20261017T125556Z-18681d.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "f059cb96e5cef67caa185c947973d37c29c31b7e8c0608cc4c3138f71b80f621",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "writer": 1.221506738
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 1.221506738,
+        "total_spent_usd": 1.221506738
+      }
+    },
+    "generation": "75bc4d03d3af186a3986f4ed4544add80840048fe6afe314d70d06c9bbbe4135",
+    "name": "case-20261017T153943Z-2c8a49.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "39e6b9fc286d6f1fc0d41565e9da14b1a2f40b0b8ab518b165c823d1ece84e40",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "legacy_unattributed": 13.659073967,
+          "stress_tester": 0.120796848,
+          "writer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 13.779870815,
+        "total_spent_usd": 13.779870815
+      }
+    },
+    "generation": "649809386bf2faf7bffc6144ba1af3c7e3d61424f5494759ea6b0b46a593a195",
+    "name": "case-20261017T212113Z-5813be.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "65728c8192f0b51d832c321a719626a3793b04d21f4320529c2313a5627369ee",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0.00878986,
+          "legacy_unattributed": 12.392408717,
+          "reviewer": 0.03281412,
+          "stress_tester": 0,
+          "writer": 38.1048873
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 50.538899997,
+        "total_spent_usd": 50.538899997
+      }
+    },
+    "generation": "19ae5159e59448be20552b5c607732fdc2d70a3f97b7f908a46897faa048a47f",
+    "name": "case-20261017T212115Z-8acb5c.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "84be7340820886e63183a48a055171c6814c789dc019f965e9092df56accf056",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 2.01243784,
+          "legacy_unattributed": 66.736387597,
+          "stress_tester": 0.064462866
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 68.813288303,
+        "total_spent_usd": 68.813288303
+      }
+    },
+    "generation": "7906dfd68277573ec45aa9ca7335b37f62e28dfb3cc165ccdcff098dd42cf992",
+    "name": "case-20261017T212118Z-1ad7fa.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "8ec61f4b1d64318c32abd49812635bd43aba76513100ad9f1f9761f45d356dd3",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0.00919984,
+          "legacy_unattributed": 10.552812184,
+          "writer": 8.417776
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 18.979788024,
+        "total_spent_usd": 18.979788024
+      }
+    },
+    "generation": "b09d858ac398568830e3206e7cd76f7119644228022539cb09d607b079d33859",
+    "name": "case-20261017T212118Z-ea7425.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "821f2c1b109c967c745f90b0c6573adac7508d6b9114065563b3b923db81b7f9",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "legacy_unattributed": 10.795321686,
+          "writer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 10.795321686,
+        "total_spent_usd": 10.795321686
+      }
+    },
+    "generation": "d3958e161c5b5924df62d842a976750b4f5b54f541881c75802eb06cb5d8eccd",
+    "name": "case-20261018T144333Z-f46dac.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "2209aaa03fc9e86bbcd7e7a79df63b4abc6fc39b88917fcc893b363d9a516853",
+    "decisions": {
+      "adopter": "failed G2: needs a repair decision",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 18.335726351,
+          "reviewer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 18.335726351,
+        "total_spent_usd": 18.335726351
+      }
+    },
+    "generation": "31da41a0ec5aa20c33007fc30851f472d0e776a9c1374ee9aec705137d6d05c6",
+    "name": "case-20261018T144339Z-8f9762.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "0a370fa6e0d8f9caf866980974497d4270570b6d9a15b6d5bf382ee55def909c",
+    "decisions": {
+      "adopter": "stop Budget ledger stopped: codex_error is not a passing one",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 19.549596934,
+          "reviewer": 0.016095966
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 19.5656929,
+        "total_spent_usd": 19.5656929
+      }
+    },
+    "generation": "cdb3541516143f187f9c75a8c224738c2c936aead027bbf64345a5fb37ca236b",
+    "name": "case-20261018T144339Z-e5caf7.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "eebe56deb6de4c59aab4cd7876750bd0ec1a8f2a2f8608482805261668823ca8",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0.0067456,
+          "legacy_unattributed": 10.395879478,
+          "writer": 37.1519775
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 47.554602578,
+        "total_spent_usd": 47.554602578
+      }
+    },
+    "generation": "4df77df40067b76027a639c2fd03fd18c780109ce3a980c65eed18cdca63e203",
+    "name": "case-20261018T144343Z-2b6c68.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "24e4802350a388fe2df28aeca9b4190e5461cd394dd5236b7dd1c6b9543f02d0",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "spent": {
+        "breakdown_by_role": {},
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0,
+        "total_spent_usd": 0.0
+      }
+    },
+    "generation": "4aa8dbe3e4a25c6cb65223d596a5b3e7b80e7b5ce4b9d8bb835032580f364d5b",
+    "name": "case-20261019T022246Z-a6beee.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "a92518868b7e810d66a398f736d33d0967b03579c26299393fa63aafa1985f5d",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "spent": {
+        "breakdown_by_role": {},
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0,
+        "total_spent_usd": 0.0
+      }
+    },
+    "generation": "23c39df69757df1878f7cb2c9bf7c7b32baeaaa565988b27f7b17b1453ffd438",
+    "name": "case-20261019T022247Z-44c16b.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "e6099954557993e0fa0e0a3866acde862a6214d73c429b8cce74d1efaf6bb9ed",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "spent": {
+        "breakdown_by_role": {},
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0,
+        "total_spent_usd": 0.0
+      }
+    },
+    "generation": "e15e2360a98a39c200d33a7466cbc6a47875d2b9acbff38658748fd4b2e7ab5d",
+    "name": "case-20261019T022247Z-e5a2e9.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "6f3756cc96ae67cce41f27b3ba58f7fdc1e5b0d3672f8814dc7a3f3a238cec77",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "writer": 2.638928
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 2.638928,
+        "total_spent_usd": 2.638928
+      }
+    },
+    "generation": "4175971b70212ff6adfc973c83842ebabe0d8af7b873f7e162c4691c65168e1c",
+    "name": "case-20261019T022248Z-953035.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "73d85bd072e6e18f4aad3e8a5dde36913a5025506cc4f2fc4cbbed240f4a71a9",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": false,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "legacy_unattributed": 0.95647098,
+          "stress_tester": 0,
+          "writer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0.95647098,
+        "total_spent_usd": 0.95647098
+      }
+    },
+    "generation": "b50829b90cc456270566440e0638f58c798ab34f8205dc85e49718ae4d190b8a",
+    "name": "case-20261019T055203Z-b5521c.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "45740b5425a52f9b57f62f7a0cd2072889af7dc4dab298d998c84eaa5cb52ae6",
+    "decisions": {
+      "adopter": "failed G15: needs a repair decision",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 0.420900918,
+          "reviewer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0.420900918,
+        "total_spent_usd": 0.420900918
+      }
+    },
+    "generation": "a90b4bc3fe24a24755b9165a364e61159959c23a4584f41f1e7fcc49ef72e8b2",
+    "name": "case-20261019T055205Z-14d35a.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "2a105111bc08571456234652f1adf75d6742fc265ee137259c25620a68924ffc",
+    "decisions": {
+      "adopter": "failed G2: needs a repair decision",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "stress_tester": 0.023551828,
+          "writer": 0.166263238
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0.189815066,
+        "total_spent_usd": 0.189815066
+      }
+    },
+    "generation": "f93b67bccedad80e4b03be394eec98eb71e47fa76df75de75c0693d6bbdc34ee",
+    "name": "case-20261019T055205Z-ce4d82.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "6f65faa538f08d02500376fdc5d1aa5e457f7721fb575982a3184e5fc91e2e09",
+    "decisions": {
+      "adopter": "failed G1: needs a repair decision",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "legacy_unattributed": 0.00961897,
+          "writer": 21.855619
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 21.86523797,
+        "total_spent_usd": 21.86523797
+      }
+    },
+    "generation": "b4f44d7aa9cc91263548535f60db8349d0ea1bd1df4aefb2135d986c7448547c",
+    "name": "case-20261019T055209Z-7d8a30.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "7a290f6523da59430fcce30f1fe27c935adfa27d60f4c22a3cc73f1674ce3014",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "legacy_unattributed": 4.786145126,
+          "writer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 4.786145126,
+        "total_spent_usd": 4.786145126
+      }
+    },
+    "generation": "c913ef0e83baba300d657de0f5bc5dcdfb217c0519e13a4ca6a4163db48c7d3a",
+    "name": "case-20261019T061050Z-1bb2ad.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "ad9bfd21d236be45d9b1250fb279d015f8dede08f0897c4cb2dcff3aff31222a",
+    "decisions": {
+      "adopter": "failed G8: needs a repair decision",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "legacy_unattributed": 0.90097449,
+          "reviewer": 5.4560938,
+          "stress_tester": 0,
+          "writer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 6.35706829,
+        "total_spent_usd": 6.35706829
+      }
+    },
+    "generation": "0d1ff60f6140a82ef42a5fffcaa67598251ff3a49863f5f80c47f58acb96311f",
+    "name": "case-20261019T061055Z-798600.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "f2ea41db3e57fcb03bae9a814678d4594871c1e523b85ab1e23e98c6f7cd6ba4",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0.02710662,
+          "legacy_unattributed": 0.923276741,
+          "stress_tester": 2.9143738,
+          "writer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 3.864757161,
+        "total_spent_usd": 3.864757161
+      }
+    },
+    "generation": "ac35a130442403fcaf7adc81888fd73addd05c130135d1e088027bdeee4e8b8b",
+    "name": "case-20261019T061056Z-e3b57a.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "bbcc3214e0cd6bec25882d1f6087a7c2eb5c3307995cf0c72b30374583f0a77f",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "legacy_unattributed": 1.115088766,
+          "stress_tester": 0.06354402
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 1.178632786,
+        "total_spent_usd": 1.178632786
+      }
+    },
+    "generation": "39a5b9b2906b6b05d02dcc133e5e7594f31dd157b3a6c25512ba4e09df9818c4",
+    "name": "case-20261019T061109Z-e9d919.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "125c96036d0c839070b9b554343d6c5e4c5420ca2ceaf4832e0716aa22d1325f",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 0.995370312,
+          "stress_tester": 0.772967583
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 1.768337895,
+        "total_spent_usd": 1.768337895
+      }
+    },
+    "generation": "c232b2b1e8ea9bf7a798d94cd0e9815c92ac94058b564ee1bf500e7b7327569f",
+    "name": "case-20261019T061116Z-3826d5.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "6a45c08db0bd499d9221c6924e4443756919012f2a8ce470308719461b32a9b5",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "legacy_unattributed": 0.01934443,
+          "writer": 11.606159
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 11.62550343,
+        "total_spent_usd": 11.62550343
+      }
+    },
+    "generation": "11e06246a319ef0dbeba7da109655ef5e21ebd299eea5468e23ba30d404b2df3",
+    "name": "case-20261019T061455Z-c4a72b.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "48c4451a32fd3f463de289636cae9d52426b9c40e22444ec32f8460704c3a096",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 13.069528666,
+          "reviewer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 13.069528666,
+        "total_spent_usd": 13.069528666
+      }
+    },
+    "generation": "6a7f97cfe3afcab91912078f67ee6996f5c7d1a693b710cd05421e49b1f1c04e",
+    "name": "case-20261019T061459Z-cb5e26.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "3aa4b30d5f43251d1f19d3fa0ad60d0a8aaf2b4271f314bb803ad655e23bdc25",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0.01889238,
+          "legacy_unattributed": 0,
+          "writer": 21.1757127
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 21.19460508,
+        "total_spent_usd": 21.19460508
+      }
+    },
+    "generation": "7eb0e12db6779d70d49b99f38e8eb0a22d7c209ba5bdc26c050a6be7ca05eb25",
+    "name": "case-20261019T061510Z-6a8a7d.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "62e42ccf814e91c8241c77317257107d2e3c9ce94de3f0dc2600c59c8085ccbd",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0.03644675,
+          "legacy_unattributed": 6.095600386,
+          "stress_tester": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 6.132047136,
+        "total_spent_usd": 6.132047136
+      }
+    },
+    "generation": "59c1f974b26477c3950a119211f00075cb8e592431bc16078d0d30b863bd2401",
+    "name": "case-20261019T064341Z-2a7b2a.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "701d232589bc2f27d039a6f69019c7916c86b396303157d245578cb84a6d7a69",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "legacy_unattributed": 0.02490103,
+          "stress_tester": 0.128663538,
+          "writer": 15.7504725
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 15.904037068,
+        "total_spent_usd": 15.904037068
+      }
+    },
+    "generation": "eb694a2898a37c4368673649bd2494e379da808809389a8577c86f95fb6ca041",
+    "name": "case-20261019T064344Z-03be64.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "b9039b4e558faed764408378b815a61494cda51b4ea5d8217c732cb776e7e3d7",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0.010498,
+          "legacy_unattributed": 1.602666741,
+          "writer": 0.16954794
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 1.782712681,
+        "total_spent_usd": 1.782712681
+      }
+    },
+    "generation": "acf538b5938c11c6ef059321f388c95a0e4337d7b9f720582972bce724b82278",
+    "name": "case-20261019T065843Z-22e434.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "5ebb0976da2ae4c005d1d6cc9e4d978f99fc6f64ee0ee68ecc6d47568a6a246c",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "legacy_unattributed": 0.656525442,
+          "writer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0.656525442,
+        "total_spent_usd": 0.656525442
+      }
+    },
+    "generation": "f118ca399b92652791662886c82754f1ff6388a3601d7550fb523bbee10b7bb3",
+    "name": "case-20261019T072318Z-04d417.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "ef498dc33d95ced9485c28e4dd09e61f452424d6652898ace3cccf0799525d21",
+    "decisions": {
+      "adopter": "failed G1: needs a repair decision",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "writer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0,
+        "total_spent_usd": 0.0
+      }
+    },
+    "generation": "5ea5cfa90ed79a3e6daebfb2be74d292ad303bb718d003aaca0a350f58e932ba",
+    "name": "case-20261020T094641Z-5a6ef3.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "7091a47f2e7d29fb2a8d66edee47ee0c14aaaf747631786b462233f92c087408",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0.02307384,
+          "writer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0.02307384,
+        "total_spent_usd": 0.02307384
+      }
+    },
+    "generation": "804c597e8520765f1f5fff4f3e33f9edd810d6313ee4fb79812d870a452849b0",
+    "name": "case-20261020T094644Z-2abb0a.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "f80957b40d795df2524ca8f5f28fbc030e87f7cda8dfce018ff55d0d3c6d6f1a",
+    "decisions": {
+      "adopter": "failed G2: needs a repair decision",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0.00365143,
+          "reviewer": 0.4019346,
+          "stress_tester": 0.18103545,
+          "writer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0.58662148,
+        "total_spent_usd": 0.58662148
+      }
+    },
+    "generation": "5c3fff6cb592b6fe805e7aa6915d42991bb3e531640bbefe7e2398d9db75e551",
+    "name": "case-20261020T094704Z-a61f54.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "07100261f2bffd3d716c19184ed1751e0070e37c6316a53a52e26424096f842a",
+    "decisions": {
+      "adopter": "failed G2: needs a repair decision",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 0.2960384,
+          "reviewer": 0.003238854
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0.299277254,
+        "total_spent_usd": 0.299277254
+      }
+    },
+    "generation": "6846f904f73c47de47c34e9195fa1f79622e5d9ceb68c205658d229d026a0aa6",
+    "name": "case-20261020T094712Z-eadaf2.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "843a6eb5676bade7bfa8a49424b879237a33b5bdf8b11ebded02a46c1a94e4c7",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0.00639016,
+          "legacy_unattributed": 0,
+          "writer": 0
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0.00639016,
+        "total_spent_usd": 0.00639016
+      }
+    },
+    "generation": "31880e3e0bfa38eae759c90711679902266651aed1c86c4d838f220ee5dfe68e",
+    "name": "case-20261020T094950Z-cae763.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "65eff8b973c0220a4b69578dbc177c2b68b2c3bb9a8a07d36b414060699236e2",
+    "decisions": {
+      "adopter": "failed G8: needs a repair decision",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0.00765386,
+          "legacy_unattributed": 0,
+          "reviewer": 5.5756354,
+          "stress_tester": 0,
+          "writer": 0.229796412
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 5.813085672,
+        "total_spent_usd": 5.813085672
+      }
+    },
+    "generation": "0667f38ffda45cc455ce9802053507f61e7ba7bf9c4cfbf589dd6a9e334e30ef",
+    "name": "case-20261020T094956Z-055481.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "edbaa13cbcbd9a793bcc835486cc5ee38b1d0518a713a4e51dddf5aa2bca36fe",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "legacy_unattributed": 0.00862927,
+          "writer": 0.672248244
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 0.680877514,
+        "total_spent_usd": 0.680877514
+      }
+    },
+    "generation": "7981dc6e05b0518e35d86fc343ec4e3254fb93e1dd1437e853d77161d4e1eb43",
+    "name": "case-20261020T095024Z-25fbfa.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "4c7660baac0efea1ba9474a0d4580cf8a1b288852f3a616967ab23d1eaec77c0",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "an explicit pause requires a deliberate resume"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "legacy_unattributed": 4.0948142,
+          "writer": 0.12169383
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 4.21650803,
+        "total_spent_usd": 4.21650803
+      }
+    },
+    "generation": "636a7703534bee90a503508c2c83a454c5af55159548b1ed1f094cb78a5e91af",
+    "name": "case-20261020T095039Z-091b3f.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "1a9416c86e80686b11c152e4aa93177b696683115fa514ca4c9cd0fd9b74b095",
+    "decisions": {
+      "adopter": null,
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "restart": {
+        "eligible": true,
+        "ledger_agrees": true,
+        "result": false
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 0.0042428,
+          "reviewer": 0.186935674,
+          "stress_tester": 0,
+          "writer": 39.1284705
+        },
+        "infrastructure_waste": [
+          {
+            "derivation": {
+              "bound_charge_usd": 20,
+              "calls_added": 15,
+              "card_path": "/Users/bugsincode/Developer/unbug-bench-c7d405-restore-3-20261024/sealed/case-20261023T223056Z-c7d405.scorecard.json",
+              "card_sha256": "6c605548c003f5f06153c7bd3164d869581d7bb1d5dc1370ae7acf2450cb3342",
+              "case": "case-20261023T223056Z-c7d405",
+              "case_spent_usd": 38.94274723,
+              "checkpoint_sha256": "413e250a3fa2160a04122f2addd4028b57aef24b11037fd6024e8b6639a6fd26",
+              "completed_writer_elapsed_seconds": 1060.924,
+              "completed_writer_timing_path": "/Users/bugsincode/Developer/unbug-bench-c7d405-restore-2-20261024/sealed/case-20261023T223056Z-c7d405.progress.json",
+              "corrected_spent_usd": 58.94274723,
+              "derivation": "ceil(max(maximum historical writer invocation list cost, maximum historical writer invocation list cost / available completed writer duration * interrupted duration)); USD whole-dollar round-up. Deliberately pairs maximum cost with available completed duration rather than claiming unobserved per-invocation timing. Full largest invocation floor further overcounts the five-minute interruption.",
+              "duration_envelope_usd": 5.455340496280603,
+              "envelope_usd_per_second": 0.018182044048395556,
+              "infrastructure_waste_usd": 20,
+              "interrupted_seconds": 300.04,
+              "known_spent_usd": 38.94274723,
+              "ledger_events_after": 283,
+              "ledger_events_before": 283,
+              "limitation": "Empirical conservative allowance, not recovered exact token usage or a provider-enforced maximum. Older per-invocation timings are unavailable without forbidden transcript/checkpoint access.",
+              "maximum_event_id": "7ebc3b96-73a0-4eee-bdb6-930909b07ba4:result",
+              "maximum_observed_writer_list_cost_usd": 19.289766900000007,
+              "progress_path": "/Users/bugsincode/Developer/unbug-bench-c7d405-restore-3-20261024/sealed/case-20261023T223056Z-c7d405.progress.json",
+              "real_G2": {
+                "confirmed_hits": 0,
+                "counted": {
+                  "attacker": 7,
+                  "builder_github": 0,
+                  "builder_web": 2
+                },
+                "flagged_hits": 10,
+                "hits": 10,
+                "invalid_evidence": 26,
+                "invalid_evidence_reasons": {
+                  "evidence_expired": 26
+                },
+                "outcome": "evidence_incomplete",
+                "searches": 35,
+                "uncounted_who_kind": [],
+                "unresolved_hits": 10
+              },
+              "remaining_usd": 11.05725277,
+              "restore_built": false,
+              "terminal_stop": "timeout",
+              "unpriced_invocations": [
+                {
+                  "model": "claude/claude-opus-5-5",
+                  "role": "writer"
+                }
+              ]
+            },
+            "id": "c7d405:300s-infrastructure-kill",
+            "infrastructure_waste_usd": 20,
+            "kind": "infrastructure_kill",
+            "reason": "Evidenced flat-300s freshness repair deadline bug; founder excludes our infrastructure waste from the case cap.",
+            "resolved_unpriced_invocations": [
+              {
+                "model": "claude/claude-opus-5-5",
+                "role": "writer"
+              }
+            ]
+          }
+        ],
+        "infrastructure_waste_usd": 20.0,
+        "spent_usd": 39.319648974,
+        "total_spent_usd": 59.319648974
+      }
+    },
+    "generation": "bfaace582d94c5c33840dad3e2c20a6644eff280ebf738fa2962fd4425dc261b",
+    "name": "case-20261023T223056Z-c7d405.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "201a032f89b89fd435ed03ddbbc72b986b7762fa67d531e34c39a7a220135888",
+    "decisions": {
+      "adopter": "stop freshness_review_unavailable is not a passing one",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "unclassified scorecard fields: account_handoffs, call_cap_ruling, founder_ruling, provider_accounts"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 0.0042408,
+          "reviewer": 0.793857104,
+          "stress_tester": 0.041890088,
+          "writer": 51.9465955
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 52.786583492,
+        "total_spent_usd": 52.786583492
+      }
+    },
+    "generation": "2675a0cbaee17019e42d6412a29433b70bce9c0de9bae58d56b2f86fb17c3608",
+    "name": "case-20261024T043353Z-e15450.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "9942ace91db87ec5ce2509a02d6eefcb872af09378ed3d26e31be6245b2a2e0f",
+    "decisions": {
+      "adopter": "stop freshness_unresolved is not a passing one",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "unclassified scorecard fields: account_handoffs, call_cap_ruling, founder_ruling, provider_accounts"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "reviewer": 0.621617269,
+          "stress_tester": 0.032489508,
+          "strong_calibrator": 0.0042488,
+          "writer": 36.9794781
+        },
+        "infrastructure_waste": [
+          {
+            "derivation": {
+              "bound_charge_usd": 16,
+              "calls_added": 16,
+              "card_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-5-20261024/sealed/case-20261024T085209Z-873d7f.scorecard.json",
+              "card_sha256": "5b988023849c1c6ca8215484920733a853a105f55b1e84853bdac8921f5780bd",
+              "case": "case-20261024T085209Z-873d7f",
+              "case_spent_usd": 27.072383602,
+              "checkpoint_sha256": "4ab78c2ac7550e2ba291b8846706b6d7b7f07d0457b0188f26dfcf7c9d4f44ac",
+              "completed_writer_elapsed_seconds": 308.435,
+              "completed_writer_timing_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-2-20261024/sealed/case-20261024T085209Z-873d7f.progress.json",
+              "corrected_spent_usd": 43.072383602,
+              "derivation": "ceil(max(maximum historical writer invocation list cost, maximum historical writer invocation list cost / available completed writer duration * interrupted duration)); USD whole-dollar round-up. Deliberately pairs maximum cost with available completed duration rather than claiming unobserved per-invocation timing. Full largest invocation floor further overcounts the five-minute interruption.",
+              "duration_envelope_usd": 14.64312780715775,
+              "envelope_usd_per_second": 0.04880505746753774,
+              "infrastructure_waste_usd": 16,
+              "interrupted_seconds": 300.033,
+              "known_spent_usd": 27.072383602,
+              "ledger_events_after": 229,
+              "ledger_events_before": 229,
+              "limitation": "Empirical conservative allowance, not recovered exact token usage or a provider-enforced maximum. Older per-invocation timings are unavailable without forbidden transcript/checkpoint access.",
+              "maximum_event_id": "b741739e-bdec-4272-8b41-4a7703b02d52:result",
+              "maximum_observed_writer_list_cost_usd": 15.053187900000001,
+              "progress_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-5-20261024/sealed/case-20261024T085209Z-873d7f.progress.json",
+              "real_G2": {
+                "confirmed_hits": 0,
+                "counted": {
+                  "attacker": 5,
+                  "builder_github": 0,
+                  "builder_web": 0
+                },
+                "flagged_hits": 1,
+                "hits": 1,
+                "invalid_evidence": 44,
+                "invalid_evidence_reasons": {
+                  "evidence_expired": 27,
+                  "invalid_app_version": 17
+                },
+                "outcome": "evidence_incomplete",
+                "searches": 49,
+                "uncounted_who_kind": [],
+                "unresolved_hits": 1
+              },
+              "remaining_usd": 22.927616398,
+              "restore_built": true,
+              "terminal_stop": "timeout",
+              "unpriced_invocations": [
+                {
+                  "model": "claude/claude-opus-5-5",
+                  "role": "writer"
+                }
+              ]
+            },
+            "id": "873d7f:300s-infrastructure-kill",
+            "infrastructure_waste_usd": 16,
+            "kind": "infrastructure_kill",
+            "reason": "Evidenced flat-300s freshness repair deadline bug; founder excludes our infrastructure waste from the case cap.",
+            "resolved_unpriced_invocations": [
+              {
+                "model": "claude/claude-opus-5-5",
+                "role": "writer"
+              }
+            ]
+          }
+        ],
+        "infrastructure_waste_usd": 16.0,
+        "spent_usd": 37.637833677,
+        "total_spent_usd": 53.637833677
+      }
+    },
+    "generation": "d1f9174de33ca6fe824693b90f14300f77d38bb78db44e3cdea48d51c8eb1e90",
+    "name": "case-20261024T085209Z-873d7f.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "dd94cfb949cf1b3a892f321c9cc6ce3f064d096a62c09b8b03cf53617b2294d8",
+    "decisions": {
+      "adopter": "stop unknown is not a passing one",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 30.916667092,
+          "reviewer": 0.464253898
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 31.38092099,
+        "total_spent_usd": 31.38092099
+      }
+    },
+    "generation": "35de7b723d396e2e71ce09347e73173756f81ff2977d5f86d1ad8350d1387a66",
+    "name": "g11-review-case-20261017T114426Z-fcde6b.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "0d34702b18f2dec3f115ba67d34882ed65c6b64dd0650d62ecd4032fe30c373b",
+    "decisions": {
+      "adopter": "stop total_call_limit is not a passing one",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "legacy checkpoint has no attempt/cause event history",
+          "no authorized budget/caps event"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 37.526349519,
+          "reviewer": 0.403239478
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 37.929588997,
+        "total_spent_usd": 37.929588997
+      }
+    },
+    "generation": "4e67bd722510fb156d9d82d3049e25f13f7215c36a67c6f69d4cde3b8456284a",
+    "name": "g11-review-case-20261017T212115Z-8acb5c.scorecard.json",
+    "source": "vm"
+  },
+  {
+    "card_sha256": "201a032f89b89fd435ed03ddbbc72b986b7762fa67d531e34c39a7a220135888",
+    "decisions": {
+      "adopter": "stop freshness_review_unavailable is not a passing one",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "unclassified scorecard fields: account_handoffs, call_cap_ruling, founder_ruling, provider_accounts"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "legacy_unattributed": 0.0042408,
+          "reviewer": 0.793857104,
+          "stress_tester": 0.041890088,
+          "writer": 51.9465955
+        },
+        "infrastructure_waste": [],
+        "infrastructure_waste_usd": 0.0,
+        "spent_usd": 52.786583492,
+        "total_spent_usd": 52.786583492
+      }
+    },
+    "generation": "2675a0cbaee17019e42d6412a29433b70bce9c0de9bae58d56b2f86fb17c3608",
+    "name": "case-20261024T043353Z-e15450.scorecard.json",
+    "source": "bundles"
+  },
+  {
+    "card_sha256": "9942ace91db87ec5ce2509a02d6eefcb872af09378ed3d26e31be6245b2a2e0f",
+    "decisions": {
+      "adopter": "stop freshness_unresolved is not a passing one",
+      "carry_over": {
+        "admitted": false,
+        "reasons": [
+          "unclassified scorecard fields: account_handoffs, call_cap_ruling, founder_ruling, provider_accounts"
+        ]
+      },
+      "exhausted_pause": false,
+      "freshness_retry": false,
+      "gate_only": false,
+      "holder": {
+        "eligible": false,
+        "reason": "no automatic recovery for failed gates or exhausted budgets"
+      },
+      "restart": {
+        "eligible": false,
+        "reason": "stop needs a repair or budget decision"
+      },
+      "spent": {
+        "breakdown_by_role": {
+          "easy_calibrator": 0,
+          "reviewer": 0.621617269,
+          "stress_tester": 0.032489508,
+          "strong_calibrator": 0.0042488,
+          "writer": 36.9794781
+        },
+        "infrastructure_waste": [
+          {
+            "derivation": {
+              "bound_charge_usd": 16,
+              "calls_added": 16,
+              "card_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-5-20261024/sealed/case-20261024T085209Z-873d7f.scorecard.json",
+              "card_sha256": "5b988023849c1c6ca8215484920733a853a105f55b1e84853bdac8921f5780bd",
+              "case": "case-20261024T085209Z-873d7f",
+              "case_spent_usd": 27.072383602,
+              "checkpoint_sha256": "4ab78c2ac7550e2ba291b8846706b6d7b7f07d0457b0188f26dfcf7c9d4f44ac",
+              "completed_writer_elapsed_seconds": 308.435,
+              "completed_writer_timing_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-2-20261024/sealed/case-20261024T085209Z-873d7f.progress.json",
+              "corrected_spent_usd": 43.072383602,
+              "derivation": "ceil(max(maximum historical writer invocation list cost, maximum historical writer invocation list cost / available completed writer duration * interrupted duration)); USD whole-dollar round-up. Deliberately pairs maximum cost with available completed duration rather than claiming unobserved per-invocation timing. Full largest invocation floor further overcounts the five-minute interruption.",
+              "duration_envelope_usd": 14.64312780715775,
+              "envelope_usd_per_second": 0.04880505746753774,
+              "infrastructure_waste_usd": 16,
+              "interrupted_seconds": 300.033,
+              "known_spent_usd": 27.072383602,
+              "ledger_events_after": 229,
+              "ledger_events_before": 229,
+              "limitation": "Empirical conservative allowance, not recovered exact token usage or a provider-enforced maximum. Older per-invocation timings are unavailable without forbidden transcript/checkpoint access.",
+              "maximum_event_id": "b741739e-bdec-4272-8b41-4a7703b02d52:result",
+              "maximum_observed_writer_list_cost_usd": 15.053187900000001,
+              "progress_path": "/Users/bugsincode/Developer/unbug-bench-873d7f-restore-5-20261024/sealed/case-20261024T085209Z-873d7f.progress.json",
+              "real_G2": {
+                "confirmed_hits": 0,
+                "counted": {
+                  "attacker": 5,
+                  "builder_github": 0,
+                  "builder_web": 0
+                },
+                "flagged_hits": 1,
+                "hits": 1,
+                "invalid_evidence": 44,
+                "invalid_evidence_reasons": {
+                  "evidence_expired": 27,
+                  "invalid_app_version": 17
+                },
+                "outcome": "evidence_incomplete",
+                "searches": 49,
+                "uncounted_who_kind": [],
+                "unresolved_hits": 1
+              },
+              "remaining_usd": 22.927616398,
+              "restore_built": true,
+              "terminal_stop": "timeout",
+              "unpriced_invocations": [
+                {
+                  "model": "claude/claude-opus-5-5",
+                  "role": "writer"
+                }
+              ]
+            },
+            "id": "873d7f:300s-infrastructure-kill",
+            "infrastructure_waste_usd": 16,
+            "kind": "infrastructure_kill",
+            "reason": "Evidenced flat-300s freshness repair deadline bug; founder excludes our infrastructure waste from the case cap.",
+            "resolved_unpriced_invocations": [
+              {
+                "model": "claude/claude-opus-5-5",
+                "role": "writer"
+              }
+            ]
+          }
+        ],
+        "infrastructure_waste_usd": 16.0,
+        "spent_usd": 37.637833677,
+        "total_spent_usd": 53.637833677
+      }
+    },
+    "generation": "d1f9174de33ca6fe824693b90f14300f77d38bb78db44e3cdea48d51c8eb1e90",
+    "name": "case-20261024T085209Z-873d7f.scorecard.json",
+    "source": "bundles"
+  }
+]

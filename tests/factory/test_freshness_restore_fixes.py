@@ -19,7 +19,7 @@ import recovery
 import model_runtime
 from test_admission import evidence
 
-SYNC = ROOT / 'results/infrastructure/2026-10-24-restores-873d7f-e15450/rebuild-4-tools/sync-to-vm.py'
+SYNC = ROOT / 'factory/restore_sync.py'
 
 
 class FreshnessRestoreTests(unittest.TestCase):
@@ -236,19 +236,6 @@ class FreshnessRestoreTests(unittest.TestCase):
             run.ensure_freshness(self.c)
         call.assert_not_called()
 
-    def test_canary_retry_is_pinned_to_the_reported_generation(self):
-        card = {'case': 'case-20261024T085209Z-873d7f', 'status': 'stopped',
-            'terminal_stop': 'freshness_unresolved',
-            'sha256': 'cc975a034581edab8561072468512edec6437d3be8932e02882c2cb4b9cf97a8',
-            'loop_freshness': {'rows': 2, 'requested': 1,
-                'verdict_path': 'g2-confirm-1792916679897600904/verdict.json',
-                'outcome': 'unresolved', 'reason': 'reviewer_unresolved'}}
-        recovery.require_restart_stop(card, [])
-        for changes in ({'sha256': 'f' * 64}, {'case': 'case-other'},
-                        {'failed_gate': 'G2'}, {'gates': {'G2': 'fail'}}):
-            with self.subTest(changes=changes), self.assertRaises(ValueError):
-                recovery.require_restart_stop({**card, **changes}, [])
-
     def test_public_expiry_eligibility_refuses_mixed_reasons(self):
         state = self.expire()
         card = {'status': 'stopped', 'terminal_stop': 'freshness_evidence_unavailable',
@@ -296,10 +283,6 @@ class RestoreSyncTests(unittest.TestCase):
             spec = importlib.util.spec_from_file_location('restore_sync', SYNC)
             module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
         return module
-
-    def test_both_builder_sync_sources_are_identical(self):
-        other = SYNC.parent.parent / 'restore-tools/sync-to-vm.py'
-        self.assertEqual(SYNC.read_bytes(), other.read_bytes())
 
     def test_stopped_before_reseal_uses_matching_prior_card_receipt(self):
         request = self.module().prepare()

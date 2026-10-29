@@ -16,6 +16,11 @@ from test_freshness_restore_fixes import FreshnessRestoreTests
 
 
 class ConfirmDeadlineTests(FreshnessRestoreTests):
+    def test_deadline_formula_cap_and_agent_timeout(self):
+        for rows, agent, seconds in ((1,14400,420),(5,14400,900),(20,14400,1800),(10,600,600)):
+            self.c.args.agent_timeout = agent
+            self.assertEqual(run.confirm_timeout(self.c, rows), seconds)
+
     def cards(self):
         for label, counts in [('canary6', (56, 5, 16, 0, 900)), ('c7d405', (40, 10, 7, 2, 1500))]:
             card = json.loads((Path(__file__).parent / f'fixtures/{label}-confirm-timeout-card.json').read_text())

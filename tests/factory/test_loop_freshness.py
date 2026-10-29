@@ -265,53 +265,6 @@ class LoopFreshnessTests(unittest.TestCase):
         self.assertEqual(self.calls, ['attacker-1', 'attacker-1', 'reviewer-g2-confirm', 'builder-2', 'attacker-2'])
         self.assertEqual(self.c.card['resume_rereview']['binding_changed'], ['models'])
 
-    def test_legacy_partial_coverage_retry_is_pinned_to_one_generation_and_receipt(self):
-        from restart import freshness_retry_stop
-        card = {'case': 'case-20261024T043353Z-e15450', 'status': 'stopped',
-                'terminal_stop': 'freshness_unresolved',
-                'sha256': '761f3e3433c8fbfae9395f5ffa0fe762c7d437eb1b0ee0259ebd0f7ee5cfa1cb',
-                'loop_freshness': {'rows': 1, 'verdict_path': 'g2-confirm-1792868467249884207/verdict.json',
-                                   'outcome': 'unresolved'}}
-        self.assertTrue(freshness_retry_stop(card))
-        for changes in ({'sha256': 'f' * 64}, {'case': 'case-other'},
-                        {'failed_gate': 'G2'}, {'gates': {'G2': 'fail'}}, {'checkpoint_error': 'invalid'},
-                        {'loop_freshness': {**card['loop_freshness'], 'rows': 10}},
-                        {'loop_freshness': {**card['loop_freshness'], 'reason': 'reviewer_unresolved'}},
-                        {'loop_freshness': {**card['loop_freshness'], 'verdict_path': 'new/verdict.json'}}):
-            with self.subTest(changes=changes):
-                self.assertFalse(freshness_retry_stop({**card, **changes}))
-
-    def test_legacy_coverage_gap_gets_one_bounded_binding_migration_after_two_rereviews(self):
-        self.unflagged_requests()
-        with patch.object(run, 'opencode', self.model), \
-             patch.object(run, 'loop_freshness', side_effect=run.BudgetError('freshness_unresolved')), \
-             self.assertRaises(run.BudgetError):
-            run.write_and_attack(self.c, {})
-        path = self.c.work / 'attack-state.json'
-        receipt = json.loads(path.read_text()); receipt['rereviews'] = 2
-        path.write_text(json.dumps(receipt))
-        self.c.manifest0 = 'updated source'
-        previous = {'case': 'case-20261024T043353Z-e15450', 'status': 'stopped',
-                    'terminal_stop': 'freshness_unresolved',
-                    'sha256': '761f3e3433c8fbfae9395f5ffa0fe762c7d437eb1b0ee0259ebd0f7ee5cfa1cb',
-                    'loop_freshness': {'rows': 1, 'verdict_path': 'g2-confirm-1792868467249884207/verdict.json',
-                                       'outcome': 'unresolved'}}
-        def model(c, models, text, cwd, name, **kwargs):
-            if name == 'attacker-1':
-                self.assertEqual(json.loads(path.read_text())['rereviews'], 2)
-                receipt['release_rereviews'] = json.loads(path.read_text())['release_rereviews']
-                self.assertEqual(len(receipt['release_rereviews']), 1)
-            return self.model(c, models, text, cwd, name, **kwargs)
-        with patch.object(run, 'opencode', model):
-            run.write_and_attack(self.c, previous)
-        self.assertEqual(self.calls[-4:], ['attacker-1', 'reviewer-g2-confirm', 'builder-2', 'attacker-2'])
-        self.assertFalse(getattr(self.c, 'limits_raised', {}))
-        # Replaying that release binding cannot authorize another exemption.
-        path.write_text(json.dumps(receipt))
-        with patch.object(run, 'opencode') as caller, self.assertRaisesRegex(run.BudgetError, 'binding_changed'):
-            run.write_and_attack(self.c, previous)
-        caller.assert_not_called()
-
     def test_tagged_request_is_removed_after_exclusion(self):
         self.request = '[freshness-review] independent verdict required'
         self.loop()

@@ -505,17 +505,10 @@ exit "$status"
         assert code == 0, err
         assert any(c[0] == "exec" and "'--continue-g11-review'" in c[-1] for c in calls), err
         assert not list((bench / "sealed").glob("g11-audit")), "restore must not decrypt into host sealed/"
-        original = base / "original/case-synthetic"; (original / "case").mkdir(parents=True)
-        (original / "case/promise.md").write_text("synthetic original baseline")
-        source_archive = bench / "sealed/case-synthetic.tar.gz.age"
-        source_tar = subprocess.run(["tar", "-C", str(original.parent), "-czf", "-", original.name], check=True, capture_output=True).stdout
-        subprocess.run(["age", "-r", recipient, "-o", str(source_archive)], input=source_tar, check=True)
-        source_card = {"case": "case-synthetic", "failed_gate": "G11", "sha256": hashlib.sha256(source_archive.read_bytes()).hexdigest()}
-        source_public = bench / "sealed/case-synthetic.scorecard.json"; source_public.write_text(json.dumps(source_card))
         card["digest_version"] = 1; public.write_text(json.dumps(card))
         code, _, err, calls, _ = run(extra=("--restore-review", "case-synthetic"))
-        assert code == 0, err
-        assert sum(c[0] == "ssh" and "case_permissions.py --extract-to ~/work" in c[-1] for c in calls) == 2
+        assert code != 0 and not calls and "retired" in err, "old audit generations must stop before VM creation"
+        card["digest_version"] = 2; public.write_text(json.dumps(card))
         code, _, err, calls, _ = run(extra=("--restore-review", "case-synthetic"),
             BOAT_COMMAND_TIMEOUT_SECONDS='0.5', BOAT_RESTORE_TIMEOUT_SECONDS='3',
             FAKE_EXPECT_RESTORE_TIMEOUT='3', FAKE_RESTORE_SLEEP='1')
@@ -531,9 +524,6 @@ exit "$status"
             assert code != 0, (mode, err)
             assert not any(c[0] in ('new', 'exec', 'scp', 'delete') for c in calls), (mode, err)
         print('PASS slow archive streams use their own timeout; same-VM recovery keeps expiry and rejects active, locked or changed work without taking ownership')
-        source_card["sha256"] = "0" * 64; source_public.write_text(json.dumps(source_card))
-        code, _, _, calls, _ = run(extra=("--restore-review", "case-synthetic"))
-        assert code != 0 and not calls, "legacy baseline must also be authenticated before VM creation"
         card["sha256"] = "0" * 64; public.write_text(json.dumps(card))
         code, _, err, calls, rec = run(extra=("--restore-review", "case-synthetic"))
         assert code != 0 and not calls, "corrupt audit must stop before creating or billing a VM"

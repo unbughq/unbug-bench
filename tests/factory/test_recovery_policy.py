@@ -68,7 +68,6 @@ class RecoveryPolicyTests(unittest.TestCase):
                 self.assertEqual(recovery.ledger_agrees(card, route='holder'), holder)
                 self.assertEqual(card, original, 'decisions must never clear a ledger stop')
         self.assertTrue(recovery.ledger_agrees(self.card('time_limit', 'timeout'), route='holder', mode='review'))
-        self.assertTrue(recovery.ledger_agrees(self.card('paused', 'PauseRequested'), route='restart', model_cutover=True))
         with self.assertRaises(ValueError): recovery.ledger_agrees(self.card(), route='unknown')
 
     def test_rereview_cannot_mask_gate_failure_or_exhausted_budget(self):

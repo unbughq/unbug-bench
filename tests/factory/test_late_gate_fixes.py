@@ -240,11 +240,13 @@ class LateGateTests(unittest.TestCase):
                 self.assertIsNone(pipeline.early_review(c))
         pipeline.evaluate.assert_not_called()
 
-    def test_d1_refuses_old_cap_before_work_and_records_5000(self):
-        c=self.c; c.case_id=next(iter(founder_decisions.CASES)); c.args.max_total_calls=2000
+    def test_d1_caps_every_case_and_preserves_smaller_allowances(self):
+        c=self.c; c.case_id='case-any-new-case'; c.args.max_total_calls=5001
         with self.assertRaisesRegex(ValueError,'D1'): founder_decisions.record(c)
         c.args.max_total_calls=5000; founder_decisions.record(c)
         self.assertEqual(c.card['call_cap_ruling']['authority'],'founder-2026-10-26')
+        c.args.max_total_calls=2000; founder_decisions.record(c)
+        self.assertEqual(c.card['call_cap_ruling']['max_total_calls'],2000)
 
     def test_rehearsal_interruption_preserves_atomic_completed_attempt_once(self):
         from calibration import AttemptSeries
