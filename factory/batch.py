@@ -35,10 +35,15 @@ def save(path, value):
 
 def restore_inventory(root):
     """Find canonical ciphertext through Git's common directory, then this checkout."""
-    common = Path(subprocess.check_output(['git', '-C', str(root), 'rev-parse',
-                                          '--git-common-dir'], text=True).strip())
-    common = (root / common).resolve() if not common.is_absolute() else common.resolve()
-    for directory in dict.fromkeys((common.parent / 'sealed', root / 'sealed')):
+    directories = [root / 'sealed']
+    try:
+        common = Path(subprocess.check_output(['git', '-C', str(root), 'rev-parse',
+                                              '--git-common-dir'], text=True, stderr=subprocess.DEVNULL).strip())
+        common = (root / common).resolve() if not common.is_absolute() else common.resolve()
+        directories.insert(0, common.parent / 'sealed')
+    except (subprocess.CalledProcessError, OSError):
+        pass
+    for directory in dict.fromkeys(directories):
         archives = sorted(directory.glob('*.checkpoint.tar.gz.age'))
         if archives:
             return archives
@@ -47,11 +52,16 @@ def restore_inventory(root):
 
 def build(root, commit, destination):
     """Read git objects, never working-tree files or private case storage."""
+    commit = subprocess.check_output(['git', '-C', str(root), 'rev-parse', '--verify',
+                                      commit + '^{commit}'], text=True).strip()
+    head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+    if commit != head: raise ValueError('batch release commit must equal HEAD')
+    if subprocess.check_output(['git', '-C', str(root), 'status', '--porcelain',
+                                '--untracked-files=all'], text=True).strip():
+        raise ValueError('batch release requires a clean working tree')
     qualification = Path(__file__).resolve().parents[1] / 'tests/factory/test_restore_inventory.py'
     subprocess.run([sys.executable, '-B', str(qualification), '--require-inventory'],
                    check=True, stdout=sys.stderr)
-    commit = subprocess.check_output(['git', '-C', str(root), 'rev-parse', '--verify',
-                                      commit + '^{commit}'], text=True).strip()
     paths = (*BATCH_SOURCE, *HOST_FILES, 'tools/install_source.py')
     data = subprocess.check_output(['git', '-C', str(root), 'archive', '--format=tar', commit, '--', *paths])
     with tarfile.open(fileobj=io.BytesIO(data)) as archive:

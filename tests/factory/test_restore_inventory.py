@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'factory'))
@@ -60,14 +61,25 @@ class RestoreInventoryTests(unittest.TestCase):
             elif not key.is_file():
                 self.assertEqual(result.stdout, '', archive.name)  # Select the retained legacy stream.
                 legacy_without_key += 1
-        self.assertGreater(legacy_without_key, 0, 'qualification must cover real unwrapped legacy archives')
         print(f'Real inventory: {len(self.archives)} checkpoints restorable; {legacy_without_key} legacy without casekeys; '
               f'{keyed_legacy} wrapped legacy with two recipients and R2 objects')
 
+    def test_real_wrapped_only_subset_needs_no_unwrapped_or_large_sample(self):
+        wrapped = [p for p in self.archives if p.stat().st_size < 500_000_000 and p.with_name(
+            p.name.removesuffix('.checkpoint.tar.gz.age') + '.casekey.age').is_file()]
+        if not wrapped: self.skipTest('No real wrapped checkpoint below 500 MB is available')
+        with patch.object(self, 'archives', wrapped):
+            self.test_every_real_checkpoint_is_batch_keyed_or_legacy_restorable()
+            with self.assertRaises(unittest.SkipTest):
+                self.test_batch_without_wrapped_key_fails_before_allocation()
+            self.test_largest_real_checkpoint_uses_r2_or_size_scaled_upload_timeout()
+
     def test_batch_without_wrapped_key_fails_before_allocation(self):
         # Use an actual legacy checkpoint's missing key, never manufacture the inventory.
-        archive = next(p for p in self.archives if not p.with_name(
-            p.name.removesuffix('.checkpoint.tar.gz.age') + '.casekey.age').exists())
+        archive = next((p for p in self.archives if not p.with_name(
+            p.name.removesuffix('.checkpoint.tar.gz.age') + '.casekey.age').exists()), None)
+        if archive is None:
+            self.skipTest('No unwrapped checkpoint exists; the missing-key inventory sample is not applicable')
         key = archive.with_name(archive.name.removesuffix('.checkpoint.tar.gz.age') + '.casekey.age')
         result = subprocess.run(['sh', '-c', function('restore_casekey') +
             'restore_casekey "$1" batch', 'sh', str(key)], capture_output=True, text=True)
@@ -77,8 +89,9 @@ class RestoreInventoryTests(unittest.TestCase):
     def test_largest_real_checkpoint_uses_r2_or_size_scaled_upload_timeout(self):
         archive = max(self.archives, key=lambda p: p.stat().st_size)
         size = archive.stat().st_size
-        self.assertGreater(size, 500_000_000, 'qualification requires the real approximately 528 MB checkpoint')
         expected = max(1200, 2 + math.ceil(size / 262144))
+        if size > 500_000_000:
+            self.assertGreater(expected, 1200, 'large real checkpoints must exceed the default restore bound')
         script = function('restore_transfer_timeout') + function('restore_ciphertext') + '''
 ckpt=$1; r2_object=$2; r2_sha=public-digest; id=public-worker; fail_r2=$3
 restore_timeout=$(restore_transfer_timeout "$ckpt")

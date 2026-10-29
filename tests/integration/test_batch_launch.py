@@ -134,16 +134,52 @@ class BatchLaunchTests(unittest.TestCase):
                          'tests/factory/test_restore_inventory.py'):
                 target = root / name; target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(ROOT / name, target)
-            subprocess.run(['git', 'init', '-q', str(root)], check=True)
+            # Source archives have no .git: ordinary qualification must still skip loudly.
             ordinary = subprocess.run([sys.executable, '-B', str(root / 'tests/factory/test_restore_inventory.py')],
                                       capture_output=True, text=True)
             self.assertEqual(ordinary.returncode, 0, ordinary.stderr)
             self.assertIn('SKIPPING: REAL RESTORE INVENTORY ABSENT', ordinary.stderr)
+            subprocess.run(['git', 'init', '-q', str(root)], check=True)
+            subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+            subprocess.run(['git', '-c', 'user.name=Public test', '-c', 'user.email=public@example.invalid',
+                            'commit', '-qm', 'Public source archive'], cwd=root, check=True)
             release = root / 'must-not-build'
             required = subprocess.run([sys.executable, '-B', str(root / 'factory/batch.py'), 'build',
                                        '--root', str(root), '--release', str(release)], capture_output=True, text=True)
             self.assertNotEqual(required.returncode, 0)
             self.assertIn('REQUIRED REAL RESTORE INVENTORY ABSENT', required.stderr)
+            self.assertFalse(release.exists())
+
+    def test_inventory_falls_back_to_real_local_store_on_git_errors(self):
+        archives = batch.restore_inventory(ROOT)
+        if not archives: self.skipTest('REAL RESTORE INVENTORY ABSENT')
+        local_root = archives[0].parent.parent
+        for error in (subprocess.CalledProcessError(128, ['git']), OSError('git unavailable')):
+            with self.subTest(error=type(error).__name__), patch.object(batch.subprocess, 'check_output', side_effect=error):
+                self.assertEqual(batch.restore_inventory(local_root), archives)
+
+    def test_build_rejects_non_head_and_dirty_trees_before_qualification(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            subprocess.run(['git', 'init', '-q', str(root)], check=True)
+            public = root / 'CONTESTANT.md'; shutil.copy2(ROOT / 'CONTESTANT.md', public)
+            subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+            commit = ['git', '-c', 'user.name=Public test', '-c', 'user.email=public@example.invalid', 'commit', '-qm']
+            subprocess.run([*commit, 'Public source'], cwd=root, check=True)
+            old = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+            subprocess.run([*commit, 'Advance HEAD', '--allow-empty'], cwd=root, check=True)
+            release = root / 'must-not-build'
+            with self.assertRaisesRegex(ValueError, 'commit must equal HEAD'):
+                batch.build(root, old, release)
+            public.write_bytes(public.read_bytes() + b'\nPublic dirty input\n')
+            for staged in (False, True):
+                if staged: subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+                with self.assertRaisesRegex(ValueError, 'clean working tree'):
+                    batch.build(root, 'HEAD', release)
+            subprocess.run(['git', 'restore', '--staged', '--worktree', '.'], cwd=root, check=True)
+            (root / 'untracked-public-input').write_text('Untracked source\n')
+            with self.assertRaisesRegex(ValueError, 'clean working tree'):
+                batch.build(root, 'HEAD', release)
             self.assertFalse(release.exists())
 
     def test_job_caps_keep_the_lower_explicit_value_and_batch_bound(self):
@@ -215,11 +251,14 @@ class BatchLaunchTests(unittest.TestCase):
             self.assertEqual(manifest['cases/medusa-oversell-v2/promise.md'],hashlib.sha256(
                 (ROOT/'cases/medusa-oversell-v2/promise.md').read_bytes()).hexdigest())
             self.assertFalse(any(n.startswith(('sealed/','results/')) for n in manifest))
-            # Building twice from the commit ignores dirty working source and is reproducible.
+            # Qualification and the release must use exactly the clean HEAD source.
             source.write_text(source.read_text()+'\n# dirty host\n')
-            self.assertEqual(batch.build(root,commit,base/'second-release'),digest)
+            with self.assertRaisesRegex(ValueError, 'clean working tree'):
+                batch.build(root,commit,base/'second-release')
+            self.assertFalse((base/'second-release').exists())
             with self.assertRaisesRegex(ValueError,'host differs'): batch.verify(release,digest,root)
             subprocess.run(['git','restore','factory/run.py'],cwd=root,check=True)
+            self.assertEqual(batch.build(root,commit,base/'second-release'),digest)
             (root/'sealed').mkdir()
             statement=root/'sealed/case-old.statement.age'
             subprocess.run(['age','-r',recipient,'-o',str(statement)],
