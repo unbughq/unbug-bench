@@ -194,6 +194,41 @@ class AccountingTests(unittest.TestCase):
         self.assertEqual(ledger['invocation_reservations'][lease.lease_id]['estimated_gap_usd'], '0.000000000')
         self.assertEqual(format(budget.usd('-0'), '.9f'), '0.000000000')
 
+    def test_fractional_late_waste_receipts_and_original_attribution_replay(self):
+        self.path.write_text(json.dumps({'cost': 0, 'calls': 0, 'events': []}))
+        operation = str(uuid.uuid4()); lease, _ = self.reserve(10, operation)
+        values = [('e0', .1234567894), ('e1', .2234567894), ('e2', .3234567894)]
+        call = self.receipt(lease, values, final=True); wait = self.wait(lease, call)
+        budget.settle(wait, work=self.work, ledger_path=self.path)
+        original_total = budget.case_spending(self.ledger())['total_spent_usd']
+        attribution = {'schema_version': 1, 'kind': 'factory_bug', 'id': str(uuid.uuid4()),
+            'diagnosis_sha256': 'd' * 64, 'fix_commit': 'f' * 40, 'fix_attribution_sha256': 'a' * 64,
+            'operation_ids': [operation], 'event_ids': [i for i, _ in values],
+            'infrastructure_waste_usd': sum(v for _, v in values)}
+        budget.reclassify_factory_bug(self.path, attribution)
+        self.assertEqual(budget.case_spending(self.ledger())['total_spent_usd'], original_total)
+        for identity, amount in [('e3', .5), ('e4', .0000000004), ('e5', .1234567894)]:
+            values.append((identity, amount)); self.receipt(lease, values, final=True)
+            budget.settle(wait, work=self.work, ledger_path=self.path)
+            self.assertEqual(budget.settle(wait, work=self.work, ledger_path=self.path), 0)
+            budget.reclassify_factory_bug(self.path, attribution)  # Original coordinator request.
+            summary = budget.case_spending(self.ledger())
+            self.assertEqual(summary['total_spent_usd'], round(sum(v for _, v in values), 9))
+            self.assertEqual(summary['infrastructure_waste_usd'], summary['total_spent_usd'])
+            self.assertEqual(repr(summary['spent_usd']), '0.0')
+            self.assertEqual(repr(summary['breakdown_by_role']['writer']), '0.0')
+
+    def test_malformed_waste_is_a_budget_error_and_tiny_maximum_rounds_up(self):
+        for value in (None, [], {'operation_ids': 4, 'event_ids': []}):
+            with self.assertRaisesRegex(budget.BudgetError, 'invalid_waste_attribution'):
+                budget.reclassify_factory_bug(self.path, value)
+        lease, row = self.reserve(.0000000001)
+        self.assertEqual(row['maximum_usd'], '0.000000001')
+        relative = self.receipt(lease, [], final=True)
+        with budget.ledger_transaction(self.path) as ledger: ledger['infrastructure_waste'] = [None]
+        with self.assertRaisesRegex(budget.BudgetError, 'invalid_waste_attribution'):
+            budget.settle(self.wait(lease, relative), work=self.work, ledger_path=self.path)
+
     def test_idless_and_malformed_inputs_fail_closed_without_raw_exceptions(self):
         with budget.ledger_transaction(self.path) as ledger:
             ledger['events'].append({'cost': 1, 'role': 'writer'}); ledger['cost'] += 1

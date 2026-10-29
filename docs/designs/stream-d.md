@@ -770,3 +770,12 @@ no Murphy row. The initial diff review is recorded verbatim in
 
 The parent adopted the no-fixed-amount amendment in ENGINEERING §3 at a3bb9dc.
 Dispatch still requires both B's qualified channel and E/A's enforced route maxima.
+
+Money precision for the additive accounting helpers: preserve the precision of
+retained provider events through summation. Initial factory-bug attribution and
+every late-receipt extension use the same cumulative, round-once nine-place
+amount. Stored event_ids/amount are derived; id, diagnosis/fix attribution and
+operation_ids are immutable and define replay identity. Existing settled waste
+stays classified while a replay lease is pending. Maxima and unknown gaps round
+up to the nine-place unit. Public card totals remain JSON numbers for compatibility;
+the B channel and reservation money strings use nine fixed decimal places.

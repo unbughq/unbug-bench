@@ -79,7 +79,7 @@ class ManifestTests(unittest.TestCase):
                             'factory/apply_free_model_cutover.py', 'factory/free_model_patch.py'}
         expected_worker |= {'factory/launch_manifest.py', 'factory/restore_sync.py',
                             'factory/runner_supervisor.py', 'factory/batch.py',
-                            'factory/model_router.py',
+                            'factory/model_router.py', 'factory/job_authority.py',
                             'factory/collection.py', 'factory/freshness_retrieval.py',
                             'factory/independent_review.py', 'factory/invalid-runs-compat.json'}
         self.assertEqual({n for n in manifest.worker_files(ROOT) if n.startswith('factory/')},

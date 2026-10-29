@@ -66,8 +66,10 @@ def for_case(c):
     try: matching_deadline = epoch(authority.batch_deadline) == epoch(getattr(c, 'batch_deadline', None))
     except (TypeError, ValueError, AttributeError, OverflowError): matching_deadline = False
     if not matching_deadline or (authority.batch, authority.job, authority.case, authority.source_generation) != (
-            getattr(c, 'batch_id', None), getattr(c, 'job_id', None), c.case_id,
+            getattr(c, 'batch_id', None), getattr(c, 'job_id', None), getattr(c, 'case_id', None),
             getattr(c, 'source_generation', None)):
         raise BudgetError('money_wait')
-    if c.card.get('terminal_stop') == 'retired_batch_bound': raise BudgetError('retired_batch_bound')
+    card = getattr(c, 'card', None)
+    if not isinstance(card, dict): raise BudgetError('money_wait')
+    if card.get('terminal_stop') == 'retired_batch_bound': raise BudgetError('retired_batch_bound')
     return authority

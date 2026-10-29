@@ -19,7 +19,7 @@ import sys
 import tempfile
 import time
 import uuid
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_CEILING
 from token_prices import CODEX_PRICES, codex_cost, claude_cost
 
 
@@ -114,14 +114,25 @@ def ledger_transaction(path):
 
 
 def event_charge(event):
-    return sum((usd(event.get(k, 0)) for k in ('cost', 'list_cost_usd', 'estimated_subscription_cost_usd')), Decimal(0))
+    values = [event.get(k, 0) for k in ('cost', 'list_cost_usd', 'estimated_subscription_cost_usd')]
+    for value in values: usd(value)  # Validate, preserving receipt precision until the cumulative sum.
+    return sum((Decimal(str(value)) for value in values), Decimal(0))
+
+
+def _waste_amount(events, identities):
+    # Same round-once arithmetic for initial attribution, validation and late
+    # receipt extension. Legacy receipts can carry sub-nanodollar precision.
+    return float(usd(math.fsum(float(event_charge(events[i])) for i in identities)))
 
 
 def reserve_invocation(path, lease, maximum_usd, authority, *, operation_id, call_name, parent_call_name=None):
     """Reserve only an admitted lease; the caller and wrapper can safely repeat it."""
     from job_authority import JobAuthority
     if not isinstance(authority, JobAuthority): raise BudgetError('money_wait')
-    maximum, limit = usd(maximum_usd), authority.committed_total_usd
+    usd(maximum_usd)
+    maximum = Decimal(str(maximum_usd)).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
+    maximum = abs(maximum) if not maximum else maximum
+    limit = authority.committed_total_usd
     try:
         identity = uuid.UUID(operation_id)
         if str(identity) != operation_id or identity.version != 4: raise ValueError
@@ -206,17 +217,24 @@ def _settle_leaf(ledger, receipt):
         ledger['calls'] = ledger.get('calls', 0) + event.get('calls', 1)
     if not ids <= events.keys(): raise BudgetError('usage_event_missing')
     booked = sum((event_charge(events[i]) for i in ids), Decimal(0))
-    estimate = max(Decimal(0), usd(row['maximum_usd']) - booked) if not receipt['final_usage_known'] else Decimal(0)
+    estimate = (max(Decimal(0), usd(row['maximum_usd']) - booked).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
+                if not receipt['final_usage_known'] else Decimal(0))
     row.update(event_ids=sorted(ids), estimated_gap_usd=format(estimate, '.9f'),
                state='settled' if receipt['final_usage_known'] else 'estimated')
     # A later final receipt can extend a previously classified operation. Keep
     # the same attribution/record ID and recompute only its settled event sum.
-    for waste in ledger.get('infrastructure_waste', []):
+    waste_records = ledger.get('infrastructure_waste', [])
+    if not isinstance(waste_records, list): raise BudgetError('invalid_waste_attribution')
+    for waste in waste_records:
+        if not isinstance(waste, dict): raise BudgetError('invalid_waste_attribution')
+        if waste.get('kind') == 'factory_bug' and (not isinstance(waste.get('operation_ids'), list)
+                or not isinstance(waste.get('event_ids'), list)):
+            raise BudgetError('invalid_waste_attribution')
         if waste.get('kind') == 'factory_bug' and row['operation_id'] in waste.get('operation_ids', []):
             rows = [r for r in ledger['invocation_reservations'].values() if r['operation_id'] in waste['operation_ids']]
             if all(r['state'] == 'settled' for r in rows):
                 waste['event_ids'] = sorted({i for r in rows for i in r['event_ids']})
-                waste['infrastructure_waste_usd'] = float(sum((event_charge(events[i]) for i in waste['event_ids']), Decimal(0)))
+                waste['infrastructure_waste_usd'] = _waste_amount(events, waste['event_ids'])
     # Unknown invocations written by the streaming accountant are now covered by
     # this reservation. Historical entries without an invocation_id stay unknown.
     ledger['unpriced_invocations'] = [e for e in ledger.get('unpriced_invocations', [])
@@ -264,14 +282,22 @@ def reclassify_factory_bug(path, record):
     This accounting layer checks shape and settled sums, not the reviewed fix's
     provenance. The coordinator must authenticate that evidence before calling.
     """
+    if (not isinstance(record, dict) or not isinstance(record.get('operation_ids'), list)
+            or not record['operation_ids'] or any(not isinstance(i, str) for i in record['operation_ids'])
+            or not isinstance(record.get('event_ids'), list) or any(not isinstance(i, str) for i in record['event_ids'])):
+        raise BudgetError('invalid_waste_attribution')
     with ledger_transaction(path) as ledger:
+        if not isinstance(ledger.get('infrastructure_waste', []), list) or any(
+                not isinstance(r, dict) for r in ledger.get('infrastructure_waste', [])):
+            raise BudgetError('invalid_waste_attribution')
         operations = record.get('operation_ids', [])
         rows = [row for row in ledger.get('invocation_reservations', {}).values() if row['operation_id'] in operations]
         if not rows or {row['operation_id'] for row in rows} != set(operations) or any(row['state'] != 'settled' for row in rows):
             raise BudgetError('waste_operations_pending')
         existing = next((r for r in ledger.get('infrastructure_waste', []) if r.get('id') == record.get('id')), None)
         if existing is not None:
-            if existing != record: raise BudgetError('waste_attribution_mismatch')
+            identity = ('kind', 'schema_version', 'id', 'diagnosis_sha256', 'fix_commit', 'fix_attribution_sha256', 'operation_ids')
+            if any(existing.get(k) != record.get(k) for k in identity): raise BudgetError('waste_attribution_mismatch')
             return
         ledger.setdefault('infrastructure_waste', []).append(record)
         if case_spending(ledger)['total_spent_usd'] is None: raise BudgetError('invalid_waste_attribution')
@@ -288,7 +314,7 @@ def case_spending(ledger, models_used=None):
     for name, model in (models_used or {}).items():
         roles.setdefault(model, set()).add(invocation_role(name))
     breakdown, estimated, unpriced = {}, 0.0, len(ledger.get('unpriced_invocations', []))
-    event_roles, event_costs = {}, {}
+    event_roles, event_costs, indexed_events = {}, {}, {}
     listed, priced = 0.0, 0.0
     for event in ledger.get('events', []):
         cost = event.get('cost', 0)
@@ -307,6 +333,7 @@ def case_spending(ledger, models_used=None):
         if event.get('id'):
             event_roles[event['id']] = role
             event_costs[event['id']] = cost + listed_cost + estimate
+            indexed_events[event['id']] = {**event, 'estimated_subscription_cost_usd': estimate}
     for key, observed in (('cost', priced), ('list_cost_usd', listed), ('estimated_subscription_cost_usd', estimated)):
         total = ledger.get(key, observed)
         if not _number(total): unpriced += 1; continue
@@ -338,18 +365,16 @@ def case_spending(ledger, models_used=None):
                     and set(ids) <= event_costs.keys()
                     and all(re.fullmatch(r'[0-9a-f]{64}', record[k]) for k in ('diagnosis_sha256', 'fix_attribution_sha256'))
                     and re.fullmatch(r'[0-9a-f]{40}', record['fix_commit']) is not None
-                    and usd(record['infrastructure_waste_usd']) == usd(sum(event_costs[i] for i in ids))
+                    and usd(record['infrastructure_waste_usd']) == usd(_waste_amount(indexed_events, ids))
                     and {row['operation_id'] for row in related} == set(operations)
                     and set(ids) == {i for row in ledger.get('invocation_reservations', {}).values()
                         if row['operation_id'] in operations and row['state'] == 'settled' for i in row['event_ids']})
-                if valid and any(row['state'] != 'settled' for row in related):
-                    continue  # Retained proposal, not classifiable until usage settles.
                 if valid:
                     for identity in ids:
                         role = event_roles[identity]
                         breakdown[role] -= event_costs[identity]
-                    amount = sum(event_costs[i] for i in ids)
-                    known = round(known - amount, 9)
+                    amount = _waste_amount(indexed_events, ids)
+                    known = round(known - amount, 9) + 0.0
                     waste += amount
                     classified_events.update(ids); classified_operations.update(operations); waste_ids.add(record['id'])
                 else: unpriced += 1
@@ -376,7 +401,7 @@ def case_spending(ledger, models_used=None):
         if isinstance(record, dict) and _number(record.get('infrastructure_waste_usd')):
             waste += record['infrastructure_waste_usd']
     waste = round(waste, 9)
-    breakdown = {role: round(cost, 9) for role, cost in breakdown.items()}
+    breakdown = {role: round(cost, 9) + 0.0 for role, cost in breakdown.items()}
     return {'spent_usd': None if unpriced else known, 'breakdown_by_role': breakdown,
             'infrastructure_waste_usd': waste, 'infrastructure_waste': records,
             'total_spent_usd': None if unpriced else round(known + waste, 9),
