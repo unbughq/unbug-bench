@@ -39,7 +39,7 @@ def load(directory):
     return data, installer, installer['load_manifest'](manifest)
 
 
-def prepare(directory, output):
+def prepare(directory, output, batch_record=None):
     data, installer, files = load(directory)
     with tempfile.TemporaryDirectory(dir=Path(tempfile.gettempdir()).resolve()) as tmp:
         source = Path(tmp) / 'source'
@@ -61,6 +61,10 @@ def prepare(directory, output):
             member = tarfile.TarInfo('worker-release-manifest.json')
             member.size = len(content)
             archive.addfile(member, io.BytesIO(content))
+            if batch_record is not None:
+                content = batch_record.read_bytes()
+                member = tarfile.TarInfo('batch-release.json'); member.size = len(content)
+                archive.addfile(member, io.BytesIO(content))
 
 
 def safe_path(path):
@@ -226,12 +230,13 @@ def main():
     parser.add_argument('operation', choices=('prepare', 'install', 'verify'))
     parser.add_argument('--release', type=Path, required=True)
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--batch-record', type=Path)
     parser.add_argument('--home', type=Path, default=Path.home())
     args = parser.parse_args()
     if args.operation == 'prepare':
         if args.output is None:
             parser.error('--output required')
-        prepare(args.release, args.output)
+        prepare(args.release, args.output, args.batch_record)
     else:
         print(json.dumps(deploy(args.release, args.home, args.operation == 'verify'), sort_keys=True))
 

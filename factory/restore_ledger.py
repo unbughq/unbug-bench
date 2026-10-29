@@ -93,7 +93,7 @@ def authenticate(work, case, generation, public_card, *, founder_ruling=None):
     return copy.deepcopy(imported), receipt
 
 
-def install(work, sealed, case, generation, public_card, *, ruling_path=None, ruling_sha256=None):
+def install(work, sealed, case, generation, public_card, *, ruling_path=None, ruling_sha256=None, release_sha256=None):
     """Publish only after all checks; never replace a newer worker-owned ledger.
 
     A retry after a kill before/after the atomic ledger rename is idempotent. A
@@ -101,6 +101,11 @@ def install(work, sealed, case, generation, public_card, *, ruling_path=None, ru
     This is an import boundary, not model-return/operation-commit recovery.
     """
     require((ruling_path is None) == (ruling_sha256 is None), 'founder ruling requires pinned hash and file')
+    if release_sha256 is not None:
+        require(re.fullmatch('[0-9a-f]{64}', release_sha256) and
+                public_card.get('batch_release_sha256') == release_sha256 and
+                read_object(Path(work) / 'scorecard.json').get('batch_release_sha256') == release_sha256,
+                'checkpoint release differs from batch; explicit migration required')
     accepted = None
     if ruling_path is not None:
         import founder_ruling
@@ -132,11 +137,12 @@ def main():
     parser.add_argument("--generation", required=True)
     parser.add_argument("--founder-ruling", type=Path)
     parser.add_argument("--founder-ruling-sha256")
+    parser.add_argument("--release-sha256")
     args = parser.parse_args()
     try:
         receipt = install(args.home / "work" / args.case, args.home / "sealed", args.case,
                           args.generation, json.load(sys.stdin), ruling_path=args.founder_ruling,
-                          ruling_sha256=args.founder_ruling_sha256)
+                          ruling_sha256=args.founder_ruling_sha256, release_sha256=args.release_sha256)
     except (Refused, OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError) as error:
         # Never print parser values, filesystem paths or unexpected exception text.
         reason = str(error) if isinstance(error, Refused) else "invalid restore accounting input"

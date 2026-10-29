@@ -11,6 +11,7 @@ CHECKED_HELPERS = ('bin/qualified-release.py', 'tools/boat_readiness.py')
 HASH_FILE = 'factory/launcher-sha256.json'
 TRUSTED_FILES = ('factory/control_resume.py',
  'factory/key_holder.py',
+ 'factory/batch.py',
  'factory/launch.sh',
  'factory/collect.sh',
  'bin/boat-launch-guards.sh',
@@ -78,6 +79,9 @@ WORKER_CONFIG = ('factory/free-model-cutover.json',
  'factory/worker-release.json',
  'factory/statements-recipient.txt')
 WORKER_GLOBS = ('factory/*.py', 'factory/*.sh', 'factory/prompts/*.md')
+# Public tracked source only; never export sealed/, results/ or local credentials.
+BATCH_SOURCE = ('bin', 'cases', 'factory', 'guards', 'harbor', 'projects',
+                'scenarios', 'tests', 'CONTESTANT.md', 'SPEC.md', 'README.md')
 
 INHERITED_HELPERS = ('founder-run.py', 'start-in-terminal.sh', 'sync-to-vm.sh')
 PUBLISHER = {'sync-to-vm.py': 'factory/restore_sync.py'}
@@ -102,7 +106,8 @@ RUNTIME_PATHS = {'sealed': 'created by finalization/collection; selected card/ar
  'sealed/$c.scorecard.json': 'separate cohort restore-cases wrapper; selected case verified '
                              'individually',
  'sealed/$resume_case.scorecard.json': 'collected runtime continuation card',
- 'sealed/$restore.casekey.age': 'optional R2 optimization; launcher streams archive if absent',
+ 'sealed/$restore.casekey.age': 'required wrapped case key; archive decryption runs only on worker',
+ 'sealed/g11-review-$restore.casekey.age': 'required wrapped key for the selected audit namespace',
  'sealed/g11-review-$restore.scorecard.json': 'only --restore-review, outside this restore '
                                               'policy',
  'sealed/g11-review-$restore.tar.gz.age': 'only --restore-review, outside this restore policy',

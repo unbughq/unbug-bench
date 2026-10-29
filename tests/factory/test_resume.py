@@ -131,6 +131,33 @@ with patch.object(sys, 'argv', argv): run.main()
 
 
 class ResumeTests(unittest.TestCase):
+    def test_batch_key_failure_raises_and_dry_run_never_requests_case_key(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from run_artifacts import RunArtifacts
+        import r2_upload
+        bench = pathlib.Path(__file__).resolve().parents[2]
+        saved = json.loads((bench / 'tests/factory/fixtures/c7d405-confirm-timeout-card.json').read_text())
+        class BeforeEncryption(BaseException): pass
+        for dry_run in (False, True):
+            with self.subTest(dry_run=dry_run), tempfile.TemporaryDirectory() as tmp:
+                home = pathlib.Path(tmp); work = home / saved['case']; work.mkdir()
+                artifacts = RunArtifacts(home, bench, home / 'sealed', home / 'absent', (),
+                    lambda: [], lambda *a: None, lambda c: 1, lambda c: None)
+                c = SimpleNamespace(work=work, case_id=saved['case'], recipient='public-test-recipient',
+                    args=SimpleNamespace(dry_run=dry_run), card={**saved, 'batch_release_sha256': 'a' * 64})
+                with patch.object(artifacts, 'results_since', return_value=[]), \
+                     patch.object(r2_upload, 'case_recipient', side_effect=OSError('unavailable')) as case_key, \
+                     patch('run_artifacts.subprocess.run', side_effect=BeforeEncryption):
+                    if dry_run:
+                        with self.assertRaises(BeforeEncryption): artifacts.seal(c, checkpoint=True)
+                        case_key.assert_not_called()
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, 'batch checkpoint requires a wrapped case key'):
+                            artifacts.seal(c, checkpoint=True)
+                        case_key.assert_called_once()
+                self.assertFalse(list((home / 'sealed').glob('*.tar.gz.age')))
+
     def test_gate_results_and_failed_detail(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = subprocess.run([sys.executable, '-c', HARNESS, tmp, 'rejected'],

@@ -1,0 +1,322 @@
+"""Real commit/source/launcher/archive/ledger paths, public practice only.
+
+Cloud, model calls and holder socket I/O are offline doubles. No holder daemon,
+provider, Docker workload, private archive or production identity is used.
+Inputs are tracked public practice files and an independently saved public card.
+"""
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
+import batch
+import key_holder as holder
+import restore_ledger
+from registry import Registry
+
+RUNNER = r'''
+import json, os, pathlib, shutil, sys
+home = pathlib.Path(sys.argv[1]); sys.path[:0] = [str(home/'factory'), str(home/'unbug-bench/bin')]
+import run, worker_release
+run.HOME, run.BENCH, run.SEALED = home, home/'unbug-bench', home/'sealed'
+(run.BENCH/'results').mkdir(exist_ok=True)
+run.sh = lambda *a, **k: 0
+run.bench_manifest = lambda: 'a'*64
+run.pilot_homes = lambda: []
+run.provider_preflight = lambda c: None
+worker_release.verify_selected_drivers = lambda *a, **k: {'public_offline': True}
+def build(c):
+    if not c.args.resume:
+        shutil.copytree(run.BENCH/'cases/medusa-oversell-v2', c.case, dirs_exist_ok=True)
+run.build = build
+def interrupt(c):
+    saved = json.loads((run.BENCH/'tests/factory/fixtures/c7d405-confirm-timeout-card.json').read_text())['continuation_budget']
+    if c.args.resume:
+        ledger = json.loads(c.ledger.read_text())
+        assert ledger['events'][:len(saved['events'])] == saved['events'], 'cumulative usage reset'
+        assert ledger['calls'] >= saved['calls'] and ledger['cost'] >= saved['cost']
+        recorded = json.loads((run.BENCH/'tests/factory/fixtures/e15450-collected-card.json').read_text())['continuation_budget']['events']
+        ids = {e.get('id') for e in ledger['events']}
+        event = next(e for e in recorded if e.get('id') not in ids and isinstance(e.get('cost'), (int, float)) and e['cost'] > 0)
+        ledger['events'].append(event)
+        ledger['calls'] += 1; ledger['cost'] += event['cost']
+        ledger['list_cost_usd'] += event['cost']
+        c.ledger.write_text(json.dumps(ledger))
+    else:
+        c.ledger.parent.mkdir(exist_ok=True)
+        c.ledger.write_text(json.dumps(saved))
+    assert (c.case/'promise.md').read_bytes() == (run.BENCH/'cases/medusa-oversell-v2/promise.md').read_bytes()
+    raise run.BudgetError('timeout')
+run.validate_and_repair = interrupt
+sys.argv = ['run.py', *sys.argv[2:]]
+run.main()
+'''
+
+CLOUD = r'''
+import datetime, json, os, pathlib, shlex, shutil, subprocess, sys
+cloud = pathlib.Path(CLOUD_ROOT)
+args = sys.argv[1:]
+if args[:1] == ['--stdin']: args.pop(0)
+with (cloud/'calls.jsonl').open('a') as f: f.write(json.dumps(args)+'\n')
+cmd = args[0]
+if cmd == 'billing': print(json.dumps({'limits':{'creditBalanceSeconds':1000000}}))
+elif cmd == 'new':
+    vm = cloud/('vm-'+str(len(list(cloud.glob('vm-*')))+1)); vm.mkdir()
+    print(json.dumps({'event':'created','id':vm.name}))
+elif cmd == 'list': print(json.dumps({'sandboxes':[], 'pageInfo':{'hasMore':False}}))
+elif cmd == 'info':
+    print(json.dumps({'sandbox':dict(id=args[1],type='default',ttlSeconds=28800,
+        archiveAfter=(datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(hours=8)).isoformat(),
+        holdsCreatorLogins=False,monitoring=False,snapshots=False,state='ready',health='ok',
+        error=None,setupError=None,setupStatus=None,degradedSince=None,hydrated=True,hydration=None)}))
+elif cmd == 'exec':
+    vm = cloud/args[1]
+    command = args[-1].split('python3 ~/factory/run.py ',1)[1].split('> ~/sealed/',1)[0]
+    argv = shlex.split(command.split(' --bench-workers ',1)[0]) + ['--bench-workers','1']
+    result = subprocess.run([sys.executable,RUNNER,str(vm),*argv], env={**os.environ,'HOME':str(vm)},
+                            capture_output=True)
+    if result.returncode: sys.stderr.buffer.write(result.stderr); sys.stderr.buffer.write(result.stdout)
+    sys.exit(result.returncode)
+elif cmd == 'ssh':
+    vm = cloud/args[1]; command = args[2]
+    if 'print(run.bench_manifest())' in command: print('a'*64); sys.exit()
+    if 'opencode' in command and '--version' in command: sys.exit()  # offline driver boundary
+    if 'docker image inspect unbug-bench-medusa:latest' in command: sys.exit()
+    if 'factory/worker_release.py' in command: print('{"public_offline":true}'); sys.exit()
+    if command.startswith('sudo loginctl '): sys.exit()  # worker-only administration
+    if 'base64 -d | tar' in command: sys.stdin.buffer.read(); sys.exit()  # fake credentials
+    if 'if [ ! -f ~/sealed/DONE ]' in command: sys.exit()
+    if 'ls *.' in command:
+        if not (vm/'sealed').is_dir(): sys.exit()
+        print('\n'.join(p.name for p in (vm/'sealed').iterdir() if p.is_file() and
+            p.name.endswith(('.age','.scorecard.json','.scorecard.txt','.progress.json')))); sys.exit()
+    command = command.replace('/home/user',str(vm)).replace('/dev/shm/casekey',str(vm/'casekey'))
+    if 'cat > '+str(vm/'casekey') in command:
+        data = sys.stdin.buffer.read()
+        assert data != pathlib.Path(IDENTITY).read_bytes(), 'founder identity sent to worker'
+        result = subprocess.run(['/bin/sh','-c',command], input=data, env={**os.environ,'HOME':str(vm)})
+    else:
+        result = subprocess.run(['/bin/sh','-c',command], stdin=sys.stdin.buffer, env={**os.environ,'HOME':str(vm)})
+    sys.exit(result.returncode)
+elif cmd == 'scp':
+    if ':' in args[1]:
+        worker, name = args[1].split(':',1); shutil.copyfile(cloud/worker/name.removeprefix('/home/user/'),args[2])
+    else:
+        worker, name = args[2].split(':',1); target=cloud/worker/name.removeprefix('/home/user/')
+        target.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(args[1],target)
+elif cmd == 'delete':
+    (cloud/args[1]/'deleted').touch()
+    print(json.dumps({'operation':dict(id='op-'+args[1],targetId=args[1],kind='sandbox',status='pending')}))
+elif cmd == 'deletion':
+    print(json.dumps({'operation':dict(id=args[2],targetId=args[2].removeprefix('op-'),kind='sandbox',
+        status='completed',stage='completed',completedAt='2026-10-29T19:00:00Z')}))
+else: raise AssertionError('unexpected offline cloud operation: '+cmd)
+'''
+
+
+class BatchLaunchTests(unittest.TestCase):
+    def test_capacity_counts_durable_unknown_outcomes_without_in_memory_jobs(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(holder,'CONTROL_HOME',Path(temp)):
+            policy={'batch':{'id':'public','sha256':'a'*64}}
+            row={'batch_id':'public','batch_release_sha256':'a'*64,'launch_id':'1'*32,'completed_ok':False}
+            self.assertEqual(holder.batch_live_reservations(policy,[row]),1)
+            self.assertEqual(holder.batch_live_reservations(policy,[{**row,'exit':1}]),1)
+            self.assertEqual(holder.batch_live_reservations(policy,[{**row,'launch_id':None}]),1)
+            complete=Path(temp)/'launches'/row['launch_id']/'complete'
+            complete.parent.mkdir(parents=True); complete.touch()
+            self.assertTrue(holder.reconcile_batch_receipts(policy,[row]))
+            self.assertTrue(row['completed_ok'])
+            self.assertEqual(holder.batch_live_reservations(policy,[row]),0)
+            self.assertNotIn('exit',row)  # Lifecycle completion does not invent a process exit code.
+            self.assertEqual(row['launch_id'],'1'*32)  # Reservation/replay history survives.
+            self.assertFalse(holder.reconcile_batch_receipts(policy,[row]))
+
+    def test_public_fresh_interruption_resume_and_two_jobs_on_one_unlock(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp).resolve(); root = base/'source'; root.mkdir()
+            cloud = base/'cloud'; cloud.mkdir()
+            runner = base/'public-runner.py'; runner.write_text(RUNNER)
+            identity = base/'throwaway-identity'
+            subprocess.run(['age-keygen','-o',str(identity)], check=True, capture_output=True)
+            recipient = subprocess.check_output(['age-keygen','-y',str(identity)], text=True).strip()
+            fake = base/'offline-cloud.py'
+            fake.write_text('CLOUD_ROOT='+repr(str(cloud))+'\nRUNNER='+repr(str(runner))+
+                            '\nIDENTITY='+repr(str(identity))+'\n'+CLOUD)
+            # Snapshot real maintained public sources independently of the release builder.
+            names = subprocess.check_output(['git','ls-files','-z','--',*batch.BATCH_SOURCE,
+                                             *batch.HOST_FILES,'tools/install_source.py'],cwd=ROOT).decode().split('\0')
+            for name in {*filter(None,names),'factory/batch.py'}:
+                target=root/name; target.parent.mkdir(parents=True,exist_ok=True)
+                shutil.copy2(ROOT/name,target)
+            source = root/'factory/run.py'
+            source.write_text(re.sub(r'^FOUNDER_RECIPIENT = "age1[a-z0-9]+"',
+                'FOUNDER_RECIPIENT = "'+recipient+'"',source.read_text(),flags=re.M))
+            # Only the external cloud boundary is replaced, before committing the source.
+            (root/'bin/boat-call').write_text('#!/bin/sh\nexec '+shutil.which('python3')+' '+str(fake)+' "$@"\n')
+            (root/'bin/boat-call').chmod(0o755)
+            (root/'bin/boat-name').write_text('#!/bin/sh\nexit 0\n')
+            subprocess.run(['git','init','-q',str(root)],check=True)
+            subprocess.run(['git','add','.'],cwd=root,check=True)
+            subprocess.run(['git','-c','user.name=Public test','-c','user.email=public@example.invalid',
+                            'commit','-qm','Public source test snapshot'],cwd=root,check=True)
+            commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
+            release=base/'release'; digest=batch.build(root,commit,release)
+            record=batch.verify(release,digest,root)
+            self.assertEqual(record['commit'],commit)
+            manifest=json.loads((release/'source-manifest.json').read_text())['files']
+            self.assertEqual(manifest['cases/medusa-oversell-v2/promise.md'],hashlib.sha256(
+                (ROOT/'cases/medusa-oversell-v2/promise.md').read_bytes()).hexdigest())
+            self.assertFalse(any(n.startswith(('sealed/','results/')) for n in manifest))
+            # Building twice from the commit ignores dirty working source and is reproducible.
+            source.write_text(source.read_text()+'\n# dirty host\n')
+            self.assertEqual(batch.build(root,commit,base/'second-release'),digest)
+            with self.assertRaisesRegex(ValueError,'host differs'): batch.verify(release,digest,root)
+            subprocess.run(['git','restore','factory/run.py'],cwd=root,check=True)
+            (root/'sealed').mkdir()
+            statement=root/'sealed/case-old.statement.age'
+            subprocess.run(['age','-r',recipient,'-o',str(statement)],
+                           input=b'public historical practice statement',check=True)
+            Registry(root/'sealed/statement-registry').import_historical('case-old',statement)
+            plain=base/'credentials'; plain.mkdir()
+            for name in ('claude-token','opencode-go-key','openrouter-key','statements-key'):
+                (plain/name).write_text('offline-public-placeholder\n')
+            (plain/'codex-auth.json').write_text(json.dumps({'tokens':{'access_token':
+                'e30.eyJleHAiOjQxMDI0NDQ4MDB9.synthetic'},'last_refresh':'2026-10-28T00:00:00Z'}))
+            data=subprocess.check_output(['tar','-C',str(plain),'-cf','-',*sorted(p.name for p in plain.iterdir())])
+            credentials=base/'credentials.age'
+            subprocess.run(['age','-r',recipient,'-o',str(credentials)],input=data,check=True)
+            rotation=json.loads((ROOT/'factory/rotation-3writers.json').read_text())
+            roles={r:{**rotation['families'][f],'family':f} for r,f in rotation['slots'][0].items()}
+            roles['easy_calibrator']={'model':'opencode/glm-5.3-flash-free','effort':'default','family':'z-ai'}
+            jobs={n:dict(mode='batch',case='case-public-'+n,roles=roles,max_calls=5000,max_cost=5,
+                         args=['1','--source','port','--rotation-slot','1']) for n in ('a','b')}
+            policy=dict(root=str(root),code_sha256=holder.fingerprint(root),recipient=recipient,
+                        path=os.environ['PATH'],batch=dict(id='public',release=str(release),sha256=digest,
+                        max_concurrency=2),jobs=jobs)
+            policy_path=base/'policy.json'; batch.save(policy_path,policy)
+            results=[]; processes=[]; verifications=[]
+            popen=subprocess.Popen
+            def spawn(argv,*args,**kwargs):
+                if argv[0]=='/usr/bin/caffeinate': return SimpleNamespace(terminate=lambda:None)
+                p=popen(argv,*args,**kwargs)
+                if argv[:2]==['age-keygen','-y']: verifications.append(p)
+                elif argv[:2]==['/bin/sh',str(root/'factory/launch.sh')]: processes.append(p)
+                return p
+            def payload(name,checkpoint=None):
+                with patch.object(holder,'request',side_effect=lambda value:value):
+                    return batch.launch('public',name,checkpoint)
+            generations=[]
+            def checkpoint():
+                if not generations:
+                    generations.append(json.loads((root/'sealed/case-public-a.scorecard.json').read_text())['sha256'])
+                    with patch.object(holder,'ROOT',root):
+                        self.assertEqual(holder.current_generation(batch.bind(policy,'a',generations[0],root)),generations[0])
+                return generations[0]
+            requests=iter([lambda:payload('a'),lambda:payload('b'),lambda:payload('a'),
+                           lambda:payload('a',checkpoint()),lambda:payload('a',checkpoint()),lambda:{'op':'stop'}])
+            class Connection:
+                def __init__(self,value): self.value=json.dumps(value).encode()+b'\n'
+                def __enter__(self): return self
+                def __exit__(self,*a): pass
+                def settimeout(self,*a): pass
+                def recv(self,*a): value,self.value=self.value,b''; return value
+                def sendall(self,value): results.append(json.loads(value))
+            class Server:
+                def __enter__(self): return self
+                def __exit__(self,*a): pass
+                def bind(self,*a): pass
+                def listen(self,*a): pass
+                def settimeout(self,*a): pass
+                def accept(self):
+                    for p in processes:
+                        try: p.wait(timeout=90)
+                        except subprocess.TimeoutExpired:
+                            os.killpg(p.pid,signal.SIGKILL); p.wait()
+                            calls=(cloud/'calls.jsonl').read_text().splitlines()[-4:]
+                            raise AssertionError('\n'.join(f.read_text() for f in (runtime/'jobs').glob('*.log'))+
+                                                 '\nLast offline operations: '+'\n'.join(calls)) from None
+                        if p.returncode:
+                            raise AssertionError('\n'.join(f.read_text() for f in (runtime/'jobs').glob('*.log')))
+                    return Connection(next(requests)()),None
+            runtime=base/'runtime'; runtime.mkdir(mode=0o700)
+            # Exercise the real serialized holder loop without a socket or holder process.
+            key=next(v for v in identity.read_bytes().splitlines() if v.startswith(b'AGE-SECRET-KEY-'))+b'\n'
+            with patch.multiple(holder,ROOT=root,RUNTIME=runtime,SOCKET=runtime/'control.sock',CONTROL_HOME=base/'control'), \
+                 patch.object(holder.socket,'socket',return_value=Server()), \
+                 patch.object(holder.os,'chmod',side_effect=lambda *a:None), \
+                 patch.object(holder,'peer_is_owner',return_value=True), \
+                 patch.object(holder.resource,'setrlimit'), patch.object(holder.signal,'signal'), \
+                 patch.object(holder.subprocess,'Popen',side_effect=spawn), \
+                 patch.object(holder.sys,'stdin',SimpleNamespace(buffer=io.BytesIO(key))), \
+                 patch.dict(os.environ,{'UNBUG_SECRETS_FILE':str(credentials)}):
+                holder.serve(policy_path,.1)
+                self.assertEqual(len(verifications),1,'two jobs must share one identity verification')
+                # Recreate the lost-reap window from durable, actually completed
+                # public launches. The second service has no old child handles.
+                rows=json.loads((runtime/'reservations.json').read_text())
+                rows[0]['completed_ok']=False
+                prior_generation=rows[0]['generation']
+                batch.save(runtime/'reservations.json',rows)
+                latest=json.loads((root/'sealed/case-public-a.scorecard.json').read_text())['sha256']
+                requests=iter([lambda:payload('a',latest),lambda:payload('a',latest),lambda:{'op':'stop'}])
+                holder.sys.stdin.buffer=io.BytesIO(key)
+                holder.serve(policy_path,.1)
+            errors=[(i,r) for i,r in enumerate(results) if 'error' in r]
+            if errors != [(2,results[2]),(4,results[4]),(7,results[7])]:
+                logs='\n'.join(p.read_text() for p in (runtime/'jobs').glob('*.log'))
+                self.fail('unexpected offline results: '+repr(results)+'\n'+logs)
+            for index in (2,4,7):
+                self.assertIn('checkpoint already used',results[index]['error'])
+            self.assertTrue(all(results[i].get('started') for i in (0,1,3,6)))
+            self.assertEqual(len(processes),4)
+            self.assertTrue(all(p.returncode==0 for p in processes))
+            receipts=json.loads((runtime/'reservations.json').read_text())
+            self.assertEqual(len(receipts),4)
+            self.assertTrue(receipts[0]['completed_ok'])
+            self.assertEqual(receipts[0]['generation'],prior_generation)
+            self.assertEqual({r['case'] for r in receipts},{'case-public-a','case-public-b'})
+            self.assertTrue(all('--batch-release' in r['launch']['argv'] for r in receipts))
+            self.assertEqual({r['launch']['argv'][r['launch']['argv'].index('--batch-sha256')+1]
+                              for r in receipts},{digest})
+            saved=json.loads((ROOT/'tests/factory/fixtures/c7d405-confirm-timeout-card.json').read_text())['continuation_budget']
+            ids={e.get('id') for e in saved['events']}
+            added=[e for e in json.loads((ROOT/'tests/factory/fixtures/e15450-collected-card.json').read_text())
+                   ['continuation_budget']['events'] if e.get('id') not in ids and
+                   isinstance(e.get('cost'),(int,float)) and e['cost']>0][:2]
+            for index,worker in enumerate(sorted(cloud.glob('vm-*'))):
+                card=next((worker/'sealed').glob('*.scorecard.json'))
+                public=json.loads(card.read_text())
+                self.assertEqual(public['batch_release_sha256'],digest)
+                ledger=public['continuation_budget']; extra=added[:max(0,index-1)]
+                self.assertEqual(ledger['calls'],saved['calls']+len(extra))
+                self.assertAlmostEqual(ledger['cost'],saved['cost']+sum(e['cost'] for e in extra))
+                self.assertEqual(ledger['events'],saved['events']+extra)
+                self.assertEqual(ledger['infrastructure_waste'],saved['infrastructure_waste'])
+                self.assertTrue((worker/'deleted').exists())
+            self.assertEqual(receipts[2]['budget_calls'],saved['calls'])
+            self.assertEqual(receipts[2]['budget_cost'],saved['cost'])
+            self.assertEqual(receipts[3]['budget_calls'],saved['calls']+1)
+            self.assertAlmostEqual(receipts[3]['budget_cost'],saved['cost']+added[0]['cost'])
+            # Public-card edits cannot assign batch provenance to an old embedded checkpoint.
+            work=cloud/'vm-3/work/case-public-a'
+            public=json.loads((root/'sealed/case-public-a.scorecard.json').read_text())
+            archived=json.loads((work/'scorecard.json').read_text()); archived.pop('batch_release_sha256')
+            batch.save(work/'scorecard.json',archived)
+            with self.assertRaisesRegex(restore_ledger.Refused,'explicit migration'):
+                restore_ledger.install(work,base/'rejected-import','case-public-a',public['sha256'],public,
+                                       release_sha256=digest)
+
+
+if __name__=='__main__': unittest.main()

@@ -147,9 +147,14 @@ elif cmd == "ssh":
     elif 'factory/case_permissions.py --extract-to' in command:
         assert float(os.environ.get('BOAT_COMMAND_TIMEOUT_SECONDS','120')) == float(os.environ.get('FAKE_EXPECT_RESTORE_TIMEOUT','1200')), 'restore inherited ordinary SSH timeout'
         time.sleep(float(os.environ.get('FAKE_RESTORE_SLEEP','0')))
-        args = [str(vm / a[2:]) if a.startswith('~/') else a for a in shlex.split(command)]
-        args[2] = os.environ['FAKE_PERMISSION_HELPER']
-        sys.exit(subprocess.run(args, stdin=sys.stdin.buffer, umask=0o077).returncode)
+        key = sys.stdin.buffer.read()
+        assert key != pathlib.Path(os.environ['FAKE_IDENTITY']).read_bytes(), 'founder identity sent to worker'
+        command = command.replace('/dev/shm/casekey', str(vm / 'casekey'))
+        command = command.replace('~/factory/case_permissions.py', os.environ['FAKE_PERMISSION_HELPER'])
+        sys.exit(subprocess.run(['/bin/sh', '-c', command], input=key,
+            env={**os.environ, 'HOME':str(vm)}, umask=0o077).returncode)
+    elif command == 'umask 077; cat > ~/restore.age':
+        (vm / 'restore.age').write_bytes(sys.stdin.buffer.read())
     elif "cat > ~/sealed/case-synthetic.continuation-budget.json" in command:
         folder = vm / "sealed"; folder.mkdir(exist_ok=True)
         (folder / "case-synthetic.continuation-budget.json").write_bytes(sys.stdin.buffer.read())
@@ -497,8 +502,13 @@ exit "$status"
         (audit / "case/promise.md").write_text("synthetic case")
         (audit / "notes.txt").write_text("saved review notes")
         archive = bench / "sealed/g11-review-case-synthetic.tar.gz.age"
+        case_identity = base / 'case-identity'
+        subprocess.run(['age-keygen', '-o', str(case_identity)], check=True, capture_output=True)
+        case_recipient = subprocess.check_output(['age-keygen', '-y', str(case_identity)], text=True).strip()
+        wrapped = bench / 'sealed/g11-review-case-synthetic.casekey.age'
+        subprocess.run(['age', '-r', recipient, '-o', str(wrapped), str(case_identity)], check=True)
         tar = subprocess.run(["tar", "-C", str(audit.parent), "-czf", "-", audit.name], check=True, capture_output=True).stdout
-        subprocess.run(["age", "-r", recipient, "-o", str(archive)], input=tar, check=True)
+        subprocess.run(["age", "-r", case_recipient, "-o", str(archive)], input=tar, check=True)
         card = {"case": "case-synthetic", "kind": "g11-independent-review", "status": "stopped", "inputs_unchanged": True, "digest_version": 2,
                 "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(), "continuation_budget": {"cost": .32, "calls": 49},
                 "review_bench_sha256": 'a' * 64}
@@ -507,6 +517,16 @@ exit "$status"
         assert code == 0, err
         assert any(c[0] == "exec" and "'--continue-g11-review'" in c[-1] for c in calls), err
         assert not list((bench / "sealed").glob("g11-audit")), "restore must not decrypt into host sealed/"
+        keyed_archive = archive.read_bytes()
+        wrapped.rename(wrapped.with_suffix('.missing'))
+        archive.unlink()
+        subprocess.run(['age', '-r', recipient, '-o', str(archive)], input=tar, check=True)
+        card['sha256'] = hashlib.sha256(archive.read_bytes()).hexdigest(); public.write_text(json.dumps(card))
+        code, _, err, calls, _ = run(extra=("--restore-review", "case-synthetic"))
+        assert code == 0, 'legacy unwrapped audit must remain restorable: ' + err
+        wrapped.with_suffix('.missing').rename(wrapped)
+        archive.write_bytes(keyed_archive)
+        card['sha256'] = hashlib.sha256(keyed_archive).hexdigest(); public.write_text(json.dumps(card))
         card["digest_version"] = 1; public.write_text(json.dumps(card))
         code, _, err, calls, _ = run(extra=("--restore-review", "case-synthetic"))
         assert code != 0 and not calls and "retired" in err, "old audit generations must stop before VM creation"

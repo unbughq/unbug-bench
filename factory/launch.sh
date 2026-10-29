@@ -19,6 +19,7 @@ n=${1:?usage: launch.sh N --source port|hunt|plant [...]}; shift
 case $n in *[!0-9]*|'') echo "N must be a positive integer" >&2; exit 1 ;; esac
 [ "$n" -gt 0 ] || exit 1
 qualified_release=""
+batch_release=""; batch_sha=""; checkpoint_sha=""
 founder_ruling_sha=""
 admission_root=$root
 ttl_hours=8; max_spend=3; args=""; purpose=case; label=factory; restore=""; audit_g11=no; continue_review=no; reuse_worker=""; sealed_audit=""
@@ -31,6 +32,9 @@ while [ $# -gt 0 ]; do
     --founder-ruling-sha256) [ $# -ge 2 ] || exit 1; founder_ruling_sha=$2; shift 2 ;;
     --admission-root) [ $# -ge 2 ] && [ -d "$2/sealed" ] || { echo "missing authoritative admission root" >&2; exit 1; }; admission_root=$2; shift 2 ;;
     --qualified-release) [ $# -ge 2 ] && [ -n "$2" ] || { echo "missing qualified release directory" >&2; exit 1; }; qualified_release=$2; shift 2 ;;
+    --batch-release) [ $# -ge 2 ] || exit 1; batch_release=$2; qualified_release=$2; shift 2 ;;
+    --batch-sha256) [ $# -ge 2 ] || exit 1; batch_sha=$2; shift 2 ;;
+    --checkpoint-sha256) [ $# -ge 2 ] || exit 1; checkpoint_sha=$2; shift 2 ;;
     --audit-fairness|--rehearse-only) sealed_audit=$1; args="$args $(quote "$1")"; shift ;;
     --audit-g11) audit_g11=yes; args="$args '--audit-g11'"; shift ;;
     --restore-review) [ $# -ge 2 ] || { echo "missing value for $1" >&2; exit 1; }; restore=$2; continue_review=yes; audit_g11=yes; args="$args '--continue-g11-review'"; shift 2 ;;
@@ -50,6 +54,13 @@ while [ $# -gt 0 ]; do
     *) args="$args $(quote "$1")"; shift ;;
   esac
 done
+if [ -n "$batch_release" ]; then
+  [ "$n" -eq 1 ] || { echo "batch jobs require N=1" >&2; exit 1; }
+  python3 -B "$here/batch.py" verify --root "$root" --release "$batch_release" --sha256 "$batch_sha"
+  args="$args --batch-release-sha256 $(quote "$batch_sha")"
+elif [ -n "$batch_sha" ]; then
+  echo "batch digest requires a batch release" >&2; exit 1
+fi
 if [ -n "$founder_ruling_sha" ] && [ -z "$restore" ]; then
   echo "founder ruling requires a restore" >&2; exit 1
 fi
@@ -114,7 +125,7 @@ factory_ttl_retired() {
 # to a factory VM (it would open sealed cases). Fails here, before any VM exists.
 secrets_file=${UNBUG_SECRETS_FILE:-$HOME/.config/unbug-bench/secrets.age}
 [ ! -t 0 ] || { echo "pipe the founder age identity on stdin (it decrypts $secrets_file in memory)" >&2; exit 1; }
-identity=$(cat)  # in memory only: decrypts the key bundle and, with --restore, a checkpoint
+identity=$(cat)  # in memory only: opens credentials and the small wrapped case key
 secrets_b64=$(printf '%s\n' "$identity" | age -d -i /dev/stdin "$secrets_file" | base64) || true
 [ -n "$secrets_b64" ] || { echo "could not decrypt $secrets_file (run bin/setup-secrets?)" >&2; exit 1; }
 codex_login_gate() {
@@ -130,9 +141,30 @@ held_secrets_b64=$secrets_b64
 held_secret_labels=$(printf '%s' "$held_secrets_b64" | base64 -d | tar -tf - | sed '/^\._/d' | tr '\n' ' ')
 r2_env=$(printf '%s' "$secrets_b64" | base64 -d | tar -xOf - r2-env 2>/dev/null) || r2_env=""
 r2_sign() { [ -n "$r2_env" ] && (set -a; eval "$r2_env"; exec "$root/bin/r2-presign" "$@"); }
+restore_casekey() {
+  if [ -f "$1" ] && [ ! -L "$1" ]; then printf '%s\n' "$1"
+  elif [ -n "$2" ]; then echo 'wrapped case key required for batch restore; no VM created' >&2; return 1
+  fi
+}
+restore_transfer_timeout() {
+  python3 - "$1" "${BOAT_RESTORE_TIMEOUT_SECONDS:-1200}" <<'PYCODE'
+import os, sys
+# At least 20 minutes by default; budget a conservative 256 KiB/s for large archives.
+size = os.stat(sys.argv[1]).st_size
+print(max(int(sys.argv[2]), 2 + (size + 262143) // 262144))
+PYCODE
+}
+restore_ciphertext() {
+  if [ -n "$r2_object" ] && url=$(r2_sign GET "$r2_object" "$((restore_timeout + 300))") &&
+      BOAT_COMMAND_TIMEOUT_SECONDS=$restore_timeout boat ssh "$id" "set -e; umask 077; curl -fsS --retry 3 -o ~/restore.age '$url'; test \"\$(sha256sum < ~/restore.age | cut -c1-64)\" = $r2_sha" >/dev/null; then
+    :
+  else
+    BOAT_COMMAND_TIMEOUT_SECONDS=$restore_timeout boat --stdin ssh "$id" 'umask 077; cat > ~/restore.age' < "$ckpt" >/dev/null
+  fi
+}
 # --restore CASE_ID resumes a case from sealed/CASE_ID.checkpoint.tar.gz.age, or from its final
-# CASE_ID.tar.gz.age after a failed gate (same work tree): decrypted here in a pipe straight into the
-# new VM's ~/work (never written or shown on this host), then run.py --resume reruns writer and gates.
+# CASE_ID.tar.gz.age after a failed gate. Batch plaintext stays on workers;
+# legacy unwrapped archives keep their prior streaming path until VM migration.
 if [ -n "$restore" ] && [ "${UNBUG_RESUME_LAUNCH:-}" != 1 ]; then
   founder_recipient=$(sed -n 's/^FOUNDER_RECIPIENT = "\(age1[a-z0-9]*\)".*/\1/p' "$here/run.py")
   restore_recipient=$(printf '%s\n' "$identity" | age-keygen -y 2>/dev/null) || restore_recipient=""
@@ -167,6 +199,13 @@ if json.load(open(sys.argv[1])).get('digest_version') != 2:
 PYCODE
   fi
   [ -f "$ckpt" ] && [ -f "$card" ] || { echo "no sealed archive or $card for $restore" >&2; exit 1; }
+  casekey=$root/sealed/$restore.casekey.age
+  if [ "$continue_review" = yes ]; then casekey=$root/sealed/g11-review-$restore.casekey.age; fi
+  casekey=$(restore_casekey "$casekey" "$batch_release")
+  if [ -n "$casekey" ]; then
+    cp "$casekey" "$UNBUG_LAUNCH_STATE/restore-casekey.age"
+    casekey=$UNBUG_LAUNCH_STATE/restore-casekey.age
+  fi
   # Freeze public metadata once; collection can publish a newer card while the
   # worker is preparing. The launch lock owns this per-launch snapshot.
   cp "$card" "$UNBUG_LAUNCH_STATE/restore-input-scorecard.json"
@@ -214,12 +253,14 @@ PYCODE
   # exact ciphertext selected for restore. Never spend on a mismatched pair.
   cp "$ckpt" "$UNBUG_LAUNCH_STATE/restore-input.tar.gz.age"
   ckpt=$UNBUG_LAUNCH_STATE/restore-input.tar.gz.age
-  python3 - "$card" "$ckpt" "$restore" <<'PYCODE'
+  python3 - "$card" "$ckpt" "$restore" "${checkpoint_sha:-}" <<'PYCODE'
 import hashlib, json, sys
 with open(sys.argv[1]) as stream: card = json.load(stream)
 with open(sys.argv[2], 'rb') as stream: actual = hashlib.file_digest(stream, 'sha256').hexdigest()
 if card.get('case') != sys.argv[3] or card.get('sha256') != actual:
     sys.exit('restore card/archive generation mismatch; no VM created')
+if sys.argv[4] and actual != sys.argv[4]:
+    sys.exit('requested checkpoint generation changed; no VM created')
 PYCODE
   purpose=$(python3 - "$card" "$restore" "$audit_g11" <<'PYCODE'
 import json, sys
@@ -354,7 +395,9 @@ fi
 bundle="$state/factory.tgz"
 # Freeze a public release manifest alongside the exact runner bundle. Source edits
 # during capture fail qualification instead of silently mixing worker versions.
-if [ -n "$qualified_release" ]; then
+if [ -n "$batch_release" ]; then
+  python3 -B "$here/batch.py" prepare --root "$root" --release "$batch_release" --sha256 "$batch_sha" --output "$bundle"
+elif [ -n "$qualified_release" ]; then
   qualified_adapter prepare --release "$qualified_release" --output "$bundle"
 else
   python3 "$here/worker_release.py" --root "$root" --stamp "$state/worker-release-manifest.json"
@@ -410,6 +453,9 @@ fi
 SHCODE
 )
 factory_auto_resume() {
+  # Batch continuation is an explicit launch of its collected checkpoint until
+  # the standing coordinator stop rules are approved and implemented.
+  [ -z "${batch_release:-}" ] || return 1
   [ -z "$sealed_audit" ] || return 1
   [ "${UNBUG_CLOUD:-hetzner}" = boat ] || return 1
   resume_id=$1
@@ -633,18 +679,21 @@ PYCODE
     args="$args --resume $(quote "$restore") --resume-bench-sha $(quote "$bench_sha")"
     restore_to='~/work'; restored_case='case'
     if [ "$continue_review" = yes ]; then restore_to="~/work/$restore"; restored_case='g11-audit/case'; fi
-    # 2026-10-20: with an R2 copy and a per-case key, send only that small key; the VM downloads the ciphertext from R2,
-    # checks it against the scorecard's sha256 and decrypts it. Otherwise stream the archive from this host as before.
-    r2_object=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print(c.get("r2_object") or "")' "$card")
+    # R2 sends ciphertext directly to the worker. Local transport has the same
+    # size-scaled bound; never use boat-call's 120-second default for an archive.
     r2_sha=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$card")
-    casekey=$root/sealed/$restore.casekey.age
-    if [ "$continue_review" != yes ] && [ -n "$r2_object" ] && [ -f "$casekey" ] && url=$(r2_sign GET "$r2_object" 3600) &&
-       printf '%s\n' "$identity" | age -d -i /dev/stdin "$casekey" | boat --stdin ssh "$id" "set -e; umask 077; trap 'rm -f ~/restore.age /dev/shm/casekey' EXIT; cat > /dev/shm/casekey; chmod 600 /dev/shm/casekey
-         curl -fsS --retry 3 -o ~/restore.age '$url'; test \"\$(sha256sum < ~/restore.age | cut -c1-64)\" = $r2_sha
-         age -d -i /dev/shm/casekey ~/restore.age | python3 -B ~/factory/case_permissions.py --extract-to $restore_to --case-tree ~/work/$restore/$restored_case; rm -f ~/restore.age /dev/shm/casekey" >/dev/null; then
-      echo "$id: restored from R2" >&2
+    restore_timeout=$(restore_transfer_timeout "$ckpt")
+    if [ -n "$casekey" ]; then
+      r2_object=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("r2_object") or "")' "$card")
+      restore_ciphertext
+      printf '%s\n' "$identity" | age -d -i /dev/stdin "$casekey" |
+        BOAT_COMMAND_TIMEOUT_SECONDS=$restore_timeout boat --stdin ssh "$id" "set -e; umask 077; trap 'rm -f ~/restore.age /dev/shm/casekey' EXIT; cat > /dev/shm/casekey; chmod 600 /dev/shm/casekey
+          test \"\$(sha256sum < ~/restore.age | cut -c1-64)\" = $r2_sha
+          age -d -i /dev/shm/casekey ~/restore.age | python3 -B ~/factory/case_permissions.py --extract-to $restore_to --case-tree ~/work/$restore/$restored_case" >/dev/null
     else
-      printf '%s\n' "$identity" | age -d -i /dev/stdin "$ckpt" | BOAT_COMMAND_TIMEOUT_SECONDS=${BOAT_RESTORE_TIMEOUT_SECONDS:-1200} boat --stdin ssh "$id" "python3 -B ~/factory/case_permissions.py --extract-to $restore_to --case-tree ~/work/$restore/$restored_case" >/dev/null
+      # Compatibility only: stream B migrates these legacy case keys on the VM.
+      printf '%s\n' "$identity" | age -d -i /dev/stdin "$ckpt" |
+        BOAT_COMMAND_TIMEOUT_SECONDS=$restore_timeout boat --stdin ssh "$id" "python3 -B ~/factory/case_permissions.py --extract-to $restore_to --case-tree ~/work/$restore/$restored_case" >/dev/null
     fi
     if [ "$audit_g11" = no ] && [ -z "$sealed_audit" ]; then
       # Import only after the worker compares accounting with retained metadata.
@@ -655,7 +704,8 @@ PYCODE
         cat "$state/founder-ruling.json" | boat --stdin ssh "$id" "cat > ~/founder-ruling.json" >/dev/null
         ruling_args="--founder-ruling /home/user/founder-ruling.json --founder-ruling-sha256 '$founder_ruling_sha'"
       fi
-      cat "$card" | boat --stdin ssh "$id" "python3 -B ~/factory/restore_ledger.py --case '$restore' --generation '$r2_sha' $ruling_args" > "$state/$id.restore-accounting.json" || {
+      release_args=""; [ -z "$batch_sha" ] || release_args="--release-sha256 '$batch_sha'"
+      cat "$card" | boat --stdin ssh "$id" "python3 -B ~/factory/restore_ledger.py --case '$restore' --generation '$r2_sha' $ruling_args $release_args" > "$state/$id.restore-accounting.json" || {
         echo "$id: restored accounting refused; no runner started" >&2; exit 1;
       }
     else
