@@ -272,3 +272,81 @@ denial.
   Concurrent waits use the latest `retry_after`.
 - **Where the route came from.** Each lease's effective route is kept in
   the card's `route_receipts`.
+
+## 8. Batch money authority (B provides, D enforces)
+
+B serializes money admission under `~/.unbug-control/batches/<batch>/lock`.
+The authorized manifest has `money_limit_usd` (decimal string, nine places),
+`batch_deadline` (absolute UTC), `target_slots`, and jobs with a fixed case ID,
+`requested_total_usd`. Scheduling priority (`replacement`, `diagnosis`,
+`extension`, `ordinary`) belongs to an admission/revision request, not to a
+second job for the same case. No missing field creates authority. FIFO within priority;
+replacement first, diagnosis next, extension next, ordinary last.
+
+The durable authority is `~/.unbug-control/batch-money/<batch>/jobs/<job>.json`, copied unchanged
+into authenticated worker configuration and checkpointed:
+
+```json
+{"schema":1,"batch":"...","job":"...","case":"case-...",
+ "reservation_id":"<uuid4>","revision":1,"source_generation":null,
+ "committed_total_usd":"50.000000000","batch_deadline":"...Z"}
+```
+
+`source_generation` is null for fresh work; otherwise the exact acknowledged
+collected ciphertext sha256. The commitment is cumulative authority including
+already-spent money and infrastructure waste, never a fresh allowance. A case
+has one job money owner; changing stage/worker does not change that owner.
+Replacement cases have distinct jobs and reservations. A diagnosis of the same
+case uses its existing money owner. A manifest amendment cannot lower a limit
+below spend or outstanding commitments; it cannot revive terminal batch-bound
+work. D requests revisions by collecting `terminal_stop: money_wait` with
+`money_wait: {requested_total_usd, reservation_id, revision, priority}`; it makes no further
+model call. B queues it until authority exists or emits `retired_batch_bound`
+at exhaustion/deadline. `money_wait` is separate from A's provider-wait reasons.
+
+B uses Decimal USD to nine places, rejects negative/nonfinite values, and sums
+one latest verified cumulative `case_budget.total_spent_usd` per money owner.
+Older cards may use `spent_usd + infrastructure_waste_usd` only when both are
+known and validated; missing/unknown totals block that owner's new admission.
+For each job, outstanding = max(0, commitment - latest collected total).
+Admission requires sum(collected totals) + sum(outstanding commitments) <=
+manifest money_limit_usd. Collection replaces the previous total and consumes
+outstanding authority; it never adds the cumulative total again. A decreasing
+cumulative total refuses acknowledgment pending reconciliation. Reclassification
+of waste does not release money. A completed job releases unused authority only
+after verified terminal collection and worker retirement; loss/unreachability
+alone releases nothing. Boat infrastructure cash remains in E's existing shared
+reservation and is also shown separately; the model bound includes D's model
+infrastructure-waste charges, not a second charge for Boat cash.
+
+B issues initial authority/revisions and collection acknowledgment under the
+same lock. Relaunch binds source_generation to the newly acknowledged generation
+and increments revision (same reservation_id, unchanged cumulative amount unless
+explicitly re-admitted). D checks batch/job/case/deadline, exact source_generation,
+and revision against the authenticated launch configuration before any call.
+A stale copy cannot admit work: only the holder's current frozen job configuration
+is deliverable; old workers must be proved retired before revision/relaunch.
+The VM never raises live-worker authority in place. Money is reserved before
+holder submission; an uncertain submission retains its entire commitment.
+A publication failure never releases it.
+
+D's per-invocation reservation/settlement remains in the case ledger. B never
+books usage. Provider wait/relaunch consumes no D case counters or holder legacy
+attempt allowances. D remains disabled until this channel is implemented and
+its practice lifecycle qualification passes. Owner: B; review with batch-service.
+
+The ordinary case diagnosis threshold is distinct from this cumulative job share
+of batch authority. Show ordinary `spent_usd` and `infrastructure_waste_usd` on
+separate report lines. Waste never consumes ordinary case progress/diagnosis
+allowance, and reclassification never creates batch headroom. With commitment
+$13 and total $12 = case $8 + waste $4, $1 remains authorized. Batch money
+exhaustion is operational and unscored. There is no separate waste allowance.
+B grants no extension eligibility and does not amend ENGINEERING §3. D enforces
+the active $15 extension rule until its proposed amendment is adopted by the
+parent. A money commitment is not permission to bypass that rule.
+
+The money projection path is kept as `batch-money/<batch>/jobs/` for D's already
+reviewed consumer. It shares the journal's `batches/<batch>/lock`; it is no
+second service, spend ledger or independent lock. Manifest jobs omit max_cost.
+B removes batch.bind's max_cost/--max-cost emission for authenticated batch jobs
+in increment2; D's job_authority enforces committed_total_usd exclusively.
