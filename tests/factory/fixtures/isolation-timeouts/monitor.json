@@ -1,0 +1,8 @@
+{
+  "margin": 1800.0,
+  "poll": 120.0,
+  "retire_at": 55800.0,
+  "stall_seconds": 2700.0,
+  "ttl_seconds": 57600.0,
+  "unreachable": 600.0
+}
