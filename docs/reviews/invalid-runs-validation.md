@@ -1,24 +1,28 @@
 # Invalid-run validation
 
-Implementation head after rebase: 396689ccc887611d5340c127dd77bf1802d73e0c.
-Base: factory-simplify 8c5de614d14af0df1e6b63f31972195825e8cd53.
-Rebase changed documentation only: git diff c57128f HEAD -- bin factory harbor tests tools was empty.
+Implementation head: c50e8d503c0caa4b69c2fbd0df2f7ccb177003ee.
+Base: factory-simplify 3f7521bd3eee1e931c2f8ce78ebfe26c368e3b5c, including stream E's first increment.
 
 Command:
 
     uv run --with numpy --with scipy python -B tests/run.py
 
-Result: 130 test scripts run; 0 failed. Completed 2026-10-29 UTC.
-Full log: /tmp/invalid-runs-full-suite-review2.log
-Log SHA256: 4e22b0321d6ba6e8c351968ddcc1851dd9c9988c6729857d134733100bb89631
+Result: 131 test scripts run; 0 failed. Completed 2026-10-29 UTC.
+Full log: /tmp/invalid-runs-full-suite-final-combined.log
+Log SHA256: 26b53a85e796c7c18c75bac6236752cd98cdbfa8520ef0da3f196f3d057221e0
 
-The final run includes 31 tests in tests/factory/test_invalid_runs.py. The
-regression script also passed directly (31 tests) after all diff-review-1 fixes.
-These include external early-probe workspaces/transcripts, per-try replacement
-reuse without rebuying a valid suffix, provider waits, fresh post-success retry
-allowances, unflagged freshness alternatives, stable G11 evidence and one crash
-diagnostic per execution. No implementation code changed during the full run;
-the rebase brought documentation/interface clarifications only.
+The full run includes 33 tests in tests/factory/test_invalid_runs.py and all
+20 isolation/timeout tests. Direct checks also passed: 33 invalid-run regressions,
+20 isolation/timeout tests, overlap/cancellation/dual-exhaustion checks, frozen live
+runtime staging, and 3 negative-probe tests. The first E+C full run had one outdated
+timeout-test fixture (missing case directory and old scientific-failure card
+expectation). It was corrected, passed directly, and the complete suite rerun above
+passed. Implementation and fixtures were unchanged during this final full run.
+
+Review fixes cover external early-probe inputs/transcripts, per-try replacement
+reuse, provider waits, post-success retry allowances, inaccessible and dead
+unflagged freshness URLs, structural missing-observation feedback, stable G11
+inputs, first operational-stop retention and nonduplicated crash diagnostics.
 
 Saved valid scientific outputs have unchanged verdicts under differential replay.
 116 public card snapshots / 54 case identities have one explicit changed validity
