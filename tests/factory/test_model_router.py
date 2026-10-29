@@ -446,8 +446,7 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
         subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(key),
             '-out',str(cert),'-subj','/CN=localhost','-days','1'],check=True,capture_output=True,timeout=10)
         server=router.Server(('127.0.0.1',0),self.store,'synthetic-token')
-        context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.load_cert_chain(cert,key)
-        server.socket=context.wrap_socket(server.socket,server_side=True,do_handshake_on_connect=False)
+        server.enable_tls(cert,key)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         try:
             with socket.create_connection(server.server_address,timeout=2):
@@ -471,7 +470,7 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
         self.assertNotIn('router_waits',public);self.assertNotIn('router_interrupted_calls',public)
 
     def test_flag_off_exhausted_refusal_routes_do_not_wait(self):
-        c,_,_=self.context();c.router_model='codex/gpt-6.1-sol';c.router_excluded=(c.router_model,)
+        c,_,_=self.context();c.router_model='codex/gpt-6.1-sol';c.router_excluded=('codex-auth.json/'+c.router_model,)
         with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'0'}),patch.object(router,'_rpc') as rpc:
             with self.assertRaisesRegex(budget.BudgetError,'^provider_routes_exhausted$'):
                 router.await_lease('writer',c)
@@ -544,6 +543,77 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
     def test_unknown_paid_model_uses_paid_account_pool(self):
         rows=router.routes('opencode/operator-selected-paid-model')
         self.assertTrue(all(r['billing']=='paid' and r['pool'] in router.ACCOUNTS[2:4] for r in rows))
+
+    def test_label_only_budget_errors_leave_peer_capacity_healthy(self):
+        from test_budget import emit
+        c,secrets,_=self.context();runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
+        baseline=c.ledger.read_bytes();c.router_accounts=('claude-token','codex-auth.json')
+        cases=[('codex/gpt-6.1-sol','codex',{'type':'turn.failed','error':{'message':'context window exceeded'}}),
+               ('claude/claude-opus-5-5','claude',{'type':'result','is_error':True,'result':'prompt too long'})]
+        for model,driver,event in cases:
+            c.ledger.write_bytes(baseline)
+            c.card['roles']['writer']['model']=model
+            def execute(context,models,*args,**kwargs):
+                return budget.run_budgeted([sys.executable,'-c',emit(event)],c.case,os.environ.copy(),
+                    c.work/'error-transcript',c.ledger,5,driver=driver,configured_model=models[0],resume=True,
+                    case_budget=1000,max_cost=100,max_total_calls=10000).returncode
+            with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
+                 patch.object(router,'SECRETS',secrets),patch.object(router,'WAIT_SECONDS',0), \
+                 patch.object(model_runtime.ModelRuntime,'_invoke',side_effect=execute):
+                with self.assertRaises(router.ProviderWait):runtime.call(c,[model],'',c.case,'builder-errors')
+            self.assertEqual(self.store.rpc('status',{})['health'],{})
+            peer=self.store.rpc('acquire',dict(id=uuid.uuid4().hex,model=model,accounts=list(router.ACCOUNTS),
+                role='writer',deadline=time.time()+86400))
+            self.assertEqual(peer['kind'],'lease');self.finish(peer,'denied')
+
+    def test_per_call_quota_keeps_other_subscription_account(self):
+        c,secrets,_=self.context();model='opencode-go/mimo-v2.6-pro'
+        runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
+        c.card['roles']['writer']['model']=model;seen=[]
+        def execute(context,*args,**kwargs):
+            seen.append(context.model_lease.account)
+            if len(seen)==1:raise budget.BudgetError('provider_limit:'+model,
+                provider_failure={'reason':'quota','model':model,'per_call':True})
+            return 0
+        with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
+             patch.object(router,'SECRETS',secrets),patch.object(model_runtime.ModelRuntime,'_invoke',side_effect=execute):
+            runtime.call(c,[model],'',c.case,'builder-quota')
+        self.assertEqual(seen,['opencode-go-key','opencode-go-key-2'])
+        self.assertTrue(all(not row.get('blocked_until') for row in self.store.rpc('status',{})['health'].values()))
+
+    def test_claude_retry_metadata_switches_shared_account(self):
+        from test_budget import emit
+        c,secrets,_=self.context();model='claude/claude-opus-5-5';seen=[]
+        runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
+        def execute(context,models,*args,**kwargs):
+            seen.append(context.model_lease.account)
+            if len(seen)==1:
+                event={'type':'system','subtype':'api_retry','error_status':429,'message':'rate limit'}
+                return budget.run_budgeted([sys.executable,'-c',emit(event)*2],c.case,os.environ.copy(),
+                    c.work/'retry-transcript',c.ledger,5,driver='claude',configured_model=models[0],resume=True,
+                    case_budget=1000,max_cost=100,max_total_calls=10000).returncode
+            return 0
+        with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
+             patch.object(router,'SECRETS',secrets),patch.object(model_runtime.ModelRuntime,'_invoke',side_effect=execute):
+            runtime.call(c,[model],'',c.case,'builder-retry')
+        self.assertEqual(seen,['claude-token','claude-factory-token-2'])
+        self.assertEqual(self.store.rpc('status',{})['health']['claude-token']['reason'],'rate')
+
+    def test_plain_codex_expiry_preserves_renewal_reason(self):
+        c,secrets,_=self.context();model='codex/gpt-6.1-sol';c.card['roles']['writer']['model']=model
+        def execute(context,models,*args,**kwargs):
+            return budget.run_budgeted([sys.executable,'-c',"print('workspace routing discovery unauthorized (401)')"],
+                c.case,os.environ.copy(),c.work/'expiry-transcript',c.ledger,5,driver='codex',configured_model=model,resume=True,
+                case_budget=1000,max_cost=100,max_total_calls=10000).returncode
+        runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
+        with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
+             patch.object(router,'SECRETS',secrets),patch.object(router,'WAIT_SECONDS',0), \
+             patch.object(model_runtime.ModelRuntime,'_invoke',side_effect=execute):
+            with self.assertRaises(router.ProviderWait) as error:runtime.call(c,[model],'',c.case,'builder-expiry')
+        record=run.write_provider_wait(c,error.exception)
+        self.assertEqual(record['reason'],'credential_expiring')
+        self.assertEqual(record['evidence'],'interrupted')
+        self.assertEqual(self.store.rpc('status',{})['health']['codex-auth.json']['reason'],'credential_expiring')
 
     def test_second_reviewer_cannot_share_writer_or_stress_family(self):
         for model in ('claude/claude-opus-5-5','opencode/minimax-m3.1-flash-free'):

@@ -279,11 +279,10 @@ class ModelRuntime:
                     label = str(error)
                     reason = ('quota' if label.startswith('provider_limit') else 'credential_expiring' if label in ('codex_login_expired', 'credential_expiring') else
                               'outage' if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:') else None)
-                    if reason: failure = {'reason': reason, 'model': lease.route}
-                    if label.startswith('refusal:'): failure['per_call'] = True
+                    if reason: failure = {'reason': reason, 'model': lease.route, 'per_call': True}
                 if not failure: raise
                 if failure.get('per_call'):
-                    context.router_excluded = (*getattr(context, 'router_excluded', ()), lease.route)
+                    context.router_excluded = (*getattr(context, 'router_excluded', ()), lease.pool + '/' + lease.route)
                 context.router_condition_since = time.monotonic()
                 if failure.get('reason') == 'quota' and lease.route.startswith('claude/'):
                     reset = _read_json(getattr(c, 'ledger', '/nonexistent'), {}).get('claude_resets_at')

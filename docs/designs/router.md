@@ -184,10 +184,11 @@ The parser emits only fixed enums, finite timestamps, effective model and no raw
 provider strings. Real cards prove legacy reset/paid-ledger behavior; synthetic
 trusted provider events exercise distinctions absent from public artifacts.
 Ordinary natural-language refusal detection remains incomplete across providers:
-known refusal:* tries approved alternatives at most once per effective model,
+known refusal:* tries approved alternatives at most once per account/route,
 then enters an outage wait rather than repeatedly invoking the refused route. Do not claim full row 48 closure. Money/call ceilings, unknown
 usage, cleanup errors, timeout and non-provider failures propagate unchanged.
-Nonzero CLI exit is an outage observation. Preflight retains provider_wait and
+Label-only CLI failures, including nonzero exit, are per-call outage evidence;
+they never create shared health blocks. Preflight retains provider_wait and
 never converts it into provider_preflight_failed. No subprocess/timeouts are
 changed in budget.py (stream E), and no invalid-run scoring is changed (stream C).
 
@@ -343,11 +344,19 @@ The 60-second condition timer starts at the provider failure, including when
 finish reconciliation follows that failure, rather than at invocation start.
 
 Outage detection uses structured provider status/error fields only. All shared
-health observations require structured provider errors. Normal assistant prose,
+health observations require structured provider errors or trusted CLI metadata.
+Trusted metadata includes timestamped OpenCode Go limit logs, Claude api_retry
+rate-status fields and the CLI's exact Codex login-expiry diagnostics; these are
+parsed outside normal response text and retain shared account scope. Generic
+failed-turn/error-result labels without provider evidence stay per-call.
+Normal assistant prose,
 including HTTP 402/404/429/500, credits and quota descriptions, never marks a
-route unhealthy. Unstructured CLI diagnostics stay per-call, as do refusals:
-they exclude their effective route for that logical call. With the rollout flag
-off, exhausting all candidates raises provider_routes_exhausted immediately.
+route unhealthy. Other unstructured CLI diagnostics stay per-call, as do refusals:
+they exclude only their account/pool plus route for that logical call, preserving
+the other subscription account. Exhausted candidates retain the last condition's
+reason for the provider-wait record. With the rollout flag off, exhausting all
+candidates raises provider_routes_exhausted immediately; it is a terminal,
+non-resumable rollout stop, never a recovery attempt.
 Admission freezes account order for
 each request ID, including retries after a lost response. Unknown paid OpenCode
 models use the Go account pools rather than the native free pool.
@@ -359,7 +368,8 @@ budget ledger's cancelled stop only when the public card establishes a provider
 wait. A supplied lease remains in the record if initial renewal fails before
 execution, so D can match its pending reservation; its usage is known zero.
 Scratch wait/peer lists live on the in-memory case context, shared by shallow
-role copies, never on the public card. A fresh process cannot mistake old
+role copies, never on the public card. Old scratch fields are dropped before
+admission as well as by the record writer. A fresh process cannot mistake old
 cancelled-call entries for a current interrupted lease. c.model_lease remains
 available for serial callbacks; concurrent code uses its explicit lease or the
 private execution context, since peers overwrite that convenience field.
@@ -367,6 +377,10 @@ private execution context, since peers overwrite that convenience field.
 TLS acceptance does not perform a handshake on the server's accept loop. Each
 handler performs its handshake under a five-second timeout, so an idle raw TCP
 client cannot delay a concurrent capacity, renewal or finish RPC.
+The main service and loopback test use the same TLS-construction helper. Daemon
+connection threads are not capped; slow-header clients can retain a thread under
+per-read timeouts. This limited availability risk is accepted for the batch
+network; it does not block the accept loop or consume model capacity.
 
 Legacy Claude provider_limit restart waits use the actual future reset without
 the old six-hour cap; an already-expired reset uses the quota fallback (15

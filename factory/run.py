@@ -189,6 +189,8 @@ def pick_models(c):
 
 def opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None):
     runtime = model_runtime.ModelRuntime(HOME, sh, public_progress, shred_tree, pilot_home)
+    c.card.pop('router_waits', None)
+    c.card.pop('router_interrupted_calls', None)
     if not hasattr(c, 'router_waits'): c.router_waits = []
     if not hasattr(c, 'router_interrupted_calls'): c.router_interrupted_calls = []
     try:

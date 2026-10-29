@@ -343,8 +343,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             try: lines = log.read_text(errors='replace').splitlines()[-2000:]
             except OSError: continue
             if any('usage limit exceeded' in l.lower() and l[10:29] >= started_utc for l in lines if l.startswith('timestamp=')):
-                raise BudgetError('provider_limit:' + provider_model, provider_failure={
-                    **classify_provider_failure('usage limit', provider_model), 'per_call': True})
+                raise BudgetError('provider_limit:' + provider_model, provider_failure=classify_provider_failure('usage limit', provider_model))
 
     def check_limits():
         if collecting_usage: return  # accounting buffered output after the process was stopped
@@ -374,7 +373,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 or 'authentication token has expired' in text
                 or ('401' in text and ('unauthorized' in text or 'authentication' in text))):
             raise BudgetError('codex_login_expired', provider_failure={'reason': 'credential_expiring', 'scope': 'account',
-                'model': provider_model, **({} if shared else {'per_call': True})})
+                'model': provider_model})  # The CLI's exact login-expiry diagnostic is trusted metadata.
         if driver == 'codex' and 'cybersecurity' in text and any(w in text for w in ('flagged', 'refus', "can't", 'cannot')):
             raise BudgetError('refusal:' + provider_model)
         if response: return False  # Assistant prose cannot establish provider health.
@@ -505,7 +504,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         # Never scan tool output or echoed command/prompt text for provider errors.
         if kind == 'error' or (kind == 'system' and event.get('subtype') in ('error', 'api_retry', 'retry')) or (kind == 'result' and event.get('is_error')) or (driver == 'claude' and kind == 'assistant' and event.get('error')):
             info = provider_diagnostic(event)
-            if diagnostic(**info, allow_outage=kind != 'system', shared=kind != 'system'): return
+            if diagnostic(**info, allow_outage=kind != 'system', shared=True): return
         elif driver == 'claude' and kind == 'result':
             diagnostic(str(event.get('result', '')), response=True)
         elif driver == 'codex' and kind == 'turn.failed':

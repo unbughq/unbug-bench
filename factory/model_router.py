@@ -175,13 +175,13 @@ class Store:
                 db.execute("UPDATE leases SET outcome='denied' WHERE id=? AND outcome IS NULL", (identity,))
                 result = {'cancelled': True}
             elif operation == 'acquire':
-                if set(data) - {'excluded_routes'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
+                if set(data) - {'excluded_lanes'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
                 if not isinstance(data['role'], str) or not re.fullmatch(r'[a-z_0-9]{1,40}', data['role']): raise ValueError('invalid role')
                 identity = data['id']
                 if not re.fullmatch(r'[a-f0-9]{32}', identity): raise ValueError('invalid attempt id')
                 if not finite(data['deadline']) or not now < data['deadline']: raise ValueError('expired admission deadline')
                 choices = [r for r in routes(data['model'], [a for a in data['accounts'] if a in self.accounts])
-                           if r['route'] not in data.get('excluded_routes', [])]
+                           if r['pool'] + '/' + r['route'] not in data.get('excluded_lanes', [])]
                 payload = json.dumps(data, sort_keys=True, allow_nan=False)
                 previous = db.execute('SELECT payload FROM requests WHERE id=?', (identity,)).fetchone()
                 if previous and previous[0] != payload: raise ValueError('attempt id changed')
@@ -197,7 +197,7 @@ class Store:
                              if json.loads(p)['deadline'] > now and not db.execute('SELECT 1 FROM leases WHERE id=?', (json.loads(p)['id'],)).fetchone()]
                     for route in choices:
                         if not free(route): continue
-                        if any(any(r['pool'] == route['pool'] and r['route'] not in p.get('excluded_routes', [])
+                        if any(any(r['pool'] == route['pool'] and r['pool'] + '/' + r['route'] not in p.get('excluded_lanes', [])
                                    for r in routes(p['model'], p['accounts'])) for p in older): continue
                         expires = min(now + LEASE_SECONDS, data['deadline'])
                         db.execute('INSERT INTO leases VALUES (?,?,?,NULL,NULL)', (identity, json.dumps(route), expires))
@@ -304,11 +304,11 @@ def _account_order(case):
 
 def _admit(role, case, deadline, identity, accounts, excluded=()):
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
-    data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_routes=list(excluded))
+    data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_lanes=list(excluded))
     result = _rpc('acquire', data)
     if result.get('kind') == 'lease':
         result.pop('kind')
-        allowed = [r for r in routes(model, accounts) if r['route'] not in excluded]
+        allowed = [r for r in routes(model, accounts) if r['pool'] + '/' + r['route'] not in excluded]
         if (result.get('lease_id') != identity or not finite(result.get('expires_at'))
                 or result['expires_at'] <= time.time() or result['expires_at'] > deadline
                 or {k: result.get(k) for k in ('route', 'account', 'pool', 'family', 'billing')} not in allowed):
@@ -379,7 +379,8 @@ def await_lease(role, case, deadline=None):
     enabled = os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
     choices = routes(model, getattr(case, 'router_accounts', ACCOUNTS))  # Configuration errors are not outages.
-    if not enabled and choices and all(r['route'] in getattr(case, 'router_excluded', ()) for r in choices):
+    exhausted = choices and all(r['pool'] + '/' + r['route'] in getattr(case, 'router_excluded', ()) for r in choices)
+    if not enabled and exhausted:
         raise BudgetError('provider_routes_exhausted')
     if hasattr(case, 'work'):
         live = Path(case.work) / 'provider_wait.json'
@@ -396,7 +397,7 @@ def await_lease(role, case, deadline=None):
     excluded = tuple(sorted(getattr(case, 'router_excluded', ())))
     started = getattr(case, 'router_condition_since', None) or time.monotonic()
     wait = getattr(case, 'router_wait', None)
-    deferred = getattr(case, 'router_deferred', False)
+    deferred = getattr(case, 'router_deferred', False) or (exhausted and wait is not None)
     while True:
         cancellation = getattr(case, 'role_cancel', None)
         if cancellation is not None and cancellation.is_set(): raise BudgetError('cancelled')
@@ -481,6 +482,12 @@ class Server(ThreadingHTTPServer):
         super().__init__(address, Handler)
     def handle_error(self, *args): pass
 
+    def enable_tls(self, cert, key):
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert, key)
+        # Handshake in each handler thread, never in the single accept loop.
+        self.socket = context.wrap_socket(self.socket, server_side=True, do_handshake_on_connect=False)
+
 
 class Handler(BaseHTTPRequestHandler):
     def setup(self):
@@ -514,10 +521,7 @@ def main():
     config = json.loads(args.config.read_text())
     token = os.environ.get('FACTORY_ROUTER_TOKEN', '')
     server = Server(('0.0.0.0', 8765), Store(config['database'], capacities=config.get('capacities'), accounts=config.get('accounts', ACCOUNTS)), token)
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.load_cert_chain(os.environ['FACTORY_ROUTER_CERT'], os.environ['FACTORY_ROUTER_KEY'])
-    # Handshake in each handler thread, never in the single accept loop.
-    server.socket = context.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
+    server.enable_tls(os.environ['FACTORY_ROUTER_CERT'], os.environ['FACTORY_ROUTER_KEY'])
     server.serve_forever()
 
 
