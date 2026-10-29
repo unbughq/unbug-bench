@@ -389,3 +389,26 @@ accelerated standalone command with an earlier inherited-deadline countercase,
 concurrent 503 handling, and an actual body trickle. Gate setup, parallel
 cleanup and owner protocol regression scripts also pass. Full suite is rerun
 on the committed fixes. No blocking review finding was rejected.
+
+## Final handoff validation
+
+Reviewed source commit: 78473870ec2acb6672e9a2a24c97ac1f24114751, rebased
+onto factory-simplify 8c5de614d14af0df1e6b63f31972195825e8cd53 before review.
+Fresh diff review 2: PASS, no blockers. Mandatory full suite completed on this
+source commit: **130 test scripts run; 0 failed.** Focused fault suite: 20 pass.
+Command: uv run --with numpy --with scipy python -B tests/run.py.
+The final evidence commit changes documentation only. No merge, push, Boat
+worker launch, real ciphertext decryption, main-branch change or restore-bundle
+mutation occurred. Deleted only the parent-authorized obsolete failover test.
+
+Closed: 31, 44, 46, 52 with register test paths confirmed by diff review 2.
+Remaining: 17 (cross-host/generation wallet ownership), 18 (automatic worker
+replacement), 29 (operation-ID reconciliation/retry), 30 (batch contract),
+32/37 (complete new frozen release and authoritative registry digests),
+42/43 (remaining direct subprocess paths/provider-lifetime integration),
+45 (disk/host-memory admission), 49 (per-lifecycle provider usage),
+50 (restart-safe provider/UTC clock handling). Row 28 belongs to B.
+Before deployment, parent must cut/qualify the new release, refresh adapter
+and launcher pins, verify Boat 1.0.85 on the control VM, and regenerate the
+root/fingerprint-bound policy for founder approval. Historical bundles stay
+read-only; no digest or pagination API was guessed.

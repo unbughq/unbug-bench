@@ -123,7 +123,7 @@ Scope fit is good:
 
 Elephant disposition
 
-B1 and B2 fixed with executable real-path regressions. M1 uses the real runner at pre/post-ready import boundaries; M2 covers default executable discovery and narrows the register wording; M3 clears the parent identity; M4 commits an isolated test control home. Additional focused cleanup guarantees and the bounded integration harness budget are documented in the design. No blocking finding was rejected. Pending fresh round 2.
+B1 and B2 fixed with executable real-path regressions. M1 uses the real runner at pre/post-ready import boundaries; M2 covers default executable discovery and narrows the register wording; M3 clears the parent identity; M4 commits an isolated test control home. Additional focused cleanup guarantees and the bounded integration harness budget are documented in the design. No blocking finding was rejected. Fresh round 2 passed; see isolation-timeouts-diff-2.md.
 
 Focused fix validation: 20 fault tests pass; gate setup, parallel cleanup and
 owner protocol regressions pass. Added actual concurrent-ask and body-trickle
