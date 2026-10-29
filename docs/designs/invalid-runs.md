@@ -301,7 +301,7 @@ on infrastructure exhaustion; this stream supplies the non-scientific stop state
 
 ## Cross-stream integration and implementation details
 
-Read docs/designs/interfaces.md at factory-simplify c49c754. This change does not
+Read docs/designs/interfaces.md at factory-simplify 59a2c8c. This change does not
 change router leases/provider_wait, settlement/reservation shapes, the B batch
 journal, sh(), or launch.sh lifecycle. Minimal shared-area edits are:
 - recovery.py: recognize the non-scientific infrastructure stop and refuse retry
