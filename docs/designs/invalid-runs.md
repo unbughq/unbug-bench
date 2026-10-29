@@ -147,13 +147,13 @@ canonical operation identity. For checkpoints identity includes case bytes, guar
 bytes, scenarios, seed, runs and slot. For gate-level operations include gate,
 case digest and gate runtime inputs. Record a running attempt before execution,
 invalid error type after failure, completed status after success. At most two
-attempts total for unchanged inputs, across resumes. An interrupted running
+attempts total for unchanged inputs, across resumes. An abruptly killed running
 attempt consumes one infrastructure attempt, never a scientific attempt. Completed
 units may execute normally when deliberately requested again; only invalid attempts
 consume retry allowance. No nested gate retry of an exhausted checkpoint: propagate
 `InfrastructureExhausted(InvalidInfra)` immediately. Retry gate wrappers only for
-exceptions not already exhausted by a nested unit. Budget/interrupt exceptions
-always propagate. Exhaustion is `infrastructure_exhausted`, a nonretryable
+exceptions not already exhausted by a nested unit. Handled budget/provider-wait and deliberate-pause exceptions clear the running marker
+without consuming infrastructure allowance and always propagate. Exhaustion is `infrastructure_exhausted`, a nonretryable
 operational stop awaiting stream D's diagnosis, not an indefinite runner_error
 resume loop, a retired case, or a failed gate. A changed execution input gets a
 new key. No additional router/process-group functionality is introduced.

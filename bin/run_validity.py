@@ -87,12 +87,15 @@ def retry(path, identity, invoke, *, attempts=2, interruption=(), on_error=lambd
             update(lambda row: row.update(running=False, invalid_attempts=attempts))
             raise
         except BaseException as error:
+            if not isinstance(error, Exception) or isinstance(error, interruption):
+                # A handled budget/provider wait or deliberate pause did not
+                # produce an invalid verdict and must not spend this allowance.
+                update(lambda row: row.update(running=False))
+                raise
             def failed(row):
                 row.update(running=False, invalid_attempts=row['invalid_attempts'] + 1,
                            error_type=type(error).__name__)
             state = update(failed)
-            if not isinstance(error, Exception) or isinstance(error, interruption):
-                raise
             on_error(error)
             if state['invalid_attempts'] >= attempts:
                 raise InfrastructureExhausted(type(error).__name__) from error

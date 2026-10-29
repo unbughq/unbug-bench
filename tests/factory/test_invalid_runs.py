@@ -93,6 +93,15 @@ class InvalidRunsTests(unittest.TestCase):
         self.assertEqual(outer.call_count, 1)
         self.assertNotIn('private reset cause', journal.read_text())
 
+    def test_provider_waits_and_budget_interruptions_do_not_consume_infrastructure_retries(self):
+        journal = self.work / 'infra.json'
+        for _ in range(4):
+            with self.assertRaises(run.BudgetError):
+                retry(journal, {'gate':'G10'}, lambda: (_ for _ in ()).throw(run.BudgetError('provider_wait')),
+                      interruption=run.BudgetError)
+        self.assertEqual(retry(journal, {'gate':'G10'}, lambda: 'valid', interruption=run.BudgetError), 'valid')
+        self.assertTrue(all(row['invalid_attempts'] == 0 for row in json.loads(journal.read_text()).values()))
+
     def test_checkpoint_retries_identical_real_execution_then_accepts_valid_evidence(self):
         from checkpoint_evidence import publish
         bad = self.work / 'bad'; bad.mkdir(); good = self.work / 'good'; good.mkdir()
