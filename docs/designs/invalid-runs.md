@@ -441,3 +441,19 @@ C's durable journal identity and to assert infrastructure_exhausted/invalid-infr
 no failed_gate/failed_detail, and no after_gate writer callback. Its old fixture
 expected runner_error plus scientific failed_detail; keeping that expectation would
 contradict this workstream. The combined full suite is rerun after this fixture fix.
+
+
+## Diff-review-3 resolution (normative)
+
+A runner no-page/no-archive receipt never counts toward search minima, regardless
+of hit/ambiguous flags. Apply the shared exclusion after both retrieval branches.
+For flagged rows, independent review still clears an unreachable hit under the
+archive ruling; clearing a possible match does not establish a successful search.
+Archive-backed results retain their bytes and can count. A practice-log regression
+starts at exactly 3 web / 3 GitHub / 2 attacker queries, flags its unique dead GitHub
+URL, replays 404 plus an empty Wayback lookup, and exercises actual confirmation
+validation: the hit clears but G2 remains incomplete at 2 GitHub searches.
+
+The runtime revision journal's bound remains two attempts per unchanged runtime;
+a plumbing revision gets a fresh allowance as already designed (review-3 N1).
+Repeated unflagged fetch latency (N2) is accepted; no speculative cache is added.

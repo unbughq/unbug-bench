@@ -233,6 +233,35 @@ class InvalidRunsTests(unittest.TestCase):
         self.assertEqual(info['unfetched_searches'], len(rows)); paid.assert_not_called()
         self.assertFalse((self.work / 'public-search.json').exists())
 
+    def test_dead_flagged_result_clears_the_hit_but_never_fills_a_search_minimum(self):
+        rows = [json.loads(line) for line in PRACTICE['files']['freshness.jsonl'].splitlines() if line]
+        for row in rows:
+            row.update(at=datetime.datetime.now(datetime.timezone.utc).isoformat(), hit=False, ambiguous=False)
+        dead = rows[4]; dead['hit'] = True
+        (self.c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+        # The real practice log contains exactly 3 builder web, 3 GitHub and 2
+        # attacker queries. This unique dead GitHub URL cannot fill the third.
+        self.assertEqual(run.freshness_counts(self.c), {'builder_web':3, 'builder_github':3, 'attacker':2})
+        def fetch(url):
+            if url == dead['url']: status, body = 404, b''
+            elif url.startswith('https://archive.org/'): status, body = 200, b'{"archived_snapshots":{}}'
+            else: status, body = 200, b'captured public response'
+            return {'url':url, 'final_url':url, 'status':status}, body
+        answer = dict(url=dead['url'], resolved=True, retrieved=False, same_bug=None,
+            retrieved_from='none', archive_checked=True, archive_available=False,
+            archive_snapshot_url=None, live_failure='http_404', app_version=dead['app_version'],
+            version_scope='Pinned version checked', why='Runner verified HTTP 404 and no archive snapshot')
+        def reviewer(c, chain, text, cwd, name, **kwargs):
+            (Path(cwd) / 'verdict.json').write_text(json.dumps({'hits':[answer]}))
+            return 0
+        with patch.object(retrieval, 'fetch', side_effect=fetch), patch.object(run, 'opencode', side_effect=reviewer):
+            ok, info = run.g2(self.c)
+        self.assertFalse(ok); self.assertEqual(info['outcome'], 'evidence_incomplete')
+        self.assertEqual(info['unreachable_hits'], 1); self.assertEqual(info['hits'], 0)
+        self.assertEqual(info['counted'], {'builder_web':3, 'builder_github':2, 'attacker':2})
+        self.assertEqual(info['unfetched_searches'], 1)
+        self.assertFalse((self.work / 'public-search.json').exists())
+
     def test_missing_promised_observations_are_structural_writer_problems(self):
         (self.c.case / 'answer-key.json').unlink(missing_ok=True)
         for field, gate in (('promise_paths', 'G4'), ('promise_checks', 'G5')):

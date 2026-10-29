@@ -1652,8 +1652,8 @@ def g2(c):
                     # alternatives; it cannot establish a public match or clearance.
                     c.freshness_unfetched.add(row['url'])
                     result = []
-                if any(receipt['retrieved_from'] == 'none' for receipt in result):
-                    c.freshness_unfetched.add(row['url'])
+            if any(receipt['retrieved_from'] == 'none' for receipt in result):
+                c.freshness_unfetched.add(row['url'])
             fetched.extend(result)
         counted = freshness_counts(c)
         retrieval_sha256 = retrieval_digest(fetched)
