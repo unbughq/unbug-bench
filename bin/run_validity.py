@@ -100,5 +100,5 @@ def retry(path, identity, invoke, *, attempts=2, interruption=(), on_error=lambd
             if state['invalid_attempts'] >= attempts:
                 raise InfrastructureExhausted(type(error).__name__) from error
         else:
-            update(lambda row: row.update(running=False))
+            update(lambda row: row.update(running=False, invalid_attempts=0))
             return result

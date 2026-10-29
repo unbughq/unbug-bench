@@ -357,7 +357,9 @@ def freshness_topup(c, *, reverify_timeout=None):
         n = freshness_counts(c)
         errors = [{"row": i + 1, "reason": reason} for i, row in enumerate(freshness_lines(c))
                   if (row.get("who") == who or who == "builder" and row.get("who") not in ("builder", "attacker"))
-                  and (reason := search_evidence_error(row)) is not None]
+                  and (reason := ('runner_retrieval_unavailable: append an alternative result as a NEW row'
+                                  if row.get('url') in getattr(c, 'freshness_unfetched', set())
+                                  else search_evidence_error(row))) is not None]
         need = (f"at least {max(0, 3 - n['builder_web'])} more web and {max(0, 3 - n['builder_github'])} more GitHub"
                 if who == "builder" else f"at least {max(0, 2 - n['attacker'])} more web or GitHub")
         short = bool(errors) or (n["builder_web"] < 3 or n["builder_github"] < 3 if who == "builder" else n["attacker"] < 2)
@@ -1605,7 +1607,8 @@ def freshness_lines(c):
 
 def freshness_counts(c):
     from admission import search_evidence
-    evidence = {key for row in freshness_lines(c) if (key := search_evidence(row)) is not None}
+    evidence = {key for row in freshness_lines(c) if row.get('url') not in getattr(c, 'freshness_unfetched', set())
+                and (key := search_evidence(row)) is not None}
     n = lambda who, kind=None: sum(1 for w, k, q in evidence if w == who and (kind is None or k == kind))
     return {"builder_web": n("builder", "web"), "builder_github": n("builder", "github"), "attacker": n("attacker")}
 
@@ -1620,23 +1623,39 @@ def g2(c):
         return False, {**rejected[1], "reused_freshness_rejection": True}
     receipt = jload(c.work / "public-search.json", {})
     from freshness_retrieval import retrieve, load as load_retrieval, digest as retrieval_digest
-    from run_validity import retry
+    from run_validity import InvalidInfra, retry
     from admission import search_evidence_error
     retrieval_sha256 = None
+    c.freshness_unfetched = set()
     if lines and all(search_evidence_error(row) is None for row in lines):
         directory = c.work / ('search-retrieval-' + hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest())
-        try: fetched = load_retrieval(directory, lines)
-        except RuntimeError:
-            fetched = retry(c.work / 'infra-attempts.json',
-                {'operation': 'search-retrieval', 'binding': binding},
-                lambda: retrieve(lines, directory), interruption=BudgetError)
+        fetched = []
+        for index, row in enumerate(lines):
+            target = directory / str(index)
+            def obtain():
+                try: return load_retrieval(target, [row])
+                except RuntimeError: return retrieve([row], target)
+            if row.get('hit') is True or row.get('ambiguous') is True:
+                result = retry(c.work / 'infra-attempts.json',
+                    {'operation': 'search-retrieval', 'binding': binding, 'row': index},
+                    obtain, interruption=BudgetError)
+            else:
+                try: result = obtain()
+                except InvalidInfra:
+                    # An unflagged inaccessible result supplies no evidence. Keep
+                    # its history, exclude it from minima and allow topup to append
+                    # alternatives; it cannot establish a public match or clearance.
+                    c.freshness_unfetched.add(row['url'])
+                    result = []
+            fetched.extend(result)
+        counted = freshness_counts(c)
         retrieval_sha256 = retrieval_digest(fetched)
     cached = (reusable_search(receipt, binding) if retrieval_sha256 is not None
               and receipt.get('retrieval_sha256') == retrieval_sha256
               and not any(row.get('hit') or row.get('ambiguous') for row in lines) else None)
     # Never reuse a verdict after any retrieval expires, even if its receipt has time left.
     from admission import search_evidence
-    if cached is not None and all(search_evidence(row) is not None for row in lines):
+    if cached is not None and not c.freshness_unfetched and all(search_evidence(row) is not None for row in lines):
         if hasattr(c, "card"):
             c.card["public_search"] = {k: receipt[k] for k in ("binding", "checked_at", "expires_at")}
         return cached
@@ -1654,7 +1673,7 @@ def g2(c):
     ok = not invalid and counted["builder_web"] >= 3 and counted["builder_github"] >= 3 and counted["attacker"] >= 2 and not confirmed
     other = sorted({f"{x.get('who')}/{x.get('kind')}" for x in lines} - {"builder/web", "builder/github", "attacker/web", "attacker/github"})
     info = {"searches": len(lines), "hits": len(confirmed), "flagged_hits": len(flagged), "counted": counted, "invalid_evidence": invalid, "uncounted_who_kind": other[:10]}
-    info.update(invalid_evidence_reasons=reasons, confirmed_hits=c.freshness_confirmed_hits,
+    info.update(unfetched_searches=sum(row.get('url') in c.freshness_unfetched for row in lines), invalid_evidence_reasons=reasons, confirmed_hits=c.freshness_confirmed_hits,
                 **c.freshness_review_summary,
                 unresolved_hits=len(confirmed) - c.freshness_confirmed_hits,
                 outcome='clear' if ok else 'evidence_incomplete' if invalid else 'public_match' if c.freshness_confirmed_hits else
@@ -1938,7 +1957,7 @@ def g6(c):
     p = sh(c, command, capture=True, timeout=7200)
     probes = len(re.findall(r"scored failing run", p.stdout))
     generic_passed = len(re.findall(r"^negative-probe outcome=cheat-pass$", p.stdout, re.MULTILINE))
-    if not generic_passed and (p.returncode or 'negative-probe outcome=invalid-probe' in p.stdout or not probes):
+    if passed == 0 and not generic_passed and (p.returncode or 'negative-probe outcome=invalid-probe' in p.stdout or not probes):
         from run_validity import InvalidInfra
         raise InvalidInfra("negative controls did not complete")
     passed += generic_passed
@@ -2284,8 +2303,15 @@ def g11(c):
     if any(flags) and all(rerun_solved):
         from independent_review import review as adjudicate
         from calibration import atomic_results
-        directory = c.work / ('g11-evidence-' + str(time.time_ns())); directory.mkdir()
-        atomic_results(directory / 'report.json', {'report': report, 'case_rerun_solved': rerun_solved, 'flags': flags})
+        directory = c.work / 'g11-evidence'
+        if directory.exists(): shutil.rmtree(directory)
+        directory.mkdir()
+        # The scanner's output location changes on every run; it is not evidence.
+        retained_report = {k: v for k, v in report.items() if k != 'results_directory'}
+        retained_report['guards'] = [{**row,
+            'runs': [{k: v for k, v in batch.items() if k != 'results_directory'} for batch in row['runs']],
+            'findings': [f for f in row['findings'] if f.get('where') != 'runs']} for row in rows]
+        atomic_results(directory / 'report.json', {'report': retained_report, 'case_rerun_solved': rerun_solved, 'flags': flags})
         fixes = directory / 'fixes'; fixes.mkdir()
         for index, guard in enumerate(guards): shutil.copytree(guard, fixes / str(index))
         def validate(payload):

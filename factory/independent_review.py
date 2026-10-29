@@ -30,7 +30,10 @@ def review(c, r, gate, inputs, instruction, validate):
                 try: result = validate(json.loads((directory / prior['output']).read_text()))
                 except (ValueError, TypeError, KeyError, OSError): result = None
                 if result is not None: return result
-            continue
+            if prior['status'] != 'running': continue
+            # Admission/provider waits and interrupted calls are not reviews.
+            output = directory / prior['output']
+        output.unlink(missing_ok=True)
         state[family] = {'status': 'running', 'output': output.name, 'model': chain[0]}
         atomic_results(journal, state)
         code = r.model_call(c, chain, instruction + '\nWrite the JSON verdict to ' + str(output) + '.',

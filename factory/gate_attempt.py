@@ -25,11 +25,16 @@ def execute(invoke, *, publish, record_crash, interruption, attempts=1, raise_cr
     started = time.monotonic()
     publish('running')
     if journal is not None:
+        recorded = False
+        def diagnostic(error):
+            nonlocal recorded
+            recorded = True
+            record_crash(error)
         try:
             ok, info = retry(journal, identity, invoke, attempts=attempts,
-                             interruption=interruption, on_error=record_crash)
+                             interruption=interruption, on_error=diagnostic)
         except InfrastructureExhausted as error:
-            record_crash(error)
+            if not recorded: record_crash(error)
             elapsed = time.monotonic() - started
             publish('interrupted', elapsed)
             if raise_crash: raise

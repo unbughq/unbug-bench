@@ -183,12 +183,40 @@ class InvalidRunsTests(unittest.TestCase):
         rows = [json.loads(line) for line in PRACTICE['files']['freshness.jsonl'].splitlines() if line]
         for row in rows:
             row['at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            row['hit'] = row['ambiguous'] = False
         (self.c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
         with patch.object(retrieval, 'fetch', side_effect=InvalidInfra('public transport failed')), \
              patch.object(run, 'opencode') as paid:
-            with self.assertRaises(InfrastructureExhausted): run.g2(self.c)
+            ok, info = run.g2(self.c)
+            self.assertFalse(ok)
+            self.assertEqual(info['outcome'], 'evidence_incomplete')
+            self.assertEqual(info['counted'], {'builder_web':0, 'builder_github':0, 'attacker':0})
+            self.assertGreater(info['unfetched_searches'], 0)
         paid.assert_not_called()
         self.assertFalse((self.work / 'public-search.json').exists())
+
+    def test_g2_unfetchable_unflagged_result_can_be_replaced_without_losing_history(self):
+        rows = [json.loads(line) for line in PRACTICE['files']['freshness.jsonl'].splitlines() if line]
+        for row in rows:
+            row.update(at=datetime.datetime.now(datetime.timezone.utc).isoformat(), hit=False, ambiguous=False)
+        path = self.c.case / 'freshness.jsonl'
+        path.write_text('\n'.join(map(json.dumps, rows)))
+        blocked = rows[0]['url']
+        def fetch(url):
+            if url == blocked: raise InvalidInfra('HTTP 403')
+            return {'url':url, 'final_url':url, 'status':200}, b'public page'
+        def topup(c, **kwargs):
+            with path.open('a') as out:
+                for index, row in enumerate(rows):
+                    if row['url'] == blocked:
+                        alternative = {**row, 'query':row['query'] + ' alternative',
+                                       'url':f'https://github.com/medusajs/medusa/issues/{index + 100}'}
+                        out.write('\n' + json.dumps(alternative))
+        with patch.object(retrieval, 'fetch', side_effect=fetch), patch.object(run, 'freshness_topup', side_effect=topup) as repair:
+            ok, info = run.ensure_freshness(self.c)
+        self.assertTrue(ok); repair.assert_called_once()
+        self.assertGreater(info['unfetched_searches'], 0)
+        self.assertEqual(json.loads(path.read_text().splitlines()[0]), rows[0])
 
     def test_collection_requires_each_real_cards_exact_generation(self):
         rows = fixture('invalid-runs-public-cards.json.gz')[:2]
@@ -304,6 +332,8 @@ class InvalidRunsTests(unittest.TestCase):
              patch.object(run, 'checkpoint', return_value=batch('g11-valid')), \
              patch.object(run, 'model_call', side_effect=reviewer):
             self.assertTrue(run.g11(self.c)[0])
+            for batch_row in report['guards'][0]['runs']: batch_row['results_directory'] = '/different/generated/path'
+            path.write_text(json.dumps(report))
             self.assertTrue(run.g11(self.c)[0])
         self.assertEqual(calls, ['deepseek/reviewer'])
 
@@ -371,22 +401,121 @@ class InvalidRunsTests(unittest.TestCase):
 
     def test_g17_missing_fix_obtains_evidence_before_any_wrong_fix_review(self):
         workspace = self.attempt()
-        shutil.rmtree(workspace / 'guard')
         path = workspace.parent / 'results.json'
         row = json.loads(path.read_text())[0]
+        later = workspace.parent / 'try-2'; shutil.copytree(workspace, later)
+        row2 = {**row, 'try':2, 'workspace':str(later), 'guard':str(later / 'guard'),
+                'artifacts':calibration.tree_digest(later)}
+        shutil.rmtree(workspace / 'guard')
         row.update(guard_submitted=False, stop_reason='time_limit')
-        calibration.atomic_results(path, [row])
+        calibration.atomic_results(path, [row, row2])
+        self.c.card['calibrators']['strong']['tries'] = 2
         def replacement(c, role, **kwargs):
-            self.assertEqual(role, 'strong_calibrator')
-            self.assertEqual(kwargs['tries'], 1)
-            shutil.copytree(ROOT / 'guards/refuse-all', workspace / 'guard')
-            row.update(guard_submitted=True, stop_reason='completed', artifacts=calibration.tree_digest(workspace))
-            calibration.atomic_results(path, [row])
+            self.assertEqual(role, 'strong_calibrator'); self.assertEqual(kwargs['tries'], 1)
+            target = self.work / kwargs['name'] / 'try-1'
+            shutil.copytree(later, target)
+            fixed = {**row2, 'try':1, 'workspace':str(target), 'guard':str(target / 'guard')}
+            calibration.atomic_results(target.parent / 'results.json', [fixed])
             return {'solved':0, 'tries':1}
-        with patch.object(run, 'calibrate', side_effect=replacement) as obtain, patch.object(run, 'model_call') as reviewer:
-            with self.assertRaises(InvalidInfra): fairness.diagnose(self.c, run)
-        obtain.assert_called_once(); reviewer.assert_not_called()
+        def reviewer(c, chain, text, cwd, name):
+            self.assertTrue((cwd / 'try-1/guard').is_dir())
+            self.assertEqual(calibration.tree_digest(cwd / 'try-2'), calibration.tree_digest(later))
+            Path(text.split('Write the JSON verdict to ')[1].removesuffix('.')).write_text(json.dumps(
+                {'tries':[{'try':i, 'label':'wrong_fix', 'finding':'Refuse-all blocks legitimate operations',
+                           'evidence':f'try-{i}/execution.json'} for i in (1, 2)]}))
+            return 0
+        with patch.object(run, 'calibrate', side_effect=replacement) as obtain, \
+             patch.object(run, 'make_pilots'), patch.object(run, 'model_call', side_effect=reviewer) as review:
+            self.assertTrue(fairness.diagnose(self.c, run)[0])
+            self.assertTrue(fairness.diagnose(self.c, run)[0])
+        obtain.assert_called_once(); review.assert_called_once()
+        self.assertEqual(json.loads(path.read_text())[1], row2)
+        self.assertFalse(json.loads(path.read_text())[0]['guard_submitted'])
+
+    def test_missing_replacement_is_retained_and_not_bought_again(self):
+        workspace = self.attempt(); shutil.rmtree(workspace / 'guard')
+        def no_fix(c, role, **kwargs):
+            row = json.loads((workspace.parent / 'results.json').read_text())[0]
+            calibration.atomic_results(self.work / kwargs['name'] / 'results.json', [row])
+            return {'solved':0, 'tries':1}
+        with patch.object(run, 'calibrate', side_effect=no_fix) as obtain, \
+             patch.object(run, 'make_pilots'), patch.object(run, 'model_call') as review:
+            for _ in range(2):
+                with self.assertRaises(InfrastructureExhausted): fairness.diagnose(self.c, run)
+        obtain.assert_called_once(); review.assert_not_called()
         self.assertNotIn('difficulty', self.c.card)
+
+    def test_early_probe_workspace_and_owner_transcripts_are_bound_to_review(self):
+        workspace = self.attempt(); source = self.work / 'early_probe/try-1'
+        source.parent.mkdir(); shutil.move(workspace, source)
+        path = workspace.parent / 'results.json'
+        row = json.loads(path.read_text())[0]
+        row.update(workspace=str(source), guard=str(source / 'guard'), source='early_probe')
+        calibration.atomic_results(path, [row])
+        transcripts = self.work / 'transcripts'; transcripts.mkdir()
+        transcript = transcripts / 'strong-calibrator-early_probe-1.jsonl'
+        transcript.write_text(json.dumps({'supplied_promise': REAL['suffix-case']['files']['promise.md']}))
+        def reviewer(c, chain, text, cwd, name):
+            self.assertEqual(calibration.tree_digest(cwd / 'try-1'), calibration.tree_digest(source))
+            self.assertEqual((cwd / 'attempts/transcripts' / transcript.name).read_bytes(), transcript.read_bytes())
+            Path(text.split('Write the JSON verdict to ')[1].removesuffix('.')).write_text(json.dumps(
+                {'tries':[{'try':1,'label':'wrong_fix','finding':'Refuse-all blocks legitimate operations',
+                           'evidence':'try-1/execution.json'}]}))
+            return 0
+        with patch.object(run, 'model_call', side_effect=reviewer):
+            self.assertTrue(fairness.diagnose(self.c, run)[0])
+        # A missing retained workspace invalidates validation before any verdict.
+        with patch('independent_review.review', side_effect=lambda c,r,g,inputs,text,validate:
+                   (shutil.rmtree(source), validate({}))[1]):
+            with self.assertRaises(InvalidInfra): fairness.review_attempts(self.c, run, 'G17', 'strong_calibrator')
+
+    def test_independent_review_provider_waits_preserve_the_reviewer(self):
+        self.attempt(); calls = []
+        def reviewer(c, chain, text, cwd, name):
+            calls.append(chain[0])
+            output = Path(text.split('Write the JSON verdict to ')[1].removesuffix('.'))
+            self.assertFalse(output.exists())
+            if len(calls) < 3:
+                output.write_text('{"inconclusive":true}')
+                raise run.BudgetError('provider_wait')
+            output.write_text(json.dumps({'tries':[{'try':1,'label':'wrong_fix',
+                'finding':'Refuse-all blocks legitimate operations','evidence':'try-1/execution.json'}]}))
+            return 0
+        with patch.object(run, 'model_call', side_effect=reviewer):
+            for _ in range(2):
+                with self.assertRaises(run.BudgetError): fairness.diagnose(self.c, run)
+                self.assertNotIn('difficulty', self.c.card)
+            self.assertTrue(fairness.diagnose(self.c, run)[0])
+        self.assertEqual(calls, ['deepseek/reviewer'] * 3)
+
+    def test_gate_exhaustion_retains_one_diagnostic_per_invalid_execution(self):
+        recorded = []
+        def invoke():
+            summary, records = batch('reset-invalid')
+            require_valid(summary, records)
+        outcome = gate_attempt.execute(invoke, publish=Mock(), record_crash=recorded.append,
+            interruption=run.BudgetError, attempts=2, journal=self.work / 'gate.json', identity={'gate':'G5'})
+        self.assertTrue(outcome.crashed)
+        self.assertEqual(len(recorded), 2)
+
+    def test_valid_saved_cheat_counterexample_survives_invalid_generic_probes(self):
+        output = REAL['negative-invalid']['files']
+        stdout = next(value for name, value in output.items() if name.endswith('.log'))
+        with patch.object(run, 'cheat_runs', return_value=(1, 1)), \
+             patch.object(run, 'sh', return_value=subprocess.CompletedProcess([], 1, stdout, '')):
+            ok, info = run.g6(self.c)
+        self.assertFalse(ok); self.assertTrue(info['cheats_passed'].startswith('1/'))
+
+    def test_completed_units_receive_a_fresh_retry_allowance(self):
+        journal = self.work / 'infra.json'
+        for _ in range(2):
+            calls = iter([InvalidInfra('reset invalid'), 'valid'])
+            def invoke():
+                result = next(calls)
+                if isinstance(result, Exception): raise result
+                return result
+            self.assertEqual(retry(journal, {'gate':'G4'}, invoke), 'valid')
+        self.assertTrue(all(row['invalid_attempts'] == 0 for row in json.loads(journal.read_text()).values()))
 
     def test_real_invalid_early_g4_g5_never_return_writer_problems(self):
         for gate in ('G4', 'G5'):

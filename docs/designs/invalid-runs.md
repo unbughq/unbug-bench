@@ -350,3 +350,55 @@ Generic negative probes also apply shared validity before claiming a checker pas
 including run-count agreement and the existing workflow-compensation prerequisite.
 This closes a positive-result bypass in addition to all-invalid cheat rejection.
 The saved mixed G11 batch reproduces that path without inventing trial output.
+
+
+## Diff-review-1 resolutions (normative)
+
+- **Complete independent evidence (B1):** G16/G17 bind every actual attempt
+  workspace as `try-N`, including an early-probe workspace outside the calibration
+  folder. The private `attempts/attempts.json` maps try numbers to those inputs.
+  Include all matching `transcripts/strong-calibrator-{folder,early_probe}-*.jsonl`
+  and replacement-series transcripts. The output validator refuses missing guard
+  or execution inputs. Review copies and their digests are checked before and after
+  the model call. A missing input never establishes wrong_fix or hardness.
+- **Missing fixes (M1):** obtain only each unreviewable try in its own diagnostic
+  one-try calibration series, keyed on SHA256 of the unchanged original row. Keep
+  the original G10 no-submission result and every valid later submission. Review a
+  completed replacement immediately in the same gate invocation. Its durable
+  results/pending receipts prevent another completed paid replacement on resume.
+  A replacement that also submits no fix stops unscored; no additional replacement
+  is bought. Provider waits retain the existing calibration continuation behavior.
+  Replacement costs remain strong-calibrator calls in the existing case ledger.
+  A valid accepted diagnostic guard is retained for G11; it does not rewrite G10's
+  original scientific attempt history.
+- **Unflagged URL availability (M2):** independently retrieve each structurally
+  valid row. An unflagged access error, bot block, oversized body or other fetch
+  failure supplies no evidence and is excluded from search minima. Keep its history
+  and request alternative searches through ensure_freshness's existing bounded
+  topup, preserving existing rows and flagged matches. Once enough alternatives
+  have runner receipts, an inaccessible unflagged row does not block admission.
+  Flagged retrieval failures still raise invalid-infra and require verified bytes
+  before judgment. Public info contains only an unfetched-search count; URL details
+  remain private. No model retrieval assertion can restore an excluded count.
+- **Operational exhaustion (M3):** row 36 explicitly separates structural
+  reselection from invalid-runtime exhaustion. Exhaustion is an unscored stop for
+  D diagnosis, as defined in “Blame and total retry bounds,” never a scientific
+  candidate rejection. This clarifies the register's former ambiguous fix text.
+- **Fresh allowances (M4):** a completed unit clears invalid_attempts to zero.
+  Subsequent deliberately requested executions receive the full two-attempt
+  allowance. Uncompleted exhausted units remain bounded across resumes.
+- **Other corrections (N1–N3):** keep a valid saved-cheat counterexample even if
+  generic probes are unavailable; bind G11 review to a stable normalized report
+  excluding generated results_directory paths; retain one private crash diagnostic
+  per failed execution, without duplicating the exhaustion wrapper.
+- **Provider waits:** independent-review receipts in running state remain
+  retryable. Remove any incomplete verdict file before retrying that family.
+  Only completed inconclusive reviews consume independent reviewer choices.
+  This fixes C's receipt handling only; A's admission/lease contracts are unchanged.
+
+Regression coverage in test_invalid_runs.py uses the retained real checkpoint,
+practice search log, scanner report and early-probe-shaped attempt receipts. It
+covers missing-first/valid-later submissions, completed no-fix replacement reuse,
+early-probe inputs plus owner transcripts, repeated provider waits, fail/pass then
+fail/pass retry allowances, freshness alternatives, changing scanner output paths
+and single crash diagnostics.
