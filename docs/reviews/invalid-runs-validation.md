@@ -8,7 +8,8 @@ Command:
     uv run --with numpy --with scipy python -B tests/run.py
 
 Result: 133 test scripts run; 0 failed. Recorded 2026-10-29T23:10:55.401744+00:00.
-Full log: /tmp/invalid-runs-full-suite-final-rebased.log
+Temporary full log: /tmp/invalid-runs-full-suite-final-rebased.log
+Only the log hash below is durably retained in this repository; the temporary log may be removed.
 Log SHA256: 78b81a2cea5dcd8e2eb46a2ae79943eaa80852f130628cd76e64b5e0b5adfca0
 
 The full run includes 34 tests in tests/factory/test_invalid_runs.py, all 20
