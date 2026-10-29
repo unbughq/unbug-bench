@@ -251,3 +251,21 @@ denial.
 - **Codex login.** The Codex login is read from
   `/dev/shm/secrets/codex-auth.json` on every call. `launch.sh` no longer
   copies it to `~/.codex`.
+- **Credentials are checked before a Lease is returned.** `await_lease`
+  checks that the account's credential is installed and that the Codex
+  login has not expired. A missing token returns a wait, so D never writes
+  a reservation for it.
+- **Which account.** `await_lease` prefers the worker's current authorized
+  account. It may name another authorized account whose credential the
+  worker lacks, so that B can deliver it.
+- **Two kinds of field in a provider-wait record.**
+  - `lease_id` and `call_id` describe the interrupted attempt. D uses
+    them.
+  - `route` and `account` describe the candidate that is waiting to be
+    admitted or delivered. B uses them. The account can differ from the
+    interrupted attempt's.
+- **Cooldowns.** When fallbacks are tried one after another, the receipts
+  do not extend the cooldown of routes that are no longer being considered.
+  Concurrent waits use the latest `retry_after`.
+- **Where the route came from.** Each lease's effective route is kept in
+  the card's `route_receipts`.
