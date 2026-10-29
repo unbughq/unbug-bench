@@ -67,6 +67,15 @@ def describe(case, work, card):
             query='\n'.join(queries) or 'Attacker freshness_review request',
             app_version=pinned))
     if len(rows) != len(answers): raise ValueError('review row coverage mismatch')
+    from freshness_retrieval import load as load_retrieval, digest
+    try:
+        receipts = load_retrieval(verdict_path.parent/'retrieval', rows)
+        completed = load(verdict_path.parent/'review-completed.json')
+        if (completed.get('binding', {}).get('confirmation_contract') != 2
+                or completed.get('retrieval_sha256') != digest(receipts)):
+            raise ValueError('unverified retrieval completion')
+    except (OSError, ValueError, RuntimeError):
+        receipts = None  # Legacy model assertions do not prove a page was fetched.
     # Preserve the exact app metadata, rather than guessing a version from a URL.
     paragraphs = [p for p in re.split(r'\n\s*\n', (snapshot/'statement.md').read_text())
                   if p.strip() and not all(line.lstrip().startswith('#') for line in p.splitlines())]
@@ -78,6 +87,7 @@ def describe(case, work, card):
     count = 0
     for index, (row, answer) in enumerate(zip(rows, answers), 1):
         context.freshness_confirmed_hits = 0
+        context.freshness_retrieval = [receipts[index - 1]] if receipts else []
         blocked = run.checked_freshness_verdict(context, [row], [answer])
         if not blocked or context.freshness_confirmed_hits: continue
         count += 1
@@ -86,7 +96,10 @@ def describe(case, work, card):
         output += [f'### Unresolved row {index}', '', '```json',
                    json.dumps(value, indent=2, ensure_ascii=True), '```', '']
     expected = (card.get('admission_freshness') or {}).get('unresolved_hits')
-    if not retained and count != expected: raise ValueError('unresolved row count mismatch')
+    if receipts and not retained and count != expected: raise ValueError('unresolved row count mismatch')
+    if receipts is None:
+        output += ['Runner retrieval proof unavailable; model claims alone remain unresolved.',
+                   f'Historical unresolved count: {expected}', '']
     output += [f'Unresolved rows: {count}', '']
     return '\n'.join(output)
 

@@ -333,3 +333,8 @@ negative-control report, guard-traffic-error, the public suffix case.json matchi
 those execution records, and the real public fake-pass report. Tests never pair
 marketplace practice metadata with four-path suffix records for scientific scoring.
 No original artifact or sealed verdict is rewritten.
+
+The tracked tools/open-g2-verdicts.py diagnostic reader consumes the same receipt
+contract. It loads verified runner bytes for current confirmations and reports
+legacy assertion-only rows as unresolved, keeping the historical counter separate.
+Its interactive unsealing/credential path is unchanged and was never invoked here.
