@@ -1,7 +1,5 @@
 """Independent judge breadth and zero-solve diagnosis. Findings never leave the seal."""
-import json
 import pathlib
-import shutil
 
 LABELS = ("wrong_fix", "missing_info", "judge_too_narrow")
 VERSION = 1

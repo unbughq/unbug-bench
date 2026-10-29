@@ -15,7 +15,7 @@
     "verdicts": "732f24e913190ffbc148963d34c8d09d9c4b5b7b75579dc0682157ccfe20589e"
   },
   "current_files": {
-    "bin/checkpoint_evidence.py": "45af91d3fb167f553d868e79ca7bec858521e4cfc5fc86ecbb822b0fd7ff1c2f",
+    "bin/checkpoint_evidence.py": "951b85bf0c96c1b654779eeeb670d3636a04d4af7c24ab45a28555c56b8fbc4e",
     "bin/run_validity.py": "cc343d61d3d77bc75cfc17dad359d3b05c31e97240610bed7f7b62c99fb01332",
     "bin/strategy": "69c294e4e9eebc87387ad97597878ebb9fe8dbe2dbde0b07b19c6bb3e3774405",
     "factory/calibration.py": "826a8af28b38927b225b5b06b29fade681aea7f3e14bdc6f7bd40cd0d723775d",

@@ -51,7 +51,7 @@ class CheckpointEvidenceTests(unittest.TestCase):
         self.record['errors'] = [{'stage': 'reset', 'message': 'synthetic'}]
         self.summary.update(error_runs=1, invalid_runs=1)
         process = self.process()
-        self.assertEqual(read_completed(process, 1, 'factory')[1], [self.record])
+        self.assertEqual(read_completed(process, 1, 'diagnostic', require_valid=False)[1], [self.record])
         with self.assertRaisesRegex(RuntimeError, 'no valid verdict'):
             read_completed(process, 1, 'strategy', require_valid=True)
 

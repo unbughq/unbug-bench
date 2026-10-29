@@ -54,12 +54,12 @@ def _read(path):
     return value
 
 
-def read_completed(process, requested_runs, label, *, require_valid=False):
+def read_completed(process, requested_runs, label, *, require_valid=True):
     """Return (summary, records, path) only for a complete checkpoint batch.
 
-    A valid scored failure is returned normally. Factory gates may inspect complete
-    invalid batches; strategy callers set require_valid because those have no
-    strategy verdict. Legacy output is read here only, for older checkpoint CLIs.
+    A valid scored failure is returned normally. Only explicit diagnostic callers
+    may inspect an invalid batch with require_valid=False; it has no scientific
+    verdict. Legacy output is read here only, for older checkpoint CLIs.
     """
     stdout, stderr = process.stdout or '', process.stderr or ''
     detail = (f'{label}; returncode={process.returncode}; '

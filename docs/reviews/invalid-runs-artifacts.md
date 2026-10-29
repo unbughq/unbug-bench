@@ -3,7 +3,7 @@
 The committed fixtures retain public outputs copied read-only from the supplied
 restore-14 bundles, VM public cards, public rehearsal, and saved public bench runs.
 Sources and original SHA256 digests are embedded in the gzip JSON fixtures and
-described in tests/factory/fixtures/invalid-runs-provenance.md. No archive was
+described in tests/factory/fixtures/invalid-runs-provenance.md. No real case archive was
 decrypted and no source/restore bundle was changed.
 
 The new tests replay real all-invalid resets (3 trials), a mixed G11 crash (5),

@@ -1,7 +1,6 @@
 """One judgment per configured independent family and unchanged private evidence."""
 import hashlib
 import json
-from pathlib import Path
 import shutil
 
 from calibration import atomic_results, tree_digest
