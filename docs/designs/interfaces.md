@@ -218,7 +218,10 @@ Each step merges only after its diff review passes.
 6. B: batch service. B turns the record writer on.
 
 No batch runs on `factory-simplify` between steps 4 and 6. While the flag is
-off, `await_lease()` uses the old in-worker wait and never exits.
+off, `await_lease()` uses the old in-worker wait and never takes the 60-second
+`provider_wait` exit. Explicit caller deadlines and batch deadlines still
+apply: when one passes, the call raises a sanitized timeout or
+`provider_wait_deadline`.
 
 Rows 2, 4, 20, 47 and 48 close only when B's end-to-end test passes:
 
