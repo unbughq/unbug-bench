@@ -149,7 +149,7 @@ class SmokeTests(unittest.TestCase):
             root = Path(tmp); (root / 'tools').mkdir(); (root / 'bin').mkdir()
             driver = root / 'tools/run-gate-smoke.sh'
             driver.write_bytes((ROOT / 'tools/run-gate-smoke.sh').read_bytes())
-            for name in ('boat-launch-guards.sh', 'boat-spend'):
+            for name in ('boat-launch-guards.sh', 'boat-spend', 'processes.py'):
                 target = root / 'bin' / name; target.write_bytes((ROOT / 'bin' / name).read_bytes()); target.chmod(0o755)
             names = ('factory/account_handoff.py', 'factory/restart.py', 'factory/control_resume.py', 'bin/push-secrets', 'tests/factory/test_account_handoff.py', 'tests/factory/test_control_resume.py', 'tests/factory/test_admission_handoff.py', 'tests/factory/fixtures/opencode-failover/policy.restore.json', 'tests/factory/fixtures/opencode-failover/launch.json', 'tests/factory/fixtures/opencode-failover/input-scorecard.json', 'tests/factory/fixtures/opencode-failover/launch-state.json', 'bin/gate-smoke', 'bin/bench.py', 'bin/bench_judging.py', 'bin/factory_pool.py', 'factory/run.py',
                      'factory/gate_pipeline.py', 'factory/case_contract.py', 'factory/fairness.py',
@@ -183,6 +183,7 @@ elif args[0]=='ssh' and 'summary.json' in args[2]: print(json.dumps({'status':'F
             events = root / 'events.jsonl'
             env = {k: v for k, v in os.environ.items() if k not in ('BOAT_CMD', 'UNBUG_LAUNCH_STATE')}
             env['FIXTURE_EVENTS'] = str(events)
+            env['UNBUG_CONTROL_HOME'] = str(root / 'control-home')
             args = ['sh', str(driver), '--release', str(root), '--adapter', str(adapter),
                     '--adapter-sha256', hashlib.sha256(adapter.read_bytes()).hexdigest(),
                     '--approved-by-founder', '--output', str(root / 'evidence')]

@@ -95,7 +95,7 @@ class StrategyCrashTests(unittest.TestCase):
         self.root = pathlib.Path(self.temp.name)
 
     def checkpoint(self, process):
-        with patch.object(strategy.subprocess, 'run', return_value=process):
+        with patch.object(strategy.processes, 'run', return_value=process):
             with self.assertRaises(RuntimeError) as error:
                 strategy.checkpoint([self.root], self.root, {}, 1, 1, 'synthetic')
         return str(error.exception)
@@ -136,7 +136,7 @@ class StrategyCrashTests(unittest.TestCase):
         async def window(environment, spec):
             result = await environment.exec('synthetic')
             if result.return_code: raise RuntimeError(result.stderr or result.stdout)
-        with patch.object(strategy.asyncio, 'create_subprocess_shell', AsyncMock(return_value=process)):
+        with patch.object(strategy.processes, 'shell', AsyncMock(return_value=subprocess.CompletedProcess('synthetic', 7, b'stdout cause', b'stderr cause'))):
             message = self.silent(window)
         for text in ('returncode=7', 'stdout cause', 'stderr cause'):
             self.assertIn(text, message)

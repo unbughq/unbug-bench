@@ -1,0 +1,14 @@
+{
+  "runtime_images": {
+    "postgres:17.11-bookworm": "sha256:839fbb5a4942a7758dd93e18b42ea5649807491a0545b5eeeb8f0b8bb11857a5",
+    "redis:7.4.8-bookworm": "sha256:3e0669e42d4fe421c9dea0ba5fbc04d336b80b4f32a6c7d25bee3a1d089288a1",
+    "unbug-bench-medusa:latest": "sha256:8fac6d0837e67bf9d854eb5299146fc3e63438a875cab61fd44144dc18cb1b5e"
+  },
+  "tools": {
+    "age": "1.1.1",
+    "codex": "codex-cli 0.162.1",
+    "compose": "5.3.1",
+    "harbor": "0.24.0",
+    "opencode": "1.19.0"
+  }
+}

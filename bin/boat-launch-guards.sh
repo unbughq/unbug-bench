@@ -85,7 +85,12 @@ for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
 PY
   )
   [ -z "${EXAM_STATUS_FILE:-}" ] || printf '%s\n' "$id" > "$EXAM_STATUS_FILE"
-  [ "$new_status" -eq 0 ] && [ -n "$id" ] || { echo "boat new failed; cleaning up any reported VM" >&2; return 1; }
+  if [ -z "$id" ]; then
+    touch "$state/new.$serial.pending"
+    echo "boat creation outcome unknown; pending reconciliation (no duplicate launch)" >&2
+    return 1
+  fi
+  [ "$new_status" -eq 0 ] || { echo "boat new stopped; cleaning up the reported VM" >&2; return 1; }
   # BOAT_CMD replaces all boat activity, including the direct-API naming helper.
   if [ -z "${BOAT_CMD:-}" ]; then "$root/bin/boat-name" "$id" "$label: $purpose" || true; fi
   date +%s > "$state/$id.started"
@@ -252,10 +257,13 @@ PY
     fi
   fi
   unfinished=0
+  for creation in "$state"/new.*.pending; do
+    [ ! -f "$creation" ] || unfinished=1
+  done
   for exit_id in $(cat "$state/ids"); do
     [ -f "$state/$exit_id.deleted" ] || unfinished=1
   done
-  if [ -n "$spend_file" ] && [ -f "$spend_file" ] && { [ "$unfinished" -eq 0 ] || [ -z "${UNBUG_LAUNCH_STATE:-}" ]; }; then
+  if [ -n "$spend_file" ] && [ -f "$spend_file" ] && [ "$unfinished" -eq 0 ]; then
     if [ ! -f "$state/spend-finished" ]; then
       if "$root/bin/boat-spend" --finish "$spend_file" "$exit_code" "$state/ids"; then
         touch "$state/spend-finished"
@@ -304,6 +312,11 @@ guard_wait() {
       if [ -f "$state/$wait_id.ok" ]; then
         reply=$(cat "$state/$wait_id.reply")
         case $reply in
+          STARTUP_FAILED)
+            echo "$wait_id: runner startup failed; collecting operational exit receipt" >&2
+            wait_status=1
+            guard_retire "$wait_id" || true
+            touch "$state/$wait_id.retired"; continue ;;
           DONE)
             # Factory-only hook: retain the original TTL/spend envelope and restart in place.
             # Exams and Hetzner keep their existing retirement paths.

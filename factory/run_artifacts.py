@@ -15,18 +15,20 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+sys.path.insert(0, str(Path(os.environ.get('BENCH', Path.home() / 'unbug-bench')) / 'bin'))
+import processes
 
 
 def shred_tree(path, sudo=False):
     if sudo:  # inside an isolated user's private home the runner cannot even stat the path: let root do it all
-        subprocess.run(["sudo", "sh", "-c", 'if [ -f "$1" ]; then shred -u -z "$1"; elif [ -d "$1" ]; then '
+        processes.run(["sudo", "sh", "-c", 'if [ -f "$1" ]; then shred -u -z "$1"; elif [ -d "$1" ]; then '
                         'find "$1" -type f -exec shred -u -z {} +; rm -rf "$1"; fi', "sh", str(path)], capture_output=True)
         return
     if not path.exists(): return
-    if path.is_file(): subprocess.run(["shred", "-u", "-z", str(path)], capture_output=True)
+    if path.is_file(): processes.run(["shred", "-u", "-z", str(path)], capture_output=True)
     else:
-        subprocess.run(["find", str(path), "-type", "f", "-exec", "shred", "-u", "-z", "{}", "+"], capture_output=True)
-        subprocess.run(["rm", "-rf", str(path)], capture_output=True)
+        processes.run(["find", str(path), "-type", "f", "-exec", "shred", "-u", "-z", "{}", "+"], capture_output=True)
+        processes.run(["rm", "-rf", str(path)], capture_output=True)
 
 
 
@@ -52,6 +54,7 @@ class RunArtifacts:
         return sorted((d for d in (self.bench / "results").rglob("*") if d.is_dir() and d.stat().st_mtime >= c.t0), key=lambda d: -len(d.parts))
 
 
+    @processes.deadline(600, independent=True)
     def seal(self, c, *, checkpoint=False):
         """G12: gather bench evidence and transcripts into the work dir, tar | age, sha256, shred."""
         work = c.work
@@ -61,12 +64,12 @@ class RunArtifacts:
         for d in self.agent_state:
             if (self.home / d).exists():
                 (work / "agent-state").mkdir(exist_ok=True)
-                subprocess.run(["cp", "-a", "--parents", d, str(work / "agent-state")], cwd=self.home, capture_output=True)
+                processes.run(["cp", "-a", "--parents", d, str(work / "agent-state")], cwd=self.home, capture_output=True)
         for user, home in self.pilot_homes():
             if home.exists():
                 (work / "agent-state").mkdir(exist_ok=True)
-                subprocess.run(["sudo", "cp", "-a", str(home), str(work / f"agent-state/{user}-home")], capture_output=True, check=True)
-                subprocess.run(["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", str(work / "agent-state")], capture_output=True, check=True)
+                processes.run(["sudo", "cp", "-a", str(home), str(work / f"agent-state/{user}-home")], capture_output=True, check=True)
+                processes.run(["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", str(work / "agent-state")], capture_output=True, check=True)
         if not c.args.dry_run and not checkpoint and not c.card.get("failed_gate"):
             self.retain_delivery(c)
         self.sealed.mkdir(exist_ok=True)
@@ -78,7 +81,7 @@ class RunArtifacts:
                 with tempfile.TemporaryDirectory(dir=self.sealed) as tmp:
                     staged = pathlib.Path(tmp) / "statement.age"
                     c.card['statement_sha256'] = hashlib.sha256(c.statement.encode()).hexdigest()
-                    encrypted = subprocess.run(["age", "-r", recipient, "-o", str(staged)],
+                    encrypted = processes.run(["age", "-r", recipient, "-o", str(staged)],
                                                input=c.statement.encode(), capture_output=True)
                     if encrypted.returncode: raise RuntimeError("statement encryption failed")
                     c.card["statement_cipher_sha256"] = hashlib.sha256(staged.read_bytes()).hexdigest()
@@ -86,7 +89,7 @@ class RunArtifacts:
                     receipt = work / "public-search.json"
                     if receipt.is_file() and c.card.get("public_search"):
                         staged = pathlib.Path(tmp) / "search.age"
-                        encrypted = subprocess.run(["age", "-r", recipient, "-o", str(staged)],
+                        encrypted = processes.run(["age", "-r", recipient, "-o", str(staged)],
                                                    input=receipt.read_bytes(), capture_output=True)
                         if encrypted.returncode: raise RuntimeError("search receipt encryption failed")
                         c.card["public_search"]["cipher_sha256"] = hashlib.sha256(staged.read_bytes()).hexdigest()
@@ -102,7 +105,7 @@ class RunArtifacts:
             staged = pathlib.Path(tmp) / "archive.age"
             q = lambda value: shlex.quote(str(value))
             extra = f" -r {q(case_key)}" if case_key else ""
-            p = subprocess.run(f"set -o pipefail; tar -C {q(work.parent)} -czf - {q(work.name)} | age -r {q(c.recipient)}{extra} -o {q(staged)}",
+            p = processes.run(f"set -o pipefail; tar -C {q(work.parent)} -czf - {q(work.name)} | age -r {q(c.recipient)}{extra} -o {q(staged)}",
                                shell=True, executable="/bin/bash", capture_output=True, timeout=600)
             if p.returncode: raise RuntimeError("encryption failed")
             staged.replace(out)
@@ -112,18 +115,19 @@ class RunArtifacts:
         if case_key and (obj := r2_upload.upload(out, checkpoint)): c.card["r2_object"] = obj
         if c.args.dry_run:  # prove the round trip with the throwaway key, then compare every file
             with tempfile.TemporaryDirectory(dir=self.home) as tmp:
-                d = subprocess.run(f"set -o pipefail; age -d -i {c.keyfile} {out} | tar -C {tmp} -xzpf - --no-same-owner", shell=True, executable="/bin/bash", capture_output=True)
-                same = d.returncode == 0 and subprocess.run(["diff", "-r", "--no-dereference", str(work), str(pathlib.Path(tmp) / work.name)], capture_output=True).returncode == 0
+                d = processes.run(f"set -o pipefail; age -d -i {c.keyfile} {out} | tar -C {tmp} -xzpf - --no-same-owner", shell=True, executable="/bin/bash", capture_output=True)
+                same = d.returncode == 0 and processes.run(["diff", "-r", "--no-dereference", str(work), str(pathlib.Path(tmp) / work.name)], capture_output=True).returncode == 0
                 c.card["dry_run_roundtrip"] = {"decrypted": d.returncode == 0, "identical": same,
                                                "files": sum(1 for f in work.rglob("*") if f.is_file())}
                 self.cleanup(pathlib.Path(tmp) / work.name)
 
 
+    @processes.deadline(120, independent=True)
     def wipe(self, c):
         factory_cleanup = []
         for slot in range(1, max(self.factory_slots(c), getattr(c, 'prepared_factory_slots', 1))):
             import factory_pool
-            result = subprocess.run([sys.executable, "-c", "import bench, subprocess; bench.stop_inventory_services(); bench.dc('down', '-v', '--remove-orphans'); subprocess.run(['docker', 'image', 'rm', '-f', bench.GUARD_IMAGE], capture_output=True); assert not bench.command(['docker', 'images', '-q', bench.GUARD_IMAGE])"],
+            result = processes.run([sys.executable, "-c", "import bench, processes; bench.stop_inventory_services(); bench.dc('down', '-v', '--remove-orphans'); processes.run(['docker', 'image', 'rm', '-f', bench.GUARD_IMAGE], capture_output=True); assert not bench.command(['docker', 'images', '-q', bench.GUARD_IMAGE])"],
                                     cwd=self.bench / "bin", env=factory_pool.worker_env(slot), capture_output=True)
             factory_cleanup.append(result.returncode == 0)
         for user, home in self.pilot_homes():
@@ -133,21 +137,21 @@ class RunArtifacts:
         for user, home in self.pilot_homes():
             if home.exists():
                 self.cleanup(home, sudo=True)
-                subprocess.run(["sudo", "pkill", "-KILL", "-u", user], capture_output=True)
-                subprocess.run(["sudo", "userdel", "-r", user], capture_output=True)
-        subprocess.run(["chmod", "755", str(self.home)], capture_output=True)
+                processes.run(["sudo", "pkill", "-KILL", "-u", user], capture_output=True)
+                processes.run(["sudo", "userdel", "-r", user], capture_output=True)
+        processes.run(["chmod", "755", str(self.home)], capture_output=True)
         for f in self.results_since(c): self.cleanup(f)
         for d in self.result_dirs_since(c):
             if d.exists() and not any(f.is_file() for f in d.rglob("*")): shutil.rmtree(d)
-        subprocess.run(["docker", "image", "rm", "-f", "unbug-bench-medusa:guard"], capture_output=True)
-        subprocess.run(["docker", "compose", "-f", str(self.bench / "projects/medusa/compose.yaml"), "down", "-v"], capture_output=True)  # the database held case data
-        subprocess.run(["docker", "builder", "prune", "-af"], capture_output=True)  # layers held patched source
+        processes.run(["docker", "image", "rm", "-f", "unbug-bench-medusa:guard"], capture_output=True)
+        processes.run(["docker", "compose", "-f", str(self.bench / "projects/medusa/compose.yaml"), "down", "-v"], capture_output=True)  # the database held case data
+        processes.run(["docker", "builder", "prune", "-af"], capture_output=True)  # layers held patched source
         left = sum(1 for p in [c.work, *(home for _, home in self.pilot_homes()), *(self.home / d for d in self.agent_state)] if p.exists() for f in ([p] if p.is_file() else p.rglob("*")) if f.is_file())
         left += len(self.results_since(c))
         c.card["wipe"] = {"plaintext_files_left": left,
                           "named_dirs_left": sum(1 for d in self.result_dirs_since(c) if not any(f.is_file() for f in d.rglob("*"))),
-                          "guard_image_left": bool(subprocess.run(["docker", "images", "-q", "unbug-bench-medusa:guard"], capture_output=True, text=True).stdout.strip()),
-                          "db_volume_left": "unbug-bench_postgres-data" in subprocess.run(["docker", "volume", "ls", "-q"], capture_output=True, text=True).stdout}
+                          "guard_image_left": bool(processes.run(["docker", "images", "-q", "unbug-bench-medusa:guard"], capture_output=True, text=True).stdout.strip()),
+                          "db_volume_left": "unbug-bench_postgres-data" in processes.run(["docker", "volume", "ls", "-q"], capture_output=True, text=True).stdout}
         if factory_cleanup: c.card["wipe"]["factory_cleanup_ok"] = all(factory_cleanup)
 
 

@@ -533,7 +533,7 @@ class AdmissionTests(unittest.TestCase):
         import r2_upload
         with patch.object(run, "SEALED", sealed), patch.object(run, "STATEMENTS_RECIPIENT", recipient), \
              patch.object(run, "AGENT_STATE", []), patch.object(run, "pilot_homes", return_value=[]), \
-             patch.object(run.RunArtifacts, "results_since", return_value=[]), patch.object(run.subprocess, "run", encrypt), \
+             patch.object(run.RunArtifacts, "results_since", return_value=[]), patch("run_artifacts.processes.run", encrypt), \
              patch.object(r2_upload, "case_recipient", return_value=None):
             run.seal(c)
         search = sealed / (c.case_id + ".search.age")

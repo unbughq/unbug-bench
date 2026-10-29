@@ -9,7 +9,12 @@ import secrets
 import shlex
 import subprocess
 import threading
-from http.server import HTTPServer
+import io
+import socket
+from http.server import ThreadingHTTPServer
+
+REQUEST_SECONDS = 5
+MAX_BODY = 16 * 1024
 
 
 @contextlib.contextmanager
@@ -79,6 +84,7 @@ def owner_server(c, r, workspace, host="127.0.0.1"):
     owner.role_cancel, owner.budget_resumed = cancel, True
     owner.calibrator_slot_offset = 0  # do not publish a checkpoint during another active call
     count = 0
+    owner_lock = threading.Lock()
 
     def answer(question):
         nonlocal count
@@ -106,20 +112,69 @@ def owner_server(c, r, workspace, host="127.0.0.1"):
             raise RuntimeError("owner unavailable") from None
 
     class Handler(protocol.Handler):
+        def _json(self, code, obj):
+            try: super()._json(code, obj)
+            except (BrokenPipeError, ConnectionResetError): pass
+
+        def setup(self):
+            super().setup()
+            # An idle socket timeout alone permits a slow trickle forever.
+            def expire():
+                try: self.connection.shutdown(socket.SHUT_RDWR)
+                except OSError: pass
+            self.parse_timer = threading.Timer(REQUEST_SECONDS, expire)
+            self.parse_timer.daemon = True
+            self.parse_timer.start()
+
+        def finish(self):
+            self.parse_timer.cancel()
+            super().finish()
+
+        def do_GET(self):
+            self.parse_timer.cancel()
+            super().do_GET()
+
         def do_POST(self):
             if self.path != "/" + token + "/ask":
+                self.parse_timer.cancel()
                 self._json(403, {"error": "forbidden"})
                 return
+            self.close_connection = True
+            try:
+                raw = self.headers.get('Content-Length', '')
+                if not raw.isascii() or not raw.isdigit(): raise ValueError()
+                length = int(raw)
+                if not 0 < length <= MAX_BODY:
+                    self._json(413, {"error": "body too large or empty"})
+                    return
+                body = self.rfile.read(length)
+                if len(body) != length or not isinstance(json.loads(body), dict): raise ValueError()
+            except (OSError, ValueError):
+                self._json(400, {"error": "invalid JSON body"})
+                return
+            finally:
+                self.parse_timer.cancel()  # model calls have their own 120s budget
+            if not owner_lock.acquire(blocking=False):
+                self._json(503, {"error": "owner busy"})
+                return
             self.path = "/ask"
-            super().do_POST()
+            original = self.rfile
+            try:
+                self.rfile = io.BytesIO(body)
+                super().do_POST()
+            finally:
+                self.rfile = original
+                owner_lock.release()
 
-    server = HTTPServer((host, 0), Handler)
+    server = ThreadingHTTPServer((host, 0), Handler)
+    server.daemon_threads = True
+    server.block_on_close = False
     server.answer_question = answer
     def record(entry):
         with log.open("a") as out:
             out.write(json.dumps(entry) + "\n")
     server.record_answer = record
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=.1), daemon=True)
     thread.start()
     try:
         yield f"http://{host}:{server.server_address[1]}/{token}/ask"
@@ -128,7 +183,7 @@ def owner_server(c, r, workspace, host="127.0.0.1"):
     finally:
         cancel.set()
         server.shutdown()
-        thread.join()
+        thread.join(timeout=1)
         server.server_close()
 
 

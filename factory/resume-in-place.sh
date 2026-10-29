@@ -32,7 +32,7 @@ account_state_arg=""
 extra=""; for a in "$@"; do extra="$extra '$(printf '%s' "$a" | sed "s/'/'\\\\''/g")'"; done
 "$BOAT_CMD" ssh "$id" "set -eu
 rm -rf ~/factory && tar -xzf ~/factory.tgz -C ~ && rm ~/factory.tgz
-! pgrep -f '^python3 .*factory/run.py' >/dev/null || { echo 'runner already running' >&2; exit 1; }
+! pgrep -f '^python3 .*factory/(run|runner_supervisor)[.]py' >/dev/null || { echo 'runner already running' >&2; exit 1; }
 # Source and slot from the newest scorecard that has them (a run that crashed early writes one without),
 # unless given as options to this script.
 case \" $extra \" in *rotation-slot*) opts= ;; *) opts=\$(python3 -c 'import json,sys
@@ -45,7 +45,7 @@ else: sys.exit(\"no scorecard names the source and slot\")' ~/sealed/$case_id.sc
 sha=\$(cd ~/factory && python3 -c 'import run; print(run.bench_manifest())')
 workers=\$(( \$(nproc) / 2 < 1 ? 1 : \$(nproc) / 2 ))
 python3 ~/factory/account_handoff.py resume-worker --case $case_id --bench-sha \"\$sha\" $account_state_arg -- \$opts --bench-workers \"\$workers\" $extra
-sleep 3; pgrep -f '^python3 .*factory/run.py' >/dev/null && echo \"resumed $case_id in place (\$opts, \$workers bench workers)\""
+sleep 3; pgrep -f '^python3 .*factory/(run|runner_supervisor)[.]py' >/dev/null && echo \"resumed $case_id in place (\$opts, \$workers bench workers)\""
 hcloud server remove-label "$id" parked >/dev/null
 hcloud server add-label --overwrite "$id" "expires=$(( $(date +%s) + 8 * 3600 ))" >/dev/null
 nohup "$root/bin/factory-adopt" --hours 7.5 "$id" >> "$root/results/factory/adopt.log" 2>&1 < /dev/null &

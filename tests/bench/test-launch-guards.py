@@ -72,6 +72,9 @@ elif cmd == "exec":
         (vm / "exam").touch()
         (vm / "exam-private/trial/jobs").mkdir(parents=True)
     (vm / ".boat-launch-start").touch()
+    if mode == 'startup-crash':
+        (vm / 'sealed/runner-status.json').write_text(json.dumps(dict(schema=1, attempt=3,
+            phase='startup', reason='startup_failed', exit_status=1, observed_at=time.time())))
     for dest in ("sealed", "exam-out"):
         (vm / dest / "result.scorecard.txt").write_text("fake scorecard\n")
         (vm / dest / "result.jobs.tar.gz.age").write_text("fake sealed bytes")
@@ -134,6 +137,8 @@ elif cmd == "ssh":
         assert (vm / 'medusa-image-prepared').exists(), 'image fallback must precede qualification'
         assert not (vm / 'secrets-ok').exists(), 'qualification must precede credentials'
         if mode == 'qualification-fail': sys.exit(1)
+        if mode == 'second-qualification-fail' and args[1] == 'vm-2':
+            (root / 'second-failed').touch(); sys.exit(1)
         print(json.dumps({'schema':1,'verified_drivers':['opencode','codex']}))
     elif command == 'if test -d ~/sealed/.factory-restart.lock; then echo locked; else echo unlocked; fi':
         print('unlocked')
@@ -188,6 +193,8 @@ elif cmd == "ssh":
                                 env=dict(os.environ, HOME=str(vm))).returncode)
     elif command.startswith(("python3 -c ", "OPENCODE_DISABLE_AUTOUPDATE=1 python3 -c ")):
         (vm / "polled").touch()
+        if mode == 'second-qualification-fail' and args[1] == 'vm-1' and (root / 'second-failed').exists():
+            (vm / 'sealed/DONE').touch()
         if mode == "collect-fail" and "pathlib.Path.home()" in command and "sealed" in command: sys.exit(1)
         if mode == "unreachable": sys.exit(1)
         if mode == "hang": time.sleep(10)
@@ -203,6 +210,9 @@ elif cmd == "ssh":
                 (vm / "sealed/DONE").touch(); (vm / "exam-out/DONE").touch()
         env = dict(os.environ, HOME=str(vm))
         sys.exit(subprocess.run(["/bin/sh", "-c", command], env=env).returncode)
+    elif 'test ! -f ~/sealed/runner-status.json' in command:
+        status = vm / 'sealed/runner-status.json'
+        if status.exists(): print(status.read_text())
     elif "ls *." in command:
         folder = "exam-out" if "exam-out" in command else "sealed"
         if not (vm / folder).exists():  # both collectors: no output folder = nothing to collect
@@ -423,7 +433,7 @@ exit "$status"
                 out, err = proc.communicate(timeout=30)
             else:
                 try:
-                    out, err = proc.communicate(IDENTITY, timeout=30)
+                    out, err = proc.communicate(IDENTITY, timeout=60)
                 except subprocess.TimeoutExpired:
                     # Never leave a failed synthetic controller running after
                     # its temporary fixture is removed.
@@ -450,14 +460,14 @@ exit "$status"
                 if retained and not rejected_reuse:
                     assert mode in ("collect-fail", "autoretry-corrupt", "autoretry-nohash", "autoretry-uncertain", "unreachable", "hang", "delete-fail"), (mode, err)
                     assert "!!! ORPHAN:" in err, err
-                if kind == "factory" and retained and not rejected_reuse:
+                if retained and not rejected_reuse:
                     # Durable factory launches remain open until retirement;
-                    # legacy exam launches report the observed balance delta.
+                    # all launch kinds retain reservations for uncertain live workers.
                     assert record["balance_after_usd"] is None and record["actual_spend_usd"] is None, (record, err)
                     assert "Actual spend" not in err
                 else:
                     assert record["balance_after_usd"] is not None, (record, err)
-                    assert "Actual spend" in err
+                    assert "Account observation" in err
             return proc.returncode, out, err, calls, record
 
         exam_card = bench / "sealed/test.scorecard.json"
@@ -472,7 +482,8 @@ exit "$status"
             assert code == 0, err
             if kind == "factory": assert (bench / "sealed/result.statement.age").is_file()
             assert rec["ttl_seconds"] == hours * 3600
-            assert abs(rec["actual_spend_usd"] - 0.001) < 1e-9
+            assert rec["actual_spend_usd"] is None
+            assert abs(rec["account_balance_delta_usd"] - 0.001) < 1e-9
             assert "TTL:" in err
         code, _, err, _, rec = run("exam", extra=("--arm", "C", "--tries", "2"))
         assert code == 0 and rec["ttl_seconds"] == 7 * 3600, err
@@ -605,6 +616,22 @@ exit "$status"
             if kind == "exam":
                 assert any(c[0] == "exec" and "'--out' '/home/user/exam-out'" in c[-1]
                            and "'--private' '/home/user/exam-private'" in c[-1] for c in calls), err
+        code, _, err, calls, _ = run(mode='startup-crash')
+        assert code != 0 and 'runner startup failed' in err and 'STALLED' not in err, err
+        receipt = json.loads((bench / 'sealed/vm-1.runner-status.json').read_text())
+        assert receipt['reason'] == 'startup_failed' and receipt['exit_status'] == 1
+        print('PASS detached startup exit receipt is promptly collected without a case DONE')
+        # The failed second setup must return to monitoring the healthy first worker.
+        real = json.loads((ROOT / 'tests/factory/fixtures/isolation-timeouts/monitor.json').read_text())
+        code, _, err, calls, _ = run(mode='second-qualification-fail', count=2,
+            extra=('--ttl-hours', str(real['ttl_seconds'] / 3600), '--max-spend', '2'))
+        assert code != 0 and 'setup failed' in err, err
+        last_failure = max(i for i,c in enumerate(calls) if c[:2] == ['ssh','vm-2'] and 'factory/worker_release.py' in c[2])
+        healthy_delete = next(i for i,c in enumerate(calls) if c[:2] == ['delete','vm-1'])
+        assert any(c[:2] == ['ssh','vm-1'] and 'STARTUP_FAILED' in c[2]
+                   for c in calls[last_failure+1:healthy_delete]), err
+        assert not any(c[:2] == ['exec','vm-2'] for c in calls), err
+        print('PASS real-TTL worker setup failure leaves healthy peer under its own monitor')
         code, _, err, calls, _ = run(mode="mixed", count=2)
         assert code != 0 and "STALLED" in err, err
         deletes = [c[1] for c in calls if c[0] == "delete"]

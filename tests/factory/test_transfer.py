@@ -31,7 +31,7 @@ class TransferTests(unittest.TestCase):
         self.name = 'case-synthetic.tar.gz.age'
         self.data = b'encrypted synthetic bytes only' * 4
         (self.vm / 'sealed' / self.name).write_bytes(self.data)
-        self.fake = self.root / 'boat'
+        self.fake = self.root / 'fake-transport'
         self.fake.write_text('''#!/usr/bin/env python3
 import os,pathlib,subprocess,sys,time
 assert sys.argv[1:3]==['ssh','synthetic']

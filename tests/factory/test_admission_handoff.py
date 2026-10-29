@@ -42,6 +42,7 @@ class AdmissionHandoffTests(unittest.TestCase):
         for name in ('statement_round.py', 'restart.py', 'recovery.py', 'budget.py', 'token_prices.py', 'registry.py', 'admission.py',
                      'calibration.py', 'free_models.py', 'collect.sh', 'transfer.py'):
             shutil.copyfile(HERE / name, self.root / 'factory' / name)
+        shutil.copyfile(HERE / 'runner_supervisor.py', self.remote / 'factory/runner_supervisor.py')
         self.worker = 'worker-owned'; self.case = 'case-selected'
         case_dir = self.remote / 'work' / self.case / 'case'; case_dir.mkdir(parents=True)
         statement = 'synthetic freshly selected candidate'
@@ -101,7 +102,8 @@ class AdmissionHandoffTests(unittest.TestCase):
             ' (base/"pending-detached.sh").write_text(cmd); sys.exit()\n' +
             'sys.exit(subprocess.run(["/bin/sh","-c",cmd],env=env,stderr=subprocess.DEVNULL).returncode)\n')
         backend.chmod(0o755)
-        (self.remote / 'factory/run.py').write_text('import json,pathlib,sys\nh=pathlib.Path.home()\n'
+        (self.remote / 'factory/run.py').write_text('import json,pathlib,sys,os\nh=pathlib.Path.home()\n'
+            'if os.environ.get("FACTORY_RUNNER_READY"): pathlib.Path(os.environ["FACTORY_RUNNER_READY"]).touch()\n'
             'case=sys.argv[sys.argv.index("--resume")+1]\n'
             'result={"args":sys.argv[1:],"budget":json.loads((h/"sealed"/(case+".continuation-budget.json")).read_text()),"lock_owner":(h/"sealed/.factory-restart.lock/owner").read_text()}\n'
             '(h/"resumed.json").write_text(json.dumps(result))\n')
@@ -130,7 +132,7 @@ class AdmissionHandoffTests(unittest.TestCase):
         script = 'set -eu\n' + function + '\n' + '\n'.join([
             'root=' + shlex.quote(str(self.root)), 'here=$root/factory',
             'state=' + shlex.quote(str(self.state)), 'admission_root=' + shlex.quote(str(self.history)),
-            'sealed_audit=""; UNBUG_CLOUD=boat; retire_at=3600; workers_arg=""; vm_creds=:',
+            'sealed_audit=""; UNBUG_CLOUD=boat; retire_at=3600; margin=1800; workers_arg=""; vm_creds=:',
             'args=' + shlex.quote(self.args),
             'boat() { "$root/bin/boat-call" "$@"; }',
             'collect_vm() { /bin/sh "$here/collect.sh" "$1"; }',

@@ -202,9 +202,9 @@ class ResumeTests(unittest.TestCase):
                  patch.object(run, 'PILOT_HOME', root / 'no-pilot'), patch.object(run.RunArtifacts, 'results_since', return_value=[]), \
                  patch.object(r2_upload, 'case_recipient', return_value=None), \
                  patch.object(r2_upload, 'upload', return_value=None):
-                with patch.object(run.subprocess, 'run', encrypt): run.seal(c, checkpoint=True)
+                with patch("run_artifacts.processes.run", encrypt): run.seal(c, checkpoint=True)
                 self.assertEqual(archive.read_bytes(), b'new encrypted fixture')
-                with patch.object(run.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)):
+                with patch("run_artifacts.processes.run", return_value=subprocess.CompletedProcess([], 1)):
                     with self.assertRaisesRegex(RuntimeError, 'encryption failed'): run.seal(c, checkpoint=True)
                 self.assertEqual(archive.read_bytes(), b'new encrypted fixture')
 

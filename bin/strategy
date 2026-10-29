@@ -6,6 +6,7 @@ Use --case . for the public practice scenarios. No model calls.
 """
 import argparse, asyncio, json, os, pathlib, re, shutil, subprocess, sys, tempfile, tomllib
 import claims
+import processes
 from checkpoint_evidence import read_completed, verdict_detail
 
 BENCH = pathlib.Path(os.environ.get('BENCH', pathlib.Path(__file__).resolve().parent.parent))
@@ -90,7 +91,7 @@ def checkpoint(scenarios, guard, report, runs, seed, label, factory_workers=1):
                '--guard', str(guard), '--claims', str(path), '--pending-state', str(pathlib.Path(tmp) / 'decisions.json'),
                '--runs', str(runs), '--stress', '--seed', str(seed), '--label', label,
                '--factory-workers', str(factory_workers)]
-        p = subprocess.run(cmd, capture_output=True, text=True)
+        p = processes.run(cmd, capture_output=True, text=True, timeout=14400)
         summary, _, evidence_path = read_completed(p, runs, label, require_valid=True)
         summary['_evidence_path'] = str(evidence_path)
         return summary
@@ -115,13 +116,13 @@ def silent_checkpoint(case, step, prior, guard, report, watching):
             if watching and watcher.is_file():
                 process = subprocess.Popen(['bash', str(watcher)], stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    start_new_session=os.environ.get('UNBUG_DIAGNOSTIC_PROCESS_GROUP') != '1',
+                    start_new_session=not any(os.environ.get(k) == '1' for k in
+                        ('UNBUG_DIAGNOSTIC_PROCESS_GROUP', 'UNBUG_PROCESS_GROUP_OWNED')),
                     env=dict(os.environ, BENCH_ROOT=str(BENCH)))
             class Environment:
                 async def exec(self, command, **kwargs):
-                    p = await asyncio.create_subprocess_shell(command, cwd=BENCH,
-                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                    out, err = await asyncio.wait_for(p.communicate(), kwargs.get('timeout_sec', 120))
+                    p = await processes.shell(command, cwd=BENCH, timeout=kwargs.get('timeout_sec', 120))
+                    out, err = p.stdout, p.stderr
                     if p.returncode:
                         raise RuntimeError(f'silent strategy command failed: returncode={p.returncode}; '
                                            f'stderr={err.decode(errors="replace")[-4000:]}; stdout={out.decode(errors="replace")[-4000:]}')
@@ -138,18 +139,11 @@ def silent_checkpoint(case, step, prior, guard, report, watching):
             return summary
         finally:
             if process:
-                import signal
-                shared_group = os.environ.get('UNBUG_DIAGNOSTIC_PROCESS_GROUP') == '1'
-                def stop(sig):
-                    try:
-                        if shared_group: process.send_signal(sig)
-                        else: os.killpg(process.pid, sig)
-                    except ProcessLookupError: pass
-                stop(signal.SIGTERM)
-                try: process.wait(timeout=2)
-                except subprocess.TimeoutExpired: pass
-                finally: stop(signal.SIGKILL)
+                shared_group = any(os.environ.get(k) == '1' for k in
+                    ('UNBUG_DIAGNOSTIC_PROCESS_GROUP', 'UNBUG_PROCESS_GROUP_OWNED'))
+                processes.kill_tree(process.pid, owned_group=not shared_group, alive=process.poll() is None)
                 process.wait(timeout=2)
+
 
 
 def claim_report(key, paths, frozen=False, decision=None):

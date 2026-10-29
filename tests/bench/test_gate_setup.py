@@ -44,7 +44,7 @@ class SetupTests(unittest.TestCase):
             if args[-3:] == ['npm', 'run', 'seed']:
                 return subprocess.CompletedProcess(args, 1, 'seed stdout cause', 'duplicate key seed stderr')
             return subprocess.CompletedProcess(args, 0, '', '')
-        with patch.object(bench.subprocess, 'run', run), patch.object(bench, 'FACTORY_SLOT', 1):
+        with patch('processes.run', run), patch.object(bench, 'FACTORY_SLOT', 1):
             with self.assertRaisesRegex(RuntimeError, 'seed stdout cause.*', msg='seed stderr must survive') as error:
                 bench.setup()
         self.assertIn('duplicate key seed stderr', str(error.exception))
