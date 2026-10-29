@@ -341,9 +341,10 @@ separate report lines. Waste never consumes ordinary case progress/diagnosis
 allowance, and reclassification never creates batch headroom. With commitment
 $13 and total $12 = case $8 + waste $4, $1 remains authorized. Batch money
 exhaustion is operational and unscored. There is no separate waste allowance.
-B grants no extension eligibility and does not amend ENGINEERING §3. D enforces
-the active $15 extension rule until its proposed amendment is adopted by the
-parent. A money commitment is not permission to bypass that rule.
+B grants no extension eligibility. ENGINEERING §3 now draws extensions from
+the founder-set cumulative batch bound through this channel, with no fixed
+per-extension dollar allowance. D enforces extension count/package/progress
+rules; a money commitment alone grants no extension eligibility.
 
 The money projection path is kept as `batch-money/<batch>/jobs/` for D's already
 reviewed consumer. It shares the journal's `batches/<batch>/lock`; it is no

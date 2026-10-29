@@ -114,8 +114,9 @@ decimal strings; absent means balance-need comparison unknown, never a guess.
 D stages use the same money owner/job. Queue priority belongs to the admission
 or revision request, not another commitment. Ordinary scientific spend and
 infra-waste are separate report lines; total job authority includes both to keep
-batch money conserved. B grants no extension eligibility and never waives
-ENGINEERING's active $15 rule. D applies it until parent adopts the amendment.
+batch money conserved. B grants no extension eligibility. Under amended ENGINEERING §3 extensions
+draw from the founder-set cumulative batch bound through §8, with no fixed
+per-extension dollar allowance; D enforces count, package and progress rules.
 
 Holder protocol and exact control-restore predicate are a required reviewed
 addendum before increment 3. They must preserve the three-argument batch.launch
@@ -537,3 +538,25 @@ case dual wrapping ships with increment2's manifest wiring, before B enablement.
 A founder-only wrapper created after the frozen survey is a known input requiring
 a new explicit plan; never silently include it or claim the current plan covers
 it. No batches run between A and completed B as interfaces §6 requires.
+
+## Stream D integration assertions (founder amendment adopted)
+
+Parent reports ENGINEERING §3 amended after 72d5c8f: extensions draw from the
+founder-set cumulative batch bound through §8; no fixed $15 allowance. Earlier
+verbatim reviews describe the old rule as historical review context only.
+
+Before G10/exam-gate relaunch, the VM checks both tester and reviewer effective
+route capacity. Map routes to pools using the pinned router config plus live
+status; when the pools coincide require two free slots in that pool. Capacity
+reads are advisory, so a race may still wait after launch; retain D's tester
+reservation and conservative charge, never refund it as zero or book it twice.
+
+Practice end-to-end test must explicitly assert: reviewer capacity zero while
+tester is free creates no worker; tester zero while reviewer free creates no
+worker; shared pool needs two slots; both available allows one predecessor-
+retired relaunch. Evidence records owner-admission wait IDs, parent tester lease/
+operation IDs, duration, settled known usage and conservative gap charges, with
+event/wait-ID deduplication on replay. Qualification reports those waits/charges
+even if nonzero, rather than hiding held tester capacity behind a success label.
+Real provider denial/receipt artifacts are required for closure; authored zero-
+capacity inputs alone prove scheduling invariants, not production throughput.
