@@ -7,6 +7,7 @@ import re
 import shlex
 import sys
 import time
+import model_router
 
 # Compatibility for runner and existing tooling; recovery owns public decisions.
 from recovery import (RETRY, BUDGET_STOPS, REREVIEW_STOP, REREVIEW_STOPS, crash_stop,
@@ -53,8 +54,21 @@ def plan(path, retries, remaining, args, *, claude_account_handoff=False, openco
                 not proof.get("worker") or not proof.get("snapshot_sha256")):
             raise ValueError("invalid admission handoff proof or selection bound")
     argv = shlex.split(args)
-    require_restart_stop(card, argv, admission=admission)
-    if (not admission and not 0 <= retries < 3) or not math.isfinite(remaining):
+    provider_wait = stop == 'provider_wait'
+    if provider_wait:
+        wait = card.get('provider_wait') or {}
+        if (wait.get('reason') not in model_router.REASONS or wait.get('evidence') not in ('denied_before_work', 'interrupted')
+                or not isinstance(wait.get('route'), str) or not wait.get('wait_id')):
+            raise ValueError('invalid provider wait projection')
+        retry = model_router.epoch(wait['retry_after'])
+        batch_end = model_router.epoch(wait['batch_deadline'])
+        if not model_router.finite(retry) or not model_router.finite(batch_end) or retry >= batch_end:
+            raise ValueError('provider wait exceeds batch deadline')
+        # Eligibility still checks gate/checkpoint state. D settles interrupted usage on resume.
+        require_restart_stop({**card, 'terminal_stop': 'provider_limit:' + wait['route']}, argv)
+    else:
+        require_restart_stop(card, argv, admission=admission)
+    if (not admission and not provider_wait and not 0 <= retries < 3) or retries < 0 or not math.isfinite(remaining):
         raise ValueError("three restart attempts exhausted or invalid deadline")
     def option(name, default):
         value = default
@@ -75,7 +89,14 @@ def plan(path, retries, remaining, args, *, claude_account_handoff=False, openco
     from budget import require_case_budget, BudgetError
     try: require_case_budget(budget, option('--case-budget', 50))
     except BudgetError as error: raise ValueError('exhausted or unknown case list-price budget') from error
-    if not ledger_agrees(card, route='restart',
+    if provider_wait and not (
+            budget.get('terminal_stop') in (None, 'complete', 'cancelled', 'codex_login_expired', 'credential_expiring',
+                                           'process_error', 'claude_error', 'codex_error', 'opencode_error')
+            or str(budget.get('terminal_stop')).startswith(('provider_limit:', 'refusal:'))):
+        raise ValueError('provider wait cannot override a non-provider ledger stop')
+    # A provider wait may end a peer's ledger as cancelled; the allowlist above
+    # replaces ordinary label equality while D settles the retained receipts.
+    if not provider_wait and not ledger_agrees(card, route='restart',
                          pause_raised=paused_rounds_exhausted(card)):
         raise ValueError("scorecard and cumulative ledger disagree")
     handoff = claude_account_handoff is True and stop.startswith("provider_limit:claude/") and bool(stop.removeprefix("provider_limit:claude/"))
@@ -83,7 +104,8 @@ def plan(path, retries, remaining, args, *, claude_account_handoff=False, openco
     delay = 60 if handoff else (900 if stop.startswith("provider_limit:") else 60) * (2 ** retries)
     resets = budget.get("claude_resets_at")
     if not handoff and stop.startswith("provider_limit:claude/") and type(resets) in (int, float) and math.isfinite(resets):
-        delay = int(min(max(resets - time.time() + 120, 60), 6 * 3600))  # resume just after Claude's window resets
+        delay = int(max(model_router.retry_at("quota", reset_at=resets) - time.time() + 120, 60))  # resume just after Claude's window resets
+    if provider_wait: delay = max(0, math.ceil(retry - time.time()))
     if admission: delay = 0
     if remaining <= delay + 60:
         raise ValueError("insufficient time before the original collection deadline")

@@ -29,7 +29,7 @@ class ControlResumeTests(unittest.TestCase):
         self.f.setUp()
         self.addCleanup(self.f.doCleanups)
         f = self.f
-        for name in ('launch.sh', 'control_resume.py', 'codex_login.py'):
+        for name in ('launch.sh', 'control_resume.py', 'codex_login.py', 'model_router.py'):
             if (HERE / name).exists(): shutil.copyfile(HERE / name, f.root / 'factory' / name)
         for name in ('boat-launch-guards.sh', 'boat-spend', 'processes.py'):
             shutil.copyfile(HERE.parent / 'bin' / name, f.root / 'bin' / name)

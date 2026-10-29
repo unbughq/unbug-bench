@@ -18,6 +18,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
 import budget
 import model_runtime
+import model_router
+from router_test_support import offline_router
+_ROUTING = offline_router()
 import recovery
 import run
 
@@ -31,6 +34,7 @@ def auth(exp, last_refresh='2026-10-01T00:00:00Z'):
 
 class LoginTests(unittest.TestCase):
     def test_gate_boundaries_and_expiry_precedence(self):
+        self.addCleanup(offline_router()[0].close)
         import codex_login
         now = int(datetime.datetime(2026, 10, 28, tzinfo=datetime.timezone.utc).timestamp())
         end = now + 8 * 3600 + 1800 + 300
@@ -42,6 +46,7 @@ class LoginTests(unittest.TestCase):
                     codex_login.validate(auth(expiry), 8 * 3600, now=now)
 
     def test_gate_refuses_unverifiable_and_invalid_inputs_without_echo(self):
+        self.addCleanup(offline_router()[0].close)
         import codex_login
         for value in ({}, {'tokens': {'access_token': 'secret-not-a-jwt'}},
                       auth(True), auth(float('nan')), auth(9999999999.0), auth(10**30),
@@ -54,6 +59,7 @@ class LoginTests(unittest.TestCase):
             with self.assertRaises(ValueError): codex_login.validate(auth(9999999999), ttl)
 
     def test_bundle_gate_is_before_worker_creation_and_restore(self):
+        self.addCleanup(offline_router()[0].close)
         launch = (ROOT / 'factory/launch.sh').read_text()
         self.assertLess(launch.index('codex_login_gate\n'), launch.index('if [ -n "$restore" ] &&'))
         self.assertLess(launch.index('if ! codex_login_gate;'), launch.index('if ! guard_new;'))
@@ -69,6 +75,7 @@ class LoginTests(unittest.TestCase):
             self.assertNotIn(b'synthetic-refresh', result.stdout + result.stderr)
 
     def test_real_launcher_rejects_expired_bundle_before_any_cloud_call(self):
+        self.addCleanup(offline_router()[0].close)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             with tarfile.open(root/'bundle', 'w') as archive:
@@ -89,6 +96,7 @@ class LoginTests(unittest.TestCase):
                 self.assertFalse((root/'called').exists())
 
     def test_worker_copy_cannot_rotate_and_preserves_source(self):
+        self.addCleanup(offline_router()[0].close)
         import codex_login
         value = auth(9999999999)
         original = json.dumps(value)
@@ -98,9 +106,10 @@ class LoginTests(unittest.TestCase):
         self.assertEqual(json.dumps(value), original)
 
     def test_runtime_stages_access_only_auth_with_private_permissions(self):
+        self.addCleanup(offline_router()[0].close)
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); (root/'transcripts').mkdir(); (root/'.codex').mkdir()
-            source=root/'.codex/auth.json'; source.write_text(json.dumps(auth(9999999999)))
+            source=model_router.SECRETS/'codex-auth.json'; source.write_text(json.dumps(auth(9999999999)))
             before=source.read_bytes()
             c=SimpleNamespace(work=root,case=root,card={},ledger=root/'ledger',
                 args=argparse.Namespace(agent_timeout=5,max_cost=5,max_role_calls=10,
@@ -119,6 +128,7 @@ class LoginTests(unittest.TestCase):
             self.assertEqual(source.read_bytes(),before)
 
     def test_auth_diagnostics_are_distinct_and_sticky(self):
+        self.addCleanup(offline_router()[0].close)
         messages = ['Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.',
                     'workspace routing discovery unauthorized (401)',
                     json.dumps({'type':'turn.failed','error':{'message':'Your authentication token has expired. Please sign in again.'}})]
@@ -132,6 +142,7 @@ class LoginTests(unittest.TestCase):
                 self.assertEqual(json.loads((folder/'ledger').read_text())['terminal_stop'], 'codex_login_expired')
 
     def test_preflight_retains_login_reason_and_deliberate_restore_is_allowed(self):
+        self.addCleanup(offline_router()[0].close)
         c = SimpleNamespace(card={}, case=Path('.'), models={'attacker':['codex/gpt-6.1-sol'],
             'reviewers':[['reviewer']], 'strong_calibrator':['strong'], 'easy_calibrator':['easy']})
         with patch.object(run, 'opencode', side_effect=budget.BudgetError('codex_login_expired')):
@@ -145,6 +156,7 @@ class LoginTests(unittest.TestCase):
 
 class CleanupTests(unittest.TestCase):
     def test_launch_exit_preserves_primary_exit_code_and_records_cleanup(self):
+        self.addCleanup(offline_router()[0].close)
         script = '''
 root=$1; state=$2; primary=$3; cleanup_fail=$4
 . "$root/bin/boat-launch-guards.sh"
@@ -163,6 +175,7 @@ guard_exit "$primary"
                     {'primary_exit_code':primary,'cleanup_failed':fail=='yes'})
 
     def test_budget_process_cleanup_cannot_replace_auth_stop(self):
+        self.addCleanup(offline_router()[0].close)
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
             original=budget.os.killpg
@@ -180,6 +193,7 @@ guard_exit "$primary"
             self.assertEqual(ledger['cleanup_errors'],[{'stage':'process_cancellation','error':'OSError'}])
 
     def test_scratch_cleanup_preserves_model_stop_and_attempts_both_steps(self):
+        self.addCleanup(offline_router()[0].close)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); (root/'transcripts').mkdir()
             c = SimpleNamespace(work=root, case=root, card={}, ledger=root/'ledger',
@@ -191,13 +205,14 @@ guard_exit "$primary"
             with patch.object(model_runtime, 'pinned_cli', return_value='synthetic'), \
                  patch.object(model_runtime.ModelRuntime, '_hand_to', side_effect=lambda c,u,p:p), \
                  patch.object(model_runtime, 'run_budgeted', side_effect=budget.BudgetError('codex_login_expired')):
-                with self.assertRaisesRegex(budget.BudgetError, '^codex_login_expired$'):
+                with self.assertRaisesRegex(budget.BudgetError, '^provider_wait$'):
                     runtime.call(c, ['claude/synthetic'], 'synthetic', root, 'reviewer-1', user='synthetic')
-            cleanup.assert_called_once()
+            cleanup.assert_called_once()  # Uncertain cleanup must not start another model.
             self.assertEqual([v['stage'] for v in c.card['cleanup_errors']], ['model_process', 'model_scratch'])
             self.assertNotIn('private-cleanup-detail', json.dumps(c.card))
 
     def test_final_accounting_preserves_stop_and_keeps_ledger_on_summary_error(self):
+        self.addCleanup(offline_router()[0].close)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); ledger = root/'ledger'
             value = {'terminal_stop':'codex_login_expired','events':[], 'calls':0, 'cost':0}

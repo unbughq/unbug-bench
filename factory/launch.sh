@@ -311,7 +311,7 @@ for s in $secrets; do
     openrouter-key) vm_creds="$vm_creds; export OPENROUTER_API_KEY=\$(cat /dev/shm/secrets/openrouter-key)" ;;
     opencode-go-key|opencode-go-key-2)
       if [ "$s" = "$opencode_secret" ]; then vm_creds="$vm_creds; export OPENCODE_API_KEY=\$(cat /dev/shm/secrets/$opencode_secret)"; fi ;;
-    codex-auth.json) vm_creds="$vm_creds; cp /dev/shm/secrets/codex-auth.json ~/.codex/auth.json; : > ~/.codex/config.toml" ;;
+    codex-auth.json) vm_creds="$vm_creds; : > ~/.codex/config.toml" ;;
     *) echo "unknown secret $s" >&2; exit 1 ;;
   esac
 done
@@ -559,7 +559,9 @@ factory_auto_resume() {
   fi
   if [ -z "$admission_proof" ]; then
     [ "$now" -ge "$(cat "$state/$resume_id.retry-at")" ] || return 0
-    echo $((attempts + 1)) > "$state/$resume_id.autoresumes" || return 1  # reserve before an uncertain remote call
+    if [ "$admission_stop" != provider_wait ]; then
+      echo $((attempts + 1)) > "$state/$resume_id.autoresumes" || return 1  # reserve actual recovery work
+    fi
   fi
   printf '%s\n' "$checkpoint_generation" > "$state/$resume_id.restart-attempted" || return 1
   rm -f "$state/$resume_id.retry-at" || return 1

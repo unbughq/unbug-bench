@@ -275,6 +275,8 @@ class CaseBudgetTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.plan(self.public_card(limit=50), '')
 
     def test_attacker_call_timeout_is_transient_and_shorter_than_global_stall(self):
+        from router_test_support import offline_router
+        self.addCleanup(offline_router()[0].close)
         c = self.c
         c.models['attacker'] = ['opencode/test-free']
         for key, value in dict(agent_timeout=4 * 3600, no_progress_minutes=45, max_cost=5,

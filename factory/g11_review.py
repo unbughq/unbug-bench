@@ -174,6 +174,7 @@ def review(c, factory):
     except (Exception, factory.PauseRequested) as error:
         from calibration import interruption_label
         c.card.update(status="stopped", terminal_stop="paused" if isinstance(error, factory.PauseRequested) else interruption_label(error))
+        if str(error) == 'provider_wait': factory.write_provider_wait(c, error)
     finally:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         try:

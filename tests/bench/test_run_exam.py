@@ -84,6 +84,9 @@ print("owner identity, limits and host credential isolation ok")
 
 # The executable verified during owner setup must be the executable actually invoked.
 import model_runtime
+sys.path.insert(0, str(_BENCH_ROOT / 'tests/factory'))
+from router_test_support import offline_router
+_ROUTING = offline_router()
 with tempfile.TemporaryDirectory() as tmp:
     root = pathlib.Path(tmp)
     role = {"model": "opencode/synthetic-reviewer", "effort": "default"}

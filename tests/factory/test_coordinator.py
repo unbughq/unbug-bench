@@ -61,23 +61,13 @@ def fixture(root):
 with tempfile.TemporaryDirectory() as temp, mock.patch.object(key_holder, "ROOT", pathlib.Path(temp)):
     f = fixture(pathlib.Path(temp))
     run, snapshot, status, requests = (f[k] for k in ("run", "snapshot", "status", "requests"))
-    # Plans have no launch or journal side effects. Account 1's limit hands off
-    # only to an explicitly approved account supporting the identical model+effort.
-    snapshot["claude_accounts"][0]["blocked_until"] = f["now"] + 3600
+    # This coordinator proves cloud ownership only; model_router alone admits roles.
+    snapshot['claude_accounts'][0]['blocked_until'] = f['now'] + 3600
     result = run()
-    assert result["action"] == "launch" and result["claude_account"] == 2
-    assert not f["journal"].exists() and not any(r["op"] == "launch" for r in requests)
-    snapshot["claude_accounts"][1]["models"][0]["effort"] = "low"
-    assert run()["reason"] == "authorized_account_capacity_unavailable"
-    snapshot["claude_accounts"][1]["models"][0]["effort"] = "high"
-    status["claude_accounts"]["2"] = False
-    assert run()["reason"] == "authorized_account_capacity_unavailable"
-    status["claude_accounts"]["2"] = True
+    assert result['action'] == 'launch' and result['claude_account'] is None
+    assert not f['journal'].exists() and not any(r['op'] == 'launch' for r in requests)
     result = run(True)
-    assert result["action"] == "started" and requests[-1] == {
-        "op": "launch", "job": "synthetic", "claude_account": 2,
-        "expected_generation": f["card"]["sha256"],
-        "expected_recovery_config_sha256": key_holder.recovery_conditions_digest(f["card"])}
+    assert result['action'] == 'started' and 'claude_account' not in requests[-1]
     saved = json.loads(f["journal"].read_text())
     assert saved["actions"][0]["budget_calls"] == 20 and saved["actions"][0]["budget_cost"] == 1.25
     assert run(True)["action"] == "reconcile"  # empty fleet is never proof of a failed start
@@ -129,52 +119,6 @@ for seam in ("reservation", "request"):
         assert f["run"](True)["action"] == "reconcile"
         assert len(json.loads(f["journal"].read_text())["actions"]) == 1
 
-# Persistent concurrency configuration needs no manual account-disable toggle:
-# a verified Claude-limit successor prefers account 2 at the same model/effort.
-for stop, expected in (("provider_limit:claude/synthetic", 2), ("stalled", 1),
-                       ("provider_limit:opencode-go/synthetic", 1), ("provider_limit:claude/", 1)):
-    with tempfile.TemporaryDirectory() as temp, mock.patch.object(key_holder, "ROOT", pathlib.Path(temp)):
-        f = fixture(pathlib.Path(temp))
-        assert f["run"](True)["claude_account"] == 1
-        f["archive"].write_bytes(b"synthetic verified quota successor")
-        f["card"].update(sha256=hashlib.sha256(f["archive"].read_bytes()).hexdigest(), terminal_stop=stop)
-        f["card"]["continuation_budget"].update(calls=25, cost=1.5, terminal_stop=stop)
-        f["write_card"]()
-        os.utime(f["card_path"], (f["now"] - 10000, f["now"] - 10000))
-        # Worker disappearance alone cannot activate an alternate account.
-        assert f["run"]()["action"] == "reconcile"
-        monitor = pathlib.Path(temp) / ctrl.MONITOR; monitor.parent.mkdir(parents=True)
-        monitor.write_text(json.dumps({"workers": [{"id": "synthetic", "case": f["case"], "retired": True,
-            "terminal": {"retired": True, "archive_verified": True, "expected_archive_sha256": f["card"]["sha256"],
-                         "cumulative_calls": 25, "cumulative_cost": 1.5,
-                         "card_mtime_utc": datetime.datetime.fromtimestamp(f["now"] + 1, datetime.timezone.utc).isoformat()}}]}))
-        result = f["run"]()
-        assert result["action"] == "launch" and result["claude_account"] == expected, result
-        assert result["budget_calls"] == 25 and result["budget_cost"] == 1.5
-        if expected == 2:
-            # The account that failed may not reset for five hours. Another
-            # authorized account still proceeds after the bounded transient delay.
-            f["card"]["continuation_budget"]["claude_resets_at"] = time.time() + 5 * 3600
-            f["write_card"]()
-            os.utime(f["card_path"], (f["now"] - 1000, f["now"] - 1000))
-            assert f["run"]()["claude_account"] == 2
-            f["snapshot"]["claude_accounts"][1]["available"] = False
-            assert f["run"]()["reason"] == "stop_or_original_budget_not_retryable"  # same account cannot fit its reset in the deadline
-            f["snapshot"]["claude_accounts"][1]["available"] = True
-            f["card"]["continuation_budget"].pop("claude_resets_at")
-            f["write_card"]()
-            os.utime(f["card_path"], (f["now"] - 10, f["now"] - 10))
-            assert f["run"]()["reason"] == "restart_backoff"
-            os.utime(f["card_path"], (f["now"] - 10000, f["now"] - 10000))
-            f["snapshot"]["claude_accounts"][1]["available"] = False
-            assert f["run"]()["claude_account"] == 1  # preference is not an inferred quota prohibition
-            f["snapshot"]["claude_accounts"][1]["available"] = True
-            f["snapshot"]["claude_accounts"][1]["models"][0]["effort"] = "low"
-            assert f["run"]()["claude_account"] == 1
-            f["snapshot"]["claude_accounts"][1]["models"][0]["effort"] = "high"
-            assert f["run"](True)["claude_account"] == 2
-            assert f["requests"][-1]["claude_account"] == 2
-
 for change, reason in (("paused", "explicit_pause"), ("budget", "unverified_checkpoint_or_budget"),
                        ("config", "original_configuration_not_verified"), ("legacy", "original_configuration_not_verified"),
                        ("model", "model_or_effort_changed"), ("missing", "missing_policy_config")):
@@ -206,7 +150,6 @@ with tempfile.TemporaryDirectory() as temp, mock.patch.object(key_holder, "ROOT"
     f["job"]["claude_accounts"] = [1]
     f["status"]["policy_sha256"] = key_holder.policy_digest(f["policy"])
     f["snapshot"]["claude_accounts"][0]["available"] = False
-    assert f["run"](True)["reason"] == "authorized_account_capacity_unavailable"  # account 2 exists but is not authorized
     f["snapshot"]["claude_accounts"][0]["available"] = True
     assert f["run"](True)["action"] == "started"
     journal = json.loads(f["journal"].read_text())
@@ -223,52 +166,15 @@ with tempfile.TemporaryDirectory() as temp, mock.patch.object(key_holder, "ROOT"
 
 print("PASS coordinator: bounded durable reservations, crash/timeout reconciliation, verified successor, freshness, exact config/model/effort, authorized account takeover, pause and budget blocks")
 
-# Non-Claude recovery requires explicit fresh quota observations, independent of credentials.
+# Legacy quota rows are ignored; admission is always delegated to model_router.
 for provider, model in (("opencode", "opencode-go/synthetic"), ("codex", "codex/synthetic")):
     with tempfile.TemporaryDirectory() as temp, mock.patch.object(key_holder, "ROOT", pathlib.Path(temp)):
         f = fixture(pathlib.Path(temp))
-        f["card"]["roles"]["strong_calibrator"]["model"] = model
-        f["job"]["args"] = ctrl.configuration_args(f["card"], {**f["job"], "args": ["1", "--restore", f["case"]]})
-        if provider == "opencode": f["job"]["opencode_accounts"] = [1, 2]
-        f["status"]["policy_sha256"] = key_holder.policy_digest(f["policy"])
-        f["status"]["opencode_accounts"] = {"1": True, "2": True}
-        f["write_card"]()
-        assert f["run"]()["reason"] == provider + "_capacity_or_quota_unverified"
-        rows = [{"id": n, "available": True, "capacity": 1, "used": 0,
-                 "models": [{"model": model, "effort": "high"}],
-                 "quota": {"state": "unknown", "source": "operator_observation", "observed_at": f["now"] - 1,
-                           "expires_at": f["now"] + 100}} for n in ((1, 2) if provider == "opencode" else (1,))]
-        f["snapshot"][provider + "_accounts"] = rows
-        assert f["run"]()["reason"] == provider + "_capacity_or_quota_unverified"
-        for row in rows: row["quota"].update(state="available", credit_remaining=0)
-        assert f["run"]()["reason"] == provider + "_capacity_or_quota_unverified"
-        for row in rows: row["quota"]["credit_remaining"] = 1
-        rows[0]["blocked_until"] = f["now"] + 500
-        if provider == "codex":
-            assert f["run"]()["reason"] == "codex_capacity_or_quota_unverified"
-            rows[0]["blocked_until"] = 0
-        result = f["run"](True)
-        assert result["action"] == "started" and result[provider + "_account"] == (2 if provider == "opencode" else 1)
-        if provider == "opencode": assert f["requests"][-1]["opencode_account"] == 2
-        assert f["run"]()["action"] == "reconcile"  # absent worker cannot replay a reserved provider launch
-        if provider == "opencode":
-            # Only verified collection permits account handoff and shorter retry delay.
-            f["archive"].write_bytes(b"synthetic opencode successor")
-            stop = "provider_limit:" + model
-            f["card"].update(sha256=hashlib.sha256(f["archive"].read_bytes()).hexdigest(), terminal_stop=stop)
-            f["card"]["continuation_budget"].update(calls=25, cost=1.5, terminal_stop=stop)
-            f["write_card"]()
-            rows[0]["blocked_until"] = 0
-            rows[1]["blocked_until"] = f["now"] + 500
-            assert f["run"]()["action"] == "reconcile"
-            monitor = pathlib.Path(temp) / ctrl.MONITOR; monitor.parent.mkdir(parents=True)
-            monitor.write_text(json.dumps({"workers": [{"id": "synthetic", "case": f["case"], "retired": True,
-                "terminal": {"retired": True, "archive_verified": True, "expected_archive_sha256": f["card"]["sha256"],
-                             "cumulative_calls": 25, "cumulative_cost": 1.5,
-                             "card_mtime_utc": datetime.datetime.fromtimestamp(f["now"] + 1, datetime.timezone.utc).isoformat()}}]}))
-            assert f["run"](True)["opencode_account"] == 1
-        rows[0]["quota"]["expires_at"] = f["now"]
-        try: f["run"]()
-        except ValueError: pass
-        else: raise AssertionError("expired quota observation accepted")
-print("PASS non-Claude preflight: unknown/zero/expired quota, cooldown, existing authorized routing, uncertain-launch block")
+        f['card']['roles']['strong_calibrator']['model'] = model
+        f['job']['args'] = ctrl.configuration_args(f['card'], {**f['job'], 'args':['1','--restore',f['case']]})
+        f['status']['policy_sha256'] = key_holder.policy_digest(f['policy'])
+        f['write_card']()
+        result = f['run'](True)
+        assert result['action'] == 'started' and provider + '_account' not in result
+        assert f['run']()['action'] == 'reconcile'
+print('PASS model account scheduling removed; cloud reservation/replay protection retained')

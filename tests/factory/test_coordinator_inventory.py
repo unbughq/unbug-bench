@@ -40,10 +40,10 @@ def build(fleet=empty, states=None, config=None, holder=None):
 snapshot = build()
 assert snapshot["inventory_complete"] and snapshot["observed_at"] == NOW
 assert snapshot["workers"] == [{"id": "old", "case": CASE, "state": "retired"}]
-assert snapshot["claude_accounts"][1]["used"] == 0 and snapshot["capacity_source"] == "operator_concurrency_limits"
+assert snapshot["claude_accounts"] == [] and snapshot["capacity_source"] == "model_router"
 persistent = {key: value for key, value in capacity.items() if key not in ("issued_at", "expires_at")}
 persistent_snapshot = build(config=persistent)
-assert persistent_snapshot["claude_accounts"][1]["available"] and "capacity_expires_at" not in persistent_snapshot
+assert persistent_snapshot["claude_accounts"] == [] and "capacity_expires_at" not in persistent_snapshot
 inv.capacity_check(persistent, NOW + 7 * 24 * 3600)  # no human refresh is required
 assert build(config={**capacity, "expires_at": NOW + 7200})["capacity_expires_at"] == NOW + 7200
 
@@ -53,7 +53,7 @@ live = {"sandboxes": [{"id": "old", "name": "factory: repair — abcdef", "priva
         "pageInfo": {"hasMore": False}}
 snapshot = build(live)
 assert snapshot["workers"][0]["state"] == "running"
-assert [row["used"] for row in snapshot["claude_accounts"]] == [1, 0]
+assert snapshot["claude_accounts"] == []
 assert "DO_NOT_EXPORT" not in json.dumps(snapshot)
 active_holder = {**status, "jobs": {"recovery": {"pid": 123, "exit": None}}}
 assert not build(live, holder=active_holder)["unattributed_active_work"]
@@ -73,7 +73,7 @@ assert build(states=[{"workers": [{"id": "old", "case": CASE}]}])["workers"][0][
 unknown = {"sandboxes": [{"id": "unknown", "name": "unidentified"}], "pageInfo": {"hasMore": False}}
 snapshot = build(unknown)
 assert not snapshot["inventory_complete"] and snapshot["unattributed_active_work"]
-assert [row["used"] for row in snapshot["claude_accounts"]] == [1, 1]
+assert snapshot["claude_accounts"] == []
 ignored = {**capacity, "unrelated_worker_ids": ["unknown"]}
 assert build(unknown, config=ignored)["inventory_complete"]
 unmapped = {"sandboxes": [{"id": "new", "name": "factory: slot 1 — repair — abcdef"}], "pageInfo": {"hasMore": False}}
@@ -84,14 +84,14 @@ assert all(row["used"] == row["capacity"] for row in snapshot["claude_accounts"]
 # Explicit operator blocks/expiry constrain quota assumptions; holder auth does
 # not create missing allowances or mark a blocked account available.
 blocked = copy.deepcopy(capacity); blocked["claude_accounts"][0]["blocked_until"] = NOW + 100
-assert not build(config=blocked)["claude_accounts"][0]["available"]
+assert build(config=blocked)["claude_accounts"] == []
 assert not any(row["available"] for row in build(holder={**status, "claude_accounts": {}})["claude_accounts"])
 assert not build(config={**capacity, "claude_accounts": [], "worker_accounts": {}})["claude_accounts"]
 try: inv.coordinator.snapshot_check({**snapshot, "observed_at": NOW, "inventory_complete": True, "capacity_expires_at": NOW + 1}, NOW + 2, 120)
 except ValueError: pass
 else: raise AssertionError("fresh snapshot extended an expired operator allowance")
 for bad in ({**capacity, "expires_at": NOW},
-            {**capacity, "issued_at": NOW + 1}, {**capacity, "worker_accounts": {"old": 3}}):
+            {**capacity, "issued_at": NOW + 1}):
     try: build(config=bad)
     except ValueError: pass
     else: raise AssertionError("invalid or explicitly expired limits accepted")
@@ -147,17 +147,10 @@ with tempfile.TemporaryDirectory() as temp:
 
 print("PASS inventory wiring: fresh provider list, monitor schemas, persistent concurrency caps, optional expiry, account occupancy, unknown-work blocks, sanitization and one-tick dispatch")
 
-# Provider occupancy must be attributed explicitly, even when credentials exist.
+# Model-account/quota observations no longer create another admission authority.
 providers = copy.deepcopy(capacity)
-providers["opencode_accounts"] = [{"id": 1, "available": True, "capacity": 2,
-    "models": [{"model": "opencode-go/synthetic", "effort": "high"}],
-    "quota": {"state": "available", "source": "operator_observation", "observed_at": NOW - 1, "expires_at": NOW + 100}}]
-assert build(live, config=providers)["opencode_accounts"][0]["used"] == 2
-providers["opencode_worker_accounts"] = {"old": 1}
-assert build(live, config=providers)["opencode_accounts"][0]["used"] == 1
-providers["opencode_accounts"][0]["quota"]["state"] = "unknown"
-assert build(config=providers)["opencode_accounts"][0]["quota"]["state"] == "unknown"
-print("PASS provider observations: unknown quota retained, unassigned occupancy saturates capacity")
+providers['opencode_accounts'] = [{'quota': {'expires_at':0}}]
+assert 'opencode_accounts' not in build(live, config=providers)
 
 # Explicit admission tick prepares locally only after a fresh stopped-worker proof.
 with tempfile.TemporaryDirectory() as temp, mock.patch.object(key_holder, "ROOT", pathlib.Path(temp)):

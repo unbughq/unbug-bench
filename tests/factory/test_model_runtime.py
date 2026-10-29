@@ -15,10 +15,14 @@ import types
 import unittest
 from unittest import mock
 import model_runtime
+import model_router
+from router_test_support import offline_router
+_ROUTING = offline_router()
 
 
 class ModelRuntimeTests(unittest.TestCase):
     def test_subscription_execution_contract(self):
+        self.addCleanup(offline_router()[0].close)
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
             c = types.SimpleNamespace(work=root, case=root / 'case', card={})
@@ -64,6 +68,7 @@ class ModelRuntimeTests(unittest.TestCase):
             assert seen[-1][0][u + 1:u + 4] == ['sh', '-c', 'cd "$1" && shift && exec "$@"'], seen[-1][0][:12]
 
     def test_deepseek_openrouter_fresh_and_restored_execution(self):
+        self.addCleanup(offline_router()[0].close)
         import json
         from budget import run_budgeted
         source = 'opencode/deepseek-v4.1-flash-free'
@@ -76,7 +81,11 @@ class ModelRuntimeTests(unittest.TestCase):
                 args=argparse.Namespace(agent_timeout=3, max_cost=5, max_role_calls=10,
                     max_total_calls=20, no_progress_minutes=1, max_zero_tokens=3, resume=None))
             runtime = model_runtime.ModelRuntime(root, mock.Mock(), mock.Mock(), mock.Mock(), mock.Mock())
+            counter = [0]
             def budgeted(cmd, cwd, env, *args, **kwargs):
+                if cmd[cmd.index('-m') + 1] == source:
+                    raise model_runtime.BudgetError('provider_limit:' + source)
+                counter[0] += 1
                 self.assertEqual(cmd[cmd.index('-m') + 1], target)
                 self.assertEqual(kwargs['configured_model'], target)
                 cfg = json.loads(pathlib.Path(env['OPENCODE_CONFIG']).read_text())
@@ -84,7 +93,7 @@ class ModelRuntimeTests(unittest.TestCase):
                 rates = cfg['provider']['openrouter']['models']['deepseek/deepseek-v4.1-flash']['cost']
                 self.assertEqual(rates, {'input': .02, 'output': 1.0})
                 receipt = {'type': 'step_finish', 'sessionID': 'synthetic', 'part': {
-                    'id': str(kwargs['resume']), 'messageID': str(kwargs['resume']),
+                    'id': str(counter[0]), 'messageID': str(counter[0]),
                     'cost': rates['input'] + rates['output'], 'tokens': {
                         'input': 1000000, 'output': 1000000, 'reasoning': 0,
                         'cache': {'read': 0, 'write': 0}}}}
@@ -99,7 +108,8 @@ class ModelRuntimeTests(unittest.TestCase):
                 runtime.call(c, [source], 'synthetic', root, 'attacker-2')
             self.assertEqual(c.card['roles'], roles)
             self.assertNotIn('model_transition', c.card)
-            self.assertEqual(c.card['provider_routes'][source], target)
+            self.assertEqual(c.card['route_receipts'][-1]['route'], target)
+            self.assertEqual(c.card['route_receipts'][-1]['billing'], 'paid')
             self.assertEqual(c.card['models_used'], {'attacker-1': target, 'attacker-2': target})
             ledger = json.loads(c.ledger.read_text())
             self.assertAlmostEqual(ledger['cost'], 2.04)
@@ -108,6 +118,7 @@ class ModelRuntimeTests(unittest.TestCase):
             self.assertAlmostEqual(c.card['case_budget']['spent_usd'], 2.04)
 
     def test_import_does_not_probe_or_install_a_cli(self):
+        self.addCleanup(offline_router()[0].close)
         code = ("import sys; from unittest.mock import patch; "
                 "sys.path.insert(0, sys.argv[1]); "
                 "guard=patch('subprocess.run', side_effect=AssertionError('import launched a process')); "

@@ -23,7 +23,49 @@ from token_prices import CODEX_PRICES, codex_cost, claude_cost
 
 
 class BudgetError(RuntimeError):
-    pass
+    def __init__(self, message, *, provider_failure=None):
+        super().__init__(message)
+        self.provider_failure = provider_failure
+
+
+def classify_provider_failure(text, model, *, reset_at=None, retry_after=None, now=None,
+                              status_code=None, error_type=None, allow_outage=True):
+    """Sanitized metadata from trusted provider diagnostics, never tool output."""
+    text = text.lower()
+    reason, scope = None, 'account'
+    if status_code == 402 or re.search(r'insufficient[_ ]?credits|\b402\b', text):
+        reason, scope = 'credit', 'wallet'
+    elif status_code == 429 or 'rate limit' in text or re.search(r'\b429\b', text): reason = 'rate'
+    elif ('gousagelimiterror' in text or 'usage limit' in text or 'limit reached' in text
+          or re.search(r'\b(?:hit|reached|exceeded) (?:your |the )?(?:usage |rate )?limit\b', text)
+          or ('weekly' in text and ('limit' in text or 'quota' in text))): reason = 'quota'
+    elif allow_outage and ((type(status_code) is int and (status_code == 404 or 500 <= status_code <= 599))
+          or re.sub(r'[^a-z]', '', str(error_type).lower()) in
+          ('providermodelnotfounderror', 'modelnotfounderror', 'modelunavailableerror',
+           'serviceunavailableerror', 'servererror', 'overloadederror')):
+        reason, scope = 'outage', 'route'
+    if reason is None: return None
+    observation = {'reason': reason, 'scope': scope, 'model': model}
+    if type(reset_at) in (int, float) and math.isfinite(reset_at) and reset_at > 0:
+        observation['reset_at'] = reset_at
+    elif type(retry_after) in (int, float) and math.isfinite(retry_after) and retry_after > 0:
+        observation['reset_at'] = (time.time() if now is None else now) + retry_after
+    return observation
+
+
+def provider_diagnostic(event):
+    """Extract provider fields, excluding retry counters and ordinary response prose."""
+    error = event.get('error')
+    rows = [event] + ([error] if isinstance(error, dict) else [])
+    if isinstance(error, dict) and isinstance(error.get('data'), dict): rows.append(error['data'])
+    def first(keys, predicate):
+        return next((row[key] for row in rows for key in keys if key in row and predicate(row[key])), None)
+    text = (first(('message', 'result'), lambda v: isinstance(v, str)) or
+            (error if isinstance(error, str) else '') or first(('name',), lambda v: isinstance(v, str)) or '')
+    return dict(text=text, status_code=first(('statusCode', 'status_code', 'http_status', 'error_status'), lambda v: type(v) is int),
+                error_type=first(('name', 'error_type'), lambda v: isinstance(v, str)),
+                reset_at=first(('resetsAt', 'reset_at', 'resetAt'), lambda v: type(v) in (int, float)),
+                retry_after=first(('retry_after', 'retryAfter'), lambda v: type(v) in (int, float)))
 
 
 # Codex items that end a model response (reasoning items accompany one of these).
@@ -278,6 +320,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     provider_model = configured_model or driver + '/unknown'
     with transaction():
         ledger.update(driver=driver, configured_model=configured_model)
+        ledger.pop('provider_failure', None)
     rate_limits = 0
     starts, finishes, responses = set(), set(), set()
     partial_usage = {}
@@ -300,7 +343,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             try: lines = log.read_text(errors='replace').splitlines()[-2000:]
             except OSError: continue
             if any('usage limit exceeded' in l.lower() and l[10:29] >= started_utc for l in lines if l.startswith('timestamp=')):
-                raise BudgetError('provider_limit:' + provider_model)
+                raise BudgetError('provider_limit:' + provider_model, provider_failure=classify_provider_failure('usage limit', provider_model))
 
     def check_limits():
         if collecting_usage: return  # accounting buffered output after the process was stopped
@@ -318,7 +361,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         _save(path, ledger)
         if not collecting_usage and ledger['zero_token_streak'] >= max_zero_tokens: raise BudgetError('zero_tokens')
 
-    def diagnostic(text, response=False, partial=False):
+    def diagnostic(text, response=False, partial=False, reset_at=None, retry_after=None, status_code=None, error_type=None, allow_outage=True, shared=False):
         nonlocal rate_limits
         text = text.lower()
         if driver == 'codex' and not response and (('refresh token' in text and any(s in text for s in (
@@ -329,22 +372,21 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 or 'workspace routing discovery unauthorized' in text
                 or 'authentication token has expired' in text
                 or ('401' in text and ('unauthorized' in text or 'authentication' in text))):
-            raise BudgetError('codex_login_expired')
+            raise BudgetError('codex_login_expired', provider_failure={'reason': 'credential_expiring', 'scope': 'account',
+                'model': provider_model})  # The CLI's exact login-expiry diagnostic is trusted metadata.
         if driver == 'codex' and 'cybersecurity' in text and any(w in text for w in ('flagged', 'refus', "can't", 'cannot')):
             raise BudgetError('refusal:' + provider_model)
-        if response and not re.search(r"gousagelimiterror|insufficient credits|\bhttp [45]\d\d\b|^(?:error[: ]|you(?:'ve| have)? (?:hit|reached|exceeded)|usage limit\b|rate limit\b|limit reached)", text.strip()):
-            return False  # Assistant prose may discuss business usage limits.
-        if ('gousagelimiterror' in text or 'insufficient credits' in text or re.search(r'\b402\b', text)
-                or 'usage limit' in text or 'limit reached' in text
-                or re.search(r'\b(?:hit|reached|exceeded) (?:your |the )?(?:usage |rate )?limit\b', text)
-                or ('weekly' in text and ('limit' in text or 'quota' in text))):
-            raise BudgetError('provider_limit:' + provider_model)
-        if 'rate limit' in text or re.search(r'\b429\b', text):
-            if partial: return False  # Count an unterminated notice only once, at newline/EOF.
-            rate_limits += 1
-            if rate_limits >= 2 or provider_model.startswith('openrouter/'):
-                raise BudgetError('provider_limit:' + provider_model)
-            return True  # Allow one transient rate-limit retry, never an endless loop.
+        if response: return False  # Assistant prose cannot establish provider health.
+        observation = classify_provider_failure(text, provider_model, reset_at=reset_at, retry_after=retry_after,
+            status_code=status_code, error_type=error_type, allow_outage=allow_outage and not response)
+        if observation:
+            if not shared: observation['per_call'] = True
+            if observation['reason'] == 'rate':
+                if partial: return False
+                rate_limits += 1
+                if rate_limits < 2 and not provider_model.startswith('openrouter/'): return True
+            label = 'process_error' if observation['reason'] == 'outage' else 'provider_limit:' + provider_model
+            raise BudgetError(label, provider_failure=observation)
         return False
 
     def call():
@@ -455,16 +497,18 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             # Claude names its window reset; a limited case resumes then instead of guessing (2026-10-19).
             info = event.get('rate_limit_info') or {}
             if _number(info.get('resetsAt')): ledger['claude_resets_at'] = info['resetsAt']
-            if info.get('status') == 'rejected': raise BudgetError('provider_limit:' + provider_model)
+            if info.get('status') == 'rejected':
+                raise BudgetError('provider_limit:' + provider_model, provider_failure=classify_provider_failure('usage limit', provider_model, reset_at=info.get('resetsAt')))
         if driver == 'claude' and event.get('error') in ('rate_limit', 'usage_limit'):
-            raise BudgetError('provider_limit:' + provider_model)
+            raise BudgetError('provider_limit:' + provider_model, provider_failure=classify_provider_failure('usage limit', provider_model))
         # Never scan tool output or echoed command/prompt text for provider errors.
         if kind == 'error' or (kind == 'system' and event.get('subtype') in ('error', 'api_retry', 'retry')) or (kind == 'result' and event.get('is_error')) or (driver == 'claude' and kind == 'assistant' and event.get('error')):
-            if diagnostic(json.dumps(event)): return
+            info = provider_diagnostic(event)
+            if diagnostic(**info, allow_outage=kind != 'system', shared=True): return
         elif driver == 'claude' and kind == 'result':
             diagnostic(str(event.get('result', '')), response=True)
         elif driver == 'codex' and kind == 'turn.failed':
-            diagnostic(json.dumps(event.get('error', {})))
+            diagnostic(**provider_diagnostic(event), shared=True)
         elif driver == 'codex' and kind == 'item.completed' and (event.get('item') or {}).get('type') == 'agent_message':
             diagnostic(str(event['item'].get('text', '')), response=True)
         elif driver == 'opencode' and kind == 'text':
@@ -689,6 +733,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             if not ledger.get('active'): ledger.pop('active', None)
             if ledger.get('terminal_stop') in (None, 'running', 'complete'):
                 ledger['terminal_stop'] = str(error) if isinstance(error, BudgetError) else type(error).__name__
+                if getattr(error, 'provider_failure', None): ledger['provider_failure'] = error.provider_failure
                 if isinstance(error, BudgetError) and str(error) == 'process_error':
                     # Keep the last natural CLI failure diagnosable without exposing transcript text.
                     ledger['last_process_error'] = {'returncode': process.returncode, 'driver': driver,
