@@ -112,3 +112,9 @@ unflagged retrieval. A real practice-log regression at exact search minima exerc
 can clear while the search count remains short. No finding rejected. N1's existing
 per-runtime allowance is clarified in the design; N2 latency remains accepted as
 requested. Another full suite and a fresh goldfish review follow.
+
+
+Before review 4, factory-simplify advanced with its single-path increment. The
+branch was rebased onto ac33267 and the worker inventory conflict resolved by
+retaining both batch.py and all C helpers. No single-path contract was changed.
+The pre-rebase full run was superseded by a new full run after this rebase.

@@ -457,3 +457,10 @@ validation: the hit clears but G2 remains incomplete at 2 GitHub searches.
 The runtime revision journal's bound remains two attempts per unchanged runtime;
 a plumbing revision gets a fresh allowance as already designed (review-3 N1).
 Repeated unflagged fetch latency (N2) is accepted; no speculative cache is added.
+
+
+The final rebase includes the subsequent single-path increment (ac33267). The
+worker inventory expectation retains its new factory/batch.py together with C's
+helpers. No single-path API or release-binding behavior is changed. The superseded
+pre-rebase full run was interrupted intentionally; validation uses a new complete
+suite on this rebased tree.
