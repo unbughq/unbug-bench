@@ -15,6 +15,15 @@ import key_holder
 import restore_bundle as b
 
 
+def copy_host_sources(destination):
+    # Staging now requires the declared host dependencies even for tiny releases.
+    for name in (*b.HOST_FILES, *b.PUBLISHER.values()):
+        target = destination/name
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((ROOT/name).read_bytes())
+
+
 class BundleTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
@@ -69,6 +78,7 @@ class BundleTests(unittest.TestCase):
         for name in b.REQUIRED:
             p=release/'source'/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('openrouter/deepseek/deepseek-v4.1-flash\n')
             files[name]=b.sha(p)
+        copy_host_sources(release/'source')
         b.save(release/'source-manifest.json',{'files':files})
         adapter=self.home/'adapter.py';adapter.write_text('# qualified synthetic adapter')
         rehearsal=self.home/'rehearsal.json'
@@ -112,6 +122,7 @@ class BundleTests(unittest.TestCase):
             if not p.exists() and (ROOT/name).is_file():
                 p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes((ROOT/name).read_bytes())
         files={name:b.sha(source/name) for name in names}
+        copy_host_sources(release/'source')
         b.save(release/'source-manifest.json',{'files':files})
         adapter=self.home/'adapter.py';adapter.write_text('# synthetic pinned adapter')
         proof=self.home/'rehearsal.json'

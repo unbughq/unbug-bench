@@ -37,7 +37,7 @@ def main():
             (root/name).mkdir()
         script = root/'factory/key_holder.py'
         shutil.copyfile(SOURCE, script)
-        for name in ('recovery.py', 'control_resume.py', 'account_handoff.py'):
+        for name in ('recovery.py', 'control_resume.py', 'account_handoff.py', 'launch_manifest.py'):
             shutil.copyfile(SOURCE.with_name(name), root/'factory'/name)
         spec = importlib.util.spec_from_file_location('synthetic_holder', script)
         holder = importlib.util.module_from_spec(spec); spec.loader.exec_module(holder)

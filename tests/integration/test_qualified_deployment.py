@@ -311,6 +311,7 @@ opencode_pin='--version'
                     path.write_bytes(original)
         adapter = self.home / 'bin/qualified-release.py'
         adapter.parent.mkdir(); adapter.write_text('raise SystemExit("EXECUTED")')
+        (self.home / 'factory/launcher-sha256.json').write_bytes((ROOT / 'factory/launcher-sha256.json').read_bytes())
         start = LAUNCHER.index('qualified_adapter() {')
         end = LAUNCHER.index('\nif [ -n "$qualified_release" ]', start)
         result = subprocess.run(['/bin/sh', '-c', 'root=$1\n' + LAUNCHER[start:end] + '\nqualified_adapter prepare', 'sh', str(self.home)], capture_output=True, text=True)
@@ -364,6 +365,8 @@ opencode_pin='--version'
         b = LAUNCHER.index('\nif [ -n "$qualified_release" ]', a)
         start = LAUNCHER.index('  if [ -n "$qualified_release" ]; then\n    readiness_mono=', LAUNCHER.index('batch_status=0'))
         end = LAUNCHER.index('  # Fork hydration', start)
+        (self.home / 'host/factory').mkdir(parents=True, exist_ok=True)
+        (self.home / 'host/factory/launcher-sha256.json').write_bytes((ROOT / 'factory/launcher-sha256.json').read_bytes())
         gate = LAUNCHER[a:b]
         if sequence is not None:
             # Advance only the helper clock; exercise its actual pinned bytes and shell order.

@@ -22,6 +22,8 @@ import tempfile
 import time
 
 ROOT = _BENCH_ROOT
+sys.path.insert(0, str(ROOT / 'factory'))
+from launch_manifest import worker_files
 FAKE = r'''#!/usr/bin/env python3
 import json, os, pathlib, shlex, subprocess, sys, time
 root = pathlib.Path(os.environ["FAKE_STATE"])
@@ -267,22 +269,11 @@ def main():
     with tempfile.TemporaryDirectory(prefix="launch-guards-test-") as directory:
         base = pathlib.Path(directory)
         bench = base / "bench"
-        for f in ("factory/run.py", "factory/calibration.py", "factory/prompts/pilot.md", "factory/launch.sh", "factory/control_resume.py", "factory/collect.sh", "factory/restart.py", "factory/transfer.py", "factory/sealed_audit.py", "factory/exam_responder.py", "harbor/responder/responder.py", "harbor/responder/ask-human",
-                  "factory/worker_release.py", "factory/free_models.py", "factory/worker-release.json", "factory/statements-recipient.txt", "factory/rotation.json", "factory/rotation-3writers.json",
-                  "bin/bench.py", "bin/bench_judging.py", "bin/setup", "bin/reset", "bin/check", "bin/verify-negative",
-                  "projects/medusa/package.json", "projects/medusa/package-lock.json", "projects/medusa/compose.yaml",
-                  "projects/medusa/verify-lock.mjs", "projects/medusa/Dockerfile", "projects/medusa/Dockerfile.deps",
-                  "projects/medusa/medusa-config.ts", "bin/exam-launch", "bin/boat-call",
-                  "bin/boat-spend", "bin/boat-launch-guards.sh", "bin/push-secrets"):
+        for f in (*worker_files(ROOT), "harbor/responder/responder.py", "harbor/responder/ask-human",
+                  "bin/exam-launch", "bin/boat-spend"):
             dest = bench / f
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / f, dest)
-        # Exercise the current runtime dependency closure, not a stale hand-copy.
-        for source in (ROOT / "factory").glob("*.py"):
-            if not source.name.startswith("test_"):
-                shutil.copy2(source, bench / "factory" / source.name)
-        for name in ("checkpoint", "checkpoint_evidence.py", "factory_pool.py", "strategy"):
-            shutil.copy2(ROOT / "bin" / name, bench / "bin" / name)
         (bench / "sealed").mkdir()
         # A throwaway age key and an encrypted fake bundle, shaped like bin/setup-secrets output.
         identity = base / "identity.txt"

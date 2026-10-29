@@ -31,7 +31,7 @@ def bundle(path,recipient,names):
 def main():
     with tempfile.TemporaryDirectory() as folder:
         root=pathlib.Path(folder).resolve();(root/'factory').mkdir();(root/'bin').mkdir();(root/'sealed').mkdir()
-        for name in ('recovery.py', 'control_resume.py', 'account_handoff.py'):
+        for name in ('recovery.py', 'control_resume.py', 'account_handoff.py', 'launch_manifest.py'):
             shutil.copyfile(SOURCE.with_name(name), root/'factory'/name)
         script=root/'factory/key_holder.py';shutil.copyfile(SOURCE,script);m=load(script)
         case='case-synthetic';archive=root/'sealed'/f'{case}.checkpoint.tar.gz.age';cardpath=root/'sealed'/f'{case}.scorecard.json'

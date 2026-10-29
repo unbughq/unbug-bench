@@ -118,6 +118,7 @@ def main():
         shutil.copyfile(SOURCE.with_name('control_resume.py'), root/'factory/control_resume.py')
         shutil.copyfile(SOURCE.with_name('recovery.py'), root/'factory/recovery.py')
         shutil.copyfile(SOURCE.with_name('account_handoff.py'), root/'factory/account_handoff.py')
+        shutil.copyfile(SOURCE.with_name('launch_manifest.py'), root/'factory/launch_manifest.py')
         launcher = root/'factory/launch.sh'
         launcher.write_text('#!/bin/sh\nset -eu\nidentity=$(cat)\nprintf "%s" "$identity" | wc -c > proof.txt\nprintf "private fixture output\\n"\n')
         boat = root/"bin/boat-call"; boat.write_text('#!/bin/sh\ncat '+str(root/'fleet.json')+'\n'); boat.chmod(0o755)
@@ -143,7 +144,7 @@ def main():
         # VM-side factory code may change without a new unlock; pinned host code may not (2026-10-19).
         before=module.fingerprint(root); (root/'factory/run.py').write_text('changed vm-side code')
         assert module.fingerprint(root)==before, 'vm-side change must not need a new unlock'
-        for helper in ('control_resume.py', 'statement_round.py', 'admission.py', 'calibration.py', 'qualified-adapter.sha256'):
+        for helper in ('control_resume.py', 'statement_round.py', 'admission.py', 'calibration.py', 'launcher-sha256.json'):
             path = root / 'factory' / helper
             original = path.read_bytes() if path.exists() else None
             path.write_text('changed host admission helper')

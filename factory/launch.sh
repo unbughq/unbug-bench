@@ -64,18 +64,14 @@ fi
 # this holder-pinned launcher; never execute an unverified deployment helper.
 qualified_adapter() {
   python3 -B - "$root/bin/qualified-release.py" "$@" <<'PYCODE'
-import hashlib, pathlib, re, sys
+import hashlib, json, pathlib, sys
 path = pathlib.Path(sys.argv[1])
 if path.is_symlink(): raise SystemExit('symlink release adapter')
 code = path.read_bytes()
-# Optional host-only pin is itself in key_holder.PINNED. Keeping it outside
-# worker source avoids a circular launcher -> adapter -> source archive hash.
-pin_path = path.parent.parent / 'factory/qualified-adapter.sha256'
-expected = 'c8705e3687e52f01fa2a67efb3254cb981789a0c47869a5173caf745533eb216'
-if pin_path.exists() or pin_path.is_symlink():
-    if pin_path.is_symlink() or not pin_path.is_file(): raise SystemExit('invalid adapter pin file')
-    expected = pin_path.read_text().strip()
-    if not re.fullmatch('[0-9a-f]{64}', expected): raise SystemExit('invalid adapter pin hash')
+pins = path.parent.parent / 'factory/launcher-sha256.json'
+if pins.is_symlink() or not pins.is_file():
+    raise SystemExit('missing helper hashes; review launcher fingerprint')
+expected = json.loads(pins.read_text())['bin/qualified-release.py']
 if hashlib.sha256(code).hexdigest() != expected:
     raise SystemExit('qualified release adapter changed; review launcher fingerprint')
 sys.argv = [str(path), *sys.argv[2:]]
@@ -86,10 +82,14 @@ PYCODE
 qualified_readiness() {
   python3 -B - "$root/tools/boat_readiness.py" "$root/bin/boat-call" "$id" "${BOAT_TYPE:-default}" "$ttl_seconds" "$readiness_mono" "$readiness_wall" "$margin" "${spend_file%.json}-$id.readiness.json" <<'PYCODE'
 import hashlib, pathlib, sys
+import json
 path = pathlib.Path(sys.argv[1])
 if path.is_symlink(): raise SystemExit('symlink readiness helper')
 code = path.read_bytes()
-if hashlib.sha256(code).hexdigest() != 'adbd154449bbf229cf4dc3327535bd46e6e36683253b8f7456efc89ee6a99bde':
+pins = path.parent.parent / 'factory/launcher-sha256.json'
+if pins.is_symlink() or not pins.is_file():
+    raise SystemExit('missing helper hashes; review launcher fingerprint')
+if hashlib.sha256(code).hexdigest() != json.loads(pins.read_text())['tools/boat_readiness.py']:
     raise SystemExit('readiness helper changed; review launcher fingerprint')
 sys.argv = [str(path), *sys.argv[2:]]
 exec(compile(code, str(path), 'exec'), {'__name__': '__main__', '__file__': str(path)})
@@ -368,7 +368,12 @@ if [ -n "$qualified_release" ]; then
   qualified_adapter prepare --release "$qualified_release" --output "$bundle"
 else
   python3 "$here/worker_release.py" --root "$root" --stamp "$state/worker-release-manifest.json"
-  COPYFILE_DISABLE=1 tar --no-xattrs -C "$root" --exclude __pycache__ -czf "$bundle" factory -C "$state" worker-release-manifest.json
+  PYTHONPATH="$here" python3 -B - "$root" "$state/worker-release-manifest.json" "$bundle" <<'PYCODE'
+from pathlib import Path
+import sys
+from launch_manifest import worker_upload
+worker_upload(*(Path(p) for p in sys.argv[1:]))
+PYCODE
 fi
 fi
 probe_python=$(cat <<'PYCODE'

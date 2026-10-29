@@ -4,7 +4,6 @@ Staging requires completed rehearsal evidence, or the exact-release D4 waiver.
 Neither command launches, decrypts or opens a holder. Never amend old bundles.
 """
 import argparse
-import ast
 import copy
 import datetime
 import hashlib
@@ -22,36 +21,16 @@ import time
 from founder_decisions import CASES, CALL_CAP, AUTHORITY, rehearsal_waiver
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
-REQUIRED = ('factory/model_runtime.py', 'factory/restore_ledger.py', 'factory/founder_ruling.py',
-            'factory/run.py', 'factory/fairness.py', 'factory/recovery.py', 'factory/late_recovery.py',
-            'factory/founder_decisions.py', 'factory/restore_bundle.py', 'factory/gate_pipeline.py',
-            'bin/fake-pass-check')
-
-
-# Exact exceptions, rather than ignoring whole trees: unknown launcher references
-# fail staging even when they are outside the qualified worker manifest.
-RESTORE_PATH_EXCEPTIONS = {
-    'sealed': 'created by finalization/collection; selected card/archive verified separately',
-    'sealed/$restore.checkpoint.tar.gz.age': 'selected archive verified by collected()',
-    'sealed/$restore.tar.gz.age': 'alternative selected archive verified by collected()',
-    'sealed/$restore.scorecard.json': 'selected card verified by collected()',
-    'sealed/$c.scorecard.json': 'separate cohort restore-cases wrapper; selected case verified individually',
-    'sealed/$resume_case.scorecard.json': 'collected runtime continuation card',
-    'sealed/$restore.casekey.age': 'optional R2 optimization; launcher streams archive if absent',
-    'sealed/g11-review-$restore.scorecard.json': 'only --restore-review, outside this restore policy',
-    'sealed/g11-review-$restore.tar.gz.age': 'only --restore-review, outside this restore policy',
-    'results/spend/$': 'guard_init creates timestamped spend outputs',
-    'results/ttl-retirements/$id.json': 'optional TTL continuation receipt; guarded by -f',
-    'results/factory': 'output directory for separate cohort launch wrappers',
-    'results/factory/adopt.log': 'output of separate Hetzner resume-in-place wrapper',
-}
+from launch_manifest import (HOST_FILES, REQUIRED_RELEASE as REQUIRED, RUNTIME_PATHS,
+    INHERITED_HELPERS, PUBLISHER, GENERATED_HELPERS, HASH_FILE, freeze_helpers,
+    collection_files, D4_HOST_FILES, FINALIZATION_INPUTS, RESTORE_METADATA, RECONCILIATION_FILES, WRAPPERS)
 
 
 def launcher_files(root):
-    """Sweep host shell references, including helper-relative paths and holder pins."""
+    """Audit shell references against the manifest; never use this as a copy list."""
     required = set()
     scripts = [*root.glob('factory/*.sh'), *root.glob('bin/*.sh'), root/'bin/boat-call',
-               *root.glob('factory/*.py')]
+               *root.glob('factory/*.py'), root/'sync-to-vm.py']
     for script in scripts:
         if not script.is_file(): continue
         for braced, plain, value in re.findall(
@@ -66,17 +45,15 @@ def launcher_files(root):
                 if not policy.exists(): policy = root/'policy.restore.json'
                 if not policy.exists() or not any('--founder-ruling-sha256' in j['args']
                         for j in read(policy)['jobs'].values()): continue
-            if name not in RESTORE_PATH_EXCEPTIONS: required.add(name)
-    holder = root/'factory/key_holder.py'
-    if holder.is_file():
-        for node in ast.walk(ast.parse(holder.read_text())):
-            if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'PINNED' for t in node.targets):
-                required.update(ast.literal_eval(node.value))
+            if name == 'founder-ruling.json' or name not in RUNTIME_PATHS: required.add(name)
     return required
 
 
 def verify_launcher_files(root):
-    for name in sorted(launcher_files(root)):
+    referenced = launcher_files(root)
+    undeclared = referenced - set(HOST_FILES) - set(RUNTIME_PATHS)
+    if undeclared: raise ValueError('undeclared restore launcher input: ' + ', '.join(sorted(undeclared)))
+    for name in sorted(set(HOST_FILES) | referenced):
         if '$' in name or '..' in Path(name).parts or (root/name).is_symlink() or not (root/name).is_file():
             raise ValueError('missing regular restore launcher input: ' + name)
 
@@ -166,8 +143,7 @@ def stage(old, root, release, adapter, adapter_sha, rehearsal, founder_decisions
             raise ValueError('D4 requires partial exact-release rehearsal evidence; no PASS is granted')
     # D4 changes only host staging policy. Ship the original pinned worker files,
     # including staging modules/tests; freeze host updates separately.
-    host_changes={'factory/restore_bundle.py','factory/founder_decisions.py',
-                  'tests/tools/test_late_restore_bundle.py'} & set(files) if waiver else set()
+    host_changes=set(D4_HOST_FILES) & set(files) if waiver else set()
     if not set(REQUIRED) <= set(files) or any(sha(SOURCE_ROOT/name)!=value
             for name,value in files.items() if name not in host_changes):
         raise ValueError('qualify the exact current paid-route late-gate release first')
@@ -190,14 +166,14 @@ def stage(old, root, release, adapter, adapter_sha, rehearsal, founder_decisions
     shutil.copytree(release,root/'candidate-vm-canary')
     (root/'bin').mkdir(exist_ok=True)
     shutil.copy2(adapter,root/'bin/qualified-release.py')
-    (root/'factory/qualified-adapter.sha256').write_text(adapter_sha+'\n')
-    for name in ('founder-run.py','start-in-terminal.sh','sync-to-vm.py','sync-to-vm.sh'):
+    for name in INHERITED_HELPERS:
         shutil.copy2(old/name,root/name)
     founder=root/'founder-run.py'
     founder.write_text(founder.read_text().replace("'--hours', '9'", "'--hours', '17'"))
     # Use the maintained publisher, rather than inheriting obsolete case-specific
     # ruling dependencies and fixed backup names from an older bundle.
-    shutil.copy2(Path(__file__).with_name('restore_sync.py'),root/'sync-to-vm.py')
+    for target, source in PUBLISHER.items():
+        shutil.copy2(SOURCE_ROOT/source,root/target)
     args=job['args']
     if '--founder-ruling-sha256' in args:
         index=args.index('--founder-ruling-sha256');del args[index:index+2]
@@ -212,37 +188,36 @@ def stage(old, root, release, adapter, adapter_sha, rehearsal, founder_decisions
         launch_sha256=sha(launch),generation=card['sha256'],public_card_sha256=sha(old/'sealed'/(case+'.scorecard.json')),
         source_manifest_sha256=sha(release/'source-manifest.json'),rehearsal_sha256=sha(rehearsal)))
     shutil.copy2(rehearsal,root/'rehearsal.json')
-    extra_helpers=[]
-    # Host helpers can be outside the qualified worker payload. Freeze the same
-    # dependency sweep that offline validation enforces, without changing its PIN.
-    for name in sorted(launcher_files(root)):
-        if (root/name).exists(): continue
+    # Host helpers can be outside the qualified worker payload. The manifest
+    # selects them; the reference sweep only catches undeclared dependencies.
+    for name in HOST_FILES:
+        if name == HASH_FILE or (root/name).exists(): continue
         source=SOURCE_ROOT/name
         sha(source)
         target=root/name;target.parent.mkdir(parents=True,exist_ok=True)
-        shutil.copy2(source,target);extra_helpers.append(name)
+        shutil.copy2(source,target)
+    freeze_helpers(root)
     verify_launcher_files(root)
     if waiver:
         shutil.copy2(founder_decisions,root/'founder-decisions.json')
-        extra_helpers.append('founder-decisions.json')
         for name in sorted(host_changes):
             target='host-tools/'+Path(name).name
             (root/'host-tools').mkdir(exist_ok=True)
             shutil.copy2(SOURCE_ROOT/name,root/target)
-            extra_helpers.append(target)
         binding=read(root/'source-binding.json')
         binding.update(founder_decisions_sha256=sha(root/'founder-decisions.json'),
             rehearsal_authorization='D4',d4_record_sha256=read(founder_decisions)['D4']['record_sha256'])
         save(root/'source-binding.json',binding)
     save(root/'PREPARATION-BLOCKED.json',dict(reason='Finalize from verified collected generation and retirement before launch'))
-    for name,command in (('finalize.py','finalize'),('validate-offline.py','verify')):
+    for name,command in WRAPPERS.items():
         (root/name).write_text("import sys\nfrom pathlib import Path\nroot=Path(__file__).resolve().parent\nsys.path.insert(0,str(root/'factory'))\n"+
             ("sys.path.insert(0,str(root/'host-tools'))\n" if waiver else '')+
             "import restore_bundle\nrestore_bundle."+command+"(root)\n")
     save(root/'build.json',dict(source_sha256=files,candidate_sha256=inventory(root/'candidate-vm-canary'),
-        helper_sha256={name:sha(root/name) for name in ('bin/qualified-release.py','factory/qualified-adapter.sha256',
-            'founder-run.py','start-in-terminal.sh','sync-to-vm.py','sync-to-vm.sh','finalize.py','validate-offline.py',
-            'policy.restore.pending.json','restore-config.json','source-binding.json','rehearsal.json',*extra_helpers)},launch_ready=False))
+        helper_sha256={name:sha(root/name) for name in (*HOST_FILES, *INHERITED_HELPERS,
+            *PUBLISHER, *GENERATED_HELPERS,
+            *(name for name in RESTORE_METADATA if (root/name).exists()),
+            *('host-tools/'+Path(name).name for name in host_changes))},launch_ready=False))
 
 
 def verify_source(root):
@@ -316,7 +291,7 @@ def reconcile_failed_launch(root, failed, receipts_path):
         generation=card['sha256'],prior_reservations_sha256=sha(root/'prior-reservations.json'),
         reconciliation_sha256=sha(root/'failed-launch-reconciliation.json'))
     save(root/'policy.restore.pending.json',policy)
-    for name in ('policy.restore.pending.json','prior-reservations.json','failed-launch-reconciliation.json'):
+    for name in ('policy.restore.pending.json', *RECONCILIATION_FILES):
         build['helper_sha256'][name]=sha(root/name)
     save(root/'build.json',build)
 
@@ -341,7 +316,7 @@ def finalize(root):
         raise ValueError('active or exhausted source accounting')
     proof=retirement(old,case,card,archive)
     save(root/'retirement.json',proof)
-    paths=[p for p in (old/'sealed').glob(case+'.*') if p.is_file() and not p.name.endswith('.lock')]
+    paths=[old/'sealed'/name for name in sorted(collection_files(case)) if (old/'sealed'/name).is_file()]
     before={p.name:sha(p) for p in paths}
     (root/'sealed').mkdir()
     for p in paths: shutil.copy2(p,root/'sealed'/p.name)
@@ -355,7 +330,7 @@ def finalize(root):
     for name in ('input-scorecard.json','expected-restored-scorecard.json'):save(root/name,card)
     save(root/'input-sha256.json',inventory(root/'sealed'))
     save(root/'corrected-continuation-budget.json',card['continuation_budget'])
-    for name in ('vm-baseline-sha256.json','input-public-search.json','input-counter-metadata.json','input-counter-observation-card.json'):
+    for name in FINALIZATION_INPUTS:
         if (old/name).exists():shutil.copy2(old/name,root/name)
     sync=old/'sync-result.json'
     save(root/'vm-current-sha256.json',read(sync)['verified_sha256'] if sync.exists() else read(old/'vm-current-sha256.json'))

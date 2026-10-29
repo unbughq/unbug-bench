@@ -13,6 +13,9 @@ import uuid
 
 # Standalone publication of an existing collection, without editing its bundle.
 ROOT = Path(os.environ.get('UNBUG_RESTORE_ROOT', Path(__file__).resolve().parent)).resolve()
+HERE = Path(__file__).resolve().parent
+sys.path[:0] = [str(HERE/'factory'), str(HERE)]
+from launch_manifest import COLLECTION_SUFFIXES, collection_files
 CONFIG = json.loads((ROOT / 'restore-config.json').read_text())
 CASE = CONFIG['case']
 VM = 'user@2.31.89.209'
@@ -39,7 +42,8 @@ def prepare():
     current_path = ROOT / 'vm-current-sha256.json'
     expected = json.loads(current_path.read_text()) if current_path.exists() else baseline
     assert set(baseline) <= set(expected) <= set(inputs), 'VM/current filename sets differ'
-    names = set(inputs) | {CASE + '.tar.gz.age'}
+    names = collection_files(CASE)
+    assert set(inputs) <= names, 'unexpected collection input'
     local = {n: sha(ROOT / 'sealed' / n) for n in names if (ROOT / 'sealed' / n).exists()}
     assert set(inputs) <= set(local), 'missing collected files'
     assert local != inputs, 'no new collected generation; refusing sync of original input'
@@ -113,7 +117,7 @@ import contextlib,fcntl,hashlib,json,os,pathlib,re,shutil,sys,tempfile
 request=json.loads(sys.argv[1]); stage=pathlib.Path(sys.argv[2]); sealed=stage.parent
 case=request['case']; baseline=request['baseline']; incoming=request['incoming']; expected=request.get('expected',baseline)
 assert re.fullmatch(r'case-[A-Za-z0-9-]+',case)
-allowed={case+'.'+s for s in ('casekey.age','checkpoint.tar.gz.age','progress.json','scorecard.json','scorecard.txt','search.age','statement.age','tar.gz.age')}
+allowed={case+'.'+s for s in COLLECTION_SUFFIXES}
 assert set(incoming)<=allowed and set(baseline)<=set(incoming) and set(baseline)<=set(expected)<=set(incoming)
 def sha(p):
  assert p.is_file() and not p.is_symlink(),str(p)
@@ -173,7 +177,7 @@ with contextlib.ExitStack() as locks:
  finally:os.close(fd)
  print(json.dumps({'canonical_root':str(sealed),'case':case,'verified_sha256':incoming,'pre_restore_checkpoint_sha256':sha(backup/(case+'.checkpoint.tar.gz.age')),'pre_restore_root':str(backup),'pre_restore_sha256':{n:sha(backup/n) for n in baseline},'original_plaintext_identity_verified':request.get('original_plaintext_identity_verified',True)}))
 shutil.rmtree(stage)
-'''
+'''.replace('COLLECTION_SUFFIXES', repr(COLLECTION_SUFFIXES))
 
 
 def main():

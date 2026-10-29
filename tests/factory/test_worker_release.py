@@ -11,6 +11,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from launch_manifest import WORKER_CONFIG
 
 spec = importlib.util.spec_from_file_location('worker_release', (Path(__file__).resolve().parents[2] / "factory" / 'worker_release.py'))
 release = importlib.util.module_from_spec(spec)
@@ -22,9 +23,7 @@ class WorkerReleaseTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        for name in release.BENCH_FILES + ('factory/runtime.py', 'factory/prompts/builder.md',
-                'factory/rotation.json', 'factory/rotation-3writers.json', 'factory/worker-release.json',
-                'factory/statements-recipient.txt'):
+        for name in release.BENCH_FILES + WORKER_CONFIG + ('factory/runtime.py', 'factory/prompts/builder.md'):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('public synthetic source')

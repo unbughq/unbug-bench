@@ -24,6 +24,7 @@ class D4Tests(unittest.TestCase):
             files[name]=b.sha(release/'source'/name)
         for name in ('restore_bundle.py','founder_decisions.py'):
             (current/'factory'/name).write_bytes((fixtures.ROOT/'factory'/name).read_bytes())
+        fixtures.copy_host_sources(current)
         b.save(release/'source-manifest.json',{'files':files})
         self.pin=b.sha(release/'source-manifest.json')
         adapter=self.home/'adapter.py';adapter.write_text('# pinned adapter')

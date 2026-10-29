@@ -14,11 +14,7 @@ import subprocess
 import sys
 
 POLICY = Path(__file__).with_name('worker-release.json')
-BENCH_FILES = ('bin/bench.py', 'bin/bench_judging.py', 'bin/checkpoint', 'bin/checkpoint_evidence.py', 'bin/factory_pool.py', 'bin/strategy', 'bin/boat-launch-guards.sh', 'bin/boat-call', 'bin/push-secrets', 'bin/setup', 'bin/reset', 'bin/check', 'bin/verify-negative',
-               'projects/medusa/package.json', 'projects/medusa/package-lock.json',
-               'projects/medusa/compose.yaml', 'projects/medusa/verify-lock.mjs',
-               'projects/medusa/Dockerfile', 'projects/medusa/Dockerfile.deps',
-               'projects/medusa/medusa-config.ts')
+from launch_manifest import WORKER_BENCH as BENCH_FILES, worker_files
 
 
 def sha(path):
@@ -26,11 +22,7 @@ def sha(path):
 
 
 def source_files(root):
-    paths = [root / name for name in BENCH_FILES]
-    paths += [p for p in (root / 'factory').glob('*.py') if not p.name.startswith('test_')]
-    paths += list((root / 'factory').glob('*.sh'))
-    paths += list((root / 'factory/prompts').glob('*.md'))
-    paths += [root / 'factory' / name for name in ('rotation.json', 'rotation-3writers.json', 'worker-release.json', 'statements-recipient.txt')]
+    paths = [root / name for name in worker_files(root)]
     for path in paths:
         if path.is_symlink() or not path.is_file():
             raise ValueError('missing or symlink release source: ' + str(path))

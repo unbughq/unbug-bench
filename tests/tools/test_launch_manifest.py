@@ -1,0 +1,92 @@
+"""Read-only regression against the successful October 29 restore, never its case data."""
+import ast
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import sys
+import tarfile
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+REAL = Path('/Users/bugsincode/Developer/unbug-bench-e15450-restore-14-20261029')
+sys.path.insert(0, str(ROOT/'factory'))
+import launch_manifest as manifest
+import key_holder
+import restore_bundle
+import worker_release
+
+
+class ManifestTests(unittest.TestCase):
+    def test_successful_bundle_dependencies_and_current_consumers(self):
+        # Independent historical evidence: these files were actually staged and
+        # used, rather than fixtures manufactured by the new manifest code.
+        build = json.loads((REAL/'build.json').read_text())
+        declared = set(manifest.HOST_FILES + manifest.INHERITED_HELPERS +
+                       manifest.GENERATED_HELPERS + manifest.RESTORE_METADATA)
+        declared.update(manifest.PUBLISHER)
+        self.assertLessEqual(set(build['sealed_sha256']),
+                             manifest.collection_files('case-20261024T043353Z-e15450'))
+        declared.update('host-tools/'+Path(n).name for n in manifest.D4_HOST_FILES)
+        historical = set(build['helper_sha256'])
+        # The old per-adapter pin is replaced by the shared generated hash map.
+        historical.remove('factory/qualified-adapter.sha256')
+        self.assertLessEqual(historical, declared)
+        old_holder = ast.parse((REAL/'factory/key_holder.py').read_text())
+        old_pins = next(ast.literal_eval(n.value) for n in old_holder.body
+                        if isinstance(n, ast.Assign) and any(
+                            isinstance(t, ast.Name) and t.id == 'PINNED' for t in n.targets))
+        self.assertLessEqual(set(old_pins)-{'factory/qualified-adapter.sha256'}, declared)
+
+        # Static sweep is independent of restore_bundle.launcher_files(), so a
+        # regression in that scanner cannot also manufacture its own expectation.
+        for base in (REAL, ROOT):
+            scripts = [*base.glob('factory/*.sh'), *base.glob('bin/*.sh'),
+                       *base.glob('factory/*.py'), base/'bin/boat-call', base/'sync-to-vm.py']
+            for script in scripts:
+                if not script.is_file(): continue
+                for braced, plain, rel in re.findall(
+                        r'\$(?:\{(root|here)\}|(root|here))/([^\s\"\'`;|()<>]+)', script.read_text()):
+                    scope = braced or plain
+                    name = os.path.normpath(rel.rstrip('}') if scope == 'root' else
+                                            str(script.parent.relative_to(base)/rel.rstrip('}')))
+                    if name == 'factory/qualified-adapter.sha256': continue
+                    self.assertIn(name, declared | set(manifest.RUNTIME_PATHS), str(script))
+        restore_bundle.verify_launcher_files(ROOT)
+        pins = json.loads((ROOT/manifest.HASH_FILE).read_text())
+        self.assertEqual(pins, {name: manifest.sha(ROOT/name) for name in manifest.CHECKED_HELPERS})
+        self.assertEqual(key_holder.PINNED, manifest.TRUSTED_FILES)
+
+        # Independent upload expectation from the real release inventory, with
+        # its two documentation files excluded and the two new modules included.
+        expected_worker = {n for n in build['source_sha256'] if n.startswith('factory/')}
+        expected_worker -= {'factory/README.md', 'factory/IMPROVEMENTS.md'}
+        expected_worker |= {'factory/launch_manifest.py', 'factory/restore_sync.py'}
+        self.assertEqual({n for n in manifest.worker_files(ROOT) if n.startswith('factory/')},
+                         expected_worker)
+        # A stray file beside the runner cannot enter the upload through tar.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in worker_release.source_files(ROOT):
+                target = root/name; target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT/name, target)
+            (root/'factory/unlisted.age').write_text('synthetic exclusion marker')
+            release = root/'worker.json'; worker_release.stamp(root, release)
+            bundle = root/'worker.tgz'; manifest.worker_upload(root, release, bundle)
+            with tarfile.open(bundle) as archive:
+                self.assertEqual(set(archive.getnames()), {'worker-release-manifest.json'} |
+                                 expected_worker)
+            for name in manifest.HOST_FILES:
+                target = root/name; target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT/name, target)
+            approved = key_holder.fingerprint(root)
+            for name in (*manifest.CHECKED_HELPERS, manifest.HASH_FILE, 'factory/launch_manifest.py'):
+                target = root/name; original = target.read_bytes()
+                target.write_bytes(original+b'\nchanged')
+                self.assertNotEqual(key_holder.fingerprint(root), approved, name)
+                target.write_bytes(original)
+
+
+if __name__ == '__main__': unittest.main()

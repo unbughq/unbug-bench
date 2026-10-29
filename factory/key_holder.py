@@ -96,15 +96,10 @@ def read_control_identity(path):
     return identity
 
 
-# Host code that holds the founder identity, decrypted model keys or decrypted cases (2026-10-19). VM-side factory
-# code (run.py, prompts, rotation tables) runs beside those keys and cases on the VM anyway, so pinning it never
-# protected the identity; it made every factory fix cost the founder a new unlock.
-# Admission helpers imported by the host restart planner are part of the trusted launcher.
-PINNED = ('factory/qualified-adapter.sha256', 'factory/control_resume.py', 'factory/key_holder.py', 'factory/launch.sh', 'factory/collect.sh', 'bin/boat-launch-guards.sh', 'bin/boat-call',
-          'bin/boat-name', 'bin/boat-spend', 'bin/hcloud-boat', 'bin/hcloud-park', 'bin/push-secrets',
-          'factory/sealed_audit.py', 'factory/ttl_continuation.py', 'factory/coordinator.py', 'factory/restart.py', 'factory/recovery.py', 'factory/registry.py',
-          'factory/statement_round.py', 'factory/admission.py', 'factory/calibration.py', 'factory/account_handoff.py',
-          'factory/codex_login.py')
+# The launch manifest includes host helpers and its generated helper hashes.
+# Policy approval binds both the selected paths and their bytes.
+from launch_manifest import TRUSTED_FILES as PINNED
+
 
 
 def fingerprint(root):
