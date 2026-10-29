@@ -167,6 +167,11 @@ class MigrationTests(unittest.TestCase):
         self.assertFalse(projected['migration']['active_source'])
         self.assertEqual(projected['sha256'], '1' * 64)
         self.assertEqual((gen / 'original-card.json').read_bytes(), before)
+        row['active_source'] = True
+        row['card_archive_sha256'] = row['archive_sha256']
+        path = self.root / 'plan.json'; path.write_text(json.dumps(self.plan))
+        with self.assertRaisesRegex(ValueError, 'absent card cannot activate'):
+            m.load_plan(path, m.file_sha(path), self.fpub, self.vpub)
 
     def test_truncated_authentication_tail_cannot_publish_partial_plaintext(self):
         row = self.archive_entry(large=True)
@@ -225,6 +230,35 @@ class MigrationTests(unittest.TestCase):
         with ExitStack() as stack, self.assertRaises(OSError):
             m.preflight(plan, stack)
 
+    def test_each_recipient_pin_rejects_a_changed_plan(self):
+        self.archive_entry()
+        for field, wrong in (('founder_recipient', self.vpub),
+                             ('restore_recipient', self.fpub),
+                             ('vm_restore_recipient', self.fpub)):
+            changed = {**self.plan, field: wrong}
+            path = self.root / 'wrong-recipient-plan.json'; path.write_text(json.dumps(changed))
+            with self.assertRaisesRegex(ValueError, 'plan authority mismatch'):
+                m.load_plan(path, m.file_sha(path), self.fpub, self.vpub)
+
+    def test_failed_encoder_cannot_publish_and_preserves_original(self):
+        self.archive_entry(); before = self.input.read_bytes()
+        real = subprocess.Popen
+        encoders = []
+        def failed_encoder(command, *args, **kwargs):
+            if command[:2] == ['age', '-e'] and '-o' in command:
+                # Drain input so the actual decoder can reach authenticated EOF,
+                # then fail: this exercises the encoder's nonzero-exit branch.
+                child = real([sys.executable, '-c', 'import sys; sys.stdin.buffer.read(); sys.exit(1)'],
+                             *args, **kwargs)
+                encoders.append(child)
+                return child
+            return real(command, *args, **kwargs)
+        with patch.object(m.subprocess, 'Popen', failed_encoder):
+            self.assertEqual(self.migrate()['failed'], 1)
+        self.assertTrue(encoders and all(p.poll() == 1 for p in encoders))
+        self.assertEqual(list(self.output.iterdir()), [])
+        self.assertEqual(self.input.read_bytes(), before)
+
     def test_dry_run_no_prompt_and_real_run_one_prompt(self):
         self.archive_entry(); path, pin, _ = self.freeze()
         trusted = self.root / 'trusted/factory'; trusted.mkdir(parents=True)
@@ -249,6 +283,14 @@ class MigrationTests(unittest.TestCase):
                     self.assertEqual(m.main(args), 0)
                 self.assertEqual(prompt.call_count, 1)
                 self.assertFalse(stale.exists())
+        row = self.plan['entries'][0]
+        gen = self.generation(row); (gen / 'archive.age').write_bytes(b'damaged ciphertext')
+        with patch.object(m, 'ROOT', trusted.parent), patch.object(m.sys.stdin, 'isatty', return_value=True):
+            with patch.object(m.getpass, 'getpass', return_value=line) as prompt:
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
+                    self.assertEqual(m.main(args), 1)
+                self.assertEqual(prompt.call_count, 1)
+                self.assertIn('VM-unrestorable', errors.getvalue())
 
     def test_failed_entry_does_not_block_a_valid_sibling(self):
         valid = self.archive_entry()
@@ -272,6 +314,27 @@ class MigrationTests(unittest.TestCase):
         with patch.object(m.subprocess, 'Popen', inspected):
             self.assertEqual(self.migrate()['migrated'], 1)
         self.assertGreater(len(commands), 5)
+
+    def test_failed_original_key_unwrap_does_not_block_another_case(self):
+        row, key, _, _ = self.rewrap_entry()
+        try:
+            old = Path(row['local_path'])
+            old.write_bytes(m.small(['age', '-r', self.vpub], key))
+            row.update(key_sha256=m.file_sha(old), size=old.stat().st_size, key_size=old.stat().st_size)
+            case = CASE + '-synthetic-sibling'
+            archive = self.sealed / (case + '.checkpoint.tar.gz.age')
+            archive.write_bytes(m.small(['age', '-r', self.fpub], self.payload()))
+            card = json.loads(PUBLIC_CARD); card.update(case=case, sha256=m.file_sha(archive))
+            card_path = self.sealed / (case + '.scorecard.json'); card_path.write_text(json.dumps(card))
+            valid = dict(case=case, kind='checkpoint', local_path=str(archive), size=archive.stat().st_size,
+                         archive_sha256=card['sha256'], card_archive_sha256=card['sha256'],
+                         card_path=str(card_path), card_sha256=m.file_sha(card_path), active_source=True)
+            self.plan['entries'] = [row, valid]
+            self.assertEqual(self.migrate(), dict(migrated=1, failed=1, skipped=0))
+            self.assertIsNotNone(self.generation(valid))
+            self.assertFalse((self.output / row['case']).exists())
+        finally:
+            key[:] = b'\0' * len(key)
 
 
 if __name__ == '__main__':

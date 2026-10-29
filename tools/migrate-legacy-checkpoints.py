@@ -199,7 +199,11 @@ def unwrap(stream, identity):
             data[:] = b'\0' * len(data)
             raise ValueError('key authentication failed')
         # Native age identity validation; comments are preserved byte-for-byte.
-        public(data)
+        try:
+            public(data)
+        except BaseException:
+            data[:] = b'\0' * len(data)
+            raise
         return data
 
 
@@ -283,6 +287,9 @@ def complete(path, row, plan_sha):
             record['case'] != row['case'] or record['kind'] != row['kind'] or
             manifest['files']['original-card.json'] != row['card_sha256']):
         raise ValueError('generation binding changed')
+    if row['kind'] != 'rewrap_key' and (
+            path.name != manifest['files']['archive.age'] or record['archive_sha256'] != path.name):
+        raise ValueError('generation directory differs from ciphertext')
     return path
 
 
@@ -418,18 +425,28 @@ def run(plan, opened, identity, root, plan_sha, counts=None):
 
 
 def estimate(plan, root=None, plan_sha=None):
-    pending = [r for r in plan['entries'] if root is None or existing(root, r, plan_sha) is None]
+    pending = []
+    for row in plan['entries']:
+        try:
+            if root is not None and existing(root, row, plan_sha) is not None:
+                continue
+        except (OSError, ValueError, KeyError):
+            pass  # run() reports the damaged immutable entry, without blocking its peers.
+        pending.append(row)
     archive_bytes = sum(r['size'] for r in pending if r['kind'] != 'rewrap_key')
     keys = [r for r in pending if r['kind'] == 'rewrap_key']
     # VM verification is outstanding even when all Mac outputs are replay skips.
     all_keys = [r for r in plan['entries'] if r['kind'] == 'rewrap_key']
     verification = sum({a['sha256']: a['size'] for r in all_keys for a in r['archives']}.values())
     return (math.ceil(archive_bytes * 1.1) + sum(r['size'] * 2 for r in keys) + 64 * CHUNK,
-            math.ceil(4 * archive_bytes / (10 * CHUNK)),
-            math.ceil(2 * verification / (10 * CHUNK)) + len(all_keys))
+            math.ceil(4 * archive_bytes / (10 * CHUNK)) + len(keys),
+            math.ceil(2 * verification / (10 * CHUNK)))
 
 
 def main(argv=None):
+    if sys.version_info < (3, 11):
+        print('Python 3.11 or later is required.', file=sys.stderr)
+        return 2
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--plan', type=Path, required=True)
     p.add_argument('--plan-sha256', required=True)
@@ -450,6 +467,11 @@ def main(argv=None):
             disk = root
             while not disk.exists():
                 disk = disk.parent
+            archives = [r for r in plan['entries'] if r['kind'] != 'rewrap_key']
+            print(f"Archive migration: {len({r['case'] for r in archives})} prefixes, "
+                  f"{len(archives)} variants, {sum(r['size'] for r in archives)} bytes; "
+                  f"key rewrap: {len(plan['entries']) - len(archives)}; "
+                  f"absent card bindings: {sum(r['kind'] == 'card_bound_absent' for r in archives)}")
             for row in plan['entries']:
                 print(f"{row['case']} {row['kind']} {row['size']} bytes {row['local_path']}")
             print(f'Space needed: {needed} bytes; estimated Mac {seconds}s; VM verification {vm_seconds}s')

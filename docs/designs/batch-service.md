@@ -560,3 +560,9 @@ event/wait-ID deduplication on replay. Qualification reports those waits/charges
 even if nonzero, rather than hiding held tester capacity behind a success label.
 Real provider denial/receipt artifacts are required for closure; authored zero-
 capacity inputs alone prove scheduling invariants, not production throughput.
+
+Worker money delivery/context installation is specified in interfaces §8's
+"Worker installation and D's context". Increment2 supplies job_config.install
+and the two launcher SHA-pinned config flags, checkpointed job-money state and
+verified revision transitions, before D is enabled. D's attribute names are
+unchanged; current binding fields never originate from restored files.

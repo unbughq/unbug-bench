@@ -351,3 +351,53 @@ reviewed consumer. It shares the journal's `batches/<batch>/lock`; it is no
 second service, spend ledger or independent lock. Manifest jobs omit max_cost.
 B removes batch.bind's max_cost/--max-cost emission for authenticated batch jobs
 in increment2; D's job_authority enforces committed_total_usd exclusively.
+
+### Worker installation and D's context (B installs, D reads)
+
+Delivery is an owner-only, atomic file `/dev/shm/secrets/factory-job.json`,
+installed by the verified host launcher over existing Boat stdin SSH. The
+holder freezes its bytes and SHA in launch state before provisioning. Launcher
+passes `--factory-job-config /dev/shm/secrets/factory-job.json` and
+`--factory-job-config-sha256 <sha256>` to run.py; batch job args cannot override
+either flag. The expected digest comes from holder-authenticated launch state,
+never from a restored file or card. No delivery filename/env convention is
+required from D. B's installer is `factory/job_config.py:install(c, args)`, called
+at context construction before D's `job_authority.for_case` or any model call.
+This module/CLI wiring ships in B increment2; until installed D stays fail-closed.
+
+The verified JSON has schema1 and exactly these root fields:
+`schema, batch_id, job_id, case_id, batch_deadline, source_generation,
+batch_release_sha256, manifest_sha256, job_money`. `job_money` is the exact
+nine-field money-channel dictionary above. All repeated batch/job/case/deadline/
+source fields must match it, and release/manifest digests must match the verified
+installed release. Filename ownership/mode, no-follow read, bytes digest and
+case identity are checked before trusting it. Host owner and runner are trusted;
+contestant/role UIDs cannot write this RAM directory or runner argv.
+
+B installs separate objects (no aliased mutable dictionaries):
+- `c.authenticated_job_config`: current verified RAM launch configuration; never
+  loaded from a checkpoint. D reads its `['job_money']` as current authority.
+- `c.batch_id`, `c.job_id`, `c.batch_deadline`, `c.source_generation`: from that
+  same independently verified current launch binding, not restored files.
+- `c.job_money`: case state persisted at `c.work / 'job-money.json'`, included
+  in checkpoints. On a fresh job, install an independent copy of current
+  authenticated `job_money` and persist before any model call.
+
+On resume first authenticate the encrypted checkpoint/accounting via the normal
+restore path, then load its persisted job-money copy separately. B validates
+same batch/job/case/reservation owner, preserves cumulative spend, and checks
+the holder's explicit transition: new revision, exact collected input generation
+and current authorized amount/deadline. If revision/source changes, B records
+old/new authority in checkpoint `job-money-history.json` and atomically advances
+the case's copy to the verified current holder revision before D admission.
+This is an authenticated transition, never a budget reset or a copy of restored
+config into both attributes. A commitment increase requires B's serialized
+admission; a stale revision/generation refuses. A same-revision replay must be
+byte-equivalent. The four binding attributes continue to use the RAM config.
+
+A legacy checkpoint lacking job-money needs an explicit manifest import record
+and authenticated cumulative-ledger migration before initial assignment; absence
+alone grants no authority. No case content/public-card limit substitutes for
+the holder binding. D's `for_case` then compares its persisted current case copy
+to `c.authenticated_job_config['job_money']` and the four context fields, using
+its documented API names unchanged.
