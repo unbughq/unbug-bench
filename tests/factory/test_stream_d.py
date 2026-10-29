@@ -26,6 +26,13 @@ from model_router import Lease
 FIXTURE = ROOT / 'tests/factory/fixtures/invalid-runs-public-cards.json.gz'
 
 
+def authority(limit=1000):
+    channel = {'schema': 1, 'batch': 'practice', 'job': 'original', 'case': 'case-practice',
+        'reservation_id': 'bc97cc76-9028-457d-b116-8887ac02f62f', 'revision': 1, 'source_generation': None,
+        'committed_total_usd': format(Decimal(str(limit)), '.9f'), 'batch_deadline': '2030-11-01T00:00:00Z'}
+    return job_authority.read(channel, channel)
+
+
 def cards():
     assert hashlib.sha256(FIXTURE.read_bytes()).hexdigest() == 'beaf4962da5544da4e7b8b95fc14903d348e4a9e781c2f3103f4e98ca7a334c4'
     rows = json.loads(gzip.decompress(FIXTURE.read_bytes()))
@@ -47,7 +54,7 @@ class AccountingTests(unittest.TestCase):
     def reserve(self, maximum=10, operation=None, name='builder-continuation', lease_id=None):
         lease = Lease(lease_id or str(uuid.uuid4()), 'claude/claude-opus-5-5', 'claude-account1', 1,
                       'subscription', 'anthropic', 'claude-account1')
-        row = budget.reserve_invocation(self.path, lease, maximum, 1000,
+        row = budget.reserve_invocation(self.path, lease, maximum, authority(),
             operation_id=operation or str(uuid.uuid4()), call_name=name)
         return lease, row
 
@@ -119,14 +126,14 @@ class AccountingTests(unittest.TestCase):
 
     def test_duplicate_reservation_and_parallel_admission(self):
         lease, row = self.reserve()
-        again = budget.reserve_invocation(self.path, lease, 10, 1000,
+        again = budget.reserve_invocation(self.path, lease, 10, authority(),
             operation_id=row['operation_id'], call_name=row['call_name'])
         self.assertEqual(row, again)
         baseline = budget.case_spending(self.original)['total_spent_usd']
         def admit(_):
             candidate = Lease(str(uuid.uuid4()), lease.route, lease.account, 1, lease.billing, lease.family, lease.pool)
             try:
-                budget.reserve_invocation(self.path, candidate, 6, baseline + 20,
+                budget.reserve_invocation(self.path, candidate, 6, authority(baseline + 20),
                     operation_id=str(uuid.uuid4()), call_name='reviewer-concurrent')
                 return True
             except budget.BudgetError: return False
@@ -152,8 +159,74 @@ class AccountingTests(unittest.TestCase):
         self.assertAlmostEqual(summary['spent_usd'] + summary['infrastructure_waste_usd'], original['spent_usd'], places=8)
         self.assertGreater(summary['infrastructure_waste_usd'], 0)
 
+    def test_premature_waste_refuses_then_late_receipt_remains_numeric(self):
+        operation = str(uuid.uuid4())
+        l1, _ = self.reserve(4, operation); l2, _ = self.reserve(10, operation)
+        p1 = self.receipt(l1, [('waste-a', 4)], final=True)
+        p2 = self.receipt(l2, [('waste-b', 2)])
+        record = self.wait(l2, p2)
+        budget.settle(record, work=self.work, ledger_path=self.path)
+        waste = {'schema_version': 1, 'kind': 'factory_bug', 'id': str(uuid.uuid4()),
+                 'diagnosis_sha256': 'd' * 64, 'fix_commit': 'f' * 40, 'fix_attribution_sha256': 'a' * 64,
+                 'operation_ids': [operation], 'event_ids': ['waste-a'], 'infrastructure_waste_usd': 4}
+        with self.assertRaisesRegex(budget.BudgetError, 'waste_operations_pending'):
+            budget.reclassify_factory_bug(self.path, waste)
+        self.receipt(l2, [('waste-b', 2), ('waste-c', 1)], final=True)
+        self.assertEqual(budget.settle(record, work=self.work, ledger_path=self.path), -7)
+        waste.update(event_ids=['waste-a', 'waste-b', 'waste-c'], infrastructure_waste_usd=7)
+        budget.reclassify_factory_bug(self.path, waste)
+        self.receipt(l2, [('waste-b', 2), ('waste-c', 1), ('waste-late', 1)], final=True)
+        self.assertEqual(budget.settle(record, work=self.work, ledger_path=self.path), 1)
+        summary = budget.case_spending(self.ledger())
+        self.assertIsNotNone(summary['total_spent_usd'])
+        self.assertEqual(summary['infrastructure_waste_usd'], 8)
+        self.assertEqual(budget.settle(record, work=self.work, ledger_path=self.path), 0)
+
+    def test_canonical_money_and_unpriced_invocation_removal(self):
+        lease, reservation = self.reserve(.0000005)
+        self.assertEqual(reservation['maximum_usd'], '0.000000500')
+        with budget.ledger_transaction(self.path) as ledger:
+            ledger.setdefault('unpriced_invocations', []).append({'invocation_id': reservation['invocation_id'], 'role': 'writer'})
+        receipt = self.receipt(lease, [], final=True)
+        budget.settle(self.wait(lease, receipt), work=self.work, ledger_path=self.path)
+        ledger = self.ledger()
+        self.assertEqual(ledger['unpriced_invocations'], [])
+        self.assertEqual(ledger['invocation_reservations'][lease.lease_id]['estimated_gap_usd'], '0.000000000')
+        self.assertEqual(format(budget.usd('-0'), '.9f'), '0.000000000')
+
+    def test_idless_and_malformed_inputs_fail_closed_without_raw_exceptions(self):
+        with budget.ledger_transaction(self.path) as ledger:
+            ledger['events'].append({'cost': 1, 'role': 'writer'}); ledger['cost'] += 1
+        lease, _ = self.reserve()
+        for operation in ('bad', None, 5, uuid.uuid4().hex, str(uuid.uuid1())):
+            with self.assertRaisesRegex(budget.BudgetError, 'invalid_operation'):
+                budget.reserve_invocation(self.path, lease, 10, authority(), operation_id=operation, call_name='builder-continuation')
+        self.assertEqual(budget.outstanding_reservations(self.ledger()), 10)
+        for call in (5, {}, []):
+            with self.assertRaisesRegex(budget.BudgetError, 'invalid_usage_receipt'):
+                budget.settle({**self.wait(), 'call_id': call}, work=self.work, ledger_path=self.path)
+
 
 class JobMoneyTests(unittest.TestCase):
+    def test_current_case_binding_uses_deadline_instant_and_refuses_each_mismatch(self):
+        from dataclasses import asdict
+        channel = {'schema': 1, **asdict(authority())}
+        channel['committed_total_usd'] = '1000.000000000'
+        c = SimpleNamespace(case_id=channel['case'], card={}, job_money=channel,
+            authenticated_job_config={'job_money': copy.deepcopy(channel)}, batch_id=channel['batch'],
+            job_id=channel['job'], source_generation=None, batch_deadline=1919808000.0)
+        from model_router import epoch
+        c.batch_deadline = epoch(channel['batch_deadline'])
+        self.assertEqual(job_authority.for_case(c).committed_total_usd, 1000)
+        c.batch_deadline = '2030-11-01T00:00:00.000000+00:00'
+        self.assertEqual(job_authority.for_case(c).committed_total_usd, 1000)
+        for field, value in (('case_id', 'case-wrong'), ('batch_id', 'other'), ('job_id', 'other'),
+                             ('source_generation', 'e' * 64), ('batch_deadline', 1), ('authenticated_job_config', None)):
+            changed = copy.copy(c); setattr(changed, field, value)
+            with self.assertRaisesRegex(budget.BudgetError, 'money_wait'): job_authority.for_case(changed)
+        c.card['terminal_stop'] = 'retired_batch_bound'
+        with self.assertRaisesRegex(budget.BudgetError, 'retired_batch_bound'): job_authority.for_case(c)
+
     def test_missing_and_stale_authority_fail_closed(self):
         channel = {'schema': 1, 'batch': 'practice', 'job': 'original', 'case': cards()[0]['card']['case'],
             'reservation_id': str(uuid.uuid4()), 'revision': 2, 'source_generation': 'e' * 64,

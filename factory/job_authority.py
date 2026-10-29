@@ -52,11 +52,22 @@ def read(channel, launch_binding, *, now=None):
 
 
 def for_case(c):
+    """B must install these from its current frozen, authenticated launch config.
+
+    job_money is the checkpointed copy. authenticated_job_config is the holder's
+    newly delivered configuration, never the restored copy. The remaining case
+    identifiers/source_generation are the launcher's verified restore binding.
+    Until B's installer supplies them, this entry point remains closed.
+    """
     binding = getattr(c, 'authenticated_job_config', {})
+    if not isinstance(binding, dict): raise BudgetError('money_wait')
     authority = read(getattr(c, 'job_money', None), binding.get('job_money'))
-    if (authority.batch, authority.job, authority.case, authority.batch_deadline, authority.source_generation) != (
+    from model_router import epoch
+    try: matching_deadline = epoch(authority.batch_deadline) == epoch(getattr(c, 'batch_deadline', None))
+    except (TypeError, ValueError, AttributeError, OverflowError): matching_deadline = False
+    if not matching_deadline or (authority.batch, authority.job, authority.case, authority.source_generation) != (
             getattr(c, 'batch_id', None), getattr(c, 'job_id', None), c.case_id,
-            getattr(c, 'batch_deadline', None), getattr(c, 'source_generation', None)):
+            getattr(c, 'source_generation', None)):
         raise BudgetError('money_wait')
     if c.card.get('terminal_stop') == 'retired_batch_bound': raise BudgetError('retired_batch_bound')
     return authority

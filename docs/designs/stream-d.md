@@ -738,3 +738,35 @@ Founder still authorizes batch money/deadline and conservative-import policy
 at launch. No founder action is needed for this documentation; a fixed extension
 price would need new package receipts. B/E dependencies are rollout blockers,
 not implementation choices to guess around.
+
+## Incremental implementation obligations (diff review 1)
+
+Increment 1 adds accounting primitives only; it enables no dispatch and closes
+no Murphy row. The initial diff review is recorded verbatim in
+`docs/reviews/stream-d-diff-1.md`. Before enabling the runtime, increment 2 must:
+
+- Pass each reservation's invocation_id through run_budgeted/_run_budgeted to
+  incremental events and unpriced_invocations, so settle removes only the
+  matching unknown invocation. Cover the real streaming-accountant path.
+- Release an admitted but never-invoked lease at known $0, and conservatively
+  settle a crashed admitted reservation with no receipt. A provider denial
+  before any lease still creates nothing. Preserve operation IDs across waits.
+- Obtain the cumulative limit only from JobAuthority, never card/argv. The
+  reserve_invocation API now requires that object. The raw numeric limit is no
+  longer an accepted argument.
+- B must install job_money from the checkpointed channel, and install
+  authenticated_job_config['job_money'] from its current holder-delivered frozen
+  launch configuration. It must independently install batch_id, job_id,
+  batch_deadline and source_generation from the verified launch/restore binding.
+  Do not populate both copies from restored files. Until B supplies this installer,
+  for_case fails closed. No delivery filename/environment convention is invented
+  by D. Deadlines compare UTC instants, as A's metadata API permits.
+- Authenticate the diagnosis and reviewed qualified-fix attribution before
+  reclassify_factory_bug. This accounting helper validates shape, settled sums
+  and idempotence; a hex digest's shape alone never authenticates a reviewed fix.
+  Initial attribution waits until all named operation reservations settle. A
+  later final receipt extends the same waste record by its unique event IDs;
+  it never creates a second record or changes cumulative batch spend.
+
+The parent adopted the no-fixed-amount amendment in ENGINEERING §3 at a3bb9dc.
+Dispatch still requires both B's qualified channel and E/A's enforced route maxima.
