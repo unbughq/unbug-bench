@@ -114,3 +114,10 @@ merged first increment. Its deadline code was retained; the frozen live runtime 
 ships E's required processes.py. Compatibility pins were refreshed and removed AST
 dependencies are deleted during migration. A fresh full suite and diff review
 follow; this response does not itself declare PASS.
+
+
+The first E+C full run exposed E's old timeout-test fixture: no case path for C's
+journal identity, plus an expected runner_error/scientific failed_detail shape.
+The fixture now supplies a case directory and explicitly asserts the new unscored
+stop, no failure fields and no writer callback. This changes test integration only,
+not E's deadline implementation. A complete full-suite rerun follows.

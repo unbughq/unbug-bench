@@ -434,3 +434,10 @@ and single crash diagnostics.
   (E moved signal use behind processes); do not retain a spurious None-valued key.
   Unknown dependency changes still invalidate reuse; C does not authorize arbitrary
   E or other-source identity migrations.
+
+
+E's real-envelope timeout regression is updated to provide the case path used by
+C's durable journal identity and to assert infrastructure_exhausted/invalid-infra,
+no failed_gate/failed_detail, and no after_gate writer callback. Its old fixture
+expected runner_error plus scientific failed_detail; keeping that expectation would
+contradict this workstream. The combined full suite is rerun after this fixture fix.
