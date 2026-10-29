@@ -34,6 +34,8 @@ def live_report(value):
 
 class AttackReportFreshnessTests(unittest.TestCase):
     def setUp(self):
+        from freshness_test_transport import start
+        start(self)
         tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
         self.path = pathlib.Path(tmp.name) / 'report.json'
 

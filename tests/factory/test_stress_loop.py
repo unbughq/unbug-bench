@@ -120,7 +120,7 @@ class StressLoopTests(unittest.TestCase):
                  patch.object(run, 'checkpoint', side_effect=failure) as checkpoint, \
                  patch.object(run, 'case_budget_boundary'), \
                  patch.object(run.GatePipeline, 'record_crash'), \
-                 self.assertRaisesRegex(run.BudgetError, 'unfinished_saved_cheats'):
+                 self.assertRaises(type(failure)):
                 run.early_cheat_check(h.c)
             self.assertEqual(checkpoint.call_count, 1)
 

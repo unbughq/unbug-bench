@@ -133,8 +133,10 @@ def silent_checkpoint(case, step, prior, guard, report, watching):
             directory = bench.RESULTS / 'windows' / (re.sub('[^A-Za-z0-9_-]', '-', step['id']) + '-' + str(time.time_ns()))
             directory.mkdir(parents=True)
             (directory / 'checkpoint.json').write_text(json.dumps(summary, indent=2) + '\n')
-            if not summary.get('runs') or summary.get('error_runs') or summary.get('invalid_runs'):
-                raise RuntimeError('silent strategy window has no valid verdict: ' + verdict_detail(summary, directory / 'checkpoint.json'))
+            from run_validity import require_valid, InvalidInfra
+            try: require_valid(summary)
+            except InvalidInfra as error:
+                raise InvalidInfra('silent strategy window has no valid verdict: ' + verdict_detail(summary, directory / 'checkpoint.json')) from error
             summary['_evidence_path'] = str((directory / 'checkpoint.json').resolve())
             return summary
         finally:

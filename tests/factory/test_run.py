@@ -10,6 +10,9 @@ import argparse, pathlib, sys, tempfile, time
 from unittest import mock
 sys.path.insert(0, str((pathlib.Path(__file__).resolve().parents[2] / "factory")))
 import run
+import freshness_retrieval
+from freshness_test_transport import fetched
+mock.patch.object(freshness_retrieval, 'fetch', side_effect=fetched).start()
 
 # Fixture tests must not race other workers changing the shared bench. Test the
 # fingerprint separately on a tiny private tree, then hold it fixed for G1 fixtures.

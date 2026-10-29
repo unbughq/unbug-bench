@@ -74,11 +74,18 @@ def cleared_stress(c, attack, report, original):
     snapshot = SimpleNamespace(case=c.case,case_id=attack['binding']['case_id'],
         models=binding['models'],admission_binding=binding.get('reservation'),freshness_confirmed_hits=0)
     rows = proof['rows']
+    from freshness_retrieval import load, digest as retrieval_digest
+    try:
+        snapshot.freshness_retrieval = load(verdict.parent / 'retrieval', rows)
+        require(retrieval_digest(snapshot.freshness_retrieval) == receipt.get('retrieval_sha256'),
+                'changed stress freshness retrieval')
+    except RuntimeError as error:
+        raise ValueError('missing stress freshness retrieval') from error
     require(proof.get('source_sha256') == sha(report) and
             receipt.get('verdict_path') == relative and
-            read_object(verdict.parent/'review-completed.json') == {'binding':binding} and
+            read_object(verdict.parent/'review-completed.json') == {'binding':binding, 'retrieval_sha256':receipt.get('retrieval_sha256')} and
             read_object(verdict).get('hits') == receipt.get('hits') and
-            binding == {**search_binding(snapshot,rows),'confirmation_contract':1} and
+            binding == {**search_binding(snapshot,rows),'confirmation_contract':2} and
             rows and not checked_freshness_verdict(snapshot,rows,receipt.get('hits')) and
             not snapshot.freshness_confirmed_hits and
             proof.get('case_sha256') == case_hash(c), 'unverified stress freshness clearance')

@@ -20,6 +20,8 @@ import registry
 
 class AttackRecoveryTests(unittest.TestCase):
     def setUp(self):
+        from freshness_test_transport import start
+        start(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         root = pathlib.Path(self.tmp.name)
@@ -146,7 +148,7 @@ class AttackRecoveryTests(unittest.TestCase):
              patch.object(run, "opencode") as model:
             run.build(self.c)
             run.run_gates(self.c)
-        confirmation.assert_called_once()
+        self.assertEqual(confirmation.call_count, 3)  # cheap byte-bound confirmation validation at each seam
         self.early_review.assert_called_once()
         expensive_gate.assert_called_once()
         model.assert_not_called()

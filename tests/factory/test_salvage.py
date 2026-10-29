@@ -132,8 +132,9 @@ with patch.object(run.shutil, 'which', return_value='synthetic'), patch.object(s
             run.validate_and_repair(self.c)
         writer.assert_not_called()
         self.assertTrue(self.c.stopped)
-        self.assertEqual(self.c.card['failed_gate'], 'G15')
-        self.assertEqual(self.c.card['failed_detail'], {'error': 'RuntimeError'})
+        self.assertNotIn('failed_gate', self.c.card)
+        self.assertNotIn('failed_detail', self.c.card)
+        self.assertEqual(self.c.card['terminal_stop'], 'infrastructure_exhausted')
 
     def save(self):
         evidence = self.root / 'results/trial.json'; evidence.parent.mkdir(exist_ok=True); evidence.write_text('{}')

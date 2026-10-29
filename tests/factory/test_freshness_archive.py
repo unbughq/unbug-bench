@@ -36,6 +36,19 @@ class ArchiveTests(unittest.TestCase):
             archive_checked=True, archive_available=False, live_failure='http_404',
             why='HTTP 404, deployment root also 404; Wayback availability API returned no snapshot')
 
+        from freshness_test_transport import start, fetched
+        def transport(url):
+            if url == DEAD:
+                return {'url': url, 'final_url': url, 'status': 404}, b''
+            if url.startswith('https://archive.org/wayback/available?'):
+                answer = self.answers[13]
+                closest = ({'available': True, 'status': '200', 'url': answer['archive_snapshot_url']}
+                           if answer.get('archive_available') is True else None)
+                return {'url': url, 'final_url': url, 'status': 200}, json.dumps(
+                    {'archived_snapshots': {'closest': closest} if closest else {}}).encode()
+            return fetched(url)
+        start(self, transport)
+
     def review(self):
         def reviewer(c, models, text, cwd, name, **kwargs):
             self.assertEqual(name, 'reviewer-g2-confirm')
@@ -89,8 +102,8 @@ class ArchiveTests(unittest.TestCase):
                          'https://web.archive.org/web/20260101000000/https://example.com/other'):
             self.answers[13].update(retrieved=True, same_bug=False, retrieved_from='archive',
                 archive_available=True, archive_snapshot_url=snapshot)
-            with self.assertRaisesRegex(run.BudgetError, '^freshness_review_unavailable$'):
-                self.review()
+            from run_validity import InfrastructureExhausted
+            with self.assertRaises(InfrastructureExhausted): self.review()
 
     def test_unavailable_review_can_resume_but_failed_gate_cannot(self):
         card = dict(status='stopped', terminal_stop='freshness_review_unavailable', gates={},

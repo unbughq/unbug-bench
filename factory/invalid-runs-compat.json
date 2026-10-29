@@ -1,0 +1,31 @@
+{
+  "base_commit": "6f17c5f",
+  "base_files": {
+    "bin/checkpoint_evidence.py": "6c36b76914dd4757be215c1a43753c2a6ea8c82216528af282f25fd7928719ca",
+    "bin/run_validity.py": null,
+    "bin/strategy": "edce96b9b016524df809074a714e59217488c6acd14c69a4cc4a31b3804d1db4",
+    "factory/calibration.py": "56a83fcb339f4d432932c3b8206df5257888e9e13edba52f8f0c606a1fcde4b5",
+    "factory/gate_state.py": "e7b9f3fb6c6cb2fa2d5e364ad4001ed8005ea309741dbd024378efc2967e01b5"
+  },
+  "base_runner": {
+    "calibrate": "006fed7a7ba6d4a208c1a304f709c4fcd6f22f370a1dd008d9c3cfa925624d0e",
+    "checkpoint": "47c273dbb3955531ca5f1920f64e8f26971a169766f9bc2f0b31b7eae65d5af9",
+    "time": null,
+    "tree_digest": null,
+    "verdicts": "732f24e913190ffbc148963d34c8d09d9c4b5b7b75579dc0682157ccfe20589e"
+  },
+  "current_files": {
+    "bin/checkpoint_evidence.py": "45af91d3fb167f553d868e79ca7bec858521e4cfc5fc86ecbb822b0fd7ff1c2f",
+    "bin/run_validity.py": "305795ff4fac030475d7b4b0e1d261805139db2648448edb37c27682b10dcc75",
+    "bin/strategy": "69c294e4e9eebc87387ad97597878ebb9fe8dbe2dbde0b07b19c6bb3e3774405",
+    "factory/calibration.py": "826a8af28b38927b225b5b06b29fade681aea7f3e14bdc6f7bd40cd0d723775d",
+    "factory/gate_state.py": "f7a3eb40b4b9fac77f026b7b6e5ce3ce82bf5caa0b719e7964d785fa86181306"
+  },
+  "current_runner": {
+    "calibrate": "49660ac10925de4b53a6b2bcf8d531dd1ae1f214e19d174fc2dfe538a304a34b",
+    "checkpoint": "6e37f0e4fc2fbe5ddf796c2da16a9a67f8e5110f02737549038f89d1fc2ee9b0",
+    "time": "bc410c956ad11f0ebf7d146eea41434b96f4c18aa222b404391264c2345cd100",
+    "tree_digest": "c3a31b45855538bb7e8d53906afdf25611f13f3d00648e8b62ea003627e569b0",
+    "verdicts": "d583cefdbc8f622f4b52da685e3f1705587fbf82d463c2f28e62756bc7aba7bd"
+  }
+}

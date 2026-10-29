@@ -178,7 +178,7 @@ class ResumeTests(unittest.TestCase):
                 root = pathlib.Path(tmp)
                 card = json.loads((root / 'sealed/case-test.scorecard.json').read_text())
                 self.assertEqual(card['status'], 'stopped')
-                cause = {'gate': 'runner_error:OSError', 'seal': 'seal_error:OSError', 'budget': 'cost_limit',
+                cause = {'gate': 'infrastructure_exhausted', 'seal': 'seal_error:OSError', 'budget': 'cost_limit',
                          'limit': 'provider_limit:opencode-go/test', 'stall': 'stalled', 'zero': 'zero_tokens',
                          'restore': 'Budget stopped: total_call_limit', 'defaults': 'cost_limit',
                          'qualification': 'runner_error:ValueError'}[mode]

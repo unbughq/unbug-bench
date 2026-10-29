@@ -29,6 +29,8 @@ MODEL = 'codex/gpt-6.1-sol'
 
 class CaseBudgetTests(unittest.TestCase):
     def setUp(self):
+        from freshness_test_transport import start
+        start(self)
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root = pathlib.Path(self.tmp.name)
         self.c = c = types.SimpleNamespace(work=self.root, case=self.root / 'case', case_id='case-test',

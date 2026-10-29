@@ -40,7 +40,7 @@ class AdmissionHandoffTests(unittest.TestCase):
                      self.history / 'sealed', self.state, self.base / 'tools'):
             path.mkdir(parents=True)
         for name in ('statement_round.py', 'restart.py', 'recovery.py', 'budget.py', 'token_prices.py', 'registry.py', 'admission.py',
-                     'calibration.py', 'free_models.py', 'collect.sh', 'transfer.py'):
+                     'calibration.py', 'free_models.py', 'collect.sh', 'collection.py', 'transfer.py'):
             shutil.copyfile(HERE / name, self.root / 'factory' / name)
         shutil.copyfile(HERE / 'runner_supervisor.py', self.remote / 'factory/runner_supervisor.py')
         self.worker = 'worker-owned'; self.case = 'case-selected'

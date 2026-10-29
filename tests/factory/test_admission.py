@@ -30,6 +30,8 @@ def evidence(who, kind, i, **more):
 
 class AdmissionTests(unittest.TestCase):
     def setUp(self):
+        from freshness_test_transport import start
+        start(self)
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         root = pathlib.Path(self.tmp.name); case = root / "case"; case.mkdir()
         self.c = types.SimpleNamespace(work=root, case=case, case_id="case-new", card={}, seed=42,
@@ -390,13 +392,14 @@ class AdmissionTests(unittest.TestCase):
         def checkpoint(ctx, scenarios, guard, runs, seed, label):
             self.assertEqual(runs, 1)
             name = label.removeprefix("prototype-")
-            return {"legit_completion": 1}, [{"checker": {"valid": True}, "judge": {
+            return {"legit_completion": 1}, [{"errors": [], "checker": {"valid": True}, "judge": {
                 "paths": {"stock": name in ("none", "wrong-fix")}, "checks": {"business": name != "refuse-all"}}}]
         with patch.object(run, "g3", return_value=(True, {})), patch.object(run, "checkpoint", checkpoint):
             self.assertTrue(admission.prototype(run, c)[0])
         with patch.object(run, "g3", return_value=(True, {})), \
              patch.object(run, "checkpoint", return_value=({"legit_completion": 1}, [])):
-            self.assertFalse(admission.prototype(run, c)[0])
+            from run_validity import InfrastructureExhausted
+            with self.assertRaises(InfrastructureExhausted): admission.prototype(run, c)
 
     def test_search_receipt_expiry_binding_and_malformed_verdict(self):
         c = self.c
@@ -418,9 +421,9 @@ class AdmissionTests(unittest.TestCase):
         (c.case / "freshness.jsonl").write_text("\n".join(map(json.dumps, self.rows)))
         with patch.object(run, "confirm_hits", return_value=[]) as confirm:
             self.assertTrue(run.g2(c)[0]); self.assertTrue(run.g2(c)[0])
-            self.assertEqual(confirm.call_count, 1)
+            self.assertEqual(confirm.call_count, 2)
             (c.case / "promise.md").write_text("changed search context")
-            self.assertTrue(run.g2(c)[0]); self.assertEqual(confirm.call_count, 2)
+            self.assertTrue(run.g2(c)[0]); self.assertEqual(confirm.call_count, 3)
 
     def test_idea_review_invalid_rejected_and_success_cached(self):
         c = self.c; c.statement = (c.case / "statement.md").read_text()

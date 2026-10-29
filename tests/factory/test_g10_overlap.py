@@ -5,7 +5,7 @@ import sys
 from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
-import pathlib, sys, threading, types
+import pathlib, sys, threading, types, tempfile
 from contextlib import ExitStack
 from unittest import mock
 sys.path.insert(0, str((pathlib.Path(__file__).resolve().parents[2] / "factory")))
@@ -15,8 +15,10 @@ import run
 def exercise(mode, *, reason=None):
     started, release, finished = threading.Event(), threading.Event(), threading.Event()
     seen = []
+    temporary = tempfile.TemporaryDirectory()
     c = types.SimpleNamespace(args=types.SimpleNamespace(dry_run=False, resume=None, bench_workers=2, no_early_probe=True),
-                              card={'gates': {}, 'failed_gate': None}, prepared_factory_slots=4)
+                              card={'gates': {}, 'failed_gate': None}, prepared_factory_slots=4, work=pathlib.Path(temporary.name))
+    c.case = c.work / 'case'; c.case.mkdir()
     def tester(c):
         seen.append('G10-start'); started.set()
         try:
@@ -26,6 +28,9 @@ def exercise(mode, *, reason=None):
             assert release.wait(3), 'foreground gate did not overlap G10'
             if mode == 'budget': raise run.BudgetError('provider_limit')
             if mode == 'pause': raise run.PauseRequested()
+            if mode == 'infra':
+                from run_validity import InvalidInfra
+                raise InvalidInfra('saved reset failure')
             c.card['calibrators'] = {'synthetic': True}; c.card['difficulty'] = 'hard'
             return mode != 'reject', {'synthetic': True}
         finally:
@@ -63,14 +68,19 @@ def exercise(mode, *, reason=None):
     elif mode == 'reject':
         assert c.card['failed_gate'] == 'G10' and 'G11' not in seen
         assert c.card['gates']['G10'] == 'fail'
+    elif mode == 'infra':
+        assert not c.card.get('failed_gate') and 'G11' not in seen
+        assert c.card['gates']['G10'] == 'invalid-infra'
+        assert c.card['terminal_stop'] == 'infrastructure_exhausted'
     elif mode == 'pass':
         assert c.card['failed_gate'] is None and seen[-1] == 'G11'
         assert c.card['gates']['G10'] == 'pass'
         assert 'G10' in c.card['gate_minutes']
     if reason: assert seen.index('G6') < seen.index('G10-start')
+    temporary.cleanup()
 
 
-for mode in ('pass', 'cancel', 'reject', 'budget', 'pause'):
+for mode in ('pass', 'cancel', 'reject', 'budget', 'pause', 'infra'):
     exercise(mode)
     print('PASS G10 overlap ' + mode)
 exercise('pass', reason='memory allowance')

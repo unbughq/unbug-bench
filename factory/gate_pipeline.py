@@ -50,6 +50,9 @@ class GatePipeline:
         with (processes.deadline(getattr(getattr(c, 'args', None), 'agent_timeout', 14400))
               if gate in ('G13', 'G14', 'G15') else contextlib.nullcontext()):
             ok, info = self.evaluate(c, gate)
+        if info.get('classification') == 'invalid-infra':
+            from run_validity import InvalidInfra
+            raise InvalidInfra('gate execution evidence is incomplete')
         if reusable and ok and signature == gate_state.fingerprint(c, gate, self.bench):
             gate_state.save(c, gate, info, signature, before, self.bench)
         return ok, info
@@ -76,12 +79,10 @@ class GatePipeline:
                 lambda: self.check(c, gate),
                 publish=lambda *args: self.publish(c, 'early:' + gate, *args),
                 record_crash=lambda error: self.record_crash(c, gate, error),
-                interruption=BudgetError, attempts=2)
+                interruption=BudgetError, attempts=2, raise_crash=True,
+                journal=c.work / "infra-attempts.json",
+                identity={"operation": "early-gate", "gate": gate, "case": self.case_hash(c)})
             ok, info = outcome.ok, outcome.info
-            if outcome.crashed:
-                c.card.setdefault("early_gates", {})[gate] = {"ok": False, "crashed": True, **info,
-                    "minutes": round(outcome.elapsed_seconds / 60, 1)}
-                continue  # Operational failure: no writer problem or reusable verdict.
             self.log(c, gate, "early", "pass" if ok else "FAIL", json.dumps(info), f"{outcome.elapsed_seconds:.0f}s")
             c.card.setdefault("early_gates", {})[gate] = {"ok": ok, "minutes": round((outcome.elapsed_seconds) / 60, 1)}
             if not ok:
@@ -110,7 +111,9 @@ class GatePipeline:
                 lambda: self.check(c, gate),
                 publish=lambda *args: self.publish(c, 'early:' + gate, *args),
                 record_crash=lambda error: self.record_crash(c, gate, error),
-                interruption=BudgetError, raise_crash=True)
+                interruption=BudgetError, attempts=2, raise_crash=True,
+                journal=c.work / "infra-attempts.json",
+                identity={"operation": "early-review", "gate": gate, "case": self.case_hash(c)})
             ok, info = outcome.ok, outcome.info
             self.log(c, gate, "early", "pass" if ok else "FAIL", json.dumps(info), f"{outcome.elapsed_seconds:.0f}s")
             c.card.setdefault("early_gates", {})[gate] = {"ok": ok, "minutes": round(outcome.elapsed_seconds / 60, 1)}
@@ -132,11 +135,20 @@ class GatePipeline:
             outcome = gate_attempt.execute(
                 invoke, publish=lambda *args: self.publish(c, gate, *args),
                 record_crash=lambda error: self.record_crash(c, gate, error), interruption=BudgetError,
-                attempts=2 if gate in ("G16", "G17") else 1)
-            if outcome.crashed:
-                c.stopped = True
-                c.card["terminal_stop"] = "runner_error:" + outcome.info["error"]
-            return outcome.ok, outcome.info
+                attempts=2, journal=c.work / "infra-attempts.json",
+                identity={"operation": "gate", "gate": gate, "case": self.case_hash(c),
+                          "seed": getattr(c, "seed", None), "bench": getattr(c, "manifest0", None), "models": getattr(c, "models", {}),
+                          "args": {key: getattr(c.args, key, None) for key in
+                                   ("runs", "scenario_runs", "pilot_runs", "pilot_tries", "calibrator_minutes")}})
+            return outcome
+
+        def stop_infrastructure(gate, outcome):
+            c.stopped = True
+            c.card["terminal_stop"] = "infrastructure_exhausted"
+            c.card["infrastructure_gate"] = {"gate": gate, "error_type": outcome.info["error"],
+                "classification": "invalid-infra", "exhausted": True}
+            c.card["gates"][gate] = "invalid-infra"
+            c.card.get("gate_results", {}).pop(gate, None)
 
         future, g10_started = None, None
         pool = ThreadPoolExecutor(max_workers=1)
@@ -148,7 +160,7 @@ class GatePipeline:
                 # 2026-10-20: a completed G10 rejection/stop wins at the next boundary;
                 # an already-running foreground gate finishes first (its failure wins).
                 if future is not None and future.done() and gate != "G10":
-                    if not future.result()[0]: gate = "G10"
+                    if not future.result().ok: gate = "G10"
                 if gate == "G6" and not (a.dry_run and "G10" in self.dry_skip):
                     reason = self.overlap_reason(c)
                     if reason is None and getattr(c, "prepared_factory_slots", 1) < a.bench_workers + 2:
@@ -163,9 +175,13 @@ class GatePipeline:
                         future = pool.submit(run_gate, "G10")
                 started = g10_started if gate == "G10" and future is not None else time.time()
                 if gate == "G10" and future is not None:
-                    ok, info = future.result()  # joined before G11; same card/log format
+                    outcome = future.result()  # joined before G11; same card/log format
                 else:
-                    ok, info = run_gate(gate)
+                    outcome = run_gate(gate)
+                ok, info = outcome.ok, outcome.info
+                if outcome.crashed:
+                    stop_infrastructure(gate, outcome)
+                    break
                 self.log(c, gate, "pass" if ok else "FAIL", json.dumps(info), f"{time.time() - started:.0f}s")
                 c.card["gates"][gate] = "pass" if ok else "fail"
                 c.card.setdefault("gate_results", {})[gate] = info
@@ -184,7 +200,10 @@ class GatePipeline:
                 if cancelling: c.role_cancel.set()
                 pool.shutdown(wait=True)  # model cancellation kills its process group
                 # Stop/provider errors in the tester must reach main's checkpoint path.
-                try: future.result()
+                try:
+                    outcome = future.result()
+                    if outcome.crashed and not c.card.get('failed_gate'):
+                        stop_infrastructure('G10', outcome)
                 except BudgetError as error:
                     if not (cancelling and str(error) == "cancelled"): raise
             else:

@@ -19,11 +19,10 @@ class G6Tests(unittest.TestCase):
             ok, detail = run.g6(c)
         return ok, c.card, detail
 
-    def test_invalid_probe_fails_gate_without_a_cheat_pass(self):
-        ok, card, detail = self.invoke(1, 'negative-probe outcome=invalid-probe\n')
-        self.assertFalse(ok)
-        self.assertEqual(card['cheats_passed'], '0/10')
-        self.assertFalse(detail['negative_probes_ok'])
+    def test_invalid_probe_is_operational_without_a_cheat_pass(self):
+        from run_validity import InvalidInfra
+        with self.assertRaises(InvalidInfra):
+            self.invoke(1, 'negative-probe outcome=invalid-probe\n')
 
     def test_actual_generic_cheat_pass_is_counted(self):
         ok, card, _ = self.invoke(1, 'negative-probe outcome=cheat-pass\n')

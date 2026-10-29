@@ -24,6 +24,8 @@ SYNC = ROOT / 'factory/restore_sync.py'
 
 class FreshnessRestoreTests(unittest.TestCase):
     def setUp(self):
+        from freshness_test_transport import start
+        start(self)
         tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
         work = pathlib.Path(tmp.name); case = work / 'case'; case.mkdir()
         self.c = types.SimpleNamespace(work=work, case=case, case_id='case-test', card={},
@@ -137,7 +139,12 @@ class FreshnessRestoreTests(unittest.TestCase):
             **search_binding(self.c, [{'who': 'attacker', 'url': self.url, 'app_version': '2.19.0',
                 'query': 'Attacker freshness_review request',
                 'note': 'Attacker requested an independent same_bug/version_scope verdict.\n'}]),
-            'confirmation_contract': 1}}))
+            'confirmation_contract': 2}}))
+        import freshness_retrieval
+        receipts = freshness_retrieval.retrieve([{'url':self.url}], directory / 'retrieval')
+        marker = json.loads((directory / 'review-completed.json').read_text())
+        marker['retrieval_sha256'] = freshness_retrieval.digest(receipts)
+        (directory / 'review-completed.json').write_text(json.dumps(marker))
         with patch.object(run, 'opencode') as call:
             run.loop_freshness(self.c, self.result, self.report)
         call.assert_not_called()

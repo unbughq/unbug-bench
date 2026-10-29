@@ -130,7 +130,7 @@ def search_evidence(row):
     return (row.get("who"), row["kind"], " ".join(row["query"].casefold().split()))
 
 
-def prototype(run, c):
+def _prototype(run, c):
     """One-run rejection screen only; final seeded gates are unchanged."""
     required = ("case.json", "statement.md", "promise.md", "base/scenario.json", "base/key.json",
                 "base/hooks.mjs", "base/judge.py")
@@ -156,3 +156,11 @@ def prototype(run, c):
         outcomes[name] = bool(valid)
         if not valid: return False, {"checks": outcomes}
     return True, {"checks": outcomes, "runs": 1, "final_gates_required": True}
+
+
+def prototype(run, c):
+    from run_validity import retry
+    return retry(c.work / "infra-attempts.json",
+                 {"operation": "prototype", "case": run.case_hash(c), "seed": c.seed,
+                  "bench": getattr(c, 'manifest0', None)},
+                 lambda: _prototype(run, c), interruption=run.BudgetError)

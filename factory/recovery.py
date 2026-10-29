@@ -11,8 +11,24 @@ import re
 RETRY = re.compile(r"stalled|paused|timeout|zero_tokens|(claude|codex|opencode|process)_error|(provider_limit|runner_error|usage_monitor):.*|stress_review_unresolved:(interrupted_review|missing_or_malformed_report|case_changed_since_review|binding_changed)")
 
 
+def infrastructure_exhausted(card):
+    return (card.get("terminal_stop") == "infrastructure_exhausted" or
+            (isinstance(card.get("infrastructure_gate"), dict) and
+             card["infrastructure_gate"].get("exhausted") is True))
+
+
 def crash_stop(card):
     """Public eligibility only; the worker must authenticate the restored crash record."""
+    state = card.get("infrastructure_gate")
+    if isinstance(state, dict):
+        gate, error = state.get("gate"), state.get("error_type")
+        if (state.get("classification") == "invalid-infra" and type(state.get("exhausted")) is bool
+                and isinstance(gate, str) and re.fullmatch(r"G(?:[1-9]|1[013-7])", gate)
+                and isinstance(error, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", error)
+                and card.get("gates", {}).get(gate) == "invalid-infra"
+                and not card.get("failed_gate")):
+            return {"gate": gate, "error_type": error}
+        return None
     gate, detail = card.get("failed_gate"), card.get("failed_detail")
     if (not isinstance(gate, str) or not re.fullmatch(r"G(?:[1-9]|1[013-7])", gate) or
             not isinstance(detail, dict) or set(detail) != {"error"} or
@@ -34,6 +50,7 @@ REREVIEW_STOPS = (REREVIEW_STOP, 'stress_review_unresolved:interrupted_review',
 
 def rereview_stop(card):
     """Public eligibility only; the worker must verify the sealed attack binding/bound."""
+    if infrastructure_exhausted(card): return None
     return (card.get('terminal_stop') in REREVIEW_STOPS and card.get('status') == 'stopped'
             and not card.get('failed_gate') and not card.get('checkpoint_error')
             and 'fail' not in (card.get('gates') or {}).values())
@@ -58,6 +75,7 @@ def expiry_freshness_stop(card):
 
 def freshness_retry_stop(card):
     """Retry expiry or an incomplete review; completed unresolved verdicts need a ruling."""
+    if infrastructure_exhausted(card): return None
     if (card.get('status') != 'stopped' or card.get('failed_gate') or card.get('checkpoint_error')
             or 'fail' in (card.get('gates') or {}).values()): return False
     if expiry_freshness_stop(card): return True
@@ -75,6 +93,7 @@ def freshness_retry_stop(card):
 
 def gate_only_continuation(card):
     """Public eligibility; the importer/runner verifies the sealed stress evidence."""
+    if infrastructure_exhausted(card): return None
     marker = card.get('gate_continuation') or {}
     return (card.get('status') == 'stopped' and not card.get('failed_gate') and
             not card.get('checkpoint_error') and 'fail' not in (card.get('gates') or {}).values() and
@@ -94,6 +113,8 @@ def paused_rounds_exhausted(card):
 
 def raised_limits(card, limit, rounds, *, explicit_budget=False, explicit_rounds=False):
     """Only an explicit economic/round decision reopens an exhausted case."""
+    if infrastructure_exhausted(card):
+        raise ValueError("infrastructure retries exhausted; diagnosis required")
     paused = paused_rounds_exhausted(card)
     late = str(card.get('terminal_stop', '')).startswith('late_defect_needs_ruling:')
     if not late and not paused and card.get('terminal_stop') not in (*BUDGET_STOPS, *REREVIEW_STOPS):
@@ -146,6 +167,7 @@ def explicit_pause(card):
 
 
 def recoverable_crash(card):
+    if infrastructure_exhausted(card): return None
     crash = crash_stop(card)
     if crash and (card.get('terminal_stop') or '') in ('', 'runner_error:' + crash['error_type']):
         return crash
@@ -169,6 +191,8 @@ def limits_from_args(card, argv):
 
 def require_restart_stop(card, argv, *, admission=False):
     """Validate stop eligibility; exhausted pauses need an explicit round grant."""
+    if infrastructure_exhausted(card):
+        raise ValueError("infrastructure retries exhausted; diagnosis required")
     stop = card.get('terminal_stop') or ''
     _, raised = limits_from_args(card, argv)
     crash = recoverable_crash(card)
@@ -194,6 +218,8 @@ def require_holder_stop(card, argv, mode):
     from automatic Boat retry. An exceptional case stop needs its original
     bounded economic, crash or review evidence. Return whether it is a rereview.
     """
+    if infrastructure_exhausted(card):
+        raise ValueError("infrastructure retries exhausted; diagnosis required")
     if paused_rounds_exhausted(card):
         # Do not let the operational-stop shortcut reopen an exhausted pause.
         limits_from_args(card, argv)

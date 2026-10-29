@@ -30,6 +30,8 @@ def save(path, value):
 
 class LateGateTests(unittest.TestCase):
     def setUp(self):
+        from freshness_test_transport import start
+        start(self)
         self.fixture = fixtures.CaseBudgetTests('test_transient_review_resume_rereviews_same_round_without_raise')
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
@@ -262,27 +264,8 @@ class LateGateTests(unittest.TestCase):
         self.assertEqual(json.loads((folder/'results.json').read_text())[0]['try'],1)
 
 
-class FairnessOperationalTests(unittest.TestCase):
-    def test_nonzero_invalid_and_explicit_inconclusive_stop_then_bounded_retry(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp); case=root/'case'; case.mkdir(); (case/'promise.md').write_text('synthetic')
-            work=root/'work'; attempt=work/'strong_calibrator/try-1'; attempt.mkdir(parents=True)
-            save(work/'strong_calibrator/results.json',[{'try':1,'workspace':str(attempt)}])
-            c=SimpleNamespace(work=work,case=case,models={'builder':['writer'],'strong_calibrator':['solver'],'reviewers':[['reviewer']]})
-            for code,payload in ((1,{}),(0,{}),(0,{'inconclusive':True,'reason':'no fix'})):
-                def call(ctx,models,text,cwd,name):
-                    self.assertIn('"inconclusive":true',text)
-                    save(cwd/'verdict.json',payload); return code
-                r=SimpleNamespace(family=lambda x:x,jload=run.jload,time=run.time,model_call=call)
-                with self.assertRaises(ValueError): fairness.review_attempts(c,r,'G17','strong_calibrator')
-            c.card={'gates':{}}; c.args=SimpleNamespace(dry_run=False); c.audit_gates=['G17']
-            pipeline=run._gate_pipeline(); pipeline.evaluate=Mock(side_effect=ValueError('inconclusive'))
-            pipeline.publish=Mock(); pipeline.log=Mock(); pipeline.budget_boundary=Mock(); pipeline.after_gate=Mock()
-            pipeline.run(c)
-            self.assertEqual(pipeline.evaluate.call_count,2)
-            self.assertTrue(c.stopped)
-            self.assertEqual(c.card['terminal_stop'],'runner_error:ValueError')
-            self.assertEqual(recovery.recoverable_crash(c.card),{'gate':'G17','error_type':'ValueError'})
+# Operational fairness retry regressions now replay real saved attempts in
+# test_invalid_runs.py; the obsolete identical-review-twice test was removed.
 
 
 if __name__=='__main__': unittest.main()

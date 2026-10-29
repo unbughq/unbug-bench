@@ -26,11 +26,13 @@ MEASURE = ("factory/case_permissions.py", "bin/bench.py", "bin/bench_judging.py"
 STRATEGY = ("bin/strategy", "bin/strategy_resume.py", "bin/silent_window.py", "bin/exposure.py", "bin/live_shop.py",
             "bin/live_traffic.py", "bin/shoppers", "factory/calibration.py", "factory/registry.py")
 MODEL = ("factory/model_runtime.py", "factory/budget.py", "factory/token_prices.py", "factory/calibration.py", "factory/free_models.py", "factory/registry.py")
-DEPENDENCIES = {"G4": MEASURE, "G5": MEASURE, "G6": MEASURE + ("bin/verify-negative",),
+DEPENDENCIES = {"G4": MEASURE + ("bin/run_validity.py",), "G5": MEASURE + ("bin/run_validity.py",), "G6": MEASURE + ("bin/run_validity.py",) + ("bin/verify-negative",),
                 "G8": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),
                 "G9": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),
-                "G13": MEASURE + STRATEGY, "G14": MEASURE + STRATEGY, "G15": MEASURE + STRATEGY,
-                "G16": MEASURE + MODEL + ("factory/fairness.py", "factory/exam_responder.py",
+                "G13": MEASURE + STRATEGY + ("bin/run_validity.py",),
+                "G14": MEASURE + STRATEGY + ("bin/run_validity.py",),
+                "G15": MEASURE + STRATEGY + ("bin/run_validity.py",),
+                "G16": MEASURE + MODEL + ("bin/run_validity.py", "factory/independent_review.py", "factory/fairness.py", "factory/exam_responder.py",
                     "harbor/responder/**", "bin/run-exam", "bin/score-claims", "bin/land")}
 # fairness.py invokes these through its runner argument, rather than direct names.
 EXTRA_ROOTS = {"G16": ("make_pilots", "calibrate", "family", "model_call", "jload")}
@@ -112,7 +114,7 @@ def dependency_files(c, patterns, bench, *, include_pool=False):
 
 def judge_dependencies(c, bench, *, calibration=False):
     """Exact portable stress/calibration dependency inventory; no whole manifest."""
-    patterns = MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**", "factory/case_contract.py", "factory/gate_state.py", "factory/attack_findings.py")
+    patterns = MEASURE + STRATEGY + MODEL + ("bin/run_validity.py", "*.md", "harbor/**", "factory/case_contract.py", "factory/gate_state.py", "factory/attack_findings.py")
     roots = ("calibrate", "make_pilots", "calibration_identity") if calibration else (
         "attack_report", "stress_request", "opencode", "g1")
     result = {"version": VERSION, "runner": source_inputs(*roots),
@@ -212,8 +214,13 @@ def load(c, gate, bench):
         if gate == "G16" and record.get("calibration_identity") != calibration_binding(c):
             return None
         current = inputs(c, gate, bench)
-        if (record["signature"] != hashlib.sha256(json.dumps(current, sort_keys=True).encode()).hexdigest()
-                or record["inputs"] != json.loads(json.dumps(current)) or not record["evidence"]):
+        from calibration import compatible_panel
+        expected = json.loads(json.dumps(current))
+        matching = record['inputs'] == expected
+        if gate in ('G8', 'G9') and not matching:
+            matching = compatible_panel(record['inputs'], expected)
+        if (record["signature"] != hashlib.sha256(json.dumps(record['inputs'], sort_keys=True).encode()).hexdigest()
+                or not matching or not record["evidence"]):
             return None
         for e in record["evidence"]:
             relative = pathlib.PurePosixPath(e["path"])

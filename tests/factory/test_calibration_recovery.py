@@ -80,7 +80,7 @@ with tempfile.TemporaryDirectory() as tmp:
         if child == 0:
             def commit_then_kill(path, rows):
                 atomic_results(path, rows)
-                os.kill(os.getpid(), signal.SIGKILL)
+                if pathlib.Path(path).name == 'results.json': os.kill(os.getpid(), signal.SIGKILL)
             with mock.patch.object(calibration, "atomic_results", commit_then_kill): run.calibrate(c, "strong_calibrator")
             os._exit(1)
         _, status = os.waitpid(child, 0)
