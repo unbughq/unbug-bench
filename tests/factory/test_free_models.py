@@ -5,7 +5,6 @@ import sys
 from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
-import ast
 import copy
 import datetime
 import json
@@ -88,45 +87,8 @@ with tempfile.TemporaryDirectory() as tmp:
         card_path = root / 'case-fixture.scorecard.json'; card_path.write_text(json.dumps(card))
         flags = '--max-cost 5 --max-total-calls 2000 --max-role-calls 400'
         rejected(lambda: restart.plan(card_path, 0, 600, flags))
-        row['paused_generation'] = card['sha256']; save()
-        assert restart.plan(card_path, 0, 600, flags) == ('case-fixture', 60, 1)
-        rejected(lambda: restart.plan(card_path, 3, 600, flags))
-        rejected(lambda: restart.plan(card_path, 0, 600, flags.replace('2000', '2400')))
-        rejected(lambda: restart.plan(card_path, 0, 600, flags + ' --max-total-calls=2400'))
-        rejected(lambda: restart.plan(card_path, 0, 600, flags + ' --max-cost 50'))
         config['expires_utc'] = '2000-01-01T00:00:00Z'; save()
         rejected(lambda: free_models.selected('case-fixture', args))
-    # The deployment patch targets its historical source seams. Current run.py
-    # has since gained durable calibration receipts, so use an explicit legacy
-    # fixture rather than reverse-patching unrelated modern lifecycle code.
-    from free_model_patch import patch
-    previous = '''
-def pick_models(c):
-    families = [family(roles[r]['model']) for r in flags]
-def family(model):
-    if 'mimo' in model.lower(): return 'xiaomi'
-def opencode_config():
-    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, prefix=path.name, delete=False) as staged:
-        pass
-def opencode(c, model):
-    if model:
-        alt = FREE_FALLBACK.get(model)
-    env = {
-"OPENCODE_CONFIG": str(opencode_config()),
-    }
-def main():
-    kept.discard("G3")
-    if True:
-        for old in []:
-                finished = old.name in ('strong_calibrator', 'easy_calibrator') and isinstance(jload(old / 'results.json'), list)
-def g1(c):
-    return True, {"sentinel": "unchanged"}
-'''
-    def gates(source):
-        return {n.name: ast.dump(n) for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and __import__('re').fullmatch(r'g\d+', n.name)}
-    current = patch(previous)
-    assert current != previous and patch(current) == current
-    assert gates(previous) == gates(current)
     c = SimpleNamespace(card={'model_transition': {'kind': 'approved-paid-to-free'}})
     with mock.patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=run.BudgetError('provider_limit')) as call:
         try:
@@ -136,4 +98,4 @@ def g1(c):
         else:
             raise AssertionError('free model failure unexpectedly bypassed')
         assert call.call_count == 1 and not c.card.get('free_model_fallback')
-print('PASS bounded role changes, protected Claude/Codex/GLM, distinct families, exact caps, expired/refused pauses, unchanged retry cap and unchanged gate implementations; synthetic only')
+print('PASS bounded role changes, protected Claude/Codex/GLM, distinct families, exact caps, expired/refused pauses, explicit pause refusal; synthetic only')

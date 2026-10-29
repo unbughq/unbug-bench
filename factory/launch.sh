@@ -160,21 +160,11 @@ if (card.get('case') != sys.argv[3] or card.get('kind') != 'g11-independent-revi
         card.get('status') != 'stopped' or card.get('inputs_unchanged') is not True or h.hexdigest() != card.get('sha256')):
     sys.exit('no verified stopped review; no VM created')
 PYCODE
-    # Version-1 audit hashes were ambiguous: authenticate the original case as an
-    # independent baseline too, then compare it with the copies inside the VM.
-    legacy_review=$(python3 -c 'import json,sys; print("yes" if json.load(open(sys.argv[1])).get("digest_version",1)==1 else "no")' "$card")
-    if [ "$legacy_review" = yes ]; then
-      source_card=$root/sealed/$restore.scorecard.json
-      source_archive=$root/sealed/$restore.tar.gz.age
-      python3 - "$source_card" "$source_archive" "$restore" <<'PYCODE'
-import hashlib, json, sys
-card = json.load(open(sys.argv[1])); h = hashlib.sha256()
-with open(sys.argv[2], 'rb') as file:
-    for chunk in iter(lambda: file.read(1024 * 1024), b''): h.update(chunk)
-if card.get('case') != sys.argv[3] or card.get('failed_gate') != 'G11' or h.hexdigest() != card.get('sha256'):
-    sys.exit('no verified original G11 case; no VM created')
+    python3 - "$card" <<'PYCODE'
+import json, sys
+if json.load(open(sys.argv[1])).get('digest_version') != 2:
+    sys.exit('old audit digest generations are retired; no VM created')
 PYCODE
-    fi
   fi
   [ -f "$ckpt" ] && [ -f "$card" ] || { echo "no sealed archive or $card for $restore" >&2; exit 1; }
   # Freeze public metadata once; collection can publish a newer card while the
@@ -615,9 +605,6 @@ PYCODE
   if [ -n "$restore" ]; then
     args="$args --resume $(quote "$restore") --resume-bench-sha $(quote "$bench_sha")"
     restore_to='~/work'; restored_case='case'
-    if [ "$continue_review" = yes ] && [ "$legacy_review" = yes ]; then
-      printf '%s\n' "$identity" | age -d -i /dev/stdin "$source_archive" | BOAT_COMMAND_TIMEOUT_SECONDS=${BOAT_RESTORE_TIMEOUT_SECONDS:-1200} boat --stdin ssh "$id" "python3 -B ~/factory/case_permissions.py --extract-to ~/work --case-tree ~/work/$restore/case" >/dev/null
-    fi
     if [ "$continue_review" = yes ]; then restore_to="~/work/$restore"; restored_case='g11-audit/case'; fi
     # 2026-10-20: with an R2 copy and a per-case key, send only that small key; the VM downloads the ciphertext from R2,
     # checks it against the scorecard's sha256 and decrypts it. Otherwise stream the archive from this host as before.

@@ -1,4 +1,5 @@
 """Founder rulings shipped in the qualified source inventory."""
+# Scope of the existing host restaging grant; runtime rules do not branch on it.
 CASES = {'case-20261024T043353Z-e15450': 10, 'case-20261024T085209Z-873d7f': 9}
 CALL_CAP = 5000
 AUTHORITY = 'founder-2026-10-26'
@@ -26,9 +27,8 @@ def record(c):
     c.card['freshness_archive_ruling'] = dict(authority='founder-2026-10-28',
         decision='G2 archive check', unreachable='clear only after confirmed dead live URL and no Wayback snapshot',
         archived='review same bug and pinned version as live', unresolved='fail closed; resumable review')
-    if c.case_id not in CASES: return
-    if c.args.max_total_calls != CALL_CAP:
-        raise ValueError('D1 requires --max-total-calls 5000 before any model/calibration attempt')
-    c.card['call_cap_ruling'] = dict(authority=AUTHORITY, decision='D1', max_total_calls=CALL_CAP,
-        previous_max_total_calls=2000, case_budget_usd=70, original_round_limit=CASES[c.case_id],
-        reason='Whole-case call allowance raised; money caps and round limits unchanged')
+    if not 0 < c.args.max_total_calls <= CALL_CAP:
+        raise ValueError('D1 caps --max-total-calls at 5000 before any model/calibration attempt')
+    c.card['call_cap_ruling'] = dict(authority=AUTHORITY, decision='D1',
+        max_total_calls=c.args.max_total_calls,
+        reason='Whole-case call cap; money caps and round limits are independent')

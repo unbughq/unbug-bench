@@ -39,28 +39,6 @@ def rereview_stop(card):
             and 'fail' not in (card.get('gates') or {}).values())
 
 
-def legacy_freshness_coverage_gap(card):
-    """The one founder-verified generation whose reviewer saw only 1 of 10 requests."""
-    info = card.get('loop_freshness')
-    # This immutable checkpoint predates requested-URL coverage: its approved
-    # round-7 report requested ten URLs, but only one flagged row reached review.
-    # Pin the generation AND its legacy receipt, never infer retry eligibility
-    # merely from a verdict path or count. New reviewer-unresolved stops refuse.
-    return (card.get('case') == 'case-20261024T043353Z-e15450'
-                  and card.get('sha256') == '761f3e3433c8fbfae9395f5ffa0fe762c7d437eb1b0ee0259ebd0f7ee5cfa1cb'
-                  and info == {'rows': 1, 'verdict_path': 'g2-confirm-1792868467249884207/verdict.json',
-                               'outcome': 'unresolved'})
-
-
-def pinned_version_freshness_gap(card):
-    """Founder-identified canary whose SHA-valued request row discarded exclusions."""
-    return (card.get('case') == 'case-20261024T085209Z-873d7f'
-            and card.get('sha256') == 'cc975a034581edab8561072468512edec6437d3be8932e02882c2cb4b9cf97a8'
-            and card.get('loop_freshness') == {
-                'rows': 2, 'requested': 1, 'verdict_path': 'g2-confirm-1792916679897600904/verdict.json',
-                'outcome': 'unresolved', 'reason': 'reviewer_unresolved'})
-
-
 def expiry_freshness_stop(card):
     """Public eligibility; ensure_freshness authenticates unchanged statement and rows."""
     info, state = card.get('admission_freshness'), card.get('freshness_repair')
@@ -79,7 +57,7 @@ def expiry_freshness_stop(card):
 
 
 def freshness_retry_stop(card):
-    """Retry expiry, no-verdict stops and the two verified pre-fix generations."""
+    """Retry expiry or an incomplete review; completed unresolved verdicts need a ruling."""
     if (card.get('status') != 'stopped' or card.get('failed_gate') or card.get('checkpoint_error')
             or 'fail' in (card.get('gates') or {}).values()): return False
     if expiry_freshness_stop(card): return True
@@ -92,8 +70,7 @@ def freshness_retry_stop(card):
     info = card.get('loop_freshness')
     return (card.get('terminal_stop') == 'freshness_unresolved'
             and isinstance(info, dict) and info.get('outcome') == 'unresolved'
-            and (('verdict_path' in info and info['verdict_path'] is None)
-                 or legacy_freshness_coverage_gap(card) or pinned_version_freshness_gap(card)))
+            and 'verdict_path' in info and info['verdict_path'] is None)
 
 
 def gate_only_continuation(card):
@@ -191,7 +168,7 @@ def limits_from_args(card, argv):
 
 
 def require_restart_stop(card, argv, *, admission=False):
-    """Validate Boat stop eligibility; return whether an approved model cutover resumes a pause."""
+    """Validate stop eligibility; exhausted pauses need an explicit round grant."""
     stop = card.get('terminal_stop') or ''
     _, raised = limits_from_args(card, argv)
     crash = recoverable_crash(card)
@@ -199,12 +176,10 @@ def require_restart_stop(card, argv, *, admission=False):
             card.get('checkpoint_error') or not
             (admission or crash or raised or freshness_retry_stop(card) or RETRY.fullmatch(stop))):
         raise ValueError('stop needs a repair or budget decision')
-    from free_models import approved_pause
     raised_pause = paused_rounds_exhausted(card) and 'rounds_raised' in raised
-    model_cutover = stop == 'paused' and not raised_pause and approved_pause(card, argv)
-    if stop == 'paused' and not (model_cutover or raised_pause or gate_only_continuation(card)):
+    if stop == 'paused' and not (raised_pause or gate_only_continuation(card)):
         raise ValueError('an explicit pause requires a deliberate resume')
-    return model_cutover
+    return False
 
 
 HOLDER_STOPS = ('codex_login_expired', 'codex_cli_not_0.162.1', 'stalled', 'provider_limit', 'timeout', 'paused',
@@ -237,7 +212,7 @@ def require_holder_stop(card, argv, mode):
     return rereview
 
 
-def ledger_agrees(card, *, route, mode='case', model_cutover=False, rereview=False, pause_raised=False):
+def ledger_agrees(card, *, route, mode='case', rereview=False, pause_raised=False):
     """Interpret ledger/public labels without clearing or rewriting either record.
 
     Explicit repair, sealed audit and authenticated peer cancellation remain the
@@ -250,7 +225,7 @@ def ledger_agrees(card, *, route, mode='case', model_cutover=False, rereview=Fal
     if ledger in (None, 'complete', stop) or str(stop).startswith('runner_error:'):
         return True
     if route == 'restart':
-        return bool(((model_cutover or ((pause_raised or gate_only_continuation(card)) and stop == 'paused')) and ledger == 'PauseRequested') or
+        return bool(((pause_raised or gate_only_continuation(card)) and stop == 'paused' and ledger == 'PauseRequested') or
                     (rereview_stop(card) and RETRY.fullmatch(ledger or '')))
     return bool((mode == 'review' and stop == 'time_limit' and ledger == 'timeout') or
                 (stop in ('paused', 'ttl_retired') and ledger == 'PauseRequested') or

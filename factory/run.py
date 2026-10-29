@@ -267,7 +267,7 @@ def build(c):
     """Writer and stress tester rounds, then a search top-up for whichever role logged too few (G2)."""
     prev = jload(c.work / "scorecard.json", {}) if getattr(c.args, 'resume', None) else {}
     from founder_ruling import context as ruling_context
-    ruled_legacy = ruling_context(c)
+    ruling = ruling_context(c)
     # Resumed after a failure that was not the case's content (G2 search log, G3 bench build): keep the
     # written case, skip writer and stress tester; G2 gets its search top-up below.
     if prev.get("failed_gate") in ("G2", "G3"):
@@ -280,7 +280,7 @@ def build(c):
     # A complete saved case with an unresolved public match must reach G2 before
     # spending another author/stress-tester pass. G2 retains reviewer confirmation.
     freshness_first = (bool(getattr(c.args, 'resume', None)) and not c.args.dry_run
-                       and (ruled_legacy or any(row.get('hit') or row.get('ambiguous') for row in freshness_lines(c)))
+                       and (ruling or any(row.get('hit') or row.get('ambiguous') for row in freshness_lines(c)))
                        and not g1(c)[1]['problems'])
     if freshness_first:
         c.card['build_deferred'] = 'existing_public_match_requires_G2'
@@ -303,7 +303,7 @@ def build(c):
         if str(prev.get('terminal_stop', '')).startswith('late_defect_needs_ruling:'):
             from restore_ledger import read_object
             late = read_object(c.work / 'late-defect.json')
-            if not ruled_legacy or ruled_legacy['authorization']['record'].get('version') != 3:
+            if not ruling or ruling['authorization']['record'].get('version') != 3:
                 raise BudgetError(prev['terminal_stop'])
             attack_prev = {**attack_prev, 'failed_gate': late['gate'], 'failed_detail': late['detail']}
         write_and_attack(c, attack_prev)
@@ -842,7 +842,7 @@ def loop_freshness(c, result, report):
 def write_and_attack(c, prev):
     """Alternate within whole-case list-price budget and the safety round cap."""
     from founder_ruling import context as ruling_context, feedback_allowed
-    legacy_ruling = ruling_context(c)
+    ruling = ruling_context(c)
     if prev.get("rejected_candidates"):
         c.card.setdefault("rejected_candidates", prev["rejected_candidates"])
     if prev.get("candidate_attempts"):
@@ -888,21 +888,16 @@ def write_and_attack(c, prev):
             c.precheck_problems = ["minimal prototype failed; full construction withheld"]
             return reselect_candidate(c, prev)
     elif not c.args.dry_run:
-        # Legacy checkpoints are already expensive completed artifacts. Never rebuild them merely
-        # because they predate admission; all final gates and freshness checks still apply.
+        # Completed saved artifacts do not need another prototype; final gates and freshness still apply.
         c.card["admission"] = prev.get("admission", {"status": "legacy_completed_case"})
         if (c.case / "statement.md").is_file(): c.statement = (c.case / "statement.md").read_text()
     (c.work / "attacks").mkdir(exist_ok=True)
     report = problems = None
-    legacy_feedback = False
+    authorized_feedback = False
     if prev.get("failed_gate"):  # resumed after a failed gate: tell the writer what to repair
         problems = [f"previous run failed {prev['failed_gate']}: {json.dumps(prev.get('failed_detail'))}"]
         details = c.work / "gate-details" / f"{prev['failed_gate']}.json"  # sealed-side specifics, e.g. which keys
         if details.is_file(): problems.append(f"details: {details.read_text()[:8000]}")
-        elif prev["failed_gate"] in ("G8", "G9"):  # failed before G8.json existed: the moved-aside reviewer verdicts
-            part = "fairness" if prev["failed_gate"] == "G8" else "realism"
-            found = [(jload(v, {}).get(part) or {}).get("findings") for v in sorted(c.work.glob("previous-gate-runs-*/review-[0-9]/verdict.json"))[-len(c.models["reviewers"]):]]
-            if found: problems.append(f"details: {json.dumps({part + '_findings': found})[:8000]}")
     # Resumed after a stop that came once the stress tester had started on a valid case: the writing is
     # done, so round 1 starts with the stress tester instead of rewriting.
     skip_writer = (bool(getattr(c.args, 'resume', None)) and not prev.get("failed_gate")
@@ -926,7 +921,7 @@ def write_and_attack(c, prev):
             if type(saved_limit) is not int or saved_limit < 1:
                 raise ValueError("invalid round limit")
             raised = bool(getattr(c, 'limits_raised', {}))
-            round_limit = (legacy_ruling['authorization']['record']['allowances']['round_limit'] if legacy_ruling else
+            round_limit = (ruling['authorization']['record']['allowances']['round_limit'] if ruling else
                            max(round_limit, saved_limit + 1) if raised else min(round_limit, saved_limit))
             if raised and round_limit > c.args.rounds:
                 c.args.rounds = round_limit
@@ -963,15 +958,13 @@ def write_and_attack(c, prev):
                             and 'fail' not in (prev.get('gates') or {}).values()
                             and (bool(RETRY.fullmatch(resume_stop or '')) or freshness_retry_stop(prev)))
         binding_changed = sorted(k for k, v in attack_binding(c).items() if receipt['binding'][k] != v)
+        # Carried authority may finish its named pending repair within the granted cap.
         ruled_pending_writer = (receipt.get('final_repair') and receipt.get('stop_reason') == 'budget_exhausted' and
-            legacy_ruling and legacy_ruling['authorization']['record'].get('version') == 2 and
-            legacy_ruling['authorization']['record']['resume'].get('pending_writer') is True and
-            n == legacy_ruling['authorization']['record']['resume']['round'])
+            ruling and n < round_limit and
+            (ruling['authorization']['record'].get('resume') or {}).get('pending_writer') is True and
+            n == (ruling['authorization']['record'].get('resume') or {}).get('round'))
         final_resume = receipt.get("final_repair") and (raised or ruled_pending_writer)
-        ruled_final_resume = (receipt.get('final_repair') and not ruled_pending_writer and legacy_ruling and
-            legacy_ruling['authorization']['record'].get('version') == 2 and
-            n == legacy_ruling['authorization']['record']['resume']['round'] and n < round_limit)
-        if receipt.get("final_repair") and not (raised or ruled_final_resume or ruled_pending_writer):
+        if receipt.get("final_repair") and not (raised or ruled_pending_writer):
             if receipt.get('stop_reason') == 'budget_exhausted':
                 c.card['stress_review'] = {'status': 'unresolved', 'reason': 'budget_exhausted'}
                 raise BudgetError('budget_exhausted')
@@ -980,20 +973,9 @@ def write_and_attack(c, prev):
             attack_unresolved(c, "interrupted_repair")
         awaiting_stress = receipt.get('awaiting_stress') and receipt['binding'] == attack_binding(c)
         if final_resume: skip_writer = False
-        if ruled_final_resume:
-            # The retained report describes the pre-fix case. Validate the final
-            # fix, including saved cheats, before spending the newly granted round.
-            problems = g1(c)[1]['problems'] or (None if c.args.dry_run else early_checks(c))
-            skip_writer = not problems
-            c.card['resume_final_repair'] = {'saved_round': n, 'next_stress_round': start_round,
-                'early_checks_passed': not problems}
-            if skip_writer:
-                atomic_json(receipt_path, {'round': start_round, 'binding': attack_binding(c),
-                    'report': f'round-{start_round}.json', 'round_limit': round_limit, 'awaiting_stress': True,
-                    'release_rereviews': release_rereviews, 'release_review_attempts': release_review_attempts})
         if awaiting_stress:
             start_round, skip_writer = n, True
-        if not awaiting_stress and not ruled_final_resume and (not binding_changed or final_resume or transient_resume or legacy_ruling) and not prev.get("failed_gate") and n > 0:
+        if not awaiting_stress and (not binding_changed or final_resume or transient_resume or ruling) and not prev.get("failed_gate") and n > 0:
             saved_report = receipt.get('findings_report', receipt['report']) if final_resume else receipt['report']
             if saved_report is not None and (not isinstance(saved_report, str) or not re.fullmatch(r'round-\d+\.json', saved_report)):
                 attack_unresolved(c, 'invalid_recovery_receipt')
@@ -1017,10 +999,10 @@ def write_and_attack(c, prev):
                 attack_unresolved(c, "unfinished_validation")
             # The founder retains these findings as writer feedback only. They
             # cannot grant a stress pass under this release's judging binding.
-            legacy_feedback = (not pending_review and saved is not None and
+            authorized_feedback = (not pending_review and saved is not None and
                 not set(binding_changed) - {'source', 'bench', 'prompt', 'models'} and
                 feedback_allowed(c, receipt, report, findings))
-            if legacy_feedback:
+            if authorized_feedback:
                 binding_changed = []
             unusable = ('missing_or_malformed_report' if saved is None else
                         'interrupted_review' if pending_review else
@@ -1030,7 +1012,7 @@ def write_and_attack(c, prev):
             # The reservation changed the receipt binding before the call. Its
             # durable cause must survive a kill, even with no binding change now.
             previous_release_key = hashlib.sha256(json.dumps(receipt['binding'], sort_keys=True).encode()).hexdigest()
-            continued_release = bool(not legacy_feedback and release_review_attempts and
+            continued_release = bool(not authorized_feedback and release_review_attempts and
                 set(binding_changed) <= {'source', 'bench', 'prompt', 'models'} and
                 release_review_attempts[-1]['round'] == n and release_review_attempts[-1]['binding'] == previous_release_key and
                 (pending_review or not authenticated and (saved is None or not saved['complete'])))
@@ -1072,16 +1054,11 @@ def write_and_attack(c, prev):
             if saved["unfinished_validation"] and not any(
                     v.strip().lower() != "review incomplete" for v in saved["blocking"]):
                 attack_unresolved(c, "unfinished_validation")
-            retained_feedback = (saved, report)
             saved, report = loop_freshness(c, saved, report)
-            if legacy_feedback and legacy_ruling['authorization']['record']['feedback']['findings'] == 1:
-                # This ruling explicitly sends the single round-8 finding to
-                # the writer, after the independent freshness check clears.
-                saved, report = retained_feedback
             problems = [v for v in saved['blocking'] if v.strip().lower() != 'review incomplete'] or None
             if saved['unfinished_validation'] and not problems:
                 attack_unresolved(c, 'unfinished_validation')
-            if not problems and legacy_feedback:
+            if not problems and authorized_feedback:
                 # Clearing a freshness-only request removes writer work, not the
                 # need for a stress verdict under this release's binding.
                 start_round -= 1
@@ -2422,7 +2399,7 @@ def argument_parser():
         p.add_argument('--' + role + '-effort', default=None)
     p.add_argument("--max-cost", type=float, default=5.0, help="observed spend ceiling on priced (opencode) events; in-flight responses may overshoot")
     p.add_argument("--max-role-calls", type=int, default=400)  # founder, 2026-10-17: a MiMo writer hit 246 of 250
-    p.add_argument("--max-total-calls", type=int, default=1000)  # ~520 for a full case at 250/role; raised with the role cap
+    p.add_argument("--max-total-calls", type=int, default=5000)  # D1: whole-case ceiling; lower explicit caps stay lower
     p.add_argument("--resume", help="preserved case directory name; reruns all gates")
     p.add_argument("--resume-bench-sha", help="trusted clean-template bench fingerprint, required with --resume")
     p.add_argument("--agent-timeout", type=int, default=4 * 3600)
@@ -2481,6 +2458,10 @@ def main():
         p.error("rehearsal recipient is restricted to late-gate rehearsal")
     c.work = HOME / "work" / c.case_id
     c.case = c.work / "case"
+    if a.resume and not any(v == '--max-total-calls' or v.startswith('--max-total-calls=') for v in sys.argv[1:]):
+        saved = jload(c.work / ('g11-audit/scorecard.json' if a.continue_g11_review else 'scorecard.json'), {})
+        # Omission preserves the issued ceiling; a new default cannot raise a restored case's allowance.
+        a.max_total_calls = (saved.get('recovery_config') or saved.get('limits') or {}).get('max_total_calls', 1000)
     if a.resume and not a.continue_g11_review and not c.case.is_dir(): p.error("preserved case does not exist")
     if a.resume and bench_manifest() != a.resume_bench_sha: p.error("bench differs from trusted clean template; no model started")
     if a.resume:

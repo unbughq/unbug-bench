@@ -62,7 +62,8 @@ class ManifestTests(unittest.TestCase):
         # Independent upload expectation from the real release inventory, with
         # its two documentation files excluded and the two new modules included.
         expected_worker = {n for n in build['source_sha256'] if n.startswith('factory/')}
-        expected_worker -= {'factory/README.md', 'factory/IMPROVEMENTS.md'}
+        expected_worker -= {'factory/README.md', 'factory/IMPROVEMENTS.md',
+                            'factory/apply_free_model_cutover.py', 'factory/free_model_patch.py'}
         expected_worker |= {'factory/launch_manifest.py', 'factory/restore_sync.py'}
         self.assertEqual({n for n in manifest.worker_files(ROOT) if n.startswith('factory/')},
                          expected_worker)

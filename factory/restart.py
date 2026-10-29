@@ -10,7 +10,7 @@ import time
 
 # Compatibility for runner and existing tooling; recovery owns public decisions.
 from recovery import (RETRY, BUDGET_STOPS, REREVIEW_STOP, REREVIEW_STOPS, crash_stop,
-                      rereview_stop, freshness_retry_stop, legacy_freshness_coverage_gap, pinned_version_freshness_gap, raised_limits,
+                      rereview_stop, freshness_retry_stop, raised_limits,
                       require_restart_stop, ledger_agrees, paused_rounds_exhausted)
 
 
@@ -53,7 +53,7 @@ def plan(path, retries, remaining, args, *, claude_account_handoff=False, openco
                 not proof.get("worker") or not proof.get("snapshot_sha256")):
             raise ValueError("invalid admission handoff proof or selection bound")
     argv = shlex.split(args)
-    model_cutover = require_restart_stop(card, argv, admission=admission)
+    require_restart_stop(card, argv, admission=admission)
     if (not admission and not 0 <= retries < 3) or not math.isfinite(remaining):
         raise ValueError("three restart attempts exhausted or invalid deadline")
     def option(name, default):
@@ -69,12 +69,13 @@ def plan(path, retries, remaining, args, *, claude_account_handoff=False, openco
     cost, calls = budget.get("cost"), budget.get("calls")
     if (type(cost) not in (int, float) or not math.isfinite(cost) or cost < 0 or
             type(calls) is not int or calls < 0 or not isinstance(budget.get("events"), list) or
-            budget.get("active") or cost >= option("--max-cost", 5) or calls >= option("--max-total-calls", 1000)):
+            budget.get("active") or cost >= option("--max-cost", 5) or
+            calls >= option("--max-total-calls", (card.get('recovery_config') or {}).get('max_total_calls', 1000))):
         raise ValueError("missing, invalid or exhausted cumulative usage")
     from budget import require_case_budget, BudgetError
     try: require_case_budget(budget, option('--case-budget', 50))
     except BudgetError as error: raise ValueError('exhausted or unknown case list-price budget') from error
-    if not ledger_agrees(card, route='restart', model_cutover=model_cutover,
+    if not ledger_agrees(card, route='restart',
                          pause_raised=paused_rounds_exhausted(card)):
         raise ValueError("scorecard and cumulative ledger disagree")
     handoff = claude_account_handoff is True and stop.startswith("provider_limit:claude/") and bool(stop.removeprefix("provider_limit:claude/"))

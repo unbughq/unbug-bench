@@ -254,8 +254,7 @@ def attest_launch(job, generation, req):
     exact = lambda values: {name: (data.get('model'), data.get('effort')) for name, data in values.items()}
     if exact(card['roles']) != exact(job['roles']): raise ValueError('exact recovery role changed')
     if explicit_pause(card):
-        from free_models import approved_pause
-        if not approved_pause(card, job['args'][1:]): raise ValueError('explicit pause requires deliberate resume')
+        raise ValueError('explicit pause requires deliberate resume')
 
 
 def request(payload):
@@ -350,7 +349,7 @@ def collected_successor(job, generation, receipt, state):
     if (card.get('case') != job['case'] or card.get('sha256') != generation or type(calls) is not int or
             type(cost) not in (int, float) or not math.isfinite(cost) or cost < 0 or
             type(receipt.get('at')) not in (int, float) or not math.isfinite(receipt['at'])): return None
-    baseline = receipt if 'budget_calls' in receipt and 'budget_cost' in receipt else (job.get('legacy_generation_budgets') or {}).get(receipt.get('generation'), {})
+    baseline = receipt  # Missing original budget floors require explicit reconciliation.
     if type(baseline.get('budget_calls')) is not int or type(baseline.get('budget_cost')) not in (int, float): return None
     floors = [(baseline['budget_calls'], baseline['budget_cost'])]
     proof = None
@@ -421,8 +420,8 @@ def serve(policy_path, hours, identity_file=None):
     receipts_path = RUNTIME/'reservations.json'
     if receipts_path.is_symlink(): raise ValueError('unsafe reservation file')
     receipts = json.loads(receipts_path.read_text()) if receipts_path.exists() else []
-    # Launches the policy explains: listed generations, or any recorded before the policy was written (resolved_before).
-    def resolved(v): return v.get('generation') in policy.get('resolved_generations', {}) or v.get('at', 0) < policy.get('resolved_before', 0)
+    # Explicit reconciliation has a fixed cutoff; later receipts stay consumed.
+    def resolved(v): return v.get('at', 0) < policy.get('resolved_before', 0)
     job_case = {}
     jobs = {}; consumed = {(v['case'], v['generation']) for v in receipts if not resolved(v)}
     account_labels = None
@@ -571,7 +570,6 @@ def serve(policy_path, hours, identity_file=None):
                                 if proof:
                                     row.update(resolved_by_verified_generation=generation, resolved_worker_id=proof, resolved_at=time.time())
                                     save_receipts()
-                            # resolved_generations: earlier failed launches the policy explains and clears (2026-10-19), visible in the policy file.
                             if policy.get('retry_failed_launches') is not True and any(v['case'] == job['case'] and not v.get('completed_ok') and not v.get('resolved_by_verified_generation')
                                    and not resolved(v) for v in receipts):
                                 raise ValueError('previous recovery outcome requires reconciliation')

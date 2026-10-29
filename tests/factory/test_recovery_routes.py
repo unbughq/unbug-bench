@@ -78,9 +78,6 @@ def main():
         assert m.collected_successor(job,generation,{**old,'budget_cost':.3},state) is None
         legacy={k:v for k,v in old.items() if k not in ('budget_calls','budget_cost')}
         assert m.collected_successor(job,generation,legacy,state) is None
-        legacyjob={**job,'legacy_generation_budgets':{old['generation']:{'budget_calls':3,'budget_cost':.1}}}
-        assert m.collected_successor(legacyjob,generation,legacy,state)=='bx_synthetic'
-        assert m.collected_successor(legacyjob,generation,{**legacy,'generation':'unknown'},state) is None
         # Real age crypto on disposable synthetic identities. No real archive is decrypted.
         identity=root/'synthetic-identity';subprocess.run(['age-keygen','-o',str(identity)],check=True,capture_output=True)
         key=next(v for v in identity.read_bytes().splitlines() if v.startswith(b'AGE-SECRET-KEY-'))+b'\n'
@@ -153,18 +150,6 @@ def main():
             assert 'error' in m.request({'op':'launch','job':'fixture','opencode_account':1})
             assert 'error' in m.request({'op':'launch','job':'fixture','opencode_account':2}), 'legacy receipt without budget floor is unresolved'
             assert len(json.loads(receipts_path.read_text()))==1
-        finally:m.request({'op':'stop'});process.wait(timeout=5)
-        job['legacy_generation_budgets']={legacy['generation']:{'budget_calls':7,'budget_cost':.2}}
-        policyfile.write_text(json.dumps(policy))
-        process,status=start()
-        try:
-            assert 'error' in m.request({'op':'launch','job':'fixture','opencode_account':2}), 'collection proof is mandatory'
-            statepath.write_text(json.dumps(state))
-            assert m.request({'op':'launch','job':'fixture','opencode_account':2}).get('started');wait_job()
-            receipts=json.loads(receipts_path.read_text())
-            assert receipts[0]['generation']==legacy['generation'] and receipts[0]['completed_ok'] is False
-            assert receipts[0]['resolved_by_verified_generation']==generation and len(receipts)==2
-            assert 'error' in m.request({'op':'launch','job':'fixture','opencode_account':2}), 'successor generation still cannot replay'
         finally:m.request({'op':'stop'});process.wait(timeout=5)
     print('PASS exact recorded roles, peer cancellation, monotonic collection proof, private account metadata, explicit selection, missing-account refusal, replay refusal and original recovery ceiling; synthetic only')
 

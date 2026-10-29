@@ -49,6 +49,7 @@ def build(c):
         assert (c.args.rounds, c.args.pilot_tries, c.args.runs) == (8, 3, 10)
         assert c.args.case_budget == 50
         assert (c.args.max_cost, c.args.max_role_calls, c.args.max_total_calls) == (5, 400, 1000)
+        assert c.card['recovery_config']['max_total_calls'] == 1000
         assert c.args.no_progress_minutes == 45 and c.args.max_zero_tokens == 3
         assert c.args.concurrent_roles  # on by default since 2026-10-17
     if mode in ('budget', 'defaults'): raise run.BudgetError('cost_limit')

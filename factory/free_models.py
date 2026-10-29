@@ -70,22 +70,3 @@ def first_resume(case, previous, args):
     if not prior:
         return False  # an aborted run recorded no roles (2026-10-20): nothing was kept, so nothing to clear
     return prior != signature(row['after'])  # any change of roles reruns every gate
-
-
-def approved_pause(card, argv):
-    """Only a verified collected generation explicitly reserved for this cutover."""
-    from types import SimpleNamespace
-    opts = {}
-    for flag in ('--max-cost', '--max-total-calls', '--max-role-calls'):
-        value = None
-        for i, arg in enumerate(argv):
-            if arg == flag:
-                value = argv[i + 1]
-            elif arg.startswith(flag + '='):
-                value = arg.split('=', 1)[1]
-        if value is None:
-            return False
-        opts[flag[2:].replace('-', '_')] = float(value)
-    row = selected(card.get('case'), SimpleNamespace(**opts))
-    return bool(row and row.get('paused_generation') == card.get('sha256')
-                and signature(card.get('roles') or {}) == signature(row['before']))

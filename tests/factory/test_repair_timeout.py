@@ -52,9 +52,10 @@ class RepairTimeoutTests(unittest.TestCase):
             root = Path(temp); ledger = root / 'ledger.json'
             code = ''.join('print(' + repr(json.dumps(e)) + ', flush=True)\n' for e in events)
             code += 'import time; time.sleep(60)\n'
+            # Allow interpreter startup under concurrent suites before timing out the sleeping child.
             with self.assertRaisesRegex(budget.BudgetError, '^timeout$'):
                 budget.run_budgeted([sys.executable, '-c', code], root, os.environ.copy(),
-                    root / 'synthetic-stream', ledger, .15, driver=driver, configured_model=model,
+                    root / 'synthetic-stream', ledger, 1, driver=driver, configured_model=model,
                     role='writer', **kwargs)
             return json.loads(ledger.read_text())
 
