@@ -246,6 +246,44 @@ def atomic_results(path, rows):
     atomic_json(path, rows)
 
 
+def compatible_identity(prior, current):
+    """One pinned policy-only migration; unknown historical code is never trusted."""
+    if prior == current: return True
+    try:
+        policy = json.loads(pathlib.Path(__file__).with_name('invalid-runs-compat.json').read_text())
+        upgraded = copy.deepcopy(prior)
+        for section in ('runner', 'files'):
+            old, new = upgraded['bench'][section], current['bench'][section]
+            for name, target in policy['current_' + section].items():
+                if old.get(name) == new.get(name): continue
+                if old.get(name) != policy['base_' + section].get(name) or new.get(name) != target:
+                    return False
+                if target is None: old.pop(name, None)
+                else: old[name] = target
+        return upgraded == current
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def compatible_panel(prior, current):
+    """Preserve semantic G8/G9 panels across this pinned execution-only change."""
+    try:
+        policy = json.loads(pathlib.Path(__file__).with_name('invalid-runs-compat.json').read_text())
+        upgraded = copy.deepcopy(prior)
+        if (upgraded['cache'] != policy['base_files']['factory/gate_state.py']
+                or current['cache'] != policy['current_files']['factory/gate_state.py']): return False
+        upgraded['cache'] = current['cache']
+        for name, target in policy['current_files'].items():
+            if name not in current['bench']: continue
+            if upgraded['bench'].get(name) == current['bench'][name]: continue
+            if (upgraded['bench'].get(name) != policy['base_files'].get(name)
+                    or current['bench'][name] != target): return False
+            upgraded['bench'][name] = target
+        return upgraded == current
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 def completed_attempts(path, identity, work):
     """Keep only a verified contiguous prefix. Legacy/invalid evidence is quarantined."""
     path = pathlib.Path(path)
@@ -254,12 +292,12 @@ def completed_attempts(path, identity, work):
         rows = json.loads(path.read_text())
         if not isinstance(rows, list): raise ValueError("invalid calibration receipt")
     except (OSError, ValueError): rows = None
-    kept = []
+    from run_validity import InvalidInfra
+    kept, interrupted = [], False
     for row in rows or []:
         try:
-            if not isinstance(row, dict) or row.get("identity") != identity or type(row.get("try")) is not int or row["try"] != len(kept) + 1:
+            if not isinstance(row, dict) or not compatible_identity(row.get("identity"), identity) or type(row.get("try")) is not int:
                 break
-            attempt_summary([row])
             artifacts = row["artifacts"]
             ws = pathlib.Path(row["workspace"])
             ws.resolve().relative_to(pathlib.Path(work).resolve())
@@ -270,11 +308,24 @@ def completed_attempts(path, identity, work):
             if type(row.get("guard_submitted")) is not bool or submitted != row["guard_submitted"]: break
             if submitted and row.get("guard") != str(guard): break
             if row["solved"] and not submitted: break
+            try: attempt_summary([row])
+            except InvalidInfra: interrupted = True
+            if interrupted:
+                # Retain the submitted fix to repair execution without buying a
+                # replacement solver. The scientific suffix is quarantined below.
+                atomic_results(path.parent / f"pending-{row['try']}.json", {
+                    'try': row['try'], 'identity': identity, 'workspace': str(ws),
+                    'artifacts': {k: v for k, v in artifacts.items() if k != 'execution.json'},
+                    'capped': {'time_limit': 'timeout', 'call_limit': 'call_limit'}.get(row.get('stop_reason'))})
+                continue
+            if row['try'] != len(kept) + 1: break
         except (OSError, ValueError, KeyError, TypeError): break
-        kept.append(row)
+        kept.append({**row, 'identity': identity})
     if rows is None or len(kept) != len(rows):
         path.rename(path.with_name(f"results-unverified-{time.time_ns()}.json"))
         if kept: atomic_results(path, kept)
+    elif kept != rows:
+        atomic_results(path, kept)
     return kept
 
 
@@ -319,7 +370,26 @@ class AttemptSeries:
         attempt_summary(pending)
         atomic_results(self.path, pending)
         self.rows = pending
+        self.pending_path(row['try']).unlink(missing_ok=True)
         return self.summary()
+
+    def pending_path(self, number):
+        return self.path.parent / f'pending-{number}.json'
+
+    def save_pending(self, number, workspace, capped):
+        atomic_results(self.pending_path(number), {'try': number, 'identity': self.identity,
+            'workspace': str(workspace), 'artifacts': {k: v for k, v in tree_digest(workspace).items() if k != 'execution.json'}, 'capped': capped})
+
+    def pending(self, number):
+        path = self.pending_path(number)
+        if not path.exists(): return None
+        row = json.loads(path.read_text())
+        workspace = self.path.parent / f'try-{number}'
+        if (row.get('identity') != self.identity or row.get('try') != number
+                or row.get('workspace') != str(workspace) or row.get('artifacts') != {k: v for k, v in tree_digest(workspace).items() if k != 'execution.json'}):
+            path.rename(path.with_name(path.stem + '-unverified-' + str(time.time_ns()) + '.json'))
+            return None
+        return workspace, row.get('capped')
 
     def summary(self):
         return {"model": self.model, **attempt_summary(self.rows)}
@@ -327,8 +397,6 @@ class AttemptSeries:
     def finish(self):
         if len(self.rows) != self.tries:
             raise ValueError("calibration attempts are incomplete")
-        if self.rows and all(row.get("bench_crash") for row in self.rows):
-            raise RuntimeError("bench crashed on every calibrator guard")
         summary = self.summary()
         if self.kept: summary["kept"] = True
         return summary, [pathlib.Path(row["guard"]) for row in self.rows if row["solved"]]
@@ -354,6 +422,13 @@ NO_FIX = {"no guard written": "unrecorded", "no guard written (timeout)": "time_
           "no guard written (call_limit)": "call_limit"}
 
 
+def require_summary_valid(summary):
+    """Legacy public diagnostics can disprove validity; absent raw evidence cannot prove it."""
+    from run_validity import require_valid
+    require_valid({'runs': summary.get('tries'), 'error_runs':
+        summary.get('diagnostics', {}).get('outcomes', {}).get('run_error', 0)})
+
+
 def attempt_summary(rows):
     """Only allowlisted labels and integer counts may leave the sealed side.
 
@@ -366,6 +441,9 @@ def attempt_summary(rows):
     stops = dict.fromkeys(STOP_REASONS, 0)
     outcomes = dict.fromkeys(OUTCOMES, 0)
     for row in rows:
+        from run_validity import require_valid
+        require_valid({'runs': 1, 'error_runs': row.get('errors', 0),
+                       'invalid_runs': int(bool(row.get('bench_crash')))})
         why = row.get("why")
         legacy_no_fix = isinstance(why, str) and why in NO_FIX
         stop = row.get("stop_reason")

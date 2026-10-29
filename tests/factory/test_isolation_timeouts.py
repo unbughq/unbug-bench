@@ -19,7 +19,7 @@ import types
 import unittest
 import urllib.error
 import urllib.request
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -213,7 +213,8 @@ with open(os.environ['TEST_DOCKER_CALLS'],'a') as f:
 
     def test_gate_deadline_is_operational_and_does_not_send_writer_feedback(self):
         c = types.SimpleNamespace(args=run.argument_parser().parse_args(worker_args()),
-                                  work=self.home, card=LOAD('scorecard.json'), audit_gates=['G13'])
+                                  work=self.home, case=self.home / 'case', card=LOAD('scorecard.json'), audit_gates=['G13'])
+        c.case.mkdir()
         c.args.agent_timeout = .1  # fault injection inside the real saved launch envelope
         c.card['gates'] = {}
         c.case_id = LOAD('scorecard.json')['case']
@@ -222,12 +223,15 @@ with open(os.environ['TEST_DOCKER_CALLS'],'a') as f:
             processes.run([sys.executable, '-c', 'import time; time.sleep(60)'])
         pipeline.evaluate = hang
         pipeline.budget_boundary = lambda c: None
-        pipeline.after_gate = lambda *a: None
+        pipeline.after_gate = Mock()
         pipeline.publish = lambda *a: None
         pipeline.run(c)
         self.assertTrue(c.stopped)
-        self.assertEqual(c.card['terminal_stop'], 'runner_error:TimeoutExpired')
-        self.assertEqual(c.card['failed_detail'], {'error': 'TimeoutExpired'})
+        self.assertEqual(c.card['terminal_stop'], 'infrastructure_exhausted')
+        self.assertEqual(c.card['gates']['G13'], 'invalid-infra')
+        self.assertNotIn('failed_gate', c.card)
+        self.assertNotIn('failed_detail', c.card)
+        pipeline.after_gate.assert_not_called()
 
 
 class SupervisorTests(unittest.TestCase):

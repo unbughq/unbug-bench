@@ -103,7 +103,7 @@ sys.exit(subprocess.run(['/bin/sh','-c',command],env=env).returncode)
         host = self.root / 'host'
         (host / 'factory').mkdir(parents=True)
         (host / 'bin').mkdir()
-        for name in ('collect.sh', 'transfer.py'):
+        for name in ('collect.sh', 'collection.py', 'transfer.py'):
             shutil.copy((Path(__file__).resolve().parents[2] / "factory" / name), host / 'factory' / name)
         boat = host / 'bin/boat-call'
         boat.write_text("#!/usr/bin/env python3\nimport os,subprocess,sys\n"

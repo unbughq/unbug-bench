@@ -1,5 +1,6 @@
 """Run the founder diagnosis on synthetic tar streams; no real keys or network."""
 import contextlib
+import datetime
 import hashlib
 import io
 import json
@@ -50,6 +51,19 @@ class DiagnosisTests(unittest.TestCase):
                     'case/freshness.jsonl':'\n'.join(map(json.dumps, rows)),
                     review+'/verdict.json':json.dumps({'hits':answers}),
                     review+'/review-completed.json':'{}', '.casekey':'fixture-key-material-omitted'}
+                if short == '873d7f':
+                    receipts = []
+                    for index, row in enumerate(rows):
+                        body = 'public response for a synthetic transport fixture'
+                        name = str(index) + '.body'
+                        files[review+'/retrieval/'+name] = body
+                        receipts.append({'url':row['url'], 'at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            'retrieved_from':'live', 'live_failure':None, 'archive_available':None,
+                            'archive_snapshot_url':None, 'responses':[{'url':row['url'], 'final_url':row['url'],
+                                'status':200, 'body':name, 'sha256':hashlib.sha256(body.encode()).hexdigest()}]})
+                    files[review+'/retrieval/receipts.json'] = json.dumps(receipts)
+                    files[review+'/review-completed.json'] = json.dumps({'binding':{'confirmation_contract':2},
+                        'retrieval_sha256':hashlib.sha256(json.dumps(receipts,sort_keys=True).encode()).hexdigest()})
                 for name in ('case.json', 'statement.md', 'freshness.jsonl'):
                     files[review+'/case/'+name] = files['case/'+name]
                 archive = bundle/'sealed'/(case+'.checkpoint.tar.gz.age')
@@ -72,10 +86,11 @@ class DiagnosisTests(unittest.TestCase):
                 with contextlib.redirect_stderr(io.StringIO()): self.assertEqual(main(), 1)
                 self.assertEqual(prompt.call_count, 1)
             text = (output/'summary.md').read_text()
-            self.assertEqual(text.count('Unresolved rows: 2'), 2)
+            self.assertEqual(text.count('Unresolved rows: 2'), 1)
+            self.assertEqual(text.count('Unresolved rows: 3'), 1)
             self.assertIn('synthetic query 1', text)
             self.assertIn('synthetic query 2', text)
-            self.assertNotIn('synthetic query 0', text)
+            self.assertIn('synthetic query 0', text)  # assertion-only legacy retrieval is now unresolved
             self.assertIn('Synthetic reservation race', text)
             self.assertIn('2.19.0', text)
             self.assertNotIn('synthetic archive timeout', stdout.getvalue())

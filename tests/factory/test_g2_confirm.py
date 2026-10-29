@@ -11,6 +11,9 @@ sys.path.insert(0, str((pathlib.Path(__file__).resolve().parents[2] / "factory")
 os.environ.setdefault("BENCH", str(pathlib.Path(__file__).resolve().parents[2]))
 import run
 from unittest.mock import patch
+import freshness_retrieval
+from freshness_test_transport import fetched
+patch.object(freshness_retrieval, 'fetch', side_effect=fetched).start()
 
 with tempfile.TemporaryDirectory() as t:
     t = pathlib.Path(t); (t / "case").mkdir(); (t / "work").mkdir()

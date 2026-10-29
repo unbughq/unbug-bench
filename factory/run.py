@@ -419,7 +419,9 @@ def freshness_topup(c, *, reverify_timeout=None):
         n = freshness_counts(c)
         errors = [{"row": i + 1, "reason": reason} for i, row in enumerate(freshness_lines(c))
                   if (row.get("who") == who or who == "builder" and row.get("who") not in ("builder", "attacker"))
-                  and (reason := search_evidence_error(row)) is not None]
+                  and (reason := ('runner_retrieval_unavailable: append an alternative result as a NEW row'
+                                  if row.get('url') in getattr(c, 'freshness_unfetched', set())
+                                  else search_evidence_error(row))) is not None]
         need = (f"at least {max(0, 3 - n['builder_web'])} more web and {max(0, 3 - n['builder_github'])} more GitHub"
                 if who == "builder" else f"at least {max(0, 2 - n['attacker'])} more web or GitHub")
         short = bool(errors) or (n["builder_web"] < 3 or n["builder_github"] < 3 if who == "builder" else n["attacker"] < 2)
@@ -1308,20 +1310,38 @@ def checkpoint(c, scenarios, guard, runs, seed, label, slot=None, *, timeout=Non
         env = factory_pool.worker_env(slot)
     elif getattr(c.args, "bench_workers", 1) > 1:
         args += ["--factory-workers", c.args.bench_workers]
-    p = sh(c, args + ["--guard", guard, "--runs", runs, "--stress", "--seed", seed, "--label", label], capture=True, env=env, **({"timeout": timeout} if timeout is not None else {}))
     from checkpoint_evidence import read_completed
-    summary, records, _ = read_completed(p, runs, label)
-    return summary, records
+    from run_validity import retry
+    identity = {"operation": "checkpoint", "case": case_hash(c), "guard": tree_digest(guard),
+                "scenarios": [tree_digest(s) for s in scenarios], "runs": runs, "seed": seed,
+                "slot": slot, "label": label, "bench": getattr(c, 'manifest0', None),
+                "workers": getattr(c.args, 'bench_workers', 1)}
+    deadline = time.monotonic() + timeout if timeout is not None else None
+    def invoke():
+        case_budget_boundary(c)
+        remaining = deadline - time.monotonic() if deadline is not None else None
+        if remaining is not None and remaining <= 0: raise TimeoutError('checkpoint allowance exhausted')
+        p = sh(c, args + ["--guard", guard, "--runs", runs, "--stress", "--seed", seed, "--label", label], capture=True, env=env, **({"timeout": remaining} if remaining is not None else {}))
+        summary, records, _ = read_completed(p, runs, label, require_valid=True)
+        return summary, records
+    return retry(c.work / "infra-attempts.json", identity, invoke, interruption=BudgetError)
 
 
 def verdicts(c, records):
     """Per run: clean (no errors, valid), broken (the case's promise broke), solved (promise held
     and every judge check, i.e. every legitimate-business check, passed)."""
+    from run_validity import require_valid
+    require_valid(records=records)
     meta = jload(c.case / "case.json", {})
     paths, checks = meta.get("promise_paths") or [], meta.get("promise_checks") or []
     out = []
     for r in records:
         j = r.get("judge") or {}
+        if not set(paths) <= j.get('paths', {}).keys() or not set(checks) <= j.get('checks', {}).keys():
+            from case_contract import CaseProblem
+            missing = {'paths': sorted(set(paths) - j.get('paths', {}).keys()),
+                       'checks': sorted(set(checks) - j.get('checks', {}).keys())}
+            raise CaseProblem('case.json promises observations absent from the completed judge: ' + json.dumps(missing))
         clean = not r.get("errors") and (r.get("checker") or {}).get("valid") and not j.get("invalid")
         violated = any((j.get("paths") or {}).get(p) for p in paths)
         broken = violated or any(not (j.get("checks") or {}).get(k) for k in checks)
@@ -1365,8 +1385,6 @@ def cheat_runs(c, seed, tag, *, guards=None, runs=None, deadline=None, failures=
         _, recs = checkpoint(c, [c.case / "base"], g, c.args.runs if runs is None else runs,
                              seed, f"{tag}-cheat", **options)
         values = verdicts(c, recs)
-        if deadline is not None and (not values or not all(v['clean'] for v in values)):
-            raise RuntimeError("saved-cheat validation has no clean verdict")
         solved = any(v["solved"] for v in values)
         passed += solved
         if solved and failures is not None: failures.append(str(g))
@@ -1375,15 +1393,18 @@ def cheat_runs(c, seed, tag, *, guards=None, runs=None, deadline=None, failures=
 
 def early_cheat_check(c):
     """One run per retained case cheat; no models, retries, or full-G6 receipt."""
+    from case_contract import CaseProblem
     guards = sorted(p for p in (c.case / "guards/cheats").glob("*") if p.is_dir())
     if not guards: return None
     reopened = []
     try:
         passed, total = cheat_runs(c, c.seed, "early-g6", guards=guards, runs=1,
             deadline=time.monotonic() + 1800, failures=reopened)
+    except CaseProblem as error:
+        return [str(error)]
     except (RuntimeError, TimeoutError, subprocess.TimeoutExpired) as error:
         _gate_pipeline().record_crash(c, "saved-cheats", error)
-        attack_unresolved(c, "unfinished_saved_cheats")
+        raise
     c.card.setdefault('early_gates', {})['saved_cheats'] = {'ok': passed == 0, 'checked': total, 'runs_each': 1}
     # Private feedback only. This sample must never populate c.early['G6'] or its cache.
     return ["Retained cheat passed after repair: " + name for name in reopened] or None
@@ -1396,8 +1417,11 @@ def g1(c):
     if getattr(c, "precheck_problems", None): return False, {"problems": c.precheck_problems}
     full = not c.args.dry_run
     contract = CaseContract(BENCH, lambda *a, **kw: sh(c, *a, **kw), bench_manifest)
-    problems, counts = contract.inspect(c.case, full=full, source=getattr(c.args, "source", None),
-        statement=getattr(c, "statement", None), manifest_expected=c.manifest0)
+    from run_validity import retry
+    problems, counts = retry(c.work / "infra-attempts.json",
+        {"operation": "contract", "case": case_hash(c), "full": full},
+        lambda: contract.inspect(c.case, full=full, source=getattr(c.args, "source", None),
+            statement=getattr(c, "statement", None), manifest_expected=c.manifest0), interruption=BudgetError)
     if counts is None: return False, {"problems": problems}
     log(c, "G1 problems", json.dumps(problems))
     c.card["counts"] = counts
@@ -1564,7 +1588,9 @@ def g14(c):
     seen = set()
     import claims
     def clean(summary):
-        return summary.get('runs', 0) > 0 and not summary.get('error_runs') and not summary.get('invalid_runs')
+        from run_validity import require_valid
+        require_valid(summary)
+        return True
     def check(summary, name, want):
         result = summary.get('checks', {}).get(name, {})
         return clean(summary) and result.get('runs', 0) == summary['runs'] and result.get('ok_runs') == (result['runs'] if want else 0)
@@ -1648,7 +1674,8 @@ def freshness_lines(c):
 
 def freshness_counts(c):
     from admission import search_evidence
-    evidence = {key for row in freshness_lines(c) if (key := search_evidence(row)) is not None}
+    evidence = {key for row in freshness_lines(c) if row.get('url') not in getattr(c, 'freshness_unfetched', set())
+                and (key := search_evidence(row)) is not None}
     n = lambda who, kind=None: sum(1 for w, k, q in evidence if w == who and (kind is None or k == kind))
     return {"builder_web": n("builder", "web"), "builder_github": n("builder", "github"), "attacker": n("attacker")}
 
@@ -1662,10 +1689,42 @@ def g2(c):
     if rejected is not None and rejected[0] == binding:
         return False, {**rejected[1], "reused_freshness_rejection": True}
     receipt = jload(c.work / "public-search.json", {})
-    cached = reusable_search(receipt, binding)
+    from freshness_retrieval import retrieve, load as load_retrieval, digest as retrieval_digest
+    from run_validity import InvalidInfra, retry
+    from admission import search_evidence_error
+    retrieval_sha256 = None
+    c.freshness_unfetched = set()
+    if lines and all(search_evidence_error(row) is None for row in lines):
+        directory = c.work / ('search-retrieval-' + hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest())
+        fetched = []
+        for index, row in enumerate(lines):
+            target = directory / str(index)
+            def obtain():
+                try: return load_retrieval(target, [row])
+                except RuntimeError: return retrieve([row], target)
+            if row.get('hit') is True or row.get('ambiguous') is True:
+                result = retry(c.work / 'infra-attempts.json',
+                    {'operation': 'search-retrieval', 'binding': binding, 'row': index},
+                    obtain, interruption=BudgetError)
+            else:
+                try: result = obtain()
+                except InvalidInfra:
+                    # An unflagged inaccessible result supplies no evidence. Keep
+                    # its history, exclude it from minima and allow topup to append
+                    # alternatives; it cannot establish a public match or clearance.
+                    c.freshness_unfetched.add(row['url'])
+                    result = []
+            if any(receipt['retrieved_from'] == 'none' for receipt in result):
+                c.freshness_unfetched.add(row['url'])
+            fetched.extend(result)
+        counted = freshness_counts(c)
+        retrieval_sha256 = retrieval_digest(fetched)
+    cached = (reusable_search(receipt, binding) if retrieval_sha256 is not None
+              and receipt.get('retrieval_sha256') == retrieval_sha256
+              and not any(row.get('hit') or row.get('ambiguous') for row in lines) else None)
     # Never reuse a verdict after any retrieval expires, even if its receipt has time left.
     from admission import search_evidence
-    if cached is not None and all(search_evidence(row) is not None for row in lines):
+    if cached is not None and not c.freshness_unfetched and all(search_evidence(row) is not None for row in lines):
         if hasattr(c, "card"):
             c.card["public_search"] = {k: receipt[k] for k in ("binding", "checked_at", "expires_at")}
         return cached
@@ -1683,14 +1742,18 @@ def g2(c):
     ok = not invalid and counted["builder_web"] >= 3 and counted["builder_github"] >= 3 and counted["attacker"] >= 2 and not confirmed
     other = sorted({f"{x.get('who')}/{x.get('kind')}" for x in lines} - {"builder/web", "builder/github", "attacker/web", "attacker/github"})
     info = {"searches": len(lines), "hits": len(confirmed), "flagged_hits": len(flagged), "counted": counted, "invalid_evidence": invalid, "uncounted_who_kind": other[:10]}
-    info.update(invalid_evidence_reasons=reasons, confirmed_hits=c.freshness_confirmed_hits,
+    info.update(unfetched_searches=sum(row.get('url') in c.freshness_unfetched for row in lines), invalid_evidence_reasons=reasons, confirmed_hits=c.freshness_confirmed_hits,
                 **c.freshness_review_summary,
                 unresolved_hits=len(confirmed) - c.freshness_confirmed_hits,
                 outcome='clear' if ok else 'evidence_incomplete' if invalid else 'public_match' if c.freshness_confirmed_hits else
                         'review_unresolved' if confirmed else 'evidence_incomplete')
+    # This adapter also serves evidence repair. The gate boundary consumes the
+    # execution classification before it can publish a scientific rejection.
+    if not ok and not c.freshness_confirmed_hits:
+        info['classification'] = 'invalid-infra'
     # Unresolved/malformed evidence must be retried, rather than becoming a reusable rejection.
     if ok:
-        receipt = search_receipt(binding, ok, info)
+        receipt = {**search_receipt(binding, ok, info), 'retrieval_sha256': retrieval_sha256}
         (c.work / "public-search.json").write_text(json.dumps(receipt))
         if hasattr(c, "card"):
             c.card["public_search"] = {k: receipt[k] for k in ("binding", "checked_at", "expires_at")}
@@ -1711,17 +1774,25 @@ def confirm_hits(c, flagged, *, retained_path=None):
     c.freshness_confirmed_hits = 0
     c.freshness_verdict_path = None
     c.freshness_review_reason = 'reviewer_unresolved'
+    c.freshness_retrieval = []
     if family(c.models["reviewers"][0][0]) in {family(c.models[k][0]) for k in ("builder", "attacker") if k in c.models}:
         c.freshness_review_reason = 'same_family_reviewer'
         return flagged
     from admission import search_binding, search_evidence
     from registry import atomic_json
-    binding = {**search_binding(c, flagged), 'confirmation_contract': 1}
+    binding = {**search_binding(c, flagged), 'confirmation_contract': 2}
     receipt_path = c.work / 'freshness-verdict.json'
     receipt = jload(receipt_path, {})
     if (isinstance(receipt, dict) and receipt.get('binding') == binding
             and isinstance(receipt.get('verdict_path'), str)
             and all(search_evidence(row) is not None for row in flagged)):
+        try:
+            from freshness_retrieval import load, digest
+            retained = load(c.work / pathlib.Path(receipt['verdict_path']).parent / 'retrieval', flagged)
+            if digest(retained) != receipt.get('retrieval_sha256'): raise ValueError('changed retrieval')
+            c.freshness_retrieval = retained
+        except (OSError, ValueError, RuntimeError):
+            c.freshness_retrieval = []
         blocked = checked_freshness_verdict(c, flagged, receipt.get('hits'))
         if len(blocked) == c.freshness_confirmed_hits:
             c.freshness_verdict_path = receipt['verdict_path']
@@ -1733,23 +1804,37 @@ def confirm_hits(c, flagged, *, retained_path=None):
     if isinstance(retained_path, str) and re.fullmatch(r'g2-confirm-[0-9]+/verdict.json', retained_path):
         out = c.work / retained_path
         snapshot = copy.copy(c); snapshot.case = out.parent / 'case'
-        if (jload(out.parent / 'review-completed.json', {}) == {'binding': binding} and
+        if (jload(out.parent / 'review-completed.json', {}).get('binding') == binding and
                 snapshot.case.is_dir() and case_hash(snapshot) == case_hash(c) and
                 search_binding(snapshot, freshness_lines(snapshot)) == search_binding(c, freshness_lines(c)) and
                 all(search_evidence(row) is not None for row in freshness_lines(c)) and out.is_file() and
                 0 <= time.time() - out.stat().st_mtime < 24 * 3600):
             verdict = jload(out, {})
             verdict = verdict.get('hits') if isinstance(verdict, dict) else None
+            try:
+                from freshness_retrieval import load, digest
+                c.freshness_retrieval = load(out.parent / 'retrieval', flagged)
+                if jload(out.parent / 'review-completed.json', {}).get('retrieval_sha256') != digest(c.freshness_retrieval):
+                    c.freshness_retrieval = []
+            except RuntimeError:
+                c.freshness_retrieval = []
             blocked = checked_freshness_verdict(c, flagged, verdict)
             if len(blocked) == c.freshness_confirmed_hits:
                 c.freshness_verdict_path = retained_path
                 atomic_json(receipt_path, {'binding': binding, 'hits': verdict, 'verdict_path': retained_path,
-                                           'review_summary': c.freshness_review_summary})
+                                           'review_summary': c.freshness_review_summary,
+                                           'retrieval_sha256': __import__('freshness_retrieval').digest(c.freshness_retrieval)})
                 return blocked
             c.freshness_confirmed_hits = 0
     d = c.work / f"g2-confirm-{time.time_ns()}"; d.mkdir(parents=True)
     shutil.copytree(c.case, d / "case")  # a copy: the reviewer cannot change the case
     out = d / "verdict.json"
+    from freshness_retrieval import retrieve, load, digest
+    from run_validity import retry
+    c.freshness_retrieval = retry(c.work / 'infra-attempts.json',
+        {"operation": "freshness-retrieval", "binding": binding},
+        lambda: retrieve(flagged, d / 'retrieval'), interruption=BudgetError)
+    retrieval_sha256 = digest(c.freshness_retrieval)
     rows = [{k: x.get(k) for k in ("who", "kind", "query", "url", "note", "app_version", "version_scope")} for x in flagged]
     text = (f"Freshness confirmation only; change nothing. Read `statement.md` and any existing `disclosure.md`, `provenance.json` and `promise.md` in "
             f"{d / 'case'} to learn the case's bug and the app version it is pinned to. Independent review was requested for "
@@ -1777,6 +1862,9 @@ def confirm_hits(c, flagged, *, retained_path=None):
             f"\"archive_available\": true | false | null, \"archive_snapshot_url\": \"https://web.archive.org/web/...\" | null, "
             f"\"live_failure\": \"http_404\" | \"http_410\" | \"dns_failure\" | \"deleted\" | null, "
             f"\"why\": \"one sentence\"}}]}} with one row per supplied result, in the order given.")
+    text += ("\nRunner-owned retrieval receipts and exact response bytes are in ./retrieval/. "
+             "Read those bytes for each supplied URL. Your retrieval/archive fields must agree with "
+             "receipts.json; a claimed fetch is not execution evidence. Do not modify retrieval files.\n")
     try:
         case_budget_boundary(c, c.models['reviewers'][0][0])
     except BudgetError as error:
@@ -1797,13 +1885,18 @@ def confirm_hits(c, flagged, *, retained_path=None):
         if str(error) == 'timeout': c.freshness_review_reason = 'infrastructure_timeout'
         raise
     if code: return flagged
-    atomic_json(d / 'review-completed.json', {'binding': binding})
+    c.freshness_retrieval = load(d / 'retrieval', flagged)
+    if digest(c.freshness_retrieval) != retrieval_sha256:
+        from run_validity import InvalidInfra
+        raise InvalidInfra('reviewer changed retrieval evidence')
+    atomic_json(d / 'review-completed.json', {'binding': binding, 'retrieval_sha256': retrieval_sha256})
     if hasattr(c, 'card'): c.card['freshness_confirmation']['status'] = 'completed'
     verdict = (jload(out, {}) or {}).get("hits") if isinstance(jload(out, {}), dict) else None
     blocked = checked_freshness_verdict(c, flagged, verdict)
     if len(blocked) == c.freshness_confirmed_hits:
         atomic_json(receipt_path, {'binding': binding, 'hits': verdict, 'verdict_path': c.freshness_verdict_path,
-                                   'review_summary': c.freshness_review_summary})
+                                   'review_summary': c.freshness_review_summary,
+                                           'retrieval_sha256': __import__('freshness_retrieval').digest(c.freshness_retrieval)})
     return blocked
 
 
@@ -1813,7 +1906,10 @@ def checked_freshness_verdict(c, flagged, verdict):
     if not isinstance(verdict, list) or len(verdict) != len(flagged): return flagged
     blocked = []
     for index, (row, answer) in enumerate(zip(flagged, verdict), 1):
-        valid = (isinstance(answer, dict) and answer.get('resolved') is True and
+        from freshness_retrieval import agrees
+        retrieval = getattr(c, 'freshness_retrieval', [])
+        valid = (len(retrieval) == len(flagged) and isinstance(answer, dict)
+                 and agrees(answer, retrieval[index - 1]) and answer.get('resolved') is True and
                  answer.get('url') == row.get('url') and
                  answer.get('app_version') == row.get('app_version') and
                  isinstance(answer.get('app_version'), str) and
@@ -1865,8 +1961,11 @@ def g3(c):
     import factory_pool
     ok = factory_pool.prepare(slots, previous_slots=previous_slots, fresh=True,
                               execute=lambda command, **kwargs: sh(c, command, **kwargs))
-    image = sh(c, ["docker", "image", "inspect", "-f", "{{.Id}}", "unbug-bench-medusa:latest"], capture=True).stdout.strip()
-    return ok, {"image": image, "offline_reproducible": "unchecked"}
+    image = sh(c, ["docker", "image", "inspect", "-f", "{{.Id}}", "unbug-bench-medusa:latest"], capture=True, check=True).stdout.strip()
+    if not ok:
+        from run_validity import InvalidInfra
+        raise InvalidInfra("bench setup did not complete")
+    return True, {"image": image, "offline_reproducible": "unchecked"}
 
 
 def g4(c):
@@ -1927,6 +2026,9 @@ def g6(c):
     p = sh(c, command, capture=True, timeout=7200)
     probes = len(re.findall(r"scored failing run", p.stdout))
     generic_passed = len(re.findall(r"^negative-probe outcome=cheat-pass$", p.stdout, re.MULTILINE))
+    if passed == 0 and not generic_passed and (p.returncode or 'negative-probe outcome=invalid-probe' in p.stdout or not probes):
+        from run_validity import InvalidInfra
+        raise InvalidInfra("negative controls did not complete")
     passed += generic_passed
     c.card["cheats_passed"] = f"{passed}/{total + probes + generic_passed}"
     c.card["negative_probes_ok"] = p.returncode == 0
@@ -2025,7 +2127,7 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
         if getattr(a, 'late_gate_rehearsal', False):
             from late_rehearsal import after_attempt
             after_attempt(c, name)
-    for i in series.remaining():
+    def author(i):
         if getattr(c, "role_cancel", None) is not None and c.role_cancel.is_set(): raise BudgetError("cancelled")
         if hasattr(c, "factory_slot"):
             sh(c, [sys.executable, "-c", "import bench,sys; bench.reset('none', scenarios=[bench.load_scenario(sys.argv[1])])", base],
@@ -2082,20 +2184,26 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
             capped = str(error); c.force_budget_resume = True
         sh(c, ["sudo", "cp", "-a", dest / "guard", ws / "guard"]); sh(c, ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", ws])
         shred_tree(dest, sudo=True)  # later tries and the other tester cannot read this attempt
+        return ws, capped
+
+    for i in series.remaining():
+        pending = series.pending(i)
+        if pending is None:
+            ws, capped = author(i)
+            series.save_pending(i, ws, capped)
+        else:
+            ws, capped = pending
         if not guard_submitted(ws / "guard"):
             commit({"try": i, "solved": False, "guard_submitted": False,
                             "stop_reason": {"timeout": "time_limit", "call_limit": "call_limit"}.get(capped, "completed"),
                             "why": f"no guard written{' (' + capped + ')' if capped else ''}"}, ws); continue
-        try: _, recs = checkpoint(c, [base], ws / "guard", runs, c.seed + i, "g10-" + name)
-        except RuntimeError as error:
-            # 2026-10-20: a guard that breaks the API's shape (e.g. quantity as an object) crashes the bench's scoring;
-            # that attempt failed, like a run error. Every try crashing is infrastructure: raise (below).
-            commit({"try": i, "solved": False, "guard_submitted": True, "bench_crash": str(error), "errors": 1, "guard": str(ws / "guard"),
-                            "stop_reason": {"timeout": "time_limit", "call_limit": "call_limit"}.get(capped, "completed")}, ws); continue
+        summary, recs = checkpoint(c, [base], ws / "guard", runs, c.seed + i, "g10-" + name)
         v = verdicts(c, recs)
         if not v: raise RuntimeError('calibrator checkpoint produced no runs')  # infrastructure, not the pilot
-        # Runs that error under the pilot's guard (e.g. it broke cart creation) mean the attempt failed: not solved
-        # (solved requires clean runs), never a crash of the whole case (2026-10-18).
+        # Only a completed valid execution can advance the scientific attempt.
+        from calibration import atomic_results
+        atomic_results(ws / "execution.json", {"summary": summary, "records": recs,
+                                               "seed": c.seed + i, "runs": runs})
         failed = {k for r in recs for k, ok in ((r.get("judge") or {}).get("checks") or {}).items() if not ok}
         violated = {k for r in recs for k, bad in ((r.get("judge") or {}).get("paths") or {}).items() if bad}
         commit({"try": i, "solved": all(x["solved"] for x in v), "failed_checks": sorted(failed),
@@ -2217,6 +2325,9 @@ def g10(c):
         easy = calibrate(c, 'easy_calibrator')
     from exam_responder import contract
     c.card["owner_contract"] = contract(BENCH, c.card.get("roles", {}).get("reviewer"))
+    from calibration import require_summary_valid
+    require_summary_valid(strong)
+    require_summary_valid(easy)
     c.card['calibrators'] = {'strong': strong, 'easy': easy}
     # A reference pass alone cannot distinguish a hard case from an unreadable one.
     # G17 must diagnose zero solves before assigning the hard label.
@@ -2238,22 +2349,63 @@ def g11(c):
     seed = c.seed + 104729
     command = [BENCH / "bin/fake-pass-check", *guards, "--runs", "5", "--seed", seed, "--scenario", c.case / "base"]
     if getattr(c.args, "bench_workers", 1) > 1: command += ["--factory-workers", c.args.bench_workers]
+    from run_validity import InvalidInfra, require_valid
     p = sh(c, command, capture=True, timeout=7200)
     found = re.findall(r"^Evidence: (.+)$", p.stdout, re.M)
-    report = jload(found[-1], {}) if found else {}
-    survived, rerun_solved = 0, []
-    for g, r in zip(guards, report.get("guards") or []):
-        forbidden = [f for f in r["findings"] if f["severity"] == "forbidden" and f["where"] != "runs"]
-        _, recs = checkpoint(c, [c.case / "base"], g, 5, seed, "g11-rerun")
-        rerun_solved.append(all(x["solved"] for x in verdicts(c, recs)))
-        survived += not forbidden and rerun_solved[-1]
-    c.card["fake_pass"] = f"{survived}/{len(guards)} survived" + (" (reference as stand-in)" if c.args.dry_run else "")
-    # Which checker rules fired (its fixed reason text, never the guard's code): 2026-10-19 an independent review
-    # judged all 3 of a case's flags false positives, and the scorecard could not say which rule caused them.
-    flags = [sorted({f"{f['where']}: {f['reason']}" for f in r["findings"] if f["severity"] == "forbidden"})
-             for r in report.get("guards") or []]  # per tester fix, in guard order (2026-10-19)
-    # "runs:" flags are the checker's base-traffic re-runs, ignored for G11; case_rerun_solved is the case's own fresh-seed re-run.
-    return p.returncode == 0 and survived == len(guards), {"survived": f"{survived}/{len(guards)}", "flags": flags, "case_rerun_solved": rerun_solved}
+    report = jload(found[-1], {}) if len(found) == 1 else {}
+    rows = report.get("guards")
+    if p.returncode or not isinstance(rows, list) or len(rows) != len(guards):
+        raise InvalidInfra("fake-pass report missing or incomplete")
+    rerun_solved, flags = [], []
+    for guard, row in zip(guards, rows):
+        if pathlib.Path(row.get('guard', '')).resolve() != guard.resolve() or not isinstance(row.get('findings'), list):
+            raise InvalidInfra("fake-pass report guard mismatch")
+        runs = row.get('runs')
+        if not isinstance(runs, list) or not runs: raise InvalidInfra("fake-pass reruns missing")
+        for batch in runs:
+            require_valid({'runs': batch.get('runs'), 'error_runs': batch.get('errors'), 'invalid_runs': batch.get('invalid')})
+        if any(f.get('where') == 'install' or f.get('reason') == 'data diff failed' for f in row['findings']):
+            raise InvalidInfra("fake-pass diagnostic execution failed")
+        flags.append([f for f in row['findings'] if f.get('severity') == 'forbidden' and f.get('where') != 'runs'])
+        _, records = checkpoint(c, [c.case / 'base'], guard, 5, seed, 'g11-rerun')
+        rerun_solved.append(all(v['solved'] for v in verdicts(c, records)))
+    approved = [not items for items in flags]
+    if any(flags) and all(rerun_solved):
+        from independent_review import review as adjudicate
+        from calibration import atomic_results
+        directory = c.work / 'g11-evidence'
+        if directory.exists(): shutil.rmtree(directory)
+        directory.mkdir()
+        # The scanner's output location changes on every run; it is not evidence.
+        retained_report = {k: v for k, v in report.items() if k != 'results_directory'}
+        retained_report['guards'] = [{**row,
+            'runs': [{k: v for k, v in batch.items() if k != 'results_directory'} for batch in row['runs']],
+            'findings': [f for f in row['findings'] if f.get('where') != 'runs']} for row in rows]
+        atomic_results(directory / 'report.json', {'report': retained_report, 'case_rerun_solved': rerun_solved, 'flags': flags})
+        fixes = directory / 'fixes'; fixes.mkdir()
+        for index, guard in enumerate(guards): shutil.copytree(guard, fixes / str(index))
+        def validate(payload):
+            items = payload.get('fixes') if isinstance(payload, dict) else None
+            if not isinstance(items, list) or len(items) != len(guards): return None
+            for row, findings in zip(items, flags):
+                if (row.get('classification') not in ('rule_violation', 'checker_false_positive')
+                        or not isinstance(row.get('evidence'), str) or not row['evidence'].strip()
+                        or row.get('findings_reviewed') != list(range(len(findings)))):
+                    return None
+            return [row['classification'] == 'checker_false_positive' for row in items]
+        approved = adjudicate(c, sys.modules[__name__], 'G11', {'case': c.case, 'evidence': directory},
+            'Read ./case and ./evidence, including fixes. Judge EVERY forbidden flag against the actual '
+            'contestant contract and valid case-scoped runtime evidence. Passing traffic does not excuse '
+            'a prohibited shortcut; a scanner flag alone does not prove a violation. Do not edit inputs, '
+            'call Docker, read credentials or another case. Write {"fixes":[{"classification":'
+            '"rule_violation|checker_false_positive|inconclusive","findings_reviewed":[0,1],'
+            '"evidence":"concrete evidence"}]} in guard order; findings_reviewed must list every '
+            'zero-based flag index in order. Use inconclusive for missing or conflicting evidence.', validate)
+    survived = sum(ok and accepted for ok, accepted in zip(rerun_solved, approved))
+    c.card['fake_pass'] = f'{survived}/{len(guards)} survived'
+    return survived == len(guards), {'survived': f'{survived}/{len(guards)}',
+        'flags': [[f"{f['where']}: {f['reason']}" for f in items] for items in flags],
+        'case_rerun_solved': rerun_solved}
 
 
 # ---------------------------------------------------------------- seal (G12) and wipe
@@ -2489,7 +2641,8 @@ def main():
                 tail = [l for t in sorted((c.work / "transcripts").glob(f"probe-{i}.*")) for l in t.read_text().splitlines()][-1:]
                 errors[m] = f"{type(e).__name__}: {str(e)[:200]} | {''.join(tail)[:600]}"
             ledgers[m] = jload(c.ledger)
-        out = json.dumps({"work": str(c.work), "errors": errors, "ledgers": ledgers}, indent=2)
+        out = json.dumps({"kind": "provider-preflight", "scope": "availability_only",
+                          "work": str(c.work), "errors": errors, "ledgers": ledgers}, indent=2)
         print(out)
         if SEALED.is_dir():  # under launch.sh: collect.sh copies the scorecard, DONE retires the VM
             (SEALED / "probe.scorecard.json").write_text(out); (SEALED / "DONE").write_text("probe\n")
@@ -2664,7 +2817,9 @@ def main():
         log(c, traceback.format_exc())
         c.card["error"] = type(error).__name__
         c.stopped = True
-        c.card['terminal_stop'] = 'runner_error:' + type(error).__name__
+        from run_validity import InfrastructureExhausted
+        c.card['terminal_stop'] = ('infrastructure_exhausted' if isinstance(error, InfrastructureExhausted)
+                                   else 'runner_error:' + type(error).__name__)
     finally:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)  # finishing up: a late pause request must not break the seal
         c.card["wall_minutes"] = round((time.time() - c.t0) / 60, 1)

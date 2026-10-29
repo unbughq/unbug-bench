@@ -7,6 +7,7 @@ not replace the stronger pending-installation proof.
 import json
 from pathlib import Path
 import re
+from run_validity import InvalidInfra, require_valid as valid_execution
 
 
 RECEIPT_PREFIX = 'UNBUG_CHECKPOINT='
@@ -53,12 +54,12 @@ def _read(path):
     return value
 
 
-def read_completed(process, requested_runs, label, *, require_valid=False):
+def read_completed(process, requested_runs, label, *, require_valid=True):
     """Return (summary, records, path) only for a complete checkpoint batch.
 
-    A valid scored failure is returned normally. Factory gates may inspect complete
-    invalid batches; strategy callers set require_valid because those have no
-    strategy verdict. Legacy output is read here only, for older checkpoint CLIs.
+    A valid scored failure is returned normally. Only explicit diagnostic callers
+    may inspect an invalid batch with require_valid=False; it has no scientific
+    verdict. Legacy output is read here only, for older checkpoint CLIs.
     """
     stdout, stderr = process.stdout or '', process.stderr or ''
     detail = (f'{label}; returncode={process.returncode}; '
@@ -134,8 +135,8 @@ def read_completed(process, requested_runs, label, *, require_valid=False):
                         type(claimed[name].get(key)) is not int or claimed[name][key] != value
                         for key, value in expected.items()):
                     raise ValueError('checkpoint summary disagrees with ' + field)
-        if require_valid and any(r['judge'].get('invalid') for r in records):
-            raise ValueError('checkpoint has no valid verdict')
+        if require_valid:
+            valid_execution(summary, records)
         return summary, records, path
-    except (ValueError, TypeError, KeyError, OSError) as error:
-        raise RuntimeError(f'{error}; {verdict_detail(summary, path)}; {detail}') from error
+    except (ValueError, TypeError, KeyError, OSError, InvalidInfra) as error:
+        raise InvalidInfra(f'{error}; {verdict_detail(summary, path)}; {detail}') from error

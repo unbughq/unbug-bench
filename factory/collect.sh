@@ -37,9 +37,22 @@ print(json.dumps({k:d[k] for k in ("schema", "attempt", "phase", "reason", "exit
 else rm -f "$dest/$id.runner-status.json.tmp"; fi
 # Empty patterns and a VM that never got as far as ~/sealed are normal (nothing to collect); a failed SSH stays an error.
 # WORK = unwiped case work is still on the VM (a final seal wipes it; a stop keeps it beside its checkpoint).
-files=$(boat ssh "$id" "for d in ~/work/case-*/case ~/work/case-*/g11-audit/case; do [ -d \"\$d\" ] && [ -n \"\$(ls -A \"\$d\")\" ] && { echo WORK; [ -f ~/sealed/DONE ] || echo UNFINISHED; break; }; done; [ -d ~/sealed ] || exit 0; cd ~/sealed || exit 1; ls *.age *.scorecard.json *.scorecard.txt *.progress.json *.throwaway-key.txt 2>/dev/null; true") || exit 1
+files=$(boat ssh "$id" 'for d in ~/work/case-*/case ~/work/case-*/g11-audit/case; do
+  if [ -d "$d" ] && [ -n "$(ls -A "$d")" ]; then
+    echo WORK
+    case "$d" in
+      */g11-audit/case) echo "WORKCASE:g11-review-$(basename "$(dirname "$(dirname "$d")")")" ;;
+      *) echo "WORKCASE:$(basename "$(dirname "$d")")" ;;
+    esac
+    [ -f ~/sealed/DONE ] || echo UNFINISHED
+  fi
+done
+[ -d ~/sealed ] || exit 0; cd ~/sealed || exit 1
+ls *.age *.scorecard.json *.scorecard.txt *.progress.json *.throwaway-key.txt 2>/dev/null; true') || exit 1
 work=no; case " $(echo $files) " in *" WORK "*) work=yes; files=$(printf '%s\n' $files | grep -vx WORK || true) ;; esac
 # An uncertain pause cannot authorize disposal, even if an older archive exists.
+work_cases=$(printf '%s\n' $files | sed -n 's/^WORKCASE://p')
+files=$(printf '%s\n' $files | grep -v '^WORKCASE:' || true)
 status=$pause_status
 case " $(echo $files) " in *" UNFINISHED "*)
   files=$(printf '%s\n' $files | grep -vx UNFINISHED || true)
@@ -59,24 +72,8 @@ for f in $files; do
     case $f in *.scorecard.txt) cat "$dest/$f" || status=1 ;; esac
   else status=1; fi
 done
-# A cut-off copy leaves a short archive: each copied scorecard's sha256 must match its archive.
-for f in $files; do
-  case $f in *.scorecard.json) ;; *) continue ;; esac
-  python3 - "$dest/$f" <<'PY' || status=1
-import glob, hashlib, json, sys
-card = sys.argv[1]
-try: want = json.load(open(card)).get("sha256")
-except (ValueError, AttributeError): want = None  # no recorded hash to compare
-arch = glob.glob(card[:-len(".scorecard.json")] + "*.tar.gz.age")
-def sha(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""): h.update(block)
-    return h.hexdigest()
-if want and arch and not any(sha(a) == want for a in arch):
-    sys.exit("archive hash mismatch for " + card)
-PY
-done
+# No absent/prefix-matched/stale archive can authorize collection or disposal.
+python3 "$here/collection.py" "$dest" "$work" "$files" "$work_cases" || status=1
 if [ "$status" -eq 0 ] && [ -f "$root/results/ttl-retirements/$id.json" ]; then
   # Queue only after every transfer and archive verification succeeded. Bounds or
   # attestation refusal blocks continuation, never disposal of safely sealed work.

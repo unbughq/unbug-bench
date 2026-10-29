@@ -29,11 +29,16 @@ rows = [
     {"solved": False, "checked_runs": 5, "solved_runs": 0, "errors": 0},
     {"solved": False, "checked_runs": 5, "solved_runs": 1, "errors": 1},
 ]
+from run_validity import InvalidInfra
+invalid = rows.pop()
+try: attempt_summary([invalid])
+except InvalidInfra: pass
+else: raise AssertionError('runtime error became a scientific attempt')
 s = attempt_summary(rows)
-assert (s["tries"], s["solved"]) == (5, 1)
-assert s["diagnostics"]["stop_reasons"] == {"completed": 1, "time_limit": 1, "call_limit": 1, "unrecorded": 2}
+assert (s["tries"], s["solved"]) == (4, 1)
+assert s["diagnostics"]["stop_reasons"] == {"completed": 1, "time_limit": 1, "call_limit": 1, "unrecorded": 1}
 assert s["diagnostics"]["outcomes"] == {"solved": 1, "no_fix_submitted": 1, "fix_failed_some_runs": 1,
-                                      "fix_failed_all_runs": 1, "fix_failed_runs": 0, "run_error": 1, "unknown": 0}
+                                      "fix_failed_all_runs": 1, "fix_failed_runs": 0, "run_error": 0, "unknown": 0}
 
 # Legacy data is not invented, and arbitrary sealed strings never reach the report.
 secret = "SYNTHETIC_PRIVATE_DETAIL"

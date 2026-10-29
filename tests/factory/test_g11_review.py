@@ -193,7 +193,8 @@ with tempfile.TemporaryDirectory() as tmp:
     import os, subprocess
     root = pathlib.Path(tmp); (root / "factory").mkdir(); (root / "bin").mkdir()
     import shutil
-    shutil.copy((pathlib.Path(__file__).resolve().parents[2] / "factory") / "collect.sh", root / "factory/collect.sh")
+    for name in ('collect.sh', 'collection.py'):
+        shutil.copy((pathlib.Path(__file__).resolve().parents[2] / "factory") / name, root / 'factory' / name)
     vm = root / "vm"; private = vm / "work/case-synthetic/g11-audit/case"; private.mkdir(parents=True)
     (private / "promise.md").write_text(secret)
     fake = root / "bin/boat-call"

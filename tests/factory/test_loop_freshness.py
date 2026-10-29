@@ -22,6 +22,8 @@ from test_admission import evidence
 
 class LoopFreshnessTests(unittest.TestCase):
     def setUp(self):
+        from freshness_test_transport import start
+        start(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         root = pathlib.Path(self.tmp.name)

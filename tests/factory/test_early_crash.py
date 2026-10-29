@@ -35,24 +35,19 @@ class EarlyCrashTests(unittest.TestCase):
         self.assertTrue(self.c.card['early_gates']['G15']['ok'])
         self.assertNotIn('private cause', self.public())
 
-    def test_double_crash_skips_writer_and_full_gate_runs_again(self):
-        with patch.object(run.GatePipeline, 'check', side_effect=[RuntimeError('private cause'), RuntimeError('private retry'), (True, {})]) as gate:
-            self.assertIsNone(run.early_checks(self.c))
-        self.assertEqual([a.args[1] for a in gate.call_args_list], ['G15', 'G15', 'G3'])
-        self.assertEqual(set(self.c.early), {'G3'})
-        card = self.c.card['early_gates']['G15']
-        self.assertFalse(card['ok']); self.assertTrue(card['crashed'])
-        self.assertEqual(card['error'], 'RuntimeError')
-        for attempt, message in ((1, 'private cause'), (2, 'private retry')):
+    def test_double_crash_stops_without_writer_or_more_automatic_attempts(self):
+        from run_validity import InfrastructureExhausted
+        with patch.object(run.GatePipeline, 'check', side_effect=RuntimeError('private cause')) as gate:
+            with self.assertRaises(InfrastructureExhausted): run.early_checks(self.c)
+            with self.assertRaises(InfrastructureExhausted): run.early_checks(self.c)
+        self.assertEqual(gate.call_count, 2)
+        self.assertEqual(self.c.early, {})
+        for attempt in (1, 2):
             detail = json.loads((self.c.work / f'gate-details/G15.crash-{attempt}.json').read_text())
-            self.assertEqual(detail['error'], 'RuntimeError'); self.assertEqual(detail['message'], message)
-            self.assertIn(message, detail['traceback'])
-            self.assertNotIn(message, self.public())
+            self.assertEqual(detail['error'], 'RuntimeError')
+            self.assertNotIn('private cause', self.public())
         progress = json.loads((self.c.work / 'progress/synthetic.progress.json').read_text())
-        self.assertEqual(progress['stages']['early:G15']['status'], 'failed')
-        with patch.object(run.GatePipeline, 'check', return_value=(True, {})) as gate:
-            run.run_gates(self.c)
-        gate.assert_called_once_with(self.c, 'G15')
+        self.assertEqual(progress['stages']['early:G15']['status'], 'interrupted')
 
     def test_normal_failure_still_returns_writer_problems(self):
         with patch.object(run.GatePipeline, 'check', return_value=(False, {'problem': 'synthetic defect'})) as gate:
@@ -74,16 +69,17 @@ class EarlyCrashTests(unittest.TestCase):
             with patch.object(run.GatePipeline, 'check', side_effect=RuntimeError('private full cause')):
                 run.validate_and_repair(self.c)
                 self.assertTrue(self.c.stopped)
-                self.assertEqual(self.c.card['terminal_stop'], 'runner_error:RuntimeError')
-                self.assertEqual(self.c.card['failed_gate'], 'G15')
-                self.assertEqual(self.c.card['failed_detail'], {'error': 'RuntimeError'})
-            detail = json.loads((self.c.work / f'gate-details/G15.crash-{1 + resume}.json').read_text())
+                self.assertEqual(self.c.card['terminal_stop'], 'infrastructure_exhausted')
+                self.assertNotIn('failed_gate', self.c.card)
+                self.assertNotIn('failed_detail', self.c.card)
+            detail = json.loads((self.c.work / 'gate-details/G15.crash-1.json').read_text())
             self.assertEqual(detail['message'], 'private full cause')
             self.assertNotIn('private full cause', self.public())
 
     def test_crash_detail_is_bounded(self):
+        from run_validity import InfrastructureExhausted
         with patch.object(run.GatePipeline, 'check', side_effect=RuntimeError('x' * 30000)):
-            run.early_checks(self.c)
+            with self.assertRaises(InfrastructureExhausted): run.early_checks(self.c)
         detail = json.loads((self.c.work / 'gate-details/G15.crash-1.json').read_text())
         self.assertEqual(len(detail['message']), 20000)
         self.assertLessEqual(len(detail['traceback']), 20000)
