@@ -98,3 +98,23 @@ the pinned file contains 12 test methods, and the writer's run reports 12 passed
 The four independent probes are reviewer-reported evidence. The writer does not
 claim a 13-test run. Full-suite evidence remains pending. No Murphy row closes.
 
+
+
+## Original-commit verification and integration
+
+Full suite on ebf3b1a production/test bytes: **148 scripts; 1 failed**. The
+only failure was test_qualified_deployment.py's
+`test_actual_launcher_never_complete_times_out_before_mutation`, which observed
+59 readiness attempts instead of 60. Launch guards passed. Running
+`uv run --with numpy --with scipy python -B tests/integration/test_qualified_deployment.py`
+alone then passed **21 tests**. This is an observed timing-sensitive test result,
+not a passing full-suite claim. No test or production source changed between
+these runs. Full log: `/tmp/stream-d-inputs-suite.log`, SHA-256
+`33f7266094b682fb49cbae17d73d858c81a84cee8342ea3e89a00bf75659dd07`.
+Isolated log: `/tmp/stream-d-inputs-deployment-alone.log`.
+
+Rebased the four post-d424af6 commits onto the parent's merged 9701f56 without
+conflicts. The corresponding commits are ebf3b1a→e1cb454, 17cd006→437cd77,
+a540e70→6c5ed9f, and 71a9f3d→02e3154. Original review SHAs remain valid review
+objects. The amended implementation still requires review and a new full suite
+on the integrated tree. All `.stream-d-next/` drafts remain untouched.
