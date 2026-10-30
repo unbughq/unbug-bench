@@ -97,6 +97,12 @@ class ProjectionTests(unittest.TestCase):
         self.card['continuation_budget']['events'] = []
         self.card['continuation_budget']['unpriced_invocations'] = [{'invocation_id': str(uuid.uuid4())}]
         self.assertTrue(diagnosis.actual_model_work(self.card))
+        # A started call whose unknown usage settled to an estimate is still work.
+        self.card['continuation_budget']['unpriced_invocations'] = []
+        self.card['route_receipts'] = [{'outcome': 'denied'}, {'outcome': 'admitted'}]
+        self.assertFalse(diagnosis.actual_model_work(self.card))
+        self.card['route_receipts'].append({'outcome': 'interrupted'})
+        self.assertTrue(diagnosis.actual_model_work(self.card))
 
     def test_projection_refuses_malformed_pause_seal_retirement_and_unproven_stops(self):
         for stop in ('provider_wait', 'paused', 'ttl_retired', 'retired_batch_bound', 'diagnosis_pending', 'extension_incomplete'):

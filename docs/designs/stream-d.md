@@ -2058,7 +2058,14 @@ Existing tests affected. `test_stream_d_runtime.py::
 test_stream_accountant_links_unknown_usage_and_settles_once_above_five_dollars`
 asserted the factory marker after `run_budgeted`. It now asserts no marker,
 a known total with the reservation outstanding, and the same estimate after
-reconciliation. The direct `complete_invocation` callers in
+reconciliation. `test_flag_off_keeps_crash_reservation_without_forcing_router_deferral`
+asserted `money_wait` on the retry, the row-21 poisoning itself. It now
+asserts that the retry is admitted on a new lease with no router deferral,
+and that the crashed call's reservation is kept as an estimate with its
+marker settled. In `test_model_call_maxima.py`, the dispatch test's
+interrupted call is now `estimated` when it ends instead of `pending`, and
+the real-route settlement test charges the closed gate's bound (one
+request's hold) instead of the $50 maximum. The direct `complete_invocation` callers in
 `test_batch_accounting.py`, `test_stream_d_coverage.py` and
 `test_router_cheap_maxima.py` plant their own markers, or pass final
 receipts, or read saved proof records. A local draft of the

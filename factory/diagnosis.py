@@ -91,13 +91,18 @@ def exhaustion(card):
 
 
 def actual_model_work(card):
-    """Reservations and conservative gaps alone are not process-start evidence."""
+    """Reservations and conservative gaps alone are not process-start evidence.
+
+    A started call leaves an event, an unknown marker, or a route receipt whose
+    outcome is done/interrupted (the runtime resets an unstarted one to denied).
+    """
     if not isinstance(card, dict) or not isinstance(card.get('continuation_budget'), dict): return False
     ledger = card['continuation_budget']
     events, unknown = ledger.get('events', []), ledger.get('unpriced_invocations', [])
-    if (not isinstance(events, list) or not isinstance(unknown, list) or
-            any(not isinstance(row, dict) for row in events + unknown)): return False
-    return bool(events or unknown)
+    receipts = card.get('route_receipts', [])
+    if (not isinstance(events, list) or not isinstance(unknown, list) or not isinstance(receipts, list) or
+            any(not isinstance(row, dict) for row in events + unknown + receipts)): return False
+    return bool(events or unknown or any(r.get('outcome') in ('done', 'interrupted') for r in receipts))
 
 
 def pending_projection(card):
