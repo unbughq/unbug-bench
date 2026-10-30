@@ -21,7 +21,7 @@ import tempfile
 import time
 import uuid
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_CEILING
-from token_prices import CODEX_PRICES, codex_cost, claude_cost
+from token_prices import CODEX_PRICES, codex_cost, claude_cost, claude_standard_usage
 
 
 class BudgetError(RuntimeError):
@@ -961,6 +961,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 raise BudgetError('missing_usage')
             # A message can have several content blocks with growing usage.
             prior = partial_usage.setdefault(key, {})
+            if not claude_standard_usage(usage): prior['speed'] = 'unknown'
             for k in required: prior[k] = max(prior.get(k, 0), usage[k])
             if key not in responses:  # one response streams as one event per content block
                 responses.add(key)
@@ -1219,6 +1220,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                         if identity in finishes: continue
                         values = [v for key, v in partial_usage.items() if key.rsplit(':', 1)[0] == sid]
                         usage = {k: sum(v[k] for v in values) for k in required}
+                        if not all(claude_standard_usage(v) for v in values): usage['speed'] = 'unknown'
                         subscription_usage(identity, usage, required, partial=True)
                 elif driver == 'codex':
                     for identity, usage in partial_usage.items():

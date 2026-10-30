@@ -17,7 +17,7 @@ import time
 
 from budget import BudgetError
 from token_prices import (GATED_CLAUDE, CLAUDE_CONTEXT, CLAUDE_OUTPUT,
-                          CLAUDE_GATE_FIELDS, CLAUDE_PRICES, claude_gate_cost)
+                          CLAUDE_GATE_FIELDS, CLAUDE_PRICES, claude_gate_cost, claude_standard_usage)
 
 ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CLAUDE_CODE_OAUTH_TOKEN',
     'CLAUDE_CONFIG_DIR', 'DISABLE_AUTOUPDATER', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
@@ -86,6 +86,7 @@ def request_body(raw):
     output = body.get('max_tokens')
     if type(output) is not int or not 0 <= output: raise ValueError('invalid output bound')
     body['max_tokens'] = min(output, CLAUDE_OUTPUT)
+    body['inference_geo'] = 'global'  # Override workspace defaults; forbidden geo must error.
     body.pop('context_management', None)  # No server-side sampling/compaction.
     if 'thinking' in body:
         if not isinstance(body['thinking'], dict) or body['thinking'].get('type') != 'adaptive':
@@ -177,8 +178,8 @@ class Allowance:
             allowance = self.active.pop(identity, None)
             if allowance is None: return  # close already retained it; never refund late.
             amount = None
-            if usage is not None:
-                amount = (claude_gate_cost(usage), sum(usage[k] for k in CLAUDE_GATE_FIELDS[:3]), usage['output_tokens'])
+            if usage is not None and (cost := claude_gate_cost(usage)) is not None:
+                amount = (cost, sum(usage[k] for k in CLAUDE_GATE_FIELDS[:3]), usage['output_tokens'])
                 if any(amount[i] > allowance[i] for i in range(3)): amount = None
             target = self.settled if amount is not None else self.retained
             for i in range(3): target[i] += (amount or allowance)[i]
@@ -225,7 +226,7 @@ class Usage:
         self.invalid = False
 
     def merge(self, usage):
-        if not isinstance(usage, dict): self.invalid = True; return
+        if not claude_standard_usage(usage): self.invalid = True; return
         for key in CLAUDE_GATE_FIELDS:
             if key not in usage: continue
             value = usage[key]

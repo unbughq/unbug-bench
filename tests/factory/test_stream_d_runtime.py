@@ -455,7 +455,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_three_waits_continue_the_same_writer_or_stress_unit(self):
         for role, key, name, pools, added in (
-                ('writer', 'builder', 'builder-1', ('claude-token', 'claude-factory-token-2'), .1232),
+                ('writer', 'builder', 'builder-1', ('claude-token', 'claude-factory-token-2'), .056),
                 ('stress_tester', 'attacker', 'attacker-1', ('opencode-go-key', 'opencode-go-key-2', 'openrouter-key'), 0)):
             with self.subTest(role=role):
                 # Reset only the authored test context and actual source ledger.

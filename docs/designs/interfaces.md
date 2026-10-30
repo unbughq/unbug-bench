@@ -290,10 +290,14 @@ denial.
   Refundable active holds cause a deadline/cancel/close-bounded wait. Only
   settled+retained unknown usage making new W impossible is terminal exhaustion.
   Standard mode, no hosted tools/premium modes; small-model calls use same Opus.
-  Current route cap50.0 USD; W<=19.041792; input113636363/output1136363 tokens.
-  BOTH settled gate cost and W use existing claude_cost2*1.1, preserving the
-  unchanged partial-ledger estimate bound even when the CLI final result is lost.
-  Existing token_prices/budget booking stays unchanged; gate books nothing.
+  Current route cap50.0 USD; W<=8.655360; input250000000/output2500000 tokens.
+  Settled gate cost, W and partial-ledger estimates share standard/global list
+  rates (factor1.0). Outbound inference_geo is forced global; incoming overrides
+  are forbidden. Only absent/standard speed and absent/global geo are priceable;
+  explicit null/empty/premium values stay unknown through partial aggregation.
+  Tariff identity is token_prices:2026-10-30:claude-opus-5-5:4.0,0.2,8.0,20.0:1.0:standard-global:joint-gate-v1.
+  Prior tariff leases fail exact-policy validation; roll out drained. Completed
+  CLI total_cost_usd bookings stay unchanged; the gate books nothing.
   Cap covers CLI-owned inference routed through its SDK, not hostile Bash/direct
   network/account-wide spending; no new sandbox/security property is claimed.
   Unsupported never-forwarded requests are nonfatal local errors, not money stops.

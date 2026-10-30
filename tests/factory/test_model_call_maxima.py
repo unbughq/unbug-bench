@@ -31,7 +31,7 @@ import model_call_gate as gate
 import model_router as router
 import model_runtime
 import run
-from token_prices import GATED_CLAUDE, CLAUDE_GATE_FIELDS, claude_gate_cost
+from token_prices import GATED_CLAUDE, CLAUDE_GATE_FIELDS, claude_gate_cost, claude_cost
 
 FIXTURES = Path(__file__).with_name('fixtures')
 PAID = json.loads(gzip.decompress((FIXTURES/'router-paid-deepseek.json.gz').read_bytes()))
@@ -88,7 +88,7 @@ class MaximaTests(unittest.TestCase):
             else:
                 actual = router.Lease(**{k:v for k,v in result.items() if k != 'kind'})
                 self.assertTrue(router.valid_lease(actual, model))
-                self.assertEqual((actual.max_usd, actual.max_input_tokens, actual.max_output_tokens), (50.0,113636363,1136363))
+                self.assertEqual((actual.max_usd, actual.max_input_tokens, actual.max_output_tokens), (50.0,250000000,2500000))
                 store.rpc('finish',dict(lease_id=actual.lease_id,outcome='denied',receipt=None))
         self.assertEqual(store.rpc('status', {})['leases'], [])
         for card in PAID:
@@ -101,9 +101,9 @@ class MaximaTests(unittest.TestCase):
     def test_real_aggregate_exam_and_more_than_eight_validated_requests(self):
         events = real_iterations(); self.assertEqual(len(events),153)
         costs = [claude_gate_cost(e['tokens']) for e in events.values()]
-        worst = Decimal('19.041792')
+        worst = Decimal('8.655360')
         self.assertEqual((sum(c+worst < 50 for c in costs),sum(c>50 for c in costs),
-                          sum(c<=50 and c+worst>=50 for c in costs)), (143,2,8))
+                          sum(c<=50 and c+worst>=50 for c in costs)), (153,0,0))
         allowance = gate.Allowance(lease())
         samples = [i for e in events.values() for i in e['tokens'].get('iterations', [])][:20]
         for usage in samples:
@@ -118,21 +118,104 @@ class MaximaTests(unittest.TestCase):
         self.assertEqual(result['unknown_requests'],0)
         self.assertLess(Decimal(result['settled_usd']),50)
 
+    def test_real_writer_envelopes_fit_with_bounded_unknown_attempts(self):
+        # Conditional envelope, not a reconstructed HTTP trace: recorded aggregate
+        # bounds validated usage; unrecorded unknown attempts are limited below.
+        events = {e['id']: e for c in PAID for e in c['continuation_budget']['events']
+                  if e.get('configured_model') == GATED_CLAUDE}
+        self.assertEqual(len(events),32)
+        self.assertTrue(all(e['tokens']['speed']=='standard' and e['tokens']['inference_geo']=='global'
+                            for e in events.values()))
+        cases = [('b741739e-bdec-4272-8b41-4a7703b02d52:result',110,3),
+                 ('013eaa17-daa9-49f9-9ad5-c88288cd5d11:result',135,2)]
+        worst = dict.fromkeys(CLAUDE_GATE_FIELDS,0) | {'cache_creation_input_tokens':1000000,'output_tokens':32768}
+        for identity,calls,tolerated in cases:
+            with self.subTest(writer=identity):
+                event=events[identity];usage=event['tokens'];self.assertEqual(event['calls'],calls)
+                # Test-only conservative upper bound; production never reads the CLI cost here.
+                settled=[max(Decimal(str(event['list_cost_usd'])),claude_gate_cost(usage)),
+                         sum(usage[k] for k in CLAUDE_GATE_FIELDS[:3]),usage['output_tokens']]
+                for unknowns in (0,tolerated,tolerated+1):
+                    allowance=gate.Allowance(lease());allowance.settled=settled.copy()
+                    allowance.retained=[unknowns*claude_gate_cost(worst),unknowns*1000000,unknowns*32768]
+                    request=allowance.reserve(32768)
+                    if unknowns<=tolerated:self.assertIsNotNone(request)
+                    else:self.assertIsNone(request)
+                    allowance.close()
+
+    def test_mode_metadata_is_strict_and_parser_invalidity_is_sticky(self):
+        usage=dict(input_tokens=100,cache_read_input_tokens=50,cache_creation_input_tokens=25,output_tokens=10)
+        self.assertEqual(claude_gate_cost(usage),Decimal('0.00081'))
+        for fields in ({},{'speed':'standard','inference_geo':'global'}):
+            self.assertEqual(claude_cost(GATED_CLAUDE,usage|fields),float(claude_gate_cost(usage)))
+        for key,values in [('speed',('fast','',None,False,{})),('inference_geo',('us','',None,False,{}))]:
+            for value in values:
+                with self.subTest(key=key,value=value):
+                    invalid=usage|{key:value}
+                    self.assertIsNone(claude_gate_cost(invalid));self.assertIsNone(claude_cost(GATED_CLAUDE,invalid))
+                    for streaming in (False,True):
+                        parser=gate.Usage(32768,streaming)
+                        # SSE's final update omits the mode: it must not erase invalidity.
+                        payload=sse(invalid) if streaming else json.dumps(dict(type='message',model='claude-opus-5-5',
+                            stop_reason='end_turn',usage=invalid)).encode()
+                        parser.feed(payload);self.assertIsNone(parser.final())
+                    allowance=gate.Allowance(lease());request=allowance.reserve(32768)
+                    allowance.finish(request,invalid);allowance.close()
+                    self.assertEqual(allowance.snapshot()['unknown_requests'],1)
+                    self.assertEqual(Decimal(allowance.snapshot()['held_usd']),Decimal('8.655360'))
+        parser=gate.Usage(32768,True)
+        payload=sse(usage).replace(b'"output_tokens": 10}',b'"output_tokens": 10,"speed":"fast"}')
+        parser.feed(payload);self.assertIsNone(parser.final())
+
+    def test_real_writer_partial_estimator_uses_captured_cli_mode_surface(self):
+        capture=json.loads(gzip.decompress((FIXTURES/'router-claude-mode-cli.json.gz').read_bytes()))
+        wanted={'b741739e-bdec-4272-8b41-4a7703b02d52:result','013eaa17-daa9-49f9-9ad5-c88288cd5d11:result'}
+        writers=[e for c in PAID for e in c['continuation_budget']['events'] if e['id'] in wanted]
+        for record in capture['records']:
+            shape=record['capture']['assistant_usage'][0]
+            for writer in writers:
+                for complete in (False,True):
+                    with self.subTest(mode=record['upstream_mode_fields'],writer=writer['id'],complete=complete):
+                        # Transport-only envelope: real counters in the actual captured CLI shape.
+                        usage=shape|{k:writer['tokens'][k] for k in CLAUDE_GATE_FIELDS}
+                        plain={k:usage[k] for k in CLAUDE_GATE_FIELDS}
+                        events=[{'type':'system','subtype':'init','session_id':'captured-shape'},
+                                {'type':'assistant','message':{'id':'m','usage':usage,'content':[]}},
+                                {'type':'assistant','message':{'id':'m','usage':plain,'content':[]}}]
+                        if complete:events.append(dict(type='result',session_id='captured-shape',is_error=False,
+                            total_cost_usd=writer['list_cost_usd'],usage=usage))
+                        ledger=self.root/(uuid.uuid4().hex+'.json')
+                        command=[sys.executable,'-c','import json,sys; [print(json.dumps(e),flush=True) for e in json.loads(sys.argv[1])]',json.dumps(events)]
+                        invoke=lambda:budget.run_budgeted(command,self.root,dict(os.environ),self.root/'mode-transcript',ledger,5,
+                            driver='claude',configured_model=GATED_CLAUDE,role='writer',invocation_name='builder-mode',
+                            max_cost=100,max_calls=1000,max_total_calls=1000,case_budget=1000)
+                        if complete:invoke()
+                        else:
+                            with self.assertRaises(budget.BudgetError):invoke()
+                        saved=json.loads(ledger.read_text())
+                        if complete:self.assertEqual(saved['list_cost_usd'],writer['list_cost_usd'])
+                        elif record['upstream_mode_fields'].get('speed')=='fast':
+                            self.assertTrue(saved.get('unpriced_invocations'))
+                            self.assertEqual(saved.get('estimated_subscription_cost_usd',0),0)
+                        else:
+                            self.assertEqual(saved['estimated_subscription_cost_usd'],claude_cost(GATED_CLAUDE,usage))
+                            self.assertLessEqual(saved['estimated_subscription_cost_usd'],50)
+
     def test_concurrent_reservations_and_close_never_refund_unknown(self):
         allowance = gate.Allowance(lease())
-        ids = [allowance.reserve(32768), allowance.reserve(32768)]
+        ids = [allowance.reserve(32768) for _ in range(5)]
         waited = threading.Event(); original = allowance.condition.wait
         def wait(timeout): waited.set(); return original(timeout)
         with patch.object(allowance.condition, 'wait', side_effect=wait), ThreadPoolExecutor() as pool:
             third = pool.submit(allowance.reserve,32768)
             self.assertTrue(waited.wait(2));self.assertFalse(third.done())
-            self.assertFalse(allowance.is_set());self.assertEqual(allowance.forwarded,2)
+            self.assertFalse(allowance.is_set());self.assertEqual(allowance.forwarded,5)
             allowance.finish(ids[0],dict.fromkeys(CLAUDE_GATE_FIELDS,0))
             ids.append(third.result(timeout=2));self.assertIsNotNone(ids[-1])
         self.assertFalse(allowance.is_set())
         allowance.close(); before = allowance.snapshot()
-        self.assertEqual((before['forwarded_requests'],before['unknown_requests'],before['in_flight_requests']), (3,2,0))
-        self.assertEqual(Decimal(before['held_usd']),Decimal('38.083584'))
+        self.assertEqual((before['forwarded_requests'],before['unknown_requests'],before['in_flight_requests']), (6,5,0))
+        self.assertEqual(Decimal(before['held_usd']),Decimal('43.276800'))
         for identity in ids:
             if identity: allowance.finish(identity,dict.fromkeys(CLAUDE_GATE_FIELDS,0))
         self.assertEqual(allowance.snapshot(),before)
@@ -142,9 +225,9 @@ class MaximaTests(unittest.TestCase):
         identity=constrained.reserve(32768)
         constrained.finish(identity,dict.fromkeys(CLAUDE_GATE_FIELDS,0)|{'output_tokens':32768})
         self.assertIsNone(constrained.reserve(1));self.assertTrue(constrained.is_set())
-        sticky=gate.Allowance(lease());sticky.settled[0]=Decimal('32')
-        self.assertIsNone(sticky.reserve(32768))  # W19.04 does not fit the remaining18.
-        self.assertIsNone(sticky.reserve(1))  # W17.60 fits, but exhaustion is terminal.
+        sticky=gate.Allowance(lease());sticky.settled[0]=Decimal('42')
+        self.assertIsNone(sticky.reserve(32768))  # W8.65536 does not fit the remaining8.
+        self.assertIsNone(sticky.reserve(1))  # Exhaustion is terminal even for a smaller output request.
         self.assertEqual(sticky.forwarded,0)
         cancel=threading.Event();cancel.set();cancelled=gate.Allowance(lease(),cancel)
         self.assertIsNone(cancelled.reserve(1));self.assertFalse(cancelled.exhaustion.is_set())
@@ -153,7 +236,7 @@ class MaximaTests(unittest.TestCase):
         for stop in ('unknown','close','cancel','deadline'):
             cancel=threading.Event()
             allowance=gate.Allowance(lease(),cancel,time.monotonic()+(.2 if stop=='deadline' else 3))
-            ids=[allowance.reserve(32768),allowance.reserve(32768)]
+            ids=[allowance.reserve(32768) for _ in range(5)]
             waited=threading.Event();original=allowance.condition.wait
             def wait(timeout):waited.set();return original(timeout)
             with patch.object(allowance.condition,'wait',side_effect=wait),ThreadPoolExecutor() as pool:
@@ -165,9 +248,9 @@ class MaximaTests(unittest.TestCase):
                 elif stop=='cancel':cancel.set()
                 self.assertIsNone(third.result(timeout=2))
             self.assertEqual(allowance.exhaustion.is_set(),stop=='unknown')
-            self.assertEqual(allowance.forwarded,2)
+            self.assertEqual(allowance.forwarded,5)
             if stop=='unknown':
-                self.assertIsNone(allowance.reserve(1));self.assertEqual(allowance.unknown,2)
+                self.assertIsNone(allowance.reserve(1));self.assertEqual(allowance.unknown,5)
             allowance.close()
 
     def test_usage_only_refunds_complete_unambiguous_provider_controls(self):
@@ -193,7 +276,7 @@ class MaximaTests(unittest.TestCase):
             allowance = gate.Allowance(lease()); identity = allowance.reserve(32768)
             allowance.finish(identity,parser.final()); allowance.close()
             self.assertEqual(allowance.snapshot()['unknown_requests'],1)
-            self.assertEqual(allowance.snapshot()['held_usd'],'19.041792')
+            self.assertEqual(allowance.snapshot()['held_usd'],'8.65536')
         parser = gate.Usage(32768,True);parser.feed(good)
         self.assertEqual(parser.final(),usage)
         for stop in (None, '', 'unknown'):
@@ -413,9 +496,9 @@ class MaximaTests(unittest.TestCase):
 
     def test_near_ceiling_float_booking_and_reserved_numerical_headroom(self):
         # Synthetic boundary arithmetic supplements, never replaces, the real-usage replay.
-        usages=[dict(input_tokens=0,cache_read_input_tokens=0,cache_creation_input_tokens=1000000,output_tokens=32768),
-                dict(input_tokens=0,cache_read_input_tokens=39,cache_creation_input_tokens=677068,output_tokens=0)]
-        usages.append(usages[0])
+        worst=dict(input_tokens=0,cache_read_input_tokens=0,cache_creation_input_tokens=1000000,output_tokens=32768)
+        usages=[worst]*4+[dict(input_tokens=0,cache_read_input_tokens=34,
+                             cache_creation_input_tokens=840399,output_tokens=0),worst]
         allowance=gate.Allowance(lease());events=[]
         for index,usage in enumerate(usages):
             identity=allowance.reserve(32768);self.assertIsNotNone(identity)
@@ -431,7 +514,7 @@ class MaximaTests(unittest.TestCase):
                 max_cost=100,max_calls=100,max_total_calls=100,case_budget=1000)
         self.assertLessEqual(json.loads(ledger.read_text())['estimated_subscription_cost_usd'],50.0)
         tight=gate.Allowance(lease())
-        tight.settled[0]=Decimal('50')-Decimal('19.041792')-Decimal('0.0000005')
+        tight.settled[0]=Decimal('50')-Decimal('8.655360')-Decimal('0.0000005')
         self.assertIsNone(tight.reserve(32768));self.assertEqual(tight.forwarded,0)
 
 
@@ -474,6 +557,7 @@ class ProtocolTests(unittest.TestCase):
             self.assertNotIn('ANTHROPIC_AUTH_TOKEN',env);self.assertNotIn('HTTPS_PROXY',env)
             self.assertNotIn('CLAUDE_CODE_USE_BEDROCK',env)
             self.assertEqual(self.post(env,body(),Authorization='Bearer stranger')[0],401)
+            self.assertEqual(self.post(env,body(inference_geo='us'))[0],400)
             self.assertEqual(self.post(env,body(tools=[{'type':'web_search_20250305','name':'web_search'}]))[0],400)
             status,_,headers=self.post(env,body(context_management={},thinking={'type':'adaptive','display':'updates'}),
                 **{'anthropic-beta':'fast-mode-bad','anthropic-workspace-id':'must-drop'})
@@ -481,23 +565,23 @@ class ProtocolTests(unittest.TestCase):
             self.assertFalse(active.is_set())
         self.assertEqual(len(self.seen),1)
         sent=self.seen[0][1];headers={k.lower():v for k,v in self.seen[0][2].items()}
+        self.assertEqual(sent['inference_geo'],'global')
         self.assertEqual(sent['max_tokens'],32768);self.assertNotIn('context_management',sent)
         self.assertEqual(sent['thinking'],{'type':'adaptive'});self.assertEqual(sent['service_tier'],'standard_only')
         self.assertEqual(headers['anthropic-beta'],gate.BETAS);self.assertNotIn('anthropic-workspace-id',headers)
-        self.assertEqual(cap['validated_requests'],1);self.assertEqual(cap['unsupported_requests'],1)
+        self.assertEqual(cap['validated_requests'],1);self.assertEqual(cap['unsupported_requests'],2)
         self.assertEqual(cap['forwarded_requests'],cap['validated_requests']+cap['unknown_requests']+cap['in_flight_requests'])
 
     def test_uncertain_requests_hold_full_w_and_exhaustion_stops_before_network(self):
         self.failure=True;env={'CLAUDE_CODE_OAUTH_TOKEN':'synthetic'};cap={}
         with self.assertRaisesRegex(budget.BudgetError,'^model_call_cap$'):
             with gate.enforce(lease(),env,cap,3) as active:
-                self.assertEqual(self.post(env,body())[0],503)
-                self.assertEqual(self.post(env,body())[0],503)
+                for _ in range(5): self.assertEqual(self.post(env,body())[0],503)
                 self.assertEqual(self.post(env,body())[0],400)
                 self.assertTrue(active.is_set())
-        self.assertEqual(len(self.seen),2)
-        self.assertEqual((cap['forwarded_requests'],cap['unknown_requests'],cap['in_flight_requests']),(2,2,0))
-        self.assertEqual(Decimal(cap['held_usd']),Decimal('38.083584'))
+        self.assertEqual(len(self.seen),5)
+        self.assertEqual((cap['forwarded_requests'],cap['unknown_requests'],cap['in_flight_requests']),(5,5,0))
+        self.assertEqual(Decimal(cap['held_usd']),Decimal('43.276800'))
 
     def test_parent_cancel_and_cleanup_failure_are_not_monetary_labels(self):
         cancel=threading.Event();cancel.set();cap={};env={'CLAUDE_CODE_OAUTH_TOKEN':'synthetic'}
@@ -507,7 +591,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertFalse(cap['exhausted']);self.assertEqual(self.seen,[])
         with self.assertRaisesRegex(budget.BudgetError,'^cancellation_failed$'):
             with gate.enforce(lease(),env,cap,3) as active:
-                active.state.settled[0]=Decimal('32')
+                active.state.settled[0]=Decimal('42')
                 self.assertIsNone(active.state.reserve(32768))
                 raise budget.BudgetError('cancellation_failed')
         self.assertTrue(cap['exhausted']);self.assertTrue(cap['closed'])
