@@ -703,12 +703,15 @@ terminal_stop, diagnosis_state.stop is the literal infrastructure_exhausted.
   usage event/unknown marker is false. No private file or route-receipt invoked
   flag is consulted; no such flag is required from A.
 - `pending_projection(card) -> dict | None`: None unless exhaustion is true and
-  diagnosis for that exhaustion is still pending. Otherwise exactly
+  diagnosis for that exhaustion is still pending, and also None for current
+  infrastructure exhaustion or factory_bug_held (parent ruling 2026-10-30).
+  Other pending exhaustion projects exactly
   `{"schema_version":1,"status":"pending","replacement_eligible":<bool>}`.
   replacement_eligible = actual_model_work(card) AND the current exhaustion is
   not infrastructure_exhausted. A valid diagnosis_state.stop identifies the
-  current exhaustion; legacy cards without it use recovery.infrastructure_exhausted(card). Infrastructure exhaustion requests
-  read-only diagnosis only; it does not spawn replacement chains. B derives a child only from a PRESENT pending_projection with
+  current exhaustion; legacy cards without it use recovery.infrastructure_exhausted(card).
+  Infrastructure exhaustion requests read-only diagnosis through diagnosis_state,
+  but pending_projection returns None; it does not spawn replacement chains. B derives a child only from a PRESENT pending_projection with
   replacement_eligible exactly true; None always forbids first derivation.
   exhaustion and actual_model_work are diagnostic helpers, never a fallback
   authorization when the projection is absent. B applies its one-child journal
@@ -723,7 +726,7 @@ status:"pending"|"completed", outcome:null|"factory_bug"|"close_to_passing"|
 checkpoint. Provider waits/retries of that diagnosis keep it. A validated result
 sets completed/outcome before checkpointing; pending_projection then returns
 None even if the original terminal_stop remains. An active extension,
-factory-bug maintainer queue or retired case cannot schedule another diagnosis
+factory_bug_held or retired case cannot schedule another diagnosis
 for that same ID. Only a later, distinct code-recorded exhaustion (for example
 a completed extension still failing) creates a fresh ID; no counter is reset.
 Legacy exhausted cards without diagnosis_state project pending until the runner
@@ -731,13 +734,25 @@ records their first ID; B still requires an authenticated explicit import/migrat
 record before acting on any legacy projection. Malformed diagnosis_state fails
 closed to no projection. A validated close_to_passing continues in the same worker
 run into code-enforced extension admission; an interrupted extension resumes as
-ordinary same-owner work, so B needs no extra projection. factory_bug enters the
-existing coordinator maintainer queue; not_converging retires. Only a reviewed
-qualified fix and authenticated operation attribution admit a factory-bug resume
-(up to three lifetime resumes). That resume archives and clears the old
-infrastructure_gate marker before work; a later budget/round exhaustion creates
-a fresh diagnosis_state.stop and can qualify for replacement under the one-child
-journal rule. It does not reuse legacy restart's blanket infrastructure refusal.
+ordinary same-owner work, so B needs no extra projection. factory_bug persists its
+private finding and completed state, then stops unscored as factory_bug_held;
+not_converging retires. The content-free public field is exactly
+`factory_bug: {finding_id:<exhaustion UUID4>, gate_or_stage:<code-recorded stage
+or unknown>, summary_class:"factory_bug"}`. Private evidence stays at
+`diagnosis/<finding_id>/finding.json`; public status says needs attention with
+`factory bug: see finding <id>`. No model work follows while held. B adds only
+that status rule, not a maintainer service or fix-delivery contract.
+
+Per the parent ruling of 2026-10-30, after the fix merges, resume is the ordinary
+same-owner bind/import into a later batch release containing the fix. It retains
+at most three lifetime resumes, with a durable admission before work and no
+second debit on wait/crash replay. It clears the old infrastructure_gate before
+work. A later exhaustion gets a fresh diagnosis_state.stop; B still enforces
+one child per parent. D uses normal verified release/source authority, never a
+separate fix message. Operational receipts support infrastructure-waste
+reclassification without changing the cumulative total. The retired legacy
+import format below grants no such resume. Infrastructure and factory_bug_held
+projections are None; other slots are filled with ordinary new cases.
 
 `terminal_stop: diagnosis_pending` is produced by D's same-owner runner when an
 exhausted unknown-at-launch owner has settled and must exit without a model

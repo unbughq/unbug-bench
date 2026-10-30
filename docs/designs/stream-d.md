@@ -342,25 +342,55 @@ Bind results to the queued checkpoint; stale output cannot authorize newer work.
 Malformed/interrupted diagnosis is infrastructure, not a fourth case outcome;
 retain and repair/retry under the batch bounds. `not_converging` retires.
 
-Factory bugs enter the coordinator’s maintainer queue with reproducer/evidence.
-The maintainer follows ENGINEERING’s design/tests/goldfish flow; no automatic
-production edit. A reviewed qualified release identifies the finding and affected
-operations; the coordinator then resumes the checkpoint, at most three times.
-Move affected failed operations and their replay to `infrastructure_waste` by
-unique operation ID, keeping batch spend. Require operational receipts and the
-reviewed fix’s attribution; a model assertion alone cannot refund spend. Add a
-validator branch in `budget.py` for schema-v1 waste records
-`{kind:"factory_bug", id, diagnosis_sha256, fix_commit, fix_attribution_sha256,
-operation_ids, event_ids, infrastructure_waste_usd}`. Require unique operation/
-event IDs and amount equal to their settled receipt sum; replay operations are
-added once as they settle. Reclassification moves existing cost, never adds it
-twice or reduces batch total. `case_spending` excludes the classified event IDs
-from ordinary `spent_usd` and includes their sum once in `infrastructure_waste_usd`;
-`total_spent_usd` stays unchanged. Example: $12 booked, $4 classified → case $8,
-waste $4, batch total $12. Preserve the additive legacy infrastructure_kill
-validator because its charge has no already-booked event IDs.
-A fourth resume retires. Only conflicting substantive case judgments reach the founder.
-At batch bounds unfinished work retires, without holding the replacement.
+**Parent ruling, 2026-10-30: factory bugs do not wait for an in-batch fix.**
+Code is frozen per batch; ordinary plumbing releases roll forward at checkpoints.
+Fixes follow ENGINEERING §1 on a branch, with design, goldfish review and merge.
+There is no maintainer service, authenticated-fix delivery contract, mid-batch
+fix dependency, or automatic production edit.
+
+For a validated `factory_bug` outcome, persist the private finding and completed
+`diagnosis_state`, then stop unscored as `factory_bug_held`. No more model work is
+admitted for that held case in the current batch. The public card contains only
+`factory_bug: {finding_id, gate_or_stage, summary_class}`: `finding_id` is the
+existing exhaustion UUID4, `gate_or_stage` is the code-recorded gate/stage (or
+`unknown`), and `summary_class` is the fixed value `factory_bug`. No model prose,
+reproducer or case evidence is public. Retain the private finding at
+`diagnosis/<finding_id>/finding.json` in the encrypted checkpoint. `unbug status`
+shows a needs-attention item with action `factory bug: see finding <id>`; that
+ordinary attention list is the human handoff. B owns the single status rule.
+
+After a fix merges, an ordinary same-owner relaunch in a later batch release
+containing it goes through the normal `bind()`/import path. D reads the normal
+verified release/source binding, not a separate fix credential or message. Keep
+at most three lifetime factory-bug resumes: record admission before work, retain
+it across waits/crashes and do not count retries of that admitted resume again.
+A fourth retires. Clear the old `infrastructure_gate` before admitted work; the
+completed private finding remains evidence. A new exhaustion gets a fresh ID.
+The current retirement-only legacy-import proposal does not authorize this
+resume; B's normal bind/resumable-import path must supply ordinary authority.
+
+Affected failed operations and their replay go to `infrastructure_waste` by
+unique operation/event IDs and settled receipt sums. This is reclassification:
+$12 booked with $4 classified becomes case $8 + waste $4 = batch $12. It creates
+no headroom and adds no charge twice. Keep later receipt growth on the same
+attribution. Historical schema-v1 `fix_commit`/`fix_attribution_sha256` records
+remain readable, but are not a fix-delivery prerequisite for the new lifecycle.
+The retained validated finding and ordinary release/restore binding establish
+the source; attribution still requires actual operational receipts, never a
+model's asserted dollar amount. Preserve additive legacy `infrastructure_kill`
+records, whose charges have no already-booked event IDs.
+
+Infrastructure exhaustion gets no replacement: its pending projection is None,
+including before diagnosis, and `factory_bug_held` also projects None. The
+pending `diagnosis_state` still records a diagnosis request; projection absence
+never authorizes child derivation. The batch fills available slots with ordinary
+new cases. Other exhausted cases already covered by the one-child journal do
+not gain another child when a factory bug is diagnosed. At batch bounds,
+unfinished work retires without blocking other cases. Tests cover held-state
+purity/no work, content-free status, same-batch refusal, normal later-release
+resume, three lifetime admissions with replay, no infrastructure replacement,
+and unchanged cumulative spend under waste reclassification. No row closes
+without the required real-artifact qualification.
 
 ## Resume, accounting and checkpoints
 
@@ -766,9 +796,10 @@ no Murphy row. The initial diff review is recorded verbatim in
   Do not populate both copies from restored files. Until B supplies this installer,
   for_case fails closed. No delivery filename/environment convention is invented
   by D. Deadlines compare UTC instants, as A's metadata API permits.
-- Authenticate the diagnosis and reviewed qualified-fix attribution before
+- Authenticate the retained diagnosis and ordinary release/restore binding before
   reclassify_factory_bug. This accounting helper validates shape, settled sums
-  and idempotence; a hex digest's shape alone never authenticates a reviewed fix.
+  and idempotence; no separate fix-delivery contract is required (parent ruling
+  2026-10-30). Historical fix-attribution fields remain decode-only evidence.
   Initial attribution waits until all named operation reservations settle. A
   later final receipt extends the same waste record by its unique event IDs;
   it never creates a second record or changes cumulative batch spend.
@@ -936,7 +967,7 @@ D's public API is `diagnosis.exhaustion(card) -> bool`,
 All three are pure, contain no reference to their own output generation, and
 grant no authority. The pending projection has schema_version=1,
 status="pending", and replacement_eligible=actual_model_work(card) except
-that recovery.infrastructure_exhausted(card) is diagnosis-only and sets it false. B binds
+that current infrastructure exhaustion is diagnosis-only and returns None (parent ruling 2026-10-30). B binds
 it to its collected generation. A denied reservation alone is zero work;
 an actually invoked zero-cash subscription process is work. Private diagnosis
 results, findings, paths, and snapshots never enter that projection.
@@ -989,7 +1020,7 @@ The public extension history uses lifetime ordinal IDs 1..5 and hashes; null
 outcome_sha256 means active. Entry case/evidence is immutable; outcome appends
 once and a substantive late defect completes the extension as extension_incomplete.
 A close_to_passing diagnosis continues in the same worker into extension admission;
-factory_bug queues maintenance and not_converging retires. The required real-ledger
+factory_bug stops unscored as factory_bug_held; not_converging retires. The required real-ledger
 replays are listed in interfaces §8; no code is enabled by these clarifications.
 
 Parent ruling, 2026-10-30 (replacement derivation): B requires a present D
@@ -1004,7 +1035,7 @@ second child. D's pure card-only API does not pretend to read that external latc
 Interface review 17: accept R1 and J1/J2. B uses epsilon=(2*len(previous
 estimated map)+1) nanodollars, including zero-release settlements and
 re-estimates. This grants no money or released commitment. Factory-bug resume
-archives/clears the old infrastructure_gate before work; current diagnosis_state
+clears the old infrastructure_gate before work; current diagnosis_state
 identifies a subsequent exhaustion. release_uninvoked refuses non-pending rows.
 
 ### Increment 3a review boundary
