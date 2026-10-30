@@ -289,6 +289,23 @@ class MaximaTests(unittest.TestCase):
                 with self.assertRaisesRegex(budget.BudgetError,'^money_wait$'):job_authority.for_case(c)
             store.rpc('finish',dict(lease_id=actual.lease_id,outcome='denied',receipt=None))
 
+    def test_fractional_lease_maximum_reserves_upward_to_nine_places(self):
+        actual = replace(lease(), max_usd=0.1234567891)
+        # Synthetic tariff exercises rounding; real Lease validation stays active.
+        maximum = {k: getattr(actual, k) for k in router.MAXIMUM_FIELDS}
+        with patch.object(router, 'route_maximum', return_value=maximum):
+            rounded = model_runtime.invocation_maximum(SimpleNamespace(), actual)
+        self.assertEqual(rounded, Decimal('0.123456790'))
+        channel = json.loads((ROOT / 'tests/fixtures/factory/stream-d/job-money.json').read_text())
+        authority = job_authority.read(channel, copy.deepcopy(channel))
+        path = self.root / 'ledger.json'
+        path.write_text(json.dumps({'cost': 0, 'calls': 0, 'events': []}))
+        for amount in (rounded, actual.max_usd):
+            with self.subTest(amount=amount):
+                row = budget.reserve_invocation(path, replace(actual, lease_id=uuid.uuid4().hex), amount,
+                    authority, operation_id=str(uuid.uuid4()), call_name='builder-rounding')
+                self.assertEqual(row['maximum_usd'], '0.123456790')
+
     def test_factory_dispatch_preserves_lease_maximum_gate_and_invocation_identity(self):
         # Actual router policy, runtime gate and D accountant; fake process boundary.
         # Neither a CLI nor an upstream connection is launched.

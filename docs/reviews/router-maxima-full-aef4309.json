@@ -1,0 +1,12 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "tested_sha": "aef430984d093bb9d3ce308c515c6ff25560fdf9",
+  "integration_base": "49b178bfd5fd51ad7f9b22f2993db91025f6908b",
+  "started": "2026-10-30T05:03:18.526231Z",
+  "status": "passed",
+  "finished": "2026-10-30T05:18:52.996164Z",
+  "exit_code": 0,
+  "log_sha256": "b5e24847fb1d46599edc32406d899aad43bfbb03475f8a70d0603119c014c340",
+  "archived_log": "docs/reviews/router-maxima-full-aef4309.log.gz",
+  "archived_log_sha256": "a6e989cdc87697aaa552726fde97ba00982f22d54b73b565cdf973b9e4017f7c"
+}
