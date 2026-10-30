@@ -1592,7 +1592,8 @@ closes a row only when its test
 on real saved artifacts proves the whole row. Otherwise the row waits for
 item 8.
 
-1. **Completed-writer validation parity** (small; done in c62f5f2). A writer
+1. **Completed-writer validation parity** (small; implemented in c62f5f2;
+   full suite and diff review 1 passed, not yet merged). A writer
    killed at its completion checkpoint gets the same `unchanged_repair`
    decision as an uninterrupted one. Part of row 10. Closes no row.
 2. **Writer continuation and durable intent** (medium). An interrupted writer
@@ -1625,6 +1626,9 @@ item 8.
 7. **Continuation routing** (large). Join one writer round, its stress round
    and its gate re-run into one unit. Route the diagnosis outcomes (factory
    bug, extension, retire) through B's checkpoint and money adapters.
+   A case refused as `unchanged_repair` keeps a completed writer receipt and
+   refuses again on every re-entry; an extension must replace or advance that
+   receipt through B's checkpoint adapter, not re-enter at receipt load.
    Supports row 9.
 8. **Live qualification, then diagnosis on** (large, cross-stream). Run the
    integrated path on retained real run artifacts and authorized live A/B/E
