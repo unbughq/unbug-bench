@@ -87,6 +87,26 @@ class RuntimeTests(unittest.TestCase):
                 'release_rereviews': [], 'release_review_attempts': [], 'next_phase': 'G1' if role == 'writer' else 'gates',
                 **({'review_attempt': uuid.uuid4().hex} if role == 'stress_tester' else {})}
 
+    def test_pre_route_failure_preserves_original_error_after_double_release(self):
+        for family_change in (False, True):
+            with self.subTest(family_change=family_change):
+                self.ledger.write_text(json.dumps(self.source['continuation_budget']))
+                self.c.card['builder_rounds'] = 0
+                self.c.card['roles']['writer']['model'] = (
+                    self.c.models['strong_calibrator'][0] if family_change else self.c.models['builder'][0])
+                error = ValueError if family_change else budget.BudgetError
+                message = 'role family changed' if family_change else 'money_wait'
+                with patch.object(model_runtime, 'case_budget_boundary',
+                                  side_effect=None if family_change else budget.BudgetError('money_wait')):
+                    with self.assertRaisesRegex(error, '^' + message + '$'):
+                        run.pending_call(self.c, self.c.models['builder'], 'pre-route failure', self.case,
+                            'builder-1', self.receipt(), role='writer', on_complete=lambda: None)
+                ledger = json.loads(self.ledger.read_text())
+                row, = ledger['invocation_reservations'].values()
+                self.assertEqual((row['state'], row['event_ids'], row['estimated_gap_usd']),
+                                 ('settled', [], '0.000000000'))
+                self.assertEqual(budget.case_spending(ledger)['total_spent_usd'], self.baseline)
+
     def test_stream_accountant_links_unknown_usage_and_settles_once_above_five_dollars(self):
         self.assertGreater(self.source['continuation_budget']['cost'], 5)
         lease = model_router.Lease(str(uuid.uuid4()), self.c.models['builder'][0], 'claude-token', 1,

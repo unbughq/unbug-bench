@@ -375,6 +375,8 @@ def release_uninvoked(ledger_path, lease_id):
     with ledger_transaction(ledger_path) as ledger:
         row = ledger.get('invocation_reservations', {}).get(lease_id)
         if row is None: return
+        if row['state'] == 'settled' and not row['event_ids'] and usd(row.get('estimated_gap_usd', 0)) == 0:
+            return  # Both wrapper and caller may unwind the same unstarted lease.
         if row['state'] != 'pending' or row['event_ids']: raise BudgetError('reservation_already_invoked')
         row.update(state='settled', estimated_gap_usd='0.000000000')
 

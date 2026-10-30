@@ -578,7 +578,8 @@ Emit nothing if released_usd <= 0. Shared event attribution refuses settlement.
 `wait_id` is null for crash/late-receipt reconciliation, otherwise a retained
 wait_settlements ID naming the same lease. A pending row with an unknown/null
 prior total settles without a decrease record, because that row was not estimated.
-release_uninvoked refuses every non-pending reservation, including an estimated
+release_uninvoked accepts an already-settled empty row with zero gap as an
+idempotent no-op; otherwise it refuses every non-pending reservation, including an estimated
 row with no events; only settlement can release that row's gap with evidence.
 Further growing final receipts add actual usage and cannot release another gap.
 Replay adds no record and changes no total. B acknowledges each invocation once.
@@ -779,13 +780,23 @@ reservation as uninvoked. B owns the ACK bound/map tests; D owns the producers.
 
 ### Legacy import record (proposed)
 
-This additive proposal is not enabled. D owns the pure dry-run/migration and the
-worker evidence validator. B owns adoption, manifest storage, delivery and holder
-admission. B chooses the manifest member/path when it adopts this record; no
-path is implicitly trusted. The frozen nine-field RAM configuration is unchanged.
-`job_config.install` continues to refuse a legacy checkpoint without job-money.
+This additive proposal is not enabled. D owns the pure dry-run/migration in
+`carry_over.py` and the read-only worker validator in `restore_ledger.py`. B owns
+adoption, manifest storage, delivery and holder admission. B chooses the manifest
+member/path when adopting this format. The frozen nine-field RAM configuration
+is unchanged; `job_config.install` still refuses legacy checkpoints without
+job-money. No import record grants money or permission to run anything.
 
-One record has exactly these fields (all USD strings have nine decimal places):
+The initial format is deliberately spend-accounting plus retirement. No saved
+legacy archive currently proves lifetime extension/diagnosis history. Therefore
+`lifetime_history` must be null (unknown, never zero); it stands for lifetime
+extension, diagnosis and factory-bug-resume history, not an empty allowance.
+A future resumable import format must name real authenticated history evidence
+and pass a separate review. This format does not invent a history certificate or
+implement unused history schemas. It does not schedule diagnosis or replacement.
+B's adoption must explicitly accept or change that retirement-only routing.
+
+One record has exactly these fields (USD strings have nine decimal places):
 
 ```json
 {
@@ -793,80 +804,114 @@ One record has exactly these fields (all USD strings have nine decimal places):
   "import_id": "<sha256 of canonical {case, legacy_generation_sha256, ledger_sha256}>",
   "case": "case-...",
   "legacy_generation_sha256": "<verified restored archive sha256>",
-  "ledger_sha256": "<canonical original ledger sha256>",
-  "known_total_usd": "12.000000000",
+  "ledger_sha256": "<canonical original continuation_budget sha256>",
+  "known_total_usd": "27.072383602",
   "unresolved_invocations": [
-    {"invocation_id": "<uuid4>", "booked_event_ids": []}
+    {"invocation_id": "<deterministic sha256>", "marker_index": 0,
+     "marker_sha256": "<canonical marker sha256>"}
   ],
   "unresolved_invocation_count": 1,
   "per_unresolved_invocation_usd": "33.000000000",
   "estimated_added_usd": "33.000000000",
-  "estimated_total_usd": "45.000000000",
+  "estimated_total_usd": "60.072383602",
   "lifetime_history": null,
   "founder_authorized_total_usd": null
 }
 ```
 
-`known_total_usd` includes all known model charges and infrastructure waste from
-the shared raw Decimal valuation, rounded up once. An unresolved invocation must
-have a unique canonical UUID4 and an explicit `booked_event_ids` list in the
-retained ledger's `unpriced_invocations` marker. The list names exactly its already
-booked events; duplicate IDs, shared events, missing IDs/count, active work, other
-unknown monetary facts or any invocation reservation refuse this legacy format.
-It is not a conversion of a partially migrated modern ledger. No count is inferred
-from calls, elapsed time, model names or the number of anonymous markers.
+Each top-level `continuation_budget.unpriced_invocations` marker in the
+**authenticated original ledger** counts as exactly one unresolved invocation,
+including anonymous or byte-identical markers at different indices. The old
+streaming accountant appended one marker per unresolved invocation; do not fold
+markers by model/role or require new UUIDs in old bytes. Stable invocation identity
+is `sha256(canonical {import_id, marker_index, marker})`, assigned only in the
+migration output. The original marker and ledger bytes are unchanged. Markers
+nested in `infrastructure_waste[].derivation` are historical resolved evidence
+and never counted again. Active/running work without a complete top-level marker
+count, invalid/unpriceable events, unknown aggregates/waste, invocation
+reservations or already-imported ledgers refuse this format. In particular the
+raw valuation's unpriced count must equal the top-level marker count; it cannot
+silently turn an unpriced event into a $33 invocation. Missing count refuses that
+case, without blocking the other cases or assigning it an invented zero total.
 
-The per-invocation $33 addition is the conservative historical estimate described
-in D's design, not a route maximum or model allowance. The dry-run is pure and
-prints known total, unresolved count, $33 each, added estimate and final total,
-per case and summed across accepted cases. Refused cases are listed separately
-and contribute no invented zero to that sum. The dry-run leaves
-`founder_authorized_total_usd` null. The founder must authorize the exact final
-amount for each record; an accepted record has that field equal to
-`estimated_total_usd`. B authenticates that authorization through its ordinary
-manifest process. Merely filling in the field is not proof of authorization.
+`known_total_usd` includes known model spend and waste, using the shared raw
+Decimal valuation and its single `usd` rounding (the same nine-place public total
+as `case_spending`). The dry-run shows known total, unresolved count, $33 each,
+added estimate and final total, per accepted case and summed across accepted
+cases. Refused cases are listed separately. The $33 addition is the conservative
+historical estimate in D's design, not an invocation maximum or allowance.
+`founder_authorized_total_usd` stays null in the dry-run; accepted records require
+it to equal `estimated_total_usd` exactly. B must authenticate the founder's
+approval of those exact per-case numbers through its manifest process. Merely
+filling in that field is not proof of authorization. Neither helper allocates
+commitment or writes job-money. The dry-run alone consumes no batch headroom.
+If B later offers these retired imports and the founder explicitly includes one
+in a batch, its historical spend counts against that batch's cumulative bound;
+B can instead omit the case entirely. No other owner is charged automatically.
 
-`lifetime_history` is either null (unknown, never zero) or exactly
-`{extension_history, diagnosis_history, factory_bug_resumes}`. Extension history
-has D's exact public shape above. Diagnosis history is an ordered list of the
-exact `diagnosis_state` records above, with unique exhaustion IDs and only the
-last record possibly pending. Factory-bug resumes is an ordered list of
-`{exhaustion_id, fix_commit, fix_attribution_sha256}` with unique exhaustion IDs,
-at most three, each referring to a completed factory_bug diagnosis. The worker
-requires a byte-hash-authenticated checkpoint `lifetime-history.json` with exactly
-that object; canonical content equality to the manifest record is required.
-Missing history cannot become empty arrays. Such a case may have its spend
-imported, but retires as `retired_import_history_unknown` and cannot launch.
-The retained aggregate is a producer obligation for later checkpoint writers;
-this proposal does not invent a zero-history certificate for older archives.
+The canonical source is the public card's **`continuation_budget`**, equal to
+`work/scorecard.json`'s `continuation_budget` and, when present,
+`work/continuation-budget.json`. Hash that raw ledger for `ledger_sha256`.
+`case_budget` is a derived public summary, not another ledger and not byte-equal
+to it: recompute the known total and unknown count from `continuation_budget`;
+its ordinary-limit/display fields grant no authority. The worker receives the
+record, expected record digest, case and exact restored archive digest from B's
+independently authenticated manifest/restore boundary. It checks those bindings,
+exact schema, public/archived/retained ledger equality and all recomputed money
+and invocation fields. It refuses stale generations, changed ledgers, non-null
+unsupported histories and absent numeric authorization. The record must not
+already appear as job-money or be inferred from a public-card limit.
 
-The worker receives the record, its expected digest and the exact source archive
-digest from B's independently authenticated manifest/restore boundary, not from
-the restored card. It verifies the record digest and exact schema, case/generation,
-public and archived ledger equality (and a separate retained ledger when present),
-then recomputes the dry-run, including history, against those bytes. Every money
-field and invocation identity must match. It refuses stale/different generations,
-tampered histories, unsupported usage, and absent numeric authorization. This
-validator is read-only; D's migration returns a new value and never writes the
-live worker ledger or installs job-money. B must review and wire publication.
+Migration returns a new card without writing the live ledger. Original events,
+rounds and waste remain. Each unresolved marker produces this exact event:
 
-Migration preserves original events, rounds and waste. For each unresolved
-invocation it appends one explicit $33 estimate event with stable identity
-`legacy-import:<import_id>:<invocation_id>`, archives the original unknown marker
-in `resolved_unpriced_invocations`, and removes only that covered marker. Estimate
-events have zero calls and remain distinguishable from observed model work.
-Replay with the same record is idempotent; a different import never stacks an
-estimate. Unknown-usage imports retire as `retired_import_estimate`, regardless of
-history. Verified late final receipts may replace those estimates by the existing
-event-ID deduplication rule, never add final charges beside an unreleased estimate;
-that reconciliation must be reviewed before B enables this format. A legacy
-record alone does not make any exhaustion replacement-eligible for B.
+```json
+{
+  "id": "legacy-import:<import_id>:<invocation_id>",
+  "kind": "legacy_import_estimate",
+  "role": "legacy_import",
+  "configured_model": "legacy-unknown",
+  "cost": 0,
+  "list_cost_usd": 33,
+  "estimated_subscription_cost_usd": 0,
+  "calls": 0
+}
+```
 
-No import record grants a commitment, money revision, extension, diagnosis call,
-replacement, or resume. B must separately adopt the format and its retirement/
-diagnosis routing, account imported spend against the founder's batch bound, and
-issue ordinary job authority. Until then both helpers remain unwired and legacy
-job installation remains refused. Tests use saved cards for exact known totals,
-authored identified unknown markers for the visible $33 × 10 = $330 addition,
-wrong-generation/ledger/history/authorization refusals, input purity and replay.
-No Murphy row closes on these authored import records.
+Increase the top-level `list_cost_usd` by `estimated_added_usd`, starting from its
+existing numeric total or the sum of existing events when absent. Preserve all
+other original totals, including calls. `case_spending` values the event through
+its existing list-cost component. Move each covered top-level marker to
+`resolved_unpriced_invocations` as
+`{original:<marker>, import_id, invocation_id, estimate_event_id}` and clear only
+those covered markers. Store a content-free `legacy_import` card marker with
+`{schema_version:1, import_id, record_sha256}`. Require the output to pass
+`usage_facts` and its `case_spending.total_spent_usd` to equal
+`estimated_total_usd` at nine places; otherwise refuse, never change a known
+charge to force equality. With unknown usage set `status: retired` and
+`terminal_stop: retired_import_estimate`; with known usage set
+`terminal_stop: retired_import_history_unknown`. No current-state history or
+extension count is fabricated.
+
+B must enforce **at most one accepted import per case per batch**, regardless of
+source generation. Worker/migration validation refuses any source already
+containing a `legacy-import:` event, import resolution marker or `legacy_import`
+card marker, including a different import ID. Replay of the same original source
+and authorized record returns identical output; future publication must compare
+that output before an idempotent write, never migrate the migrated ledger again.
+Tests include two generations of one case and repeated pure replay. A new source
+record cannot add another estimate on an already migrated ledger.
+
+Anonymous markers cannot be matched reliably to late provider receipts. This
+initial retired format therefore retains its explicit estimates; it does **not**
+claim to implement late reconciliation. Replacing an anonymous estimate requires
+a separately reviewed attribution format before enablement. D's broader design
+requirement for late replacement remains outstanding, not silently satisfied.
+
+Tests use real `canary6-collected-card.json` and `c7d405-collected-card.json` for
+known-plus-$33 totals and real `infrastructure-kills.json` for resolved nested
+markers. Authored ten-marker input additionally makes $33 × 10 = $330 visible.
+Wrong generation/ledger/record/authorization, invalid usage, repeat/cross-import,
+unknown history and input purity are tested. Both helpers remain unwired until B
+adopts and independently reviews manifest/holder integration. No Murphy row
+closes on authored import records.
