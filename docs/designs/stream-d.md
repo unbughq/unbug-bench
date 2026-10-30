@@ -1293,11 +1293,28 @@ The minimum is a nonempty case tree, the valid pending authenticated card,
 the reconciled JSON ledger, and all selected release source. Every evidence
 reference in a copied gate-cache record must resolve to a copied work file
 (bench-kind references resolve under work/bench-results) with the stated hash.
-For a trigger mapped to a gate, require its `gate-details/<gate>.json`, except
-that an authenticated `infrastructure_gate` marker for that gate with
-`exhausted: true` is sufficient when the attempt crashed before writing details.
-This exception keeps infrastructure diagnosis possible without inventing a
-successful gate receipt. Budget/stress triggers need no gate-detail file.
+Required stop evidence follows its existing producer, not a universal
+gate-detail filename:
+
+- `late_defect_needs_ruling:<gate>` requires copied `work/late-defect.json`:
+  its gate and the authenticated card's `late_defect.gate` equal the stop's
+  gate, and `late_recovery.digest(record)` equals `late_defect.record_sha256`.
+  G4/G6 need no gate-detail file; `stop_defect` already retains their detail
+  in this bound receipt.
+- `extension_incomplete` requires the completed last outcome in copied
+  `work/extension-history.json` and its immutable snapshots. Verify with the
+  extension history reader against the authenticated card's §8 projection;
+  the last outcome must be non-null and its canonical digest must equal that
+  projection's `outcome_sha256`. This reuses the snapshot validation instead of
+  fabricating a gate-detail receipt.
+- `infrastructure_exhausted` requires the authenticated input card's
+  `infrastructure_gate.exhausted: true` marker with its code-recorded gate.
+  A crash may have produced no detail file, which does not prevent diagnosis.
+- Budget/stress-round exhaustion requires its valid pending state and retained
+  ledger; no universal gate-detail file is required.
+
+Any existing gate-detail files remain additional evidence. Missing or mismatched
+required stop receipts are invalid inputs, not evidence of a writer failure.
 Missing required inputs use `diagnosis_input_invalid`, defined below.
 
 Statements are excluded: they belong to the separately encrypted statement
@@ -1316,8 +1333,16 @@ not add a new checkpoint state or require an extra upload. Stage into
 `work/diagnosis/<exhaustion_id>/.inputs-staging/`, hash the copies, fsync
 files/directories, atomically publish inputs on that same filesystem, then
 durably write input.json. No model call can precede that manifest. If input.json
-is absent, remove orphan inputs and staging directories and re-stage current
-bytes; nothing has bound the orphan to an invocation. Refuse symlink parents
+is absent, first inspect this exhaustion's retained state, before cleanup or
+finding validation. Any `finding.json`, `raw-result-*.json`, completed
+diagnosis_state or retained diagnosis invocation reservation makes this
+`diagnosis_input_invalid`; preserve all remaining inputs and findings. The
+dispatcher uses `diagnosis-<exhaustion_id>` as the initial reservation call_name
+and `diagnosis-<exhaustion_id>-repair-<ordinal>` for schema repair, so this check
+uses those exact names in the ledger rather than model text. These names are
+an obligation on future dispatcher wiring, which is not enabled here.
+Only an unbound pending attempt with none of that evidence may remove orphan
+inputs and staging directories and re-stage current bytes. Refuse symlink parents
 rather than following them during cleanup. Once input.json exists, never rewrite the snapshot from
 new work. Replays verify its exact file inventory and digests, case and
 exhaustion ID. A later same-owner wait/checkpoint generation does not rebind the
@@ -1366,9 +1391,14 @@ use the saved 5813be ledger and verified practice bytes:
 freeze input, write a finding, interrupt public completion, append to the live
 ledger, then replay the same finding without a model. Corrupting frozen input
 must stop as diagnosis_input_invalid with exhaustion false and a None projection,
-including with an infrastructure marker. Test orphan re-staging after live
-settlement, initial generation mismatch, missing gate evidence (and the crash
-marker exception), gate-cache reference resolution, release digest mismatch,
+including with an infrastructure marker. Remove the manifest after a finding
+but before public completion, append live usage and attempt replay: preserve
+input bytes, finding and exhaustion ID, do no model work and stop input-invalid.
+Repeat after completed hold, and cover raw-result/reservation-only evidence.
+Separately test genuine pre-manifest orphan re-staging after live settlement,
+initial generation mismatch, G4/G6 late-defect receipts without gate details,
+their missing/wrong-gate/wrong-digest refusals, completed extension outcome
+bindings, the infrastructure crash marker, gate-cache reference resolution, release digest mismatch,
 and unchanged replay across a later authenticated source generation. Assert
 None projections for invalid history both before and after a completed hold.
 These are offline control tests and close no Murphy row.
