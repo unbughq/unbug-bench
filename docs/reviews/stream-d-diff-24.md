@@ -113,3 +113,12 @@ The tests use authored release and lifecycle envelopes over real practice bytes 
 
 Accepted the optional N1 test refinement; it will use the existing gate-details path and digest in the next implementation increment. All diff-23 nits are resolved by this passing review. Source/tests remain pinned at 210eb39 while its full suite runs. No Murphy row closes. The separate worker-dispatch design at df69412 is under a fresh design goldfish; no dispatcher code is implemented or enabled.
 
+## Full-suite result
+
+The required full command completed on the unchanged source/test tree at 210eb39:
+`uv run --with numpy --with scipy python -B tests/run.py` — **150 scripts, 0 failed**.
+The launch-guards script passed; no isolated rerun was needed. Log:
+`/tmp/stream-d-inputs-nits-suite.log`, SHA-256
+`c6a7fd4fe523a049e4460b4398a528cf65f6148be527f9b94c2745a6eb0bb0bd`.
+Only design/review documentation changed while this suite ran. No Murphy row closes.
+
