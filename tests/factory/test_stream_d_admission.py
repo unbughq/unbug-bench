@@ -119,6 +119,13 @@ class AdmissionTests(unittest.TestCase):
         self.refuse('extension_reservation_mismatch', role='stress_tester')
         self.refuse('extension_reservation_mismatch', name='builder-2')
 
+    def test_missing_or_nondictionary_binding_refuses_before_admission(self):
+        receipt = {key: value for key, value in self.receipt.items() if key != 'binding'}
+        self.refuse('extension_reservation_mismatch', receipt=receipt)
+        for binding in (None, [], '', False):
+            with self.subTest(binding=binding):
+                self.refuse('extension_reservation_mismatch', receipt={**self.receipt, 'binding': binding})
+
     def test_pending_ordinary_operation_cannot_be_adopted(self):
         lease = model_router.await_lease('writer', self.c)
         operation = str(uuid.uuid4())

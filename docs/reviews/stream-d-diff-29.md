@@ -178,3 +178,12 @@ Launch guards passed; no isolated rerun was needed. Log:
 Together with fresh Claude diff review 29, this passes the unwired first-admission
 increment. N1 is still scheduled for the next small correction before wiring;
 the open continuation/scientific evidence/activation boundaries are unchanged.
+
+## N1 correction
+
+The next correction adds the dictionary-binding guard before any lease and a
+missing/non-dictionary binding control. The 19 admission tests pass. Source
+change is one line; ENGINEERING's small-fix exception skips a separate design
+review, with the existing design clarified. Full-suite and fresh diff review
+are still required for this correction; no new readiness or row-closure claim
+is made here.

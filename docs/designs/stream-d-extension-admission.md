@@ -40,7 +40,7 @@ into scientific authority or treat every work file as eligible stage evidence.
 Add optional keyword `extension_proposal=None` to `run.pending_call`. Existing
 callers pass nothing and retain ordinary admission. No production caller is
 added in this increment. A non-null value is permitted only for `role='writer'`,
-with receipt actor `writer`, receipt round equal to the proposal round and name
+with receipt actor `writer`, a dictionary `binding`, receipt round equal to the proposal round and name
 exactly `builder-<round>`. Rounds must be positive strict integers. A first-admission
 receipt must contain none of the admission-owned keys `schema_version`,
 `operation_id`, `phase`, `lease_id`, `invocation_id`, `resumed_from_wait` or
@@ -224,3 +224,10 @@ exposed the directory EISDIR behavior documented above; its real-reader control
 now passes without changing the shared reader. Full-suite and fresh diff-review
 results belong in the review record. No Murphy row closes and no live extension
 or money activation is claimed.
+
+Diff-29 N1 follow-up checks `binding` before the lease, so a missing/non-dictionary
+binding cannot consume an extension ID before the attack receipt fails. Its
+regression control requires `extension_reservation_mismatch` with no lease,
+reservation, history, receipt, callback or writer. This obvious one-line guard
+uses ENGINEERING's small-fix exception to a separate design review; it still
+requires the full suite and a fresh diff review.
