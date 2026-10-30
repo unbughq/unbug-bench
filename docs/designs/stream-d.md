@@ -1833,3 +1833,129 @@ accounting gap. No production extension caller exists yet (item 7);
 intent mandatory for that future caller. The skipped `if report and problems:`
 block's founder-feedback branch is already inert under `modern`; skipping it is
 also a simplification.
+
+### Third increment: money cleanup and settlement
+
+Problem. New factory jobs are the batch path only: `batch.bind` marks the
+job `_batch_job`, strips `--max-cost` from its argv (`batch.py:169–176`), and
+`run.py` runs it with `--batch-release-sha256`, so `model_runtime.factory_job`
+is true. `batch_money` refuses a manifest job carrying `max_cost`. Two gaps
+are left on that path.
+
+1. **Row 8: the $5 default still binds factory evidence.** The call path
+   already passes `max_cost=None` (`model_runtime.py:639`, `budget.py:736`),
+   so the cap is not enforced. But `run.py`'s `--max-cost` default of 5.0
+   stays in `c.args`. It is hashed into the stress binding
+   (`gate_state.judge_dependencies` settings, via `run.attack_binding`), the
+   G8/G9/G16 fingerprints (`gate_state.inputs`), the calibration identity
+   (`run.calibration_identity` limits) and `recovery_config`. So factory
+   evidence says it ran under a $5 cap that did not apply, and it cannot be
+   told apart from legacy evidence that really ran under the cap. That is the
+   binding migration the "Remove the paid cap everywhere" section requires.
+2. **Row 21: unknown usage still makes the case total unknown.**
+   `budget.complete_invocation` (`budget.py:357`) leaves a call whose receipt
+   lacks final usage as a `pending` reservation plus an `unpriced_invocations`
+   marker. Until the next `reconcile_reservations`, `case_spending` returns
+   `total_spent_usd: None`. Two admissions read that first:
+   - the router's retry inside the same `ModelRuntime._call`: the next
+     lease's `reserve_invocation` refuses with `money_wait`, so a provider
+     blip with partial usage blocks the retry on the next account;
+   - writer admission in `run.pending_call` (`run.py:385–387`):
+     `spent_usd is None` raises `budget_exhausted`, an ordinary terminal stop
+     that sends the case to diagnosis because of an accounting gap.
+
+Change.
+
+- `budget.complete_invocation`: a receipt without final usage settles through
+  the existing `_settle_leaf` as `estimated`, charging the reservation's
+  remaining maximum. That also removes the marker bound to that invocation.
+  This is exactly what `reconcile_reservations` already does at the next
+  call or resume, done at the point the call ends. A later final receipt
+  replaces the estimate once, through the same settler and its
+  `reconciled_decreases` record. `settle()` for a provider wait re-reads the
+  same leaf and records its wait provenance as before. Unbound legacy markers
+  (no reservation) are unchanged and still go through the $33 import.
+- `run.py` `main`: when `--batch-release-sha256` is given, set
+  `a.max_cost = None` before the card is built. An explicit `--max-cost` on a
+  factory job is historical and ignored (`batch.bind` already strips it).
+  `recovery_config`, the stress binding, the G8/G9/G16 fingerprints and the
+  calibration identity then record `max_cost: None`. That value is the new
+  accounting-policy version. The `max_cost` key stays in each of them, so
+  non-factory fingerprints are byte-identical. Merging this is the one-time
+  intentional migration: factory evidence already fingerprinted with 5 stops
+  matching and reruns once, inside the job commitment. Pass criteria and
+  time/call limits are unchanged.
+
+Deliberately not changed. Each site below keeps its numeric cap because no
+new factory job reaches it. These paths have no job authority, so deleting
+the cap would leave them with no money bound at all. They retire with their
+paths (`docs/factory-single-path.md`), not here.
+
+- `g11_review.py`: `batch.bind` refuses `--audit-g11` and
+  `--continue-g11-review` (`batch.py:143–151`). The G11 audit is a
+  non-factory audit job, like `bin/run-exam`.
+- `ttl_continuation.py`: a batch policy has only `mode: batch` jobs
+  (`key_holder.py:128`), and `ttl_continuation.policy_check` requires
+  `mode: case`. B's launcher replaces TTL continuation.
+- `restart.py`, `coordinator.py`: `launch.sh` `factory_auto_resume` returns
+  at once for a batch release (`launch.sh:494`). The coordinator's
+  `max_cost` check is already skipped once `ordinary_limit_usd` is present.
+- `key_holder.py`: both checks are already skipped for `_batch_job`
+  (`:208`, `:355`).
+- `carry_over.py` `OPERATIONS`/`INFRASTRUCTURE_LIMIT`: only `project`,
+  `admission` and `load` read them, and only `tools/carry-over-corpus.py`
+  calls those (a report). No launch, resume or import admission uses them.
+  `legacy_import_dry_run` does not refuse on an allowance.
+- `gate_state.py`: no code change. Its values follow `c.args`.
+- `bin/run-exam`: keeps the $5 owner cap, as the inventory says.
+
+So the plan's "remove" for these entries becomes "prove unreachable from a
+factory job". The search exam below holds that line.
+
+Deletes: the `pending` + marker branch in `complete_invocation`, and the
+factory job's $5 binding input. Adds one line in `run.py` and none
+elsewhere in production code.
+
+`factory/README.md`: the `--max-cost` paragraph says the flag is the
+non-factory and exam-owner cap. Batch jobs use the job money channel's
+cumulative commitment.
+
+Tests, in `tests/factory/test_stream_d_runtime.py` on the hash-verified
+practice case and the captured 5813be ledger (priced cost already above $5).
+Only model outputs and the gate's unknown-request count are authored.
+
+- **Unknown usage settles, and the next admission proceeds.** Two subtests
+  through the real `run.model_call` / `ModelRuntime._call` / router / ledger.
+  (a) A stress call returns `done`, but the gate recorded an unknown request.
+  The ledger row is `estimated` at its maximum, there is no unpriced marker,
+  and the total is known. The next writer `pending_call` is admitted and
+  completes, with no `budget_exhausted`. (b) A writer call starts, records an
+  unknown request and fails with `claude_error`. The router retries on the
+  second Claude account inside the same call, and that retry is admitted.
+  There are two reservations, the first is `estimated`, and the total equals
+  the baseline plus the first maximum plus the second actual. Both subtests
+  fail on the current code.
+- **Factory jobs carry no paid cap.** A `run.main` subprocess harness (same
+  pattern as the existing main test) runs with a real batch-release file and
+  an authored job installer. It records `c.args.max_cost is None` and
+  `recovery_config['max_cost'] is None`, then runs the real streaming
+  accountant with a priced OpenCode event on the 5813be ledger. The factory
+  setting books it past $5 without a stop. The non-factory control (5.0)
+  stops with `cost_limit`.
+- **Changed-stage membership.** With `max_cost` 5 versus None, only the
+  G8/G9/G16 fingerprints, the stress binding and the calibration identities
+  change. Every other gate fingerprint is identical.
+- **Search exam.** Every `max_cost`/`--max-cost` occurrence in `factory/`
+  (`.py`, `.sh`) and `bin/` is counted per file against a classified table:
+  factory-none, non-factory protection, historical decode or validation, or
+  binding key. A new occurrence fails the test until someone classifies it.
+
+Rows. Row 8 closes with the no-paid-cap and search-exam tests. Row 21 closes
+with the settlement test. Both run on real saved ledger and case bytes
+through the real runtime, router and ledger code.
+
+Known window, not fixed. `run_budgeted` writes its marker just before the
+same thread's `complete_invocation` turns it into an estimate. A concurrent
+reservation inside that window still waits with `money_wait`. It is a short
+wait, not a stop, and B's coverage already counts bound markers at their
+maximum.
