@@ -561,9 +561,17 @@ and the batch lock it decides whether the child finished its job:
 - resume: done when `launches/<id>/complete` exists;
 - publish: done when the child exited 0.
 
-If not done, `failures += 1`. At `RETRY_LIMIT = 5` it sets the terminal
-incident `resume_failed` or `publication_failed`. The count is durable, so a
-holder restart does not reset it. `batch_tick` waits `60 * 2**(failures-1)`
+If done, `failures` resets to 0. If not done, `failures += 1`. At
+`RETRY_LIMIT = 5` it sets the terminal incident `resume_failed` or
+`publication_failed`. The count is durable, so a
+holder restart does not reset it. `failures` joins the operation `FIELDS` as a
+non-negative int, and `resume_failed`/`publication_failed` join the operation
+`incident` whitelist in the one shared `validate_operations` (which
+`batch_service` imports). The money-state accounting-incident reasons are a
+separate set and are unchanged. Resetting `failures` to 0 on a done child
+resolves design-1 N2 (a later flap would start fresh); in practice a done
+operation keeps `complete` or its output and is never listed for respawn
+anyway. `batch_tick` waits `60 * 2**(failures-1)`
 seconds (60, 120, 240, 480 s) before the next spawn, and pops the wait when it
 respawns. A busy operation lock means a live owner; the exit is not counted and
 the holder waits 60 s. `orphaned()` and the new publication scan skip both
@@ -582,8 +590,19 @@ exist and the lock is free, reconcile creates it (`mkdir`, mode 0700) before
 marking the operation `failed`/`preflight_refused`. `control_resume.py` creates
 that directory with a plain `mkdir`, so a late `launch.sh` can no longer start
 a worker for this launch ID. `dispatch_exit` stays as a recorded fact only.
-Known ceiling: a dispatch child killed in the microseconds between
-`control_resume`'s `mkdir` and its `launch.json` write stays `pending`.
+
+The predicate never marks `failed` while a worker exists or could still be
+started (design-1 M2). `guard_new` runs the creator as `( boat new ... ) >
+"$state/new.$serial"`: the shell opens that file before the creator's API call,
+and an unknown outcome also `touch`es `new.$serial.pending`. So any created
+worker always leaves a `new.*` file, and the `no new.*` clause can only hold
+when the creator never ran. A free `controller.lock` plus the `mkdir` fence
+then prove no worker can start later. No Boat inventory call is added, because
+reconcile runs under the batch lock and that lock does no cloud I/O. The only
+residual is fail-pending, not fail-while-live: a controller killed after
+`control_resume`'s `mkdir` but before its `launch.json` write, with the
+directory present, stays `pending`; the directory-absent case is handled by
+reconcile's own `mkdir`.
 
 **Publication replay (prerequisite: holder-driven replay).** Add
 `unpublished(policy, root, home)`: operations with `state=launched`,
@@ -592,21 +611,51 @@ Known ceiling: a dispatch child killed in the microseconds between
 `collected/<case>.scorecard.json` present. `complete` means the controller
 finished and its workers are deleted, so collection is no longer racing.
 `batch_tick` spawns `batch_holder.py publish --operation <id>` for each, with
-the identity on stdin as for the other children. The child decrypts
+the identity on stdin as for the other children. The child holds
+`operations/<id>.lock` for its whole run, like dispatch and resume, so a
+second publish child (after a holder restart) refuses and its exit is not
+counted. The child decrypts
 `$UNBUG_SECRETS_FILE` in memory, reads only the four `R2_*` lines of `r2-env`
 into its own environment (the same values `launch.sh` exports for
 `collect.sh`), then runs the existing `reconcile` and `collect`. No new
 publication logic: it is the same idempotent command collect.sh runs.
+Known ceiling: an R2 outage longer than the four waits (about 15 minutes)
+makes the operation `publication_failed`. The verified bytes stay in the
+launch directory; there is no automatic clearing in this increment. The
+`publish` child reads the identity on stdin and zeroes that buffer in the same
+`finally` the `dispatch`/`resume` children already use, so the live R2 key
+never outlives the command (design-1 N3).
 
 **Terminal dispositions are visible (prerequisites: retired with no output,
 incidents on retired operations).** These stay terminal and money-safe: the
 full hold stays committed, no retry identity is issued, and the operation ID
 stays consumed. A retry could spend the same hold twice, because the restored
-ledger cannot include the lost attempt's spend. `batch_status` adds the row's
-operation incident and a `failures` count, and `render` flags:
-`resume failed`, `publication failed`, `launch failed` (any `failed`
-operation, immediately, replacing the 30-minute `launch stuck` for failed
-rows) and `retired without output`. `active` ignores failed operations (N3).
+ledger cannot include the lost attempt's spend.
+
+`batch_status.read_rows` stops choosing by "the unique nonretired operation,
+else the one whose output is current". That rule hides two terminal states
+behind an earlier collected entry: a failed successor (it has no output) and a
+successor retired with no output (today that row even turns `unreadable`
+when a predecessor has output). It selects the **chain head** instead: the
+one operation whose output is null or is not the source of another operation
+for the job. Operation IDs are deterministic per source, so the chain is
+linear and exactly one head exists; zero or several heads is `unreadable`.
+The head maps to:
+
+- `pending` -> pending; `failed` -> failed. Both keep the collected card, if
+  any, so spend shown is the last collected.
+- launched, output null, not retired -> running.
+- launched, output null, retired -> stopped with the collected card, or
+  `not collected` if none.
+- launched, output equal to the current entry -> stopped with that card;
+  any other output -> `unreadable` (pointer/ACK disagreement, as today).
+
+`accounting_refused` and `legacy_retire` on the head stay `unreadable`. The
+pointer-without-ACK check is unchanged. The row carries the head's incident,
+and `render` flags `launch failed` (a failed head, immediately; this replaces
+the 30-minute `launch stuck` for failed rows), `retired without output`,
+`resume failed` and `publication failed`. N3 is resolved by this rule:
+nothing counts "active" operations any more.
 
 **Trusted closure.** Add `factory/budget.py` and `factory/diagnosis.py` to
 `TRUSTED_FILES`. Their local imports (`token_prices`, `recovery`, `registry`)
@@ -652,6 +701,9 @@ The `dispatch_exit` gate in `_reconcile_one`. The unbounded resume respawn.
    and ACKs it; it is then not listed. Five failed publishes give
    `publication_failed` and stop the scan.
 5. Status flags for failed, retired-without-output and both terminal labels.
+   A failed successor and a retired-without-output successor each render
+   with their own phase and flag when the predecessor's collected entry and
+   pointer exist (real collected generation, not a hand-built card).
 6. N4: `serve` with gate on accepts `$UNBUG_CONTROL_HOME/policy.json`.
    N5: `batch_tick` with the real `reconcile` and a corrupt `money.json` keeps
    running and still runs the other scans.
