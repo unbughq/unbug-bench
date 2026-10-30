@@ -474,15 +474,35 @@ methods/paths, redirects, compressed/chunked bodies, duplicate JSON keys,
 non-finite values, excessive body size (16MiB) and unrecognized request fields.
 Allowed fields are model,max_tokens,messages,system,tools,tool_choice,stream,
 stop_sequences,temperature,top_p,top_k,thinking,output_config,metadata,
-cache_control,service_tier. Model must be exactly claude-opus-5-5. Text, ordinary
+cache_control,service_tier,context_management. The last is always removed before
+forwarding, disabling server context editing/compaction. Model must be exactly claude-opus-5-5. Text, ordinary
 client tool-use/result and thinking/redacted-thinking history blocks are allowed;
 image/document/file/server-tool/reference content is rejected. Tools must be
 ordinary custom declarations (absent type or type='custom', with input_schema),
 never hosted tools, MCP, containers or server compaction/context-management.
-Only adaptive thinking is accepted when specified. Unknown betas/features that
-could add server work are removed: forward only OAuth and Claude-Code client
-capability betas (`oauth-2025-04-20`, `claude-code-20250219`), not arbitrary
-caller betas. Existing writer/stress WebSearch requests needing a server tool
+Only adaptive thinking is accepted when specified; normalize it to
+`{type: adaptive}` so the pinned display=updates beta is disabled. The real
+pinned offline probe reached only a loopback stub under OS external-network
+denial, observed default context_management and TWO HTTP attempts despite
+CLAUDE_CODE_MAX_RETRIES=0; both shapes are retained in the audit fixture. A second network-denied
+loopback-only probe with the pin-proven beta-disable environment produced a
+normal request without context_management/display=updates and consumed a
+synthetic SSE reply, exiting 0 with OK. This proves local CLI compatibility,
+not a successful production provider call; its local synthetic usage is not
+real billing evidence. Unknown betas/features that
+could add server work are removed: forward only OAuth, Claude-Code client, interleaved-thinking and effort
+capability betas (`oauth-2025-04-20`, `claude-code-20250219`,
+`interleaved-thinking-2025-05-14`, `effort-2025-11-24`), not arbitrary
+caller betas. Force service_tier=standard_only, allow output_config only
+effort (known enum) and documented JSON-schema format, metadata only user_id,
+and cache_control only ephemeral with 5m/1h TTL. Reject speed/fast/priority or
+unknown premium controls. Forward only the exact chosen OAuth bearer, fixed
+Anthropic version, these fixed capability betas, Content-Type and CLI User-Agent/
+x-app; no custom billing/provider headers. Sanitise alternate provider, ingress,
+Unix-socket, base-URL and custom-header environment overrides, and set CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1 and add the gate
+base URL/output/beta-disable env to the isolated-user sudo preserve list. The outgoing
+connection is fixed HTTPS with certificate verification and no redirect/retry
+or proxy-env handling. Existing writer/stress WebSearch requests needing a server tool
 are rejected, not rerouted or claimed bounded. Local Bash/Edit/Read/Write tools
 continue normally. No arbitrary endpoint or paid server tool escapes this gate.
 
@@ -493,7 +513,11 @@ request has at most the provider's documented **1,000,000-token hard context**;
 aggregate input ceiling is 8,000,000 billed input/cache tokens, and aggregate
 output ceiling is 65,536 billed visible/thinking tokens. This deliberately uses
 the provider hard ceiling, not a text-byte tokenizer guess or a local compaction
-threshold. The Messages contract documents max_tokens and inclusion of thinking:
+threshold. The provider explicitly includes system/messages/tools and all
+input/cache-read/cache-creation in that window, and rejects input alone exceeding
+it (https://platform.claude.com/docs/en/build-with-claude/context-windows).
+`standard_only` is documented at https://platform.claude.com/docs/en/api/service-tiers .
+The Messages contract documents max_tokens and inclusion of thinking:
 https://platform.claude.com/docs/en/api/messages and
 https://platform.claude.com/docs/en/models/opus-5-5/overview . Record supporting
 public documentation URLs and retrieved facts in the audit artifact; pinned
@@ -548,6 +572,12 @@ B sees zero exact-route capacity and waits for a reviewed enforcement release,
 not elapsed retry time. Existing rollout-on 60-second wait/checkpoint and
 off in-worker wait/deadlines remain. New call-cap exhaustion is a monetary bound
 stop, not provider outage/refusal; no inline automatic retry consumes another cap.
+Minimal propagation-only C seams: `run.py` provider_preflight and optional
+early_probe (and standalone provider-probe loop) re-raise model_call_cap;
+`calibration.interruption_label` preserves that fixed stop label. Existing
+run_validity.retry already propagates BudgetError, so no gate verdict/retry
+algorithm changes. Test these catches cannot swallow/convert the bound stop or
+start another monetary lease.
 
 ### Implementation phases, risks and tests
 
@@ -568,6 +598,9 @@ stop, not provider outage/refusal; no inline automatic retry consumes another ca
    labels and no positive other route. Fake local upstream only; no model calls.
 3. Full `uv run --with numpy --with scipy python -B tests/run.py` (~12min), fresh
    cross-family diff review, verbatim findings/responses and clean commits.
+
+The current base full-suite count is 134 scripts before this increment (the
+older 131 count predates stream C); record the actual runner total.
 
 One agent session and offline tests; no live compute spend. Delete no accounting
 path and add no general proxy/framework. Risks: conservative cap may exceed D's
