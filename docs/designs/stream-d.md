@@ -1597,7 +1597,9 @@ item 8.
    Claude because the DeepSeek reviewer returned no output). A writer
    killed at its completion checkpoint gets the same `unchanged_repair`
    decision as an uninterrupted one. Part of row 10. Closes no row.
-2. **Writer continuation and durable intent** (medium). An interrupted writer
+2. **Writer continuation and durable intent** (medium; implemented on
+   `t3/stream-d-implementation` after 428868b, closes row 10 subject to diff
+   review). An interrupted writer
    resumes in the same round and operation, keeps its findings, and makes no
    second author call after a completed one. Pending receipts use strict
    intent, like completed ones. Closes row 10. Persisting intent across
