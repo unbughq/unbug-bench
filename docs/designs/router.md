@@ -914,14 +914,20 @@ but no verified enforcement contract has yet been found for its input and
 reasoning-output limits. A price of zero is not proof of a token bound. It stays
 unqualified, as do every other route and fallback without an explicit profile.
 Qualification is checked on the **effective** route. Existing same-family
-fallback selection is unchanged: a request naming the free DeepSeek route can
-receive a bounded paid DeepSeek lease when `openrouter-key` is authorized.
-The free endpoint itself has no profile or capacity. With that paid account
-unavailable, the existing router reports `outage` (a bounded family candidate
-exists), with no lease or D reservation; a family with no bounded candidate
-still reports `unbounded_route`. This increment does not disable fallbacks or
-change wait classification. Tests pin both cases. If later qualified, a free profile must use max_usd=0 and enforce both token
-maxima; this increment does not pre-authorize that qualification.
+fallback and alias code is unchanged. Three requested names can now reach a
+bounded paid OpenRouter lease when `openrouter-key` is authorized:
+`opencode/deepseek-v4.1-flash-free` and `opencode-go/deepseek-v4.1-flash` reach
+paid DeepSeek; `opencode-go/mimo-v2.6-pro` reaches paid MiMo.
+The free endpoint itself has no profile or capacity. With the paid account
+unavailable, the existing classifier now reports `outage` because the family
+has a bounded candidate, with no lease or D reservation. Previously it reported
+`unbounded_route`; this changes B's eligibility from zero relaunches to its
+10-per-reason outage cap, while exact requested-free-route capacity stays zero.
+The classifier code is unchanged, but its outcome changes with the new profiles.
+Families without any bounded candidate still report `unbounded_route`. Tests
+pin the free request's paid fallback and unavailable-account wait. If later
+qualified, a free profile must use max_usd=0 and enforce both token maxima;
+this increment does not pre-authorize that qualification.
 
 `price_source` records `token_prices:2026-10-30:openrouter:<model>:<endpoint>:`
 followed by the exact three rates and `:joint-gate-v1`; it is validated by exact
@@ -934,6 +940,10 @@ discount or unavailable endpoint must fail; it must not choose a dearer route. T
 uncached price avoids depending on a cache discount for the bound. Discounted
 versus undiscounted matching is not documented; rejection of DeepInfra's
 discounted quote is a live availability risk, not authority to raise its price.
+Exact response-model equality is also an availability risk: the strict parser
+requires the request slug echoed unchanged. A versioned/aliased provider echo
+would retain W and exhaust after three MiMo or two DeepSeek unknown requests.
+No live response shape is qualified by the synthetic native probe.
 Exact endpoint matching is pinned by the public endpoint-tag contract: dropping
 the tier never matches a tier endpoint. Tests assert the normalized exact tag
 and fallback prohibition, and check the saved `/flex` and `/priority` records

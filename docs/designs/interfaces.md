@@ -309,15 +309,18 @@ denial.
   - openrouter/deepseek/deepseek-v4.1-flash: max_usd=1.174406120,
     max_input_tokens=8388615, max_output_tokens=2796205;
     price_source=token_prices:2026-10-30:openrouter:deepseek/deepseek-v4.1-flash:deepinfra/fp8:0.14,0.0042,0.42:joint-gate-v1.
-  Paid request output is clamped to32768, while holds conservatively cover
+  Paid request output is clamped to 32768, while holds conservatively cover
   provider input1048576 and output131072/1048576 respectively, including
-  reasoning. W is0.5701632/0.58720256. Exact endpoint and list-price ceilings
+  reasoning. W is 0.5701632/0.58720256. Exact endpoint and list-price ceilings
   are code-owned per request; all input is priced uncached for refunds.
   The real key stays in the gate; CLI receives a synthetic token and isolated
   configuration. Non-model credential-free Exa search remains outside this cap.
   opencode/deepseek-v4.1-flash-free has no verified token bound and no profile.
-  Existing family fallback may select the paid bounded DeepSeek route instead;
-  without its account the existing wait is outage, with no lease/reservation.
+  Existing fallback/alias code lets that name and opencode-go/deepseek-v4.1-flash
+  reach bounded paid DeepSeek, and opencode-go/mimo-v2.6-pro reach paid MiMo.
+  Without the paid account, the existing classifier now returns outage, with no
+  lease/reservation, instead of unbounded_route: B's outage cap is10 per reason
+  rather than zero relaunches, while exact free-route capacity remains0.
   Other unknown/unenforceable effective routes and tampered leases get no Lease and
   Wait('unbounded_route'); B sees capacity0 and does zero relaunches until an
   approved bound release is migrated and exact-route capacity becomes positive.

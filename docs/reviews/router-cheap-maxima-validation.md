@@ -16,6 +16,9 @@ are changed. No merge, paid provider call or new Boat worker.
   gate and D accountant, isolated `pilot` UID. Twelve Docker `--network=none`
   probes passed: basic, Bash tool continuation, automatic compaction and repeated
   503 exhaustion for each paid route, plus Exa for writer/stress_tester on both.
+  This native evidence is architecture-specific: it qualifies the Linux arm64
+  binary only. The amd64 binary is unproven by this archive; source equivalence
+  does not replace running that binary.
   Every model request went through the gate to a synthetic upstream. No model
   credential was read and no real inference request ran. Synthetic upstream key
   never enters the CLI environment; config uses a random invocation token.
@@ -56,7 +59,11 @@ historical case including Claude writers fits $3, nor authorize B's live run.
 
 Provider controls and token contracts rely on saved primary evidence; offline
 replies cannot establish provider enforcement. DeepInfra's discounted max_price
-matching remains an availability risk. Nonzero cache-write quote invalidates
+matching remains an availability risk. The strict parser also requires the exact
+request model slug in responses; a versioned/aliased echo keeps usage unknown
+and can exhaust after three MiMo or two DeepSeek requests. Real provider response
+shape/acceptance has not been tested; this is another fail-closed availability
+risk for the first authorized live qualification. Nonzero cache-write quote invalidates
 these profiles. Exact endpoint tags exclude flex/priority tiers. Provider changes
 need requalification. Free OpenCode DeepSeek has no verified token contract and
 no profile; existing paid-family fallback is preserved (documented in router.md
@@ -75,7 +82,19 @@ routing and accounting were not loosened to make either test pass.
 
 ## Full suite and review
 
-Pending on the frozen implementation commit. Command:
-`uv run --with numpy --with scipy python -B tests/run.py`.
-Do not infer a full-suite pass from focused/native evidence. Fresh goldfish diff
-review is also pending; design rounds1–3 and responses are already saved.
+**PASS: 146 test scripts, 0 failed, exit 0**, on frozen implementation
+`ff0d6f0184db682f266196cd43004ec5b1ac5168`.
+Command: `uv run --with numpy --with scipy python -B tests/run.py`.
+Started 2026-10-30T07:02:12.922323Z; finished 2026-10-30T07:16:58.436895Z.
+Terminal record: `router-cheap-maxima-full-ff0d6f0.json`.
+Log: `router-cheap-maxima-full-ff0d6f0.log.gz`; uncompressed SHA-256
+`a9f5792e654c31a3c8b7c2d109215559a473884f3361eb74f61049c14c299cb6`.
+The terminal record also stores the compressed archive SHA-256.
+
+Fresh Claude goldfish diff review passed with no Blockers/Majors. Its three
+optional documentation nits are addressed in this record, router.md and
+interfaces.md. The verbatim review and author responses are saved in
+`router-cheap-maxima-diff-1.md`; its at-review pending-suite statement remains
+historically accurate. Design rounds1–3 and responses are also saved.
+Production and test sources stayed frozen throughout review and full suite;
+this acceptance commit changes documentation/evidence only. No merge or push.
