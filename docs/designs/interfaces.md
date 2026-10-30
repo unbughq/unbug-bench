@@ -378,10 +378,11 @@ extension all remain blocked. Other owners may use only their already-available
 batch headroom; this owner's full held commitment is never transferred.
 
 A late actual receipt may lower a previously conservative collected total,
-for example $10 to $8. B acknowledges the lower total only when authenticated
-D settlement supplies a receipt matching an existing `unpriced_invocation`
-invocation ID or `wait_id`. Persist a `reconciled_decrease` acknowledgment with
-that ID, old/new totals, collected generation and receipt digest; replay is
+for example $10 to $8. B acknowledges the lower total only under the increment-3
+reconciled_decrease qualification below: an invocation estimated in the
+immediately previous acknowledged ledger and settled now. Persist a
+`reconciled_decrease` acknowledgment with that invocation ID, old/new totals,
+collected generation and receipt digest; replay is
 idempotent and replaces the latest cumulative total, never adds a refund event.
 An unsupported decrease still refuses acknowledgment. A verified decrease does
 not poison later revisions or release held authority. Unused authority is still
@@ -508,7 +509,11 @@ reservation once, including estimates already counted in a numeric total.
 Every unknown marker must name an admitted reservation through matching
 invocation_id and lease_id. Repeated markers for the same invocation fold into
 one row and one maximum. Missing/mismatched IDs, an absent/unknown maximum,
-unpriced legacy usage or invalid `_event_components` returns None.
+unpriced legacy usage or invalid `_event_components` returns None. Return None
+unless case_spending(ledger).get('unpriced_events', 0) equals the raw length of
+ledger.get('unpriced_invocations', []) BEFORE folding duplicates; this refuses
+unknown gap/waste/aggregate amounts that have no admitted maximum. A marker
+naming an already-settled row also returns None.
 `wait_ids` is the sorted unique set of wait_settlements IDs naming that lease,
 possibly empty. A multi-lease wait never repeats a maximum.
 
@@ -516,18 +521,21 @@ Every unique event counts once in booked_total_usd. An event reduces one row's
 remaining maximum only if its ID is in that row's event_ids, or BOTH its
 invocation_id and lease_id match that row. A historical event with no binding
 reduces no row and still counts fully. Metadata naming a missing reservation,
-conflicting IDs or an event attributed to two rows refuses coverage.
+conflicting IDs, duplicate event IDs or an event attributed to two rows refuses coverage.
 `booked_usd` is that row's actual event charge, excluding its estimated gap;
 `remaining_usd = max(0, maximum_usd - booked_usd)`. Actual charges exceeding a
 maximum count in full; no spend is truncated. `booked_total_usd` is
 `case_spending(ledger)['known_total_spent_usd']` (or numeric total_spent_usd when
 that key is absent), minus ALL once-counted estimated_gap_usd. It includes
-known legacy remainders and additive infrastructure waste. `covered_total_usd =
-booked_total_usd + sum(remaining_usd)`. A booked $3 under a $10 maximum covers
-$10, never $13. Normal Decimal valuation/rounding is shared with case_spending.
+known legacy remainders and additive infrastructure waste. For the covered total, sum raw Decimal actual charges and raw per-row remaining
+gaps first, then round UP once to the nine-place unit. Row booked_usd rounds
+normally and remaining_usd rounds UP for reporting; their separately rounded
+sum is not reused as admission money. A booked $3 under a $10 maximum covers
+$10, never $13. Reuse case_spending's raw Decimal valuation, legacy-remainder
+and waste rules; no independent tariff or float sum is introduced.
 
 B does not reimplement these joins. It calls this API on the verified collected
-ledger (including earlier estimated ledgers retained in its ACK lineage). For a
+ledger (and the immediately previous ACK's estimated map described below). For a
 conservative resume, B additionally checks case, reservation_id and revision
 against its held job_money owner, source_generation against the journal's input
 generation for that worker, and covered_total_usd <= held committed_total_usd.
@@ -546,40 +554,69 @@ while the collected total is unknown. Missing coverage refuses this exception.
 ```
 
 Identity is invocation_id ALONE. D emits at most one such record per invocation,
-only on its transition from estimated (positive gap counted in a numeric total)
-to settled by a final-known receipt for that lease. The receipt hash is evidence,
+only when the individual row immediately before _settle_leaf has state=estimated
+and usd(estimated_gap_usd) > 0, and that call makes it settled using a final-known
+receipt for the same lease. Unrelated unknown totals and leaf order cannot
+suppress that row's record. The receipt hash is evidence,
 not identity. `actual_charge_usd` is the settled row's once-counted event charge;
+Compute all three money fields as nine-place strings using D's shared Decimal
+valuation, then compute released_usd from EXACTLY those strings:
 `released_usd = booked_before_usd + previous_estimate_usd - actual_charge_usd`.
 Emit nothing if released_usd <= 0. Shared event attribution refuses settlement.
 `wait_id` is null for crash/late-receipt reconciliation, otherwise a retained
 wait_settlements ID naming the same lease. A pending row with an unknown/null
-prior total settles without a decrease record: null-to-known is not a decrease.
+prior total settles without a decrease record, because that row was not estimated.
 Further growing final receipts add actual usage and cannot release another gap.
 Replay adds no record and changes no total. B acknowledges each invocation once.
 
 D retains the final private receipt and its events in the encrypted generation.
 B does not decrypt it: receipt_sha256 is audit evidence, and correct retention
 and hash/lease validation are D producer invariants proved by D tests. B checks
-the public record's exact shape, arithmetic, matching prior estimated invocation
-(or wait mapping to it), owner/lineage and its own consumed-ID set.
-Let P be this owner's previous acknowledged cumulative total, T its new known
-total, and R the sum of released_usd for well-formed records whose invocation
-was estimated in an earlier acknowledged ledger of this owner's lineage and
-is not already in B's consumed-ID set. Accept iff T >= P - R. Mark those
-qualifying invocation IDs consumed in the same ACK, including when new positive
-usage masks the decrease. A replayed/duplicate ID contributes zero; B never
-acknowledges it twice. A record created and released entirely within one run,
-with no earlier acknowledged estimate, contributes zero and is not grounds for
-refusing an otherwise valid collection. Refuse only an unsupported decrease
-T < P - R (or another independent validation failure). If P is null, any known
-T <= held commitment is accepted after the normal owner/collection checks.
+the public record's exact shape, arithmetic and owner/lineage. Let P be this
+owner's immediately previous acknowledged total and T the collected total.
+A record qualifies iff its invocation_id was estimated in that immediately
+previous ACK, the same row is settled in the collected ledger, and
+0 < released_usd <= that previous row's estimated_gap_usd. Per ACK B persists
+only the estimated rows as `{invocation_id: estimated_gap_usd}`, including on
+ACKs with a null total; it replaces this map on EVERY ACK. Settled rows cannot
+become estimated again, so a record qualifies once and no consumed-ID set or
+older-ledger search is needed. Duplicate receipt IDs never multiply R; conflicting
+duplicate records fail shape validation. Evaluate qualification on every ACK,
+including null P or T. An in-run estimate absent from the immediately previous
+map contributes zero and is not grounds for refusal by itself.
+Let R be the sum of qualifying released_usd, k their count, and epsilon =
+(k+1)*0.000000001 when k > 0, otherwise zero. When P and T are known accept iff
+T >= P - R - epsilon; this bounds per-record versus cumulative rounding at the
+nine-place boundary. With no qualifying record, any unsupported decrease still
+refuses. A null T must pass the conservative coverage/held-authority checks.
+A null P permits any known T <= held commitment after normal owner/collection
+checks. These checks do not release held authority; even the rounding margin
+cannot create new commitment or transfer headroom to another owner.
 B's existing reconciled_decrease ACK records old/new collected totals, matching
 IDs, receipt digest and collected generation; no refund/negative spend event is
 added. Held authority remains held until terminal collection and retirement.
 `case_spending` ignores reconciled_decreases; tests assert adding/replaying these
 records never changes totals. It also ignores any historical usage_coverage field.
 
+**Public extension history.** The top-level card field extension_history is a
+list of exactly `{schema_version:1, extension_id:<integer 1..5>,
+writer_operation_id:<uuid4>, entry_sha256:<sha256>, outcome_sha256:null|<sha256>}`.
+IDs are consecutive lifetime ordinals starting at 1, per stream-d's passed design.
+The last entry is active iff its outcome_sha256 is null; no earlier entry may be
+active. It changes once from null to the hash of the completed private outcome.
+There is no public state field. The private entry snapshot and its case bytes
+are immutable; a private outcome is appended once (private state is derived
+active/complete). Repair invalidation preserves the history and snapshots.
+Any substantive failure during the extension, including a late defect, completes
+its outcome and emits extension_incomplete, never late_defect_needs_ruling.
+Infrastructure interruption preserves the active entry for continuation.
+
 **Final diagnosis projection APIs** in `factory/diagnosis.py`:
+Read card['terminal_stop'] only, never continuation_budget.terminal_stop.
+diagnosis_state and extension_history are top-level card fields. The exception
+is recovery.infrastructure_exhausted(card), which also recognizes the existing
+infrastructure_gate.exhausted marker. When that helper triggers despite another
+terminal_stop, diagnosis_state.stop is the literal infrastructure_exhausted.
 
 - `exhaustion(card) -> bool`: true for budget_exhausted,
   stress_review_unresolved:rounds_exhausted, infrastructure_exhausted (reuse
@@ -589,8 +626,9 @@ records never changes totals. It also ignores any historical usage_coverage fiel
   Sealed cases, provider wait, explicit pause, malformed evidence and terminal
   retirement do not qualify merely because counters are high.
 - `actual_model_work(card) -> bool`: true iff continuation_budget has a retained
-  valid priced/subscription model-usage event (including historical and zero-cash
-  usage) or an accountant-produced unpriced_invocations entry. Both are emitted
+  events entry, whatever its pricing kind or price validity (including historical,
+  opencode cost events, subscription usage and cost-0 free routes), or an
+  accountant-produced unpriced_invocations entry. Both are emitted
   after process start. A bare reservation or its conservative crash gap with no
   usage event/unknown marker is false. No private file or route-receipt invoked
   flag is consulted; no such flag is required from A.
@@ -614,7 +652,12 @@ factory-bug maintainer queue or retired case cannot schedule another diagnosis
 for that same ID. Only a later, distinct code-recorded exhaustion (for example
 a completed extension still failing) creates a fresh ID; no counter is reset.
 Legacy exhausted cards without diagnosis_state project pending until the runner
-records their first ID. Malformed diagnosis_state fails closed to no projection.
+records their first ID; B still requires an authenticated explicit import/migration
+record before acting on any legacy projection. Malformed diagnosis_state fails
+closed to no projection. A validated close_to_passing continues in the same worker
+run into code-enforced extension admission; an interrupted extension resumes as
+ordinary same-owner work, so B needs no extra projection. factory_bug enters the
+existing coordinator maintainer queue; not_converging retires.
 
 `terminal_stop: diagnosis_pending` is produced by D's same-owner runner when an
 exhausted unknown-at-launch owner has settled and must exit without a model
@@ -623,11 +666,25 @@ exhaustion trigger. exhaustion() unwraps only that valid pending state, never an
 arbitrary diagnosis_pending label. `terminal_stop: extension_incomplete` is
 produced after the active extension's single gate traversal fails substantively
 and D completes its history outcome; the final public extension_history entry
-must have state="complete" and nonnull outcome_sha256. Incomplete/invalid
+must have nonnull outcome_sha256 (the completed public state). Incomplete/invalid
 execution remains pending infrastructure, never an extension outcome/regression.
 These producers and lifetime-state rules also apply in stream-d.md. Private
 findings are never projected. No Murphy row closes until the required real
 artifact and lifecycle exams pass.
+
+**Required implementation replays (no row closure claimed).** Use the saved
+5813be/e15450 ledgers for legacy unbound-event coverage; estimated-to-settled
+release once followed by a growing final receipt; an estimate created and released
+within one run; the T >= P-R-epsilon boundary; completed diagnosis clearing the
+projection; denied-only reservation versus free/subscription work; mixed leaf
+orders with another unpriced marker; null-P/null-T ACK chains with no second
+release; sub-nanodollar charges; pending-marker settlement with no decrease
+receipt; late extension defects and active-history detection; nonnumeric
+infrastructure_kill refusing coverage; and metadata addition/replay leaving
+case_spending totals unchanged. B proves its ACK inequalities/map updates; D
+proves the producer transitions, receipt retention and pure projections.
+
+### Existing money-path and installation constraints
 
 The money projection path is kept as `batch-money/<batch>/jobs/` for D's already
 reviewed consumer. It shares the journal's `batches/<batch>/lock`; it is no

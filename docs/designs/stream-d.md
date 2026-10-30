@@ -977,3 +977,15 @@ not an infrastructure interruption. infrastructure_exhausted goes to diagnosis
 without authorizing a replacement. These clarify the exhaustion-routing list
 above; no model result grants a resume, extension or money. No code is enabled by
 this documentation change.
+
+
+Interface review 16 clarifications: B qualifies decreases only against the
+immediately previous ACK's estimated invocation map, including null-total ACKs.
+D emits the single row-transition receipt regardless of unrelated unknown totals;
+released amounts and B's bounded nanodollar comparison follow interfaces §8.
+The public extension history uses lifetime ordinal IDs 1..5 and hashes; null
+outcome_sha256 means active. Entry case/evidence is immutable; outcome appends
+once and a substantive late defect completes the extension as extension_incomplete.
+A close_to_passing diagnosis continues in the same worker into extension admission;
+factory_bug queues maintenance and not_converging retires. The required real-ledger
+replays are listed in interfaces §8; no code is enabled by these clarifications.
