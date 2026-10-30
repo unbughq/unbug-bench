@@ -1593,7 +1593,8 @@ on real saved artifacts proves the whole row. Otherwise the row waits for
 item 8.
 
 1. **Completed-writer validation parity** (small; implemented in c62f5f2;
-   full suite and diff review 1 passed, not yet merged). A writer
+   full suite and diff review 1 passed, not yet merged; the diff reviewer was
+   Claude because the DeepSeek reviewer returned no output). A writer
    killed at its completion checkpoint gets the same `unchanged_repair`
    decision as an uninterrupted one. Part of row 10. Closes no row.
 2. **Writer continuation and durable intent** (medium). An interrupted writer

@@ -118,8 +118,8 @@ not required). The design's "another model family" wording is not met.
 PASS accepted. No blocking or major findings; no finding rejected.
 
 - **N3 fixed.** Item 1 now says "implemented in c62f5f2; full suite and diff
-  review 1 passed, not yet merged" instead of "done". The same-family review is
-  recorded above.
+  review 1 passed, not yet merged" instead of "done", and says plainly that the
+  diff reviewer was Claude because the DeepSeek reviewer returned no output.
 - **N4 fixed.** Item 7 now states that a case refused as `unchanged_repair`
   keeps refusing on re-entry and that an extension must replace or advance the
   completed receipt through B's checkpoint adapter.
@@ -135,11 +135,12 @@ Command: `uv run --with numpy --with scipy python -B tests/run.py` at 3642c6b
 (code identical to c62f5f2).
 
 Result: `154 test scripts run; 0 failed.` Exit status 0. The local full log is
-`/tmp/stream-d-completion-suite-142105.log`.
+`/tmp/stream-d-completion-suite-142105.log`, sha256 `68e2e76502282108cae263bd6309c3acd07d430f463312cc875611827295bb5c`.
 
 An earlier run to `/tmp/stream-d-completion-suite.log` printed the same summary
 but its runner process did not exit and kept starting further test scripts for
-over 15 minutes; the cause was not diagnosed. It was stopped and is not counted.
+over 15 minutes. That runner belonged to stream B's worktree (t3-ded79ec5), not
+this stream. This stream's run was stopped and is not counted.
 
 No Murphy rows close. D rows 8, 9, 10, 11, 12, 13, 15, 21 and 39 remain open.
 `DIAGNOSIS_ENABLED` stays false. Nothing pushed, merged into factory-simplify,
