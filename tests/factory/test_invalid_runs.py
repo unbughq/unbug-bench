@@ -604,13 +604,21 @@ class InvalidRunsTests(unittest.TestCase):
     def test_pinned_policy_migration_keeps_valid_attempts_and_panels_only(self):
         import gate_state
         policy = json.loads((ROOT / 'factory/invalid-runs-compat.json').read_text())
-        current = run.calibration_identity(self.c, 'easy_calibrator', 'blind')
+        live = run.calibration_identity(self.c, 'easy_calibrator', 'blind')
+        current = copy.deepcopy(live)
+        # Exercise C's exact historical migration, independent of later source
+        # changes. D's new calibration source cannot inherit C's pinned grant.
+        for section in ('runner', 'files'):
+            for name, value in policy['current_' + section].items():
+                if value is None: current['bench'][section].pop(name, None)
+                else: current['bench'][section][name] = value
         old = copy.deepcopy(current)
         for section in ('runner', 'files'):
             for name, value in policy['base_' + section].items():
                 if value is None: old['bench'][section].pop(name, None)
                 else: old['bench'][section][name] = value
         self.assertTrue(calibration.compatible_identity(old, current))
+        self.assertFalse(calibration.compatible_identity(old, live))
         changed = copy.deepcopy(old); changed['seed'] += 1
         self.assertFalse(calibration.compatible_identity(changed, current))
         changed = copy.deepcopy(old); changed['bench']['files']['bin/bench.py'] = '0' * 64

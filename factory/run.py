@@ -8,7 +8,7 @@ seals everything and prints ONLY the scorecard on stdout. Python standard librar
 Everything else (model transcripts, bench output, gate evidence) goes to ~/work/<case>/ and is
 sealed into ~/sealed/<case>.tar.gz.age, then shredded. See factory/README.md.
 """
-import copy, threading, contextlib, hashlib
+import copy, threading, contextlib, hashlib, uuid
 from gate_pipeline import GatePipeline
 from case_contract import CaseContract, ingredient_problems as case_ingredients
 from run_artifacts import RunArtifacts, shred_tree
@@ -187,7 +187,14 @@ def pick_models(c):
     return model_runtime.select_models(c, log=log)
 
 
-def opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None):
+def opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None, on_complete=None):
+    with model_runtime.dispatch(c, name):
+        if model_runtime.factory_job(c): resume_provider_wait(c)
+        return _opencode(c, models, text, cwd, name, user=user, timeout=timeout, deadline=deadline,
+                         before_attempt=before_attempt, lease=lease, on_complete=on_complete)
+
+
+def _opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None, on_complete=None):
     runtime = model_runtime.ModelRuntime(HOME, sh, public_progress, shred_tree, pilot_home)
     c.card.pop('router_waits', None)
     c.card.pop('router_interrupted_calls', None)
@@ -202,6 +209,7 @@ def opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None,
             c.router_waits.extend(getattr(error, 'previous_waits', []))
             c.router_waits.append({'role': error.role, **model_runtime.asdict(error.wait)})
         raise
+    if on_complete is not None: on_complete()
     if (not user and hasattr(c, "recipient") and not c.args.dry_run
             and not hasattr(c, "calibrator_slot_offset")):
         # A completed serial author/reviewer call is a safe snapshot boundary.
@@ -261,6 +269,98 @@ def write_provider_wait(c, error):
 
 def model_call(c, models, *args, **kw):  # tester and dedup calls; same backup routes as every role
     return opencode(c, models, *args, **kw)
+
+
+def resume_provider_wait(c):
+    """Settle before any model admission; archive only after the pending reset."""
+    model_runtime.prepare_dispatch(c)
+    state = getattr(c, 'model_resume_state', {})
+    if state.get('done') or getattr(c, 'provider_resume_done', False): return
+    if getattr(c, 'active_model_calls', set()): raise BudgetError('usage_reconciliation_while_active')
+    from budget import settle, reconcile_reservations
+    from registry import atomic_json
+    live = c.work / 'provider_wait.json'
+    if live.exists():
+        record = jload(live)
+        batch, job, deadline = model_router.metadata(c)
+        if (not isinstance(record, dict) or record.get('case') != c.case_id or record.get('batch') != batch
+                or record.get('job') != job or model_router.epoch(record.get('batch_deadline')) != deadline):
+            raise BudgetError('invalid_provider_wait')
+        settle(record, work=c.work, ledger_path=c.ledger)
+        path = c.work / 'attack-state.json'
+        pending = jload(path, {})
+        role = ('writer' if pending.get('repair_pending') else 'stress_tester' if pending.get('review_pending') else None)
+        matched = (role is not None and pending.get('phase') == 'pending'
+                   and pending.get('lease_id') == record.get('lease_id')
+                   and (record.get('lease_id') is not None or role == record.get('role')))
+        if matched:
+            pending.update(lease_id=None, invocation_id=None, resumed_from_wait=record['wait_id'])
+            atomic_json(path, pending)
+        archive = c.work / 'provider_waits'; archive.mkdir(exist_ok=True)
+        target = archive / (record['wait_id'] + '.json')
+        if target.exists() and jload(target) != record: raise BudgetError('provider_wait_archive_mismatch')
+        live.replace(target)
+    if model_runtime.factory_job(c): reconcile_reservations(c.work, c.ledger)
+    c.provider_resume_done = True
+    state['done'] = True
+
+
+def provider_continuation(c, receipt, role):
+    """A verified archive proves a kill while waiting for the next lease."""
+    identity = receipt.get('resumed_from_wait')
+    if not isinstance(identity, str): return False
+    try:
+        if str(uuid.UUID(identity)) != identity or uuid.UUID(identity).version != 4: return False
+    except ValueError: return False
+    record = jload(c.work / 'provider_waits' / (identity + '.json'), {})
+    ledger = jload(c.ledger, {})
+    return (record.get('settled') is True and record.get('wait_id') == identity and record.get('case') == c.case_id
+            and record.get('role') == role and identity in ledger.get('wait_settlements', {})
+            and record.get('batch') == getattr(c, 'batch_id', None) and record.get('job') == getattr(c, 'job_id', None)
+            and receipt.get('lease_id') is None)
+
+
+def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_admitted=None, deadline=None):
+    """One logical writer/stress unit, including all admitted fallback attempts."""
+    from budget import reserve_invocation, release_uninvoked
+    import job_authority
+    from registry import atomic_json
+    path = c.work / 'attack-state.json'
+    with model_runtime.dispatch(c, name):
+        resume_provider_wait(c)
+        authority = job_authority.for_case(c)
+        lease = model_router.await_lease(role, c, deadline)
+        operation = receipt.get('operation_id') or str(uuid.uuid4())
+        prior_operation = getattr(c, 'model_operation_id', None)
+        c.model_operation_id = operation
+        try:
+            maximum = model_runtime.invocation_maximum(c, lease)
+            if role == 'writer' and not getattr(c, 'active_extension_id', None):
+                _, summary = update_case_budget(c)
+                if summary['spent_usd'] is None or summary['spent_usd'] + float(maximum) > summary['ordinary_limit_usd']:
+                    raise BudgetError('budget_exhausted')
+            reservation = reserve_invocation(c.ledger, lease, maximum, job_authority.for_case(c),
+                operation_id=operation, call_name=name)
+            if on_admitted is not None: on_admitted()
+            def admitted():
+                row = c.invocation_reservation
+                receipt.update(schema_version=2, operation_id=operation, phase='pending', lease_id=c.model_lease.lease_id,
+                    invocation_id=row['invocation_id'], binding_sha256=hashlib.sha256(json.dumps(receipt['binding'], sort_keys=True).encode()).hexdigest())
+                atomic_json(path, receipt)
+                if role == 'writer': c.card['builder_rounds'] = receipt['round']
+            c.model_lease, c.invocation_reservation = lease, reservation
+            admitted()
+            return opencode(c, models, text, cwd, name, lease=lease, before_attempt=admitted,
+                            on_complete=on_complete, deadline=deadline)
+        except BaseException:
+            # Before opencode takes over, no wrapper owns lease release.
+            if lease.lease_id not in {row.get('lease_id') for row in c.card.get('route_receipts', [])}:
+                try: release_uninvoked(c.ledger, lease.lease_id)
+                finally: model_router.finish(lease.lease_id, 'denied', None)
+            raise
+        finally:
+            if prior_operation is None: c.__dict__.pop('model_operation_id', None)
+            else: c.model_operation_id = prior_operation
 
 
 def attack_diagnostic_context(c, name):
@@ -894,7 +994,12 @@ def loop_freshness(c, result, report):
 def write_and_attack(c, prev):
     """Alternate within whole-case list-price budget and the safety round cap."""
     from founder_ruling import context as ruling_context, feedback_allowed
-    ruling = ruling_context(c)
+    modern = model_runtime.factory_job(c)
+    if modern:
+        import job_authority
+        job_authority.for_case(c)
+        with model_runtime.dispatch(c, 'resume'): resume_provider_wait(c)
+    ruling = None if modern else ruling_context(c)
     if prev.get("rejected_candidates"):
         c.card.setdefault("rejected_candidates", prev["rejected_candidates"])
     if prev.get("candidate_attempts"):
@@ -957,22 +1062,34 @@ def write_and_attack(c, prev):
     # Saved before execution; sealing retains the receipt, reports and allowances.
     from registry import atomic_json
     receipt_path = c.work / "attack-state.json"
-    start_round = 1
+    start_round = c.card.get('builder_rounds', 0) + 1 if modern else 1
     rereview_round, rereviews = None, 0
     release_rereviews, release_rereview = [], False
     release_review_attempts = []
     round_limit = c.args.rounds
+    resume_unit, modern_writer_unit, resume_writer_validation = None, False, False
     if receipt_path.exists():
         # Case/report recovery gets two retries for the saved stress round.
         # Release-only migrations use their separate persistent binding history.
         rereview_limit = 2
         try:
             receipt = json.loads(receipt_path.read_text())
+            if modern and receipt.get('schema_version') == 2:
+                if (receipt.get('phase') not in ('pending', 'completed', 'validated')
+                        or str(uuid.UUID(receipt['operation_id'])) != receipt['operation_id']):
+                    raise ValueError('invalid operation receipt')
+                resume_unit = copy.deepcopy(receipt)
+                modern_writer_unit = receipt.get('actor') == 'writer'
+                resume_writer_validation = modern_writer_unit and receipt['phase'] == 'completed'
+                if receipt['phase'] == 'pending':
+                    role = receipt.get('actor')
+                    c.card['resume_operation'] = {'operation_id': receipt['operation_id'],
+                        'kind': 'provider_wait' if provider_continuation(c, receipt, role) else 'crash'}
             n = receipt["round"]
             saved_limit = receipt["round_limit"]
             if type(saved_limit) is not int or saved_limit < 1:
                 raise ValueError("invalid round limit")
-            raised = bool(getattr(c, 'limits_raised', {}))
+            raised = not modern and bool(getattr(c, 'limits_raised', {}))
             round_limit = (ruling['authorization']['record']['allowances']['round_limit'] if ruling else
                            max(round_limit, saved_limit + 1) if raised else min(round_limit, saved_limit))
             if raised and round_limit > c.args.rounds:
@@ -985,7 +1102,7 @@ def write_and_attack(c, prev):
             if set(receipt["binding"]) != set(attack_binding(c)):
                 raise ValueError("invalid binding")
             rereviews = receipt.get('rereviews', 0)
-            if type(rereviews) is not int or not 0 <= rereviews <= rereview_limit:
+            if type(rereviews) is not int or rereviews < 0 or (not modern and rereviews > rereview_limit):
                 raise ValueError('invalid re-review count')
             release_rereviews = receipt.get('release_rereviews', [])
             if (not isinstance(release_rereviews, list) or
@@ -993,7 +1110,7 @@ def write_and_attack(c, prev):
                     len(set(release_rereviews)) != len(release_rereviews)):
                 raise ValueError('invalid release re-review history')
             release_review_attempts = receipt.get('release_review_attempts', [])
-            if (not isinstance(release_review_attempts, list) or len(release_review_attempts) > 8 or
+            if (not isinstance(release_review_attempts, list) or (not modern and len(release_review_attempts) > 8) or
                     any(not isinstance(v, dict) or type(v.get('round')) is not int or v['round'] < 1 or
                         not isinstance(v.get('binding'), str) or not re.fullmatch(r'[0-9a-f]{64}', v['binding']) or
                         v.get('cause') != 'infrastructure' or v.get('actor') != 'stress_tester' or
@@ -1021,13 +1138,28 @@ def write_and_attack(c, prev):
                 c.card['stress_review'] = {'status': 'unresolved', 'reason': 'budget_exhausted'}
                 raise BudgetError('budget_exhausted')
             attack_unresolved(c, "rounds_exhausted")
-        if receipt.get("repair_pending"):
+        if receipt.get("repair_pending") and not modern_writer_unit:
             attack_unresolved(c, "interrupted_repair")
         awaiting_stress = receipt.get('awaiting_stress') and receipt['binding'] == attack_binding(c)
+        if (modern_writer_unit and receipt['phase'] == 'validated' and receipt.get('awaiting_stress')):
+            if receipt.get('output_sha256') != case_hash(c): attack_unresolved(c, 'writer_output_changed')
+            awaiting_stress = True
+            if binding_changed: rereview_round = n
         if final_resume: skip_writer = False
         if awaiting_stress:
             start_round, skip_writer = n, True
-        if not awaiting_stress and (not binding_changed or final_resume or transient_resume or ruling) and not prev.get("failed_gate") and n > 0:
+        if modern_writer_unit and not awaiting_stress:
+            start_round = n if receipt['phase'] in ('pending', 'completed') else n + 1
+            skip_writer = resume_writer_validation
+            if resume_writer_validation and receipt.get('output_sha256') != case_hash(c):
+                attack_unresolved(c, 'writer_output_changed')
+            problems = receipt.get('validation_problems') or receipt.get('input_problems')
+            source = receipt.get('findings_report')
+            if source is not None:
+                if not isinstance(source, str) or pathlib.PurePath(source).name != source:
+                    attack_unresolved(c, 'invalid_recovery_receipt')
+                report = c.work / 'attacks' / source
+        if not awaiting_stress and not modern_writer_unit and (modern or not binding_changed or final_resume or transient_resume or ruling) and not prev.get("failed_gate") and n > 0:
             saved_report = receipt.get('findings_report', receipt['report']) if final_resume else receipt['report']
             if saved_report is not None and (not isinstance(saved_report, str) or not re.fullmatch(r'round-\d+\.json', saved_report)):
                 attack_unresolved(c, 'invalid_recovery_receipt')
@@ -1078,7 +1210,7 @@ def write_and_attack(c, prev):
                     {v['binding'] for v in release_review_attempts})
                 exhausted = (((release_key in release_rereviews and not continued_release) or infrastructure_attempts >= 8)
                              if release_rereview else rereviews >= rereview_limit)
-                if not ((raised and getattr(c.args, 'resume', None)) or transient_resume) or exhausted:
+                if not modern and (not ((raised and getattr(c.args, 'resume', None)) or transient_resume) or exhausted):
                     attack_unresolved(c, reason)
                 # Old reports cannot authorize findings or a pass under a new
                 # binding. Review the current case, including pending writer edits.
@@ -1097,7 +1229,7 @@ def write_and_attack(c, prev):
             else:
                 problems = findings
             if not (unusable or binding_changed or continued_release): skip_writer = False
-        else:
+        elif not modern_writer_unit:
             # Historical findings/passes cannot authorize a verdict about changed files.
             report = None
     if report and problems:
@@ -1131,8 +1263,8 @@ def write_and_attack(c, prev):
     last_round = start_round - 1
     for n in range(start_round, round_limit + 1):
         _, summary = update_case_budget(c)
-        estimate = writer_round_estimate(c)
-        if not (n == start_round and skip_writer) and (summary['spent_usd'] is None or summary['limit_usd'] - summary['spent_usd'] < estimate):
+        estimate = None if modern else writer_round_estimate(c)
+        if not modern and not (n == start_round and skip_writer) and (summary['spent_usd'] is None or summary['limit_usd'] - summary['spent_usd'] < estimate):
             c.card['case_budget']['next_round_estimate_usd'] = estimate
             stop_reason = 'budget_exhausted'
             break
@@ -1142,29 +1274,66 @@ def write_and_attack(c, prev):
             invalidate(c)
             before_repair = case_hash(c)
             repair_requested = bool(report or problems)
-            atomic_json(receipt_path, {"round": n, "binding": attack_binding(c),
+            writer_receipt = {"round": n, "binding": attack_binding(c),
                                       "report": f"round-{n}.json", "round_limit": round_limit, "repair_pending": True,
-                                      "release_rereviews": release_rereviews, "release_review_attempts": release_review_attempts})
-            opencode(c, c.models["builder"], prompt("builder", run_context(c, round=n, attack_report=str(report) if report else None,
-                     precheck_problems=problems)), c.case, f"builder-{n}")
+                                      "release_rereviews": release_rereviews, "release_review_attempts": release_review_attempts}
+            if modern:
+                if resume_unit and modern_writer_unit and resume_unit['round'] == n and resume_unit['phase'] == 'pending':
+                    writer_receipt = {**resume_unit, **writer_receipt}
+                    before_repair = resume_unit.get('before_repair_sha256', before_repair)
+                    repair_requested = resume_unit.get('repair_requested', repair_requested)
+                writer_receipt.update(actor='writer', before_repair_sha256=before_repair, repair_requested=repair_requested,
+                    findings_report=report.name if report else None, input_problems=problems,
+                    next_phase='G1', output_sha256=None)
+                def writer_completed():
+                    writer_receipt.update(phase='completed', repair_pending=False, output_sha256=case_hash(c),
+                        binding=attack_binding(c), next_phase='G1')
+                    writer_receipt['binding_sha256'] = hashlib.sha256(json.dumps(writer_receipt['binding'], sort_keys=True).encode()).hexdigest()
+                    c.card['builder_rounds'] = n
+                    atomic_json(receipt_path, writer_receipt)
+                pending_call(c, c.models['builder'], prompt('builder', run_context(c, round=n,
+                    attack_report=str(report) if report else None, precheck_problems=problems)), c.case,
+                    f'builder-{n}', writer_receipt, role='writer', on_complete=writer_completed)
+            else:
+                atomic_json(receipt_path, writer_receipt)
+                opencode(c, c.models["builder"], prompt("builder", run_context(c, round=n, attack_report=str(report) if report else None,
+                         precheck_problems=problems)), c.case, f"builder-{n}")
             c.card["builder_rounds"] = n
             if repair_requested and case_hash(c) == before_repair:
                 attack_unresolved(c, "unchanged_repair")
             # Invalid cases go straight back to the builder; never spend an attack on them.
             problems = g1(c)[1]["problems"] or None
-            if problems: continue
+            if problems:
+                if modern:
+                    writer_receipt.update(phase='validated', validation_problems=problems, next_phase='writer')
+                    atomic_json(receipt_path, writer_receipt)
+                continue
             problems = None if c.args.dry_run else early_checks(c)
-            if problems: continue
-            atomic_json(receipt_path, {"round": n, "binding": attack_binding(c),
+            if problems:
+                if modern:
+                    writer_receipt.update(phase='validated', validation_problems=problems, next_phase='writer')
+                    atomic_json(receipt_path, writer_receipt)
+                continue
+            if modern:
+                writer_receipt.update(phase='validated', awaiting_stress=True, next_phase='stress', binding=attack_binding(c))
+                atomic_json(receipt_path, writer_receipt)
+            else: atomic_json(receipt_path, {"round": n, "binding": attack_binding(c),
                 "report": f"round-{n}.json", "round_limit": round_limit, "awaiting_stress": True,
                 "release_rereviews": release_rereviews, "release_review_attempts": release_review_attempts})
-        if (c.work / "diagnostic-budgets" / f"attacker-{n}" / "claimed").exists() and n != rereview_round:
+        elif modern and resume_writer_validation:
+            problems = g1(c)[1]['problems'] or None
+            if not problems: problems = None if c.args.dry_run else early_checks(c)
+            resume_unit.update(phase='validated', validation_problems=problems,
+                               awaiting_stress=not bool(problems), next_phase='writer' if problems else 'stress')
+            atomic_json(receipt_path, resume_unit)
+            if problems: continue
+        if not modern and (c.work / "diagnostic-budgets" / f"attacker-{n}" / "claimed").exists() and n != rereview_round:
             attack_unresolved(c, "diagnostic_allowance_exhausted")
         case_budget_boundary(c)
         attack_id = f"round-{n}"
         report = c.work / "attacks" / (attack_id + ".json")
         binding = attack_binding(c)
-        if n == rereview_round and release_rereview:
+        if not modern and n == rereview_round and release_rereview:
             # Reserve before the paid call. This history survives later rounds,
             # interruptions and switching back to a previously reviewed release.
             if release_key not in release_rereviews: release_rereviews.append(release_key)
@@ -1174,11 +1343,37 @@ def write_and_attack(c, prev):
                                   "rereviews": rereviews + int(not release_rereview) if n == rereview_round else 0,
                                   "release_rereviews": release_rereviews, "release_review_attempts": release_review_attempts,
                                   "review_pending": True, "review_attempt": secrets.token_hex(16)}
+        same_review_unit = bool(modern and resume_unit and resume_unit.get('actor') == 'stress_tester'
+                                and resume_unit.get('round') == n)
+        continuing_review = same_review_unit and resume_unit.get('phase') == 'pending'
+        if same_review_unit:
+            review_receipt = {**resume_unit, **review_receipt, 'review_attempt': resume_unit['review_attempt'],
+                              'rereviews': resume_unit.get('rereviews', 0)}
         from late_recovery import invalidate
         invalidate(c)
-        atomic_json(receipt_path, review_receipt)
-        atomic_json(report, {"complete": False, "blocking": ["review incomplete"]})
-        opencode(c, c.models["attacker"], stress_request(c, n, report), c.work, f"attacker-{n}")
+        if modern:
+            review_receipt.update(actor='stress_tester', next_phase='gates', output_sha256=None)
+            def review_admitted():
+                if n == rereview_round and release_rereview and not continuing_review:
+                    if release_key not in release_rereviews: release_rereviews.append(release_key)
+                    release_review_attempts.append({'round': n, 'binding': release_key, 'actor': 'stress_tester',
+                        'cause': 'infrastructure', 'reason': c.card['resume_rereview']['reason']})
+                if not continuing_review:
+                    if report.exists(): report.rename(report.with_name(report.stem + '-superseded-' + uuid.uuid4().hex + '.json'))
+                    atomic_json(report, {'complete': False, 'blocking': ['review incomplete']})
+            def review_completed():
+                review_receipt.update(phase='completed', review_pending=False,
+                    output_sha256=hashlib.sha256(report.read_bytes()).hexdigest() if report.is_file() else None)
+                review_receipt['review_completed'] = {'attempt': review_receipt['review_attempt'],
+                    'binding': hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest(),
+                    'report_sha256': review_receipt['output_sha256']}
+                atomic_json(receipt_path, review_receipt)
+            pending_call(c, c.models['attacker'], stress_request(c, n, report), c.work, f'attacker-{n}',
+                         review_receipt, role='stress_tester', on_admitted=review_admitted, on_complete=review_completed)
+        else:
+            atomic_json(receipt_path, review_receipt)
+            atomic_json(report, {"complete": False, "blocking": ["review incomplete"]})
+            opencode(c, c.models["attacker"], stress_request(c, n, report), c.work, f"attacker-{n}")
         if binding != attack_binding(c):
             attack_unresolved(c, "case_changed_during_review")
         result = attack_report(report)
@@ -1187,6 +1382,7 @@ def write_and_attack(c, prev):
         review_receipt.update(review_pending=False, review_completed={"attempt": review_receipt['review_attempt'],
             "binding": hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest(),
             "report_sha256": hashlib.sha256(report.read_bytes()).hexdigest()})
+        if modern: review_receipt['phase'] = 'validated'
         atomic_json(receipt_path, review_receipt)
         result, report = loop_freshness(c, result, report)
         findings = [v for v in result["blocking"] if v.strip().lower() != "review incomplete"]
@@ -1204,6 +1400,13 @@ def write_and_attack(c, prev):
             if not problems:
                 c.card["stress_review"] = {"status": "completed", "round": n}
                 return
+    if modern:
+        if receipt_path.exists():
+            receipt = jload(receipt_path, {})
+            receipt.update(stop_reason=stop_reason, exhausted=True)
+            atomic_json(receipt_path, receipt)
+        if stop_reason == 'budget_exhausted': raise BudgetError('budget_exhausted')
+        attack_unresolved(c, 'rounds_exhausted')
     # The last stress round can return findings without entering another loop
     # iteration. Apply the same writer reservation to its final repair too.
     _, summary = update_case_budget(c)
@@ -2153,6 +2356,7 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
         capped = None
         try:  # a weak model can flail for hours: each try gets --calibrator-minutes; running out = whatever guard it left
             call_name = f"{role.replace('_', '-')}-{name}-{i}"
+            model_runtime.prepare_dispatch(c)
             call_context = copy.copy(c)
             call_context.args = copy.copy(a)
             if exposure == "exam":
@@ -2163,7 +2367,8 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
                 call_context.budget_resumed = True
                 call_context.args.concurrent_roles = True
                 call_context.role_cancel = getattr(c, "role_cancel", None) or threading.Event()
-                channel = owner_channel(call_context, sys.modules[__name__], ws, dest, user)
+                channel = owner_channel(call_context, sys.modules[__name__], ws, dest, user,
+                    **({'parent_call_name': call_name} if model_runtime.factory_job(c) else {}))
             else:
                 channel = contextlib.nullcontext("")
             try:
@@ -2488,6 +2693,7 @@ def pause_terminal(error, case):
 
 
 def run_gates(c):
+    model_runtime.prepare_dispatch(c)
     return _gate_pipeline().run(c)
 
 
@@ -2540,10 +2746,27 @@ def validate_and_repair(c):
 def inherit_recovery_history(c, previous):
     for key in ('builder_rounds', 'models_used', 'budget_raised', 'rounds_raised', 'founder_ruling'):
         if key in previous and key not in c.card: c.card[key] = copy.deepcopy(previous[key])
+    if model_runtime.factory_job(c):
+        ordinary = (previous.get('case_budget') or {}).get('ordinary_limit_usd')
+        configured = (previous.get('recovery_config') or {}).get('ordinary_limit_usd')
+        if ordinary is not None and configured is not None and ordinary != configured:
+            raise BudgetError('ordinary_limit_mismatch')
+        ordinary = ordinary if ordinary is not None else configured
+        if ordinary is not None:
+            from budget import usd
+            if usd(ordinary) <= 0: raise BudgetError('ordinary_limit_unknown')
+            c.card.setdefault('case_budget', {})['ordinary_limit_usd'] = ordinary
+            c.args.ordinary_case_budget = ordinary
 
 
 def finalize_accounting(c):
     """Best-effort final accounting cannot replace an already recorded stop."""
+    if model_runtime.factory_job(c) and c.card.get('terminal_stop') != 'provider_wait':
+        try:
+            from budget import reconcile_reservations
+            reconcile_reservations(c.work, c.ledger)
+        except Exception as error:
+            c.card.setdefault('cleanup_errors', []).append({'stage': 'usage_reconciliation', 'error': type(error).__name__})
     for stage, action in (
             ('budget_summary', lambda: update_case_budget(c)),
             ('budget_snapshot', lambda: c.card.update(continuation_budget=jload(c.ledger))),

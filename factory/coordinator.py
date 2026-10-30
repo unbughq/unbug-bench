@@ -116,8 +116,9 @@ def configuration_args(card, job):
     require("--source", card["source"])
     require("--rotation-slot", card["rotation_slot"], numeric=True)
     for field in CONFIG_FIELDS:
-        if field == "case_budget" and field not in config: continue  # legacy cases predate this ceiling
-        original = config.get(field)
+        if field == 'max_cost' and 'ordinary_limit_usd' in config: continue
+        if field == "case_budget" and field not in config and 'ordinary_limit_usd' not in config: continue  # legacy cases predate this ceiling
+        original = config.get('ordinary_limit_usd') if field == 'case_budget' and 'ordinary_limit_usd' in config else config.get(field)
         if not finite(original) or original < (0 if field == "max_repairs" else 1e-300): raise ValueError("missing original limit")
         if field not in ("calibrator_minutes", "case_budget", "max_cost", "no_progress_minutes", "agent_timeout") and type(original) is not int:
             raise ValueError("invalid integer limit")
