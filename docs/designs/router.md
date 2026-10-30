@@ -411,3 +411,437 @@ Diff review 4 passes A with these recorded boundaries; none closes a Murphy row.
 - The inherited Go log check has a subsecond alias window: a line from key 1
   may share key 2's start second. This narrow scheduling risk is accepted for A,
   with both the real-account lifecycle and paid-fallback proof still open.
+
+
+## Follow-up: enforceable call maxima (2026-10-30, revised after review 2)
+
+### Objective and evidence
+
+Reserve enough money before sending a model request, and stop sending requests
+before the approved ceiling can be exceeded. A returned usage report can release
+unused reserved money; it must never authorize an overshoot that already happened.
+
+A Lease covers one invocation of the approved CLI. D owns case reservations and
+ledger settlement; this change only enforces that invocation's joint money/token
+ceiling. Historical maxima and the $33 import estimate are never enforcement.
+Exact public pins: Codex 0.162.1, Claude 2.1.299, OpenCode 1.19.0. Their native
+turn/compaction/retry controls do not prove an aggregate bound. The public audit
+fixture `tests/factory/fixtures/router-maxima-cli-audit.json.gz` retains version,
+help, source hashes, and synthetic, external-network-denied pinned CLI probes.
+It must distinguish those probes from real provider usage. Public saved cards
+are independent real receipt evidence; no production/case/Boat/secret operation
+is authorized here. No Murphy row is closed by this slice.
+
+### One supported route, and an explicit rollout limitation
+
+Only `claude/claude-opus-5-5` on the two existing factory subscription labels
+qualifies. Other routes, including direct/free/paid OpenCode, Codex and unknown
+models, return no Lease and Wait('unbounded_route'). Consequently **none of the
+current four-family rotation packages can finish a case with this slice alone**.
+D qualification must refuse such packages until other routes acquire reviewed
+enforcement. This increment supplies a genuinely runnable bounded Claude route,
+not production batch availability or a change to role independence/bench rules.
+
+The wrapper's local gate covers CLI-owned inference traffic, including client
+compaction, retries, side queries and small-model requests routed through the
+CLI SDK. It is an operational money bound, not an account-wide or hostile-tool
+security boundary. Arbitrary Bash/direct network activity can use credentials
+outside the CLI; this increment does not claim to sandbox it. This exact scope
+was confirmed by the parent while addressing review 2 M2. No new credential,
+key, Mac dependency, endpoint/account ownership or control-VM payload is added.
+
+### Local request gate and preserved subscription transport
+
+Add one stdlib worker module, `factory/model_call_gate.py`. For a valid Lease,
+`ModelRuntime` points the exact pinned Claude CLI at an invocation-scoped loopback
+HTTP server with ANTHROPIC_BASE_URL. The gate forwards only to
+`https://api.anthropic.com/v1/messages` (optional `?beta=true`). It has no remote
+URL/config override, logs no payload/header/credential and performs no retry or
+redirect. It opens normal certificate-verified HTTPS directly (ignoring proxy
+environment). The control VM receives lease metadata only.
+
+Authenticate before reading/accepting the body: require exactly the chosen
+account's `Authorization: Bearer <OAuth token>`, constant-time comparison. Wrong
+or absent authentication receives local 401 and consumes no allowance, sets no
+exhaustion/unsupported flag and cannot stop another caller. Never substitute or
+inject a credential. The same incoming OAuth bearer is forwarded unchanged.
+Source: https://code.claude.com/docs/en/llm-gateway#subscriptions-and-gateways ;
+base-URL alone preserves subscription authentication and OAuth beta capability.
+The pinned client constructor and SDK default both respect that base URL.
+
+Allow only POST Messages, bounded 16MiB Content-Length, JSON without duplicate
+keys/non-finite values; reject chunked/compressed bodies and other paths/methods.
+Allowed top-level fields: model,max_tokens,messages,system,tools,tool_choice,
+stream,stop_sequences,temperature,top_p,top_k,thinking,output_config,metadata,
+cache_control,service_tier,context_management. Model must match Opus 5.5 exactly.
+Remove context_management entirely and its beta (server context edits/compaction
+disabled); normalise thinking to adaptive without beta-only display options.
+Allow standard text, tool-use/result, thinking/redacted-thinking and inline
+image/document content supported by Messages; all count against the hard context.
+Reject file-ID/MCP/container/hosted-tool/reference features. Custom tool
+schemas may contain ordinary JSON; they grant no server execution.
+
+Tools have only name,description,input_schema,cache_control (optional type custom).
+No hosted search or other paid server tool is forwarded. Writer/stress tool lists
+remain unchanged: a rejected never-forwarded WebSearch request gets a normal
+local unsupported-feature error, not a monetary stop; the CLI can continue using
+its other tools, including Bash web/GitHub retrieval. G2's required searches and
+verdict rules are unchanged; inability to finish them never waives them. Set the
+pin-proven ANTHROPIC_SMALL_FAST_MODEL=claude-opus-5-5 so WebFetch summarisation,
+client compaction and other small-model inference use the same admitted model,
+price and allowance. Nonmatching requests still fail locally without forwarding.
+No claim that every web workflow succeeds is made; the Linux probe must show
+unsupported hosted-tool requests do not automatically kill the whole invocation.
+
+Force service_tier=standard_only. Reject speed/fast/priority controls and unknown
+premium fields. output_config allows only known effort enum and documented
+JSON-schema format, metadata only user_id, cache_control only ephemeral 5m/1h
+(including nested cache markers). Forward only fixed version 2023-06-01,
+Content-Type, unchanged OAuth bearer, CLI User-Agent/x-app and these pin-verified
+capability betas: claude-code-20250219,oauth-2025-04-20,
+interleaved-thinking-2025-05-14,effort-2025-11-24. Unknown custom billing/provider
+headers never pass. https://platform.claude.com/docs/en/api/service-tiers and
+https://platform.claude.com/docs/en/build-with-claude/fast-mode provide the tier
+and speed controls. Retain the EXISTING 2*1.1 multiplier for BOTH W and
+validated settled usage: budget.subscription_usage(partial=True) calls the
+existing claude_cost estimator at that rate if the CLI final result is lost,
+even when every HTTP response completed. Dropping 2x only in the gate would let
+that already-booked partial estimate exceed the Lease. Premium modes stay blocked;
+this deliberately conservative charge matches the unchanged estimator, not a
+claim that standard-mode cash billing is doubled. No D accounting/old event is
+erased, rebooked or changed.
+
+### Enforce a joint dollar allowance before every forward
+
+The code-owned route profile has max_usd=50.0. `token_prices.py` owns its tariff,
+using current input/cache-read/cache-write/output rates (4,.2,8,20 per million)
+and its unchanged conservative 2*1.1 multiplier. All arithmetic for admission and
+usage replacement uses Decimal from integer usage/rate strings; round the
+advertised float maximum upward where necessary. This is a **joint weighted
+ceiling**: max_input_tokens and max_output_tokens are independent safety ceilings,
+not additive permissions to spend both at their maxima.
+
+Per request, clamp max_tokens to min(requested,32768), including raw thinking.
+The provider's hard input context is 1,000,000 tokens. System/messages/tools and
+all input/cache-read/cache-creation occupy it; input alone exceeding it returns
+400 on every model. Requested input+output need not fit simultaneously; the
+provider may stop at the window. Sources:
+https://platform.claude.com/docs/en/build-with-claude/context-windows ,
+https://platform.claude.com/docs/en/api/http/messages/create ,
+https://platform.claude.com/docs/en/models/opus-5-5/overview .
+32K is an enforced output setting below the documented 128K, not a historical
+maximum. Record the observed per-response iteration range from saved cards
+without assuming aggregate invocation counters are individual requests.
+
+Before opening upstream network, under ONE lock, reserve this request's W:
+`(1,000,000 * max(input,cache-read,cache-write rate) + requested_clamped_output * output_rate) * 2*1.1 / 1,000,000`.
+At 32K, W=$19.041792 (<$50). Require settled dollar usage + ALL in-flight/unknown
+allowances + new W <= lease.max_usd. Separately reserve 1M input tokens and the
+clamped output tokens, checking the corresponding aggregate ceilings under the
+same lock. Keep an additional 0.000001 USD numerical headroom in this
+comparison for the unchanged ledger float accumulation/9-decimal presentation;
+it is never released or booked. No previous partial or optimistic usage releases anything.
+
+If only ACTIVE refundable allowances prevent admission, wait on the same lock's
+Condition, bounded by the invocation's fixed monotonic deadline, close and parent
+cancellation. finish/close/terminal exhaustion notify all waiters. Recheck every
+inequality before forwarding; no waiter consumes an allowance early. Only when
+settled + RETAINED unknown allowances + new W cannot fit is exhaustion terminal.
+Temporary concurrency is neither spending nor a factory-limit stop.
+
+When a response completes with strictly valid provider usage, replace that
+request's allowance with its actual token counts and conservatively priced cost.
+For SSE require exactly one message_start and final message_stop, cumulative
+output metadata (never sum duplicates), and complete validated input/cache/output
+counters. Only trusted provider usage events qualify; assistant/tool text never
+does. Reject duplicate control events, contradictory/decreasing counters,
+negative/bool/non-integer/nonfinite/overflow counters, token counts beyond that
+request's caps, model mismatch, nonzero server-tool counters and malformed or
+missing final usage. A failed/truncated/cancelled/uncertain response retains W
+and the full reserved token ceilings for the rest of the invocation. No release
+from partial streams or unknown responses. Updating gate allowances books NOTHING
+in the case ledger. Existing budget event IDs/accounting are independent.
+
+There is no fixed 8-request limit. The aggregate safety ceilings are computed by
+flooring `50/min(input/cache tariff *2*1.1)` and `50/(output tariff *2*1.1)` in tokens:
+currently max_input_tokens=113636363 and max_output_tokens=1136363. They are
+separately enforced even when a response costs zero. All requests, including
+retries/side calls/compaction, contend for the SAME remaining allowance; unknown
+responses cannot silently reopen it. A lost worker/process cannot reset it:
+the router grants a one-use execution start before callbacks/reservations and
+CLI setup. Store a marker with a slash-prefixed ID in the existing observations
+table; observe() already rejects slash IDs. A repeated or uncertain start never
+launches another CLI. On lost start acknowledgement, finish denied (zero CLI
+usage), then ordinary router_unavailable wait/reconciliation before a fresh ID.
+
+### Exact protocol, environment and receipts
+
+Local errors are Anthropic JSON error envelopes. Authentication: 401
+`authentication_error`. Unsupported/unrecognised request: 400
+`invalid_request_error`, fixed message `route_feature_unsupported`; no allowance
+or monetary-stop flag. Exhausted dollar/token allowance: 400
+`invalid_request_error`, fixed message `model_call_cap`, set an invocation-private
+exhaustion event. No new request is forwarded after exhaustion. A gate object
+combines that event with the existing parent cancellation for run_budgeted's
+polling, stopping ONLY this CLI; do not set the shared peer cancellation event.
+After cleanup, override CLI/process/cancel labels with BudgetError(model_call_cap)
+when exhausted, preventing account/provider fallback or a second monetary cap.
+Preserve cancellation_failed unchanged: cleanup may have left a child alive;
+cap_used.exhausted still records the monetary stop. Cancel/close/deadline denial
+uses local invocation_stopped, never a false model_call_cap label. If monetary
+exhaustion overrides an inner provider_failure, its account observation is
+deliberately dropped; retained W remains conservative and D diagnoses this cap
+without automatic provider fallback.
+Upstream connection errors: local 502 fixed `api_error`; retain W. Real upstream
+status/error bodies and headers are otherwise relayed, preserving the existing
+provider classifier. Copy response bytes/SSE incrementally without modification;
+inspect a bounded copy of control metadata, retain W on parser uncertainty.
+Recompute request Content-Length after normalisation; never forward caller length.
+Pass upstream response headers verbatim except hop-by-hop/framing headers
+(Connection,Transfer-Encoding,Keep-Alive,Proxy-*,Trailer,Upgrade,Content-Length).
+Use connection-close framing; preserve rate/reset/Retry-After/request-ID headers
+for budget.py's real Claude limit classifier. Upstream socket timeout is capped
+by the invocation's existing remaining timeout; close active connections and
+prevent new admissions when the gate closes. Pending/incomplete usage stays
+unknown, so reservations remain conservative.
+
+Build CLI environment and the sudo preserve list from ONE enumerated allowlist:
+PATH,HOME,LANG,LC_ALL,TMPDIR,CLAUDE_CODE_OAUTH_TOKEN,CLAUDE_CONFIG_DIR,
+DISABLE_AUTOUPDATER,CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
+CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS,CLAUDE_CODE_MAX_OUTPUT_TOKENS,
+CLAUDE_CODE_MAX_RETRIES,CLAUDE_CODE_GZIP_REQUEST_BODIES,
+ANTHROPIC_BASE_URL,ANTHROPIC_SMALL_FAST_MODEL,
+FACTORY_STRATEGY_DIAGNOSTIC,FACTORY_STRATEGY_SECONDS,FACTORY_STRATEGY_WORKERS.
+Set the gate-owned values explicitly: base URL, small model, output32768,
+beta-disable=1, max-retries=0 (not relied on), gzip=0, noessentialtraffic=1,
+autoupdater=1 and fresh config directory. No provider/ingress/Unix-socket/custom
+header/proxy/extra-body or inherited alternative auth selector survives. Other
+factory diagnostic variables are exactly the three above. Existing direct Unix
+user isolation and CLI tools/role effort stay intact.
+
+Required Lease fields: max_usd:float (finite nonnegative joint USD list-price
+ceiling), max_input_tokens:int and max_output_tokens:int (nonnegative aggregate
+billed input/cache and visible/raw-thinking ceilings), price_source:str (tariff,
+standard-mode and enforcement profile provenance). No caller/config override.
+Server/client/runtime compare exact types and values against effective-route
+policy, plus approved route/account/pool/family/billing. Supplied legacy/tampered
+leases fail closed before callbacks or credentials; renewals compare caps too.
+Old missing-cap leases cannot replay/renew/start; finish still releases them.
+Execution-start markers prevent repeated supplied leases restarting the allowance.
+The private invoke consumes a one-use context permit and independently validates
+policy before any CLI setup. Other drivers have no enforcement adapter and deny.
+
+Route and per-lease usage receipts retain all four cap fields. `cap_used` v1 is
+exactly this object (USD values are finite nonnegative plain base-10 DECIMAL
+STRINGS, no exponent; all counters/token fields are nonnegative JSON integers,
+never bool; flags are JSON booleans):
+
+```json
+{"version":1,"forwarded_requests":2,"validated_requests":1,"unknown_requests":1,
+ "in_flight_requests":0,"unsupported_requests":0,
+ "settled_usd":"0.00132","held_usd":"19.041792",
+ "settled_input_tokens":100,"held_input_tokens":1000000,
+ "settled_output_tokens":10,"held_output_tokens":32768,
+ "max_request_output_tokens":32768,"exhausted":false,"closed":true}
+```
+
+This example has one complete validated 100-input/10-output uncached response,
+and one truncated response retaining its entire W/input/output allowance. It is
+synthetic schema illustration, not a real receipt. `forwarded_requests` counts
+allowances consumed before upstream attempts, including uncertain attempts.
+Its disjoint categories obey `forwarded=validated+unknown+in_flight`. Normally
+terminated HTTP with malformed/missing usage is UNKNOWN, never validated.
+Unsupported counts only authenticated requests rejected before forwarding;
+unauthenticated callers change nothing. Settled fields sum VALIDATED requests
+only at existing claude_cost conservative rates. Held fields sum UNKNOWN plus
+IN_FLIGHT allowances, each exactly once, never also settled. Exhausted means the
+settled+retained-unknown monetary/token admission test failed permanently, not
+temporary active holds, deadline, cancellation, unsupported or auth rejection.
+The maximum request output field is the code-owned per-request clamp, not an
+observed output maximum.
+
+At gate close, under the admission lock: prohibit new forwards; convert EVERY
+remaining in-flight request to unknown without releasing its allowance; close
+active connections; take one immutable snapshot with closed=true and in_flight=0.
+A late handler cannot refund or mutate this snapshot. Validated replacement
+occurs only after the complete HTTP body/stream EOF and exactly one final stop,
+not immediately on a partial event or early message_stop followed by trailing
+controls. A duplicate control after message_stop invalidates usage and releases
+nothing. Run-time receipts are written after gate close on every exit.
+
+`final_usage_known = (not invoked) OR (outcome == done AND existing ledger/event
+checks pass AND cap_used.closed AND cap_used.unknown_requests ==0 AND
+cap_used.in_flight_requests ==0)`. Thus even a successful CLI summary cannot hide
+a malformed/truncated gate response. The example's final_usage_known is false.
+If no CLI ran, the denied-before-work receipt has the zero-count closed snapshot
+and known zero usage. A monetary stop remains interrupted, even if prior HTTP
+requests validated. This records enforcement and books nothing. D's normal receipt/event settlement
+uses the advertised maximum for an unknown gap without double booking. Never
+claim a partial HTTP response has exact final usage merely because a later CLI
+summary exists. Per-lease public metadata contains no prompt or credential.
+
+### Stop/wait, B/D and rollout contract
+
+unbounded_route uses the same provider-wait checkpoint/restart record; set
+retry_after=now+900 as a coordinator recheck hint, not a claimed provider reset.
+B's reason table has zero relaunches while capacity(route)=0; do not start idle
+workers or consume per-reason attempts. B continues its ordinary capacity polls.
+After an approved new enforcement release is bound/migrated through the existing
+batch-release path, positive exact-route capacity is the signal to resume normal
+admission (before batch deadline). Time, health observations, token renewal or
+top-up alone never make this route bounded. D qualification refuses any required
+role without a bound. Current rotations are therefore NOT ready for production.
+
+model_call_cap is an unscored operational/factory-limit stop for EVERY role:
+writer, stress, reviewer, G2-confirm, G16/G17, calibrators and probes. It is never
+case failure, scientific capped try, writer feedback, refusal, provider outage or
+automatic inline fallback. Minimal propagation-only C seams: run.py preflight,
+early optional probe and standalone provider-probe loop re-raise this fixed label;
+calibration.interruption_label preserves it. run_validity.retry already propagates
+BudgetError, so no gate verdict/retry algorithm changes. D must diagnose it as a
+factory enforcement limit using retained receipts, not "not converging"; any
+later authorised invocation needs a NEW Lease/reservation within original batch
+money bounds. B does not apply provider-wait relaunch rules to model_call_cap.
+
+Deploy only after draining all old leases to zero at checkpoints; no rolling
+router update across an in-flight unbounded old CLI. Missing-cap renewals would
+otherwise cancel old calls within60 seconds. No batch runs between A and B merge
+under the existing reviewed rollout contract; this increment performs no deploy.
+
+Changed model_runtime, token_prices and calibration source identities invalidate
+all saved calibration attempts and G8/G9/G16 reuse records, conservatively causing
+paid reruns on resume even without the interruption-label change. No running
+batch is migrated here. C's historical compatibility policy stays pinned to its
+exact target; tests accept that target and reject the newer identity/panel.
+Add model_call_gate to gate_state.MODEL: later gate edits also invalidate model
+evidence because normalization/rejection affects inference. This is an evidence
+identity seam only; no compatibility/scoring rule is broadened.
+
+Integration base is factory-simplify 6abe169 (D1 Decimal accounting and B1/B2
+money/worker authority). Preserve their accounting/authority/installers unchanged.
+Extend only D's synthetic Lease constructor fixtures for the four required fields;
+they remain accounting-only tests, not route-enforcement evidence. A separate
+contract check uses a real policy Lease, B's actual job_authority reader and D's
+reserve/settle functions: a sub-$50 commitment refuses before booking; $50 admits
+the route's maximum, unknown usage settles that maximum once, replay adds zero,
+and a stale authority copy refuses. D2 dispatch/reservation wiring and B's later
+practice qualification are still separate increments, not enabled by this test.
+
+With max_usd=50 and a default $50 job commitment, D2 can admit at most one
+separately reserved Claude CLI invocation from zero spend once it has any
+positive charge; that invocation may itself contain many provider requests.
+After settlement at $3, for example, another invocation needs $3+$50 authority
+and gets money_wait at a $50 commitment. D's ordinary $50 threshold diagnoses
+after any priced ordinary writer call because spent+next_writer_max exceeds $50. Two
+concurrent nested owners each reserving this route need $100 plus settled usage.
+First-call success therefore does not qualify package availability. Before D2
+enablement, the founder, D and B must agree job commitments/revisions sized to
+settled usage plus each outstanding/new per-call maximum, or approve a lower
+route maximum against the 153-receipt fit table. A chooses neither authority nor
+a replacement profile in this slice. D2 must reserve exactly a valid_lease-checked
+route-owned lease.max_usd, rounded upward to nine places; a caller's smaller
+maximum would under-reserve. D intentionally ignores cap_used for settlement:
+unknown usage consumes the reservation maximum minus already-booked events,
+not the gate's currently held W.
+
+### Phases, exams, cost and completion
+
+1. Frozen design/interface/audit increment; fresh goldfish using zoom_out,
+   design_critic and implementation_readiness. Resolve all review-2 findings.
+2. Implement model_router.py, model_runtime.py, token_prices.py and local gate;
+   add gate/token_prices to existing launch_manifest trust/required release lists
+   and regenerate launcher hashes. Name the run.py/calibration stop propagation
+   seams above; no E subprocess or C scoring changes. Offline legacy argv/router
+   tests explicitly mock synthetic cap policy AND enforcement context; those mocks
+   never prove a production bound.
+3. Real-artifact mid-term exam: inspect the153 saved Claude receipts. Report
+   guaranteed aggregate+W fits, aggregate failures and order/per-response unknowns
+   honestly: these are aggregate receipts, not full request traces. Never split
+   them into invented per-request histories or treat past maxima as enforcement.
+   Replay real iteration/usage fields to exercise cache/reasoning pricing and
+   unchanged ledger bytes. Add the lost-final regression: feed real retained
+   per-response iteration usage through completed HTTP responses, then lose the
+   CLI result; current budget.partial assistant-event booking MUST remain <=
+   Lease.max_usd, including when ALL HTTP responses completed before interruption.
+   Include an adversarial near-ceiling float/rounding case and require exact
+   already-booked case charge <=max_usd (not an epsilon-tolerant assertion).
+   Compare existing events unchanged and never invent per-request splits of an
+   aggregate receipt. New direct tests cover pre-network rejection,
+   concurrency, all unknown/partial/duplicate/malformed usage retention, separate
+   token limits, nonfatal unsupported/auth errors, exact headers/env, supplied/RPC
+   tampering, one-use starts, restart and receipt serialization.
+4. Drive exact pinned Linux CLI through real gate to a fake local upstream,
+   Docker --network=none; stage only public binaries/source and synthetic data,
+   never mount real homes/auth/SSH/secrets/Docker socket. Production architecture
+   is qualified explicitly (test Linuxx64 under emulation and ARM64 when available).
+   Patch the Python HTTPSConnection boundary only inside the test process to the
+   fake loopback upstream; production has no URL override. Exercise writer tools,
+   rejected hosted WebSearch, same-model side requests, multi-turn Bash tool use,
+   max_tokens stop, client compaction and sudo pilot path. Explicitly script a
+   retry-producing upstream failure through the ACTUAL pinned Linux CLI: every
+   subsequent inference attempt must re-enter the SAME gate/allowance; uncertain
+   attempts keep full W, and exhaustion prevents another forward or account
+   fallback. Wrapper outcome after cleanup must be model_call_cap, not cancelled
+   or provider outage. Do not rely on MAX_RETRIES=0; the earlier pin probe proved
+   it insufficient. Add a concurrency exam: three actual pinned native SDK clients share this
+   single test gate/Lease; hold two upstream replies until the third queues,
+   then validate/release and require all three complete without exhaustion.
+   The two extra CLIs are synthetic test clients, not production launches or
+   evidence of live parallel WebFetch completion. Re-run the original eight
+   architecture/scenario probes on the changed gate source too. Save argv/env names,
+   architecture, binary/image hashes, sanitised request shapes/outcomes and commands.
+   Existing local Docker was started by parent for this reversible verification;
+   no Boat/control-VM operation is authorised. If a platform prerequisite fails,
+   report it rather than fabricating qualification.
+5. Full `uv run --with numpy --with scipy python -B tests/run.py` (134 scripts
+   before increment; record actual total), fresh cross-family diff goldfish,
+   verbatim reviews/responses, clean commits and tested-SHA validation log.
+
+Final production exam belongs to B's separately authorised public practice-case
+end-to-end run: one real Claude role through gate, real usage plus cap_used,
+wait/checkpoint/retire/relaunch/settle/finish. No real model/case launch here.
+For a normal completion require validated_requests>0 and unknown_requests==0;
+synthetic SSE cannot establish real stream compatibility.
+Until that and other-role enforcement qualify, no production readiness or Murphy
+row closure is claimed. Rows2,3,4,20,47,48 remain OPEN. One implementation session,
+offline suite and Linux probes; no cloud/model spend. Reuse stdlib/existing ledger;
+no general proxy/framework, transport replacement or security architecture.
+
+
+### Integration rebase onto D2/D3a and B journal/status (2026-10-30)
+
+Rebase base: factory-simplify `cfe616f`. Preserve D's serialized dispatch,
+per-lease reservations, invocation/operation IDs, parent-call binding, process
+start callback, complete/reconcile settlement and lease-aware budget boundary.
+The only new D admission wiring replaces its empty ENFORCED_ROUTE_BOUNDS lookup
+in `model_runtime.invocation_maximum` with `valid_lease` validation and exactly
+`Decimal(str(lease.max_usd))`, rounded upward to nine places. Both pending writer/
+stress calls and ordinary wrapper calls already use this helper. D's separate
+pricing helper and pinned OpenCode prices remain intact; they grant no admission.
+
+The runtime validates A's full Lease before reserving, preserves D's zero-cost
+release of an uninvoked rejected supplied Lease, and combines D's run_budgeted
+invocation_id/lease_id/job_authority/on_started/concurrent arguments with A's
+real enforcement gate and invocation-local cancellation. Reservation precedes
+one-use start (needed for D's pre-start reconciliation); start still precedes
+callbacks and CLI setup. Failed start/renewal/setup settles known zero if no
+process began; an interrupted process retains A's cap receipt and D's conservative
+maximum settlement. No D accounting or C invalid-run classification is changed.
+Historical compatibility tests still accept only C's exact registered target
+and unconditionally reject newer live source/panel identities. Worker manifest
+expectations are the union of A, B and D modules.
+
+Tests adapt D's synthetic route bounds to the Lease policy seam, retain all D
+control-flow assertions, and use the real router policy, gate, runtime and D
+accountant with only the process boundary mocked to verify $50 reservation,
+invocation IDs, known-zero setup failure, unknown cap-stop settlement and replay.
+Tampered/expired leases refuse; unsupported routes still wait unbounded_route.
+The required full offline suite and a fresh goldfish review cover this integration.
+The old Linux probe artifact remains evidence for its recorded source hashes;
+it is not relabelled as a native re-run of this new runtime integration.
+
+D can now consume the four validated Lease maxima fields for bounded Claude
+admission. The previously documented $50 ordinary-threshold/commitment limits,
+unbounded non-Claude roles, drained rollout and B practice qualification remain;
+this wiring does not qualify rotation packages or authorize any launch. No Murphy
+row closes, no authority increases and no pricing/profile change is introduced.

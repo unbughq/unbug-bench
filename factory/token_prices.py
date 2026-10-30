@@ -45,6 +45,28 @@ def invocation_maximum(model, bounds):
         + bounds['output_tokens'] * Decimal(str(rates[1]))) / 1000000 + fee
     return maximum.quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
 
+# Provider-enforced context/output, plus the worker gate's joint allowance.
+# https://platform.claude.com/docs/en/models/opus-5-5/overview (2026-10-30).
+GATED_CLAUDE = 'claude/claude-opus-5-5'
+CLAUDE_CONTEXT, CLAUDE_OUTPUT = 1_000_000, 32768
+CLAUDE_CALL_USD = Decimal('50')
+CLAUDE_GATE_FIELDS = ('input_tokens', 'cache_read_input_tokens',
+                      'cache_creation_input_tokens', 'output_tokens')
+
+
+def claude_gate_cost(usage):
+    """Enforcement only; match the unchanged interrupted-CLI estimator, book nothing."""
+    rates = [Decimal(str(v)) for v in CLAUDE_PRICES[GATED_CLAUDE]]
+    return sum(Decimal(usage[k]) * rate for k, rate in zip(CLAUDE_GATE_FIELDS, rates)) * Decimal('2.2') / 1_000_000
+
+
+def claude_gate_maximum():
+    rates = [Decimal(str(v)) for v in CLAUDE_PRICES[GATED_CLAUDE]]
+    return dict(max_usd=float(CLAUDE_CALL_USD),
+                max_input_tokens=int(CLAUDE_CALL_USD * 1_000_000 / (min(rates[:3]) * Decimal('2.2'))),
+                max_output_tokens=int(CLAUDE_CALL_USD * 1_000_000 / (rates[3] * Decimal('2.2'))),
+                price_source='token_prices:2026-10-25:claude-opus-5-5:' + ','.join(map(str, rates)) + ':2.2:joint-gate-v1')
+
 
 def claude_cost(model, usage):
     rates = CLAUDE_PRICES.get(model)

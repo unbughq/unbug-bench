@@ -404,7 +404,7 @@ def provider_preflight(c):
             if code: raise BudgetError("process_error")
             row["status"] = "completed"
         except BudgetError as error:
-            if str(error) in ("budget_exhausted", "codex_login_expired", "provider_wait"): raise
+            if str(error) in ("budget_exhausted", "codex_login_expired", "provider_wait", "model_call_cap"): raise
             row.update(status="failed", reason=str(error))
             if str(error).startswith("provider_limit:"): raise
             # A bad startup route needs a decision, not an automatic new authoring attempt.
@@ -2462,7 +2462,7 @@ def early_probe(c):
             r = calibrate(child, "strong_calibrator", tries=1, name="early_probe")
         r["label"] = "solvable" if r["solved"] else "likely_hard"
     except Exception as error:  # Provider waits are plumbing, even for this optional probe.
-        if str(error) == "provider_wait": raise
+        if str(error) in ("provider_wait", "model_call_cap"): raise
         r = {"skipped": f"{type(error).__name__}: {error}"[:200]}
     finally:
         home = pilot_home("pilot")
@@ -2865,6 +2865,7 @@ def main():
             c.ledger = c.work / f"probe-{i}-budget.json"
             try: opencode(c, [m], "Reply with exactly the word READY and nothing else. Do not use tools.", c.work, f"probe-{i}")
             except Exception as e:  # plus the CLI's last event (provider message); probes carry no case content
+                if str(e) == 'model_call_cap': raise
                 tail = [l for t in sorted((c.work / "transcripts").glob(f"probe-{i}.*")) for l in t.read_text().splitlines()][-1:]
                 errors[m] = f"{type(e).__name__}: {str(e)[:200]} | {''.join(tail)[:600]}"
             ledgers[m] = jload(c.ledger)

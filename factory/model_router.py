@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from budget import BudgetError
+from token_prices import GATED_CLAUDE, claude_gate_maximum
 
 WAIT_SECONDS, RENEW_SECONDS, LEASE_SECONDS = 60, 60, 180
 SECRETS = Path('/dev/shm/secrets')
@@ -36,7 +37,31 @@ CHAINS = (
     ('opencode-go/muse-spark-1.3-contributor', 'openrouter/meta/muse-spark-1.3-contributor'),
     ('opencode/glm-5.3-flash-free', 'opencode-go/glm-5.3-flash'),
 )
-REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring'}
+REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring', 'unbounded_route'}
+MAXIMUM_FIELDS = ('max_usd', 'max_input_tokens', 'max_output_tokens', 'price_source')
+
+
+def route_maximum(route):
+    # No native CLI knob proves an aggregate bound for any other current route.
+    return claude_gate_maximum() if route == GATED_CLAUDE else None
+
+
+def valid_maximum(value):
+    get = value.get if isinstance(value, dict) else lambda k: getattr(value, k, None)
+    maximum = route_maximum(get('route'))
+    return (maximum is not None and all(type(get(k)) is type(v) and get(k) == v for k, v in maximum.items()))
+
+
+def _bounded_routes(model, accounts):
+    return [dict(r, **maximum) for r in routes(model, accounts)
+            if (maximum := route_maximum(r['route'])) is not None]
+
+
+def valid_lease(lease, model, accounts=ACCOUNTS):
+    return (isinstance(lease, Lease) and valid_maximum(lease)
+            and isinstance(lease.lease_id, str) and re.fullmatch(r'[a-f0-9]{32}', lease.lease_id) is not None
+            and finite(lease.expires_at) and lease.expires_at > time.time()
+            and {k: getattr(lease, k) for k in ('route', 'account', 'billing', 'family', 'pool')} in routes(model, accounts))
 
 
 def family(model):
@@ -100,6 +125,10 @@ class Lease:
     billing: str
     family: str
     pool: str
+    max_usd: float
+    max_input_tokens: int
+    max_output_tokens: int
+    price_source: str
 
 
 @dataclass(frozen=True)
@@ -163,7 +192,7 @@ class Store:
                 result = dict(observed_at=now, health=health, leases=[dict(lease_id=i, **json.loads(r), expires_at=e)
                     for i, r, e in db.execute('SELECT id,route,expires FROM leases WHERE outcome IS NULL')])
             elif operation == 'capacity':
-                choices = [r for r in routes(data['route'], self.accounts) if r['route'] == data['route']]
+                choices = [r for r in _bounded_routes(data['route'], self.accounts) if r['route'] == data['route']]
                 # Alternatives sharing a wallet/account do not create extra capacity.
                 pools = {r['pool']: free(r) for r in choices}
                 result = {'slots': sum(pools.values())}
@@ -180,7 +209,7 @@ class Store:
                 identity = data['id']
                 if not re.fullmatch(r'[a-f0-9]{32}', identity): raise ValueError('invalid attempt id')
                 if not finite(data['deadline']) or not now < data['deadline']: raise ValueError('expired admission deadline')
-                choices = [r for r in routes(data['model'], [a for a in data['accounts'] if a in self.accounts])
+                choices = [r for r in _bounded_routes(data['model'], [a for a in data['accounts'] if a in self.accounts])
                            if r['pool'] + '/' + r['route'] not in data.get('excluded_lanes', [])]
                 payload = json.dumps(data, sort_keys=True, allow_nan=False)
                 previous = db.execute('SELECT payload FROM requests WHERE id=?', (identity,)).fetchone()
@@ -190,7 +219,11 @@ class Store:
                 lease = db.execute('SELECT route,expires,outcome FROM leases WHERE id=?', (identity,)).fetchone()
                 if lease:
                     if lease[2] is not None: raise ValueError('closed lease cannot be replayed')
-                    result = dict(kind='lease', lease_id=identity, **json.loads(lease[0]), expires_at=lease[1])
+                    if valid_maximum(json.loads(lease[0])):
+                        result = dict(kind='lease', lease_id=identity, **json.loads(lease[0]), expires_at=lease[1])
+                    else:
+                        db.execute("UPDATE leases SET outcome='denied' WHERE id=?", (identity,))
+                        result = dict(kind='wait', reason='unbounded_route', retry_after=now+900, route=data['model'], account=None)
                 else:
                     order = db.execute('SELECT rowid FROM requests WHERE id=?', (identity,)).fetchone()[0]
                     older = [json.loads(p) for (p,) in db.execute('SELECT payload FROM requests WHERE rowid<? AND seen>? ORDER BY rowid', (order, now - LEASE_SECONDS))
@@ -198,7 +231,7 @@ class Store:
                     for route in choices:
                         if not free(route): continue
                         if any(any(r['pool'] == route['pool'] and r['pool'] + '/' + r['route'] not in p.get('excluded_lanes', [])
-                                   for r in routes(p['model'], p['accounts'])) for p in older): continue
+                                   for r in _bounded_routes(p['model'], p['accounts'])) for p in older): continue
                         expires = min(now + LEASE_SECONDS, data['deadline'])
                         db.execute('INSERT INTO leases VALUES (?,?,?,NULL,NULL)', (identity, json.dumps(route), expires))
                         result = dict(kind='lease', lease_id=identity, **route, expires_at=expires)
@@ -211,13 +244,21 @@ class Store:
                             ready = (max(now + 1, limit.get('blocked_until', now + 900)) if limit else
                                      min((e for pool,e in active if pool == route['pool']), default=now + 15))
                             alternatives.append((ready, limit['reason'] if limit else 'rate', route))
-                        ready, reason, route = min(alternatives, key=lambda row: row[0]) if alternatives else (now + 900, 'outage', dict(route=data['model'],account=None))
+                        bounded = any(route_maximum(r['route']) is not None for r in routes(data['model']))
+                        ready, reason, route = min(alternatives, key=lambda row: row[0]) if alternatives else (
+                            now + 900, 'outage' if bounded else 'unbounded_route', dict(route=data['model'],account=None))
                         result = dict(kind='wait', reason=reason, retry_after=ready, route=route['route'], account=route['account'])
-            elif operation in ('renew', 'finish'):
+            elif operation in ('renew', 'finish', 'start'):
                 row = db.execute('SELECT route,expires,outcome,receipt FROM leases WHERE id=?', (data['lease_id'],)).fetchone()
                 if not row: raise ValueError('unknown lease')
-                if operation == 'renew':
+                if operation in ('renew', 'start'):
                     if row[2] is not None: raise ValueError('closed lease')
+                    if not valid_maximum(json.loads(row[0])): raise ValueError('unbounded lease')
+                    if operation == 'start':
+                        marker = '/execution/' + data['lease_id']
+                        if db.execute('SELECT 1 FROM observations WHERE id=?', (marker,)).fetchone():
+                            raise ValueError('lease execution already started')
+                        db.execute('INSERT INTO observations VALUES (?)', (marker,))
                     request = json.loads(db.execute('SELECT payload FROM requests WHERE id=?', (data['lease_id'],)).fetchone()[0])
                     expires = min(now + LEASE_SECONDS, request['deadline'])
                     db.execute('UPDATE leases SET expires=? WHERE id=?', (expires, data['lease_id']))
@@ -252,7 +293,7 @@ class Store:
                         row = db.execute('SELECT route FROM leases WHERE id=?', (data['lease_id'],)).fetchone()
                         if not row: raise ValueError('unknown observation lease')
                         route = json.loads(row[0]); reason = data['reason']
-                        if reason not in REASONS: raise ValueError('invalid provider reason')
+                        if reason not in REASONS - {'unbounded_route'}: raise ValueError('invalid provider reason')
                         key = route['pool'] + ('/' + route['route'] if reason == 'outage' else '')
                         old = health.get(key, {}); failures = old.get('failures', 0) + 1
                         reset = retry_at(reason, now=now, failures=failures, reset_at=data.get('reset_at'))
@@ -313,7 +354,13 @@ def _admit(role, case, deadline, identity, accounts, excluded=()):
                 or result['expires_at'] <= time.time() or result['expires_at'] > deadline
                 or {k: result.get(k) for k in ('route', 'account', 'pool', 'family', 'billing')} not in allowed):
             raise RouterUnavailable('invalid lease response')
-        return Lease(**result)
+        if not valid_maximum(result):
+            finish(identity, 'denied', None)
+            case.router_unbounded = True
+            case.router_wait = Wait('unbounded_route', retry_at('unbounded_route'), route=model)
+            return case.router_wait
+        try: return Lease(**result)
+        except TypeError: raise RouterUnavailable('invalid lease fields') from None
     if result.get('kind') != 'wait' or result.get('reason') not in REASONS or not finite(result.get('retry_after')):
         raise RouterUnavailable('invalid admission response')
     result.pop('kind')
@@ -410,7 +457,8 @@ def await_lease(role, case, deadline=None):
                 _rpc('status', {})  # The old CLI is stopped and finish was acknowledged.
                 case.router_uncertain = False
             if stop_at <= time.time(): raise RouterUnavailable('admission deadline')
-            result = wait if enabled and deferred else _admit(role, case, batch_deadline, identity, accounts, excluded)
+            result = (case.router_wait if getattr(case, 'router_unbounded', False) else
+                      wait if enabled and deferred else _admit(role, case, batch_deadline, identity, accounts, excluded))
             if isinstance(result, Lease):
                 if _credential_ready(result): return result
                 finish(result.lease_id, 'denied', None)
@@ -450,7 +498,17 @@ def observe(pool=None, *, healthy=False, observation_id=None, lease=None, reason
 
 
 def capacity(route):
+    routes(route)  # Validate configuration even when no enforcement adapter exists.
+    if route_maximum(route) is None: return 0
     return _rpc('capacity', {'route': route})['slots']
+
+
+def _start(lease):
+    try: result = _rpc('start', {'lease_id': lease.lease_id})
+    except ValueError: raise RouterUnavailable('lease execution unavailable') from None
+    if not valid_maximum(result) or any(result.get(k) != getattr(lease, k)
+            for k in ('route', 'account', 'pool', 'family', 'billing', *MAXIMUM_FIELDS)):
+        raise RouterUnavailable('lease execution binding changed')
 
 
 @contextmanager
@@ -458,8 +516,10 @@ def running(lease, cancel):
     """Keep ownership alive; uncertain renewal cancels useful work, never retries it."""
     stopped, lost = threading.Event(), threading.Event()
     def renew_once():
-        result = _rpc('renew', {'lease_id': lease.lease_id})
-        if any(result.get(k) != getattr(lease, k) for k in ('route', 'account', 'pool', 'family', 'billing')):
+        try: result = _rpc('renew', {'lease_id': lease.lease_id})
+        except ValueError: raise RouterUnavailable('lease renewal unavailable') from None
+        if not valid_maximum(result) or any(result.get(k) != getattr(lease, k)
+                for k in ('route', 'account', 'pool', 'family', 'billing', *MAXIMUM_FIELDS)):
             raise RouterUnavailable('lease binding changed')
     renew_once()
     def renew():

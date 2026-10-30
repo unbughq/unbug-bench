@@ -30,7 +30,8 @@ Streams own **Murphy rows and contracts**, not whole files. A file like
 ## 2. Router admission (A provides, D uses)
 
 `model_router.admit(role, case, deadline)` returns either `Lease(lease_id,
-route, account, expires_at)` or `Wait(reason, retry_after, evidence)`.
+route, account, expires_at, max_usd, max_input_tokens, max_output_tokens,
+price_source)` (full schema in section7) or `Wait(reason, retry_after, evidence)`.
 
 **Who calls it.** Nobody outside `model_router.py` calls the bare `admit()`.
 Everyone calls `model_router.await_lease(role, case, deadline) -> Lease`.
@@ -96,7 +97,7 @@ The worker then:
   "wait_id": "<uuid4>",
   "case": "case-...", "job": "...", "batch": "...",
   "role": "...", "route": "...", "account": "<label or null>",
-  "reason": "quota|rate|credit|outage|router_unavailable|credential_expiring",
+  "reason": "quota|rate|credit|outage|router_unavailable|credential_expiring|unbounded_route",
   "retry_after": "<UTC ISO time>",
   "evidence": "denied_before_work|interrupted",
   "lease_id": "<lease of the interrupted call, or null if denied before admission>",
@@ -188,6 +189,7 @@ relaunch.
 | Reason | Limit | When reached |
 |---|---|---|
 | `rate`, `quota`, `outage`, `router_unavailable`, `credential_expiring` | 10 relaunches per case per reason. B relaunches only into free capacity, so most relaunches succeed. `credential_expiring` clears once B renews Codex. | Stop `provider_wait_unrecoverable`. Unscored. Maintainer alert. The cap is a backstop for a broken router, not a capacity limit: hitting it means a bug. |
+| `unbounded_route` | Zero while exact-route capacity is0; retry_after is a15-minute recheck hint. | B waits for an approved enforcement release/migration and positive capacity, or batch deadline. |
 | `credit` | One relaunch after a top-up is detected. Credit never clears on its own. | Stop `provider_wait_unrecoverable`. Unscored. Maintainer alert to top up. |
 
 At `batch_deadline`, the case stops as `provider_wait_deadline`. It is
@@ -272,6 +274,57 @@ denial.
   Concurrent waits use the latest `retry_after`.
 - **Where the route came from.** Each lease's effective route is kept in
   the card's `route_receipts`.
+
+- **Enforceable call maxima (A → D/B).** Required Lease fields:
+  `max_usd: float` (finite nonnegative JOINT USD list-price ceiling),
+  `max_input_tokens: int`, `max_output_tokens: int` (aggregate billed input/cache
+  and visible/raw-thinking ceilings), `price_source: str` (tariff/enforcement
+  provenance). Individual token ceilings are not additive money permissions.
+  Client/runtime verify exact route-owned values before callbacks/reservations;
+  callers cannot supply/tamper with them. D reserves only after admission.
+  Claude Opus5.5 alone has a worker-local subscription gate: before EVERY forward,
+  strictly settled usage + all in-flight/unknown worst-case allowances + new W
+  must fit joint USD AND separate token ceilings. 1M hard context/request and
+  output clamp32768 include caches/thinking. Complete strictly validated usage
+  alone can release unused allowance; partial/uncertain usage keeps all of it.
+  Refundable active holds cause a deadline/cancel/close-bounded wait. Only
+  settled+retained unknown usage making new W impossible is terminal exhaustion.
+  Standard mode, no hosted tools/premium modes; small-model calls use same Opus.
+  Current route cap50.0 USD; W<=19.041792; input113636363/output1136363 tokens.
+  BOTH settled gate cost and W use existing claude_cost2*1.1, preserving the
+  unchanged partial-ledger estimate bound even when the CLI final result is lost.
+  Existing token_prices/budget booking stays unchanged; gate books nothing.
+  Cap covers CLI-owned inference routed through its SDK, not hostile Bash/direct
+  network/account-wide spending; no new sandbox/security property is claimed.
+  Unsupported never-forwarded requests are nonfatal local errors, not money stops.
+  Other/unknown/unenforceable/direct/tampered routes get no Lease and
+  Wait('unbounded_route'); B sees capacity0 and does zero relaunches until an
+  approved bound release is migrated and exact-route capacity becomes positive.
+  retry_after=now+900 is only a recheck hint. D refuses qualification for any
+  unbounded required role: NONE of today's complete rotation packages is ready.
+  One-use execution-start prevents allowance reset. Usage/route receipts retain
+  all caps plus exact cap_used v1 (router.md serialized schema): disjoint
+  forwarded=validated+unknown+in_flight counters; decimal-string settled/held USD,
+  integer settled/held tokens, unsupported count, clamp and exhausted/closed flags.
+  Held includes all unknown+inflight once. Snapshot only after close converts
+  active to unknown and forbids late refunds. final_usage_known additionally
+  requires closed and zero unknown/inflight even when CLI says success.
+  finish/receipts book nothing. model_call_cap is an
+  unscored factory enforcement-limit stop for every role/probe, never writer
+  feedback/scientific fail/provider outage/inline retry. D diagnoses it as a
+  factory limit; a later invocation needs new authorised reservation/Lease.
+  Drain old leases before rollout; B's real practice run qualifies production.
+  Its normal completion must show validated_requests>0 and unknown_requests==0.
+  **D2 enablement prerequisite (founder/D/B):** with this max_usd=50 and a
+  default $50 commitment, from zero spend only one such invocation fits; after
+  it records any positive charge, a further one cannot. Any priced ordinary writer call triggers D's ordinary
+  $50 diagnosis test. Two concurrent nested owners need $100 plus settled usage.
+  Size commitments/revisions to settled+outstanding+new maxima, or approve a
+  lower route profile against the real receipt fit table before enabling D2.
+  First-call success is not package availability. D2 must reserve exactly the
+  verified valid_lease-checked lease.max_usd rounded upward to nine places, never
+  a smaller caller-chosen amount. D ignores cap_used when settling an unknown
+  receipt: maximum minus already-booked events, rather than held W, is the gap.
 
 ## 8. Batch money authority (B provides, D enforces)
 

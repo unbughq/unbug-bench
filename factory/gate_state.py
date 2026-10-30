@@ -25,7 +25,7 @@ MEASURE = ("factory/case_permissions.py", "bin/bench.py", "bin/bench_judging.py"
            "cases/medusa-oversell/checker/**", "cases/medusa-oversell/traffic/**", "projects/**", "guards/**")
 STRATEGY = ("bin/strategy", "bin/strategy_resume.py", "bin/silent_window.py", "bin/exposure.py", "bin/live_shop.py",
             "bin/live_traffic.py", "bin/shoppers", "factory/calibration.py", "factory/registry.py")
-MODEL = ("factory/model_runtime.py", "factory/budget.py", "factory/token_prices.py", "factory/calibration.py", "factory/free_models.py", "factory/registry.py")
+MODEL = ("factory/model_runtime.py", "factory/model_call_gate.py", "factory/budget.py", "factory/token_prices.py", "factory/calibration.py", "factory/free_models.py", "factory/registry.py")
 DEPENDENCIES = {"G4": MEASURE + ("bin/run_validity.py",), "G5": MEASURE + ("bin/run_validity.py",), "G6": MEASURE + ("bin/run_validity.py",) + ("bin/verify-negative",),
                 "G8": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),
                 "G9": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),

@@ -1,0 +1,18 @@
+{
+  "tested_sha": "d6e1f80bc9343b32766592eb4edd54ee7dd58e97",
+  "command": [
+    "uv",
+    "run",
+    "--with",
+    "numpy",
+    "--with",
+    "scipy",
+    "python",
+    "-B",
+    "tests/run.py"
+  ],
+  "status": "interrupted_superseded",
+  "exit_code": 130,
+  "reason": "Parent requires rebase onto advanced factory-simplify 6abe169 with D accounting/B worker authority before final validation",
+  "recorded_utc": "2026-10-30T02:34:28.305436+00:00"
+}

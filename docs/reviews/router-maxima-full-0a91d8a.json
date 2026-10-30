@@ -1,0 +1,24 @@
+{
+  "tested_sha": "0a91d8abb7fee8c275af50ae641ab8ff94418c2b",
+  "integration_base": "6abe1690d2cc65078a64b347d923cd0aba6be655",
+  "command": [
+    "uv",
+    "run",
+    "--with",
+    "numpy",
+    "--with",
+    "scipy",
+    "python",
+    "-B",
+    "tests/run.py"
+  ],
+  "started_utc": "2026-10-30T02:45:16.984398+00:00",
+  "finished_utc": "2026-10-30T03:01:42.286237+00:00",
+  "exit_code": 0,
+  "log": "/tmp/router-maxima-full-0a91d8a.log",
+  "script_count": 139,
+  "failed_scripts": 0,
+  "archived_log": "docs/reviews/router-maxima-full-0a91d8a.log.gz",
+  "log_sha256": "6e4ce934f265d254822b93d92edf8b942a1a096afb70bbbced852cd178f8d2fe",
+  "archived_log_sha256": "27c0ec4116fec8da64bb497a7a462c22439f6994c08c22c9bfda2c1396c90b31"
+}
