@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline launch guard checks: python3 tests/bench/test-launch-guards.py (about two minutes).
+"""Offline launch guard checks: python3 tests/bench/test-launch-guards.py.
 Use --restore-only for the archive transfer and recovery checks.
 Copies only launch scripts into a temp bench. Never invokes real boat or paid services.
 """
@@ -25,9 +25,20 @@ ROOT = _BENCH_ROOT
 sys.path.insert(0, str(ROOT / 'factory'))
 from launch_manifest import worker_files
 FAKE = r'''#!/usr/bin/env python3
-import json, os, pathlib, shlex, subprocess, sys, time
+import json, os, pathlib, shlex, signal, subprocess, sys, time
 root = pathlib.Path(os.environ["FAKE_STATE"])
 mode = os.environ.get("FAKE_MODE", "finish")
+EPOCH = 1000000000
+def advance(seconds):
+    event = pathlib.Path(os.environ['FAKE_COMMAND_CLOCK'])
+    with (root / 'clock-events').open('a') as f:
+        f.write(json.dumps({'event': str(event), 'seconds': seconds, 'args': args}) + '\n')
+    pending = event.with_suffix('.tmp')
+    pending.write_text(str(seconds)); pending.replace(event)
+    while not event.with_suffix('.observed').exists(): time.sleep(.01)
+def hang():
+    advance(float(os.environ.get('BOAT_COMMAND_TIMEOUT_SECONDS', '120')) + 1)
+    signal.pause()  # The real process owner must kill this command.
 args = sys.argv[1:]
 with (root / "calls").open("a") as f: f.write(json.dumps(args) + "\n")
 cmd = args[0]
@@ -44,6 +55,9 @@ elif cmd == "new":
     print(json.dumps({"event": "created", "id": id}), flush=True)
     if mode == "new-fail": sys.exit(1)
 elif cmd == "exec":
+    if mode == 'stall':
+        # More than a pipe buffer: readiness must not wait with undrained output.
+        sys.stderr.write('synthetic setup diagnostics\n' * 16384); sys.stderr.flush()
     if os.environ.get("EXAM_CLAUDE_SECRET") == "claude-token-2":
         assert (vmdir(args[1]) / "shm-secrets/claude-token").read_text() == "fake-claude-token-2\n"
     vm = vmdir(args[1]); (vm / "sealed").mkdir(exist_ok=True); (vm / "exam-out").mkdir(exist_ok=True)
@@ -82,7 +96,6 @@ elif cmd == "exec":
     (vm / "exam-stdout").write_text("fake exam scorecard\n")
     if mode in ("finish", "collect-fail", "delete-fail", "reuse-review") or (mode == "mixed" and args[1] == "vm-2"):
         (vm / "sealed/DONE").touch(); (vm / "exam-out/DONE").touch()
-    if mode == "stale": os.utime(vm / ".boat-launch-start", (1, 1))
     if mode.startswith("autoretry"):
         import hashlib
         case = "case-synthetic"
@@ -115,6 +128,8 @@ elif cmd == "exec":
                 card["sha256"] = hashlib.sha256(b"new uncertain checkpoint").hexdigest()
                 (folder / (case + ".scorecard.json")).write_text(json.dumps(card))
                 sys.exit(1)  # remote mutation succeeded; its transport acknowledgement was lost
+    # Watchdog observations use a fixed epoch; slow scheduling cannot age work.
+    for path in [vm, *vm.rglob('*')]: os.utime(path, (EPOCH, EPOCH))
 elif cmd == "ssh":
     vm = vmdir(args[1]); command = args[2]
     if "cat > ~/factory.tgz" in command:
@@ -124,8 +139,10 @@ elif cmd == "ssh":
     elif "mkdir /home/user/.statements-stage-" in command and "tar -xzf -" in command:
         # Run the real snapshot extraction in this synthetic VM; the following
         # Python swap still checks every transferred digest before installation.
-        sys.exit(subprocess.run(["/bin/sh", "-c", command.replace("/home/user/", str(vm) + "/")],
-            input=sys.stdin.buffer.read(), env={**os.environ, "HOME": str(vm)}).returncode)
+        status = subprocess.run(["/bin/sh", "-c", command.replace("/home/user/", str(vm) + "/")],
+            input=sys.stdin.buffer.read(), env={**os.environ, "HOME": str(vm)}).returncode
+        if mode == 'setup-timeout': hang()
+        sys.exit(status)
     elif "print(run.bench_manifest())" in command:
         print("a" * 64)
     elif 'docker image inspect unbug-bench-medusa:latest' in command:
@@ -146,7 +163,7 @@ elif cmd == "ssh":
         print((vm / "sealed/DONE").read_text())
     elif 'factory/case_permissions.py --extract-to' in command:
         assert float(os.environ.get('BOAT_COMMAND_TIMEOUT_SECONDS','120')) == float(os.environ.get('FAKE_EXPECT_RESTORE_TIMEOUT','1200')), 'restore inherited ordinary SSH timeout'
-        time.sleep(float(os.environ.get('FAKE_RESTORE_SLEEP','0')))
+        if os.environ.get('FAKE_RESTORE_ELAPSED'): advance(float(os.environ['FAKE_RESTORE_ELAPSED']))
         key = sys.stdin.buffer.read()
         assert key != pathlib.Path(os.environ['FAKE_IDENTITY']).read_bytes(), 'founder identity sent to worker'
         command = command.replace('/dev/shm/casekey', str(vm / 'casekey'))
@@ -197,22 +214,36 @@ elif cmd == "ssh":
         sys.exit(subprocess.run(["/bin/sh", "-c", command.replace("/home/user", str(vm))],
                                 env=dict(os.environ, HOME=str(vm))).returncode)
     elif command.startswith(("python3 -c ", "OPENCODE_DISABLE_AUTOUPDATE=1 python3 -c ")):
-        (vm / "polled").touch()
+        watchdog = '.boat-launch-start' in command
+        if watchdog:
+            (vm / "polled").touch()
+            if os.environ.get('FAKE_SIGNAL') and not (root / 'signal-sent').exists():
+                (root / 'signal-sent').touch()
+                os.kill(int((root / 'launcher.pid').read_text()), int(os.environ['FAKE_SIGNAL']))
         if mode == 'second-qualification-fail' and args[1] == 'vm-1' and (root / 'second-failed').exists():
             (vm / 'sealed/DONE').touch()
         if mode == "collect-fail" and "pathlib.Path.home()" in command and "sealed" in command: sys.exit(1)
         if mode == "unreachable": sys.exit(1)
-        if mode == "hang": time.sleep(10)
+        if mode == "hang": hang()
         command = command.replace("/home/user", str(vm))
-        if mode == "progress":
+        now = EPOCH + (10 if mode in ('stale', 'mixed') else 0)
+        if mode == "progress" and watchdog:
             count = vm / "poll-count"
             n = int(count.read_text()) + 1 if count.exists() else 1
             count.write_text(str(n))
             # Match run-exam's real private job directory, which is absent from ~/jobs.
-            if (vm / "exam").exists(): (vm / "exam-private/trial/jobs/progress").touch()
-            else: (vm / "sealed/case.continuation-budget.json").touch()
+            progress = vm / ('exam-private/trial/jobs/progress' if (vm / 'exam').exists()
+                             else 'sealed/case.continuation-budget.json')
+            now = EPOCH + 10 * n
+            progress.touch(); os.utime(progress, (now, now))
+            # Directory creation timestamps must not mask a missing file scan.
+            os.utime(progress.parent, (EPOCH, EPOCH))
             if n >= 5:
                 (vm / "sealed/DONE").touch(); (vm / "exam-out/DONE").touch()
+        if watchdog:
+            python, flag, source = shlex.split(command)
+            assert (python, flag) == ('python3', '-c')
+            command = shlex.join([python, flag, f'import time; time.time = lambda: {now}\n' + source])
         env = dict(os.environ, HOME=str(vm))
         sys.exit(subprocess.run(["/bin/sh", "-c", command], env=env).returncode)
     elif 'test ! -f ~/sealed/runner-status.json' in command:
@@ -289,6 +320,14 @@ def main():
             dest = bench / f
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / f, dest)
+        # Inject only the clock into the temporary executable; run its real main
+        # and process owner, including deadlines, killing and exit status 124.
+        shutil.copy2(_Path(__file__).with_name('launch_guard_clock.py'), bench / 'bin/launch_guard_clock.py')
+        boat_call = bench / 'bin/boat-call'
+        source = boat_call.read_text()
+        assert source.count('import processes\n') == 1, 'boat-call clock seam moved'
+        boat_call.write_text(source.replace('import processes\n',
+            'import processes\nimport launch_guard_clock\nlaunch_guard_clock.install(processes)\n'))
         (bench / "sealed").mkdir()
         # A throwaway age key and an encrypted fake bundle, shaped like bin/setup-secrets output.
         identity = base / "identity.txt"
@@ -399,6 +438,7 @@ exit "$status"
                        BOAT_POLL_SECONDS="0.1", BOAT_STALL_MINUTES="0.02",
                        BOAT_UNREACHABLE_SECONDS="1", BOAT_COMMAND_TIMEOUT_SECONDS="2", BOAT_COLLECT_RETRY_SECONDS="0", UNBUG_SECRETS_FILE=str(bundle_file), FAKE_IDENTITY=str(identity), FAKE_PERMISSION_HELPER=str(bench / "factory/case_permissions.py"))
             env.update(overrides)
+            if sig: env['FAKE_SIGNAL'] = str(sig)
             if mode.startswith("reuse-"):
                 env['UNBUG_CLOUD'] = 'boat'
                 vm = state / 'vm-existing'; (vm / 'factory').mkdir(parents=True)
@@ -423,40 +463,48 @@ exit "$status"
                 env.update(UNBUG_CLOUD="boat", PATH=str(clockbin)+os.pathsep+env["PATH"])
             cmd = ["/bin/sh", str(bench / "factory/launch.sh"), str(count), "--source", "port"] if kind == "factory" else [
                 "/bin/sh", str(bench / "bin/exam-launch"), str(bench / "sealed/test.tar.gz.age"), "--arm", "A"]
+            if sig:
+                # exec preserves the launcher PID; pressure stdout as well as
+                # the fake transport's stderr before any readiness event.
+                cmd = [sys.executable, '-c', "import os,sys; print('synthetic startup output\\n'*16384, end='', flush=True); os.execv(sys.argv[1], sys.argv[1:])", *cmd]
             before = set((bench / "results/spend").glob("*.json"))
             proc = subprocess.Popen(cmd + list(extra), env=env, stdin=subprocess.PIPE,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                     start_new_session=True)
+            # Publish before communicate releases stdin and the stdout prelude.
+            (state / 'launcher.pid').write_text(str(proc.pid))
+            try:
+                out, err = proc.communicate(IDENTITY, timeout=60)
+            except subprocess.TimeoutExpired:
+                # Never leave a failed synthetic controller running after
+                # its temporary fixture is removed.
+                os.killpg(proc.pid, signal.SIGKILL)
+                out, err = proc.communicate()
+                raise AssertionError("synthetic launcher timed out: " + err)
             if sig:
-                proc.stdin.write(IDENTITY); proc.stdin.flush(); proc.stdin.close(); proc.stdin = None
-                # Wait for the actual monitor event; release preparation can
-                # take longer than five seconds under concurrent suite load.
-                deadline = time.monotonic() + 30
-                try:
-                    while not list(state.glob("vm-*/polled")):
-                        assert proc.poll() is None, "launcher exited before signal test"
-                        assert time.monotonic() < deadline, "launcher never polled"
-                        time.sleep(0.02)
-                    os.kill(proc.pid, sig)
-                    out, err = proc.communicate(timeout=30)
-                finally:
-                    if proc.poll() is None:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                        proc.communicate()
-            else:
-                try:
-                    out, err = proc.communicate(IDENTITY, timeout=60)
-                except subprocess.TimeoutExpired:
-                    # Never leave a failed synthetic controller running after
-                    # its temporary fixture is removed.
-                    os.killpg(proc.pid, signal.SIGKILL)
-                    out, err = proc.communicate()
-                    raise AssertionError("synthetic launcher timed out: " + err)
+                assert list(state.glob('vm-*/polled')) and (state / 'signal-sent').exists(), err
+                assert err.count('synthetic setup diagnostics') == 16384, 'setup output was not drained'
+                assert out.count('synthetic startup output') == 16384, 'startup output was not drained'
             calls = [json.loads(line) for line in (state / "calls").read_text().splitlines()] if (state / "calls").exists() else []
             records = set((bench / "results/spend").glob("*.json")) - before
             record = json.loads(next(iter(records)).read_text()) if records else None
             assert "UNEXPECTED_NAMING_CALL" not in err, err
             ids = [vm.name for vm in state.glob("vm-*")]
+            events = [json.loads(line) for line in (state / 'clock-events').read_text().splitlines()] if (state / 'clock-events').exists() else []
+            assert all(pathlib.Path(e['event']).with_suffix('.observed').exists() for e in events), events
+            if mode in ('unreachable', 'hang'):
+                assert record, 'live-worker retention must retain its spend record'
+                assert any(c[0] == 'exec' for c in calls), ('runner never started', err)
+                assert all((state / id / 'polled').exists() for id in ids), ('watchdog never reached', err)
+                assert 'collect failed for' in err and 'KEEPING it running' in err, err
+                if mode == 'hang':
+                    assert 'boat-call: command timed out' in err, err
+                    assert any('.boat-launch-start' in e['args'][-1] for e in events), events
+                    assert any('hashlib' in e['args'][-1] for e in events), events
+            if mode == 'setup-timeout':
+                assert len(events) == 1 and '.statements-stage-' in events[0]['args'][-1], events
+            if overrides.get('FAKE_RESTORE_ELAPSED'):
+                assert len(events) == 1 and events[0]['seconds'] == 1, events
             rejected_reuse = mode.startswith('reuse-') and not any(c[0] == 'exec' for c in calls)
             if mode != "delete-fail":
                 assert rejected_reuse or mode in ("collect-fail", "autoretry-corrupt", "autoretry-nohash", "autoretry-uncertain", "unreachable", "hang") or all((state / id / "deleted").exists() for id in ids), (cmd, err)
@@ -540,7 +588,7 @@ exit "$status"
         card["digest_version"] = 2; public.write_text(json.dumps(card))
         code, _, err, calls, _ = run(extra=("--restore-review", "case-synthetic"),
             BOAT_COMMAND_TIMEOUT_SECONDS='0.5', BOAT_RESTORE_TIMEOUT_SECONDS='3',
-            FAKE_EXPECT_RESTORE_TIMEOUT='3', FAKE_RESTORE_SLEEP='1')
+            FAKE_EXPECT_RESTORE_TIMEOUT='3', FAKE_RESTORE_ELAPSED='1')
         assert code == 0, err
         reuse = ('--restore-review', 'case-synthetic', '--reuse-review-worker', 'vm-existing')
         code, _, err, calls, rec = run(mode='reuse-review', extra=reuse)
@@ -675,8 +723,12 @@ exit "$status"
                 assert code == 128 + sig, err
         print("PASS setup/create/collect failures, Ctrl-C and TERM always collect before delete")
 
+        code, _, err, calls, _ = run(mode='setup-timeout', BOAT_COMMAND_TIMEOUT_SECONDS='1')
+        assert code != 0 and 'boat-call: command timed out' in err and 'setup failed' in err, err
+        assert not any(c[0] == 'exec' for c in calls), 'setup timeout must precede runner start'
+        assert any(c[0] == 'delete' for c in calls), 'verified empty worker should retire'
         for mode in ("unreachable", "hang"):
-            code, _, err, _, _ = run(mode=mode, BOAT_COMMAND_TIMEOUT_SECONDS="1")
+            code, _, err, _, _ = run(mode=mode, **({'BOAT_COMMAND_TIMEOUT_SECONDS': '1'} if mode == 'hang' else {}))
             assert code != 0 and "UNREACHABLE" in err, err
         code, _, err, _, _ = run(mode="delete-fail")
         assert code != 0 and "!!! ORPHAN: vm-1 STILL ALIVE" in err, err

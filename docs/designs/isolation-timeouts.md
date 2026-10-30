@@ -412,3 +412,93 @@ Before deployment, parent must cut/qualify the new release, refresh adapter
 and launcher pins, verify Boat 1.0.85 on the control VM, and regenerate the
 root/fingerprint-bound policy for founder approval. Historical bundles stay
 read-only; no digest or pagination API was guessed.
+
+## Loaded launch-guard regression (2026-10-30)
+
+The reported deletion at `test-launch-guards.py:465` happened during statement
+installation, before detached execution. The test's global one-second command
+deadline raced setup on a loaded host. Its mode-based assertion incorrectly
+treated this empty, successfully collected worker as a running hung worker.
+A three-CPU-burner reproduction with a 1.5-second delay at that same transfer
+fails the identical no-delete assertion; the real launcher returns timeout 124,
+collects the empty worker and retires it. Without that delay, the focused loaded
+monitor/signal checks pass. This is not evidence of lost running work.
+
+The signal check separately waits at most 30 seconds for a poll while leaving
+both output pipes undrained. Setup time is unrelated to signal handling, and
+enough setup diagnostics can prevent the poll indefinitely. Delete this
+preparation-time assumption: the fake transport sends the requested signal to
+the launcher PID only when its actual watchdog probe arrives, while the harness
+continuously drains output with `communicate`. Keep one outer hang-detection
+budget, not a separate readiness deadline; assert the probe event occurred.
+
+For command deadlines, inject a clock into the temporary copy of boat-call's
+process owner. Freeze it until the selected fake transport phase announces its
+event, then advance it beyond the configured deadline. Keep real subprocesses,
+timeout handling, collection, process cleanup and deletion decisions. Ordinary
+setup does not compete against a one-second scheduler budget. Test both sides:
+a timed-out pre-run statement transfer collects/deletes an empty worker; a
+started worker with failed or timed-out monitoring and unverified collection
+is retained. Assert runner start and watchdog arrival explicitly. Replace the
+fake transport's ten-second hang sleep with an event followed by a signal wait.
+Use the same clock handshake for the slow-restore test instead of a real sleep.
+Watchdog progress/stall observations should also use injected time, independent
+of host scheduling. These seams exist only in the copied test bench; production
+deadlines and scripts remain byte-for-byte unchanged.
+
+Validation: reproduce against the old harness under three CPU burners; run the
+entire launch-guard script five consecutive times under that load, then the
+mandatory fresh full suite. Add an output-backpressure signal regression and
+retain exact timeout/collection/retention assertions. A fresh goldfish reviews
+the diff. No Murphy row is closed or newly needed for a test-only fault; rows
+18/42/43/50 remain open. No real Boat calls, merge, push or deployment.
+
+The following details are the normative implementation contract, resolving
+design review 4: copy `tests/bench/launch_guard_clock.py` next to the
+temporary boat-call and insert its install call immediately after `import
+processes`, asserting exactly one match. Only this executable replaces its
+`processes.time` reference (not the shared Python time module). Every invocation
+in every scenario freezes its monotonic clock at its real initial reading.
+The real owner still propagates UNBUG_PROCESS_DEADLINE. Its fake transport and
+the transport's shell/tar/version/probe/case_permissions children never read
+that variable or import the owner; the actual worker supervisor is not run in
+this test. Host spend/deletion helpers keep their real clocks and do not inherit
+environment mutations made inside boat-call. No production hook is added.
+
+Each boat-call supplies `FAKE_COMMAND_CLOCK=$FAKE_STATE/clock-<own-pid>-<monotonic-ns>` to its
+child. The fake atomically publishes elapsed time there and waits for that
+specific owner's `.observed` acknowledgement. Thus concurrent worker probes
+and later collection/deletion calls cannot advance one another. Setup-timeout
+and each hang advance by configured command timeout plus one second; restore
+advances exactly one second, beyond 0.5 but below its three-second override.
+The harness asserts all published events were observed, including both the
+watchdog timeout and the collector's independent metadata/hash timeout. The
+unreachable test drops its unnecessary one-second override.
+
+Retention assertions now first require recorded `exec`, a watchdog marker and
+failed collection (KEEPING diagnostic), then assert no delete, a live orphan
+and an unfinished spend record. The setup-timeout countercase requires no
+`exec`, an observed transfer timeout, and collection before deletion. Existing
+mode expectations remain assertions, not evidence that a phase was reached.
+The watchdog is identified by `.boat-launch-start`, absent from transfer and
+collection snippets. Signal delivery uses a one-shot marker and the exact
+launcher PID, with more than 64 KiB of stdout from an exec-preserving harness
+prelude and stderr from fake setup; both streams must be completely drained,
+and exit must be `128+sig` within the common outer 60-second hang budget.
+
+Remote watchdog time is also explicit: fake worker files start at epoch
+1000000000; the real probe runs with only `time.time` injected. Stale/mixed
+workers observe epoch+10. Progress probes advance ten seconds per poll and
+timestamp only the expected progress file, resetting its parent directory's
+mtime so a missing file scan cannot accidentally pass. Other probes observe
+the base epoch. The existing host `date` shim remains limited to autoretry;
+host TTL and unreachable cutoff logic remain real, with hour-sized TTLs and
+the outer hang bound. This is a small test-only change; validation time is
+dominated by five complete script runs and one full suite.
+
+Loaded regression validation is complete on source `46ec5ef`: five consecutive
+passes under three CPU burners/nice +10 (388.87, 373.47, 360.09, 342.33, 328.33
+seconds); concurrent full suite **148 scripts, 0 failed**. Fresh diff review 3
+passes with no blockers. Exact evidence, hashes and baseline reproduction
+commands are in `docs/reports/isolation-timeouts-loaded.md` and its JSON.
+Only documentation changed after the tested/reviewed source commit.
