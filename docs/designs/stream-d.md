@@ -418,6 +418,11 @@ The case can still be diagnosed and held; no in-batch work waits for the addendu
   sorted operation IDs, and `{path, sha256}` failure-receipt references. It never
   copies model-supplied authority into these fields. The private finding's
   canonical digest is `diagnosis_sha256` in waste records.
+  The producer retains each accepted raw judgment privately as
+  `diagnosis/<finding_id>/raw-result-<canonical-json-sha256>.json`; normalization
+  never overwrites model evidence. A replay uses the immutable finding without
+  inventing a new raw model result. Malformed raw outputs remain the diagnosis
+  dispatcher's responsibility to retain before schema repair.
 - Eligible failed operations are only those linked by code to an execution
   attempt classified `invalid-infra` at the recorded stage. The code's attempt
   receipt must list the operation IDs admitted in that attempt and bind their
@@ -1185,3 +1190,22 @@ created by D. Anonymous late-receipt attribution, resumable imports, extension/
 diagnosis runner integration and remaining stale-cap migration are outstanding.
 No Murphy row closes. Real canary6/c7d405 and resolved-waste cards prove the
 accounting transformations; authored restore layouts exercise boundary refusals.
+
+### Held-outcome producer review boundary
+
+The next state slice adds the strict result validator, durable factory-bug finding
+producer and immutable finding replay in `diagnosis.py`. Valid model operation
+lists are narrowed to the empty code-eligible set; no waste is reclassified.
+History initializes only at the first safe hold, including pre-rollout saved
+cards; completion and the public stage/count follow durable private evidence.
+The shared factory model-dispatch boundary refuses held cases before a lease.
+Recovery carries the content-free marker/count as well as the completed state.
+
+This slice does not yet invoke a diagnosis model or grant a later-batch resume.
+The dispatcher will call replay before any model and the producer after a valid
+result. Ordinary `bind()` still refuses cross-batch resumable import until B's
+addendum. Extension execution and scientific/stale-cap migration remain separate.
+Tests in `tests/factory/test_stream_d_held.py` use saved 5813be usage and verified
+public practice bytes, with authored judgment, binding and interruption controls.
+They prove write ordering, immutable replay, no model lease after a hold, and
+unchanged spend; they do not close a Murphy row or qualify a live rollout.

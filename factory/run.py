@@ -2753,7 +2753,7 @@ def inherit_recovery_history(c, previous):
         history = diagnosis.extension_history(previous)
         if history is None or ('diagnosis_state' in previous and diagnosis._state(previous, history) is None):
             raise BudgetError('diagnosis_state_invalid')
-        for key in ('diagnosis_state', 'extension_history'):
+        for key in ('diagnosis_state', 'extension_history', 'factory_bug', 'factory_bug_resume_count'):
             if key in previous: c.card[key] = copy.deepcopy(previous[key])
         ordinary = (previous.get('case_budget') or {}).get('ordinary_limit_usd')
         configured = (previous.get('recovery_config') or {}).get('ordinary_limit_usd')
