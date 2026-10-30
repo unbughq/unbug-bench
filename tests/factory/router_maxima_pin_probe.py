@@ -1,6 +1,6 @@
 """Manual native-CLI exam. Run ONLY in an isolated Linux Docker --network=none.
 
-Arguments: public pinned Claude executable, scenario (tools/retry/compaction/output).
+Arguments: public pinned Claude executable, scenario (tools/retry/compaction/output/concurrency).
 The only credential is synthetic. HTTPSConnection is patched in this TEST process
 to a fake loopback upstream; there is no product upstream override.
 """
@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 sys.path[:0]=[str(ROOT/'factory'),str(ROOT/'bin')]
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import http.client
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -30,13 +31,20 @@ import model_runtime
 
 def main():
     binary,mode=sys.argv[1:3]
-    if mode not in ('tools','retry','compaction','output'):raise SystemExit('unknown synthetic scenario')
+    if mode not in ('tools','retry','compaction','output','concurrency'):raise SystemExit('unknown synthetic scenario')
     if not Path('/proc/net/route').is_file() or len(Path('/proc/net/route').read_text().splitlines())>1:
         raise SystemExit('requires isolated Linux --network=none; refusing networked host')
     version=subprocess.run([binary,'--version'],capture_output=True,text=True,check=True).stdout.strip()
     if not version.startswith('2.1.299 '):raise SystemExit('wrong public pin')
     pilot=pwd.getpwnam('pilot')
     seen=[];controls={'main':0,'compaction':0};commands=[]
+    queued=threading.Event();release=threading.Event();helper_codes=[]
+    original_init=gate.Allowance.__init__
+    def observed_init(self,*args,**kwargs):
+        original_init(self,*args,**kwargs)
+        original_wait=self.condition.wait
+        def wait(timeout):queued.set();return original_wait(timeout)
+        self.condition.wait=wait
     class Fake(BaseHTTPRequestHandler):
         def log_message(self,*a):pass
         def do_POST(self):
@@ -50,6 +58,8 @@ def main():
                 'beta':self.headers.get('anthropic-beta'),'tier':body.get('service_tier'),
                 'auth_matches_synthetic':self.headers.get('Authorization')=='Bearer synthetic-native-gate'})
             assert not hosted and body['max_tokens']<=32768 and body['service_tier']=='standard_only'
+            if mode=='concurrency' and len(seen)<=2:
+                assert release.wait(30),'third native CLI request never queued'
             if mode=='compaction' and len(seen)==2 and not compact:
                 data=json.dumps({'type':'error','error':{'type':'invalid_request_error',
                     'message':'prompt is too long: 1100000 tokens > 1000000 maximum'}}).encode()
@@ -116,13 +126,27 @@ def main():
                 argv[1]=argv[1].rstrip(',')
             recorded=[str(a) if len(str(a))<1024 else '<synthetic-text:'+str(len(str(a)))+':'+hashlib.sha256(str(a).encode()).hexdigest()+'>' for a in argv]
             commands.append({'argv':recorded,'env_keys':sorted(env),'test_env_overrides':extra})
-            return original(argv,cwd,env,*args,**kwargs)
+            if mode!='concurrency':return original(argv,cwd,env,*args,**kwargs)
+            # Three actual pinned SDK clients share ONE test gate/Lease. These
+            # two extra CLIs are test-only parallel clients, not a claim that
+            # one live WebFetch workflow has completed under network denial.
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                helpers=[pool.submit(subprocess.run,argv,cwd=cwd,env=env,capture_output=True,text=True,timeout=40)
+                         for _ in range(2)]
+                main=pool.submit(original,argv,cwd,env,*args,**kwargs)
+                try:
+                    assert queued.wait(30),'no native request waited for active allowances'
+                finally:release.set()
+                result=main.result(timeout=40)
+                helper_codes.extend(f.result(timeout=40).returncode for f in helpers)
+                return result
         runtime=model_runtime.ModelRuntime(root,command,lambda *a:None,
             lambda path,**kw:shutil.rmtree(path),lambda user:Path('/home')/user)
         outcome='done'
         with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1','FACTORY_CLAUDE_BIN':binary}), \
              patch.object(router,'_rpc',side_effect=rpc),patch.object(router,'SECRETS',ram), \
              patch.object(gate.http.client,'HTTPSConnection',side_effect=connect), \
+             patch.object(gate.Allowance,'__init__',observed_init), \
              patch.object(model_runtime,'run_budgeted',side_effect=budgeted):
             text='Use only the synthetic local replies.' + (' offline'*10000 if mode=='compaction' else '')
             try:runtime.call(c,['claude/claude-opus-5-5'],text,case,'builder-1',user='pilot')
@@ -133,6 +157,7 @@ def main():
         result={'scope':'SYNTHETIC native CLI + real wrapper/gate; Docker network none; no provider/model/case',
             'mode':mode,'platform':os.uname().machine,'version':version,'binary_sha256':hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
             'commands':commands,'outcome':outcome,'requests':seen,'controls':controls,
+            'concurrency':{'queued':queued.is_set(),'extra_native_cli_returncodes':helper_codes},
             'rpc_counts':{op:rpc_ops.count(op) for op in set(rpc_ops)},'route_receipts':c.card.get('route_receipts'),
             'usage_receipts':receipts,'final':{k:summary.get(k) for k in ('is_error','num_turns','stop_reason','result')},
             'compact_boundaries':sum(e.get('subtype')=='compact_boundary' for e in transcripts)}
@@ -148,6 +173,10 @@ def main():
             if mode!='compaction':assert receipts[0]['final_usage_known']
             if mode=='tools':assert cap['unsupported_requests']>=1 and summary.get('result')=='OK'
             if mode=='compaction':assert controls['compaction']>0 or result['compact_boundaries']>0
+            if mode=='concurrency':
+                assert queued.is_set() and helper_codes==[0,0] and len(seen)==3
+                assert cap['validated_requests']==3 and cap['unknown_requests']==0 and not cap['exhausted']
+                assert rpc_ops.count('acquire')==1
     upstream.shutdown();upstream.server_close()
 
 

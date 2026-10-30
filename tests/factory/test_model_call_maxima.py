@@ -118,26 +118,55 @@ class MaximaTests(unittest.TestCase):
 
     def test_concurrent_reservations_and_close_never_refund_unknown(self):
         allowance = gate.Allowance(lease())
-        with ThreadPoolExecutor(max_workers=16) as pool:
-            ids = list(pool.map(lambda _:allowance.reserve(32768), range(16)))
-        self.assertEqual(sum(i is not None for i in ids),2)
-        self.assertTrue(allowance.is_set())
+        ids = [allowance.reserve(32768), allowance.reserve(32768)]
+        waited = threading.Event(); original = allowance.condition.wait
+        def wait(timeout): waited.set(); return original(timeout)
+        with patch.object(allowance.condition, 'wait', side_effect=wait), ThreadPoolExecutor() as pool:
+            third = pool.submit(allowance.reserve,32768)
+            self.assertTrue(waited.wait(2));self.assertFalse(third.done())
+            self.assertFalse(allowance.is_set());self.assertEqual(allowance.forwarded,2)
+            allowance.finish(ids[0],dict.fromkeys(CLAUDE_GATE_FIELDS,0))
+            ids.append(third.result(timeout=2));self.assertIsNotNone(ids[-1])
+        self.assertFalse(allowance.is_set())
         allowance.close(); before = allowance.snapshot()
-        self.assertEqual((before['forwarded_requests'],before['unknown_requests'],before['in_flight_requests']), (2,2,0))
+        self.assertEqual((before['forwarded_requests'],before['unknown_requests'],before['in_flight_requests']), (3,2,0))
         self.assertEqual(Decimal(before['held_usd']),Decimal('38.083584'))
         for identity in ids:
             if identity: allowance.finish(identity,dict.fromkeys(CLAUDE_GATE_FIELDS,0))
         self.assertEqual(allowance.snapshot(),before)
-        self.assertIsNone(allowance.reserve(1))  # Exhaustion is terminal even if a smaller W could fit.
+        self.assertIsNone(allowance.reserve(1))  # Closed, and late handlers cannot refund.
         # Separate token admission, even when money is available.
         constrained = gate.Allowance(replace(lease(), max_output_tokens=32768))
-        self.assertIsNotNone(constrained.reserve(32768)); self.assertIsNone(constrained.reserve(1))
+        identity=constrained.reserve(32768)
+        constrained.finish(identity,dict.fromkeys(CLAUDE_GATE_FIELDS,0)|{'output_tokens':32768})
+        self.assertIsNone(constrained.reserve(1));self.assertTrue(constrained.is_set())
         sticky=gate.Allowance(lease());sticky.settled[0]=Decimal('32')
         self.assertIsNone(sticky.reserve(32768))  # W19.04 does not fit the remaining18.
         self.assertIsNone(sticky.reserve(1))  # W17.60 fits, but exhaustion is terminal.
         self.assertEqual(sticky.forwarded,0)
         cancel=threading.Event();cancel.set();cancelled=gate.Allowance(lease(),cancel)
         self.assertIsNone(cancelled.reserve(1));self.assertFalse(cancelled.exhaustion.is_set())
+
+    def test_waiting_request_rechecks_unknowns_close_cancel_and_deadline(self):
+        for stop in ('unknown','close','cancel','deadline'):
+            cancel=threading.Event()
+            allowance=gate.Allowance(lease(),cancel,time.monotonic()+(.2 if stop=='deadline' else 3))
+            ids=[allowance.reserve(32768),allowance.reserve(32768)]
+            waited=threading.Event();original=allowance.condition.wait
+            def wait(timeout):waited.set();return original(timeout)
+            with patch.object(allowance.condition,'wait',side_effect=wait),ThreadPoolExecutor() as pool:
+                third=pool.submit(allowance.reserve,32768)
+                self.assertTrue(waited.wait(1));self.assertFalse(allowance.is_set())
+                if stop=='unknown':
+                    for identity in ids:allowance.finish(identity,None)
+                elif stop=='close':allowance.close()
+                elif stop=='cancel':cancel.set()
+                self.assertIsNone(third.result(timeout=2))
+            self.assertEqual(allowance.exhaustion.is_set(),stop=='unknown')
+            self.assertEqual(allowance.forwarded,2)
+            if stop=='unknown':
+                self.assertIsNone(allowance.reserve(1));self.assertEqual(allowance.unknown,2)
+            allowance.close()
 
     def test_usage_only_refunds_complete_unambiguous_provider_controls(self):
         usage = dict(input_tokens=100,cache_read_input_tokens=50,cache_creation_input_tokens=25,output_tokens=10)
@@ -341,6 +370,19 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(len(self.seen),2)
         self.assertEqual((cap['forwarded_requests'],cap['unknown_requests'],cap['in_flight_requests']),(2,2,0))
         self.assertEqual(Decimal(cap['held_usd']),Decimal('38.083584'))
+
+    def test_parent_cancel_and_cleanup_failure_are_not_monetary_labels(self):
+        cancel=threading.Event();cancel.set();cap={};env={'CLAUDE_CODE_OAUTH_TOKEN':'synthetic'}
+        with gate.enforce(lease(),env,cap,3,cancel):
+            status,data,_=self.post(env,body())
+            self.assertEqual(status,400);self.assertIn(b'invocation_stopped',data)
+        self.assertFalse(cap['exhausted']);self.assertEqual(self.seen,[])
+        with self.assertRaisesRegex(budget.BudgetError,'^cancellation_failed$'):
+            with gate.enforce(lease(),env,cap,3) as active:
+                active.state.settled[0]=Decimal('32')
+                self.assertIsNone(active.state.reserve(32768))
+                raise budget.BudgetError('cancellation_failed')
+        self.assertTrue(cap['exhausted']);self.assertTrue(cap['closed'])
 
     def test_close_between_connect_and_request_cannot_reconnect_or_forward(self):
         paused,release=threading.Event(),threading.Event()

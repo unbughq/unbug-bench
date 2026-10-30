@@ -618,8 +618,8 @@ class InvalidRunsTests(unittest.TestCase):
                 if value is None: old['bench'][section].pop(name, None)
                 else: old['bench'][section][name] = value
         self.assertTrue(calibration.compatible_identity(old, current))
-        if actual != current:
-            self.assertFalse(calibration.compatible_identity(old, actual))
+        self.assertNotEqual(actual, current)
+        self.assertFalse(calibration.compatible_identity(old, actual))
         changed = copy.deepcopy(old); changed['seed'] += 1
         self.assertFalse(calibration.compatible_identity(changed, current))
         changed = copy.deepcopy(old); changed['bench']['files']['bin/bench.py'] = '0' * 64
@@ -633,8 +633,8 @@ class InvalidRunsTests(unittest.TestCase):
         for name, value in policy['base_files'].items():
             if name in old_panel['bench']: old_panel['bench'][name] = value
         self.assertTrue(calibration.compatible_panel(old_panel, panel))
-        if actual_panel != panel:
-            self.assertFalse(calibration.compatible_panel(old_panel, actual_panel))
+        self.assertNotEqual(actual_panel, panel)
+        self.assertFalse(calibration.compatible_panel(old_panel, actual_panel))
         old_panel['seed'] += 1
         self.assertFalse(calibration.compatible_panel(old_panel, panel))
 

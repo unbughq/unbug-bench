@@ -287,6 +287,8 @@ denial.
   must fit joint USD AND separate token ceilings. 1M hard context/request and
   output clamp32768 include caches/thinking. Complete strictly validated usage
   alone can release unused allowance; partial/uncertain usage keeps all of it.
+  Refundable active holds cause a deadline/cancel/close-bounded wait. Only
+  settled+retained unknown usage making new W impossible is terminal exhaustion.
   Standard mode, no hosted tools/premium modes; small-model calls use same Opus.
   Current route cap50.0 USD; W<=19.041792; input113636363/output1136363 tokens.
   BOTH settled gate cost and W use existing claude_cost2*1.1, preserving the
@@ -312,6 +314,7 @@ denial.
   feedback/scientific fail/provider outage/inline retry. D diagnoses it as a
   factory limit; a later invocation needs new authorised reservation/Lease.
   Drain old leases before rollout; B's real practice run qualifies production.
+  Its normal completion must show validated_requests>0 and unknown_requests==0.
 
 ## 8. Batch money authority (B provides, D enforces)
 

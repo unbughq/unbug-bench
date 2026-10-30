@@ -8,7 +8,7 @@ production qualification. Murphy rows 2, 3, 4, 20, 47 and 48 remain OPEN.
 
 `tests/factory/fixtures/router-maxima-linux-gate.json.gz` saves verbatim commands,
 results, binary hashes, source hashes, image configuration hashes and the public
-Dockerfile for eight successful probes. Both Linux x64 (production architecture)
+Dockerfile for ten successful probes after diff-1's contention fix. Both Linux x64 (production architecture)
 and ARM64 ran the exact Claude 2.1.299 public package. The fixture's recorded
 source hashes match the tested implementation. Public package provenance is in
 `router-maxima-cli-audit.json.gz`.
@@ -21,7 +21,8 @@ OAuth value reached only a loopback fake provider; no real provider, model,
 case or Boat worker ran. The harness replaces the fixed HTTPS connection in
 test code only; production has no upstream URL override.
 
-Each architecture passed all four scenarios:
+Each architecture passed all five scenarios. The original eight were actually
+rerun on the changed source, not relabeled:
 
 | Scenario | Forwarded | Unknown | Result |
 | --- | ---: | ---: | --- |
@@ -29,6 +30,7 @@ Each architecture passed all four scenarios:
 | Actual CLI retries after scripted 503, allowance exhausted | 2 | 2 | model_call_cap |
 | Actual reactive client compaction, native compact_boundary | 4 | 1 | done, final_usage_known=false |
 | max_tokens stop then continuation | 2 | 0 | done |
+| Three concurrent native clients, third waits for validated release | 3 | 0 | done |
 
 The retry scenario deliberately enables retries after the production environment
 normalizer to prove they use the same gate. Compaction deliberately reduces the
@@ -37,13 +39,21 @@ are enumerated in the artifact; they are not production settings. Every
 forwarded body used the exact allowed model, standard_only tier and at most
 32,768 output tokens. Each scenario acquired and started exactly one Lease.
 
+The concurrency exam uses three actual pinned CLI SDK clients, two launched as
+test-only extra clients sharing the main invocation's gate. The fake upstream
+holds two replies until the third admission really waits on the Condition, then
+releases validated usage. All three complete; no cap is raised. This is not a
+claim that a live parallel WebFetch workflow completed under network denial.
+
 ## Focused checks
 
 `uv run --with numpy --with scipy python -B tests/factory/test_model_call_maxima.py`
-passes 13 tests, including real-receipt repricing, lost CLI final/unchanged
+passes 15 tests, including real-receipt repricing, lost CLI final/unchanged
 partial booking, exact near-ceiling float booking, supplied/RPC cap tampering,
 one-use start, interruption propagation, sticky exhaustion, close-before-send,
-and missing/empty/malformed terminal provider usage retaining the whole W.
+missing/empty/malformed terminal provider usage retaining the whole W, refundable
+concurrency waits, permanent unknown exhaustion, cancel/deadline/close wakeups,
+and preservation of cancellation_failed.
 Existing router (36), runtime (3), provider routes (4), and launch manifest (2)
 tests also pass.
 
@@ -58,7 +68,10 @@ correctly refuses that unpinned migration. The test now exercises C's recorded
 target as its positive example and asserts refusal of the newer actual identity
 and panel. C's production compatibility policy and scoring are unchanged.
 
-A final full-suite result follows after the fresh diff review stabilizes fixes.
+The second run on `de33c1b6207440d01bf6bb61b028fd6d8d410eff` was deliberately
+interrupted after fresh diff review found M1. Its partial log and interruption
+metadata are saved as `router-maxima-full-de33c1b.log.gz` and `.json`; it is not
+claimed as a passing run. A final full-suite result follows stabilized fixes.
 Current rotation packages remain unqualified because
 their non-Claude routes have no enforceable bound; B's separately authorized
 practice-case exam remains required for production qualification.

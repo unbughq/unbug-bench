@@ -1,0 +1,18 @@
+{
+  "tested_sha": "de33c1b6207440d01bf6bb61b028fd6d8d410eff",
+  "command": [
+    "uv",
+    "run",
+    "--with",
+    "numpy",
+    "--with",
+    "scipy",
+    "python",
+    "-B",
+    "tests/run.py"
+  ],
+  "exit_code": 130,
+  "status": "interrupted_superseded",
+  "reason": "Accepted fresh diff-1 Major M1 requires gate source changes; stabilize before final full run",
+  "recorded_utc": "2026-10-30T02:22:10.539262+00:00"
+}

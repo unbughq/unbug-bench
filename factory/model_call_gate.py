@@ -131,9 +131,11 @@ def empty_usage():
 
 
 class Allowance:
-    def __init__(self, lease, cancel=None):
+    def __init__(self, lease, cancel=None, deadline=math.inf):
         self.lease, self.cancel = lease, cancel
         self.lock, self.exhaustion = threading.Lock(), threading.Event()
+        self.condition = threading.Condition(self.lock)
+        self.deadline = deadline
         self.closed = False
         self.active, self.connections = {}, set()
         self.forwarded = self.validated = self.unknown = self.unsupported = 0
@@ -151,19 +153,27 @@ class Allowance:
         incoming = max(range(3), key=lambda i: CLAUDE_PRICES[GATED_CLAUDE][i])
         worst[CLAUDE_GATE_FIELDS[incoming]], worst['output_tokens'] = CLAUDE_CONTEXT, output
         allowance = (claude_gate_cost(worst), CLAUDE_CONTEXT, output)
-        with self.lock:
-            if self.closed or self.is_set(): return None
-            held = self._held()
+        with self.condition:
             maximum = (Decimal(str(self.lease.max_usd)), self.lease.max_input_tokens, self.lease.max_output_tokens)
-            if any(self.settled[i] + held[i] + allowance[i] + (HEADROOM if i == 0 else 0) > maximum[i] for i in range(3)):
-                self.exhaustion.set()
-                return None
-            self.forwarded += 1
-            self.active[self.forwarded] = allowance
-            return self.forwarded
+            while not self.closed and not self.is_set():
+                remaining = self.deadline - time.monotonic()
+                if remaining <= 0: return None
+                if any(self.settled[i] + self.retained[i] + allowance[i] + (HEADROOM if i == 0 else 0) > maximum[i] for i in range(3)):
+                    self.exhaustion.set()
+                    self.condition.notify_all()
+                    return None
+                held = self._held()
+                if all(self.settled[i] + held[i] + allowance[i] + (HEADROOM if i == 0 else 0) <= maximum[i] for i in range(3)):
+                    self.forwarded += 1
+                    self.active[self.forwarded] = allowance
+                    return self.forwarded
+                # Active requests may validate and release W. Contention is not
+                # exhaustion; poll cancellation while finish/close notify us.
+                self.condition.wait(min(.05, remaining))
+            return None
 
     def finish(self, identity, usage):
-        with self.lock:
+        with self.condition:
             allowance = self.active.pop(identity, None)
             if allowance is None: return  # close already retained it; never refund late.
             amount = None
@@ -174,6 +184,7 @@ class Allowance:
             for i in range(3): target[i] += (amount or allowance)[i]
             if amount is None: self.unknown += 1
             else: self.validated += 1
+            self.condition.notify_all()
 
     def snapshot(self):
         with self.lock:
@@ -188,12 +199,13 @@ class Allowance:
             return result
 
     def close(self):
-        with self.lock:
+        with self.condition:
             self.closed = True
             for amount in self.active.values():
                 for i in range(3): self.retained[i] += amount[i]
                 self.unknown += 1
             self.active.clear()
+            self.condition.notify_all()
             connections = list(self.connections)
         for connection in connections:
             try:
@@ -321,7 +333,8 @@ class Handler(BaseHTTPRequestHandler):
             self.error(400, 'invalid_request_error', 'route_feature_unsupported'); return
         identity = gate.state.reserve(body['max_tokens'])
         if identity is None:
-            self.error(400, 'invalid_request_error', 'model_call_cap'); return
+            self.error(400, 'invalid_request_error',
+                'model_call_cap' if gate.state.exhaustion.is_set() else 'invocation_stopped'); return
         encoded = json.dumps(body, allow_nan=False).encode()
         headers = {'Authorization': auth[0], 'Content-Type': 'application/json',
             'anthropic-version': '2023-06-01', 'anthropic-beta': BETAS, 'Accept-Encoding': 'identity'}
@@ -367,7 +380,7 @@ class Gate:
     def __init__(self, lease, token, timeout, cancel=None):
         self.token, self.timeout = token, max(.01, timeout)
         self.deadline = time.monotonic() + self.timeout
-        self.state = Allowance(lease, cancel)
+        self.state = Allowance(lease, cancel, self.deadline)
         self.server = Server(('127.0.0.1', 0), Handler); self.server.gate = self
         self.thread = threading.Thread(target=lambda: self.server.serve_forever(poll_interval=.05), daemon=True)
         self.thread.start()
@@ -395,7 +408,12 @@ def enforce(lease, env, cap_used, timeout, cancel=None):
         CLAUDE_CODE_GZIP_REQUEST_BODIES='0', CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='1',
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1', DISABLE_AUTOUPDATER='1')
     env.clear(); env.update(clean)
+    failure = None
     try: yield gate
+    except BudgetError as error:
+        failure = error
+        raise
     finally:
         gate.close(); cap_used.clear(); cap_used.update(gate.state.snapshot())
-        if gate.state.exhaustion.is_set(): raise BudgetError('model_call_cap') from None
+        if gate.state.exhaustion.is_set() and str(failure) != 'cancellation_failed':
+            raise BudgetError('model_call_cap') from None

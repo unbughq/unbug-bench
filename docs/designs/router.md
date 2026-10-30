@@ -542,6 +542,13 @@ same lock. Keep an additional 0.000001 USD numerical headroom in this
 comparison for the unchanged ledger float accumulation/9-decimal presentation;
 it is never released or booked. No previous partial or optimistic usage releases anything.
 
+If only ACTIVE refundable allowances prevent admission, wait on the same lock's
+Condition, bounded by the invocation's fixed monotonic deadline, close and parent
+cancellation. finish/close/terminal exhaustion notify all waiters. Recheck every
+inequality before forwarding; no waiter consumes an allowance early. Only when
+settled + RETAINED unknown allowances + new W cannot fit is exhaustion terminal.
+Temporary concurrency is neither spending nor a factory-limit stop.
+
 When a response completes with strictly valid provider usage, replace that
 request's allowance with its actual token counts and conservatively priced cost.
 For SSE require exactly one message_start and final message_stop, cumulative
@@ -579,6 +586,12 @@ combines that event with the existing parent cancellation for run_budgeted's
 polling, stopping ONLY this CLI; do not set the shared peer cancellation event.
 After cleanup, override CLI/process/cancel labels with BudgetError(model_call_cap)
 when exhausted, preventing account/provider fallback or a second monetary cap.
+Preserve cancellation_failed unchanged: cleanup may have left a child alive;
+cap_used.exhausted still records the monetary stop. Cancel/close/deadline denial
+uses local invocation_stopped, never a false model_call_cap label. If monetary
+exhaustion overrides an inner provider_failure, its account observation is
+deliberately dropped; retained W remains conservative and D diagnoses this cap
+without automatic provider fallback.
 Upstream connection errors: local 502 fixed `api_error`; retain W. Real upstream
 status/error bodies and headers are otherwise relayed, preserving the existing
 provider classifier. Copy response bytes/SSE incrementally without modification;
@@ -641,8 +654,9 @@ terminated HTTP with malformed/missing usage is UNKNOWN, never validated.
 Unsupported counts only authenticated requests rejected before forwarding;
 unauthenticated callers change nothing. Settled fields sum VALIDATED requests
 only at existing claude_cost conservative rates. Held fields sum UNKNOWN plus
-IN_FLIGHT allowances, each exactly once, never also settled. Exhausted means a
-monetary/token pre-admission test failed, not unsupported or auth rejection.
+IN_FLIGHT allowances, each exactly once, never also settled. Exhausted means the
+settled+retained-unknown monetary/token admission test failed permanently, not
+temporary active holds, deadline, cancellation, unsupported or auth rejection.
 The maximum request output field is the code-owned per-request clamp, not an
 observed output maximum.
 
@@ -694,11 +708,14 @@ router update across an in-flight unbounded old CLI. Missing-cap renewals would
 otherwise cancel old calls within60 seconds. No batch runs between A and B merge
 under the existing reviewed rollout contract; this increment performs no deploy.
 
-The propagation-only calibration change also changes its source identity. C's
-historical compatibility policy remains pinned to C's exact target: this slice
-does not authorize migration of old calibration evidence to a newer source
-identity. Its regression tests exercise that recorded target and reject the
-newer unpinned identity; no compatibility/scoring rule is broadened.
+Changed model_runtime, token_prices and calibration source identities invalidate
+all saved calibration attempts and G8/G9/G16 reuse records, conservatively causing
+paid reruns on resume even without the interruption-label change. No running
+batch is migrated here. C's historical compatibility policy stays pinned to its
+exact target; tests accept that target and reject the newer identity/panel.
+Add model_call_gate to gate_state.MODEL: later gate edits also invalidate model
+evidence because normalization/rejection affects inference. This is an evidence
+identity seam only; no compatibility/scoring rule is broadened.
 
 ### Phases, exams, cost and completion
 
@@ -739,7 +756,12 @@ newer unpinned identity; no compatibility/scoring rule is broadened.
    attempts keep full W, and exhaustion prevents another forward or account
    fallback. Wrapper outcome after cleanup must be model_call_cap, not cancelled
    or provider outage. Do not rely on MAX_RETRIES=0; the earlier pin probe proved
-   it insufficient. Save argv/env names,
+   it insufficient. Add a concurrency exam: three actual pinned native SDK clients share this
+   single test gate/Lease; hold two upstream replies until the third queues,
+   then validate/release and require all three complete without exhaustion.
+   The two extra CLIs are synthetic test clients, not production launches or
+   evidence of live parallel WebFetch completion. Re-run the original eight
+   architecture/scenario probes on the changed gate source too. Save argv/env names,
    architecture, binary/image hashes, sanitised request shapes/outcomes and commands.
    Existing local Docker was started by parent for this reversible verification;
    no Boat/control-VM operation is authorised. If a platform prerequisite fails,
@@ -751,6 +773,8 @@ newer unpinned identity; no compatibility/scoring rule is broadened.
 Final production exam belongs to B's separately authorised public practice-case
 end-to-end run: one real Claude role through gate, real usage plus cap_used,
 wait/checkpoint/retire/relaunch/settle/finish. No real model/case launch here.
+For a normal completion require validated_requests>0 and unknown_requests==0;
+synthetic SSE cannot establish real stream compatibility.
 Until that and other-role enforcement qualify, no production readiness or Murphy
 row closure is claimed. Rows2,3,4,20,47,48 remain OPEN. One implementation session,
 offline suite and Linux probes; no cloud/model spend. Reuse stdlib/existing ledger;
