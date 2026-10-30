@@ -1,0 +1,580 @@
+"""Gated host operation/collection composition. No diagnosis or live activation."""
+from contextlib import contextmanager
+from copy import deepcopy
+from datetime import datetime, timezone
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import subprocess
+import sys
+import time
+import urllib.request
+import uuid
+
+import batch_money as money
+import batch_service as service
+from batch_accounting import collection_facts
+from job_config import read_file
+from registry import atomic_json
+from transfer import digest
+
+HOLDER_ENABLED = False
+FIELDS = {'operation_id', 'launch_id', 'job', 'case', 'source_generation',
+          'release_sha256', 'config_sha256', 'authority', 'state', 'pending_since',
+          'worker_id', 'dispatch_started', 'dispatch_exit', 'output_generation',
+          'retirement', 'launch', 'incident'}
+
+
+def enabled():
+    if not HOLDER_ENABLED: raise ValueError('request_refused')
+
+
+def operation_id(policy, job, source):
+    name = json.dumps([policy['batch']['id'], job, source, policy['batch']['sha256']], separators=(',', ':'))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
+
+
+def validate_operations(operations, record):
+    """Shared journal grammar; no filesystem observation or lifecycle inference."""
+    try:
+        if not isinstance(operations, dict): raise ValueError()
+        live = set()
+        for identity, op in operations.items():
+            parsed = uuid.UUID(identity)
+            if parsed.version != 5 or str(parsed) != identity or set(op) != FIELDS: raise ValueError()
+            if (op['operation_id'] != identity or op['job'] not in record['jobs'] or
+                    op['case'] != record['jobs'][op['job']]['case'] or
+                    not re.fullmatch('[0-9a-f]{32}', op['launch_id']) or
+                    not money._sha(op['release_sha256']) or not money._sha(op['config_sha256'])): raise ValueError()
+            source = op['source_generation']
+            if source is not None and not money._sha(source): raise ValueError()
+            if op['output_generation'] is not None and not money._sha(op['output_generation']): raise ValueError()
+            name = json.dumps([record['id'], op['job'], source, op['release_sha256']], separators=(',', ':'))
+            if str(uuid.uuid5(uuid.NAMESPACE_URL, name)) != identity: raise ValueError()
+            auth = money.channel(op['authority'], record, op['job'])
+            if auth['source_generation'] != source: raise ValueError()
+            money.deadline(op['pending_since'])
+            if (type(op['dispatch_started']) is not bool or
+                    (op['dispatch_exit'] is not None and type(op['dispatch_exit']) is not int) or
+                    op['state'] not in ('pending', 'launched', 'failed') or
+                    op['incident'] not in (None, 'creation_unknown', 'accounting_refused', 'legacy_retire', 'preflight_refused')):
+                raise ValueError()
+            worker = op['worker_id']
+            if worker is not None and (not isinstance(worker, str) or not re.fullmatch('[A-Za-z0-9_-]+', worker)):
+                raise ValueError()
+            money.retirement_check(op['retirement'])
+            if op['retirement'] is not None and op['retirement']['worker_id'] != worker: raise ValueError()
+            if op['state'] == 'launched':
+                if worker is None: raise ValueError()
+            elif worker is not None or op['output_generation'] is not None or op['retirement'] is not None:
+                raise ValueError()
+            launch = op['launch']
+            if launch is not None:
+                from control_resume import ENVIRONMENT
+                if (set(launch) != {'argv', 'environment'} or not isinstance(launch['argv'], list) or
+                        any(not isinstance(a, str) for a in launch['argv']) or
+                        not isinstance(launch['environment'], dict) or
+                        not set(launch['environment']) <= set(ENVIRONMENT) or
+                        any(not isinstance(v, str) for v in launch['environment'].values()) or
+                        launch['environment'].get('UNBUG_BATCH_OPERATION') != identity): raise ValueError()
+            if op['dispatch_started'] and launch is None: raise ValueError()
+            if op['state'] in ('pending', 'launched') and op['retirement'] is None:
+                if op['case'] in live: raise ValueError()
+                live.add(op['case'])
+        return operations
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise ValueError('invalid batch operations') from None
+
+
+def _operations(directory, record, policy):
+    path = directory / 'reservations.json'
+    if not path.exists() and not path.is_symlink(): return {}
+    state = service._json(path)
+    if (set(state) != {'schema', 'batch', 'manifest_sha256', 'operations'} or
+            type(state['schema']) is not int or state['schema'] != 1 or
+            state['batch'] != record['id'] or state['manifest_sha256'] != policy['batch']['manifest_sha256']):
+        raise ValueError('request_refused')
+    ops = validate_operations(state['operations'], record)
+    if any(op['release_sha256'] != policy['batch']['sha256'] for op in ops.values()):
+        raise ValueError('request_refused')
+    return ops
+
+
+def _save(directory, record, policy, operations):
+    validate_operations(operations, record)
+    atomic_json(directory / 'reservations.json', dict(schema=1, batch=record['id'],
+                manifest_sha256=policy['batch']['manifest_sha256'], operations=operations))
+    state = service._load(directory, record, policy['batch']['manifest_sha256'])
+    state['operations'] = deepcopy(operations)
+    atomic_json(directory / 'journal.json', state)
+
+
+def _config(policy, home, op):
+    path = home / 'batches' / policy['batch']['id'] / 'configs' / (op['config_sha256'] + '.json')
+    value = read_file(path, op['config_sha256'], private=True)
+    expected = dict(schema=1, batch_id=policy['batch']['id'], job_id=op['job'], case_id=op['case'],
+                    batch_deadline=op['authority']['batch_deadline'], source_generation=op['source_generation'],
+                    batch_release_sha256=op['release_sha256'], manifest_sha256=policy['batch']['manifest_sha256'],
+                    job_money=op['authority'])
+    if value != expected: raise ValueError('request_refused')
+    return path
+
+
+def _entry(directory, record, policy, case, generation):
+    state = service._load(directory, record, policy['batch']['manifest_sha256'])
+    entry = state['entries'][case + '/' + generation]
+    card = service._snapshot(directory, entry, record, policy['batch']['sha256'])
+    return entry, card
+
+
+def _source(directory, record, policy, operations, state, name, generation):
+    """Read-only predecessor proof common to pre- and post-advance checks."""
+    row = state['jobs'][name]
+    ack = row['acks'][generation]
+    predecessor = operations[ack['operation_id']]
+    if (predecessor['job'] != name or predecessor['output_generation'] != generation or
+            predecessor['authority'] != ack['authority'] or predecessor['retirement'] is None or
+            predecessor['retirement'] != ack['retirement']): raise ValueError('request_refused')
+    pointer = service._json(directory / 'current' / (predecessor['case'] + '.json'))
+    if pointer != dict(generation=generation, manifest_sha256=ack['manifest_sha256']):
+        raise ValueError('request_refused')
+    outbox = service._json(directory / 'outbox' / (predecessor['operation_id'] + '.json'))
+    if outbox != dict(schema=1, operation_id=predecessor['operation_id'], generation=generation,
+                      manifest_sha256=ack['manifest_sha256'], state='acknowledged'):
+        raise ValueError('request_refused')
+    entry, card = _entry(directory, record, policy, predecessor['case'], generation)
+    if entry['manifest_sha256'] != ack['manifest_sha256'] or card.get('job_money') != ack['authority']:
+        raise ValueError('request_refused')
+    return ack, entry, card
+
+
+def _post(directory, record, policy, home, operations, state, identity):
+    op = operations[identity]
+    if (state['incidents'] or money.aggregate(state) > money.amount(record['money_limit_usd']) or
+            money.deadline(record['batch_deadline']) <= datetime.now(timezone.utc).timestamp()):
+        raise money.MoneyWait('money_wait')
+    row = state['jobs'][op['job']]
+    if row['overrun'] or row['authority'] != op['authority'] or row['sources'][-1] != op['source_generation']:
+        raise money.MoneyWait('money_wait')
+    _config(policy, home, op)
+    if op['source_generation'] is not None:
+        ack, _, _ = _source(directory, record, policy, operations, state, op['job'], op['source_generation'])
+        if ack['authority']['source_generation'] != row['sources'][-2]: raise ValueError('request_refused')
+    elif row['sources'] != [None]: raise ValueError('request_refused')
+    return op
+
+
+def reserve(policy, root, home, name, source_generation):
+    enabled()
+    record = money.manifest(policy, root)
+    if name not in record['jobs'] or (source_generation is not None and not money._sha(source_generation)):
+        raise ValueError('request_refused')
+    if money.deadline(record['batch_deadline']) <= datetime.now(timezone.utc).timestamp():
+        raise money.MoneyWait('retired_batch_bound')
+    identity = operation_id(policy, name, source_generation)
+    with money.locked(home, record['id']) as directory:
+        ops = _operations(directory, record, policy)
+        state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
+        row = state['jobs'].get(name)
+        if identity in ops:
+            if row is None or row['authority']['source_generation'] != source_generation:
+                raise ValueError('request_refused')
+            _save(directory, record, policy, ops)  # repair journal after lost reply
+            return deepcopy(ops[identity])
+        if (state['incidents'] or sum(o['state'] in ('pending', 'launched') and o['retirement'] is None
+                for o in ops.values()) >= record['max_concurrency'] or
+                any(o['job'] == name and o['state'] in ('pending', 'launched') and o['retirement'] is None
+                    for o in ops.values())): raise money.MoneyWait('money_wait')
+        if source_generation is not None:
+            ack, _, _ = _source(directory, record, policy, ops, state, name, source_generation)
+            if row['authority']['source_generation'] != source_generation:
+                money.advance_locked(state, record, name, source_generation, ack)
+            elif row['sources'][-2] != ack['authority']['source_generation']:
+                raise ValueError('request_refused')
+        authority = money.authorize_locked(state, record, name, source_generation)
+        atomic_json(directory / 'money.json', state)
+        money.project(home, record, state)
+        _, config_sha = money.configuration(policy, name, authority, home)
+        op = dict(operation_id=identity, launch_id=uuid.uuid4().hex, job=name, case=authority['case'],
+                  source_generation=source_generation, release_sha256=policy['batch']['sha256'],
+                  config_sha256=config_sha, authority=authority, state='pending',
+                  pending_since=datetime.now(timezone.utc).isoformat(), worker_id=None,
+                  dispatch_started=False, dispatch_exit=None, output_generation=None,
+                  retirement=None, launch=None, incident=None)
+        ops[identity] = op
+        _save(directory, record, policy, ops)
+        return deepcopy(op)
+
+
+def reply(op):
+    return {k: op[k] for k in ('operation_id', 'launch_id', 'state', 'worker_id')}
+
+
+def lookup(policy, root, home, identity):
+    enabled(); record = money.manifest(policy, root)
+    directory = home / 'batches' / record['id']
+    with service._regular(directory / 'lock') as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        ops = _operations(directory, record, policy)
+        if identity not in ops: raise ValueError('operation_unknown')
+        return reply(ops[identity])
+
+
+@contextmanager
+def operation_lock(directory, identity):
+    parsed = uuid.UUID(identity)
+    if parsed.version != 5 or str(parsed) != identity: raise ValueError('request_refused')
+    locks = directory / 'operations'; locks.mkdir(mode=0o700, exist_ok=True)
+    fd = os.open(locks / (identity + '.lock'), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'a+') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+
+
+def record_exit(policy, root, home, identity, code):
+    enabled(); record = money.manifest(policy, root)
+    directory = home / 'batches' / record['id']
+    try:
+        with operation_lock(directory, identity), money.locked(home, record['id']):
+            ops = _operations(directory, record, policy); op = ops[identity]
+            op['dispatch_exit'] = code
+            if op['state'] == 'pending' and not op['dispatch_started']:
+                op.update(state='failed', incident='preflight_refused')
+            _save(directory, record, policy, ops)
+    except BlockingIOError:
+        pass  # Another preflight owner is alive; this child's exit says nothing.
+
+
+def _created(path, op):
+    if service._json(path / 'launch.json') != op['launch']: raise ValueError('request_refused')
+    workers = []
+    for file in sorted(path.glob('new.*')):
+        if not re.fullmatch(r'new\.[0-9]+', file.name): continue
+        with service._regular(file) as stream:
+            for line in stream:
+                try: event = json.loads(line)
+                except ValueError: continue
+                if event.get('event') == 'created': workers.append(event.get('id'))
+    with service._regular(path / 'ids') as stream: ids = stream.read().decode().split()
+    if (len(workers) != 1 or not isinstance(workers[0], str) or
+            not re.fullmatch('[A-Za-z0-9_-]+', workers[0]) or ids != workers):
+        raise ValueError('creation_unknown')
+    return workers[0]
+
+
+def _retirement(root, path, worker):
+    with service._regular(path / 'monitor.sh') as stream: lines = stream.read().decode().splitlines()
+    values = [shlex.split(line.split('=', 1)[1]) for line in lines if line.startswith('spend_file=')]
+    if len(values) != 1 or len(values[0]) != 1: raise ValueError('request_refused')
+    spend = Path(values[0][0])
+    if not spend.is_absolute() or not spend.resolve().is_relative_to((root / 'results/spend').resolve()):
+        raise ValueError('request_refused')
+    directory = spend.with_suffix('.deletions') / worker
+    request, done = (service._json(directory / name) for name in ('deletion-request.json', 'deletion-completion.json'))
+    keys = {'id', 'targetId', 'kind', 'status', 'stage', 'completedAt'}
+    if (set(request) != keys or set(done) != keys or not isinstance(done['id'], str) or not done['id'] or
+            request['id'] != done['id'] or request['targetId'] != worker or done['targetId'] != worker or
+            request['kind'] != 'sandbox' or done['kind'] != 'sandbox' or
+            done['status'] != 'completed' or done['stage'] != 'completed' or
+            datetime.fromisoformat(done['completedAt'].replace('Z', '+00:00')).tzinfo is None):
+        raise ValueError('request_refused')
+    return dict(worker_id=worker, request_sha256=digest(directory / 'deletion-request.json'),
+                completion_sha256=digest(directory / 'deletion-completion.json'))
+
+
+def reconcile(policy, root, home):
+    enabled(); record = money.manifest(policy, root)
+    with money.locked(home, record['id']) as directory:
+        ops = _operations(directory, record, policy)
+        state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
+        for op in ops.values():
+            if not op['dispatch_started']: continue
+            path = home / 'launches' / op['launch_id']
+            try: worker = _created(path, op)
+            except (OSError, ValueError, KeyError, TypeError):
+                if op['worker_id'] is not None: continue  # Never forget ownership.
+                op['incident'] = 'creation_unknown'
+                if op['dispatch_exit'] is not None:
+                    try:
+                        if service._json(path / 'launch.json') != op['launch']: continue
+                        with service._regular(path / 'controller.lock') as lock:
+                            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            with service._regular(path / 'ids') as stream: ids = stream.read().strip()
+                            if not list(path.glob('new.*')) and not ids:
+                                op.update(state='failed', incident='preflight_refused')
+                    except (OSError, ValueError, KeyError): pass
+                continue
+            if op['worker_id'] not in (None, worker): raise ValueError('request_refused')
+            op.update(worker_id=worker, state='launched')
+            if op['incident'] == 'creation_unknown': op['incident'] = None
+            try: proof = _retirement(root, path, worker)
+            except (OSError, ValueError, KeyError, TypeError, AttributeError): continue
+            if op['retirement'] not in (None, proof): raise ValueError('request_refused')
+            for ack in state['jobs'][op['job']]['acks'].values():
+                if ack['operation_id'] != op['operation_id']: continue
+                if ack['retirement'] not in (None, proof): raise ValueError('request_refused')
+                ack['retirement'] = proof
+            atomic_json(directory / 'money.json', state)
+            op['retirement'] = proof
+        _save(directory, record, policy, ops)
+    ready = []
+    for op in ops.values():
+        if op['state'] != 'pending' or op['dispatch_started'] or op['dispatch_exit'] is not None or op['incident'] is not None:
+            continue
+        try:
+            with operation_lock(directory, op['operation_id']): ready.append(op['operation_id'])
+        except BlockingIOError: pass
+    return ready
+
+
+def source_directory(policy, root, home, identity):
+    """Pure POST resolver used by both bind and the shell before restore."""
+    enabled(); record = money.manifest(policy, root)
+    directory = home / 'batches' / record['id']
+    with service._regular(directory / 'lock') as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        ops = _operations(directory, record, policy)
+        state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
+        op = _post(directory, record, policy, home, ops, state, identity)
+        if op['source_generation'] is None: return None
+        return directory / 'generations' / op['case'] / op['source_generation']
+
+
+def _extends(old, new):
+    """Conservative cumulative evidence retention; ambiguous old markers freeze."""
+    before, after = old['continuation_budget'], new['continuation_budget']
+    events = before['events']
+    if after['events'][:len(events)] != events: return False
+    immutable = {'schema_version', 'invocation_id', 'operation_id', 'lease_id', 'route', 'account',
+                 'billing', 'pool', 'family', 'call_name', 'parent_call_name', 'maximum_usd'}
+    later = after.get('invocation_reservations', {})
+    records = {r['invocation_id']: r for r in after.get('reconciled_decreases', [])}
+    for lease, row in before.get('invocation_reservations', {}).items():
+        target = later.get(lease, {})
+        if any(row.get(k) != target.get(k) for k in immutable): return False
+        if row['state'] == 'settled' and target.get('state') != 'settled': return False
+        if row['state'] == 'estimated' and target.get('state') != 'estimated':
+            if target.get('state') != 'settled' or row['invocation_id'] not in records: return False
+    for marker in before.get('unpriced_invocations', []):
+        if not isinstance(marker, dict) or not marker.get('invocation_id') or not marker.get('lease_id'): return False
+        target = later.get(marker['lease_id'], {})
+        if marker not in after.get('unpriced_invocations', []) and not (
+                target.get('invocation_id') == marker['invocation_id'] and target.get('state') == 'settled'):
+            return False
+    return True
+
+
+def r2_publish(root, key, path):
+    """Signed URLs never leave memory or enter errors. PUT then streamed GET/hash."""
+    try:
+        def url(verb):
+            return subprocess.check_output([str(root / 'bin/r2-presign'), verb, key, '3600'],
+                                           stderr=subprocess.DEVNULL, timeout=30, text=True).strip()
+        with path.open('rb') as stream:
+            request = urllib.request.Request(url('PUT'), data=stream, method='PUT',
+                                             headers={'Content-Length': str(path.stat().st_size)})
+            with urllib.request.urlopen(request, timeout=120) as response: response.read(4096)
+        h = hashlib.sha256(); size = 0; end = time.monotonic() + 1800
+        with urllib.request.urlopen(url('GET'), timeout=120) as response:
+            while block := response.read(1024 * 1024):
+                size += len(block)
+                if size > path.stat().st_size or time.monotonic() > end: raise ValueError()
+                h.update(block)
+        if h.hexdigest() != digest(path): raise ValueError()
+    except Exception:
+        raise ValueError('publication_failed') from None
+
+
+def collect(policy, root, home, identity, transport=None):
+    enabled(); record = money.manifest(policy, root)
+    with money.locked(home, record['id']) as directory:
+        ops = _operations(directory, record, policy); op = deepcopy(ops[identity])
+        _config(policy, home, op)
+        worker = _created(home / 'launches' / op['launch_id'], op)
+        if worker != op['worker_id'] or op['state'] != 'launched': raise ValueError('request_refused')
+    incoming = home / 'launches' / op['launch_id'] / 'collected'
+    # Freeze bytes through the existing verifier before any outbox or ACK writes.
+    entry = service.collect(policy, root, home, op['job'], incoming)
+    generation = entry['generation']
+    with money.locked(home, record['id']) as directory:
+        ops = _operations(directory, record, policy); current = ops[identity]
+        state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
+        row = state['jobs'][op['job']]
+        if row['authority'] != op['authority'] or current['authority'] != op['authority']:
+            raise ValueError('request_refused')
+        card = service._snapshot(directory, entry, record, policy['batch']['sha256'])
+        if card.get('job_money') != op['authority']: raise ValueError('legacy_retire')
+        old = row['acks'].get(generation)
+        if old is not None:
+            if old['operation_id'] != identity or old['manifest_sha256'] != entry['manifest_sha256']:
+                raise ValueError('request_refused')
+            if current['output_generation'] not in (None, generation):
+                recovery = directory / 'outbox' / (identity + '.json')
+                saved = service._json(recovery) if recovery.exists() else {}
+                if saved.get('generation') != generation: return deepcopy(old)
+        outbox_dir = directory / 'outbox'; outbox_dir.mkdir(mode=0o700, exist_ok=True)
+        outbox_path = outbox_dir / (identity + '.json')
+        if outbox_path.exists():
+            prior = service._json(outbox_path)
+            if prior['generation'] != generation and prior['state'] != 'acknowledged':
+                incident = state['incidents'].get(identity + '/' + prior['generation'])
+                if incident is None: raise ValueError('request_refused')
+                _, refused = _entry(directory, record, policy, op['case'], prior['generation'])
+                if not _extends(refused, card): raise ValueError('request_refused')
+        candidate = dict(schema=1, operation_id=identity, generation=generation,
+                         manifest_sha256=entry['manifest_sha256'], state='pending')
+        atomic_json(outbox_path, candidate)
+    snapshot = directory / 'generations' / op['case'] / generation
+    manifest = service._json(snapshot / 'manifest.json')
+    transport = transport or (lambda key, path: r2_publish(root, key, path))
+    for name in sorted(set(manifest['files']) | {'manifest.json'}):
+        transport('generations/' + op['case'] + '/' + generation + '/' + name, snapshot / name)
+    with money.locked(home, record['id']) as directory:
+        if service._json(outbox_path) != candidate: raise ValueError('request_refused')
+        ops = _operations(directory, record, policy); current = ops[identity]
+        state = money.load_locked(directory, record, policy['batch']['manifest_sha256']); row = state['jobs'][op['job']]
+        if row['authority'] != op['authority']: raise ValueError('request_refused')
+        card = service._snapshot(directory, entry, record, policy['batch']['sha256'])
+        ack = row['acks'].get(generation)
+        if ack is None:
+            import budget
+            try:
+                facts = collection_facts(card, row['previous'], row['held_usd'], budget)
+                clear = []
+                for key, incident in state['incidents'].items():
+                    if incident['operation_id'] != identity: continue
+                    _, refused = _entry(directory, record, policy, op['case'], incident['generation'])
+                    if incident['generation'] == generation or not _extends(refused, card):
+                        raise ValueError('invalid_accounting_input')
+                    clear.append(key)
+            except (ValueError, KeyError, TypeError) as error:
+                reason = str(error) if str(error) in money.ACCOUNTING_ERRORS else 'invalid_accounting_input'
+                state['incidents'][identity + '/' + generation] = dict(operation_id=identity,
+                    generation=generation, manifest_sha256=entry['manifest_sha256'], reason=reason)
+                atomic_json(directory / 'money.json', state)
+                current['incident'] = 'accounting_refused'; _save(directory, record, policy, ops)
+                raise ValueError(reason) from None
+            ack = dict(operation_id=identity, generation=generation, manifest_sha256=entry['manifest_sha256'],
+                       authority=deepcopy(op['authority']), previous=deepcopy(row['previous']), facts=facts, retirement=None)
+            row['acks'][generation] = ack
+            row['previous'] = {k: deepcopy(facts[k]) for k in ('total_usd', 'estimated')}
+            if facts['total_usd'] is not None and money.amount(facts['total_usd']) > money.amount(row['known_floor_usd']):
+                row['known_floor_usd'] = facts['total_usd']
+            row['overrun'] = money.amount(row['known_floor_usd']) > money.amount(row['held_usd'])
+            for key in clear: del state['incidents'][key]
+        pointers = directory / 'current'; pointers.mkdir(mode=0o700, exist_ok=True)
+        pointer = dict(generation=generation, manifest_sha256=entry['manifest_sha256'])
+        atomic_json(pointers / (op['case'] + '.json'), pointer)
+        if service._json(pointers / (op['case'] + '.json')) != pointer: raise ValueError('request_refused')
+        atomic_json(directory / 'money.json', state)
+        atomic_json(outbox_path, {**candidate, 'state': 'acknowledged'})
+        current.update(output_generation=generation, incident=None)
+        _save(directory, record, policy, ops)
+        return deepcopy(ack)
+
+
+def dispatch(policy, root, home, identity, identity_bytes):
+    """One preflight owner, then the existing shell controller. No new launcher."""
+    enabled(); record = money.manifest(policy, root)
+    directory = home / 'batches' / record['id']
+    with operation_lock(directory, identity):
+        try:
+            from key_holder import fingerprint, secret_labels, OPENCODE_ACCOUNTS, CLAUDE_ACCOUNTS
+            from account_handoff import launch_accounts
+            from control_resume import ENVIRONMENT
+            from batch import bind
+            if fingerprint(root) != policy['code_sha256']: raise ValueError('request_refused')
+            with money.locked(home, record['id']):
+                ops = _operations(directory, record, policy)
+                state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
+                op = deepcopy(_post(directory, record, policy, home, ops, state, identity))
+                if op['state'] != 'pending' or op['dispatch_started'] or op['incident'] is not None: return
+            recipient = subprocess.run(['age-keygen', '-y'], input=identity_bytes,
+                                       capture_output=True, check=True, timeout=10).stdout.decode().strip()
+            if recipient not in (record['restore_recipient'], policy['recipient']): raise ValueError('request_refused')
+            secrets = Path(os.environ.get('UNBUG_SECRETS_FILE', str(Path.home() / '.config/unbug-bench/secrets.age')))
+            labels = secret_labels(identity_bytes, secrets)
+            source = source_directory(policy, root, home, identity)
+            card = {} if source is None else service._json(source / (op['case'] + '.scorecard.json'))
+            job = bind(policy, op['job'], op['source_generation'], root, home=home, operation=identity)
+            account, claude, accounts = launch_accounts(card, job, {}, labels)
+            if ((account is not None and OPENCODE_ACCOUNTS[account] not in labels) or
+                    CLAUDE_ACCOUNTS[claude] not in labels): raise ValueError('request_refused')
+            fleet = subprocess.run([str(root / 'bin/boat-call'), 'list', '--json'],
+                                   capture_output=True, check=True, timeout=25)
+            inventory = json.loads(fleet.stdout)
+            ids = [r['id'] for r in inventory['sandboxes']]
+            if (inventory['pageInfo']['hasMore'] is not False or len(ids) != len(set(ids)) or
+                    any(not isinstance(v, str) for v in ids)): raise ValueError('request_refused')
+            known = set(job.get('known_worker_ids', [])) | {o['worker_id'] for o in ops.values() if o['case'] == op['case']}
+            if known.intersection(ids): raise ValueError('request_refused')
+            config = _config(policy, home, op)
+            argv = [*job['args'], '--factory-job-config', str(config), '--factory-job-config-sha256', op['config_sha256']]
+            env = dict(PATH=policy['path'], HOME=str(Path.home()), USER=os.environ.get('USER', ''), LANG='en_US.UTF-8',
+                       BOAT_COMMAND_TIMEOUT_SECONDS='120', UNBUG_CLOUD='boat', BOAT_TYPE='default',
+                       UNBUG_SECRETS_FILE=str(secrets), UNBUG_CONTROL_HOME=str(home), UNBUG_LAUNCH_ID=op['launch_id'],
+                       UNBUG_BATCH_OPERATION=identity, CLAUDE_SECRET_NAME=CLAUDE_ACCOUNTS[claude],
+                       FACTORY_ACCOUNT_POLICY=json.dumps({p + '_accounts': job.get(p + '_accounts', []) for p in ('opencode', 'claude')}),
+                       FACTORY_ACCOUNT_STATE=json.dumps(accounts))
+            if account is not None: env['OPENCODE_SECRET_NAME'] = OPENCODE_ACCOUNTS[account]
+            with money.locked(home, record['id']):
+                ops = _operations(directory, record, policy)
+                state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
+                current = _post(directory, record, policy, home, ops, state, identity)
+                if current['state'] != 'pending' or current['dispatch_started'] or current['incident'] is not None: return
+                current['launch'] = dict(argv=argv, environment={k: env[k] for k in ENVIRONMENT if k in env})
+                current['dispatch_started'] = True
+                _save(directory, record, policy, ops)
+            # Popen uncertainty retains the durable started reservation, never retries.
+            child = subprocess.Popen(['/bin/sh', str(root / 'factory/launch.sh'), *argv],
+                                     cwd=root, env=env, stdin=subprocess.PIPE)
+            try: child.stdin.write(identity_bytes); child.stdin.close()
+            except BrokenPipeError: pass
+            return child.wait()
+        except Exception:
+            with money.locked(home, record['id']):
+                ops = _operations(directory, record, policy); op = ops[identity]
+                if not op['dispatch_started'] and op['state'] == 'pending':
+                    op.update(state='failed', incident='preflight_refused')
+                    _save(directory, record, policy, ops)
+            raise ValueError('request_refused') from None
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('command', choices=('dispatch', 'collect', 'source', 'restore-check'))
+    parser.add_argument('--operation', required=True)
+    parser.add_argument('--policy', type=Path, default=Path(os.environ.get('UNBUG_CONTROL_HOME',
+                        str(Path.home() / '.unbug-control'))) / 'policy.json')
+    parser.add_argument('--recipient')
+    a = parser.parse_args()
+    try:
+        enabled()
+        from key_holder import policy_load, ROOT, CONTROL_HOME
+        policy = policy_load(a.policy)
+        if a.command == 'dispatch':
+            key = bytearray(sys.stdin.buffer.read(4097))
+            try: return dispatch(policy, ROOT, CONTROL_HOME, a.operation, key) or 0
+            finally: key[:] = b'\0' * len(key)
+        if a.command == 'collect':
+            reconcile(policy, ROOT, CONTROL_HOME)
+            collect(policy, ROOT, CONTROL_HOME, a.operation)
+        else:
+            source = source_directory(policy, ROOT, CONTROL_HOME, a.operation)
+            if a.command == 'restore-check':
+                record = money.manifest(policy, ROOT)
+                if source is None or a.recipient not in (policy['recipient'], record['restore_recipient']):
+                    raise ValueError('request_refused')
+            elif source is not None: print(source)
+        return 0
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        print('batch operation refused', file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__': raise SystemExit(main())

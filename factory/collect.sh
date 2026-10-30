@@ -6,6 +6,10 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")
 dest=$root/sealed
+if [ -n "${UNBUG_BATCH_OPERATION:-}" ]; then
+  : "${UNBUG_LAUNCH_STATE:?batch collection requires its controller}"
+  dest=$UNBUG_LAUNCH_STATE/collected
+fi
 boat() { "$root/bin/boat-call" "$@"; }
 id=${1:?usage: collect.sh <sandbox-id>}
 mkdir -p "$dest"
@@ -79,5 +83,8 @@ if [ "$status" -eq 0 ] && [ -f "$root/results/ttl-retirements/$id.json" ]; then
   # attestation refusal blocks continuation, never disposal of safely sealed work.
   python3 "$here/ttl_continuation.py" collect --root "$root" --worker "$id" >/dev/null ||
     echo "$id: TTL continuation blocked; collected work retained" >&2
+fi
+if [ "$status" -eq 0 ] && [ -n "${UNBUG_BATCH_OPERATION:-}" ]; then
+  python3 -B "$here/batch_holder.py" collect --operation "$UNBUG_BATCH_OPERATION" || status=1
 fi
 exit "$status"

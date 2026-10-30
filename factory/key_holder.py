@@ -145,7 +145,7 @@ def policy_load(path):
         if job['mode'] == 'batch':
             from batch import bind
             bind(policy, name, None, ROOT)
-            if type(job['max_calls']) is not int or job['max_calls'] < 1:
+            if 'max_calls' in job and (type(job['max_calls']) is not int or job['max_calls'] < 1):
                 raise ValueError('invalid batch job bounds')
         elif job['mode'] == 'any':  # 2026-10-19: repair or rerun any collected case; the case id comes with the launch request
             if restore_flags or job.get('variant') not in ('repair', 'rerun') or '--skip-build' in args or '--source' in args or '--rotation-slot' in args:
@@ -352,7 +352,7 @@ def current_generation(job):
     if (type(calls) is not int or calls < 0 or type(cost) not in (int, float) or
             not math.isfinite(cost) or cost < 0 or not isinstance(budget.get('events'), list) or
             budget.get('active') or card.get('checkpoint_error') or
-            calls >= job['max_calls'] or (not job.get('_batch_job') and cost >= job['max_cost'])):
+            (not job.get('_batch_job') and (calls >= job['max_calls'] or cost >= job['max_cost']))):
         raise ValueError('invalid, active or exhausted original recovery allowance')
     repair = bool(card.get('failed_gate')) and card['failed_gate'] in job.get('allow_failed_gates', [])
     if (not sealed_audit and not repair and
@@ -485,6 +485,27 @@ def serve(policy_path, hours, identity_file=None):
                     row.update(exit=code, completed_ok=code == 0); changed = True
         if changed: save_receipts()
     log_dir = RUNTIME / 'jobs'; secure_directory(log_dir)
+    batch_children = {}
+    def batch_tick():
+        import batch_holder
+        if not batch_holder.HOLDER_ENABLED or 'batch' not in policy: return
+        for operation, child in list(batch_children.items()):
+            code = child.poll()
+            if code is not None:
+                batch_holder.record_exit(policy, ROOT, CONTROL_HOME, operation, code)
+                del batch_children[operation]
+        for operation in batch_holder.reconcile(policy, ROOT, CONTROL_HOME):
+            if operation in batch_children: continue
+            log = log_dir / ('batch-' + operation + '-' + str(time.time_ns()) + '.log')
+            with log.open('xb') as output:
+                child = subprocess.Popen([sys.executable, '-B', str(ROOT / 'factory/batch_holder.py'),
+                        'dispatch', '--operation', operation, '--policy', str(policy_path)],
+                        stdin=subprocess.PIPE, stdout=output, stderr=output, cwd=ROOT,
+                        env={**os.environ, 'UNBUG_CONTROL_HOME': str(CONTROL_HOME),
+                             'UNBUG_SECRETS_FILE': str(secrets_file)}, start_new_session=True)
+            batch_children[operation] = child
+            try: child.stdin.write(memoryview(key)[:length]); child.stdin.close()
+            except BrokenPipeError: pass
     def stop(*_):
         nonlocal deadline
         deadline = 0
@@ -498,6 +519,7 @@ def serve(policy_path, hours, identity_file=None):
         with socket.socket(socket.AF_UNIX) as server:
             server.bind(str(SOCKET)); os.chmod(SOCKET, 0o600); server.listen(4); server.settimeout(1)
             while time.monotonic() < deadline:
+                batch_tick()
                 try: conn, _ = server.accept()
                 except socket.timeout: continue
                 with conn:
@@ -512,6 +534,18 @@ def serve(policy_path, hours, identity_file=None):
                         if len(data) > 8192: raise ValueError('request too large')
                         req = json.loads(data)
                         reap()
+                        import batch_holder
+                        if batch_holder.HOLDER_ENABLED and 'batch' in policy and req.get('op') in ('launch', 'operation') and 'batch' in req:
+                            if req['batch'] != policy['batch']['id']: raise ValueError('request_refused')
+                            if set(req) == {'op', 'batch', 'job', 'checkpoint'} and req['op'] == 'launch':
+                                result = batch_holder.reply(batch_holder.reserve(policy, ROOT, CONTROL_HOME,
+                                                                req['job'], req['checkpoint']))
+                            elif set(req) == {'op', 'batch', 'operation_id'} and req['op'] == 'operation':
+                                result = batch_holder.lookup(policy, ROOT, CONTROL_HOME, req['operation_id'])
+                            else: raise ValueError('request_refused')
+                            try: conn.sendall(json.dumps(result).encode() + b'\n')
+                            except OSError: pass
+                            continue
                         if req == {'op': 'status'}:
                             result = {'unlocked': True, 'policy_sha256': policy_digest(policy), 'seconds_remaining': max(0, int(deadline-time.monotonic())), 'jobs': {name: {'pid': p.pid, 'exit': p.poll()} for name, p in jobs.items()}}
                             if account_labels is not None:

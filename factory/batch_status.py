@@ -209,6 +209,8 @@ def read_rows(policy, root, home):
             entries = [e for e in state['entries'].values() if e['job'] == name]
             row = dict(case=case, phase='not collected', card=None)
             try:
+                operations = [o for o in state.get('operations', {}).values() if o['job'] == name]
+                if any(o['release_sha256'] != policy['batch']['sha256'] for o in operations): raise ValueError()
                 pointer = directory / 'current' / (case + '.json')
                 if pointer.exists() or pointer.is_symlink():
                     value = batch_service._json(pointer)
@@ -217,10 +219,29 @@ def read_rows(policy, root, home):
                     if entry['case'] != case or entry['manifest_sha256'] != value['manifest_sha256']:
                         raise ValueError()
                 elif len(entries) == 1: entry = entries[0]
-                elif not entries:
-                    rows.append(row); continue
+                elif not entries: entry = None
                 else: raise ValueError('ambiguous generation')
-                row.update(phase='stopped', card=_card(directory, entry, record, policy['batch']['sha256']))
+                if entry is not None:
+                    row.update(phase='stopped', card=_card(directory, entry, record, policy['batch']['sha256']))
+                if operations:
+                    active = [o for o in operations if o['retirement'] is None]
+                    if len(active) > 1: raise ValueError()
+                    selected = active[0] if active else next((o for o in operations if entry is not None
+                               and o['output_generation'] == entry['generation']), None)
+                    if selected is None:
+                        # Retired with no output: never render the deleted worker as running.
+                        if any(o['output_generation'] is not None for o in operations): raise ValueError()
+                    else:
+                        if selected['incident'] in ('accounting_refused', 'legacy_retire'): raise ValueError()
+                        # Pointer publication without its journal ACK projection is unreadable.
+                        if entry is not None and pointer.exists() and not any(
+                                o['output_generation'] == entry['generation'] for o in operations): raise ValueError()
+                        if selected['state'] in ('pending', 'failed'):
+                            row.update(phase=selected['state'], pending_since=selected['pending_since'])
+                        elif selected['output_generation'] is None and selected['retirement'] is None:
+                            row.update(phase='running', worker_id=selected['worker_id'])
+                        elif entry is None or selected['output_generation'] != entry['generation']:
+                            raise ValueError()
             except (OSError, ValueError, KeyError, TypeError):
                 row.update(phase='unreadable')
             rows.append(row)

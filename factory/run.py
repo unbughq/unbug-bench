@@ -2994,6 +2994,7 @@ def main():
             from job_config import install
             c.checkpoint_card = prev_card
             install(c, a)
+            c.card.get('recovery_config', {}).pop('max_total_calls', None)
         if a.resume:
             c.limits_raised = raised_limits({**prev_card, 'continuation_budget': jload(c.ledger)}, a.case_budget, a.rounds,
                 explicit_budget=explicit('--case-budget'), explicit_rounds=explicit('--rounds'))

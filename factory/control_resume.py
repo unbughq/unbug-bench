@@ -10,7 +10,7 @@ import sys
 import uuid
 
 # Public routing/account labels only. Credentials and identity stay on stdin/in memory.
-ENVIRONMENT = ('UNBUG_CLOUD', 'BOAT_CMD', 'BOAT_TYPE', 'HCLOUD_PLACES',
+ENVIRONMENT = ('UNBUG_BATCH_OPERATION', 'UNBUG_CLOUD', 'BOAT_CMD', 'BOAT_TYPE', 'HCLOUD_PLACES',
                'UNBUG_SECRETS_FILE', 'FACTORY_SECRETS', 'OPENCODE_SECRET_NAME',
                'CLAUDE_SECRET_NAME', 'FACTORY_TTL_CONTINUATION', 'FACTORY_ACCOUNT_POLICY', 'FACTORY_ACCOUNT_STATE')
 

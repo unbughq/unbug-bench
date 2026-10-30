@@ -228,3 +228,12 @@ the pending and completed infrastructure queues with real D. No real lifecycle
 or Murphy closure is claimed. Full suite and fresh goldfish review are required.
 
 Risk: held cases count as stopped; the attention action is what surfaces them.
+
+## Holder integration addendum (2026-10-30)
+
+See [batch-holder.md](batch-holder.md) for the reviewed implementation of the
+shared journal operations map, pending/launched/failed status, immutable current
+pointer publication, money ACK and same-owner source transitions. It supersedes
+the earlier speculative holder fields in this document. HOLDER_ENABLED remains
+false; this is offline integration, not activation. Legacy cases default to
+retire; cb5e2 and 14d35 stay set aside. No legacy booking or Murphy closure occurs.

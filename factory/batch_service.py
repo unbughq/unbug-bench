@@ -94,10 +94,13 @@ def _load(directory, record, manifest_sha):
                     entries={}, derivations={}, queue={}, next_sequence=0)
     state = _json(path)
     try:
-        if (set(state) != {'schema', 'batch', 'manifest_sha256', 'entries', 'derivations', 'queue', 'next_sequence'} or
+        if (set(state) - {'operations'} != {'schema', 'batch', 'manifest_sha256', 'entries', 'derivations', 'queue', 'next_sequence'} or
                 type(state['schema']) is not int or state['schema'] != 1 or state['batch'] != record['id'] or
                 state['manifest_sha256'] != manifest_sha or type(state['next_sequence']) is not int or
                 state['next_sequence'] < 0): raise ValueError()
+        if 'operations' in state:
+            from batch_holder import validate_operations
+            validate_operations(state['operations'], record)
         for name in ('entries', 'derivations', 'queue'):
             if not isinstance(state[name], dict): raise ValueError()
         for key, entry in state['entries'].items():
