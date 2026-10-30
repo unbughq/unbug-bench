@@ -81,7 +81,7 @@ class ManifestTests(unittest.TestCase):
                             'factory/runner_supervisor.py', 'factory/batch.py',
                             'factory/model_router.py', 'factory/model_call_gate.py', 'factory/job_authority.py', 'factory/diagnosis.py', 'factory/extensions.py',
                             'factory/batch_money.py', 'factory/job_config.py', 'factory/batch_service.py',
-                            'factory/batch_status.py', 'factory/batch_accounting.py',
+                            'factory/batch_status.py', 'factory/batch_accounting.py', 'factory/batch_holder.py',
                             'factory/control-recipient.txt',
                             'factory/collection.py', 'factory/freshness_retrieval.py',
                             'factory/independent_review.py', 'factory/invalid-runs-compat.json'}

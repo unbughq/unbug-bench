@@ -487,8 +487,9 @@ def serve(policy_path, hours, identity_file=None):
     log_dir = RUNTIME / 'jobs'; secure_directory(log_dir)
     batch_children = {}
     def batch_tick():
+        if 'batch' not in policy: return
         import batch_holder
-        if not batch_holder.HOLDER_ENABLED or 'batch' not in policy: return
+        if not batch_holder.HOLDER_ENABLED: return
         for operation, child in list(batch_children.items()):
             code = child.poll()
             if code is not None:
@@ -536,8 +537,9 @@ def serve(policy_path, hours, identity_file=None):
                         if len(data) > 8192: raise ValueError('request too large')
                         req = json.loads(data)
                         reap()
-                        import batch_holder
-                        if batch_holder.HOLDER_ENABLED and 'batch' in policy and req.get('op') in ('launch', 'operation') and 'batch' in req:
+                        if 'batch' in policy:
+                            import batch_holder
+                        if 'batch' in policy and batch_holder.HOLDER_ENABLED and req.get('op') in ('launch', 'operation') and 'batch' in req:
                             if req['batch'] != policy['batch']['id']: raise ValueError('request_refused')
                             if set(req) == {'op', 'batch', 'job', 'checkpoint'} and req['op'] == 'launch':
                                 result = batch_holder.reply(batch_holder.reserve(policy, ROOT, CONTROL_HOME,
