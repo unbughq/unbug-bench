@@ -881,3 +881,11 @@ still match. The ordinary threshold follows await_lease because it prices the
 chosen effective route; a provider wait may precede diagnosis without consuming
 the unit. Rate maxima use the same existing long-context/fast/US-only tariffs as
 receipt valuation, not historical-spend multipliers, with one paid-price table.
+
+Increment-2 source-test maintenance: C's exact invalid-runs migration test now
+constructs its pinned target inventory explicitly and separately asserts that
+the live D calibration source cannot inherit that grant. The production
+invalid-runs-compat.json pins and captured artifacts remain unchanged. D's
+intentional scientific migration is still pending; no historical result is
+relabelled. The smoke preallocation test mutates the current boundary-call text
+and retains its exact-source mismatch refusal assertions.

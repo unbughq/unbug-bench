@@ -137,7 +137,7 @@ class SmokeTests(unittest.TestCase):
             sha = lambda code: hashlib.sha256(code.encode()).hexdigest()
             check({}, True)
             for invalid in (original + '\n# unrelated edit\n', original.replace(
-                    'case_budget_boundary(c, requested)', 'case_budget_boundary(c, requested)  # changed')):
+                    'case_budget_boundary(c, requested,', "case_budget_boundary(c, requested + 'changed',", 1)):
                 self.assertNotEqual(invalid, original)
                 check({'factory/model_runtime.py': sha(invalid)}, False)
             check({'factory/model_runtime.py': None}, False)
