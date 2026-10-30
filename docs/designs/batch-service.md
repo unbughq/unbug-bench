@@ -867,11 +867,13 @@ under batches/<batch>/generations/<case>/. Required: the exact card-bound archiv
 scorecard and casekey. Refuse symlinks/nonregular files, foreign names/case/release,
 checkpoint_error, missing key, conflicting generations or hash mismatch. Hash
 each copied member, fsync it, then reuse collection.verify on the staged copy;
-require verify to return exactly {case}, and check statement_cipher_sha256 and
-public_search.cipher_sha256 against statement.age and search.age when present.
+require verify to return exactly {case}. A statement_cipher_sha256 or
+public_search.cipher_sha256 reference requires statement.age or search.age,
+respectively, and its bytes must match; a missing referenced file refuses.
 statement_sha256 is plaintext and is never compared to ciphertext. Preserve
 unreferenced companions too, but exclude the alternative archive not bound by
-this card. Ignore other cases in the source directory; never rewrite sources.
+this card. Without an archive field, the unique archive matching card.sha256 is
+the bound archive. Ignore other cases in the source directory; never rewrite sources.
 No decryption.
 
 Publish by fsynced atomic rename to <generation>/ with manifest.json containing
@@ -883,7 +885,9 @@ journal crash is repaired by replaying collect. No current pointer is written.
 
 Under the same batch lock, journal.json has schema1,batch,manifest_sha256,
 entries,derivations,queue,next_sequence. Entries keyed case+'/'+generation have
-job,case,generation,manifest_sha256,state:'pending',projection:null. They point to
+job,case,generation,manifest_sha256,state:'pending',facts:null. facts is null or
+{exhaustion:bool,actual_model_work:bool,pending_projection:None|projection}; null
+alone means unplanned, so a legitimate None projection still replays. They point to
 the immutable verified snapshot; projection never arrives as a caller argument.
 Re-read/verify snapshot manifest+members on replay/planning. Bad state/manifest
 or missing/corrupt snapshot refuses; no silent reset of existing state.
@@ -915,13 +919,15 @@ Use a pure projection wrapper and queue transition for authored contract tests;
 they cannot issue money or launch. Persist D's returned facts bound to the entry
 key. Queue a child iff exhaustion AND actual_model_work are true and a present
 pending projection does not say replacement_eligible:false. Queue an ordinary
-same-owner resume iff pending_projection is present. This combines D's API
+same-owner resume when pending_projection is present or the exhausted total is
+unknown as below. This combines D's API
 answers; B never inspects events/tokens/receipts to recreate eligibility. Preserve
 the original API projection verbatim in the journal. replacement_eligible:true
 with either predicate false refuses as a D contract violation. An exhausted
 parent whose case_budget.total_spent_usd is null or absent always gets the
 same-owner settlement resume, even when pending_projection is None. This is the
-only total field B reads; missing is unknown, never zero. Stored facts win on
+only total field B reads; missing case_budget or total is unknown, never zero.
+Stored facts win on
 replay: return them and existing queue metadata without calling D or overwriting
 facts. Launch state stays pending; facts, derivation and requests are persisted
 atomically in one journal replacement.
@@ -937,8 +943,14 @@ has settlement priority. Known-total pending diagnosis gets exhaustion priority.
 Only distinguish null/known total for scheduling; do not value usage or validate
 financial coverage here. Monetary admission/retirement/R2 ACK remain unverified,
 so this core exposes ordered queue metadata only, no ready/dispatch/grant API.
-Future admission checks those proofs before launch. Order settlement, replacement,
-exhaustion resume, extension, ordinary; FIFO sequence survives restart. Blocked
+Future admission checks those proofs before launch.
+Under interfaces §8, unknown legacy/unpriced usage without mapped admitted maxima
+refuses conservative admission; the queue alone cannot authorize its resume.
+Only D's authenticated coverage within the held commitment can admit it, and
+settlement must produce a known checkpoint before any dependent model work.
+No extra attempt or call-count cap is introduced to handle missing coverage.
+Order settlement, replacement, exhaustion resume, extension, ordinary; FIFO
+sequence survives restart. Blocked
 entries retain their order and cannot prevent later eligible dispatch in that
 future dispatcher. Deadline-expired planning refuses new requests using injected
 now or time.time(), as batch_money.authorize does. Cumulative calls are telemetry;
@@ -946,7 +958,6 @@ no call-count admission rule is added. Money/deadline and per-invocation limits
 remain the bounds.
 
 Tests: saved public card metadata/ciphertext, clearly labelled authored batch
-binding and API answers (no real exam decryption); corrupt/missing archive/key,
 wrong case/release, symlink, immutable collision, interrupted publication/journal
 repair, journal restart and generation binding. A recording draft API proves
 all three signatures, purity/schema refusal, absent projection and denied-zero
@@ -958,6 +969,8 @@ chain; replay at another generation creates no second child, lineage collisions
 refuse, source config shape is untouched, queue priorities/dedup and deadline
 hold. Run actual D implementation once its reviewed increment lands; absence
 now is an explicit enablement blocker, never a passing D integration claim.
+Name checks for contradictory eligible:true/false predicates and deadline-expired
+plan with injected now. Neither can create a request.
 
 Delete nothing from legacy live controllers yet; this replaces no launch path.
 Full suite, fresh diff review and parent merge precede further integration.
