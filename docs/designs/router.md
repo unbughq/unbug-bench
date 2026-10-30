@@ -869,7 +869,7 @@ old DeepSeek override. D's pricing-only helper remains a non-admission helper.
 |---|---|---|---:|---:|---:|---:|
 | `openrouter/xiaomi/mimo-v2.6-pro` | `xiaomi/fp8` | 0.435 / 0.0036 / 0.87 | 1048576 | 131072 | 3932162 / 1966081 | 1.710490600 |
 | `openrouter/deepseek/deepseek-v4.1-flash` | `deepinfra/fp8` | 0.14 / 0.0042 / 0.42 | 1048576 | 1048576 | 8388615 / 2796205 | 1.174406120 |
-| `opencode/deepseek-v4.1-flash-free` | unqualified | advertised free | unverified | unverified | none | none (`unbounded_route`) |
+| `opencode/deepseek-v4.1-flash-free` | unqualified | advertised free | unverified | unverified | none | none (unqualified effective route) |
 
 For each paid route W = (request input allowance * input list price + request
 output allowance * output list price) / 1e6. The lease dollar maximum is
@@ -913,7 +913,14 @@ OpenCode's official model table advertises the free route and its zero prices,
 but no verified enforcement contract has yet been found for its input and
 reasoning-output limits. A price of zero is not proof of a token bound. It stays
 unqualified, as do every other route and fallback without an explicit profile.
-If later qualified, a free profile must use max_usd=0 and enforce both token
+Qualification is checked on the **effective** route. Existing same-family
+fallback selection is unchanged: a request naming the free DeepSeek route can
+receive a bounded paid DeepSeek lease when `openrouter-key` is authorized.
+The free endpoint itself has no profile or capacity. With that paid account
+unavailable, the existing router reports `outage` (a bounded family candidate
+exists), with no lease or D reservation; a family with no bounded candidate
+still reports `unbounded_route`. This increment does not disable fallbacks or
+change wait classification. Tests pin both cases. If later qualified, a free profile must use max_usd=0 and enforce both token
 maxima; this increment does not pre-authorize that qualification.
 
 `price_source` records `token_prices:2026-10-30:openrouter:<model>:<endpoint>:`
@@ -1075,8 +1082,9 @@ A future changed tariff requires requalification, not a post-hoc refund fix.
 ### Validation and acceptance
 
 1. Assert exact Lease profiles against saved real endpoint records and upward
-   Decimal calculations. Unknown/free routes continue to wait without D money
-   reservation. Tampered caps, stale leases and mismatched profiles are denied.
+   Decimal calculations. Unknown effective routes receive no lease or D money reservation. The free
+   endpoint stays unqualified; its pre-existing paid family fallback is described
+   above and tested separately. Tampered caps, stale leases and mismatched profiles are denied.
 2. Use saved real paid-route cards/receipts for usage and cost arithmetic. Keep
    synthetic protocol/transport tests explicitly labelled; they prove controls,
    not a provider's enforcement. Save public API documentation provenance.

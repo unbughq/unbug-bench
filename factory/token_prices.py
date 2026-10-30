@@ -9,9 +9,51 @@ CODEX_PRICES = {"codex/gpt-6.1-sol": (2.0, 0.10, 10.0)}  # input, cached input, 
 CLAUDE_PRICES = {"claude/claude-opus-5-5": (4.0, 0.20, 8.0, 20.0)}
 
 # These are the existing runtime's pinned overrides, not new provider quotes.
-PAID_PRICES = {'openrouter/deepseek/deepseek-v4.1-flash': (.02, 1.0),
-               'openrouter/meta/muse-spark-1.3-contributor': (.10, .20, .002, .10)}
+PAID_PRICES = {'openrouter/meta/muse-spark-1.3-contributor': (.10, .20, .002, .10)}
 PAID_PRICES['opencode-go/muse-spark-1.3-contributor'] = PAID_PRICES['openrouter/meta/muse-spark-1.3-contributor']
+
+
+# OpenRouter endpoint quotes and primary limit contracts, checked 2026-10-30.
+# Full source records: tests/factory/fixtures/router-cheap-{price-records,source-evidence}.json.gz.
+# Output holds deliberately exceed the requested cap; reasoning mapping is not assumed.
+OPENROUTER_OUTPUT = 32768
+GATED_OPENROUTER = {
+    'openrouter/xiaomi/mimo-v2.6-pro': dict(endpoint='xiaomi/fp8',
+        prices=('0.435', '0.0036', '0.87'), context=1048576, output=131072, windows=3, cache_write='0'),
+    'openrouter/deepseek/deepseek-v4.1-flash': dict(endpoint='deepinfra/fp8',
+        prices=('0.14', '0.0042', '0.42'), context=1048576, output=1048576, windows=2, cache_write='0'),
+}
+
+
+def openrouter_gate_maximum(route):
+    profile = GATED_OPENROUTER.get(route)
+    if profile is None or Decimal(profile['cache_write']) != 0: return None
+    incoming, cached, outgoing = map(Decimal, profile['prices'])
+    worst = (profile['context'] * incoming + profile['output'] * outgoing) / 1_000_000
+    maximum = (profile['windows'] * worst + Decimal('.000001')).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
+    return dict(max_usd=float(maximum), max_input_tokens=int(maximum * 1_000_000 / incoming),
+                max_output_tokens=int(maximum * 1_000_000 / outgoing),
+                price_source='token_prices:2026-10-30:' + route.replace('/', ':', 1) + ':' + profile['endpoint'] + ':'
+                             + ','.join(profile['prices']) + ':joint-gate-v1')
+
+
+def openrouter_gate_cost(route, usage):
+    if route not in GATED_OPENROUTER or not isinstance(usage, dict): return None
+    incoming, _, outgoing = map(Decimal, GATED_OPENROUTER[route]['prices'])
+    values = [usage.get(k) for k in ('prompt_tokens', 'completion_tokens')]
+    if any(type(v) is not int or v < 0 for v in values): return None
+    amount = (values[0] * incoming + values[1] * outgoing) / 1_000_000
+    if 'cost' in usage:
+        cost = usage['cost']
+        if type(cost) not in (int, float) or not 0 <= cost < float('inf') or Decimal(str(cost)) > amount: return None
+    return amount
+
+
+def runtime_prices(route):
+    if route in GATED_OPENROUTER:
+        incoming, cached, outgoing = map(float, GATED_OPENROUTER[route]['prices'])
+        return dict(input=incoming, output=outgoing, cache_read=cached, cache_write=0)
+    return dict(zip(('input', 'output', 'cache_read', 'cache_write'), PAID_PRICES[route]))
 
 
 def invocation_maximum(model, bounds):
@@ -37,6 +79,8 @@ def invocation_maximum(model, bounds):
         # Standard/global gate tariff, including the dearer one-hour cache write.
         incoming, cached, written, outgoing = CLAUDE_PRICES[model]
         rates = max(incoming, cached, written), outgoing
+    elif model in GATED_OPENROUTER:
+        prices = GATED_OPENROUTER[model]['prices']; rates = prices[0], prices[2]
     elif model in PAID_PRICES: rates = PAID_PRICES[model][:2]
     elif isinstance(model, str) and model.endswith(('-free', ':free')): rates = (0, 0)
     else: return None

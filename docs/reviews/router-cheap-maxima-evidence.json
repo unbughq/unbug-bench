@@ -1,0 +1,12 @@
+{
+  "checked_on": "2026-10-30",
+  "fixtures_sha256": {
+    "tests/factory/fixtures/router-cheap-native.json.gz": "2461119dd1e3892b33c57f89ef4def06e48c79c0d13ecdaea6efe8b891b7e541",
+    "tests/factory/fixtures/router-cheap-price-records.json.gz": "0055d590e99bd3de9dbae36dd4380cbde977c0b6e76b1d16e367f0c8f65c445b",
+    "tests/factory/fixtures/router-cheap-source-evidence.json.gz": "de074ec20ec58c4152cf10aa3588bd07c73691049d9f3f58d01d1ebf553bc91e",
+    "tests/factory/fixtures/router-paid-deepseek.json.gz": "8feeae64de2406063377cea2def7f83e7115dfeeb44493957026fd6e8bfcabff"
+  },
+  "native_probes": 12,
+  "real_provider_calls": 0,
+  "boat_workers": 0
+}

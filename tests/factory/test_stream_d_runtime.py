@@ -591,7 +591,7 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(budget.settle(record, work=self.work, ledger_path=self.ledger), 0)
             self.assertEqual(self.c.card['terminal_stop'], 'provider_wait')
             self.assertNotIn('failed_gate', self.c.card)
-            expected = .019 if outcome == 'denied' else .02002
+            expected = .019 if outcome == 'denied' else .01956  # Current DeepSeek list quote: .14 input / .42 output.
             self.assertEqual(budget.case_spending(json.loads(self.ledger.read_text()))['total_spent_usd'], round(self.baseline + expected, 9))
         else:
             self.assertEqual(outcome, 'done')

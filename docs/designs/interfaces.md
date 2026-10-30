@@ -282,7 +282,7 @@ denial.
   provenance). Individual token ceilings are not additive money permissions.
   Client/runtime verify exact route-owned values before callbacks/reservations;
   callers cannot supply/tamper with them. D reserves only after admission.
-  Claude Opus5.5 alone has a worker-local subscription gate: before EVERY forward,
+  Claude Opus5.5 has a worker-local subscription gate: before EVERY forward,
   strictly settled usage + all in-flight/unknown worst-case allowances + new W
   must fit joint USD AND separate token ceilings. 1M hard context/request and
   output clamp32768 include caches/thinking. Complete strictly validated usage
@@ -301,7 +301,24 @@ denial.
   Cap covers CLI-owned inference routed through its SDK, not hostile Bash/direct
   network/account-wide spending; no new sandbox/security property is claimed.
   Unsupported never-forwarded requests are nonfatal local errors, not money stops.
-  Other/unknown/unenforceable/direct/tampered routes get no Lease and
+  The same gate also qualifies two paid OpenRouter effective routes (Linux,
+  pinned OpenCode 1.19.0, no managed config):
+  - openrouter/xiaomi/mimo-v2.6-pro: max_usd=1.710490600,
+    max_input_tokens=3932162, max_output_tokens=1966081;
+    price_source=token_prices:2026-10-30:openrouter:xiaomi/mimo-v2.6-pro:xiaomi/fp8:0.435,0.0036,0.87:joint-gate-v1.
+  - openrouter/deepseek/deepseek-v4.1-flash: max_usd=1.174406120,
+    max_input_tokens=8388615, max_output_tokens=2796205;
+    price_source=token_prices:2026-10-30:openrouter:deepseek/deepseek-v4.1-flash:deepinfra/fp8:0.14,0.0042,0.42:joint-gate-v1.
+  Paid request output is clamped to32768, while holds conservatively cover
+  provider input1048576 and output131072/1048576 respectively, including
+  reasoning. W is0.5701632/0.58720256. Exact endpoint and list-price ceilings
+  are code-owned per request; all input is priced uncached for refunds.
+  The real key stays in the gate; CLI receives a synthetic token and isolated
+  configuration. Non-model credential-free Exa search remains outside this cap.
+  opencode/deepseek-v4.1-flash-free has no verified token bound and no profile.
+  Existing family fallback may select the paid bounded DeepSeek route instead;
+  without its account the existing wait is outage, with no lease/reservation.
+  Other unknown/unenforceable effective routes and tampered leases get no Lease and
   Wait('unbounded_route'); B sees capacity0 and does zero relaunches until an
   approved bound release is migrated and exact-route capacity becomes positive.
   retry_after=now+900 is only a recheck hint. D refuses qualification for any

@@ -24,7 +24,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from budget import BudgetError
-from token_prices import GATED_CLAUDE, claude_gate_maximum
+from token_prices import GATED_CLAUDE, claude_gate_maximum, openrouter_gate_maximum
 
 WAIT_SECONDS, RENEW_SECONDS, LEASE_SECONDS = 60, 60, 180
 SECRETS = Path('/dev/shm/secrets')
@@ -42,8 +42,8 @@ MAXIMUM_FIELDS = ('max_usd', 'max_input_tokens', 'max_output_tokens', 'price_sou
 
 
 def route_maximum(route):
-    # No native CLI knob proves an aggregate bound for any other current route.
-    return claude_gate_maximum() if route == GATED_CLAUDE else None
+    # Only explicit profiles qualify; native CLI knobs alone grant no lease.
+    return claude_gate_maximum() if route == GATED_CLAUDE else openrouter_gate_maximum(route)
 
 
 def valid_maximum(value):

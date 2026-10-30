@@ -75,27 +75,33 @@ class MaximaTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
 
-    def test_real_routes_fail_closed_except_exact_bounded_subscription(self):
+    def test_real_routes_fail_closed_except_exact_qualified_profiles(self):
         store = router.Store(self.root/'router.sqlite')
+        from token_prices import GATED_OPENROUTER
+        qualified = {GATED_CLAUDE, *GATED_OPENROUTER,
+                     'opencode/deepseek-v4.1-flash-free', 'opencode-go/mimo-v2.6-pro'}
         models = {r for c in router.CHAINS for r in c} | {'codex/gpt-6.1-sol', 'claude/unknown', 'unknown/model'}
         models |= {c['terminal_stop'].partition(':')[2] for c in LIMITS}
         for model in models:
             result = store.rpc('acquire', dict(id=uuid.uuid4().hex, model=model, accounts=list(router.ACCOUNTS),
                 role='writer', deadline=time.time()+3600))
-            if model != GATED_CLAUDE:
+            if model not in qualified:
                 self.assertEqual((result['kind'], result['reason']), ('wait','unbounded_route'))
                 self.assertEqual(store.rpc('capacity', {'route':model})['slots'], 0)
             else:
                 actual = router.Lease(**{k:v for k,v in result.items() if k != 'kind'})
                 self.assertTrue(router.valid_lease(actual, model))
-                self.assertEqual((actual.max_usd, actual.max_input_tokens, actual.max_output_tokens), (50.0,250000000,2500000))
+                if actual.route == GATED_CLAUDE:
+                    self.assertEqual((actual.max_usd, actual.max_input_tokens, actual.max_output_tokens), (50.0,250000000,2500000))
+                else:
+                    self.assertIn(actual.route, GATED_OPENROUTER)
                 store.rpc('finish',dict(lease_id=actual.lease_id,outcome='denied',receipt=None))
         self.assertEqual(store.rpc('status', {})['leases'], [])
         for card in PAID:
             raw = json.dumps(card['continuation_budget'], sort_keys=True)
             events = [e for e in card['continuation_budget']['events'] if e.get('configured_model','').startswith('openrouter/deepseek/')]
             self.assertGreater(sum(e['cost'] for e in events), 0)
-            self.assertIsNone(router.route_maximum(events[0]['configured_model']))
+            self.assertIsNotNone(router.route_maximum(events[0]['configured_model']))
             self.assertEqual(json.dumps(card['continuation_budget'],sort_keys=True),raw)
 
     def test_real_aggregate_exam_and_more_than_eight_validated_requests(self):
