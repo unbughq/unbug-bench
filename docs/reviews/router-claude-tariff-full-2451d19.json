@@ -1,0 +1,11 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "tested_sha": "2451d1972363df4ee59dd74b5ea57f582f392b6d",
+  "started": "2026-10-30T06:02:10.373386Z",
+  "status": "passed",
+  "finished": "2026-10-30T06:16:47.971248Z",
+  "exit_code": 0,
+  "log_sha256": "13d275e1a88ebcda32b6582cea08840d2a73b2c5cceded1674d51e06271d8101",
+  "archived_log": "docs/reviews/router-claude-tariff-full-2451d19.log.gz",
+  "archived_log_sha256": "88e1e99c56d0466191743c15d55632bb949edfac03208e065fe971fb11e33d76"
+}

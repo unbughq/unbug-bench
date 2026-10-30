@@ -27,3 +27,11 @@ mode shapes with real writer counters; its envelopes are transport tests.
 Murphy new-router-maxima-1 remains open until the diff goldfish accepts the
 implemented conditional proof. Full-suite evidence will be recorded separately
 with its tested SHA and terminal result; focused tests do not imply a full pass.
+
+## Terminal acceptance
+
+Fresh Claude diff review 1 passes and explicitly accepts the conditional Murphy
+closure. Full suite on 2451d1972363df4ee59dd74b5ea57f582f392b6d: 144 scripts,
+0 failed, exit 0, finished 2026-10-30T06:16:47.971248Z. The JSON and gzip log
+are archived next to this file, with SHA-256. No source changed during the run.
+The row is now closed with both hypotheses and the exact 3/2 tolerance.
