@@ -229,6 +229,64 @@ class AccountingTests(unittest.TestCase):
         with self.assertRaisesRegex(budget.BudgetError, 'invalid_waste_attribution'):
             budget.settle(self.wait(lease, relative), work=self.work, ledger_path=self.path)
 
+    def test_multirole_fractional_classification_uses_one_total(self):
+        from random import Random
+        random = Random(419)
+        sets = [[.1234567894, .2234567894, .3234567894]]
+        sets += [[random.random() for _ in range(3)] for _ in range(30)]
+        for costs in sets:
+            self.path.write_text(json.dumps({'cost': 0, 'calls': 0, 'events': []}))
+            operation = str(uuid.uuid4()); lease, _ = self.reserve(10, operation)
+            events = [{'id': str(index), 'role': role, 'cost': amount}
+                      for index, (role, amount) in enumerate(zip(('writer', 'reviewer', 'stress_tester'), costs))]
+            relative = 'usage-receipts/' + lease.lease_id + '.json'
+            def save_receipt():
+                (self.work / relative).write_text(json.dumps({'lease_id': lease.lease_id, 'events': events,
+                    'booked_event_ids': [e['id'] for e in events], 'final_usage_known': True}))
+            save_receipt(); wait = self.wait(lease, relative)
+            budget.settle(wait, work=self.work, ledger_path=self.path)
+            before = budget.case_spending(self.ledger())['total_spent_usd']
+            attribution = {'schema_version': 1, 'kind': 'factory_bug', 'id': str(uuid.uuid4()),
+                'diagnosis_sha256': 'd' * 64, 'fix_commit': 'f' * 40, 'fix_attribution_sha256': 'a' * 64,
+                'operation_ids': [operation], 'event_ids': [e['id'] for e in events],
+                'infrastructure_waste_usd': sum(costs)}
+            budget.reclassify_factory_bug(self.path, attribution)
+            summary = budget.case_spending(self.ledger())
+            self.assertEqual(summary['total_spent_usd'], before)
+            self.assertEqual(summary['spent_usd'], 0)
+            self.assertNotIn('legacy_unattributed', summary['breakdown_by_role'])
+            events.append({'id': 'late', 'role': 'reviewer', 'cost': random.random()})
+            save_receipt(); budget.settle(wait, work=self.work, ledger_path=self.path)
+            summary = budget.case_spending(self.ledger())
+            self.assertEqual(summary['spent_usd'], 0)
+            self.assertEqual(summary['total_spent_usd'], summary['infrastructure_waste_usd'])
+            self.assertNotIn('legacy_unattributed', summary['breakdown_by_role'])
+            self.assertEqual(budget.settle(wait, work=self.work, ledger_path=self.path), 0)
+            self.reserve(1, operation)
+            budget.reclassify_factory_bug(self.path, attribution)  # Replay while next lease is pending.
+
+    def test_legacy_derived_codex_price_survives_late_waste_receipt(self):
+        legacy = {'id': 'legacy', 'cost': 0, 'role': 'writer', 'priced': 'subscription',
+                  'configured_model': 'codex/gpt-6.1-sol',
+                  'tokens': {'input_tokens': 100000, 'cached_input_tokens': 0, 'output_tokens': 10000}}
+        self.path.write_text(json.dumps({'cost': 0, 'calls': 1, 'events': [legacy]}))
+        operation = str(uuid.uuid4()); lease, _ = self.reserve(10, operation)
+        relative = 'usage-receipts/' + lease.lease_id + '.json'
+        payload = {'lease_id': lease.lease_id, 'events': [legacy], 'booked_event_ids': ['legacy'], 'final_usage_known': True}
+        (self.work / relative).write_text(json.dumps(payload)); wait = self.wait(lease, relative)
+        budget.settle(wait, work=self.work, ledger_path=self.path)
+        attribution = {'schema_version': 1, 'kind': 'factory_bug', 'id': str(uuid.uuid4()),
+            'diagnosis_sha256': 'd' * 64, 'fix_commit': 'f' * 40, 'fix_attribution_sha256': 'a' * 64,
+            'operation_ids': [operation], 'event_ids': ['legacy'], 'infrastructure_waste_usd': .3}
+        budget.reclassify_factory_bug(self.path, attribution)
+        payload['events'].append({'id': 'late', 'role': 'writer', 'cost': 1}); payload['booked_event_ids'].append('late')
+        (self.work / relative).write_text(json.dumps(payload))
+        budget.settle(wait, work=self.work, ledger_path=self.path)
+        summary = budget.case_spending(self.ledger())
+        self.assertEqual(summary['total_spent_usd'], 1.3)
+        self.assertEqual(summary['infrastructure_waste_usd'], 1.3)
+        self.assertEqual(summary['spent_usd'], 0)
+
     def test_idless_and_malformed_inputs_fail_closed_without_raw_exceptions(self):
         with budget.ledger_transaction(self.path) as ledger:
             ledger['events'].append({'cost': 1, 'role': 'writer'}); ledger['cost'] += 1
@@ -243,6 +301,14 @@ class AccountingTests(unittest.TestCase):
 
 
 class JobMoneyTests(unittest.TestCase):
+    def test_reservation_rechecks_expired_authority(self):
+        from dataclasses import replace
+        with tempfile.TemporaryDirectory() as temporary:
+            expired = replace(authority(), batch_deadline='2020-01-01T00:00:00Z')
+            lease = Lease(str(uuid.uuid4()), 'claude/claude-opus-5-5', 'claude-token', 1, 'subscription', 'anthropic', 'claude-token')
+            with self.assertRaisesRegex(budget.BudgetError, 'retired_batch_bound'):
+                budget.reserve_invocation(Path(temporary) / 'ledger.json', lease, 5, expired,
+                    operation_id=str(uuid.uuid4()), call_name='builder-1')
     def test_current_case_binding_uses_deadline_instant_and_refuses_each_mismatch(self):
         from dataclasses import asdict
         channel = {'schema': 1, **asdict(authority())}

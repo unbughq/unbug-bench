@@ -751,6 +751,10 @@ no Murphy row. The initial diff review is recorded verbatim in
 - Release an admitted but never-invoked lease at known $0, and conservatively
   settle a crashed admitted reservation with no receipt. A provider denial
   before any lease still creates nothing. Preserve operation IDs across waits.
+- Use the concurrent streaming accountant (short ledger transactions) for
+  new-schema jobs while the case RLock serializes actual model dispatch. Never
+  hold the ledger's serial session lock while an independently reserved G10
+  owner call can be nested. Root concurrent_roles/scientific settings stay pinned.
 - Obtain the cumulative limit only from JobAuthority, never card/argv. The
   reserve_invocation API now requires that object. The raw numeric limit is no
   longer an accepted argument.
@@ -771,11 +775,17 @@ no Murphy row. The initial diff review is recorded verbatim in
 The parent adopted the no-fixed-amount amendment in ENGINEERING §3 at a3bb9dc.
 Dispatch still requires both B's qualified channel and E/A's enforced route maxima.
 
-Money precision for the additive accounting helpers: preserve the precision of
-retained provider events through summation. Initial factory-bug attribution and
-every late-receipt extension use the same cumulative, round-once nine-place
-amount. Stored event_ids/amount are derived; id, diagnosis/fix attribution and
+Money precision for the additive accounting helpers: a single Decimal valuation
+preserves provider precision through summation, including derived legacy Codex
+prices. Ledger settlement adds raw event amounts as the streaming accountant
+does. Role rounding never feeds the cumulative total. Initial factory-bug
+attribution and late receipt extension use that same valuation; public total
+and waste round once to nine places and ordinary spend is their difference.
+Stored event_ids/amount are derived; id, diagnosis/fix attribution and
 operation_ids are immutable and define replay identity. Existing settled waste
 stays classified while a replay lease is pending. Maxima and unknown gaps round
 up to the nine-place unit. Public card totals remain JSON numbers for compatibility;
 the B channel and reservation money strings use nine fixed decimal places.
+reserve_invocation rechecks the absolute authority deadline. Increment 2 must
+still call for_case immediately before every reservation, binding the current
+revision/source generation; never cache an authority across separate calls.

@@ -93,6 +93,8 @@ def _number(value):
 def usd(value):
     """Use the batch channel's nine-place, nonnegative decimal money unit."""
     try:
+        if isinstance(value, str) and not re.fullmatch(r'-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?', value):
+            raise ValueError
         result = Decimal(str(value))
         if not result.is_finite() or result < 0:
             raise ValueError
@@ -114,25 +116,36 @@ def ledger_transaction(path):
 
 
 def event_charge(event):
-    values = [event.get(k, 0) for k in ('cost', 'list_cost_usd', 'estimated_subscription_cost_usd')]
-    for value in values: usd(value)  # Validate, preserving receipt precision until the cumulative sum.
+    values = _event_components(event)
     return sum((Decimal(str(value)) for value in values), Decimal(0))
+
+
+def _event_components(event):
+    values = [event.get(k, 0) for k in ('cost', 'list_cost_usd', 'estimated_subscription_cost_usd')]
+    if event.get('priced') == 'subscription' and 'list_cost_usd' not in event and 'estimated_subscription_cost_usd' not in event:
+        values[2] = codex_cost(event.get('configured_model'), event.get('tokens', {}))
+    if not all(_number(value) for value in values): raise BudgetError('invalid_usage_price')
+    return values
 
 
 def _waste_amount(events, identities):
     # Same round-once arithmetic for initial attribution, validation and late
     # receipt extension. Legacy receipts can carry sub-nanodollar precision.
-    return float(usd(math.fsum(float(event_charge(events[i])) for i in identities)))
+    return sum((event_charge(events[i]) for i in identities), Decimal(0))
 
 
 def reserve_invocation(path, lease, maximum_usd, authority, *, operation_id, call_name, parent_call_name=None):
     """Reserve only an admitted lease; the caller and wrapper can safely repeat it."""
     from job_authority import JobAuthority
     if not isinstance(authority, JobAuthority): raise BudgetError('money_wait')
+    from model_router import epoch
+    try: expired = epoch(authority.batch_deadline) <= time.time()
+    except (ValueError, TypeError, AttributeError): raise BudgetError('money_wait') from None
+    if expired: raise BudgetError('retired_batch_bound')
     usd(maximum_usd)
     maximum = Decimal(str(maximum_usd)).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
     maximum = abs(maximum) if not maximum else maximum
-    limit = authority.committed_total_usd
+    limit = usd(authority.committed_total_usd)
     try:
         identity = uuid.UUID(operation_id)
         if str(identity) != operation_id or identity.version != 4: raise ValueError
@@ -213,7 +226,7 @@ def _settle_leaf(ledger, receipt):
         ledger['events'].append(event)
         events[identity] = event
         for key in ('cost', 'list_cost_usd', 'estimated_subscription_cost_usd'):
-            ledger[key] = float(usd(ledger.get(key, 0)) + usd(event.get(key, 0)))
+            ledger[key] = ledger.get(key, 0) + event.get(key, 0)
         ledger['calls'] = ledger.get('calls', 0) + event.get('calls', 1)
     if not ids <= events.keys(): raise BudgetError('usage_event_missing')
     booked = sum((event_charge(events[i]) for i in ids), Decimal(0))
@@ -234,7 +247,7 @@ def _settle_leaf(ledger, receipt):
             rows = [r for r in ledger['invocation_reservations'].values() if r['operation_id'] in waste['operation_ids']]
             if all(r['state'] == 'settled' for r in rows):
                 waste['event_ids'] = sorted({i for r in rows for i in r['event_ids']})
-                waste['infrastructure_waste_usd'] = _waste_amount(events, waste['event_ids'])
+                waste['infrastructure_waste_usd'] = float(usd(_waste_amount(events, waste['event_ids'])))
     # Unknown invocations written by the streaming accountant are now covered by
     # this reservation. Historical entries without an invocation_id stay unknown.
     ledger['unpriced_invocations'] = [e for e in ledger.get('unpriced_invocations', [])
@@ -291,66 +304,66 @@ def reclassify_factory_bug(path, record):
                 not isinstance(r, dict) for r in ledger.get('infrastructure_waste', [])):
             raise BudgetError('invalid_waste_attribution')
         operations = record.get('operation_ids', [])
-        rows = [row for row in ledger.get('invocation_reservations', {}).values() if row['operation_id'] in operations]
-        if not rows or {row['operation_id'] for row in rows} != set(operations) or any(row['state'] != 'settled' for row in rows):
-            raise BudgetError('waste_operations_pending')
         existing = next((r for r in ledger.get('infrastructure_waste', []) if r.get('id') == record.get('id')), None)
         if existing is not None:
             identity = ('kind', 'schema_version', 'id', 'diagnosis_sha256', 'fix_commit', 'fix_attribution_sha256', 'operation_ids')
             if any(existing.get(k) != record.get(k) for k in identity): raise BudgetError('waste_attribution_mismatch')
             return
+        rows = [row for row in ledger.get('invocation_reservations', {}).values() if row['operation_id'] in operations]
+        if not rows or {row['operation_id'] for row in rows} != set(operations) or any(row['state'] != 'settled' for row in rows):
+            raise BudgetError('waste_operations_pending')
         ledger.setdefault('infrastructure_waste', []).append(record)
         if case_spending(ledger)['total_spent_usd'] is None: raise BudgetError('invalid_waste_attribution')
 
 
 def case_spending(ledger, models_used=None):
-    """Whole-case list price, including legacy events; never read transcripts.
+    """One valuation for usage, classification and batch totals.
 
-    Totals remain authoritative for historical usage not represented by events.
-    Legacy roles are attributed only when the recorded model identifies one role.
+    Preserve provider precision internally. Public totals use the nine-place
+    batch unit; role rounding never feeds back into the cumulative total.
     """
     ledger = ledger or {}
     roles = {}
     for name, model in (models_used or {}).items():
         roles.setdefault(model, set()).add(invocation_role(name))
-    breakdown, estimated, unpriced = {}, 0.0, len(ledger.get('unpriced_invocations', []))
-    event_roles, event_costs, indexed_events = {}, {}, {}
-    listed, priced = 0.0, 0.0
+    breakdown, events, event_roles = {}, {}, {}
+    observed = [Decimal(0), Decimal(0), Decimal(0)]
+    unpriced = len(ledger.get('unpriced_invocations', []))
     for event in ledger.get('events', []):
-        cost = event.get('cost', 0)
-        listed_cost = event.get('list_cost_usd', 0)
-        estimate = event.get('estimated_subscription_cost_usd', 0)
+        try: values = [Decimal(str(v)) for v in _event_components(event)]
+        except BudgetError:
+            unpriced += 1
+            continue
+        observed = [a + b for a, b in zip(observed, values)]
         model = event.get('configured_model')
-        if event.get('priced') == 'subscription' and 'list_cost_usd' not in event and 'estimated_subscription_cost_usd' not in event:
-            estimate = codex_cost(model, event.get('tokens', {})) if str(model).startswith('codex/') else None
-            if estimate is None: unpriced += 1; estimate = 0
-        if not all(_number(v) for v in (cost, listed_cost, estimate)):
-            unpriced += 1; continue
-        listed += listed_cost; priced += cost; estimated += estimate
         matches = roles.get(model, set())
         role = event.get('role') or (next(iter(matches)) if len(matches) == 1 else 'legacy_unattributed')
-        breakdown[role] = breakdown.get(role, 0) + cost + listed_cost + estimate
+        breakdown[role] = breakdown.get(role, Decimal(0)) + sum(values)
         if event.get('id'):
-            event_roles[event['id']] = role
-            event_costs[event['id']] = cost + listed_cost + estimate
-            indexed_events[event['id']] = {**event, 'estimated_subscription_cost_usd': estimate}
-    for key, observed in (('cost', priced), ('list_cost_usd', listed), ('estimated_subscription_cost_usd', estimated)):
-        total = ledger.get(key, observed)
-        if not _number(total): unpriced += 1; continue
-        if total > observed: breakdown['legacy_unattributed'] = breakdown.get('legacy_unattributed', 0) + total - observed
-    # Reservation estimates are ledger entries, not fabricated provider events.
+            events[event['id']], event_roles[event['id']] = event, role
+    for key, amount in zip(('cost', 'list_cost_usd', 'estimated_subscription_cost_usd'), observed):
+        total = ledger.get(key, float(amount))
+        if not _number(total):
+            unpriced += 1
+            continue
+        remainder = max(Decimal(0), Decimal(str(total)) - amount)
+        # Floating streaming aggregates may differ from their exact decimal
+        # events below the public money unit. They prove no legacy charge.
+        if usd(remainder):
+            breakdown['legacy_unattributed'] = breakdown.get('legacy_unattributed', Decimal(0)) + remainder
     for row in ledger.get('invocation_reservations', {}).values():
-        gap = row.get('estimated_gap_usd', 0)
-        try: amount = float(usd(gap))
-        except BudgetError: unpriced += 1; continue
+        try: gap = usd(row.get('estimated_gap_usd', 0))
+        except BudgetError:
+            unpriced += 1
+            continue
         role = invocation_role(row['call_name'])
-        breakdown[role] = breakdown.get(role, 0) + amount
-    breakdown = {role: round(cost, 9) for role, cost in breakdown.items()}
-    known = round(sum(breakdown.values()), 9)
-    waste = 0.0
+        breakdown[role] = breakdown.get(role, Decimal(0)) + gap
+    model_total = sum(breakdown.values(), Decimal(0))
+    waste, additive_waste = Decimal(0), Decimal(0)
     records = ledger.get('infrastructure_waste', [])
     if not isinstance(records, list):
-        records = []; unpriced += 1
+        records = []
+        unpriced += 1
     classified_events, classified_operations, waste_ids = set(), set(), set()
     for record in records:
         if isinstance(record, dict) and record.get('kind') == 'factory_bug':
@@ -362,27 +375,22 @@ def case_spending(ledger, models_used=None):
                     and isinstance(ids, list) and bool(ids) and len(set(ids)) == len(ids)
                     and isinstance(operations, list) and bool(operations) and len(set(operations)) == len(operations)
                     and not set(ids) & classified_events and not set(operations) & classified_operations
-                    and set(ids) <= event_costs.keys()
+                    and set(ids) <= events.keys()
                     and all(re.fullmatch(r'[0-9a-f]{64}', record[k]) for k in ('diagnosis_sha256', 'fix_attribution_sha256'))
                     and re.fullmatch(r'[0-9a-f]{40}', record['fix_commit']) is not None
-                    and usd(record['infrastructure_waste_usd']) == usd(_waste_amount(indexed_events, ids))
+                    and usd(record['infrastructure_waste_usd']) == usd(_waste_amount(events, ids))
                     and {row['operation_id'] for row in related} == set(operations)
-                    and set(ids) == {i for row in ledger.get('invocation_reservations', {}).values()
-                        if row['operation_id'] in operations and row['state'] == 'settled' for i in row['event_ids']})
+                    and set(ids) == {i for row in related if row['state'] == 'settled' for i in row['event_ids']})
                 if valid:
                     for identity in ids:
-                        role = event_roles[identity]
-                        breakdown[role] -= event_costs[identity]
-                    amount = _waste_amount(indexed_events, ids)
-                    known = round(known - amount, 9) + 0.0
-                    waste += amount
+                        breakdown[event_roles[identity]] -= event_charge(events[identity])
+                    waste += _waste_amount(events, ids)
                     classified_events.update(ids); classified_operations.update(operations); waste_ids.add(record['id'])
                 else: unpriced += 1
             except (KeyError, TypeError, ValueError, BudgetError):
                 unpriced += 1
             continue
-        # Only an explicit, evidenced kill correction belongs here. Unknown
-        # invocations still fail closed; this never removes them implicitly.
+        # Additive legacy kill charges have no already-booked event IDs.
         try:
             evidence = record['derivation']
             maximum = evidence['maximum_observed_writer_list_cost_usd']
@@ -397,16 +405,20 @@ def case_spending(ledger, models_used=None):
         except (KeyError, TypeError, ValueError, ZeroDivisionError):
             valid = False
         if not valid: unpriced += 1
-        # Retain even a malformed record's numeric amount in the visible total.
         if isinstance(record, dict) and _number(record.get('infrastructure_waste_usd')):
-            waste += record['infrastructure_waste_usd']
-    waste = round(waste, 9)
-    breakdown = {role: round(cost, 9) + 0.0 for role, cost in breakdown.items()}
-    return {'spent_usd': None if unpriced else known, 'breakdown_by_role': breakdown,
-            'infrastructure_waste_usd': waste, 'infrastructure_waste': records,
-            'total_spent_usd': None if unpriced else round(known + waste, 9),
-            **({'unpriced_events': unpriced, 'known_spent_usd': known,
-                'known_total_spent_usd': round(known + waste, 9)} if unpriced else {})}
+            additive_waste += Decimal(str(record['infrastructure_waste_usd']))
+    total = usd(model_total + additive_waste)
+    waste = usd(waste + additive_waste)
+    # Derive the ordinary line from the one cumulative total, so reclassifying
+    # receipts cannot move that total or create a negative nanodollar residue.
+    known = total - waste
+    breakdown = {role: float(usd(value)) for role, value in breakdown.items()
+                 if role != 'legacy_unattributed' or usd(value)}
+    return {'spent_usd': None if unpriced else float(known), 'breakdown_by_role': breakdown,
+            'infrastructure_waste_usd': float(waste), 'infrastructure_waste': records,
+            'total_spent_usd': None if unpriced else float(total),
+            **({'unpriced_events': unpriced, 'known_spent_usd': float(known),
+                'known_total_spent_usd': float(total)} if unpriced else {})}
 
 
 def invocation_role(name):
