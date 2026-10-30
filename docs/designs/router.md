@@ -845,3 +845,534 @@ admission. The previously documented $50 ordinary-threshold/commitment limits,
 unbounded non-Claude roles, drained rollout and B practice qualification remain;
 this wiring does not qualify rotation packages or authorize any launch. No Murphy
 row closes, no authority increases and no pricing/profile change is introduced.
+
+
+## Cheap-route enforced maxima (2026-10-30; proposed increment A)
+
+B's practice-case qualification permits less than $3 of model spend. The only
+qualified route currently reserves $50. This increment qualifies the two existing
+OpenRouter routes using the same per-invocation local admission gate and immutable
+Lease fields; it does not select batch roles or authorize a live qualification run.
+No per-batch maximum override is proposed. No Murphy row is closed by this work.
+
+### Evidence and bounds
+
+The raw public OpenRouter endpoint records checked on **2026-10-30** are preserved
+in `tests/factory/fixtures/router-cheap-price-records.json.gz`, with source URLs
+and response SHA-256. Exact endpoint tags, rather than provider family slugs, are
+pinned. Prices below are USD per million tokens. Historical ledger events are
+never repriced. These new profiles live in `token_prices.py`; runtime OpenCode
+cost configuration for these routes uses their current record instead of the
+old DeepSeek override. D's pricing-only helper remains a non-admission helper.
+
+| Route | Endpoint | Input / cached input / output | Request input allowance | Request output allowance | Lease input / output tokens | Lease max_usd |
+|---|---|---|---:|---:|---:|---:|
+| `openrouter/xiaomi/mimo-v2.6-pro` | `xiaomi/fp8` | 0.435 / 0.0036 / 0.87 | 1048576 | 131072 | 3932162 / 1966081 | 1.710490600 |
+| `openrouter/deepseek/deepseek-v4.1-flash` | `deepinfra/fp8` | 0.14 / 0.0042 / 0.42 | 1048576 | 1048576 | 8388615 / 2796205 | 1.174406120 |
+| `opencode/deepseek-v4.1-flash-free` | unqualified | advertised free | unverified | unverified | none | none (unqualified effective route) |
+
+For each paid route W = (request input allowance * input list price + request
+output allowance * output list price) / 1e6. The lease dollar maximum is
+3*W + 0.000001 for MiMo and 2*W + 0.000001 for DeepSeek, rounded upward to
+nine decimals. Only 0.000001 is the existing gate's headroom. The multiplier
+selects invocation capacity from the real receipt fit below; it is not a price
+multiplier. Token maxima are floor(max_usd*1e6/input_rate) and
+floor(max_usd*1e6/output_rate), using uncached input because every refund is
+priced that way. This removes the arbitrary two-context cumulative input cap. The gate charges
+all input at the uncached rate when deciding refunds; this deliberately
+overestimates cached input and needs no cache-discount interpretation. It
+reserves W before any upstream bytes and admits further requests only when
+settled + retained + active + next W fits all three lease ceilings.
+
+Both endpoints advertise a 1048576 context. OpenRouter's own
+<https://openrouter.ai/blog/insights/reliability-failover/> identifies a prompt
+exceeding the model window as a context-length error, and states failed requests
+after exhausted fallback are not billed. The gate disables both model and
+provider fallback; it still retains W for every failed request, including 429
+and partial-output exceptions noted by that page. This is the input enforcement
+contract paired with the exact endpoint context record, rather than treating the
+model card's number alone as proof. The DeepInfra and OpenRouter source pages
+are frozen in `router-cheap-source-evidence.json.gz`; Xiaomi API docs and pinned
+OpenCode config/provider/managed source are in the same archive. MiMo's official
+<https://mimo.mi.com/static/docs/api/chat/openai-api.md> defines
+`max_completion_tokens` as covering visible and reasoning tokens; OpenRouter
+<https://openrouter.ai/docs/api_reference/parameters> maps it and `max_tokens`
+to the completion limit. The gate sends max_tokens<=32768, but **reserves
+131072 output tokens for every MiMo request**, the provider's documented
+reasoning-inclusive default and maximum. Thus no assumption about OpenRouter's
+translation of the smaller requested limit is used in the dollar proof. DeepInfra's
+<https://deepinfra.com/blog/deepseek-v4-1-flash-deepinfra> explicitly states that
+its 1048576 context covers prompt and completion together. Because OpenRouter
+qualifies reasoning-token coverage as applying to most providers, DeepSeek's
+reservation conservatively allows the **entire context** for output, even though
+the request carries `max_tokens=32768` and the endpoint advertises 131072 output.
+Thus the dollar proof does not depend on a smaller reasoning cap. The separate
+input/output reservations overestimate their combined context constraint.
+
+OpenCode's official model table advertises the free route and its zero prices,
+but no verified enforcement contract has yet been found for its input and
+reasoning-output limits. A price of zero is not proof of a token bound. It stays
+unqualified, as do every other route and fallback without an explicit profile.
+Qualification is checked on the **effective** route. Existing same-family
+fallback and alias code is unchanged. Three requested names can now reach a
+bounded paid OpenRouter lease when `openrouter-key` is authorized:
+`opencode/deepseek-v4.1-flash-free` and `opencode-go/deepseek-v4.1-flash` reach
+paid DeepSeek; `opencode-go/mimo-v2.6-pro` reaches paid MiMo.
+The free endpoint itself has no profile or capacity. With the paid account
+unavailable, the existing classifier now reports `outage` because the family
+has a bounded candidate, with no lease or D reservation. Previously it reported
+`unbounded_route`; this changes B's eligibility from zero relaunches to its
+10-per-reason outage cap, while exact requested-free-route capacity stays zero.
+The classifier code is unchanged, but its outcome changes with the new profiles.
+Families without any bounded candidate still report `unbounded_route`. Tests
+pin the free request's paid fallback and unavailable-account wait. If later
+qualified, a free profile must use max_usd=0 and enforce both token maxima;
+this increment does not pre-authorize that qualification.
+
+`price_source` records `token_prices:2026-10-30:openrouter:<model>:<endpoint>:`
+followed by the exact three rates and `:joint-gate-v1`; it is validated by exact
+type/value just like the other Lease fields. An expired quote is not trusted
+blindly: each upstream request carries OpenRouter's hard `provider.max_price`
+input/output ceilings plus request/image ceilings of zero, `only:[exact endpoint]`, `allow_fallbacks:false`, and
+`require_parameters:true`. The routing contract is documented at
+<https://openrouter.ai/docs/guides/routing/provider-selection>. A removed
+discount or unavailable endpoint must fail; it must not choose a dearer route. There is no cache max_price field: counting all input at
+uncached price avoids depending on a cache discount for the bound. Discounted
+versus undiscounted matching is not documented; rejection of DeepInfra's
+discounted quote is a live availability risk, not authority to raise its price.
+Exact response-model equality is also an availability risk: the strict parser
+requires the request slug echoed unchanged. A versioned/aliased provider echo
+would retain W and exhaust after three MiMo or two DeepSeek unknown requests.
+No live response shape is qualified by the synthetic native probe.
+Exact endpoint matching is pinned by the public endpoint-tag contract: dropping
+the tier never matches a tier endpoint. Tests assert the normalized exact tag
+and fallback prohibition, and check the saved `/flex` and `/priority` records
+are absent from the admitted set; offline tests do not impersonate server proof.
+
+### Real receipt capacity and the $3 envelope
+
+Replay all existing paid OpenCode sessions in `router-paid-deepseek.json.gz`,
+grouped by the actual session prefix in event IDs, preserving receipt order.
+The longest MiMo session has 29 steps and 1611966 cumulative input tokens;
+DeepSeek has 34 steps and 2568428 cumulative input tokens. The initial
+two-context design would stop these, so it is replaced by the dollar-derived
+token maxima above. Refund tests use input+cache.read+cache.write and
+output+reasoning from each real step, and the conservative uncached tariff.
+Every observed session fits its lease with a whole next-request W held.
+
+For a budget-fit example, price the real paid sessions at the checked current
+input/cache/output tariffs (an example only, never rewrite historical events):
+e15450 has 17 paid sessions, $0.8515172860 total and maximum prior settled
+spend plus next lease $2.4924907220; 873d7f has 14, $0.6516037902 and
+$2.2841285566. Assert these through D's real reserve/complete APIs with a $3
+job authority. A completed invocation releases its unused commitment; D does
+not permanently deduct max_usd for every completed call. The real example
+therefore permits many calls, not only two or three. Unknown/interrupted usage
+keeps the full commitment and can correctly stop further admission.
+
+This proves the paid-route qualification envelope is reachable, not that an
+entire historical case including $15/$19 Claude writers fits $3. B's defined
+practice qualification is one worker's wait/checkpoint/retirement lifecycle
+(`batch-service.md:460`), with its own bounded model profile and hard stop.
+A fully sealed practice case or simultaneous expensive leases is not promised.
+No live qualification is authorized here.
+
+### Implementation and deletion
+
+Reuse `model_call_gate.Allowance`, its condition lock, retained unknown usage,
+cancellation, close/snapshot behavior, and shared HTTP forwarding. Replace its
+Claude-only price/input/output calculations with explicit code-owned profile
+selection. Keep Claude's request normalization, usage parser, tariff and all
+lease values unchanged. Add only an OpenRouter chat-completions adapter and
+strict complete-response usage parser; no generic plugin registry or second
+accountant. The wrapper continues to reserve `Lease.max_usd` through D's
+existing invocation ID, lease start and settlement path.
+
+The adapter accepts only the exact model, text messages, ordinary local
+function tools, supported sampling/reasoning options, and one completion.
+Reject unknown keys, multimodal content, server tools, plugins, search, alternate
+models, price/tier overrides and malformed/duplicate/nonfinite JSON before
+network. Normalize the output maximum, stream usage, and provider selection.
+Use fixed HTTPS `openrouter.ai/api/v1/chat/completions`, no redirects, proxy
+environment, retry inside the gateway, or production upstream override. Each
+CLI retry/compaction/tool continuation traverses the same allowance.
+
+Only complete HTTP success with a single complete generation, a terminal
+finish reason, valid nonnegative integer usage and SSE `[DONE]` (when streaming)
+can refund W. Prompt/completion totals include cached/reasoning tokens. If any
+usage component exceeds its reserved allowance, is missing/ambiguous, or a
+response is interrupted, retain W. Close remains immutable and unknown usage
+keeps D's full invocation reservation pending. OpenRouter's reported monetary
+cost, when present, must not exceed the conservative tariff estimate; otherwise
+retain W. Never refund based on a CLI summary or a partial stream.
+
+OpenCode 1.19.0 is already pinned. The concrete call setup is:
+
+- `ModelRuntime._invoke` creates a fresh scratch directory for **every**
+  OpenCode call, chowned through the existing sudo path for an isolated user.
+  XDG_CONFIG_HOME, XDG_DATA_HOME and XDG_CACHE_HOME point to separate children
+  of that directory. Bounded routes skip `opencode_config()` and its shared
+  `/tmp` file entirely. Cleanup uses the existing runtime finally path.
+- `enforce()` accepts only explicit profiles, keeps the real OPENROUTER_API_KEY
+  in the gateway process, and removes it from the CLI environment. A random
+  per-invocation bearer token authenticates the CLI to loopback; only the fixed
+  HTTPS forwarder substitutes the real key. No other provider credentials or
+  inherited OPENCODE/proxy variables survive the environment allowlist.
+- The CLI receives OPENCODE_CONFIG_CONTENT with enabled_providers=[openrouter],
+  that provider's whitelist=[exact model], explicit bundled npm package
+  @openrouter/ai-sdk-provider, fixed loopback options.baseURL, synthetic
+  options.apiKey, exact model id, text modalities, context/output limits and
+  current costs. model and small_model both equal the lease route.
+  permission.task=deny, compaction.auto=true; `_invoke` already supplies an
+  explicit --title, so automatic title generation is avoided.
+- OPENCODE_DISABLE_PROJECT_CONFIG=1, OPENCODE_PURE=1,
+  OPENCODE_DISABLE_MODELS_FETCH=1 and OPENCODE_DISABLE_AUTOUPDATE=1 are set.
+  Fresh XDG state prevents global auth and active-console-org configuration.
+  Pinned source shows managed configuration can override inline configuration:
+  paid admission setup is Linux-only and rejects presence of `/etc/opencode`
+  with route_feature_unsupported before subprocess launch. No test-only managed
+  config override is used in production. macOS/Windows paid setup stays denied.
+  This is a worker platform guard, not a dependency on the founder's Mac.
+- The adapter's top-level allowlist is model, messages, tools, tool_choice,
+  stream, stream_options, usage, max_tokens, max_completion_tokens, temperature,
+  top_p, top_k, stop, frequency_penalty, presence_penalty, repetition_penalty,
+  seed, min_p, reasoning, include_reasoning, reasoning_effort, response_format.
+  reasoning accepts only enabled, effort, exclude, max_tokens; max_tokens is
+  clamped to the requested completion cap, effort uses documented enum values.
+  stream_options is normalized to include_usage=true and usage.include=true.
+  Content arrays accept only text blocks; tool definitions are type=function
+  with name/description/parameters/strict. Tool calls/results may carry opaque
+  local arguments, never hosted tool types. Unknown nested control fields fail.
+
+Touch points are token_prices profiles and runtime-cost override,
+model_router.route_maximum (valid_maximum still exact policy equality),
+Allowance price/usage selection, empty_usage's request bound, Handler's
+request/response adapter, Gate's upstream/client credentials, enforce's
+Claude-only check, and _invoke's isolated OpenCode setup. Remove the obsolete
+DeepSeek PAID_PRICES entry and use the new price profile in every old caller;
+keep Muse's unrelated overrides. No D accounting change is needed.
+
+The preliminary actual Linux CLI probe already passed both routes, including
+sudo as pilot, with --network=none and synthetic credentials. It sent one
+request, max_tokens=32000 and usage.include=true. These preliminary probes do
+not qualify the implementation; the runtime/gateway native probe below does.
+The gate retains the existing scope: CLI-owned inference, not a sandbox for
+arbitrary Bash use of a credential.
+
+Round-2 environment clarification: preserve OPENCODE_ENABLE_EXA=1 exactly as
+the existing OpenCode path does, including writer and stress-tester roles.
+Exa web search is credential-free non-model traffic, outside this lease's model
+spend bound. This does not authorize a hosted model search tool or expose the
+OpenRouter key. The environment is reconstructed from exactly PATH, HOME, LANG,
+LC_ALL, TMPDIR, the three fresh XDG paths, existing FACTORY_STRATEGY_* diagnostic
+keys, and the explicit code-owned OPENCODE settings listed above, including
+OPENCODE_ENABLE_EXA. OPENCODE_TEST_MANAGED_CONFIG_DIR is explicitly dropped.
+Pinned flag.ts, config/paths.ts and tool/websearch.ts are now frozen too.
+Only the worker user's $HOME/.opencode remains discoverable; project/worktree
+.opencode discovery is disabled. The fresh XDG directory is also scanned; inline
+provider controls and only-in-gateway custody of the real credential prevent
+it from changing paid routing. OPENCODE_PURE prevents its external plugins;
+the consuming plugin/index.ts and effect/runtime-flags.ts are now archived.
+The config loader can still attempt npm installation of @opencode-ai/plugin;
+that credential-free non-model traffic is outside the lease bound and fails
+offline in the probe.
+
+Native validation additionally captures writer/stress tool lists and requests:
+websearch must remain advertised. A synthetic tool call exercises that tool
+with external network disabled and records its attempted non-model destination;
+assert the destination is the pinned McpWebSearch.EXA_URL, never Parallel.
+It may fail offline, but must not generate an alternate paid inference request
+or carry the real provider credential. The ordinary CLI model calls remain
+inside the gateway. This explicitly preserves the existing search capability.
+
+A price record with any nonzero input_cache_write charge invalidates these
+profiles; add a record-validation negative test. Existing records have none.
+A future changed tariff requires requalification, not a post-hoc refund fix.
+
+### Validation and acceptance
+
+1. Assert exact Lease profiles against saved real endpoint records and upward
+   Decimal calculations. Unknown effective routes receive no lease or D money reservation. The free
+   endpoint stays unqualified; its pre-existing paid family fallback is described
+   above and tested separately. Tampered caps, stale leases and mismatched profiles are denied.
+2. Use saved real paid-route cards/receipts for usage and cost arithmetic. Keep
+   synthetic protocol/transport tests explicitly labelled; they prove controls,
+   not a provider's enforcement. Save public API documentation provenance.
+3. Exercise output normalization, provider pin/price ceilings, unsafe-field
+   rejection, exhausted joint ceilings, retries, overlapping requests, missing
+   or over-bound usage, malformed/truncated SSE, immutable close and replay.
+4. Run the actual pinned OpenCode Linux binary against loopback fixtures with
+   network disabled. Capture outbound requests for both models, tool continuation,
+   compaction, retry and isolated-user execution. Verify every inference request
+   reaches the gate with the selected limits, and exhausted admission forwards
+   nothing. Do not run a paid model or read account secrets.
+5. Exercise D admission/settlement through the real runtime and lease policy;
+   preserve invocation IDs and pending-unknown reconciliation. Preserve Claude
+   tests. Obtain fresh design and diff goldfish reviews, then run the full suite
+   (`uv run --with numpy --with scipy python -B tests/run.py`). No merge or launch.
+
+
+## Claude standard/global tariff correction (2026-10-30; increment A)
+
+The user reprioritized this fix ahead of cheap-route enablement. The current
+2*1.1 multiplier prices premium modes. Fast mode is unreachable through the
+gate: its closed BODY_FIELDS rejects speed and it supplies its own fixed beta
+header. Geo is different: omitting inference_geo can inherit a US workspace
+default. The fix therefore normalizes outbound inference_geo='global' after
+validating the closed incoming schema (incoming overrides remain rejected).
+The official data-residency contract explicitly overrides the workspace default
+with this field; a workspace disallowing global returns an error. See
+<https://platform.claude.com/docs/en/manage-claude/data-residency>, checked
+2026-10-30. Do not rely on an unreserved 10% premium fitting spare headroom.
+A standard/global or omitted-mode receipt is priceable under that enforced
+request contract; contradictory premium metadata remains unknown and retains W.
+An account that permits only US inference gets provider errors and retained
+holds, eventually model_call_cap; it never gets a silent premium-mode retry. All 32
+real Claude receipts in router-paid-deepseek.json.gz report standard/global.
+The current $19.041792 next-request hold makes a $50 lease stop ordinary writer
+rounds around $14.07 at list rates. This is Murphy `new-router-maxima-1`.
+
+Use one formula, sum(tokens*list rates)/1e6, for claude_cost, claude_gate_cost
+and the pricing-only invocation_maximum helper. Keep the existing list rates
+(4, .2, 8, 20), including the conservative one-hour cache-write rate; remove
+the 2.2 multiplier. The shared pricing predicate accepts speed absent or
+standard and inference_geo absent or global; explicit null, empty string,
+fast, us or any other value is unknown. The official pricing source checked
+on 2026-10-30 is <https://platform.claude.com/docs/en/about-claude/pricing>.
+Completed results still book their own total_cost_usd. No historical ledger
+entry is repriced and no D admission/reservation ownership changes.
+
+The joint dollar lease remains $50. claude_gate_maximum now derives
+max_input_tokens=250000000 and max_output_tokens=2500000 without a premium
+multiplier. price_source changes to a checked 2026-10-30 standard/global
+profile with explicit 1.0 factor; exact policy comparison rejects prior
+2.2-profile leases. The existing drained-rollout requirement applies.
+The maximum single request is 1000000 input tokens at $8/M plus 32768 output
+tokens at $20/M, W=$8.655360. Both W and settled estimates use the same helper.
+
+Implementation touch points:
+
+- token_prices.py: share the numeric/mode validation and Decimal list-rate
+  calculation; claude_cost returns its existing float/None interface, and
+  claude_gate_cost returns Decimal/None. Gate worst-case usage has absent mode
+  metadata and remains admissible. Fix the dead helper's 2.2 and its stale
+  enforcement-inventory docstring. No new pricing inventory.
+- model_call_gate.request_body inserts the code-owned global geo after its
+  closed-schema validation. Tests assert callers cannot supply US and every
+  forwarded request has global. Usage.merge validates metadata on every usage observation
+  (message_start, all message_delta updates, and non-stream JSON); an invalid
+  observation is sticky even if a later update omits the mode. It cannot be
+  erased when the parser returns only token counters: set the existing
+  self.invalid flag, using the shared token_prices predicate. Separately, the
+  public claude_gate_cost helper returns None for invalid direct inputs, and
+  Allowance.finish treats that None as unknown. These are specified boundaries,
+  not alternative implementation choices.
+- budget.py currently drops non-token metadata when accumulating Claude
+  partial assistant events and when summing a session after loss of its final
+  result. Preserve a sticky invalid-mode marker through both steps so the
+  shared claude_cost returns None; existing missing_usage/unpriced handling
+  then retains D's full commitment. Completed total_cost_usd bookkeeping is
+  unchanged. This small wiring is required to keep estimator and gate aligned.
+- interfaces.md section 7 is updated with the new tariff identity, token
+  ceilings and unknown-mode contract; old design/review records remain history.
+
+### Real writer regression and closure evidence
+
+The saved fixture contains the original result records, not a complete HTTP
+request trace. Tests must not fabricate a trace and call it real. Select the
+exact ids b741739e-bdec-4272-8b41-4a7703b02d52:result (873d7f builder-1,
+110 calls, $15.053187900000001) and
+013eaa17-daa9-49f9-9ad5-c88288cd5d11:result (e15450, 135 calls,
+$19.076881000000004). Their aggregate list-rate estimates are respectively
+$14.9806896 and $19.0400556; do not replace the recorded CLI totals.
+
+Use these actual aggregate counters to test a conditional admission envelope.
+Hypotheses: (a) the recorded CLI aggregate counters bound the sum of usage
+validated by the gate, and (b) there are no unrepresented gate-unknown attempts
+beyond the explicit tolerances below. The fixture cannot establish either
+hypothesis because it contains no complete request trace.
+
+The following assignment is a **test-only upper bound**, never production
+settlement logic (the gate does not consume CLI total_cost_usd):
+place the larger of the recorded cost and shared list-rate estimate, and the
+whole run's input/output counters, in the gate's settled totals; then reserve
+a whole worst-case next request against the actual $50 Lease. Both must admit.
+Under (a), nonnegative settled prefixes are bounded by those totals. The
+remaining dollar margins additionally permit 3 full unknown holds for 873d7f
+and 2 for e15450, plus the next-request hold; assert those exact tolerances
+and show one further full unknown hold fails admission. Under (a) and (b),
+with up to those unknown counts, a sequential invocation cannot hit this cap
+before its recorded end. This is a conditional monotonic envelope proof using
+real artifacts, not a reconstructed provider trace or an unconditional claim
+that those historical runs had no aborted or omitted requests. Close new-router-maxima-1 with this named regression test
+only after its goldfish accepts the proof; mark the fixture limitation clearly.
+Assert all 32 saved modes. Independently restore the old multiplier in a
+mutation run: the regression must fail for both writers.
+
+Also test each mode field as absent, accepted, premium, null, empty and malformed
+through direct estimators, non-stream usage and SSE updates. A premium update
+followed by an absent-mode update cannot refund W. Run the real budget monitor
+on synthetic CLI event envelopes containing the saved real usage (explicitly
+a transport test): interrupted premium usage stays unknown; standard partial
+usage uses the same 1x formula as the gate and cannot exceed the $50 lease
+for these real runs. The two surfaces are explicit: gate Usage reads raw
+provider HTTP, while budget reads CLI assistant.message.usage and final
+result.usage. Existing final-result captures normalize omitted geo to an empty
+string, but this does not affect completed total_cost_usd bookings.
+
+The new `tests/factory/fixtures/router-claude-mode-cli.json.gz` captures the
+actual pinned Claude 2.1.299 Linux binary with --network=none and synthetic
+upstream responses. Assistant events preserve absent fields as absent, and
+pass standard/global and fast/us fields through unchanged. Their output count
+is the CLI's observed initial count (0 here), not a reconstructed final count.
+The fixture saves the exact probe source, hash, upstream mode fields and
+captured assistant usage. Budget transport tests copy this actual assistant
+shape; they do not invent a claim about the CLI's normalization. Explicit
+empty/null remain unknown on either surface. Completed results retain their exact recorded cost.
+No launch is needed for this increment. Fresh design and diff goldfish reviews
+and the full suite are required. No merge or push.
+
+
+## Invocation-local gate access through pilot_wall (2026-10-30; increment A)
+
+The gate listens on an ephemeral IPv4 loopback port. run.pilot_wall permits
+only fixed bench/service ports before rejecting other local destinations for
+pilot, strong and easy Unix identities. The local Docker probes did not install
+this real wall. A gated isolated-user invocation therefore needs one narrowly
+scoped exception; a successful mocked or wall-free probe is insufficient.
+The founder explicitly authorized this isolation fix and one throwaway Boat
+worker under $0.10, with a stub upstream and deletion afterward.
+
+Keep the wall and the ephemeral listener. Do not reserve a bench port, widen a
+range, exempt all loopback, add ESTABLISHED acceptance, or change IPv6 policy.
+After the gate socket is bound and before CLI launch, insert one rule at the
+front of the existing `factory-<user>` IPv4 chain:
+
+`-m owner --uid-owner <numeric uid> -o lo -d 127.0.0.1/32 -p tcp --dport <gate port> -m comment --comment factory-gate:<lease id> -j ACCEPT`
+
+The chain's existing OUTPUT jump is UID-specific; the rule additionally matches
+the resolved numeric UID. No other UID, address, protocol or port is admitted.
+The gate still checks its closed request schema. Claude's bearer is the shared
+provider OAuth token, not an invocation-isolation boundary; cross-invocation
+isolation comes from the UID/port rule and revoke-before-release ordering.
+Concurrent invocations own distinct bound ports and unique lease comments;
+one cleanup deletes only its exact rule, never a line number or a whole chain.
+A different user has no exception to this gate. Existing permitted bench and
+service endpoints remain exactly as before.
+
+Implementation is owned by model_call_gate, with a small context manager using
+direct subprocess.run(..., check=True, capture_output=True, timeout=30), as
+exam_responder.docker_owner_server already does. `enforce` gains only optional
+`user=`; ModelRuntime._invoke passes its actual CLI Unix user. Neither insertion
+nor revocation uses run.sh or any cancel-gated callback. No user means no firewall calls.
+Resolve the user with pwd.getpwnam; validate the existing chain via successful
+rule insertion rather than creating a missing wall. Use sudo iptables -w 5
+with argument arrays, no shell. Cleanup ownership begins **before attempting
+insertion**. Record attempted=True before subprocess.run; confirmed=True only
+after exit 0. A rejected or uncertain insertion refuses CLI launch and enters
+the same finally cleanup path. Always attempt exact-rule deletion after any
+insertion attempt, including a raised timeout or other exception.
+
+For simplicity, every unconfirmed insertion remains unresolved even if a
+subsequent delete reports success: a successful delete alone cannot exclude a
+late insertion by a surviving command. Retain the bound server socket in
+_RETAINED, close serving/state, snapshot cap_used, and raise cancellation_failed.
+Only a confirmed insertion followed by confirmed deletion releases the socket.
+Failures before any insertion attempt (e.g. missing Unix user) can safely close
+the socket. The CLI never starts on any setup failure; D's existing uninvoked
+release applies. No firewall command contains a provider token.
+
+The exception surrounds run_budgeted's lifetime. Cleanup never depends on
+the CLI already being dead: process-group cancellation can leave descendants,
+and runtime's later pkill -u is outside enforce. Revoking access is safe even
+while a descendant exists. Cancellation must not prevent the delete command.
+
+Specify Gate.close(release_socket=True): state.close(), server.shutdown(),
+then server_close() only if release_socket; join the serving thread in both
+paths. If release_socket is false, append the server to module-level _RETAINED
+so garbage collection cannot close its bound socket. In enforce's finally:
+first run exact-rule revocation (independent of cancel), then close using
+release_socket=(insertion_confirmed and revocation_confirmed), always snapshot cap_used, and on revocation failure
+raise BudgetError('cancellation_failed'). That error overrides the in-flight
+exception and model_call_cap. No new invocation is allowed to continue as if
+cleanup succeeded. Test a second bind gets EADDRINUSE while retained.
+
+On process exit the retained socket is released. The backstop is identity/wall
+teardown: pilot_wall(remove=True) removes the jump and flushes/deletes its
+chain. Those existing cleanup commands are unchecked, but an unremoved chain
+cannot be silently reused: the next make_pilots -> pilot_wall calls checked
+iptables -N for the same chain and refuses on an existing chain. No change to
+run.py's wall is needed. This backstop depends on all isolated-user setup using
+make_pilots, which is the existing sole factory path.
+
+### Tests and live Linux proof
+
+Unit tests verify the exact insertion/deletion argv, numeric UID restriction,
+unique comments, no firewall calls for user=None, setup failure before launch,
+exception/cancellation cleanup (set the actual cancel event before exit and
+assert direct delete still executes), concurrent independent rules and
+fail-closed revocation failure with a still-bound port. Simulate an insert
+that records the rule then raises TimeoutExpired: no CLI launch, cleanup is
+attempted, cancellation_failed wins, cap_used is snapshotted, and a fresh bind
+gets EADDRINUSE even if the simulated delete succeeds. This pins uncertainty
+retention rather than treating subprocess failure as proof no rule exists. These tests do not replace the live wall proof.
+
+Commit `tests/factory/live/gate_wall_probe.py`, importing the real
+run.pilot_wall and gate. Copy the repository's actual public
+`scenarios/dev/S13-marketplace/scenario.json` to a temporary case/base; retain
+its marketplace service declaration and actual projects/marketplace layout.
+Create c.work/logs and a SimpleNamespace with case, work, args.agent_timeout=30
+and factory_slot=0. Use run.sh unchanged for real pilot_wall setup/teardown;
+only the gate's new helper uses direct subprocess. The probe creates system
+users gateprobe-a and gateprobe-b with useradd --system --no-create-home
+--shell /usr/sbin/nologin, refusing preexisting names. Record numeric UIDs.
+Call pilot_wall directly for these test identities (not make_pilots'
+production-name wrapper); remove their chains then userdel in finally. Neither
+identity collides with pilot, pilot-strong or pilot-easy.
+Only HTTPSConnection in the probe process is redirected to a synthetic local
+upstream; there is no product upstream override and no real credential or
+model call. The probe creates isolated test Unix identities and real iptables/
+ip6tables chains via pilot_wall. A client executed by sudo as that UID must:
+
+1. Fail to reach the listening gate before its exception is installed.
+2. Reach the gate while its own invocation exception is active and obtain
+   the stub response; gateway authentication and request enforcement still run.
+3. Fail to reach a second simultaneously listening local TCP port throughout.
+4. Fail to reach a gate authorized only for another test UID.
+5. After normal and exceptional cleanup, fail to reach a new server bound to
+   the former gate port. Assert the temporary rule is absent.
+6. Preserve IPv6 local rejection and the existing bench/service allow rules.
+
+Use the pinned `bin/boat-call` directly, never hcloud-boat or a batch launch:
+`bin/boat-call new --type default --no-env --no-monitoring --no-snapshots
+--ttl 1200 --name router-gate-wall-proof --json`. One creation attempt only;
+parse and persist its created ID before SSH. On an ambiguous creation result,
+reconcile the named worker rather than creating a duplicate.
+
+The current primary provider price <https://boat.dev/> checked 2026-10-30 is
+$0.036/default-hour billed per second. 1200 seconds costs $0.012; even the
+published maximum $0.07 excess-start charge gives $0.082, below $0.10. Confirm
+limits before creation, allow no paid plan change, and refuse if the live
+charge envelope exceeds that figure. A local 900-second proof deadline plus
+cleanup margin stays inside the TTL; every SSH/SCP call has a bounded timeout.
+Use `bin/boat-call usage <id> --json` for attributed machine time and cost;
+capture before deletion and query final usage afterward if supported. Save
+any start charge separately. Do not infer a final cost from wallet movement.
+Prepare all code locally before creation, transfer only public source/fixtures,
+and do not load model credentials or case secrets. Check the live provider
+rate and reserve an infrastructure maximum below $0.10 before creating it.
+Use provider-reported per-worker usage/cost, not a shared wallet delta. Save
+worker ID, created/finished timestamps, source SHA, probe results, rule snapshots
+restricted to the test chains, per-worker billing evidence and deletion operation
+completion. Deletion is `bin/boat-call delete <id> --yes --json`; persist the
+returned operation ID and query `bin/boat-call deletion status <operation>
+--json` until status/stage completed, bounded by 60 seconds, following the
+existing guard_delete_receipt identity checks. Verify inventory absence with
+`bin/boat-call list --json` after completed deletion. A trap/finally
+owns cleanup on probe failure; a failed proof is recorded as failed.
+
+Add Murphy row new-router-gate-wall-1 for gated isolated calls blocked by
+the wall. Close it only with the unit test and committed live-probe evidence
+showing exact-port access, other-local denial, cleanup, worker ID/cost/deletion. The multiplier defect's
+new-router-maxima-1 has its own regression and review. Fresh design/diff
+goldfish reviews and the full suite remain required for this item. No merge.

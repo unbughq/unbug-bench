@@ -673,8 +673,14 @@ class IsolationPolicyTests(unittest.TestCase):
             runtime = model_runtime.ModelRuntime(root, command, Mock(),
                 lambda path, sudo=False: shutil.rmtree(path), lambda user: home)
             @contextlib.contextmanager
-            def gate(*args):
-                yield SimpleNamespace(server=SimpleNamespace(server_port=12345))
+            def gate(lease, env, *args, user=None):
+                self.assertEqual(user, 'pilot')
+                listener = SimpleNamespace(server=SimpleNamespace(server_port=12345), token='authored-gate-token')
+                if lease.route in model_runtime.GATED_OPENROUTER:
+                    self.assertNotIn('OPENCODE_CONFIG', env)
+                    clean = model_runtime.model_call_gate.openrouter_environment(lease, env, listener)
+                    env.clear(); env.update(clean)
+                yield listener
             def budgeted(cmd, cwd, env, *args, **kwargs):
                 inserted = sum(row[4:7] == ['-I', 'factory-pilot', '1'] for row in events)
                 removed = sum(row[4:6] == ['-D', 'factory-pilot'] for row in events)
@@ -700,7 +706,18 @@ class IsolationPolicyTests(unittest.TestCase):
             codex, claude, opencode = seen
             self.assertEqual(codex[0][1], '--preserve-env=CODEX_HOME,PATH')
             self.assertNotIn('WebSearch', claude[0][-1])
-            self.assertEqual(set(opencode[1]) & set(ambient), {'OPENROUTER_API_KEY'})
+            self.assertFalse(set(opencode[1]) & set(ambient))
+            config = json.loads(opencode[1]['OPENCODE_CONFIG_CONTENT'])
+            self.assertEqual(config['permission'], dict(task='deny', webfetch='deny', websearch='deny'))
+            self.assertEqual(config['provider']['openrouter']['options']['apiKey'], 'authored-gate-token')
+            self.assertEqual(config['provider']['openrouter']['options']['baseURL'], 'http://127.0.0.1:12345/api/v1')
+            self.assertEqual(config['enabled_providers'], ['openrouter'])
+            self.assertEqual(opencode[1]['OPENCODE_PURE'], '1')
+            for key in ('OPENCODE_DISABLE_PROJECT_CONFIG', 'OPENCODE_DISABLE_MODELS_FETCH', 'OPENCODE_DISABLE_AUTOUPDATE'):
+                self.assertEqual(opencode[1][key], '1')
+            roots = [Path(opencode[1][key]) for key in ('XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME')]
+            self.assertEqual({path.name for path in roots}, {'config', 'data', 'cache'})
+            self.assertEqual(len({path.parent for path in roots}), 1)
             self.assertEqual(set(opencode[0][1].removeprefix('--preserve-env=').split(',')), set(opencode[1]))
 
     def test_environment_for_each_driver_has_only_one_selected_provider(self):

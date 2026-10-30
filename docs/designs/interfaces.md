@@ -282,7 +282,7 @@ denial.
   provenance). Individual token ceilings are not additive money permissions.
   Client/runtime verify exact route-owned values before callbacks/reservations;
   callers cannot supply/tamper with them. D reserves only after admission.
-  Claude Opus5.5 alone has a worker-local subscription gate: before EVERY forward,
+  Claude Opus5.5 has a worker-local subscription gate: before EVERY forward,
   strictly settled usage + all in-flight/unknown worst-case allowances + new W
   must fit joint USD AND separate token ceilings. 1M hard context/request and
   output clamp32768 include caches/thinking. Complete strictly validated usage
@@ -290,14 +290,38 @@ denial.
   Refundable active holds cause a deadline/cancel/close-bounded wait. Only
   settled+retained unknown usage making new W impossible is terminal exhaustion.
   Standard mode, no hosted tools/premium modes; small-model calls use same Opus.
-  Current route cap50.0 USD; W<=19.041792; input113636363/output1136363 tokens.
-  BOTH settled gate cost and W use existing claude_cost2*1.1, preserving the
-  unchanged partial-ledger estimate bound even when the CLI final result is lost.
-  Existing token_prices/budget booking stays unchanged; gate books nothing.
+  Current route cap50.0 USD; W<=8.655360; input250000000/output2500000 tokens.
+  Settled gate cost, W and partial-ledger estimates share standard/global list
+  rates (factor1.0). Outbound inference_geo is forced global; incoming overrides
+  are forbidden. Only absent/standard speed and absent/global geo are priceable;
+  explicit null/empty/premium values stay unknown through partial aggregation.
+  Tariff identity is token_prices:2026-10-30:claude-opus-5-5:4.0,0.2,8.0,20.0:1.0:standard-global:joint-gate-v1.
+  Prior tariff leases fail exact-policy validation; roll out drained. Completed
+  CLI total_cost_usd bookings stay unchanged; the gate books nothing.
   Cap covers CLI-owned inference routed through its SDK, not hostile Bash/direct
   network/account-wide spending; no new sandbox/security property is claimed.
   Unsupported never-forwarded requests are nonfatal local errors, not money stops.
-  Other/unknown/unenforceable/direct/tampered routes get no Lease and
+  The same gate also qualifies two paid OpenRouter effective routes (Linux,
+  pinned OpenCode 1.19.0, no managed config):
+  - openrouter/xiaomi/mimo-v2.6-pro: max_usd=1.710490600,
+    max_input_tokens=3932162, max_output_tokens=1966081;
+    price_source=token_prices:2026-10-30:openrouter:xiaomi/mimo-v2.6-pro:xiaomi/fp8:0.435,0.0036,0.87:joint-gate-v1.
+  - openrouter/deepseek/deepseek-v4.1-flash: max_usd=1.174406120,
+    max_input_tokens=8388615, max_output_tokens=2796205;
+    price_source=token_prices:2026-10-30:openrouter:deepseek/deepseek-v4.1-flash:deepinfra/fp8:0.14,0.0042,0.42:joint-gate-v1.
+  Paid request output is clamped to 32768, while holds conservatively cover
+  provider input1048576 and output131072/1048576 respectively, including
+  reasoning. W is 0.5701632/0.58720256. Exact endpoint and list-price ceilings
+  are code-owned per request; all input is priced uncached for refunds.
+  The real key stays in the gate; CLI receives a synthetic token and isolated
+  configuration. Non-model credential-free Exa search remains outside this cap.
+  opencode/deepseek-v4.1-flash-free has no verified token bound and no profile.
+  Existing fallback/alias code lets that name and opencode-go/deepseek-v4.1-flash
+  reach bounded paid DeepSeek, and opencode-go/mimo-v2.6-pro reach paid MiMo.
+  Without the paid account, the existing classifier now returns outage, with no
+  lease/reservation, instead of unbounded_route: B's outage cap is10 per reason
+  rather than zero relaunches, while exact free-route capacity remains0.
+  Other unknown/unenforceable effective routes and tampered leases get no Lease and
   Wait('unbounded_route'); B sees capacity0 and does zero relaunches until an
   approved bound release is migrated and exact-route capacity becomes positive.
   retry_after=now+900 is only a recheck hint. D refuses qualification for any

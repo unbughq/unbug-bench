@@ -23,6 +23,7 @@ import tempfile
 import time
 from budget import BudgetError, run_budgeted, case_spending, require_case_budget, invocation_role
 import model_router
+from token_prices import GATED_OPENROUTER
 import model_call_gate
 from model_router import family
 from registry import atomic_json
@@ -154,9 +155,7 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
     MCP off (about 28k prompt tokens a call, unneeded). In /tmp so the pilot user can read it; no secret."""
     path = pathlib.Path("/tmp/factory-" + model.replace("/", "-").replace(":", "-") + ".json") if model else pathlib.Path("/tmp/factory-opencode.json")
     base = None if diagnosis else os.environ.get("OPENCODE_API_KEY_BASE_URL")
-    from token_prices import PAID_PRICES
-    def price(route):
-        return dict(zip(('input', 'output', 'cache_read', 'cache_write'), PAID_PRICES[route]))
+    from token_prices import runtime_prices as price
     cfg = {"mcp": {"computer": {"enabled": False}},
            "compaction": {"auto": True}, "permission": {"task": "deny"},  # on since 2026-10-17: off, MiMo re-read ~500k tokens a step
            "provider": {"openrouter": {"models": {
@@ -375,7 +374,7 @@ class ModelRuntime:
                 lease = None
                 continue
             c.model_lease = context.model_lease = lease
-            context.model_cap_used = model_call_gate.empty_usage()
+            context.model_cap_used = model_call_gate.empty_usage(lease.route)
             receipt_row = {'invocation': name, 'requested_model': requested, 'call_group_id': call_group,
                            **asdict(lease), 'outcome': 'admitted'}
             c.card.setdefault('route_receipts', []).append(receipt_row)
@@ -550,15 +549,14 @@ class ModelRuntime:
             cli_model = model
             cmd = [OPENCODE_BIN, "run", *_opencode_flags(OPENCODE_BIN), "-m", cli_model, "--format", "json", "--auto", "--title", f"factory-{name}", text]
             if effort != 'default': cmd[2:2] = ['--variant', effort]
-            if user:
-                preserve = '--preserve-env=' + ','.join((*env, 'OPENCODE_CONFIG', 'XDG_DATA_HOME')) if diagnosis else '--preserve-env'
-                cmd = ["sudo", preserve, "-H", "-u", user] + cmd
-            if user:
-                scratch = pathlib.Path(tempfile.mkdtemp(prefix='factory-tester-state-'))
-                self.command(c, ['sudo', 'chown', '-R', f'{user}:{user}', scratch], check=True)
+            if user: cmd = ["sudo", "--preserve-env", "-H", "-u", user] + cmd
+            scratch = pathlib.Path(tempfile.mkdtemp(prefix='factory-tester-state-'))
+            if user: self.command(c, ['sudo', 'chown', '-R', f'{user}:{user}', scratch], check=True)
             if not diagnosis: env['OPENCODE_ENABLE_EXA'] = '1'
-            env.update({"OPENCODE_CONFIG": str(opencode_config(cli_model, case=c.case_id, diagnosis=diagnosis)),
-                        "XDG_DATA_HOME": str(scratch if user else env.get("XDG_DATA_HOME", self.home / ".local/share/factory-opencode"))})
+            env.update(XDG_CONFIG_HOME=str(scratch/'config'),
+                       XDG_DATA_HOME=str(scratch/'data'), XDG_CACHE_HOME=str(scratch/'cache'))
+            if model not in GATED_OPENROUTER:
+                env['OPENCODE_CONFIG'] = str(opencode_config(cli_model, case=c.case_id, diagnosis=diagnosis))
         else:  # fresh config/state dir per call, no session files: roles share nothing but what run.py passes
             # Not /tmp: codex refuses its helper binaries under a temp dir. Prepared where the runner can write; an
             # isolated user's copy is then moved into that user's (private) home by hand_to().
@@ -627,7 +625,15 @@ class ModelRuntime:
                 factory_kwargs = dict(job_authority=job_authority.for_case(c), invocation_id=reservation['invocation_id'],
                                       lease_id=reservation['lease_id'],
                                       on_started=lambda: c.model_process_state.update(started=True))
-            with model_call_gate.enforce(lease, env, c.model_cap_used, limit, getattr(c, 'role_cancel', None)) as gate:
+            with model_call_gate.enforce(lease, env, c.model_cap_used, limit, getattr(c, 'role_cancel', None), user=user) as gate:
+                if diagnosis and driver == 'opencode':
+                    env.pop('OPENCODE_ENABLE_EXA', None)
+                    if model in GATED_OPENROUTER:
+                        cfg = json.loads(env['OPENCODE_CONFIG_CONTENT'])
+                        cfg['permission'].update(webfetch='deny', websearch='deny')
+                        env['OPENCODE_CONFIG_CONTENT'] = json.dumps(cfg)
+                    # The gate replaces env, including its inline config and isolation flags.
+                    cmd[1] = '--preserve-env=' + ','.join(env)
                 with diagnosis_loopback(c, self.command, gate, diagnosis):
                     result = run_budgeted(cmd, None if user else cwd, env, transcript, c.ledger, limit,
                                   max_cost=None if factory_job(c) else c.args.max_cost,

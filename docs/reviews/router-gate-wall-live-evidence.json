@@ -1,0 +1,25 @@
+{
+  "fixture": "tests/factory/fixtures/router-gate-wall-linux.json.gz",
+  "fixture_sha256": "91867a202c726af6ba942bd52ebb60bab1a00e5172347cda40c3834dfd870928",
+  "controller_sha256": "8716ff8cec6f51568018b8660b8995ce6d2bc84ba8df4b3deaae1786750fc769",
+  "worker_id": "bx_rh5p34r3",
+  "source_sha": "e95d0253e4385dc46b458f8616b77c9f13f3b6f2",
+  "checks": 21,
+  "probe_exit_code": 0,
+  "cost": {
+    "observed_attributed_usd": 0.00014,
+    "final_provider_cost_available": false,
+    "conservative_seconds_through_confirmed_deletion": 18,
+    "conservative_usd_through_confirmed_deletion": 0.00018,
+    "basis": "Per-worker usage start timestamp through confirmed deletion, rounded up to seconds, at verified rate; zero next-start charge. Not a wallet delta."
+  },
+  "deletion": {
+    "id": "bdop_0fc7ef2ae61c4bceb9c22b057b8581dc",
+    "targetId": "bx_rh5p34r3",
+    "kind": "sandbox",
+    "status": "completed",
+    "stage": "completed",
+    "completedAt": "2026-10-30T06:18:32.310Z"
+  },
+  "absent_from_inventory": true
+}
