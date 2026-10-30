@@ -498,6 +498,100 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
         self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 1})
         self.assertEqual(checkpoints, ['writer', 'stress_tester'])
 
+    def completed_writer_control(self, *, repair=True, changed=False, findings=False, killed=True):
+        """Real practice/ledger bytes; authored model output and interruption controls."""
+        self.c.recipient = 'synthetic-only'
+        self.c.args.rounds = 2
+        calls = []
+        target_round = 2 if findings else 1
+        prev = {'failed_gate': 'G1', 'failed_detail': {'problems': ['authored repair request']}} if repair else {}
+        def invoke(runtime, c, models, text, cwd, name, **kwargs):
+            c.model_process_state['started'] = True
+            calls.append(name)
+            if name.startswith('builder-'):
+                if changed or (findings and name == 'builder-1'):
+                    (self.case / 'draft.txt').write_text(name)
+            elif name.startswith('attacker-'):
+                n = int(name.split('-')[1])
+                (self.work / f'attacks/round-{n}.json').write_text(json.dumps({
+                    'complete': True, 'blocking': ['authored retained defect'] if findings and n == 1 else []}))
+            else: self.fail(name)
+            return 0
+        def checkpoint(c, *args, **kwargs):
+            receipt = run.jload(self.work / 'attack-state.json')
+            if killed and receipt['actor'] == 'writer' and receipt['round'] == target_round:
+                raise Killed()
+        self.patch(model_runtime.ModelRuntime, '_invoke', invoke)
+        self.patch(durable_checkpoint, 'checkpoint_progress', checkpoint)
+        self.patch(run, 'prompt', lambda role, text: text)
+        self.patch(run, 'run_context', lambda c, **kwargs: json.dumps(kwargs))
+        self.patch(run, 'g1', return_value=(True, {'problems': []}))
+        self.patch(run, 'early_checks', return_value=None)
+        self.patch(run, 'early_review', return_value=None)
+        self.patch(run, 'loop_freshness', lambda c, result, report: (result, report))
+        expected = Killed if killed else budget.BudgetError
+        with self.assertRaises(expected) as caught:
+            run.write_and_attack(self.c, prev)
+        if not killed: self.assertEqual(str(caught.exception), 'stress_review_unresolved:unchanged_repair')
+        # The resumed process does not die at a second completion checkpoint.
+        self.patch(durable_checkpoint, 'checkpoint_progress', lambda *a, **kw: None)
+        self.c.args.resume = self.c.case_id
+        return calls, prev, run.jload(self.work / 'attack-state.json')
+
+    def test_unchanged_repair_uninterrupted_refuses(self):
+        calls, _, saved = self.completed_writer_control(killed=False)
+        self.assertEqual(calls, ['builder-1'])
+        self.assertEqual(self.c.card['builder_rounds'], 1)
+        self.assertTrue(saved['repair_requested'])
+
+    def test_unchanged_repair_completion_resume_refuses_without_new_work(self):
+        calls, prev, saved = self.completed_writer_control()
+        ledger = self.ledger.read_bytes()
+        with self.assertRaisesRegex(budget.BudgetError, '^stress_review_unresolved:unchanged_repair$'):
+            run.write_and_attack(self.c, prev)
+        self.assertEqual(calls, ['builder-1'])
+        self.assertEqual(self.c.card['builder_rounds'], 1)
+        self.assertEqual(run.jload(self.work / 'attack-state.json'), saved)
+        self.assertEqual(self.ledger.read_bytes(), ledger)
+
+    def test_changed_requested_repair_completion_resumes_without_second_writer(self):
+        calls, prev, _ = self.completed_writer_control(changed=True)
+        run.write_and_attack(self.c, prev)
+        self.assertEqual(calls, ['builder-1', 'attacker-1'])
+        self.assertEqual(self.c.card['builder_rounds'], 1)
+        self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 1})
+
+    def test_unchanged_first_writer_without_repair_request_can_resume(self):
+        calls, prev, saved = self.completed_writer_control(repair=False)
+        self.assertFalse(saved['repair_requested'])
+        run.write_and_attack(self.c, prev)
+        self.assertEqual(calls, ['builder-1', 'attacker-1'])
+        self.assertEqual(self.c.card['builder_rounds'], 1)
+
+    def test_completed_findings_repair_refuses_before_freshness_or_review(self):
+        calls, prev, saved = self.completed_writer_control(findings=True)
+        self.assertEqual(saved['findings_report'], 'round-1.json')
+        self.assertTrue(run.attack_report(self.work / 'attacks/round-1.json')['blocking'])
+        for name in ('loop_freshness', 'confirm_hits', 'early_review', 'early_checks', 'g1'):
+            self.patch(run, name, side_effect=AssertionError('validation before completion refusal: ' + name))
+        original_ledger = self.ledger.read_bytes()
+        variants = [('unchanged_repair', saved)]
+        for field, values in (('repair_requested', [None, 0, 1, 'true', []]),
+                              ('before_repair_sha256', [None, 0, '', 'f' * 63, 'F' * 64, []])):
+            variants.extend(('invalid_recovery_receipt', {**saved, field: value}) for value in values)
+            variants.append(('invalid_recovery_receipt', {k: v for k, v in saved.items() if k != field}))
+        # Output corruption has priority even if intent is also malformed.
+        variants.append(('writer_output_changed', {**saved, 'output_sha256': '0' * 64, 'repair_requested': None}))
+        for index, (reason, receipt) in enumerate(variants):
+            with self.subTest(reason=reason, variant=index):
+                (self.work / 'attack-state.json').write_text(json.dumps(receipt))
+                with self.assertRaisesRegex(budget.BudgetError, '^stress_review_unresolved:' + reason + '$'):
+                    run.write_and_attack(self.c, prev)
+                self.assertEqual(calls, ['builder-1', 'attacker-1', 'builder-2'])
+                self.assertEqual(self.c.card['builder_rounds'], 2)
+                self.assertEqual(run.jload(self.work / 'attack-state.json'), receipt)
+                self.assertEqual(self.ledger.read_bytes(), original_ledger)
+
     def test_validated_writer_rebinding_resumes_stress_without_second_writer(self):
         calls, killed = [], [False]
         def invoke(runtime, c, models, text, cwd, name, **kwargs):
