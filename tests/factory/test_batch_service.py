@@ -168,7 +168,7 @@ class ServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.plan(card)
         with self.assertRaises(ValueError): self.collect()
 
-    def test_unknown_absent_projection_priority_and_immutable_replay(self):
+    def test_unknown_absent_projection_settlement_and_immutable_replay(self):
         card = self.input(); card.pop('case_budget'); self.write_card(card)
         self.collect()
         result = self.plan(card)
@@ -182,6 +182,14 @@ class ServiceTests(unittest.TestCase):
         changed = SimpleNamespace()  # would fail any call; stored facts must win
         self.assertEqual(self.plan(card, changed), result)
         self.assertEqual(self.journal.read_bytes(), before)
+
+    def test_unknown_eligible_projection_settlement_precedes_replacement(self):
+        card = self.input(); self.collect()
+        eligible = self.answers(pending=dict(schema_version=1, status='pending', replacement_eligible=True))
+        result = self.plan(card, eligible)
+        self.assertEqual([r['reason'] for r in result['queue']], ['settlement', 'unknown_total'])
+        self.assertGreater(result['queue'][0]['sequence'], result['queue'][1]['sequence'])
+        self.assertEqual(len(self.state()['derivations']), 1)
 
     def test_two_child_chain_dedup_across_generations_and_restart(self):
         self.api = self.answers(pending=dict(schema_version=1, status='pending', replacement_eligible=True))
