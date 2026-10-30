@@ -66,3 +66,13 @@ is closed by this additive increment. The mandatory full suite is still running;
 its final result will be recorded before the increment is handed off. No merge,
 launch or decryption was performed.
 
+## Validation
+
+`uv run --with numpy --with scipy python -B tests/run.py` completed on the
+reviewed accounting tree: **135 scripts, 0 failed**. PYTHONUNBUFFERED=1 was set
+only to expose progress. Focused accounting: 17 tests; saved-card compatibility:
+6 tests. Original public artifacts and the frozen baseline are unchanged.
+The prior full run's isolated fake deletion-receipt timeout did not reproduce:
+its unchanged dedicated suite passed in 392.3s, then the complete suite passed.
+All blocking findings are fixed and independently verified; no row is closed.
+
