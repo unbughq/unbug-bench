@@ -495,3 +495,10 @@ the base epoch. The existing host `date` shim remains limited to autoretry;
 host TTL and unreachable cutoff logic remain real, with hour-sized TTLs and
 the outer hang bound. This is a small test-only change; validation time is
 dominated by five complete script runs and one full suite.
+
+Loaded regression validation is complete on source `46ec5ef`: five consecutive
+passes under three CPU burners/nice +10 (388.87, 373.47, 360.09, 342.33, 328.33
+seconds); concurrent full suite **148 scripts, 0 failed**. Fresh diff review 3
+passes with no blockers. Exact evidence, hashes and baseline reproduction
+commands are in `docs/reports/isolation-timeouts-loaded.md` and its JSON.
+Only documentation changed after the tested/reviewed source commit.
