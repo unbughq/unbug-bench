@@ -538,7 +538,9 @@ Before opening upstream network, under ONE lock, reserve this request's W:
 At 32K, W=$19.041792 (<$50). Require settled dollar usage + ALL in-flight/unknown
 allowances + new W <= lease.max_usd. Separately reserve 1M input tokens and the
 clamped output tokens, checking the corresponding aggregate ceilings under the
-same lock. No previous partial or optimistic usage releases anything.
+same lock. Keep an additional 0.000001 USD numerical headroom in this
+comparison for the unchanged ledger float accumulation/9-decimal presentation;
+it is never released or booked. No previous partial or optimistic usage releases anything.
 
 When a response completes with strictly valid provider usage, replace that
 request's allowance with its actual token counts and conservatively priced cost.
@@ -711,6 +713,8 @@ under the existing reviewed rollout contract; this increment performs no deploy.
    per-response iteration usage through completed HTTP responses, then lose the
    CLI result; current budget.partial assistant-event booking MUST remain <=
    Lease.max_usd, including when ALL HTTP responses completed before interruption.
+   Include an adversarial near-ceiling float/rounding case and require exact
+   already-booked case charge <=max_usd (not an epsilon-tolerant assertion).
    Compare existing events unchanged and never invent per-request splits of an
    aggregate receipt. New direct tests cover pre-network rejection,
    concurrency, all unknown/partial/duplicate/malformed usage retention, separate
