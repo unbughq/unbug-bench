@@ -566,3 +566,166 @@ Worker money delivery/context installation is specified in interfaces §8's
 and the two launcher SHA-pinned config flags, checkpointed job-money state and
 verified revision transitions, before D is enabled. D's attribute names are
 unchanged; current binding fields never originate from restored files.
+
+## Increment 2 addendum: money and the worker context
+
+This increment supplies interfaces§8 end-to-end through the existing synchronous
+holder/launcher. It does not enable batches, change the provider-wait flag,
+relax control-key restore refusal, or implement the async holder protocol.
+Generation-store/journal/outbox implementation follows as increment2b; all
+restore dispatch remains gated on the later reviewed holder predicate. No VM
+mutation or real case run in this increment.
+
+### Files and authority
+
+Add factory/batch_money.py and factory/job_config.py. Change batch.py,
+key_holder.py, launch.sh, run.py, run_artifacts.py, r2_upload.py and the shared
+launch_manifest.py. Tests: tests/factory/test_batch_money.py and
+test_job_config.py plus existing batch/launcher/key wrapping suites. No new
+service, dependency or spend-booking API. Reuse registry.atomic_json, holder
+private directory checks and D's job_authority.read/for_case (after D merges).
+
+The tracked factory/batches/<id>.json manifest is pinned as already specified.
+batch.bind stays pure: validate manifest/release/job and derive args; never
+reserve funds merely while policy_load validates every job. Manifest jobs omit
+max_cost, bind stops emitting it. Legacy non-batch paths retain their existing
+cost field/validation. New-schema holder recovery ignores max_cost only when
+job is manifest-bound batch work with verified money authority; no global bypass.
+D's authenticated path passes max_cost=None to the budget runner; run.py's legacy
+default5 remains for non-factory work. No batch is enabled before D supplies
+that path, so removing bind's emission cannot silently reintroduce a paid cap.
+
+Under batches/<id>/lock, batch_money.authorize(policy,job,source_generation)
+loads/creates money.json (schema1, batch/manifest digest, jobs map). Each job has
+case, its nine-field authority, last acknowledged cumulative total (decimal
+string, initially0), source generation. Job+source is the idempotency key; no independent request
+identity field. Terminal/retirement collection state is deferred to increment2b. No events/costs are booked here. Project each committed authority to
+batch-money/<batch>/jobs/<job>.json. money.json is authoritative; persist/fsync
+it before projection. Startup/retry repairs projections from that state before
+returning a config; a stale projection can only refuse admission.
+
+Initial authorization uses manifest job.requested_total_usd. Require sum over
+jobs of max(latest acknowledged total, committed_total_usd) <= money_limit_usd.
+Reserve before holder's uncertain process start and retain on unknown outcome.
+An insufficient request returns money_wait without launching. All dollar math
+is Decimal USD to9 places, rounding nonnegative historical numbers upward;
+reject nonfinite/negative/unknown new money. Batch deadline is absoluteUTC.
+Reservation UUID4 is durable per job; revision starts1. Same job/source/request
+replay is byte-identical. In this increment authorize refuses every source value
+different from its stored value, and every non-null source for a new job, as
+money_wait. Revision advancement and its proof format belong to2b; no dead
+production branch or invented proof parameter. Installer revision tests directly
+author old/new channels and current RAM bindings, without issuing a fake grant.
+An existing job never gains money merely by repeating launch or changing stage.
+
+For this increment, only fresh job funding can succeed. Source-changing
+continuations are refused until2b's acknowledged-generation/retirement contract
+is reviewed and implemented. Tests author channel pairs for the installer, not
+a pretend authorization receipt.
+
+Future collection updates preserve the same aggregate: replace a job's latest
+verified cumulative total, never add it. Unsettled new-schema provider waits
+can continue under their unchanged already-reserved commitment (not a fresh
+money grant), keeping the whole commitment reserved while D settles. Unknown
+legacy usage never qualifies for this exception. No extra money is granted,
+released or transferred while totals are unknown. A decreasing total needs
+authenticated D receipt reconciliation; this increment refuses that transition
+rather than inventing a refund. Define and review that reconciliation together
+with collection in increment2b before enabling it. Only terminal+retired+settled
+proof may release unused commitment; no missing/unreachable worker releases it.
+
+### Host configuration and delivery
+
+After all existing launch refusals, immediately after attest_launch and before
+consumed.add(stamp), the holder obtains the channel via batch_money.authorize, mapping holder's fresh generation 'new' to
+source_generation=None. Build exactly interfaces§8's root config;
+write immutable configs/<sha256>.json under the batch state directory. Append
+the two host --factory-job-config / --factory-job-config-sha256 flags to the
+bound launcher argv; callers cannot override them in job.args. Existing launch
+state freezes argv and the host config digest across restart. No new launch API.
+
+launch.sh parses these host flags before forwarding runner args, checks the
+config bytes/hash before creation, requiring config.case_id==--case-id,
+config.source_generation==--checkpoint-sha256 (null iff no checkpoint), and
+config.batch_release_sha256==--batch-sha256. Refuse before creating a worker if
+any differs. The RAM source_generation is trusted only through these checks.
+Then streams the public
+config over Boat stdin SSH after source qualification, into a0600 sibling under
+/dev/shm/secrets. Verify SHA there, fsync and replace factory-job.json. Runner
+gets the same flag names with the RAM path and trusted expected digest. No
+refresh token/key is in this file. No copies under a model/contestant home.
+
+### Installer and resume
+
+job_config.install(c,args) is mandatory when args.batch_release_sha256 is set;
+one or both missing config flags refuse before model work. It opens RAM config
+O_NOFOLLOW and checks regular/owner0600, SHA, exact root schema, case_id==
+c.case_id derived from argv and release SHA against HOME/batch-release.json.
+Read the tracked manifest from ~/factory/batches/<batch_id>.json (the installed
+factory root beside run.py, not the duplicate BENCH copy), require
+its SHA==config.manifest_sha256, source commit's public source manifest binding,
+restore recipient==tracked control-recipient and matching job/case. Require
+job_money.committed_total_usd<=manifest.money_limit_usd and exact deadline
+equality; do not require equality to initial requested_total_usd, since later
+serialized grants may exceed that request. Add factory/batches/*.json to
+WORKER_GLOBS, including token-free manifest/router files. The exact public source
+binding is worker-release-manifest.files[manifest_relative_path] ==
+config.manifest_sha256, after existing worker-release verification.
+Call D's read(channel,channel) only AFTER these independent authentication checks.
+The holder's pinned file SHA, not this equality check, authenticates authority.
+
+Place install in run.py's ordinary startup try block after the existing
+late_recovery.authenticate_gates (resume), or at that same point (fresh), before
+raised_limits, restore_gate_crash and any model call. c.work/c.ledger/prev_card
+and founder_ruling.context already exist. record_founder_decisions may remain
+before it: that function checks call limits/writes rulings and makes no model
+call. Do not move or duplicate gate authentication.
+Audit/legacy non-batch flows keep existing behaviour and get no invented grant.
+B supplies c.authenticated_job_config, c.batch_id/job_id/batch_deadline/
+source_generation from current RAM bytes and a separate c.job_money as §8 says.
+Persist new-case job-money.json atomically before D can reserve any invocation.
+
+On resume require job-money.json from the authenticated checkpoint. Parse old
+channel separately; validate owner/case/reservation/deadline unchanged, current
+revision >= old revision, and current amount >= old total authority. Same revision
+requires byte-equivalent channel (canonical JSON bytes) and source; a changed
+revision must be exactly old+1 and root source_generation must equal the
+launcher-verified collected checkpoint. Append idempotent history keyed by
+reservation_id/revision: {old,new,config_sha256,source_generation}. Fsync history
+then atomically replace job-money.json; D admission follows only both writes.
+Crash before checkpoint loses both together; same local replay repairs the
+history/file pair without a second grant. Model calls never happen in the gap.
+Older file revision, mismatched owner/source, lowered amount or same-revision
+different bytes => money_wait, no call. A prior retired_batch_bound never revives.
+
+Legacy-import assignment is NOT implemented or allowed here: a restored archive
+without job-money.json refuses money_wait even when given a current config.
+G2's future import-record format must get its own reviewed addendum before any
+legacy case is assigned. The existing22 historical cases remain read-only;
+key migration/VM decrypt qualification does not authorize their execution.
+
+### New keys and tests
+
+Only authenticated batch sealing (args.batch_release_sha256 set) adds the VM
+recipient in r2_upload.case_recipient, read from installed tracked
+control-recipient.txt. Non-batch/audit flows retain founder-only wrapping; batch installer verifies equality
+to the pinned manifest. Add the public file to WORKER_CONFIG and both new host
+modules to the shared trusted manifest. Missing/malformed VM recipient fails
+batch sealing; no unwrapped new batch checkpoint. Archive still founder+case,
+no VM identity on a worker. Test with an explicit throwaway VM recipient,
+retaining existing founder/case decrypt proofs and no real identities. In-place
+restart sends no new config: it reuses existing RAM bytes and identical flags,
+so installer treats it as a same-revision, byte-equivalent replay.
+
+Tests exercise fresh funding, two concurrent reservations under one bound,
+replay after money.json-before-projection crash, expiry/no headroom, no cost
+reset on resume, tampered config SHA/mode/case/source and missing mandatory
+flags, separate object identity, exact same-revision replay and mismatch,
+old+1 revision history repair, lowered/stale authority and legacy-file absence.
+Use saved real public cards/receipts as accounting metadata, not generated cases.
+Integration tests must call actual D job_authority.for_case for fresh install,
+revision bump, stale revision and non-equivalent same-revision replay. No stub
+consumer counts as this proof. If D is not yet merged, run against its actual
+reviewed module in an isolated process, record branch/SHA, and repeat in the
+merged tree before enablement. No skip authorizes enablement. Full suite and
+fresh goldfish diff review are mandatory before parent merges this increment.
