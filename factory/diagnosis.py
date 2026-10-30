@@ -73,7 +73,7 @@ def exhaustion(card):
     stop, gates = card.get('terminal_stop'), card.get('gates', {})
     if (not isinstance(gates, dict) or gates.get('G12') == 'pass' or
             card.get('status') in ('sealed', 'retired') or
-            stop in ('provider_wait', 'paused', 'ttl_retired', 'factory_bug_history_invalid') or
+            stop in ('provider_wait', 'paused', 'ttl_retired', 'factory_bug_history_invalid', 'diagnosis_input_invalid') or
             (isinstance(stop, str) and stop.startswith('retired'))): return False
     history = extension_history(card)
     if history is None: return False
@@ -120,11 +120,44 @@ def record_exhaustion(card, *, new_exhaustion=False):
     if state and state['status'] == 'pending': return
     if state and not new_exhaustion: return
     if card.get('terminal_stop') == 'factory_bug_held': return
-    stop = 'infrastructure_exhausted' if infrastructure_exhausted(card) else card.get('terminal_stop')
+    stop = card.get('terminal_stop')
+    if state:
+        # A retained infrastructure marker is evidence, not another exhaustion.
+        if not _trigger(card, stop, history): return
+    elif infrastructure_exhausted(card):
+        stop = 'infrastructure_exhausted'
     if (not exhaustion(card) or not _trigger(card, stop, history) or
             (history and history[-1]['outcome_sha256'] is None)): return
     card['diagnosis_state'] = dict(schema_version=1, exhaustion_id=str(uuid.uuid4()),
         stop=stop, status='pending', outcome=None)
+
+
+RESULT_SCHEMA = {
+    'type': 'object', 'additionalProperties': False,
+    'required': ['schema_version', 'case_id', 'checkpoint_sha256', 'outcome', 'reason', 'evidence', 'factory_bug'],
+    'properties': {
+        'schema_version': {'type': 'integer', 'const': 1},
+        'case_id': {'type': 'string'},
+        'checkpoint_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
+        'outcome': {'enum': ['factory_bug', 'close_to_passing', 'not_converging']},
+        'reason': {'type': 'string', 'minLength': 1},
+        'evidence': {'type': 'array', 'minItems': 1, 'items': {
+            'type': 'object', 'additionalProperties': False, 'required': ['path', 'sha256', 'finding'],
+            'properties': {'path': {'type': 'string', 'minLength': 1},
+                           'sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
+                           'finding': {'type': 'string', 'minLength': 1}}}},
+        'factory_bug': {'anyOf': [{'type': 'null'}, {
+            'type': 'object', 'additionalProperties': False,
+            'required': ['component', 'reproducer', 'affected_operations', 'fix_required'],
+            'properties': {**{key: {'type': 'string', 'minLength': 1}
+                              for key in ('component', 'reproducer', 'fix_required')},
+                           'affected_operations': {'type': 'array', 'uniqueItems': True,
+                                                   'items': {'type': 'string', 'format': 'uuid'}}}}]},
+    },
+    'allOf': [{'if': {'properties': {'outcome': {'const': 'factory_bug'}}},
+               'then': {'properties': {'factory_bug': {'type': 'object'}}},
+               'else': {'properties': {'factory_bug': {'type': 'null'}}}}],
+}
 
 
 def validate_result(value, *, case, generation, evidence_root):
@@ -148,6 +181,10 @@ def validate_result(value, *, case, generation, evidence_root):
             path = PurePosixPath(name)
             if path.is_absolute() or '..' in path.parts or path.as_posix() != name: raise ValueError()
             target = root / name
+            # Model-authored names must not turn ENAMETOOLONG into a paid retry.
+            # Use conservative Unix limits before any filesystem probe.
+            if ('\x00' in name or any(len(os.fsencode(part)) > 255 for part in path.parts) or
+                    len(os.fsencode(target)) > 1023): raise ValueError()
             if any((root.joinpath(*path.parts[:i])).is_symlink() for i in range(len(path.parts) + 1)):
                 raise ValueError()
             if (not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != item['sha256'] or
@@ -163,7 +200,7 @@ def validate_result(value, *, case, generation, evidence_root):
             if (not isinstance(operations, list) or
                     any(not _uuid4(v) for v in operations) or len(set(operations)) != len(operations)): raise ValueError()
         elif bug is not None: raise ValueError()
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+    except (FileNotFoundError, ValueError, KeyError, TypeError, AttributeError):
         raise BudgetError('diagnosis_result_invalid') from None
     result = copy.deepcopy(value)
     if result['outcome'] == 'factory_bug':
@@ -191,7 +228,8 @@ def _factory_bug_history(c):
     path = Path(c.work) / 'factory-bug-resumes.json'
     try:
         if path.is_symlink(): raise ValueError()
-        if not path.exists():
+        create = not path.exists()
+        if create:
             cards = (c.card, getattr(c, 'checkpoint_card', {}))
             if any('factory_bug' in card or 'factory_bug_resume_count' in card for card in cards):
                 raise ValueError()
@@ -205,8 +243,7 @@ def _factory_bug_history(c):
                 if not isinstance(waste, list) or any(
                         not isinstance(row, dict) or row.get('kind') == 'factory_bug' for row in waste):
                     raise ValueError()
-            atomic_json(path, [])
-        history = json.loads(path.read_text())
+        history = [] if create else json.loads(path.read_text())
         if not isinstance(history, list) or len(history) > 3: raise ValueError()
         keys = {'schema_version', 'resume_id', 'finding_id', 'case', 'held_batch_id',
                 'batch_id', 'job_id', 'reservation_id', 'source_generation', 'batch_release_sha256'}
@@ -223,12 +260,13 @@ def _factory_bug_history(c):
         for card in (c.card, getattr(c, 'checkpoint_card', {})):
             count = card.get('factory_bug_resume_count', len(history))
             if type(count) is not int or count != len(history): raise ValueError()
-        return history
-    except (OSError, ValueError, KeyError, TypeError):
+    except (FileNotFoundError, ValueError, KeyError, TypeError):
         c.card.pop('factory_bug_resume_count', None)
         c.card.update(status='stopped', terminal_stop='factory_bug_history_invalid')
         c.stopped = True
         raise BudgetError('factory_bug_history_invalid') from None
+    if create: atomic_json(path, [])
+    return history
 
 
 def _held_context(c):
@@ -278,7 +316,7 @@ def _read_factory_bug_finding(c, path, authority, release, state, generation, ev
                 finding['finding_id'] != state['exhaustion_id'] or finding['held_batch_id'] != authority.batch or
                 finding['held_release_sha256'] != release or finding['eligible_operation_ids'] != [] or
                 finding['failure_receipts'] != []): raise ValueError()
-    except (OSError, ValueError, KeyError, TypeError):
+    except (FileNotFoundError, ValueError, KeyError, TypeError):
         raise BudgetError('diagnosis_finding_invalid') from None
     result = validate_result(finding['diagnosis'], case=c.case_id, generation=generation,
                              evidence_root=evidence_root)
@@ -339,3 +377,261 @@ def require_model_work(card):
             isinstance(state, dict) and state.get('status') == 'completed' and
             state.get('outcome') == 'factory_bug'):
         raise BudgetError('factory_bug_held')
+
+
+def _input_bytes(path, base):
+    """Read selected regular files without following any selected parent link."""
+    import stat
+    path, base = Path(path), Path(base)
+    relative = path.relative_to(base)
+    if '..' in relative.parts: raise ValueError('unsafe input path')
+    if any(base.joinpath(*relative.parts[:i]).is_symlink() for i in range(len(relative.parts) + 1)):
+        raise ValueError('unsafe input path')
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, 'rb') as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode): raise ValueError('nonregular input')
+        return stream.read()
+
+
+def _input_inventory(root):
+    if root.is_symlink() or not root.is_dir(): raise ValueError('missing input directory')
+    result = {}
+    for path in sorted(root.rglob('*')):
+        if path.is_symlink(): raise ValueError('unsafe input path')
+        if path.is_dir(): continue
+        result[path.relative_to(root).as_posix()] = hashlib.sha256(_input_bytes(path, root)).hexdigest()
+    return result
+
+
+def _input_restore_receipt(raw, card, case, generation):
+    from carry_over import digest
+    receipt = json.loads(raw)
+    if (not isinstance(receipt, dict) or type(receipt.get('version')) is not int or
+            receipt['version'] != 1 or receipt.get('case') != case or
+            receipt.get('accounting_authenticated') is not True or not _sha(generation) or
+            receipt.get('generation') != generation or
+            not _sha(receipt.get('ledger_sha256')) or not _sha(receipt.get('public_card_sha256'))):
+        raise ValueError('invalid restore receipt')
+    retained = receipt.get('retained_ledger_sha256', receipt['ledger_sha256'])
+    if (not _sha(retained) or not isinstance(card.get('continuation_budget'), dict) or
+            digest(card['continuation_budget']) != retained):
+        raise ValueError('restore ledger binding')
+
+
+def _input_cache_resolves(record, files):
+    """A cache is a historical hint; missing current evidence makes it unusable."""
+    try:
+        evidence = record['evidence']
+        if not isinstance(evidence, list) or not evidence: return False
+        for item in evidence:
+            name = item['path']
+            path = PurePosixPath(name)
+            if (not isinstance(name, str) or not name or path.is_absolute() or
+                    '..' in path.parts or path.as_posix() != name or
+                    item['kind'] not in ('bench', 'work') or not _sha(item['sha256'])):
+                return False
+            prefix = 'work/bench-results/' if item['kind'] == 'bench' else 'work/'
+            target = prefix + name
+            if target.startswith('work/gate-cache/') or files.get(target) != item['sha256']:
+                return False
+        return True
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _input_stop_evidence(c, card, state):
+    stop = state['stop']
+    if stop.startswith('late_defect_needs_ruling:'):
+        from late_recovery import digest
+        record = json.loads(_input_bytes(c.work / 'late-defect.json', c.work))
+        marker = card.get('late_defect', {})
+        gate = stop.split(':', 1)[1]
+        if record['gate'] != gate or marker['gate'] != gate or marker['record_sha256'] != digest(record):
+            raise ValueError('late-defect binding')
+    elif stop == 'extension_incomplete':
+        import extensions
+        from types import SimpleNamespace
+        restored = SimpleNamespace(work=c.work, ledger=c.ledger, card=copy.deepcopy(card))
+        history = extensions.read(restored)
+        if (not history or history[-1]['outcome'] is None or
+                restored.card['extension_history'] != card.get('extension_history')):
+            raise ValueError('extension outcome binding')
+    elif stop == 'infrastructure_exhausted':
+        from run import GATES
+        marker = card['infrastructure_gate']
+        if marker['exhausted'] is not True or marker.get('gate') not in GATES:
+            raise ValueError('infrastructure marker')
+
+
+def _write_input_tree(c, bench, root, card, state):
+    """Select existing evidence and verified shipped source; never copy all work."""
+    import gate_state
+    import job_config
+    from launch_manifest import WORKER_BENCH
+    files = {}
+
+    def add(name, data, expected=None):
+        relative = PurePosixPath(name)
+        if relative.is_absolute() or '..' in relative.parts or relative.as_posix() != name:
+            raise ValueError('unsafe input name')
+        actual = hashlib.sha256(data).hexdigest()
+        if (expected is not None and actual != expected) or (name in files and files[name] != actual):
+            raise ValueError('different input copies')
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open('wb') as output:
+            output.write(data); output.flush(); os.fsync(output.fileno())
+        files[name] = actual
+
+    def add_tree(source, prefix, base, *, restored_bench=False):
+        if source.is_symlink(): raise ValueError('unsafe input tree')
+        if source.is_dir():
+            for path in sorted(source.rglob('*')):
+                if path.is_symlink(): raise ValueError('unsafe input tree')
+                if not path.is_dir():
+                    name = prefix + '/' + path.relative_to(source).as_posix()
+                    data = _input_bytes(path, base)
+                    # Current inventory wins, as current gates read it.
+                    if not restored_bench or name not in files: add(name, data)
+        elif source.exists():
+            add(prefix, _input_bytes(source, base))
+
+    add_tree(c.case, 'case', c.case)
+    if not any(name.startswith('case/') for name in files): raise ValueError('missing case')
+    ledger = _input_bytes(c.ledger, c.ledger.parent)
+    value = json.loads(ledger)
+    if not isinstance(value, dict) or value.get('active'): raise ValueError('unsettled active input')
+    add('ledger.json', ledger)
+    add('card.json', json.dumps(card, sort_keys=True, separators=(',', ':'), allow_nan=False).encode())
+    receipt = c.ledger.parent / (c.case_id + '.restore-accounting.json')
+    add('restore-accounting.json', _input_bytes(receipt, c.ledger.parent))
+    for (kind, name), path in gate_state.inventory(c, bench).items():
+        prefix, base = ('work/bench-results/', bench / 'results') if kind == 'bench' else ('work/', c.work)
+        add(prefix + name, _input_bytes(path, base))
+    names = ('bench-results', 'attack-state.json', 'attacks', 'gate-continuation.json',
+             'late-defect.json', 'extension-history.json', 'extension-snapshots', 'transcripts',
+             'usage-receipts', 'infra-attempts.json', 'strong_calibrator', 'easy_calibrator',
+             'early_probe', 'fixes', 'evidence', 'history', 'verdict.json', 'prototype.json',
+             'public-search.json', 'idea-realism.json', 'audit-baseline.json', 'delivery-provenance.json')
+    paths = [c.work / name for name in names] + list(c.work.glob('independent-*'))
+    for path in paths:
+        add_tree(path, 'work/' + path.name, c.work, restored_bench=path.name == 'bench-results')
+    cache = c.work / 'gate-cache'
+    if cache.is_symlink() or (cache.exists() and not cache.is_dir()):
+        raise ValueError('unsafe cache directory')
+    for path in sorted(cache.glob('*.json')):
+        raw = _input_bytes(path, c.work)  # Unsafe files refuse even if the hint is stale.
+        try: record = json.loads(raw)
+        except (ValueError, UnicodeError): continue
+        if _input_cache_resolves(record, files): add('work/gate-cache/' + path.name, raw)
+    release_sha = c.authenticated_job_config['batch_release_sha256']
+    if release_sha != c.args.batch_release_sha256: raise ValueError('release mismatch')
+    release = job_config.read_file(job_config.FACTORY.parent / 'batch-release.json', release_sha)
+    worker = job_config.read_file(job_config.FACTORY.parent / 'worker-release-manifest.json',
+                                  release['files']['worker-release-manifest.json'])
+    selected = {name: sha for name, sha in worker['files'].items()
+                if (PurePosixPath(name).parent == PurePosixPath('factory') and name.endswith('.py')) or
+                (PurePosixPath(name).parent == PurePosixPath('factory/prompts') and name.endswith('.md')) or
+                (name in WORKER_BENCH and name.startswith('bin/'))}
+    if not selected: raise ValueError('missing release source')
+    for name, expected in selected.items():
+        relative = PurePosixPath(name)
+        base = job_config.FACTORY if relative.parts[0] == 'factory' else bench
+        path = base.joinpath(*relative.parts[1:]) if relative.parts[0] == 'factory' else base / name
+        add('source/' + name, _input_bytes(path, base), expected)
+    return dict(sorted(files.items()))
+
+
+def _verify_input_records(c, root, manifest):
+    from types import SimpleNamespace
+    files = manifest['files']
+    if not any(name.startswith('case/') for name in files) or not any(name.startswith('source/') for name in files):
+        raise ValueError('missing required input set')
+    card = json.loads(_input_bytes(root / 'card.json', root))
+    ledger = json.loads(_input_bytes(root / 'ledger.json', root))
+    state = _state(card, extension_history(card))
+    if (card.get('case') != c.case_id or
+            state is None or state['status'] != 'pending' or state['exhaustion_id'] != manifest['exhaustion_id'] or
+            not isinstance(ledger, dict) or ledger.get('active')):
+        raise ValueError('invalid frozen source binding')
+    _input_restore_receipt(_input_bytes(root / 'restore-accounting.json', root),
+                           card, c.case_id, manifest['generation'])
+    frozen = SimpleNamespace(work=root / 'work', ledger=root / 'ledger.json', card=card)
+    _input_stop_evidence(frozen, card, state)
+    for path in (root / 'work/gate-cache').glob('*.json'):
+        record = json.loads(_input_bytes(path, root))
+        if not _input_cache_resolves(record, files): raise ValueError('missing gate evidence')
+
+
+def queued_inputs(c, bench, *, quiescent):
+    """Retain/verify private inputs before diagnosis; grants no invocation authority.
+
+    Return the immutable manifest. Callers use its generation and the fixed
+    diagnosis/<exhaustion_id>/inputs directory for result and finding validation.
+    """
+    import job_authority
+    import shutil
+    authority = job_authority.for_case(c)
+    if c.card.get('terminal_stop') == 'factory_bug_history_invalid':
+        raise BudgetError('factory_bug_history_invalid')
+    try:
+        if quiescent is not True or c.card.get('terminal_stop') == 'diagnosis_input_invalid':
+            raise ValueError('not an input boundary')
+        state = _state(c.card, extension_history(c.card))
+        if state is None: raise ValueError('missing diagnosis state')
+        parent = _finding_path(c, state['exhaustion_id']).parent
+        manifest_path, root, staged = parent / 'input.json', parent / 'inputs', parent / '.inputs-staging'
+        if any(path.is_symlink() for path in (manifest_path, root, staged)):
+            raise ValueError('unsafe input path')
+        if manifest_path.exists():
+            manifest = json.loads(_input_bytes(manifest_path, c.work))
+            if (not isinstance(manifest, dict) or set(manifest) !=
+                    {'schema_version', 'case_id', 'exhaustion_id', 'generation', 'files'} or
+                    type(manifest['schema_version']) is not int or manifest['schema_version'] != 1 or
+                    manifest['case_id'] != c.case_id or manifest['exhaustion_id'] != state['exhaustion_id'] or
+                    not _sha(manifest['generation']) or not isinstance(manifest['files'], dict) or
+                    not manifest['files'] or manifest['files'] != _input_inventory(root)):
+                raise ValueError('changed input manifest')
+            _verify_input_records(c, root, manifest)
+            return manifest
+        # Missing publication is recoverable only before any consumer bound it.
+        ledger = json.loads(_input_bytes(c.ledger, c.ledger.parent))
+        call = 'diagnosis-' + state['exhaustion_id']
+        bound = any(row.get('call_name') == call or
+                    re.fullmatch(re.escape(call) + r'-repair-[0-9]+', str(row.get('call_name', '')))
+                    for row in ledger.get('invocation_reservations', {}).values())
+        if (state['status'] != 'pending' or any((parent / name).exists()
+                for name in ('finding.json', 'attempts.json', 'decision.json')) or
+                any(any(parent.glob(pattern)) for pattern in
+                    ('raw-result-*.json', 'raw-bytes-*', 'audit-bytes-*', 'audit-*.json')) or bound):
+            raise ValueError('bound diagnosis lacks manifest')
+        card = getattr(c, 'checkpoint_card', None)
+        if (not _sha(authority.source_generation) or not isinstance(card, dict) or
+                card.get('case') != c.case_id or
+                card.get('diagnosis_state') != state):
+            raise ValueError('initial input binding')
+        parent.mkdir(parents=True, exist_ok=True)
+        for path in (root, staged):
+            if path.exists(): shutil.rmtree(path)
+        staged.mkdir()
+        files = _write_input_tree(c, Path(bench), staged, card, state)
+        # File contents were synced by the writer. Persist names before manifest.
+        directories = [p for p in staged.rglob('*') if p.is_dir()]
+        for path in sorted(directories, key=lambda p: len(p.parts), reverse=True) + [staged]:
+            fd = os.open(path, os.O_RDONLY)
+            try: os.fsync(fd)
+            finally: os.close(fd)
+        os.replace(staged, root)
+        for path in (parent, parent.parent, c.work):
+            fd = os.open(path, os.O_RDONLY)
+            try: os.fsync(fd)
+            finally: os.close(fd)
+        manifest = dict(schema_version=1, case_id=c.case_id, exhaustion_id=state['exhaustion_id'],
+                        generation=authority.source_generation, files=files)
+        _verify_input_records(c, root, manifest)
+        atomic_json(manifest_path, manifest)
+        return manifest
+    except (FileNotFoundError, ValueError, KeyError, TypeError, AttributeError, BudgetError):
+        c.card.update(status='stopped', terminal_stop='diagnosis_input_invalid')
+        c.stopped = True
+        raise BudgetError('diagnosis_input_invalid') from None
