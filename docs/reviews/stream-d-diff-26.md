@@ -50,3 +50,22 @@ None.
 ## Elephant response
 
 Accepted. The optional formatting nit concerns unchanged lines and is deferred until that inventory is next changed. This PASS covers only the explicit four-file expectation; dispatcher diff25 and the full suite remain required. No Murphy row closes.
+
+## Full-suite evidence
+
+The first required full suite at dc7935f ran 151 scripts with one failure:
+`tests/tools/test_launch_manifest.py` lacked the four new worker-source paths.
+Launch guards passed; no isolated rerun was needed. Log:
+`/tmp/stream-d-dispatch-suite.log`, SHA-256
+`fba0082bf246692e026ee2035aaf6eee717538a404b4bc045896e8f54411d876`.
+
+After c0c2e28, the required command
+`uv run --with numpy --with scipy python -B tests/run.py` passed:
+**151 scripts, 0 failed**. The source/test tree remained unchanged during this
+rerun; only this review record was committed. Launch guards passed again. Log:
+`/tmp/stream-d-dispatch-suite-2.log`, SHA-256
+`282845c0f963c685c60e899922e32a3a8ad0f7e4724f7a62d1b4707dd4923338`.
+
+This completes test validation for the inventory correction. Dispatcher diff25
+is still outstanding; neither that increment nor the full extension dispatcher
+is claimed ready. No Murphy row closes.
