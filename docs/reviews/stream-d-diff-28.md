@@ -174,3 +174,12 @@ This isolated pass does not replace the required full-suite pass. A fresh full
 run was started at `7027360` (documentation-only commits after `8f980b2`) with
 the prescribed command, logging to
 `/tmp/stream-d-dispatch-path-fixes-suite-2.log`; its result is pending.
+
+The rerun completed with **151 scripts, 0 failed**, exit 0. Log SHA-256:
+`89bbdb496353b0e46a29d099a6ea9246566d4ae81eb16b45980c09d0af30c575`.
+Source and tests remained at the reviewed `8f980b2` implementation throughout
+this run; intervening commits only recorded reviews, suite results and the next
+unwired extension design. Launch guards and the transfer test both passed.
+Together with Claude diff review 28, this passes the diagnosis-only increment
+within its stated offline boundary. No Murphy row closes; extension dispatch
+and B activation remain unqualified and disabled.
