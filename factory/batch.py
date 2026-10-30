@@ -133,7 +133,7 @@ def prepare(directory, digest, root, output):
                     '--batch-record', str(directory / 'batch-release.json')], check=True)
 
 
-def bind(policy, name, checkpoint, root):
+def bind(policy, name, checkpoint, root, *, home=None, operation=None):
     """Translate empty/nonempty progress to the one existing launcher implementation."""
     batch, job = policy['batch'], policy['jobs'][name]
     from batch_money import manifest
@@ -153,31 +153,30 @@ def bind(policy, name, checkpoint, root):
     if checkpoint is not None:
         if not isinstance(checkpoint, str) or not re.fullmatch('[0-9a-f]{64}', checkpoint):
             raise ValueError('invalid checkpoint generation')
-        card = json.loads((root / 'sealed' / (case + '.scorecard.json')).read_text())
+        import batch_holder
+        if batch_holder.HOLDER_ENABLED:
+            operation = operation or __import__('os').environ.get('UNBUG_BATCH_OPERATION')
+            home = home or Path(__import__('os').environ.get('UNBUG_CONTROL_HOME', str(Path.home() / '.unbug-control')))
+            source = batch_holder.source_directory(policy, root, home, operation)
+            if source is None: raise ValueError('request_refused')
+            card = json.loads((source / (case + '.scorecard.json')).read_text())
+        else:
+            card = json.loads((root / 'sealed' / (case + '.scorecard.json')).read_text())
         if (card.get('case') != case or card.get('sha256') != checkpoint or
                 card.get('batch_release_sha256') != batch['sha256']):
             raise ValueError('checkpoint differs from batch release or requested generation')
         mode = 'case'
-    cap = job['max_calls']
-    for i, arg in enumerate(args):
-        if arg == '--max-total-calls':
-            if i + 1 == len(args): raise ValueError('missing job call cap')
-            value = int(args[i + 1])
-        elif arg.startswith('--max-total-calls='): value = int(arg.split('=', 1)[1])
-        else: continue
-        if value <= 0: raise ValueError('invalid job call cap')
-        cap = min(cap, value)
-    # Deprecated argv is historical evidence in the manifest, never new authority.
+    # Historical cumulative caps are metadata only for manifest-bound batch jobs.
     arguments, filtered = iter(args), []
     for arg in arguments:
-        if arg == '--max-cost':
-            if next(arguments, None) is None: raise ValueError('missing historical max-cost value')
-        elif not arg.startswith('--max-cost='):
+        if arg in ('--max-cost', '--max-total-calls'):
+            if next(arguments, None) is None: raise ValueError('missing historical cap value')
+        elif not arg.startswith(('--max-cost=', '--max-total-calls=')):
             filtered.append(arg)
     args = [*filtered, '--batch-release', batch['release'], '--batch-sha256', batch['sha256'],
-            '--case-id', case, '--max-total-calls', str(cap)]
+            '--case-id', case]
     if checkpoint is not None: args += ['--restore', case, '--checkpoint-sha256', checkpoint]
-    return {**job, 'max_calls': cap, '_batch_job': True, 'mode': mode, 'args': args,
+    return {**job, '_batch_job': True, 'mode': mode, 'args': args,
             'card': case + '.scorecard.json', 'archive_prefix': case}
 
 

@@ -3057,6 +3057,7 @@ def main():
             from job_config import install
             c.checkpoint_card = prev_card
             install(c, a)
+            c.card.get('recovery_config', {}).pop('max_total_calls', None)
         if a.resume:
             if model_runtime.factory_job(c):
                 from diagnosis_dispatch import carry_context

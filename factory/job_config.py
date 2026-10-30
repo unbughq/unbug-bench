@@ -86,17 +86,30 @@ def install(c, args):
             for key in ('batch', 'job', 'case', 'reservation_id', 'batch_deadline'):
                 if saved[key] != incoming[key]: raise ValueError()
             read(saved, saved)
-            if saved['revision'] == incoming['revision']:
-                if saved != incoming: raise ValueError()
-            else:
-                if (incoming['revision'] != saved['revision'] + 1 or
-                        amount(incoming['committed_total_usd']) < amount(saved['committed_total_usd'])):
-                    raise ValueError()
-                history = json.loads(history_path.read_text()) if history_path.exists() else {}
-                key = incoming['reservation_id'] + '/' + str(incoming['revision'])
+            history = json.loads(history_path.read_text()) if history_path.exists() else {}
+            if not isinstance(history, dict): raise ValueError()
+            if saved != incoming:
+                from batch_accounting import card_total
+                from carry_over import digest as public_digest
+                sealed = Path(c.ledger).parent
+                receipt = json.loads((sealed / (c.case_id + '.restore-accounting.json')).read_text())
+                public = json.loads((sealed / (c.case_id + '.restore-scorecard.json')).read_text())
+                if (receipt.get('accounting_authenticated') is not True or receipt.get('case') != c.case_id or
+                        receipt.get('generation') != incoming['source_generation'] or
+                        receipt.get('public_card_sha256') != public_digest(public) or
+                        public.get('sha256') != incoming['source_generation'] or public.get('job_money') != saved or
+                        incoming['source_generation'] is None or incoming['source_generation'] == saved['source_generation'] or
+                        incoming['committed_total_usd'] != saved['committed_total_usd']): raise ValueError()
+                expected_revision = saved['revision'] + (card_total(public) is not None)
+                if incoming['revision'] != expected_revision: raise ValueError()
+                key = incoming['reservation_id'] + '/' + str(incoming['revision']) + '/' + incoming['source_generation']
                 transition = dict(old=saved, new=incoming, config_sha256=args.factory_job_config_sha256,
                                   source_generation=current['source_generation'])
-                if key in history and history[key] != transition: raise ValueError()
+                for existing_key, item in history.items():
+                    if existing_key == key:
+                        if item != transition: raise ValueError()
+                    elif incoming['source_generation'] in (item['old']['source_generation'], item['new']['source_generation']):
+                        raise ValueError()
                 history[key] = transition
                 atomic_json(history_path, history)
         elif current['source_generation'] is not None or saved_path.exists():

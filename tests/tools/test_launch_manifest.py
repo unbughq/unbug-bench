@@ -83,7 +83,7 @@ class ManifestTests(unittest.TestCase):
                             'factory/diagnosis_dispatch.py', 'factory/diagnosis_task.py',
                             'factory/prompts/diagnosis.md', 'factory/prompts/diagnosis-repair.md',
                             'factory/batch_money.py', 'factory/job_config.py', 'factory/batch_service.py',
-                            'factory/batch_status.py', 'factory/batch_accounting.py',
+                            'factory/batch_status.py', 'factory/batch_accounting.py', 'factory/batch_holder.py',
                             'factory/control-recipient.txt',
                             'factory/collection.py', 'factory/freshness_retrieval.py',
                             'factory/independent_review.py', 'factory/invalid-runs-compat.json'}

@@ -145,7 +145,7 @@ def policy_load(path):
         if job['mode'] == 'batch':
             from batch import bind
             bind(policy, name, None, ROOT)
-            if type(job['max_calls']) is not int or job['max_calls'] < 1:
+            if 'max_calls' in job and (type(job['max_calls']) is not int or job['max_calls'] < 1):
                 raise ValueError('invalid batch job bounds')
         elif job['mode'] == 'any':  # 2026-10-19: repair or rerun any collected case; the case id comes with the launch request
             if restore_flags or job.get('variant') not in ('repair', 'rerun') or '--skip-build' in args or '--source' in args or '--rotation-slot' in args:
@@ -352,7 +352,7 @@ def current_generation(job):
     if (type(calls) is not int or calls < 0 or type(cost) not in (int, float) or
             not math.isfinite(cost) or cost < 0 or not isinstance(budget.get('events'), list) or
             budget.get('active') or card.get('checkpoint_error') or
-            calls >= job['max_calls'] or (not job.get('_batch_job') and cost >= job['max_cost'])):
+            (not job.get('_batch_job') and (calls >= job['max_calls'] or cost >= job['max_cost']))):
         raise ValueError('invalid, active or exhausted original recovery allowance')
     repair = bool(card.get('failed_gate')) and card['failed_gate'] in job.get('allow_failed_gates', [])
     if (not sealed_audit and not repair and
@@ -424,11 +424,54 @@ def peer_is_owner(conn):
     return libc.getpeereid(conn.fileno(), ctypes.byref(uid), ctypes.byref(gid)) == 0 and uid.value == os.getuid()
 
 
+def batch_tick(policy, children, waits, spawn):
+    """One holder scan. A refused operation or file is logged by label and never stops the holder."""
+    if 'batch' not in policy: return
+    import batch_holder
+    if not batch_holder.HOLDER_ENABLED: return
+    for operation, (action, child) in list(children.items()):
+        code = child.poll()
+        if code is None: continue
+        try:
+            # Only a dispatch child's own exit says anything about its preflight.
+            if action == 'dispatch': batch_holder.record_exit(policy, ROOT, CONTROL_HOME, operation, code)
+        except Exception:
+            print('batch exit record refused', file=sys.stderr); continue
+        del children[operation]
+        if code == batch_holder.TEMPFAIL: waits[operation] = time.monotonic() + 60
+    pending = []
+    for action, scan in (('dispatch', batch_holder.reconcile), ('resume', batch_holder.orphaned)):
+        try: pending += [(operation, action) for operation in scan(policy, ROOT, CONTROL_HOME)]
+        except Exception: print('batch scan refused', file=sys.stderr)
+    for operation, action in pending:
+        if operation in children or waits.get(operation, 0) > time.monotonic(): continue
+        try: children[operation] = (action, spawn(operation, action))
+        except Exception: print('batch child refused', file=sys.stderr)
+
+
+def batch_request(policy, req):
+    """Gated batch reservation routes; None falls through to the legacy request paths."""
+    if 'batch' not in policy or req.get('op') not in ('launch', 'operation') or 'batch' not in req: return None
+    import batch_holder
+    if not batch_holder.HOLDER_ENABLED: return None
+    if req['batch'] != policy['batch']['id']: raise ValueError('request_refused')
+    if set(req) == {'op', 'batch', 'job', 'checkpoint'} and req['op'] == 'launch':
+        return batch_holder.reply(batch_holder.reserve(policy, ROOT, CONTROL_HOME, req['job'], req['checkpoint']))
+    if set(req) == {'op', 'batch', 'operation_id'} and req['op'] == 'operation':
+        return batch_holder.lookup(policy, ROOT, CONTROL_HOME, req['operation_id'])
+    raise ValueError('request_refused')
+
+
 def serve(policy_path, hours, identity_file=None):
     deadline = time.monotonic() + hours * 3600
     os.umask(0o077)
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     policy = policy_load(policy_path)
+    if 'batch' in policy:
+        import batch_holder
+        # The shell commands read $UNBUG_CONTROL_HOME/policy.json; only that file may drive batch work.
+        if batch_holder.HOLDER_ENABLED and policy_path != (CONTROL_HOME / 'policy.json').resolve():
+            raise ValueError('batch policy must be the control home policy')
     secure_directory(RUNTIME)
     lock_fd = os.open(RUNTIME/'holder.lock', os.O_RDWR | os.O_CREAT | getattr(os, 'O_NOFOLLOW', 0), 0o600)
     fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -485,6 +528,18 @@ def serve(policy_path, hours, identity_file=None):
                     row.update(exit=code, completed_ok=code == 0); changed = True
         if changed: save_receipts()
     log_dir = RUNTIME / 'jobs'; secure_directory(log_dir)
+    batch_children, batch_waits = {}, {}
+    def batch_spawn(operation, action):
+        log = log_dir / ('batch-' + operation + '-' + str(time.time_ns()) + '.log')
+        with log.open('xb') as output:
+            child = subprocess.Popen([sys.executable, '-B', str(ROOT / 'factory/batch_holder.py'),
+                    action, '--operation', operation, '--policy', str(policy_path)],
+                    stdin=subprocess.PIPE, stdout=output, stderr=output, cwd=ROOT,
+                    env={**os.environ, 'UNBUG_CONTROL_HOME': str(CONTROL_HOME),
+                         'UNBUG_SECRETS_FILE': str(secrets_file)}, start_new_session=True)
+        try: child.stdin.write(memoryview(key)[:length]); child.stdin.close()
+        except BrokenPipeError: pass
+        return child
     def stop(*_):
         nonlocal deadline
         deadline = 0
@@ -498,6 +553,7 @@ def serve(policy_path, hours, identity_file=None):
         with socket.socket(socket.AF_UNIX) as server:
             server.bind(str(SOCKET)); os.chmod(SOCKET, 0o600); server.listen(4); server.settimeout(1)
             while time.monotonic() < deadline:
+                batch_tick(policy, batch_children, batch_waits, batch_spawn)
                 try: conn, _ = server.accept()
                 except socket.timeout: continue
                 with conn:
@@ -512,6 +568,11 @@ def serve(policy_path, hours, identity_file=None):
                         if len(data) > 8192: raise ValueError('request too large')
                         req = json.loads(data)
                         reap()
+                        result = batch_request(policy, req)
+                        if result is not None:
+                            try: conn.sendall(json.dumps(result).encode() + b'\n')
+                            except OSError: pass
+                            continue
                         if req == {'op': 'status'}:
                             result = {'unlocked': True, 'policy_sha256': policy_digest(policy), 'seconds_remaining': max(0, int(deadline-time.monotonic())), 'jobs': {name: {'pid': p.pid, 'exit': p.poll()} for name, p in jobs.items()}}
                             if account_labels is not None:

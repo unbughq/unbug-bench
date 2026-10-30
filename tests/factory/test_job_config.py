@@ -70,6 +70,39 @@ class ConfigTests(unittest.TestCase):
         config.deliver(raw, pin, self.path)
         self.args.factory_job_config_sha256 = pin
 
+    def restored(self, total=1):
+        # Authored transport receipt; genuine importer validation is tested separately.
+        from carry_over import digest
+        saved = json.loads((self.work / 'job-money.json').read_text())
+        public = dict(case=self.case, sha256=self.channel['source_generation'], job_money=saved,
+                      case_budget=dict(total_spent_usd=total))
+        sealed = self.home / 'sealed'; sealed.mkdir(exist_ok=True)
+        self.c.ledger = sealed / (self.case + '.continuation-budget.json')
+        (sealed / (self.case + '.restore-scorecard.json')).write_text(json.dumps(public))
+        (sealed / (self.case + '.restore-accounting.json')).write_text(json.dumps(dict(
+            case=self.case, generation=self.channel['source_generation'], accounting_authenticated=True,
+            public_card_sha256=digest(public))))
+
+    def test_null_source_same_revision_and_old_source_refusal(self):
+        config.install(self.c, self.args); self.args.resume = self.case
+        self.channel['source_generation'] = 'a' * 64; self.deliver(); self.restored(None)
+        config.install(self.c, self.args)
+        self.assertEqual(self.c.job_money['revision'], 1)
+        self.channel['source_generation'] = 'b' * 64; self.deliver(); self.restored(None)
+        config.install(self.c, self.args)
+        self.channel['source_generation'] = 'a' * 64; self.deliver(); self.restored(None)
+        with self.assertRaises(BudgetError): config.install(self.c, self.args)
+
+    def test_source_change_needs_matching_restored_receipt(self):
+        config.install(self.c, self.args); self.args.resume = self.case
+        self.channel.update(revision=2, source_generation='a' * 64); self.deliver()
+        with self.assertRaises(BudgetError): config.install(self.c, self.args)
+        self.restored()
+        path = self.home / 'sealed' / (self.case + '.restore-accounting.json')
+        receipt = json.loads(path.read_text()); receipt['generation'] = 'b' * 64
+        path.write_text(json.dumps(receipt))
+        with self.assertRaises(BudgetError): config.install(self.c, self.args)
+
     def test_fresh_is_separate_checkpoint_state_and_actual_d_admits(self):
         config.install(self.c, self.args)
         authority = job_authority.for_case(self.c)
@@ -85,8 +118,8 @@ class ConfigTests(unittest.TestCase):
     def test_revision_bump_history_repair_and_same_revision_replay(self):
         config.install(self.c, self.args)
         self.args.resume = self.case
-        self.channel.update(revision=2, source_generation='a' * 64, committed_total_usd='60.000000000')
-        self.deliver()
+        self.channel.update(revision=2, source_generation='a' * 64)
+        self.deliver(); self.restored()
         real = config.atomic_json
         def interrupted(path, value):
             if path.name == 'job-money.json': raise OSError('authored interrupted local transition')
@@ -104,7 +137,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_stale_lowered_missing_and_retired_cannot_admit(self):
         config.install(self.c, self.args); self.args.resume = self.case
-        self.channel.update(revision=2, source_generation='a' * 64); self.deliver()
+        self.channel.update(revision=2, source_generation='a' * 64); self.deliver(); self.restored()
         config.install(self.c, self.args)
         self.channel.update(revision=1, source_generation=None); self.deliver()
         with self.assertRaises(BudgetError): config.install(self.c, self.args)

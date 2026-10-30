@@ -62,7 +62,7 @@ def _authenticated_source(work, case, generation, public_card, *, allow_public_c
     return imported, retained, archived_card
 
 
-def authenticate(work, case, generation, public_card, *, founder_ruling=None):
+def authenticate(work, case, generation, public_card, *, founder_ruling=None, _covered_null=False):
     """Read only restored metadata; never infer a usage delta from totals or time.
 
     The separate ledger is the seal's accounting snapshot. Older archives without
@@ -77,7 +77,7 @@ def authenticate(work, case, generation, public_card, *, founder_ruling=None):
     # to detect sticky unknown usage; never overwrite the original with projections.
     normalized = usage_facts(imported)["ledger"]
     summary = case_spending(normalized)
-    require(summary["spent_usd"] is not None, "retained usage is unknown; worker reconciliation required")
+    require(summary["spent_usd"] is not None or _covered_null, "retained usage is unknown; worker reconciliation required")
     receipt = {
         "version": 1, "case": case, "generation": generation,
         "public_card_sha256": digest(public_card), "ledger_sha256": digest(imported),
@@ -137,7 +137,24 @@ def install(work, sealed, case, generation, public_card, *, ruling_path=None, ru
     if ruling_path is not None:
         import founder_ruling
         accepted = founder_ruling.authenticate(ruling_path, ruling_sha256, case, generation, public_card)
-    ledger, receipt = authenticate(work, case, generation, public_card, founder_ruling=accepted)
+    covered_null = False
+    if release_sha256 is not None:
+        from job_authority import read
+        from batch_accounting import _coverage
+        from batch_money import amount
+        from budget import usage_coverage
+        saved = read_object(Path(work) / 'job-money.json')
+        read(saved, saved)
+        require(public_card.get('job_money') == saved and
+                read_object(Path(work) / 'scorecard.json').get('job_money') == saved,
+                'batch checkpoint authority differs')
+        imported, _, _ = _authenticated_source(work, case, generation, public_card)
+        if case_spending(imported)['total_spent_usd'] is None:
+            require(_coverage(usage_coverage(imported)) <= amount(saved['committed_total_usd']),
+                    'batch checkpoint unknown usage is uncovered')
+            covered_null = True
+    ledger, receipt = authenticate(work, case, generation, public_card, founder_ruling=accepted,
+                                   _covered_null=covered_null)
     sealed = Path(sealed)
     require(not sealed.is_symlink(), "invalid sealed directory")
     sealed.mkdir(parents=True, exist_ok=True)
@@ -153,6 +170,8 @@ def install(work, sealed, case, generation, public_card, *, ruling_path=None, ru
             receipt['attempt_allowances_authenticated'] = True
         if not target.exists():
             atomic_json(target, ledger)
+        if release_sha256 is not None:
+            atomic_json(sealed / f"{case}.restore-scorecard.json", public_card)
         atomic_json(sealed / f"{case}.restore-accounting.json", receipt)
     return receipt
 

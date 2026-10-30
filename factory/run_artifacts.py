@@ -94,6 +94,9 @@ class RunArtifacts:
                         if encrypted.returncode: raise RuntimeError("search receipt encryption failed")
                         c.card["public_search"]["cipher_sha256"] = hashlib.sha256(staged.read_bytes()).hexdigest()
                         staged.replace(self.sealed / f"{c.case_id}.search.age")
+        if hasattr(c, 'job_money'):
+            from copy import deepcopy
+            c.card['job_money'] = deepcopy(c.job_money)
         # Bind the exact statement ciphertext inside the encrypted checkpoint too.
         (work / "scorecard.json").write_text(json.dumps(c.card, indent=2))
         out = self.sealed / f"{c.case_id}{'.checkpoint' if checkpoint else ''}.tar.gz.age"

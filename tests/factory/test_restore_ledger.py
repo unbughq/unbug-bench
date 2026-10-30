@@ -68,6 +68,33 @@ class WorkerLedgerTests(unittest.TestCase):
 
     def target(self): return self.sealed / f"{self.case}.continuation-budget.json"
 
+    def test_new_schema_covered_null_import_preserves_real_d_ledger(self):
+        import test_batch_accounting as accounting
+        import uuid
+        helper = accounting.AccountingTests(); helper.setUp(); self.addCleanup(helper.doCleanups)
+        helper.unknown(); ledger = helper.ledger()
+        # Saved real D ledger; authority/release bindings authored on restored files.
+        authority = dict(schema=1, batch='practice', job='a', case=self.case,
+                         reservation_id=str(uuid.uuid4()), revision=1, source_generation=None,
+                         committed_total_usd='1000.000000000', batch_deadline='2099-01-01T00:00:00Z')
+        archived = json.loads((self.work / 'scorecard.json').read_text())
+        archived.update(continuation_budget=ledger, job_money=authority, batch_release_sha256='a' * 64)
+        self.save(self.work / 'scorecard.json', archived)
+        self.save(self.work / 'continuation-budget.json', ledger)
+        self.save(self.work / 'job-money.json', authority)
+        self.public.update(continuation_budget=ledger, job_money=authority, batch_release_sha256='a' * 64)
+        before = (self.work / 'continuation-budget.json').read_bytes()
+        with self.assertRaises(restore_ledger.Refused): self.install()  # Legacy path stays closed.
+        receipt = restore_ledger.install(self.work, self.sealed, self.case, self.generation,
+                                         self.public, release_sha256='a' * 64)
+        self.assertIsNone(receipt['case_spent_usd'])
+        self.assertEqual((self.work / 'continuation-budget.json').read_bytes(), before)
+        self.assertEqual(json.loads(self.target().read_text()), ledger)
+        self.public['job_money'] = {**authority, 'revision': 2}
+        with self.assertRaises(restore_ledger.Refused):
+            restore_ledger.install(self.work, self.sealed, self.case, self.generation,
+                                   self.public, release_sha256='a' * 64)
+
     def test_real_worker_entry_accepts_newer_public_labels_without_trusting_verdicts(self):
         before = (self.work / "scorecard.json").read_bytes()
         self.public["gates"]["G12"] = "pass"

@@ -207,10 +207,10 @@ class BatchLaunchTests(unittest.TestCase):
                                          'requested_total_usd': '50.000000000', 'args': ['1', '--source', 'port', '--rotation-slot', '1',
                                                                *arguments]}}}
                 job = batch.bind(policy, 'a', None, ROOT)
-                self.assertEqual(job['max_calls'], calls)
+                self.assertEqual(job['max_calls'], 5000)  # Historical metadata only.
                 self.assertNotIn('max_cost',job)
                 self.assertFalse(any(a.startswith('--max-cost') for a in job['args']))
-                self.assertEqual(job['args'][-2:], ['--max-total-calls', str(calls)])
+                self.assertFalse(any(a == '--max-total-calls' or a.startswith('--max-total-calls=') for a in job['args']))
 
     def test_capacity_counts_durable_unknown_outcomes_without_in_memory_jobs(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(holder,'CONTROL_HOME',Path(temp)):

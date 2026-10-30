@@ -174,6 +174,17 @@ sys.exit(result.returncode)
         self.run_resume()  # Completed launches are harmless to resume again.
         self.assertEqual((f.base/'effects').read_text().splitlines(),effects)
 
+    def test_batch_marker_survives_orphan_and_done_retires_without_restart(self):
+        launch = json.loads((self.state / 'launch.json').read_text())
+        launch['environment']['UNBUG_BATCH_OPERATION'] = 'e3d67c9e-5678-5abc-8123-123456789abc'
+        (self.state / 'launch.json').write_text(json.dumps(launch))
+        # Collector transport double: this test isolates orphan marker/guard flow.
+        collector = self.f.root / 'factory/collect.sh'
+        collector.write_text('#!/bin/sh\necho collect >> "$TEST_BASE/effects"\n')
+        collector.chmod(0o755)
+        (self.f.base / 'calls').touch()
+        self.run_resume(); self.assert_finished(handoffs=0, restarts=0)
+
     def test_killed_before_admission_handoff(self):
         self.abandon('before-admission'); self.run_resume(); self.assert_finished()
 

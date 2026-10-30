@@ -51,7 +51,7 @@ def check_manifest(record):
         for name, job in jobs.items():
             if (not re.fullmatch('[a-z0-9-]+', name) or re.search(r'-r[0-9]+$', name) or job['mode'] != 'batch' or
                     job['case'] != 'case-' + record['id'] + '-' + name or
-                    type(job['max_calls']) is not int or job['max_calls'] <= 0 or
+                    ('max_calls' in job and (type(job['max_calls']) is not int or job['max_calls'] <= 0)) or
                     amount(job['requested_total_usd']) <= 0 or 'max_cost' in job):
                 raise ValueError()
         return record
@@ -175,3 +175,134 @@ def configuration(policy, name, authority, home):
     else:
         atomic_json(path, value)
     return path, digest
+
+
+# Schema2 is used only by the gated holder integration. Legacy authorize above
+# deliberately retains its schema1 behavior; no implicit migration is allowed.
+ACCOUNTING_ERRORS = {'invalid_accounting_input', 'accounting_api_refused',
+                     'malformed_reconciliation', 'unsupported_decrease', 'uncovered_total'}
+
+
+def _sha(value):
+    return isinstance(value, str) and re.fullmatch('[0-9a-f]{64}', value) is not None
+
+
+def previous_check(value):
+    if not isinstance(value, dict) or set(value) != {'total_usd', 'estimated'}:
+        raise MoneyWait('money_wait')
+    if value['total_usd'] is not None: amount(value['total_usd'])
+    if not isinstance(value['estimated'], dict): raise MoneyWait('money_wait')
+    for identity, gap in value['estimated'].items():
+        parsed = uuid.UUID(identity)
+        if parsed.version != 4 or str(parsed) != identity: raise MoneyWait('money_wait')
+        amount(gap)
+
+
+def retirement_check(value):
+    if value is None: return
+    if (not isinstance(value, dict) or set(value) != {'worker_id', 'request_sha256', 'completion_sha256'}
+            or not isinstance(value['worker_id'], str)
+            or not re.fullmatch('[A-Za-z0-9_-]+', value['worker_id'])
+            or not _sha(value['request_sha256']) or not _sha(value['completion_sha256'])):
+        raise MoneyWait('money_wait')
+
+
+def load_locked(directory, record, manifest_sha):
+    from batch_service import _json
+    path = directory / 'money.json'
+    header = dict(schema=2, batch=record['id'], manifest_sha256=manifest_sha,
+                  money_limit_usd=record['money_limit_usd'], batch_deadline=record['batch_deadline'])
+    if not path.exists() and not path.is_symlink(): return dict(**header, jobs={}, incidents={})
+    try:
+        state = _json(path)
+        if (set(state) != set(header) | {'jobs', 'incidents'} or
+                any(state[k] != v for k, v in header.items()) or type(state['schema']) is not int or
+                not isinstance(state['jobs'], dict) or not isinstance(state['incidents'], dict)):
+            raise ValueError()
+        for name, row in state['jobs'].items():
+            if set(row) != {'authority', 'held_usd', 'known_floor_usd', 'previous', 'acks', 'sources', 'overrun'}:
+                raise ValueError()
+            auth = channel(row['authority'], record, name)
+            if amount(row['held_usd']) != amount(auth['committed_total_usd']): raise ValueError()
+            floor = amount(row['known_floor_usd']); previous_check(row['previous'])
+            sources = row['sources']
+            if (not isinstance(sources, list) or not sources or sources[0] is not None or
+                    any(not _sha(v) for v in sources[1:]) or len(set(sources)) != len(sources) or
+                    sources[-1] != auth['source_generation'] or not isinstance(row['acks'], dict) or
+                    type(row['overrun']) is not bool or row['overrun'] != (floor > amount(row['held_usd']))):
+                raise ValueError()
+            known = [0]
+            for generation, ack in row['acks'].items():
+                if (not _sha(generation) or set(ack) != {'operation_id', 'generation', 'manifest_sha256',
+                        'authority', 'previous', 'facts', 'retirement'} or ack['generation'] != generation or
+                        not _sha(ack['manifest_sha256'])): raise ValueError()
+                operation = uuid.UUID(ack['operation_id'])
+                if operation.version != 5 or str(operation) != ack['operation_id']: raise ValueError()
+                prior_auth = channel(ack['authority'], record, name)
+                if (prior_auth['reservation_id'] != auth['reservation_id'] or
+                        prior_auth['source_generation'] not in sources or
+                        prior_auth['revision'] > auth['revision']): raise ValueError()
+                previous_check(ack['previous'])
+                facts = ack['facts']
+                if set(facts) != {'total_usd', 'estimated', 'reconciled_decreases'}: raise ValueError()
+                previous_check({k: facts[k] for k in ('total_usd', 'estimated')})
+                if not isinstance(facts['reconciled_decreases'], list): raise ValueError()
+                if facts['total_usd'] is not None: known.append(amount(facts['total_usd']))
+                retirement_check(ack['retirement'])
+            if floor != max(known): raise ValueError()
+            for source in sources[1:]:
+                if source not in row['acks']: raise ValueError()
+        for key, incident in state['incidents'].items():
+            if (set(incident) != {'operation_id', 'generation', 'manifest_sha256', 'reason'} or
+                    key != incident['operation_id'] + '/' + incident['generation'] or
+                    not _sha(incident['generation']) or not _sha(incident['manifest_sha256']) or
+                    incident['reason'] not in ACCOUNTING_ERRORS): raise ValueError()
+            operation = uuid.UUID(incident['operation_id'])
+            if operation.version != 5 or str(operation) != incident['operation_id']: raise ValueError()
+        return state
+    except (KeyError, ValueError, TypeError, AttributeError):
+        raise MoneyWait('money_wait') from None
+
+
+def aggregate(state):
+    return sum(max(amount(r['held_usd']), amount(r['known_floor_usd'])) for r in state['jobs'].values())
+
+
+def authorize_locked(state, record, name, source_generation):
+    """Caller owns batch lock and persists the returned mutation before config."""
+    if state['incidents'] or aggregate(state) > amount(record['money_limit_usd']): raise MoneyWait('money_wait')
+    if name not in record['jobs']: raise MoneyWait('money_wait')
+    if name in state['jobs']:
+        row = state['jobs'][name]
+        if row['overrun'] or row['authority']['source_generation'] != source_generation:
+            raise MoneyWait('money_wait')
+        return dict(row['authority'])
+    if source_generation is not None: raise MoneyWait('money_wait')
+    wanted = record['jobs'][name]['requested_total_usd']
+    if aggregate(state) + amount(wanted) > amount(record['money_limit_usd']): raise MoneyWait('money_wait')
+    auth = dict(schema=1, batch=record['id'], job=name, case=record['jobs'][name]['case'],
+                reservation_id=str(uuid.uuid4()), revision=1, source_generation=None,
+                committed_total_usd=wanted, batch_deadline=record['batch_deadline'])
+    state['jobs'][name] = dict(authority=auth, held_usd=wanted, known_floor_usd='0.000000000',
+                              previous=dict(total_usd='0.000000000', estimated={}),
+                              acks={}, sources=[None], overrun=False)
+    return dict(auth)
+
+
+def advance_locked(state, record, name, source_generation, ack):
+    """Single source writer; holder already checked publication and retirement."""
+    row = state['jobs'][name]
+    if (state['incidents'] or row['overrun'] or aggregate(state) > amount(record['money_limit_usd']) or
+            source_generation in row['sources'] or row['acks'].get(source_generation) != ack or
+            ack['retirement'] is None or ack['authority'] != row['authority']):
+        raise MoneyWait('money_wait')
+    row['authority'] = {**row['authority'], 'source_generation': source_generation,
+                        'revision': row['authority']['revision'] + (ack['facts']['total_usd'] is not None)}
+    row['sources'].append(source_generation)
+    return dict(row['authority'])
+
+
+def project(home, record, state):
+    directory = home / 'batch-money' / record['id'] / 'jobs'
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for name, row in state['jobs'].items(): atomic_json(directory / (name + '.json'), row['authority'])

@@ -119,7 +119,11 @@ PYCODE
 if [ -n "$qualified_release" ] && [ -n "$reuse_worker" ]; then
   echo "qualified source installation requires a fresh worker" >&2; exit 1
 fi
-collect_vm() { "$here/collect.sh" "$1"; }
+collect_vm() {
+  if [ -n "${UNBUG_BATCH_OPERATION:-}" ]; then
+    (set -a; eval "$r2_env"; "$here/collect.sh" "$1")
+  else "$here/collect.sh" "$1"; fi
+}
 factory_ttl_retire() {
   [ -n "${FACTORY_TTL_CONTINUATION:-}" ] || return 0
   [ -z "$sealed_audit" ] && [ "$audit_g11" = no ] || return 1
@@ -185,9 +189,13 @@ restore_ciphertext() {
 if [ -n "$restore" ] && [ "${UNBUG_RESUME_LAUNCH:-}" != 1 ]; then
   founder_recipient=$(sed -n 's/^FOUNDER_RECIPIENT = "\(age1[a-z0-9]*\)".*/\1/p' "$here/run.py")
   restore_recipient=$(printf '%s\n' "$identity" | age-keygen -y 2>/dev/null) || restore_recipient=""
+  if [ -n "${UNBUG_BATCH_OPERATION:-}" ]; then
+    python3 -B "$here/batch_holder.py" restore-check --operation "$UNBUG_BATCH_OPERATION" --recipient "$restore_recipient" || exit 1
+  else
   [ -n "$founder_recipient" ] && [ "$restore_recipient" = "$founder_recipient" ] || {
     echo "founder identity required to restore a checkpoint onto a new worker; run the restore from the Mac" >&2; exit 1;
   }
+  fi
   [ "$n" -eq 1 ] || { echo "--restore resumes exactly one case (N=1)" >&2; exit 1; }
   case $restore in case-*) ;; *) echo "--restore takes a case id (case-...)" >&2; exit 1 ;; esac
   case $restore in *[!A-Za-z0-9-]*|case-) echo "invalid case id" >&2; exit 1 ;; esac
@@ -215,8 +223,18 @@ if json.load(open(sys.argv[1])).get('digest_version') != 2:
     sys.exit('old audit digest generations are retired; no VM created')
 PYCODE
   fi
-  [ -f "$ckpt" ] && [ -f "$card" ] || { echo "no sealed archive or $card for $restore" >&2; exit 1; }
-  casekey=$root/sealed/$restore.casekey.age
+  if [ -z "${UNBUG_BATCH_OPERATION:-}" ]; then
+    [ -f "$ckpt" ] && [ -f "$card" ] || { echo "no sealed archive or $card for $restore" >&2; exit 1; }
+  fi
+  if [ -n "${UNBUG_BATCH_OPERATION:-}" ]; then
+    source_dir=$(python3 -B "$here/batch_holder.py" source --operation "$UNBUG_BATCH_OPERATION") || exit 1
+    card=$source_dir/$restore.scorecard.json
+    archive_name=$(python3 -c 'import json,pathlib,sys; print(pathlib.Path(json.load(open(sys.argv[1]))["archive"]).name)' "$card")
+    ckpt=$source_dir/$archive_name
+    casekey=$source_dir/$restore.casekey.age
+  else
+    casekey=$root/sealed/$restore.casekey.age
+  fi
   if [ "$continue_review" = yes ]; then casekey=$root/sealed/g11-review-$restore.casekey.age; fi
   casekey=$(restore_casekey "$casekey" "$batch_release")
   if [ -n "$casekey" ]; then
@@ -470,6 +488,7 @@ fi
 SHCODE
 )
 factory_auto_resume() {
+  [ -z "${UNBUG_BATCH_OPERATION:-}" ] || return 1
   # Batch continuation is an explicit launch of its collected checkpoint until
   # the standing coordinator stop rules are approved and implemented.
   [ -z "${batch_release:-}" ] || return 1

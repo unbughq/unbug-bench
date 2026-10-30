@@ -1380,3 +1380,12 @@ spend/history through import, prove new-bound accounting and replay, reject
 unqualified fixes or simultaneous old authority, and enforce the fourth-resume
 refusal. Real-artifact proof is required before closing new-batch-service-4.
 Current cross-batch resume stays blocked. No implementation is included here.
+
+## Holder integration addendum (2026-10-30)
+
+See [batch-holder.md](batch-holder.md) for the reviewed implementation of the
+shared journal operations map, pending/launched/failed status, immutable current
+pointer publication, money ACK and same-owner source transitions. It supersedes
+the earlier speculative holder fields in this document. HOLDER_ENABLED remains
+false; this is offline integration, not activation. Legacy cases default to
+retire; cb5e2 and 14d35 stay set aside. No legacy booking or Murphy closure occurs.
