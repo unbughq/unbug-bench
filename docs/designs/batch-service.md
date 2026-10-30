@@ -608,7 +608,7 @@ Initial authorization uses manifest job.requested_total_usd. Require sum over
 jobs of max(latest acknowledged total, committed_total_usd) <= money_limit_usd.
 Reserve before holder's uncertain process start and retain on unknown outcome.
 An insufficient request returns money_wait without launching. All dollar math
-is Decimal USD to9 places, rounding nonnegative historical numbers upward;
+is exact USD to9 places (integer nanodollars internally), rounding nonnegative historical numbers upward;
 reject nonfinite/negative/unknown new money. Batch deadline is absoluteUTC.
 Reservation UUID4 is durable per job; revision starts1. Same job/source/request
 replay is byte-identical. In this increment authorize refuses every source value

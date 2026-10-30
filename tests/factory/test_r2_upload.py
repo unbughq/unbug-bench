@@ -40,7 +40,17 @@ with tempfile.TemporaryDirectory() as d:
     (d / "k").write_bytes(case_key)
     assert subprocess.run(["age", "-d", "-i", str(d / "k"), str(archive)], capture_output=True, check=True).stdout == b"case bytes"
     assert subprocess.run(["age", "-d", "-i", str(founder), str(archive)], capture_output=True, check=True).stdout == b"case bytes"
+    vm = d / 'throwaway-vm'
+    subprocess.run(['age-keygen', '-o', str(vm)], capture_output=True, check=True)
+    vm_pub = subprocess.run(['age-keygen', '-y', str(vm)], capture_output=True, text=True, check=True).stdout.strip()
+    assert r2_upload.case_recipient(work, sealed, 'case-x', founder_pub, vm_pub) == pub
+    vm_key = subprocess.run(['age', '-d', '-i', str(vm), str(sealed/'case-x.casekey.age')],
+                            capture_output=True, check=True).stdout
+    assert vm_key == case_key, 'batch VM unwrap must recover the same case identity'
+    founder_key = subprocess.run(['age', '-d', '-i', str(founder), str(sealed/'case-x.casekey.age')],
+                                 capture_output=True, check=True).stdout
+    assert founder_key == case_key, 'dual wrapping must preserve founder recovery'
     assert r2_upload.upload(archive, True, links=d / "absent") is None
     (d / "links").write_text(json.dumps({"prefix": "vm/x", "checkpoint": "http://127.0.0.1:9/nowhere", "final": "x"}))
     assert r2_upload.upload(archive, True, links=d / "links") is None
-print("PASS case key stable, opens the archive alone, sealed to the founder; failed or absent uploads return None")
+print("PASS stable case key, archive roundtrip, optional founder+VM wrap; failed or absent uploads return None")

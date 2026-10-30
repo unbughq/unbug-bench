@@ -12,6 +12,8 @@ HASH_FILE = 'factory/launcher-sha256.json'
 TRUSTED_FILES = ('factory/control_resume.py',
  'factory/key_holder.py',
  'factory/batch.py',
+ 'factory/batch_money.py',
+ 'factory/job_config.py',
  'factory/launch.sh',
  'factory/collect.sh',
  'factory/collection.py',
@@ -82,8 +84,8 @@ WORKER_CONFIG = ('factory/invalid-runs-compat.json',
  'factory/rotation.json',
  'factory/rotation-3writers.json',
  'factory/worker-release.json',
- 'factory/statements-recipient.txt')
-WORKER_GLOBS = ('factory/*.py', 'factory/*.sh', 'factory/prompts/*.md')
+ 'factory/statements-recipient.txt', 'factory/control-recipient.txt')
+WORKER_GLOBS = ('factory/*.py', 'factory/*.sh', 'factory/prompts/*.md', 'factory/batches/*.json')
 # Public tracked source only; never export sealed/, results/ or local credentials.
 BATCH_SOURCE = ('bin', 'cases', 'factory', 'guards', 'harbor', 'projects',
                 'scenarios', 'tests', 'CONTESTANT.md', 'SPEC.md', 'README.md')

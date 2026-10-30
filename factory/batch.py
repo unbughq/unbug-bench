@@ -5,7 +5,6 @@ import gzip
 import hashlib
 import io
 import json
-import math
 from pathlib import Path
 import re
 import subprocess
@@ -137,13 +136,15 @@ def prepare(directory, digest, root, output):
 def bind(policy, name, checkpoint, root):
     """Translate empty/nonempty progress to the one existing launcher implementation."""
     batch, job = policy['batch'], policy['jobs'][name]
-    verify(Path(batch['release']), batch['sha256'], root)
+    from batch_money import manifest
+    manifest(policy, root)
     case = 'case-' + batch['id'] + '-' + name
     args = job['args']
     forbidden = {'--restore', '--restore-review', '--qualified-release', '--batch-release',
                  '--batch-sha256', '--case-id', '--resume', '--reuse-review-worker', '--probe',
                  '--audit-g11', '--audit-fairness', '--rehearse-only', '--late-gate-rehearsal',
-                 '--batch-release-sha256', '--checkpoint-sha256', '--skip-build', '--statement-only'}
+                 '--batch-release-sha256', '--checkpoint-sha256', '--skip-build', '--statement-only',
+                 '--factory-job-config', '--factory-job-config-sha256'}
     if (job['mode'] != 'batch' or job['case'] != case or args[:1] != ['1'] or
             '--source' not in args or '--rotation-slot' not in args or
             any(a.split('=', 1)[0] in forbidden for a in args)):
@@ -157,22 +158,27 @@ def bind(policy, name, checkpoint, root):
                 card.get('batch_release_sha256') != batch['sha256']):
             raise ValueError('checkpoint differs from batch release or requested generation')
         mode = 'case'
-    caps = {}
-    for flag, field, cast in (('--max-total-calls', 'max_calls', int), ('--max-cost', 'max_cost', float)):
-        cap = cast(job[field])
-        for i, arg in enumerate(args):
-            if arg == flag:
-                if i + 1 == len(args): raise ValueError('missing job cap: ' + flag)
-                value = cast(args[i + 1])
-            elif arg.startswith(flag + '='): value = cast(arg.split('=', 1)[1])
-            else: continue
-            if not math.isfinite(value) or value <= 0: raise ValueError('invalid job cap: ' + flag)
-            cap = min(cap, value)
-        caps[field] = cap
-    args = [*args, '--batch-release', batch['release'], '--batch-sha256', batch['sha256'],
-            '--case-id', case, '--max-total-calls', str(caps['max_calls']), '--max-cost', str(caps['max_cost'])]
+    cap = job['max_calls']
+    for i, arg in enumerate(args):
+        if arg == '--max-total-calls':
+            if i + 1 == len(args): raise ValueError('missing job call cap')
+            value = int(args[i + 1])
+        elif arg.startswith('--max-total-calls='): value = int(arg.split('=', 1)[1])
+        else: continue
+        if value <= 0: raise ValueError('invalid job call cap')
+        cap = min(cap, value)
+    # Deprecated argv is historical evidence in the manifest, never new authority.
+    arguments, filtered = iter(args), []
+    for arg in arguments:
+        if arg == '--max-cost':
+            if next(arguments, None) is None: raise ValueError('missing historical max-cost value')
+        elif not arg.startswith('--max-cost='):
+            filtered.append(arg)
+    args = [*filtered, '--batch-release', batch['release'], '--batch-sha256', batch['sha256'],
+            '--case-id', case, '--max-total-calls', str(cap)]
     if checkpoint is not None: args += ['--restore', case, '--checkpoint-sha256', checkpoint]
-    return {**job, **caps, 'mode': mode, 'args': args, 'card': case + '.scorecard.json', 'archive_prefix': case}
+    return {**job, 'max_calls': cap, '_batch_job': True, 'mode': mode, 'args': args,
+            'card': case + '.scorecard.json', 'archive_prefix': case}
 
 
 def main():

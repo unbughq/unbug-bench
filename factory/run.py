@@ -2606,6 +2606,8 @@ def argument_parser():
     p.add_argument("--resume", help="preserved case directory name; reruns all gates")
     p.add_argument("--case-id", help="stable approved batch job identity")
     p.add_argument("--batch-release-sha256", help="complete approved batch release digest")
+    p.add_argument('--factory-job-config', help='holder-installed RAM job configuration')
+    p.add_argument('--factory-job-config-sha256', help='holder-authenticated job configuration digest')
     p.add_argument("--resume-bench-sha", help="trusted clean-template bench fingerprint, required with --resume")
     p.add_argument("--agent-timeout", type=int, default=4 * 3600)
     p.add_argument("--no-progress-minutes", type=float, default=float(os.environ.get("FACTORY_NO_PROGRESS_MINUTES", "45")),
@@ -2749,6 +2751,11 @@ def main():
             explicit = lambda name: any(v == name or v.startswith(name + '=') for v in sys.argv[1:])
             from late_recovery import authenticate_gates
             authenticate_gates(c, prev_card)
+        if a.batch_release_sha256 or a.factory_job_config or a.factory_job_config_sha256:
+            from job_config import install
+            c.checkpoint_card = prev_card
+            install(c, a)
+        if a.resume:
             c.limits_raised = raised_limits({**prev_card, 'continuation_budget': jload(c.ledger)}, a.case_budget, a.rounds,
                 explicit_budget=explicit('--case-budget'), explicit_rounds=explicit('--rounds'))
             c.card.update(c.limits_raised)

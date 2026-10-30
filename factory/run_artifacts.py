@@ -98,7 +98,14 @@ class RunArtifacts:
         (work / "scorecard.json").write_text(json.dumps(c.card, indent=2))
         out = self.sealed / f"{c.case_id}{'.checkpoint' if checkpoint else ''}.tar.gz.age"
         import r2_upload  # 2026-10-20: also sealed to the case's own key, so a restore can fetch it from R2
-        try: case_key = None if c.args.dry_run else r2_upload.case_recipient(work, self.sealed, c.case_id, c.recipient)
+        try:
+            vm_recipient = (Path(__file__).with_name('control-recipient.txt').read_text().strip()
+                            if getattr(c.args, 'batch_release_sha256', None) else None)
+            if getattr(c.args, 'batch_release_sha256', None) and not vm_recipient:
+                raise RuntimeError('batch checkpoint requires VM restore recipient')
+            case_key = None if c.args.dry_run else r2_upload.case_recipient(
+                work, self.sealed, c.case_id, c.recipient,
+                **({'restore_recipient': vm_recipient} if vm_recipient else {}))
         except (OSError, subprocess.CalledProcessError):
             if c.card.get('batch_release_sha256'):
                 raise RuntimeError('batch checkpoint requires a wrapped case key') from None

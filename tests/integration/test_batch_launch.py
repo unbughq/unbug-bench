@@ -20,6 +20,10 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
+CONSUMER_ROOT = Path(os.environ.get('UNBUG_TEST_D_CONSUMER_ROOT', str(ROOT / 'factory')))
+if '--consumer-root' in sys.argv:
+    index = sys.argv.index('--consumer-root'); CONSUMER_ROOT = Path(sys.argv[index + 1])
+    del sys.argv[index:index + 2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
 import batch
 import key_holder as holder
@@ -87,6 +91,7 @@ elif cmd == 'exec':
     assert 'FACTORY_RUNNER_SECONDS=' in args[-1] and 'FACTORY_RUNNER_GRACE_SECONDS=' in args[-1]
     command = args[-1].split('python3 ~/factory/run.py ',1)[1].split('> ~/sealed/',1)[0]
     argv = shlex.split(command.split(' --bench-workers ',1)[0]) + ['--bench-workers','1']
+    argv = [v.replace('/dev/shm/secrets/',str(vm/'shm-secrets')+'/') for v in argv]
     result = subprocess.run([sys.executable,RUNNER,str(vm),*argv], env={**os.environ,'HOME':str(vm)},
                             capture_output=True)
     if result.returncode: sys.stderr.buffer.write(result.stderr); sys.stderr.buffer.write(result.stdout)
@@ -99,6 +104,13 @@ elif cmd == 'ssh':
     if 'factory/worker_release.py' in command: print('{"public_offline":true}'); sys.exit()
     if command.startswith('sudo loginctl '): sys.exit()  # worker-only administration
     if 'base64 -d | tar' in command: sys.stdin.buffer.read(); sys.exit()  # fake credentials
+    if 'job_config.py deliver' in command:
+        # Real atomic installer, with the offline cloud's private RAM directory.
+        pin = shlex.split(command)[-1]
+        code = ('import sys,pathlib; sys.path.insert(0,'+repr(str(vm/'factory'))+'); '
+                'import job_config; job_config.deliver(sys.stdin.buffer.read(65537),'+repr(pin)+','+
+                'pathlib.Path('+repr(str(vm/'shm-secrets/factory-job.json'))+'))')
+        sys.exit(subprocess.run([sys.executable,'-B','-c',code],stdin=sys.stdin.buffer).returncode)
     if 'if [ ! -f ~/sealed/DONE ]' in command: sys.exit()
     if 'ls *.' in command:
         if not (vm/'sealed').is_dir(): sys.exit()
@@ -184,20 +196,21 @@ class BatchLaunchTests(unittest.TestCase):
                 batch.build(root, 'HEAD', release)
             self.assertFalse(release.exists())
 
-    def test_job_caps_keep_the_lower_explicit_value_and_batch_bound(self):
-        for arguments, calls, cost in ((['--max-total-calls', '750', '--max-cost=0.5'], 750, .5),
-                                        (['--max-total-calls=9000', '--max-cost', '10'], 5000, 5),
+    def test_call_caps_preserved_and_historical_money_caps_removed(self):
+        for arguments, calls in ((['--max-total-calls', '750', '--max-cost=0.5'], 750),
+                                        (['--max-total-calls=9000', '--max-cost', '10'], 5000),
                                         (['--max-total-calls=750', '--max-total-calls', '9000',
-                                          '--max-cost', '.5', '--max-cost=10'], 750, .5)):
-            with self.subTest(arguments=arguments), patch.object(batch, 'verify'):
+                                          '--max-cost', '.5', '--max-cost=10'], 750)):
+            with self.subTest(arguments=arguments), patch('batch_money.manifest'):
                 policy = {'batch': {'id': 'public', 'release': 'unused', 'sha256': 'a' * 64},
                           'jobs': {'a': {'mode': 'batch', 'case': 'case-public-a', 'max_calls': 5000,
-                                         'max_cost': 5, 'args': ['1', '--source', 'port', '--rotation-slot', '1',
+                                         'requested_total_usd': '50.000000000', 'args': ['1', '--source', 'port', '--rotation-slot', '1',
                                                                *arguments]}}}
                 job = batch.bind(policy, 'a', None, ROOT)
-                self.assertEqual((job['max_calls'], job['max_cost']), (calls, cost))
-                # Last values are the runner's effective caps; admission uses the same values.
-                self.assertEqual(job['args'][-4:], ['--max-total-calls', str(calls), '--max-cost', str(float(cost))])
+                self.assertEqual(job['max_calls'], calls)
+                self.assertNotIn('max_cost',job)
+                self.assertFalse(any(a.startswith('--max-cost') for a in job['args']))
+                self.assertEqual(job['args'][-2:], ['--max-total-calls', str(calls)])
 
     def test_capacity_counts_durable_unknown_outcomes_without_in_memory_jobs(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(holder,'CONTROL_HOME',Path(temp)):
@@ -216,6 +229,8 @@ class BatchLaunchTests(unittest.TestCase):
             self.assertFalse(holder.reconcile_batch_receipts(policy,[row]))
 
     def test_public_fresh_interruption_resume_and_two_jobs_on_one_unlock(self):
+        if not (CONSUMER_ROOT/'job_authority.py').is_file():
+            self.skipTest('D consumer not merged; explicit --consumer-root integration run required; no enablement')
         if not batch.restore_inventory(ROOT):
             self.skipTest('REAL RESTORE INVENTORY ABSENT: public release build qualification is unavailable; builds stay blocked')
         with tempfile.TemporaryDirectory() as temp:
@@ -231,9 +246,14 @@ class BatchLaunchTests(unittest.TestCase):
             # Snapshot real maintained public sources independently of the release builder.
             names = subprocess.check_output(['git','ls-files','-z','--',*batch.BATCH_SOURCE,
                                              *batch.HOST_FILES,'tools/install_source.py'],cwd=ROOT).decode().split('\0')
-            for name in {*filter(None,names),'factory/batch.py'}:
+            for name in {*filter(None,names),*batch.HOST_FILES}:
                 target=root/name; target.parent.mkdir(parents=True,exist_ok=True)
                 shutil.copy2(ROOT/name,target)
+            if CONSUMER_ROOT != ROOT/'factory':
+                # Actual reviewed D accounting code, not a stub. Only this explicit
+                # cross-branch qualification uses it before the parent merges D.
+                for name in ('job_authority.py','budget.py'):
+                    shutil.copy2(CONSUMER_ROOT/name,root/'factory'/name)
             source = root/'factory/run.py'
             source.write_text(re.sub(r'^FOUNDER_RECIPIENT = "age1[a-z0-9]+"',
                 'FOUNDER_RECIPIENT = "'+recipient+'"',source.read_text(),flags=re.M))
@@ -241,6 +261,18 @@ class BatchLaunchTests(unittest.TestCase):
             (root/'bin/boat-call').write_text('#!/bin/sh\nexec '+shutil.which('python3')+' '+str(fake)+' "$@"\n')
             (root/'bin/boat-call').chmod(0o755)
             (root/'bin/boat-name').write_text('#!/bin/sh\nexit 0\n')
+            rotation=json.loads((ROOT/'factory/rotation-3writers.json').read_text())
+            roles={r:{**rotation['families'][f],'family':f} for r,f in rotation['slots'][0].items()}
+            roles['easy_calibrator']={'model':'opencode/glm-5.3-flash-free','effort':'default','family':'z-ai'}
+            jobs={n:dict(mode='batch',case='case-public-'+n,roles=roles,max_calls=5000,
+                         requested_total_usd='100.000000000',
+                         args=['1','--source','port','--rotation-slot','1']) for n in ('a','b')}
+            batch_manifest=dict(schema=1,id='public',jobs=jobs,max_concurrency=2,target_slots=2,
+                                money_limit_usd='400.000000000',batch_deadline='2099-01-01T00:00:00Z',
+                                restore_recipient=(root/'factory/control-recipient.txt').read_text().strip())
+            manifest_path=root/'factory/batches/public.json'; manifest_path.parent.mkdir(exist_ok=True)
+            manifest_path.write_text(json.dumps(batch_manifest))
+            manifest_sha=hashlib.sha256(manifest_path.read_bytes()).hexdigest()
             subprocess.run(['git','init','-q',str(root)],check=True)
             subprocess.run(['git','add','.'],cwd=root,check=True)
             subprocess.run(['git','-c','user.name=Public test','-c','user.email=public@example.invalid',
@@ -274,14 +306,10 @@ class BatchLaunchTests(unittest.TestCase):
             data=subprocess.check_output(['tar','-C',str(plain),'-cf','-',*sorted(p.name for p in plain.iterdir())])
             credentials=base/'credentials.age'
             subprocess.run(['age','-r',recipient,'-o',str(credentials)],input=data,check=True)
-            rotation=json.loads((ROOT/'factory/rotation-3writers.json').read_text())
-            roles={r:{**rotation['families'][f],'family':f} for r,f in rotation['slots'][0].items()}
-            roles['easy_calibrator']={'model':'opencode/glm-5.3-flash-free','effort':'default','family':'z-ai'}
-            jobs={n:dict(mode='batch',case='case-public-'+n,roles=roles,max_calls=5000,max_cost=5,
-                         args=['1','--source','port','--rotation-slot','1']) for n in ('a','b')}
             policy=dict(root=str(root),code_sha256=holder.fingerprint(root),recipient=recipient,
                         path=os.environ['PATH'],batch=dict(id='public',release=str(release),sha256=digest,
-                        max_concurrency=2),jobs=jobs)
+                        max_concurrency=2,manifest_path='factory/batches/public.json',
+                        manifest_sha256=manifest_sha),jobs=jobs)
             policy_path=base/'policy.json'; batch.save(policy_path,policy)
             results=[]; processes=[]; verifications=[]
             popen=subprocess.Popen
@@ -295,11 +323,22 @@ class BatchLaunchTests(unittest.TestCase):
                 with patch.object(holder,'request',side_effect=lambda value:value):
                     return batch.launch('public',name,checkpoint)
             generations=[]
+            def issue_collected_fixture(generation):
+                # Authored authority input from the reviewed contract; 2b will
+                # produce this only after verified collection/retirement.
+                money_path=base/'control/batches/public/money.json'
+                state=json.loads(money_path.read_text())
+                authority=state['jobs']['a']['authority']
+                authority.update(source_generation=generation,revision=authority['revision']+1)
+                money_path.write_text(json.dumps(state))
             def checkpoint():
                 if not generations:
                     generations.append(json.loads((root/'sealed/case-public-a.scorecard.json').read_text())['sha256'])
                     with patch.object(holder,'ROOT',root):
                         self.assertEqual(holder.current_generation(batch.bind(policy,'a',generations[0],root)),generations[0])
+                    # Authored current authority input, standing in for the future
+                    # 2b collection verifier. authorize itself cannot advance it.
+                    issue_collected_fixture(generations[0])
                 return generations[0]
             requests=iter([lambda:payload('a'),lambda:payload('b'),lambda:payload('a'),
                            lambda:payload('a',checkpoint()),lambda:payload('a',checkpoint()),lambda:{'op':'stop'}])
@@ -347,6 +386,7 @@ class BatchLaunchTests(unittest.TestCase):
                 prior_generation=rows[0]['generation']
                 batch.save(runtime/'reservations.json',rows)
                 latest=json.loads((root/'sealed/case-public-a.scorecard.json').read_text())['sha256']
+                issue_collected_fixture(latest)
                 requests=iter([lambda:payload('a',latest),lambda:payload('a',latest),lambda:{'op':'stop'}])
                 holder.sys.stdin.buffer=io.BytesIO(key)
                 holder.serve(policy_path,.1)
