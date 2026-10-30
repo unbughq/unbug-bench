@@ -1306,9 +1306,14 @@ Input selection belongs to code, not to model output. The input tree contains:
 - `work/`: reuse the work-root evidence selected by `gate_state.inventory`
   (gate-details, judge_breadth, review-*), plus `bench-results` for restored
   bench-kind evidence. Current inventory bench-kind files go under that same
-  `work/bench-results/` prefix; if both copies exist they must agree. Retain the
+  `work/bench-results/` prefix. At creation, a current `bench/results/<rel>`
+  file takes precedence over a restored `work/bench-results/<rel>` file with
+  the same relative name, matching the existing seal's overwrite behaviour.
+  Read selected paths safely on both sides; do not mutate either live copy.
+  Restored-only paths remain available. Replay never reselects a current copy:
+  the published manifest's bytes are immutable. Retain the
   remaining writer/stress and lifecycle inputs by name: attack-state.json,
-  attacks, gate-cache, gate-continuation.json, late-defect.json,
+  attacks, gate-continuation.json, late-defect.json,
   extension-history.json, extension-snapshots, transcripts, usage-receipts,
   infra-attempts.json, strong_calibrator, easy_calibrator, early_probe,
   independent-* directories, fixes, evidence, history, verdict.json,
@@ -1356,7 +1361,9 @@ that original generation to a later live restore receipt or current source
 binding: a later ordinary restore legitimately replaces the live receipt while
 carrying the immutable input snapshot. Existing authenticated job checks still
 apply to the current owner. Missing or altered frozen receipt bytes refuse like
-any other missing or changed input. No card SHA is synthesized or overwritten. Gate-cache records are optional reuse hints, not diagnosis authority. At
+any other missing or changed input. No card SHA is synthesized or overwritten.
+
+Gate-cache records are optional reuse hints, not diagnosis authority. At
 creation, copy all selected current work/bench evidence first, then consider
 `work/gate-cache/*.json`. Copy a cache record only when it has a nonempty valid
 `evidence` list and every reference has a safe canonical relative path, kind
@@ -1364,7 +1371,9 @@ creation, copy all selected current work/bench evidence first, then consider
 copied evidence (bench-kind uses `work/bench-results`). Omit stale, missing-
 evidence or malformed cache records without changing or deleting their live
 bytes. This follows `gate_state.load`'s treatment of unusable cache hints; no
-cached verdict is promoted or re-certified. A passing gate followed by a failed
+cached verdict is promoted or re-certified. Retained cache records are
+historical pass receipts; a current gate outcome comes from the authenticated
+card and current gate details, never from a retained cache's `info` alone. A passing gate followed by a failed
 rerun may leave a stale cache while overwriting its evidence, and must remain
 diagnosable. Current failed gate details and other selected receipts are kept.
 Unsafe selected paths, symlinks and nonregular files still refuse before reading;
@@ -1492,8 +1501,16 @@ and unchanged replay across a later authenticated source generation. Add a
 pass-then-fail-then-exhaust replay: save a genuine gate-cache record over retained
 practice evidence, overwrite its detail as a failed rerun does, freeze successfully
 with the stale cache omitted, and retain the failed detail and unchanged live
-cache. Also cover missing and malformed cache references, valid records retained,
-and changed retained cache bytes refusing on replay. Assert
+cache. Also cover missing and malformed cache references, absolute/`..` references,
+and references through another cache file (all omitted, never followed), plus a
+symlinked cache file (refused before semantic filtering). Keep valid records and
+refuse changed retained cache bytes on replay. Replay differing restored/current
+fixed-name bench files using saved execution receipts: freeze the current bytes,
+retain restored-only files, omit caches naming superseded bytes, preserve both
+live copies, and keep replay unchanged after the live current bytes change again.
+The fixture proves precedence with saved artifacts and authored layout; it does
+not claim two live bench preparations were run. The overwrite need is established
+by `RunArtifacts.seal` and the fixed-name writes in `bin/bench.py`. Assert
 None projections for invalid history both before and after a completed hold.
 These are offline control tests and close no Murphy row.
 
