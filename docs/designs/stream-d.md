@@ -1209,3 +1209,61 @@ Tests in `tests/factory/test_stream_d_held.py` use saved 5813be usage and verifi
 public practice bytes, with authored judgment, binding and interruption controls.
 They prove write ordering, immutable replay, no model lease after a hold, and
 unchanged spend; they do not close a Murphy row or qualify a live rollout.
+
+### Queued diagnosis inputs (review-17 follow-up)
+
+The dispatcher must never pass live `work` as the result validator's evidence
+root. Before its first model call, retain immutable input bytes at
+`work/diagnosis/<exhaustion_id>/inputs/` and a private `input.json` alongside it:
+`{schema_version:1, case_id, exhaustion_id, generation, files}`. `files` is the
+exact sorted map of input-relative POSIX file names to SHA-256 digests. The case
+and exhaustion ID come from the current authenticated context/pending state;
+on initial creation, generation must equal B's verified non-null input
+`source_generation`. It never names the generation containing this new snapshot.
+No new field is added to the public state or nine-field RAM configuration.
+
+Input selection belongs to code, not to model output. The input tree contains:
+
+- `case/`: the current case tree, with symlinks refused;
+- `ledger.json`: a copy of the settled cumulative ledger, captured before the
+  diagnosis invocation is reserved; `card.json`: the authenticated input card;
+- `work/`: only retained writer/stress/gate evidence: attack-state.json, attacks,
+  gate-details, gate-cache, gate-continuation.json, late-defect.json,
+  extension-history.json, extension-snapshots, transcripts, usage-receipts,
+  infra-attempts.json, strong_calibrator, easy_calibrator, early_probe, review-*
+  and independent-* directories. Missing optional evidence stays missing;
+- `source/`: matching release source under factory/*.py, factory/prompts/*.md,
+  bin/*.py, and the explicit extensionless evaluators bin/checkpoint,
+  bin/strategy, bin/verify-negative, bin/run-exam, bin/score-claims and bin/land.
+
+Never copy the whole worker home, logs/stdio, other case roots, credential
+stores, environment files, restore keys or job configuration into these inputs.
+Reject symlinks and non-regular selected files. Snapshot creation occurs at the
+ordinary quiescent boundary with no active model calls. Stage into a temporary
+directory, hash the copies, fsync files/directories, atomically publish inputs,
+then durably write input.json. A crash with inputs but no manifest may verify
+and reuse those same bytes only while they still match the authenticated source;
+otherwise it refuses. Once input.json exists, never rewrite the snapshot from
+new work. Replays verify its exact file inventory and digests, case and
+exhaustion ID. A later same-owner wait/checkpoint generation does not rebind the
+original generation: the authenticated archive carries that immutable input.
+
+The model's checkpoint_sha256 and evidence paths bind to this original input
+manifest and inputs directory. Both result validation and finding replay use
+that root. Live ledger growth after diagnosis, or a crash after finding.json
+but before public completion, therefore cannot invalidate the retained finding.
+Changed immutable evidence still refuses. Dispatcher wiring must load and
+verify this input manifest before reusing a finding or starting a model.
+
+`factory_bug_history_invalid` is a terminal attention stop: exhaustion returns
+false and pending_projection returns None, including when an infrastructure
+marker remains or a previously completed hold's history is damaged. It cannot
+create a new diagnosis ID. The shared held-dispatch guard remains in force;
+B's later cross-batch resume addendum must explicitly update that guard with
+its authenticated admission path, not bypass it through another model caller.
+
+The follow-up tests use the saved 5813be ledger and verified practice bytes:
+freeze input, write a finding, interrupt public completion, append to the live
+ledger, then replay the same finding without a model. Corrupting frozen input
+must refuse. Assert None projections for invalid history both before and after
+a completed hold. These are offline control tests and close no Murphy row.
