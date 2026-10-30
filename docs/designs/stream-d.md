@@ -1817,3 +1817,17 @@ Risk. Old V2 receipts missing intent now refuse instead of guessing; none are
 produced since 753b33e. A validated-with-problems resume no longer re-runs
 freshness on stale findings. That is a behaviour change, and it matches the
 uninterrupted loop.
+
+Second-increment design review 1 corrections (PASS; N1–N5). If row 10 closes,
+the same commit scopes the runtime test module docstring to the row-10 tests and
+updates the register. `complete_writer` keeps the `builder_rounds = round`
+write, and the `returned`-window tests assert it. Promotion proves authoring
+finished, not that usage is settled: an estimated or unpriced reservation still
+reconciles through the existing path, and `final_usage_known` is deliberately
+not required, since requiring it would buy a second author call to fix an
+accounting gap. No production extension caller exists yet (item 7);
+`extensions.admit` records the extension entry, while the caller of
+`pending_call` builds the writer receipt, so the pre-lease check is what makes
+intent mandatory for that future caller. The skipped `if report and problems:`
+block's founder-feedback branch is already inert under `modern`; skipping it is
+also a simplification.
