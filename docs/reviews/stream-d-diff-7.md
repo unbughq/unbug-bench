@@ -132,3 +132,9 @@ I made no edits to the repo, launches, decryptions, credential reads, or writes 
 - M1 fixed: restored-card startup preserves the explicit ordinary_limit_usd. recovery_config.case_budget and coordinator --case-budget bind the ordinary threshold, while case_budget.limit_usd comes from current job authority. The new test covers a $50 ordinary threshold, $200 commitment, and recovery of the earlier erroneous recovery_config.case_budget=200.
 - No finding rejected. No Murphy row closure claimed.
 - Rebased onto factory-simplify at 6abe169 without conflicts, preserving B's installer/wiring. Integration obligations now cite the landed interfaces §8. All 19 runtime tests pass. A fresh review and green full suite are still required on the fixed/rebased tree.
+
+## Rebased full-suite validation
+
+At 233f89f, `uv run --with numpy --with scipy python -B tests/run.py` completed:
+139 test scripts, 0 failed. Log: /tmp/stream-d-increment-2-rebased-suite.log.
+Fresh runtime goldfish9 is still in progress; this green run is not a review verdict.
