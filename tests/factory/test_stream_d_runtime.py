@@ -27,6 +27,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
 import budget
+import coordinator
 import durable_checkpoint
 import exam_responder
 import job_authority
@@ -235,6 +236,34 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.c.card['builder_rounds'], 0)
         self.assertNotIn('invocation_reservations', json.loads(self.ledger.read_text())); invoke.assert_not_called()
 
+    def test_ordinary_limit_survives_card_rebuild_and_coordinator_binding(self):
+        self.c.card['source'], self.c.card['rotation_slot'] = 'hunt', 1
+        self.c.card['recovery_config'] = {'version': 1, **{name: getattr(self.c.args, name) for name in coordinator.CONFIG_FIELDS}}
+        model_runtime.update_case_budget(self.c)
+        previous = copy.deepcopy(self.c.card)
+        self.assertEqual(previous['case_budget']['limit_usd'], 200)
+        self.assertEqual(previous['recovery_config']['case_budget'], 50)
+        # Also recover a card written by the earlier D runtime, where this field
+        # incorrectly held the commitment. The explicit ordinary value wins.
+        previous['recovery_config']['case_budget'] = 200
+        job = {'args': ['release', '--source', 'hunt', '--rotation-slot', '1', '--case-budget', '50'],
+               'roles': {name: {**role, 'effort': 'high'} for name, role in previous['roles'].items()}}
+        proposed = coordinator.configuration_args(previous, job)
+        ordinary_only = copy.deepcopy(previous); ordinary_only['recovery_config'].pop('case_budget')
+        self.assertEqual(coordinator.configuration_args(ordinary_only, job), proposed)
+        resumed = copy.copy(self.c); resumed.args = run.argument_parser().parse_args(proposed[1:])
+        resumed.args.batch_release_sha256 = 'a' * 64
+        resumed.card = {'roles': copy.deepcopy(previous['roles']), 'recovery_config': {'version': 1}}
+        run.inherit_recovery_history(resumed, previous)
+        _, summary = model_runtime.update_case_budget(resumed)
+        self.assertEqual(summary['ordinary_limit_usd'], 50)
+        self.assertEqual(summary['limit_usd'], 200)
+        self.assertEqual(resumed.args.case_budget, 50)
+        self.assertEqual(resumed.card['recovery_config']['case_budget'], 50)
+        mismatch = copy.deepcopy(previous); mismatch['recovery_config']['ordinary_limit_usd'] = 100
+        with self.assertRaisesRegex(budget.BudgetError, '^ordinary_limit_mismatch$'):
+            run.inherit_recovery_history(resumed, mismatch)
+
     def test_writer_completion_checkpoints_then_resumes_validation_without_second_writer(self):
         self.c.recipient = 'synthetic-only'
         calls, checkpoints, kill = [], [], [True]
@@ -299,6 +328,64 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(calls, ['builder-1', 'attacker-1'])
         self.assertEqual(self.c.card['builder_rounds'], 1)
         self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 1})
+
+    def test_pending_stress_rebind_keeps_round_one_at_ordinary_round_limit(self):
+        self.stress_rebind('pending')
+
+    def test_finished_stress_rebind_rereviews_before_delivering_findings(self):
+        self.stress_rebind('finished')
+
+    def stress_rebind(self, phase):
+        self.c.args.rounds = 1 if phase == 'pending' else 2
+        calls, first_stress, killed = [], [True], [False]
+        units, writer_feedback = [], []
+        def invoke(runtime, c, models, text, cwd, name, **kwargs):
+            c.model_process_state['started'] = True
+            calls.append(name)
+            if name == 'builder-1': (self.case / 'draft.txt').write_text('completed writer unit')
+            elif name == 'builder-2': writer_feedback.append(text); raise Killed()
+            elif name == 'attacker-1':
+                units.append(json.loads((self.work / 'attack-state.json').read_text()))
+                if first_stress[0] and phase == 'pending':
+                    first_stress[0] = False
+                    raise budget.BudgetError('provider_limit:' + c.model_lease.route,
+                        provider_failure={'reason': 'quota', 'scope': 'account', 'model': c.model_lease.route})
+                (self.work / 'attacks/round-1.json').write_text(json.dumps({'complete': True,
+                    'blocking': ['retained genuine defect'] if phase == 'finished' else []}))
+            else: self.fail('renumbered stress: ' + name)
+            return 0
+        def freshness(c, result, report):
+            if phase == 'finished' and not killed[0]: killed[0] = True; raise Killed()
+            return result, report
+        self.patch(model_runtime.ModelRuntime, '_invoke', invoke)
+        self.patch(run, 'prompt', lambda role, text: text)
+        self.patch(run, 'g1', lambda c: (True, {'problems': []}))
+        self.patch(run, 'early_checks', lambda c: None); self.patch(run, 'early_review', lambda c: None)
+        self.patch(run, 'loop_freshness', freshness)
+        if phase == 'pending':
+            with self.assertRaises(model_router.ProviderWait) as error: run.write_and_attack(self.c, {})
+            run.write_provider_wait(self.c, error.exception)
+        else:
+            with self.assertRaises(Killed): run.write_and_attack(self.c, {})
+        saved = json.loads((self.work / 'attack-state.json').read_text())
+        self.assertEqual(saved['actor'], 'stress_tester'); self.assertEqual(saved['round'], 1)
+        binding = run.attack_binding(self.c)
+        self.patch(run, 'attack_binding', return_value={**binding, 'prompt': 'f' * 64})
+        self.c.args.resume = self.c.case_id
+        self.c.provider_resume_done = False; self.c.model_resume_state['done'] = False
+        if phase == 'pending': run.write_and_attack(self.c, copy.deepcopy(self.c.card))
+        else:
+            with self.assertRaises(Killed): run.write_and_attack(self.c, copy.deepcopy(self.c.card))
+        self.assertEqual(calls[:3], ['builder-1', 'attacker-1', 'attacker-1'])
+        self.assertEqual(units[0]['operation_id'], units[1]['operation_id'])
+        self.assertEqual(units[0]['review_attempt'], units[1]['review_attempt'])
+        if phase == 'pending':
+            self.assertEqual(self.c.card['builder_rounds'], 1)
+            self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 1})
+        else:
+            self.assertEqual(calls[3:], ['builder-2'])
+            self.assertIn('retained genuine defect', writer_feedback[0])
+            self.assertIn('round-1.json', writer_feedback[0])
 
     def test_three_waits_continue_the_same_writer_or_stress_unit(self):
         for role, key, name, pools, added in (

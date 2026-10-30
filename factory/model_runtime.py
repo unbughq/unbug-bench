@@ -215,17 +215,20 @@ def update_case_budget(c):
     prior = c.card.get('case_budget', {})
     if factory_job(c):
         import job_authority
+        from budget import usd
         ordinary = prior.get('ordinary_limit_usd', getattr(c.args, 'ordinary_case_budget', getattr(c.args, 'case_budget', 50)))
-        c.args.ordinary_case_budget = ordinary
+        ordinary = float(usd(ordinary))
+        if ordinary <= 0: raise BudgetError('ordinary_limit_unknown')
+        c.args.ordinary_case_budget = c.args.case_budget = ordinary
         try: authority = job_authority.for_case(c)
         except BudgetError:
             # Reporting never authorizes a call. Expired/refused jobs still
             # publish settled spend; every admission boundary revalidates below.
             effective = prior.get('limit_usd')
         else:
-            effective = c.args.case_budget = float(authority.committed_total_usd)
+            effective = float(authority.committed_total_usd)
             if 'recovery_config' in c.card:
-                c.card['recovery_config'].update(case_budget=effective, ordinary_limit_usd=ordinary)
+                c.card['recovery_config'].update(case_budget=ordinary, ordinary_limit_usd=ordinary)
                 c.card['recovery_config'].pop('max_cost', None)
     summary = {**{k: v for k, v in prior.items() if k == 'unpriced_model'},
                'limit_usd': effective if factory_job(c) else getattr(c.args, 'case_budget', 50.0),

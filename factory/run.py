@@ -1159,7 +1159,7 @@ def write_and_attack(c, prev):
                 if not isinstance(source, str) or pathlib.PurePath(source).name != source:
                     attack_unresolved(c, 'invalid_recovery_receipt')
                 report = c.work / 'attacks' / source
-        if not awaiting_stress and not modern_writer_unit and (not binding_changed or final_resume or transient_resume or ruling) and not prev.get("failed_gate") and n > 0:
+        if not awaiting_stress and not modern_writer_unit and (modern or not binding_changed or final_resume or transient_resume or ruling) and not prev.get("failed_gate") and n > 0:
             saved_report = receipt.get('findings_report', receipt['report']) if final_resume else receipt['report']
             if saved_report is not None and (not isinstance(saved_report, str) or not re.fullmatch(r'round-\d+\.json', saved_report)):
                 attack_unresolved(c, 'invalid_recovery_receipt')
@@ -1343,9 +1343,10 @@ def write_and_attack(c, prev):
                                   "rereviews": rereviews + int(not release_rereview) if n == rereview_round else 0,
                                   "release_rereviews": release_rereviews, "release_review_attempts": release_review_attempts,
                                   "review_pending": True, "review_attempt": secrets.token_hex(16)}
-        continuing_review = bool(modern and resume_unit and resume_unit.get('actor') == 'stress_tester'
-            and resume_unit.get('phase') == 'pending' and resume_unit.get('round') == n and resume_unit.get('binding') == binding)
-        if continuing_review:
+        same_review_unit = bool(modern and resume_unit and resume_unit.get('actor') == 'stress_tester'
+                                and resume_unit.get('round') == n)
+        continuing_review = same_review_unit and resume_unit.get('phase') == 'pending'
+        if same_review_unit:
             review_receipt = {**resume_unit, **review_receipt, 'review_attempt': resume_unit['review_attempt'],
                               'rereviews': resume_unit.get('rereviews', 0)}
         from late_recovery import invalidate
@@ -2745,6 +2746,17 @@ def validate_and_repair(c):
 def inherit_recovery_history(c, previous):
     for key in ('builder_rounds', 'models_used', 'budget_raised', 'rounds_raised', 'founder_ruling'):
         if key in previous and key not in c.card: c.card[key] = copy.deepcopy(previous[key])
+    if model_runtime.factory_job(c):
+        ordinary = (previous.get('case_budget') or {}).get('ordinary_limit_usd')
+        configured = (previous.get('recovery_config') or {}).get('ordinary_limit_usd')
+        if ordinary is not None and configured is not None and ordinary != configured:
+            raise BudgetError('ordinary_limit_mismatch')
+        ordinary = ordinary if ordinary is not None else configured
+        if ordinary is not None:
+            from budget import usd
+            if usd(ordinary) <= 0: raise BudgetError('ordinary_limit_unknown')
+            c.card.setdefault('case_budget', {})['ordinary_limit_usd'] = ordinary
+            c.args.ordinary_case_budget = ordinary
 
 
 def finalize_accounting(c):

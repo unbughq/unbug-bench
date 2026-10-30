@@ -845,27 +845,39 @@ It makes no real-crash, B/E qualification or Murphy-row closure claim.
 Still pending in subsequent increments: diagnosis/extensions and immutable stage
 snapshots; legacy receipt/import migration; complete removal of new-schema stale
 allowances/caps across launch/resume/audit; scientific binding migration; B's
-qualified installer and acknowledged checkpoint integration; real crash/capped
+acknowledged checkpoint integration and lifecycle qualification; real crash/capped
 artifact closure exams. No row closes with this incremental runtime wiring.
 
 ### B collection/settlement integration obligations
 
-The founder resolved the provider-wait money join on 2026-10-30; B owns the
-corresponding interfaces §8 addition. Keep on-resume-only settlement and
-fail-closed dispatch. The lifecycle qualification must cover both cases below
-against that §8 text when it lands:
+The contract is now landed in [interfaces §8](interfaces.md#8-batch-money-authority-b-provides-d-enforces),
+merged with B increments 1–2 at 6abe169. Keep on-resume-only settlement and
+fail-closed dispatch. B's fresh-only installer is present; its increment2b must
+implement the acknowledged source transitions and collection proofs before
+resume is enabled. The lifecycle qualification must cover these §8 cases:
 
 - An unknown total permits only a same-owner conservative resume with no
-  commitment increase and no new revision, the old full commitment still held,
+  commitment increase and no new revision (the operating commitment may be lower),
+  the old full commitment still held,
   and every unknown part mapped in unpriced_invocations to an admitted maximum.
   B counts the owner at its full commitment. New admission, increase, revision+1,
   replacement, diagnosis and extension remain blocked until settle yields a known
   total. Missing or unbounded attribution cannot use this exception.
+  For an exhausted owner whose total was unknown at launch, D must checkpoint
+  and exit after settlement without a model call. B must collect/ACK that known
+  checkpoint before a dependent replacement or the next same-owner diagnosis
+  resume; there is no settlement-only or diagnosis launch mode.
 - A late receipt may replace a conservative gap with a lower actual charge.
   B acknowledges reconciled_decrease only with a receipt matching the earlier
   unpriced_invocation ID or wait_id. An unsupported decrease remains refused.
   D retains the invocation/wait settlement evidence in the checkpoint; neither
   side resets cumulative usage or silently releases the old commitment.
+- Diagnosis uses the original's ordinary same-owner resume and a content-free
+  D eligibility/projection API. B's enabled replacement policy derives J-r1,
+  J-r2 and later children under the same root template, one child per immediate
+  original across generations/extensions. The finite root manifest, target_slots
+  and max_concurrency cannot become replacement-count caps. Adapter enablement
+  waits for the concrete D API review and B's increment2b implementation.
 
 Diff-6 runtime decisions: wrapper-only calls reserve immediately after admission,
 before initial renewal or credential re-read. A lease that fails before its CLI
@@ -881,6 +893,19 @@ still match. The ordinary threshold follows await_lease because it prices the
 chosen effective route; a provider wait may precede diagnosis without consuming
 the unit. Rate maxima use the same existing long-context/fast/US-only tariffs as
 receipt valuation, not historical-spend multipliers, with one paid-price table.
+
+Diff-7 runtime decisions: a pending, completed or validated stress unit whose
+binding changed re-reviews at its existing round n, retaining operation_id and
+review_attempt. A completed report under an older binding remains historical;
+only the current re-review can supply writer feedback. An unchanged pending
+unit keeps its partial report and counters. The ordinary threshold is preserved
+from the restored case_budget.ordinary_limit_usd/recovery_config value and never
+replaced by cumulative job commitment. recovery_config.case_budget and the
+coordinator's --case-budget binding describe that ordinary threshold; effective
+case_budget.limit_usd comes only from JobAuthority. A legacy max_cost argument
+is ignored for this new profile. A writer continuation still checks the ordinary
+threshold at its next effective lease; it may exhaust mid-unit without adding a
+second round. These changes grant no new money or extension eligibility.
 
 Increment-2 source-test maintenance: C's exact invalid-runs migration test now
 constructs its pinned target inventory explicitly and separately asserts that

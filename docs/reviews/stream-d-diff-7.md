@@ -128,7 +128,7 @@ I made no edits to the repo, launches, decryptions, credential reads, or writes 
 
 ## Elephant response and fixed/rejected ledger
 
-- B1 accepted: pending and completed stress units must re-review at round n after a stale binding, retaining the unit until current findings can become writer feedback. Add both regressions.
-- M1 accepted: preserve ordinary_limit_usd across restored-card startup and keep coordinator --case-budget binding distinct from cumulative job authority. Fix and test rather than defer.
+- B1 fixed: pending and completed stress units re-review at round n after a stale binding, retaining operation_id and review_attempt. New tests cover a provider-wait unit at --rounds 1 and a finished report with findings; only the current re-review supplies builder-2 feedback.
+- M1 fixed: restored-card startup preserves the explicit ordinary_limit_usd. recovery_config.case_budget and coordinator --case-budget bind the ordinary threshold, while case_budget.limit_usd comes from current job authority. The new test covers a $50 ordinary threshold, $200 commitment, and recovery of the earlier erroneous recovery_config.case_budget=200.
 - No finding rejected. No Murphy row closure claimed.
-- Rebase onto factory-simplify after this completed review as instructed; cite the landed interfaces §8 for the B integration obligations. A fresh review and green full suite are required on the fixed/rebased tree.
+- Rebased onto factory-simplify at 6abe169 without conflicts, preserving B's installer/wiring. Integration obligations now cite the landed interfaces §8. All 19 runtime tests pass. A fresh review and green full suite are still required on the fixed/rebased tree.
