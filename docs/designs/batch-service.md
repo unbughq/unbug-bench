@@ -783,7 +783,13 @@ total and then D runs the read-only diagnosis with the original money owner.
 No diagnosis call is admitted while usage is unknown. A known settled checkpoint
 must reach B's verified collection/ACK before dependent replacement admission;
 that acknowledgment does not wait for the diagnosis result. This uses the
-existing D/B durable boundary hook, not another launcher or a host-side settler.
+existing checkpoint/collect path, not another launcher or a host-side settler:
+if the exhausted owner's total was unknown at launch, D checkpoints and exits
+after settlement without a model call; collection/ACK follows, and diagnosis
+runs on the next ordinary same-owner relaunch. The worker decides this from its
+authenticated restored state and D projection; B adds no mode/config field.
+Unknown-total exhaustion resumes are in the first settlement class; known-total
+ones are in the exhaustion/diagnosis resume class.
 
 Immediately enqueue one replacement when D's eligibility says the original is
 exhausted and did actual model work; never wait for diagnosis. A denied
@@ -798,8 +804,10 @@ API is provided by D and reviewed before adapter enablement.
 
 The manifest roots are templates, not a finite work queue. Its pinned
 replacement_policy:{schema:1,enabled:true} explicitly authorizes derived jobs;
-absent/disabled refuses them. Root job names reserve the terminal -r<positive
-integer> suffix for derived children. Root J yields J-r1, whose one replacement
+absent/disabled refuses them. Increment2b's check_manifest validates the exact
+replacement_policy keys/types {schema:1,enabled:bool}. Root job names forbid the
+terminal -r<digits> suffix, including -r01; derived ordinals are canonical positive
+decimal without leading zeros. Root J yields J-r1, whose one replacement
 is J-r2, and so on, with case-<batch>-<job> case IDs. No root may use that suffix,
 so template lookup and child identity are unambiguous. Each child inherits the
 root's approved source/roles/non-money args and initial requested authority;
@@ -815,9 +823,12 @@ and job_config.install; holder admission additionally requires the journal-bound
 derivation and D eligibility. Do not mutate the frozen manifest/policy jobs map
 or change the existing RAM config shape to represent these jobs.
 
-Increment2b removes check_manifest's current <=len(jobs) restriction and direct
-record['jobs'][derived_id] assumptions from bind/holder/money/installer before
-derived work is enabled. target_slots remains the reporting goal; max_concurrency
+Increment2b removes both check_manifest's and key_holder.policy_load's current
+<=len(jobs) restrictions. Replace direct derived-job lookups in batch.bind,
+key_holder.serve (policy['jobs'][name]), batch_money.channel/authorize and
+job_config.install (record['jobs'][job_id]) with the shared resolver before
+derived work is enabled. Keep manifest.jobs==policy.jobs as the root-map check.
+target_slots remains the reporting goal; max_concurrency
 is a simultaneous-worker bound independent of root count. No hidden chain cap
 comes from manifest job count, replacement count or number of sealed candidates.
 The cumulative batch bound and deadline limit total derived work; capacity and
@@ -828,7 +839,8 @@ Tests: root-only manifest, max_concurrency greater than root count, J→J-r1→J
 deterministic IDs and distinct owners, once per parent despite generation and
 extension replays, actual-work eligibility including denied-zero and zero-cash,
 FIFO/eligible bypass, settlement resume ahead of a blocked replacement, known
-settlement ACK without waiting for diagnosis, same-owner diagnosis/extension,
+settlement checkpoint/exit and collection ACK without waiting for diagnosis,
+then an ordinary same-owner diagnosis relaunch, same-owner extension,
 and refusal at money/deadline. Actual eligibility calls use D's implementation;
 until its concrete adapter and tests pass, derived/diagnosis integration stays
 disabled. This is planned2b scope, not authority granted by increment2.

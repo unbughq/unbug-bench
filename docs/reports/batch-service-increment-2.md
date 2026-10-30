@@ -7,7 +7,8 @@ ends at9b1fcef; increment2 follows it. Parent alone merges.
 Design PASS: docs/reviews/batch-service-design-6.md. Code PASS:
 docs/reviews/batch-service-diff-4.md; the trusted host import blocker from
 diff-3 is fixed and covered by a fresh-process regression. Contract PASS:
-docs/reviews/batch-service-diff-5.md, copied to interfaces-design-12.md.
+docs/reviews/batch-service-diff-5.md, copied to interfaces-design-12.md, and the
+latest replacement/diagnosis refinement PASS in diff-6 / interfaces-design-13.
 The failed contract review and response are preserved in diff-4 and
 interfaces-design-11. No review objections were rejected.
 
@@ -32,10 +33,10 @@ files; that expectation is fixed and its focused test passes.
 - Reviewed conservative unknown-total resume and receipt-backed decrease contract
   in interfaces§8 and the design, including both required live qualifications.
   Settlement resumes precede dependent admissions; exhausted owners settle
-  without a model call. Blocked requests do not block later eligible requests.
+  before any further model call. Blocked requests do not block later eligible requests.
 - D scheduling hook: one queue/launcher, D-owned eligibility and pending-diagnosis
   projection, ordinary same-owner diagnosis resume and deterministic authorized
-  replacement chains. The parent's latest refinement is pending fresh review.
+  replacement chains. The parent's latest refinement passed fresh review.
 
 ## Enablement gates and evidence limits
 

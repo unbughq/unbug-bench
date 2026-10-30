@@ -364,7 +364,13 @@ reads its authenticated restored exhaustion state, settles and checks that the
 total is known before D runs its read-only diagnosis under the existing owner
 and authority. B supplies no settlement-only or diagnosis mode. A known settled
 checkpoint must be durably collected/acknowledged before dependent replacement
-admission; it does not wait for the diagnosis result. A request blocked on money or
+admission; it does not wait for the diagnosis result. If an exhausted owner's
+total was unknown at launch, D checkpoints and exits after settlement without a
+model call; after collection/ACK its next ordinary same-owner resume diagnoses.
+This decision comes from authenticated restored state and D's projection, not a
+B launch mode. Unknown-total exhausted resumes belong to the first (settlement)
+priority class; known-total ones to the exhaustion/diagnosis resume class.
+A request blocked on money or
 an unknown total retains its FIFO position but never blocks later eligible
 requests, including the settlement that can unblock it. Until settlement produces a known total, new
 admission, increased commitment, revision old+1, replacement, diagnosis and
@@ -401,8 +407,11 @@ resume from D's projection and never creates another diagnosis money owner.
 
 The finite manifest jobs map names roots, not a cap on derived work. For an
 enabled replacement policy, root job J derives J-r1, then J-r2 from J-r1, and so
-on; cases are case-<batch>-<derived-job>. Root names may not end in -r<positive
-integer>, so derivations cannot collide with root names. Each immediate original
+on; cases are case-<batch>-<derived-job>. Derived ordinals are canonical positive
+decimal without leading zeros. Root names may not end in -r<digits>, including
+-r01, so derivations cannot collide with root names. Increment2b's check_manifest
+enforces that reserved suffix and exact replacement_policy keys/types
+`{schema:1, enabled:bool}`. Each immediate original
 case gets at most one child across all generations/extensions/replays. Under the
 batch lock record parent case/job, root job, ordinal, child case/job and the
 eligible collected generation in the journal before admission. Replaying that
@@ -415,7 +424,11 @@ the same pure manifest-template resolver; only the holder's verified journal
 derivation plus D eligibility permits admission. Do not insert mutable derived
 jobs into the frozen manifest/policy or change the nine-field RAM config shape.
 `target_slots` is the reporting goal and `max_concurrency` limits simultaneous
-workers, not lineage length; neither is capped by len(manifest.jobs). There is
+workers, not lineage length; neither is capped by len(manifest.jobs). Increment2b
+removes both check_manifest's and key_holder.policy_load's root-count caps and
+replaces direct root-job lookups in batch.bind, key_holder.serve,
+batch_money.channel/authorize and job_config.install with the shared resolver.
+The exact manifest.jobs==policy.jobs root-map check stays. There is
 no replacement-count, manifest-job-count or successful-candidate cap. Cumulative
 money and the absolute deadline bound the chain; normal capacity/retirement
 checks continue to apply. Test J→J-r1→J-r2 with replay of every derivation,
