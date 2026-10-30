@@ -244,10 +244,10 @@ def _settle_leaf(ledger, receipt):
                 or not isinstance(waste.get('event_ids'), list)):
             raise BudgetError('invalid_waste_attribution')
         if waste.get('kind') == 'factory_bug' and row['operation_id'] in waste.get('operation_ids', []):
-            rows = [r for r in ledger['invocation_reservations'].values() if r['operation_id'] in waste['operation_ids']]
-            if all(r['state'] == 'settled' for r in rows):
-                waste['event_ids'] = sorted({i for r in rows for i in r['event_ids']})
-                waste['infrastructure_waste_usd'] = float(usd(_waste_amount(events, waste['event_ids'])))
+            rows = [r for r in ledger['invocation_reservations'].values()
+                    if r['operation_id'] in waste['operation_ids'] and r['state'] == 'settled']
+            waste['event_ids'] = sorted({i for r in rows for i in r['event_ids']})
+            waste['infrastructure_waste_usd'] = float(usd(_waste_amount(events, waste['event_ids'])))
     # Unknown invocations written by the streaming accountant are now covered by
     # this reservation. Historical entries without an invocation_id stay unknown.
     ledger['unpriced_invocations'] = [e for e in ledger.get('unpriced_invocations', [])

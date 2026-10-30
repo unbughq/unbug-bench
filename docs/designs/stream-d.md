@@ -797,3 +797,8 @@ pins each original canonical card hash before applying that exact expected-field
 migration in memory. All saved totals, source cards and recovery/scientific
 decisions remain identical. Neither the captured cards nor the frozen before
 snapshot is regenerated or rewritten.
+The coordinator supplies factory-bug amounts as usd(sum(event_charge(event)))
+over the attributed event IDs, preserving the same valuation through admission.
+Settled rows alone determine derived late-attribution event IDs, even while a
+new replay lease is pending. The input event_ids/amount fields remain part of
+the reviewed schema; they are checked, never taken as a second spend booking.

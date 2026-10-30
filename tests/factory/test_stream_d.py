@@ -287,6 +287,26 @@ class AccountingTests(unittest.TestCase):
         self.assertEqual(summary['infrastructure_waste_usd'], 1.3)
         self.assertEqual(summary['spent_usd'], 0)
 
+    def test_late_event_on_final_lease_while_replay_lease_pending(self):
+        self.path.write_text(json.dumps({'cost': 0, 'calls': 0, 'events': []}))
+        operation = str(uuid.uuid4()); l1, _ = self.reserve(10, operation)
+        p1 = self.receipt(l1, [('a', 4)], final=True); wait1 = self.wait(l1, p1)
+        budget.settle(wait1, work=self.work, ledger_path=self.path)
+        attribution = {'schema_version': 1, 'kind': 'factory_bug', 'id': str(uuid.uuid4()),
+            'diagnosis_sha256': 'd' * 64, 'fix_commit': 'f' * 40, 'fix_attribution_sha256': 'a' * 64,
+            'operation_ids': [operation], 'event_ids': ['a'], 'infrastructure_waste_usd': 4}
+        budget.reclassify_factory_bug(self.path, attribution)
+        l3, _ = self.reserve(10, operation)
+        self.receipt(l1, [('a', 4), ('b', 1)], final=True)
+        self.assertEqual(budget.settle(wait1, work=self.work, ledger_path=self.path), 1)
+        summary = budget.case_spending(self.ledger())
+        self.assertEqual((summary['total_spent_usd'], summary['spent_usd'], summary['infrastructure_waste_usd']), (5, 0, 5))
+        self.assertEqual(budget.settle(wait1, work=self.work, ledger_path=self.path), 0)
+        p3 = self.receipt(l3, [('c', 2)], final=True)
+        budget.settle(self.wait(l3, p3), work=self.work, ledger_path=self.path)
+        summary = budget.case_spending(self.ledger())
+        self.assertEqual((summary['total_spent_usd'], summary['spent_usd'], summary['infrastructure_waste_usd']), (7, 0, 7))
+
     def test_idless_and_malformed_inputs_fail_closed_without_raw_exceptions(self):
         with budget.ledger_transaction(self.path) as ledger:
             ledger['events'].append({'cost': 1, 'role': 'writer'}); ledger['cost'] += 1
