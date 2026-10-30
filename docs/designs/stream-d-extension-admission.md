@@ -42,8 +42,9 @@ callers pass nothing and retain ordinary admission. No production caller is
 added in this increment. A non-null value is permitted only for `role='writer'`,
 with receipt actor `writer`, receipt round equal to the proposal round and name
 exactly `builder-<round>`. Rounds must be positive strict integers. A first-admission
-receipt must have neither an `operation_id` key nor a `phase` key, even with a
-null value. In particular, pending, completed and validated receipts refuse as
+receipt must contain none of the admission-owned keys `schema_version`,
+`operation_id`, `phase`, `lease_id`, `invocation_id`, `resumed_from_wait` or
+`extension_id`, even with a null value. In particular, pending, completed and validated receipts refuse as
 `extension_reservation_mismatch` before a lease. The seam always generates a
 fresh writer operation UUID; it never adopts an earlier ordinary writer's
 operation or spending. A preexisting active extension also refuses; continuation
@@ -63,11 +64,14 @@ job-authority and history checks. In addition:
   the entry's evidence map. Reuse `diagnosis._input_bytes` for no-follow regular
   reads and ancestor checks, rather than introducing another file reader.
 
-Malformed proposals become `BudgetError('extension_reservation_mismatch')`;
+Malformed proposal envelopes become `BudgetError('extension_reservation_mismatch')`;
+an invalid entry snapshot retains the existing `extension_snapshot_invalid` label.
 changed case/evidence bytes become `extension_snapshot_changed`. Existing
 eligibility and authority errors retain their labels. For evidence reads,
 `FileNotFoundError`, the `_input_bytes` unsafe-path/nonregular `ValueError`
-cases and `OSError` with `errno.ELOOP` all become `extension_snapshot_changed`.
+cases and `OSError` with `errno.ELOOP`, `errno.ENOTDIR` or `errno.ENXIO` all become
+`extension_snapshot_changed`. ENOTDIR covers an evidence parent replaced by a
+file; ENXIO covers a socket/nonregular object rejected by open.
 ELOOP covers a leaf symlink appearing between the ancestor check and no-follow
 open. Other filesystem failures, including permission denial and EIO, propagate
 as infrastructure, as in the passed diagnosis correction; they are not converted
@@ -157,10 +161,11 @@ only the CLI/transport is substituted. No live qualification is claimed.
   present before the callback and CLI, and contain the same round/operation/ID.
 - Wrong role, name, round, extra proposal keys, wrong exhaustion, changed source
   generation, active history, changed case and missing/changed evidence refuse
-  before any new lease or reservation. Receipts containing `operation_id` or
-  `phase` refuse `extension_reservation_mismatch`, including a pending ordinary
+  before any new lease or reservation. Receipts containing any admission-owned
+  key listed above refuse `extension_reservation_mismatch`, including a pending ordinary
   writer operation already bound to a settled reservation and null-valued keys.
-  Symlinked/nonregular evidence and an injected no-follow-open ELOOP refuse
+  A malformed entry keeps `extension_snapshot_invalid`. Symlinked/nonregular
+  evidence, a parent replaced by a file, and injected open ELOOP/ENXIO refuse
   specifically `extension_snapshot_changed`. Inject ELOOP only at the read
   boundary, while exercising the real reader for actual symlink/FIFO controls.
   Assert unchanged case/evidence/history/round/attack receipt and zero callbacks.

@@ -98,7 +98,7 @@ This review covers design readiness only, at `4b64541`, from reading the code at
 
 ## Elephant response
 
-*(to be completed by the elephant)*
+Accepted. The detailed resolution follows.
 
 ## Elephant resolution
 
