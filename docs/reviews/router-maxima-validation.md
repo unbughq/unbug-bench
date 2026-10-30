@@ -123,3 +123,36 @@ finding was rejected. No merge, push, deployment or real model/case run occurred
 Current rotation packages remain unqualified because
 their non-Claude routes have no enforceable bound; B's separately authorized
 practice-case exam remains required for production qualification.
+
+
+## Rebase onto cfe616f: terminal validation
+
+The integration now includes D increments 2/3a and B's money/status/collection
+journal changes from `cfe616fabce8dafeb85c5e0c0c90c1d61b44d9b9`. Conflict
+resolutions preserve both sides; the only new production wiring replaces D's
+empty enforcement inventory with the exact validated Lease maximum. Details
+and cross-stream scope are in the final router.md integration note.
+
+Fresh Claude Opus 5.5 goldfish review: `router-maxima-diff-5.md`, code PASS,
+zero Blockers and zero Majors. No blocking finding was rejected. The review
+correctly recorded the full suite as pending at review time; it is now complete.
+
+`uv run --with numpy --with scipy python -B tests/run.py` PASSED on
+`81d064f1413e8482231c98a68a25165a11815ab0`: **144 scripts, 0 failed, exit 0**.
+Started 2026-10-30T04:28:15.106402Z; finished 2026-10-30T04:45:03.690271Z.
+Complete log: `router-maxima-full-81d064f.log.gz`; command, tested SHA, base,
+timestamps, terminal status, script count and both SHA-256 hashes:
+`router-maxima-full-81d064f.json`. Focused checks also passed: maxima17,
+D runtime21, invalid-run34, launch manifest2. Subsequent changes are only review,
+validation and log records; factory/tests/bin/tools remain byte-identical to
+the reviewed and tested implementation.
+
+The native Linux probe fixture still describes its historical 6abe169-based
+source hashes; it was not rerun or relabelled for this rebase. Current evidence
+for the D/runtime integration is the new actual-policy/gate/accountant test with
+a mocked process boundary and the full offline suite, not a live CLI qualification.
+D now reserves `Lease.max_usd` after `valid_lease` checks, rounded upward to nine
+places, and retains invocation IDs, lease binding, process-start tracking and
+settlement/replay semantics. B/D sizing, other-route enforcement, drained rollout
+and the separately authorized real practice qualification remain prerequisites.
+No merge, push, deployment, real model/case launch or Murphy-row closure occurred.

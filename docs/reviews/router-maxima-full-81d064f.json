@@ -1,0 +1,13 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "tested_sha": "81d064f1413e8482231c98a68a25165a11815ab0",
+  "integration_base": "cfe616fabce8dafeb85c5e0c0c90c1d61b44d9b9",
+  "started": "2026-10-30T04:28:15.106402Z",
+  "status": "passed",
+  "finished": "2026-10-30T04:45:03.690271Z",
+  "exit_code": 0,
+  "log_sha256": "226d26040141dec6f41a8cdfbcfc89bfecbc696328c4f03a385858b31f345bf0",
+  "script_count": 144,
+  "failed_scripts": 0,
+  "archived_log_sha256": "9fba322cdefe4c5ab9a0e3d5fe181ff7c134910d7ab9212217abfabe0d16ba29"
+}
