@@ -364,6 +364,70 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             return self.helper(c, operation, identity)
         self.retry_after(patch.object(dispatch, 'helper', side_effect=helper), ValueError)
 
+    def test_non_ok_prepare_response_is_retryable(self):
+        def helper(c, operation, identity):
+            response, raw = self.helper(c, operation, identity)
+            if operation == 'prepare': response['status'] = 'input_invalid'
+            return response, raw
+        self.retry_after(patch.object(dispatch, 'helper', side_effect=helper), RuntimeError)
+
+    def test_wrong_prepare_copy_digest_is_retryable(self):
+        def helper(c, operation, identity):
+            response, raw = self.helper(c, operation, identity)
+            if operation == 'prepare': response['inputs_sha256'] = 'f' * 64
+            return response, raw
+        self.retry_after(patch.object(dispatch, 'helper', side_effect=helper), RuntimeError)
+
+    def test_raw_answer_permission_failure_is_retryable(self):
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('factory_bug_held')
+        self.resume()
+        read = diagnosis._input_bytes
+        def unreadable(path, base):
+            if path.name.startswith('raw-bytes-'): raise PermissionError('authored unreadable retained answer')
+            return read(path, base)
+        self.retry_after(patch.object(diagnosis, '_input_bytes', side_effect=unreadable), PermissionError)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_decision_permission_failure_is_retryable(self):
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('factory_bug_held')
+        self.resume()
+        read = diagnosis._input_bytes
+        def unreadable(path, base):
+            if path.name == 'decision.json': raise PermissionError('authored unreadable decision')
+            return read(path, base)
+        self.retry_after(patch.object(diagnosis, '_input_bytes', side_effect=unreadable), PermissionError)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_history_permission_failure_is_retryable(self):
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('factory_bug_held')
+        self.resume()
+        read = Path.read_text
+        def unreadable(path, *args, **kwargs):
+            if path.name == 'factory-bug-resumes.json': raise PermissionError('authored unreadable history')
+            return read(path, *args, **kwargs)
+        self.retry_after(patch.object(Path, 'read_text', unreadable), PermissionError)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_predecessor_audit_mismatch_is_infrastructure_even_if_retrying_audit_succeeds(self):
+        self.freeze()
+        raw = b'authored predecessor'
+        audit_path = self.parent / ('audit-bytes-' + hashlib.sha256(raw).hexdigest())
+        audit_path.write_bytes(b'corrupt audit bytes')
+        def helper(c, operation, identity):
+            result = self.helper(c, operation, identity)
+            if operation == 'prepare':
+                (task.ROOT / c.case_id / identity / 'output/result.json').write_bytes(raw)
+            return result
+        audit = dispatch.audit
+        def repaired_after_first_error(c, identity, response, raw):
+            try: return audit(c, identity, response, raw)
+            except dispatch.InputVerificationError:
+                audit_path.write_bytes(raw)  # Isolate the first callback's classification.
+                raise
+        with patch.object(dispatch, 'helper', side_effect=helper):
+            self.retry_after(patch.object(dispatch, 'audit', side_effect=repaired_after_first_error),
+                             dispatch.DiagnosisTaskCleanupError)
+
     def test_reset_transport_failure_is_retryable(self):
         def helper(c, operation, identity):
             if operation == 'reset': raise ValueError('authored reset helper failure')
@@ -451,6 +515,42 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             self.assertEqual(validate(correct), correct)
             wrong = {**correct, 'factory_bug': None if outcome == 'factory_bug' else value['factory_bug']}
             with self.assertRaises(budget.BudgetError): validate(wrong)
+
+    def test_long_model_evidence_path_is_malformed_then_repaired(self):
+        def answer(c, cwd, callback):
+            manifest = json.loads((self.parent / 'input.json').read_text())
+            result = self.result(manifest)
+            if len(self.calls) == 1: result['evidence'][0]['path'] = 'x' * 300
+            (cwd / 'result.json').write_text(json.dumps(result))
+        self.answer = answer
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('factory_bug_held')
+        rows = json.loads((self.parent / 'attempts.json').read_text())['attempts']
+        self.assertEqual([(r['kind'], r['status'], r['error']) for r in rows],
+                         [('judgment', 'malformed', 'schema'), ('repair', 'valid', None)])
+        self.assertEqual(len(self.calls), 2)
+
+    def test_invalid_evidence_names_are_rejected_before_any_filesystem_probe(self):
+        manifest = self.freeze()
+        for name in ('x' * 300, 'é' * 200, '/'.join(['x' * 200] * 6), 'bad\x00name'):
+            with self.subTest(name_bytes=len(name.encode())):
+                result = self.result(manifest); result['evidence'][0]['path'] = name
+                with patch.object(Path, 'is_symlink', side_effect=AssertionError('model path reached filesystem')), \
+                     patch.object(Path, 'is_file', side_effect=AssertionError('model path reached filesystem')):
+                    with self.assertRaisesRegex(budget.BudgetError, '^diagnosis_result_invalid$'):
+                        diagnosis.validate_result(result, case=self.c.case_id, generation=manifest['generation'],
+                                                  evidence_root=self.parent / 'inputs')
+
+    def test_valid_frozen_evidence_read_io_failure_is_infrastructure(self):
+        import errno
+        manifest = self.freeze(); result = self.result(manifest)
+        read = Path.read_bytes
+        def failed(path):
+            if path == self.parent / 'inputs/ledger.json': raise OSError(errno.EIO, 'authored storage I/O failure')
+            return read(path)
+        with patch.object(Path, 'read_bytes', failed):
+            with self.assertRaises(OSError):
+                diagnosis.validate_result(result, case=self.c.case_id, generation=manifest['generation'],
+                                          evidence_root=self.parent / 'inputs')
 
     def test_partial_prepare_cleanup_is_audit_only_and_keeps_pending_operation(self):
         def interrupt(c, cwd, callback):

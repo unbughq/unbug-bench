@@ -383,8 +383,11 @@ def invoke(c, r, parent, manifest, model, routes, templates, value):
                 invocation = {key: reservation[key] for key in ('lease_id', 'invocation_id', 'route', 'pool')}
                 if invocation not in row['invocations']: row['invocations'].append(invocation)
                 atomic_json(parent / 'attempts.json', value)
-                response, raw = helper(c, 'collect', identity)
-                audit(c, identity, response, raw)
+                try:
+                    response, raw = helper(c, 'collect', identity)
+                    audit(c, identity, response, raw)
+                except Exception:
+                    raise DiagnosisTaskCleanupError('predecessor task audit failed') from None
                 response, _ = helper(c, 'reset', identity)
                 if response['status'] != 'ok': raise RuntimeError('task reset failed')
 

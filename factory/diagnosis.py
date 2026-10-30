@@ -181,6 +181,10 @@ def validate_result(value, *, case, generation, evidence_root):
             path = PurePosixPath(name)
             if path.is_absolute() or '..' in path.parts or path.as_posix() != name: raise ValueError()
             target = root / name
+            # Model-authored names must not turn ENAMETOOLONG into a paid retry.
+            # Use conservative Unix limits before any filesystem probe.
+            if ('\x00' in name or any(len(os.fsencode(part)) > 255 for part in path.parts) or
+                    len(os.fsencode(target)) > 1023): raise ValueError()
             if any((root.joinpath(*path.parts[:i])).is_symlink() for i in range(len(path.parts) + 1)):
                 raise ValueError()
             if (not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != item['sha256'] or

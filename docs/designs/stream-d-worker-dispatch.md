@@ -637,6 +637,14 @@ The history initializer writes outside its verification handler. Driver
 qualification is retained only on the private run context, not as a new public
 scorecard field.
 
+Diff-27 correction: model-supplied evidence names are checked lexically before
+filesystem access: no NUL, each component at most 255 encoded bytes, and the
+full frozen evidence path at most 1023 encoded bytes (a conservative Unix bound).
+These malformed citations go to schema repair on every supported Python version;
+real I/O failures while reading valid frozen evidence remain infrastructure.
+Predecessor audit failures use the same infrastructure classification as orphan
+and interruption audits, even when a subsequent audit succeeds.
+
 The controls in `test_stream_d_dispatch.py` use the saved practice bytes and
 5813be ledger through real snapshot, reservation and settlement functions.
 Answers, release/job envelopes and failures are authored; accounts/root commands
