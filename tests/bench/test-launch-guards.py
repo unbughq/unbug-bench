@@ -429,13 +429,20 @@ exit "$status"
                                     start_new_session=True)
             if sig:
                 proc.stdin.write(IDENTITY); proc.stdin.flush(); proc.stdin.close(); proc.stdin = None
-                deadline = time.monotonic() + 5
-                while not list(state.glob("vm-*/polled")):
-                    assert proc.poll() is None, "launcher exited before signal test"
-                    assert time.monotonic() < deadline, "launcher never polled"
-                    time.sleep(0.02)
-                os.kill(proc.pid, sig)
-                out, err = proc.communicate(timeout=30)
+                # Wait for the actual monitor event; release preparation can
+                # take longer than five seconds under concurrent suite load.
+                deadline = time.monotonic() + 30
+                try:
+                    while not list(state.glob("vm-*/polled")):
+                        assert proc.poll() is None, "launcher exited before signal test"
+                        assert time.monotonic() < deadline, "launcher never polled"
+                        time.sleep(0.02)
+                    os.kill(proc.pid, sig)
+                    out, err = proc.communicate(timeout=30)
+                finally:
+                    if proc.poll() is None:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                        proc.communicate()
             else:
                 try:
                     out, err = proc.communicate(IDENTITY, timeout=60)

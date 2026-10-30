@@ -80,7 +80,7 @@ class ManifestTests(unittest.TestCase):
         expected_worker |= {'factory/launch_manifest.py', 'factory/restore_sync.py',
                             'factory/runner_supervisor.py', 'factory/batch.py',
                             'factory/model_router.py', 'factory/job_authority.py',
-                            'factory/batch_money.py', 'factory/job_config.py',
+                            'factory/batch_money.py', 'factory/job_config.py', 'factory/batch_service.py',
                             'factory/control-recipient.txt',
                             'factory/collection.py', 'factory/freshness_retrieval.py',
                             'factory/independent_review.py', 'factory/invalid-runs-compat.json'}
