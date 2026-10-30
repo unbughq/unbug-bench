@@ -1898,10 +1898,13 @@ Change.
   default, and the maximum stays. With the real $50 Claude maximum, one blip
   without usage now costs one request's hold, not the whole ordinary budget.
   Receipts with no gate snapshot (synthetic reconciliation leaves) keep the
-  maximum. Evidence without final usage never lowers an existing estimate. A
-  replayed or stale receipt keeps the larger charge, so only a final receipt
-  can lower it, through `reconciled_decreases` (the provenance B's collection
-  requires). The row's current charge counts every event already bound to
+  maximum. Once a reservation is estimated, its charge is a ceiling, and
+  evidence without final usage never moves it, up or down. Only booked usage
+  above the charge raises it, with a zero gap. So an estimate cannot grow
+  between two collections, and a final receipt's release equals the drop
+  from the last ACK. Only a final receipt can lower the charge, through
+  `reconciled_decreases` (the provenance B's collection requires). B's
+  per-invocation release check is unchanged. The row's current charge counts every event already bound to
   it: its `event_ids` plus ledger events tagged with its lease and
   invocation. So a late booking followed by a stale replay keeps the total,
   and the decrease record uses that same charge. A forged first snapshot is not defended against. The receipt
@@ -1920,15 +1923,6 @@ Change.
   positive release, so an equal or higher final charge used to leave a
   collection incident that no later generation could clear. Both charges
   are bound events plus the open estimate.
-- `batch_accounting.collection_facts` (B-owned, two lines): an estimate can
-  grow between two ACKs, for example when a resume reconciles a row whose
-  receipt file is gone and charges the remaining maximum. A later final
-  receipt then releases more than the prior ACK's estimate. Collection used
-  to drop that record and refuse the decrease forever. It now keeps every
-  valid record for an invocation the prior ACK estimated, and credits each
-  one up to that ACK's estimate. Bound events are append-only, so the drop
-  from the prior ACK is at most its estimate, and the credit is never larger
-  than before.
 - `run.py` `main`: in the existing `if a.batch_release_sha256:` block, after
   the release digest check, set `a.max_cost = None`. This is before the card
   is built. An explicit `--max-cost` on a
@@ -2016,11 +2010,13 @@ Only model outputs and the gate's unknown-request count are authored.
   A refused generation with an estimated row goes through the holder's
   incident recovery. Equal and higher final charges clear it. A lower settled
   charge without a record still does not extend.
-- **Estimate grown after an ACK**
-  (`test_batch_holder.py::test_estimate_grown_after_ack_then_final_decrease_collects`).
-  The first ACK sees a $4 gate estimate, a resume without the receipt file
-  raises it to $8, and a final receipt releases $8. The second holder
-  collection credits $4 and accepts the lower total.
+- **Estimate frozen across a resume**
+  (`test_batch_holder.py::test_estimate_frozen_across_resume_then_final_decrease_collects`).
+  The first ACK sees a $4 gate estimate and a second call's $10 estimate. A
+  resume without the receipt file keeps the $4, the final receipt releases
+  $4, and the second holder collection accepts it. Negative control: the
+  second call's estimate lowered without a final receipt is refused with
+  `unsupported_decrease`.
 - **Factory jobs carry no paid cap.** A `run.main` subprocess harness (same
   pattern as the existing main test) runs with an authored batch-release file
   (only its digest is checked) and an authored job installer. Both are
@@ -2039,7 +2035,7 @@ Only model outputs and the gate's unknown-request count are authored.
   binding key. A new occurrence fails the test until someone classifies it.
 
 Rows. Row 8 closes with the no-paid-cap and search-exam tests. Row 21 closes
-with the settlement, late-booking, incident and grown-estimate tests. Both run on real saved ledger and case bytes
+with the settlement, late-booking, incident and frozen-estimate tests. Both run on real saved ledger and case bytes
 through the real runtime, router and ledger code. Row 8 closes for batch
 jobs only. Non-batch runs and the exam owner keep their cap by design. Row
 21 closes for reservation-bound calls. An unbound legacy marker, like the
@@ -2057,7 +2053,12 @@ receipts, or read saved proof records. A local draft of the
 also covers a concurrent sibling call: it streams while the first call fails
 with unknown usage, and it finishes without `money_wait`.
 
-Design review 6 responses (Codex, FAIL). B1: accepted. Collection credits a
+Design review 7 responses (Codex, FAIL). B1: accepted. The round-6
+collection change is withdrawn, because one call's release could cover
+another call's drop. Instead an estimated charge never moves on non-final
+evidence, so it cannot grow between collections, and B's check is unchanged.
+
+Design review 6 responses (Codex, FAIL; fix superseded by review 7). B1: accepted. Collection credits a
 release up to the prior ACK's estimate, so a grown estimate's final decrease
 collects. Fixed at the collection check because any non-final evidence
 without a gate snapshot can raise an estimate.
