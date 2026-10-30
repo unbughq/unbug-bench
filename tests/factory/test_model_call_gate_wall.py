@@ -4,6 +4,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT/'factory'), str(ROOT/'bin')]
 import errno
+import gzip
+import json
+import shlex
 import socket
 import shutil
 import tempfile
@@ -53,6 +56,32 @@ class WallTests(unittest.TestCase):
         with socket.socket() as sock:
             with self.assertRaises(OSError) as error: sock.bind(('127.0.0.1', port))
         self.assertEqual(error.exception.errno, errno.EADDRINUSE)
+
+    def test_saved_real_linux_wall_proof(self):
+        record=json.loads(gzip.decompress((ROOT/'tests/factory/fixtures/router-gate-wall-linux.json.gz').read_bytes()))
+        proof=record['probe'];self.assertEqual((record['status'],proof['status']),('passed','passed'))
+        self.assertEqual(proof['cleanup_errors'],[]);self.assertEqual(len(proof['checks']),21)
+        self.assertEqual(record['deletion_completion']['targetId'],record['worker_id'])
+        self.assertEqual(record['deletion_completion']['status'],'completed')
+        self.assertTrue(record['absent_from_inventory'])
+        self.assertLess(record['cost_summary']['conservative_usd_through_confirmed_deletion'],.10)
+        allowed={'bench-allow-before','service-allow-before','gate-reached-with-rule','bench-allow-during','service-allow-during'}
+        for check in proof['checks']:self.assertEqual(check['reached'],check['name'] in allowed)
+        base=proof['rules']['gateprobe-a']
+        ports=[c['port'] for c in proof['checks'] if c['name']=='gate-reached-with-rule']
+        self.assertEqual(len(ports),2)
+        for exceptional,port in zip((False,True),ports):
+            active=proof['rules']['active-exceptional-'+str(exceptional)]
+            self.assertEqual(active['ip6tables'],base['ip6tables'])
+            self.assertEqual(active['iptables'][:1]+active['iptables'][2:],base['iptables'])
+            rule=shlex.split(active['iptables'][1]);comment=rule[rule.index('--comment')+1]
+            self.assertRegex(comment,r'^factory-gate:[0-9a-f]{32}$')
+            self.assertEqual(rule,['-A','factory-gateprobe-a','-d','127.0.0.1/32','-o','lo','-p','tcp',
+                '-m','owner','--uid-owner',str(proof['uids']['gateprobe-a']),'-m','tcp','--dport',str(port),
+                '-m','comment','--comment',comment,'-j','ACCEPT'])
+        for used in proof['cap_used']:
+            self.assertTrue(used['closed']);self.assertEqual(used['validated_requests'],1)
+            self.assertEqual(used['unknown_requests'],0)
 
     def test_runtime_passes_each_isolated_cli_user_to_the_real_gate(self):
         with tempfile.TemporaryDirectory() as temporary:
