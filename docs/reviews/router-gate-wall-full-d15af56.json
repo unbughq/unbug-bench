@@ -1,0 +1,11 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "tested_sha": "d15af56fbdcc07c825943425969fca325dbe3cb9",
+  "started": "2026-10-30T06:22:14.420019Z",
+  "status": "passed",
+  "finished": "2026-10-30T06:38:33.389159Z",
+  "exit_code": 0,
+  "log_sha256": "7c0d4380b51bf806c122e0fb9e373ca5b189577794bf2a0ef37ebda1560b0992",
+  "archived_log": "docs/reviews/router-gate-wall-full-d15af56.log.gz",
+  "archived_log_sha256": "26fa39089a348bd9392364c496d4c010d70dcf7488e5adcbc552fb847350bd45"
+}

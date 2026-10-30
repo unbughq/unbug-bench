@@ -4,7 +4,7 @@ Implementation: e95d0253e4385dc46b458f8616b77c9f13f3b6f2 on
 t3/router-maxima-rounding. Production changes only the gate's exact-port
 lifecycle and the runtime's user argument; run.pilot_wall is unchanged.
 
-Focused unit checks: seven wall tests, 21 maxima tests and 36 router tests pass.
+Focused unit/artifact checks: eight wall tests, 21 maxima tests and 36 router tests pass.
 The wall tests exercise pilot, pilot-strong and pilot-easy through the actual
 runtime/gate with the process and firewall boundaries faked. They cover exact
 argv, concurrent port ownership, cancellation-independent deletion, cleanup
@@ -50,3 +50,11 @@ separately.
 Murphy new-router-gate-wall-1 is closed with the unit tests and real evidence,
 subject to fresh diff review. Full-suite validation remains pending for the
 final reviewed commit and will be recorded with its terminal result.
+
+## Subsequent terminal suite record
+
+The frozen reviewed SHA d15af56fbdcc07c825943425969fca325dbe3cb9 passed
+145 scripts, 0 failed, exit 0, finishing 2026-10-30T06:38:33.389159Z.
+See router-gate-wall-full-d15af56.json and its SHA-256-linked gzip log.
+The original review-time pending statement remains historical. No production
+source changed during the suite. The fresh diff review accepts the Murphy closure.
