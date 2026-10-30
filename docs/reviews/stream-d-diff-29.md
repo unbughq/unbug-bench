@@ -167,3 +167,14 @@ states first-admission intent, while the tested owned-key refusal proves the
 observable non-adoption contract. No independently redundant guard-killing test
 is claimed or required. No finding is rejected. Active continuation, B2, M5 and
 M6 remain open; no Murphy row closes and no activation is enabled.
+
+## Elephant full-suite result
+
+The prescribed `uv run --with numpy --with scipy python -B tests/run.py`
+completed on the reviewed `407c636` source: **152 scripts, 0 failed**, exit 0.
+Launch guards passed; no isolated rerun was needed. Log:
+`/tmp/stream-d-admission-suite.log`, SHA-256
+`8ae914061629390a6acdbdf95954e4096a85519a8e9e7b59e71b16b22e9743a2`.
+Together with fresh Claude diff review 29, this passes the unwired first-admission
+increment. N1 is still scheduled for the next small correction before wiring;
+the open continuation/scientific evidence/activation boundaries are unchanged.
