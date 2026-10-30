@@ -43,8 +43,13 @@ def check_manifest(record):
         for key in ('max_concurrency', 'target_slots'):
             if type(record[key]) is not int or not 1 <= record[key] <= len(jobs): raise ValueError()
         if not re.fullmatch('age1[0-9a-z]{58}', record['restore_recipient']): raise ValueError()
+        if 'replacement_policy' in record:
+            replacement = record['replacement_policy']
+            if (not isinstance(replacement, dict) or set(replacement) != {'schema', 'enabled'} or
+                    type(replacement['schema']) is not int or replacement['schema'] != 1 or
+                    type(replacement['enabled']) is not bool): raise ValueError()
         for name, job in jobs.items():
-            if (not re.fullmatch('[a-z0-9-]+', name) or job['mode'] != 'batch' or
+            if (not re.fullmatch('[a-z0-9-]+', name) or re.search(r'-r[0-9]+$', name) or job['mode'] != 'batch' or
                     job['case'] != 'case-' + record['id'] + '-' + name or
                     type(job['max_calls']) is not int or job['max_calls'] <= 0 or
                     amount(job['requested_total_usd']) <= 0 or 'max_cost' in job):

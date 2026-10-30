@@ -845,3 +845,134 @@ then an ordinary same-owner diagnosis relaunch, same-owner extension,
 and refusal at money/deadline. Actual eligibility calls use D's implementation;
 until its concrete adapter and tests pass, derived/diagnosis integration stays
 disabled. This is planned2b scope, not authority granted by increment2.
+
+## Increment2b.1: verified collection journal and draft D queue adapter
+
+Problem: D now supplies concrete draft projection signatures, but no durable
+queue binds those facts to the exact collected generation. Implement that core
+before holder/restore enablement. This increment issues no money transitions,
+submits no launch and changes no VM state. It builds toward rows6,27,28,51 and
+the D lifecycle seam; it closes none without the later real VM/Boat exam.
+
+Add factory/batch_service.py, using existing batch_money.manifest/locked,
+collection.verify, transfer.digest and registry.atomic_json. No new dependency,
+daemon, CLI launcher or spend ledger. Add it to TRUSTED_FILES so eventual host
+imports stay fingerprinted, and the explicit independent worker-file test list.
+The existing factory/*.py worker inventory already includes it.
+
+`collect(policy, root, home, job, directory)` verifies the manifest/release via
+batch_money.manifest and resolves the root or already-journal-derived job. It
+copies only launch_manifest.collection_files(case) members to a private stage
+under batches/<batch>/generations/<case>/. Required: the exact card-bound archive,
+scorecard and casekey. Refuse symlinks/nonregular files, foreign names/case/release,
+checkpoint_error, missing key, conflicting generations or hash mismatch. Hash
+each copied member, fsync it, then reuse collection.verify on the staged copy;
+require verify to return exactly {case}. A statement_cipher_sha256 or
+public_search.cipher_sha256 reference requires statement.age or search.age,
+respectively, and its bytes must match; a missing referenced file refuses.
+statement_sha256 is plaintext and is never compared to ciphertext. Preserve
+unreferenced companions too, but exclude the alternative archive not bound by
+this card. Without an archive field, the unique archive matching card.sha256 is
+the bound archive. Ignore other cases in the source directory; never rewrite sources.
+No decryption.
+
+Publish by fsynced atomic rename to <generation>/ with manifest.json containing
+schema1,batch,job,case,generation,batch_release_sha256 and a files map of filename
+to {sha256,size}. This is a local verified snapshot, not an R2/durability or money
+ACK. An existing generation must match the manifest and all member bytes exactly;
+changed card/key/companion bytes at the same generation refuse. A rename-before-
+journal crash is repaired by replaying collect. No current pointer is written.
+
+Under the same batch lock, journal.json has schema1,batch,manifest_sha256,
+entries,derivations,queue,next_sequence. Entries keyed case+'/'+generation have
+job,case,generation,manifest_sha256,state:'pending',facts:null. facts is null or
+{exhaustion:bool,actual_model_work:bool,pending_projection:None|projection}; null
+alone means unplanned, so a legitimate None projection still replays. They point to
+the immutable verified snapshot; projection never arrives as a caller argument.
+Re-read/verify snapshot manifest+members on replay/planning. Bad state/manifest
+or missing/corrupt snapshot refuses; no silent reset of existing state.
+This concrete schema supersedes the earlier illustrative journal shape for this
+increment; fresh launch/operation fields wait for the holder addendum.
+
+Implement pure `resolve_job(manifest, job_id)` alongside this queue core: return
+the approved root template with deterministic case ID, root ID and ordinal.
+Every collect/plan resolves root jobs too. It validates the reviewed
+replacement-policy/suffix grammar and supports J-rN
+with no count cap; the finite map is roots only. It grants no admission. Actual
+collection of a derived job additionally requires its recorded parent derivation.
+Do not yet change holder/bind/installer or the fresh-only money authorizer: their
+derived-job and source-transition restrictions remain until the complete2b/3
+integration addendum. The final shared resolver replaces their listed root-only
+lookups before enablement; no copied replacement-eligibility logic.
+
+`plan(policy, root, home, case, generation, now=None)` loads only that journal's verified
+snapshot card. Production D adapter gate is a tracked False constant, not an
+environment flag. While false, plan returns diagnosis_unavailable without
+importing D or creating requests. Behind it, lazily import diagnosis and call
+exactly exhaustion(card), actual_model_work(card), pending_projection(card).
+Require strict bool predicates, None or the exact schema1/pending/bool projection,
+and unchanged input. Exceptions refuse this entry. D's host module and local
+dependencies must enter the trusted import closure in the activation review;
+this increment never loads that draft module in production.
+
+Use a pure projection wrapper and queue transition for authored contract tests;
+they cannot issue money or launch. Persist D's returned facts bound to the entry
+key. Queue a child iff exhaustion AND actual_model_work are true and a present
+pending projection does not say replacement_eligible:false. Queue an ordinary
+same-owner resume when pending_projection is present or the exhausted total is
+unknown as below. This combines D's API
+answers; B never inspects events/tokens/receipts to recreate eligibility. Preserve
+the original API projection verbatim in the journal. replacement_eligible:true
+with either predicate false refuses as a D contract violation. An exhausted
+parent whose case_budget.total_spent_usd is null or absent always gets the
+same-owner settlement resume, even when pending_projection is None. This is the
+only total field B reads; missing case_budget or total is unknown, never zero.
+Stored facts win on
+replay: return them and existing queue metadata without calling D or overwriting
+facts. Launch state stays pending; facts, derivation and requests are persisted
+atomically in one journal replacement.
+
+Derivations keyed immediate parent case bind parent job/case, root job, ordinal,
+child job/case and eligible generation. Compute child ordinal parent+1 and persist
+before requests. Replays return the same child across generations/extensions;
+an already-claimed child ID or changed lineage refuses. Queue dedup keys are
+replacement/<parent-case> and resume/<case>/<generation>; record kind, job, case,
+source_generation (null for child), owner_job, parent_case, sequence and reason.
+Unknown-total parent: enqueue child but mark unknown_total; same-owner resume
+has settlement priority. Known-total pending diagnosis gets exhaustion priority.
+Only distinguish null/known total for scheduling; do not value usage or validate
+financial coverage here. Monetary admission/retirement/R2 ACK remain unverified,
+so this core exposes ordered queue metadata only, no ready/dispatch/grant API.
+Future admission checks those proofs before launch.
+Under interfaces §8, unknown legacy/unpriced usage without mapped admitted maxima
+refuses conservative admission; the queue alone cannot authorize its resume.
+Only D's authenticated coverage within the held commitment can admit it, and
+settlement must produce a known checkpoint before any dependent model work.
+No extra attempt or call-count cap is introduced to handle missing coverage.
+Order settlement, replacement, exhaustion resume, extension, ordinary; FIFO
+sequence survives restart. Blocked
+entries retain their order and cannot prevent later eligible dispatch in that
+future dispatcher. Deadline-expired planning refuses new requests using injected
+now or time.time(), as batch_money.authorize does. Cumulative calls are telemetry;
+no call-count admission rule is added. Money/deadline and per-invocation limits
+remain the bounds.
+
+Tests: saved public card metadata/ciphertext, clearly labelled authored batch
+wrong case/release, symlink, immutable collision, interrupted publication/journal
+repair, journal restart and generation binding. A recording draft API proves
+all three signatures, purity/schema refusal, absent projection and denied-zero
+answer handling; it tests the adapter contract, not D's eligibility predicate.
+Also test unreferenced companion ciphertext, unbound archive exclusion, unknown
+exhausted total with absent projection, and replay without re-calling a changed
+draft module. Gate-off must not import or call draft D. Root-only manifest resolves a two-child
+chain; replay at another generation creates no second child, lineage collisions
+refuse, source config shape is untouched, queue priorities/dedup and deadline
+hold. Run actual D implementation once its reviewed increment lands; absence
+now is an explicit enablement blocker, never a passing D integration claim.
+Name checks for contradictory eligible:true/false predicates and deadline-expired
+plan with injected now. Neither can create a request.
+
+Delete nothing from legacy live controllers yet; this replaces no launch path.
+Full suite, fresh diff review and parent merge precede further integration.
+The outbox, pointer activation, monetary collection proofs, source transitions,
+capacity dispatch and holder/scoped-restore addendum remain next work.

@@ -437,6 +437,25 @@ distinct owners, one child per parent, root-only manifest, concurrency above the
 root count, and refusal at the money bound/deadline. Concrete D projection API
 names/fields are supplied by D and reviewed before this adapter is enabled.
 
+D's draft API, relayed by the parent (not activation authority):
+`diagnosis.exhaustion(card) -> bool`, `diagnosis.actual_model_work(card) -> bool`,
+and `diagnosis.pending_projection(card) -> None | {schema_version:1,
+status:'pending', replacement_eligible:bool}`. All are pure and contain no
+generation reference. B calls them on an independently loaded, verified
+collected card and stores the result under its existing (case, generation)
+journal key. Function failures, non-boolean predicates, malformed/extra projection
+fields or mutation of input refuse scheduling for that entry. B never adds a
+generation to D's card or projection. Eligibility belongs to D, including typed
+usage with a configured model/tokens, recorded unknown invocation/model/role,
+invoked route receipt or completed CLI call; a denied reservation alone is false.
+D persists invoked/cumulative route history across resumes. B consumes these
+functions and never implements that list as a parallel predicate.
+
+The adapter is disabled in tracked code until D's carrying increment passes
+review and B's integration review checks the exact installed API/source and
+collection/holder prerequisites. No environment toggle or public card enables it.
+Contract-only authored API tests do not count as D eligibility qualification.
+
 D's per-invocation reservation/settlement remains in the case ledger. B never
 books usage. Provider wait/relaunch consumes no D case counters or holder legacy
 attempt allowances. D remains disabled until this channel is implemented and
