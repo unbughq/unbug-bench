@@ -914,3 +914,66 @@ invalid-runs-compat.json pins and captured artifacts remain unchanged. D's
 intentional scientific migration is still pending; no historical result is
 relabelled. The smoke preallocation test mutates the current boundary-call text
 and retains its exact-source mismatch refusal assertions.
+
+## Increment 3: diagnosis, extensions, and policy migration
+
+**Parent ruling, 2026-10-30:** under the founder's "pit stops, not capacity"
+direction, cumulative `max_total_calls` becomes telemetry for authenticated
+new-schema factory cases and their extensions. This is the parent's ruling;
+the founder has not separately confirmed it. Preserve historical D1 metadata,
+but do not present this change as a new founder confirmation. The scorecard
+shows `model calls: N (telemetry)`. Keep per-invocation `max_role_calls`, time
+limits, qualified enforced-route maxima, and the numeric protections of
+`bin/run-exam`. Money and the absolute batch deadline still bound every call.
+Replay the real 5813be (2496), e15450 (1627), and 873d7f (1040) ledgers beyond
+the former 1000-call threshold with authored money/deadline headroom; retain
+their original events and totals and prove a further invocation progresses.
+
+D's public API is `diagnosis.exhaustion(card) -> bool`,
+`actual_model_work(card) -> bool`, and `pending_projection(card) -> dict | None`.
+All three are pure, contain no reference to their own output generation, and
+grant no authority. The pending projection has schema_version=1,
+status="pending", and replacement_eligible=actual_model_work(card) except
+that recovery.infrastructure_exhausted(card) is diagnosis-only and sets it false. B binds
+it to its collected generation. A denied reservation alone is zero work;
+an actually invoked zero-cash subscription process is work. Private diagnosis
+results, findings, paths, and snapshots never enter that projection.
+
+Use the existing same-owner ordinary restore after settlement for diagnosis.
+Bind a diagnosis request to the acknowledged input generation and immutable
+input digests, never the checkpoint being written. A resume launched with an
+unknown exhausted total exits after settlement with no model invocation; B
+must collect and acknowledge that known total before the next diagnosis resume.
+An existing active extension retains its one authorized round and operation ID;
+new writer admission creates its immutable history entry only after a lease and
+money reservation exist. Five is a lifetime maximum. Progress is the furthest
+contiguous pipeline point with complete valid evidence, compared at identical
+ordered stage/version vectors, with every earlier pass retained. Missing or
+changed-version evidence is pending reconstruction, never regression or a new
+extension grant. Repairs preserve entry/outcome snapshots and their case bytes.
+
+Migrate cumulative paid-cost and call-limit bindings once for stress, G8, G9,
+G16, G10 and dependent G17; retain original scientific receipts as history.
+Legacy cap/allowance fields remain decode-only evidence and cannot authorize
+new-schema work. Legacy imports require explicit authenticated cumulative-usage
+and lifetime-history migration; unknown invocation counts refuse import. A dry
+run must show the known total and $33 per unresolved invocation before the
+parent/founder authorizes the exact amounts. No automatic import grants money.
+
+Production dispatch remains fail-closed. This increment does not populate
+ENFORCED_ROUTE_BOUNDS, enable B's resume/replacement adapter, or claim B/E
+checkpoint qualification. Real crash/capped-call closure exams remain required;
+authored control-flow inputs on saved public bytes do not close those rows.
+
+
+Increment-3 interface clarification (interfaces design review 15): use the exact
+pure budget.usage_coverage API and per-invocation reconciled_decreases shapes in
+interfaces §8. No duplicate coverage field is persisted. The runner owns the
+schema-v1 diagnosis_state/exhaustion_id lifecycle specified there; completed
+results clear pending_projection, and provider waits retain the same ID.
+diagnosis_pending is the settlement-before-diagnosis checkpoint stop, authenticated
+by that pending state. extension_incomplete requires a completed extension outcome,
+not an infrastructure interruption. infrastructure_exhausted goes to diagnosis
+without authorizing a replacement. These clarify the exhaustion-routing list
+above; no model result grants a resume, extension or money. No code is enabled by
+this documentation change.
