@@ -31,14 +31,8 @@ def read_object(path):
         raise Refused("invalid accounting metadata") from None
 
 
-def authenticate(work, case, generation, public_card, *, founder_ruling=None):
-    """Read only restored metadata; never infer a usage delta from totals or time.
-
-    The separate ledger is the seal's accounting snapshot. Older archives without
-    it can use their embedded scorecard ledger. If both exist they must agree.
-    Newer public labels (including G12, archive paths and terminal status) do not
-    invalidate the ledger, and do not authenticate any other public verdict.
-    """
+def _authenticated_source(work, case, generation, public_card, *, allow_public_correction=False):
+    """Shared archive/public/retained ledger checks, before any usage policy."""
     require(isinstance(case, str) and re.fullmatch(r"case-[A-Za-z0-9-]+", case), "invalid restore case")
     require(isinstance(generation, str) and re.fullmatch(r"[0-9a-f]{64}", generation),
             "invalid restored generation")
@@ -63,8 +57,22 @@ def authenticate(work, case, generation, public_card, *, founder_ruling=None):
     usage_facts(retained)
     imported = public_card.get("continuation_budget")
     usage_facts(imported)
-    require(digest(imported) == digest(retained) or founder_ruling is not None,
+    require(digest(imported) == digest(retained) or allow_public_correction,
             "public ledger differs from retained accounting; authenticated delta/correction receipt required")
+    return imported, retained, archived_card
+
+
+def authenticate(work, case, generation, public_card, *, founder_ruling=None):
+    """Read only restored metadata; never infer a usage delta from totals or time.
+
+    The separate ledger is the seal's accounting snapshot. Older archives without
+    it can use their embedded scorecard ledger. If both exist they must agree.
+    Newer public labels (including G12, archive paths and terminal status) do not
+    invalidate the ledger, and do not authenticate any other public verdict.
+    """
+    imported, retained, _ = _authenticated_source(work, case, generation, public_card,
+                                               allow_public_correction=founder_ruling is not None)
+    work = Path(work)
     # Keep the exact provenance and historical totals. Normalization is used only
     # to detect sticky unknown usage; never overwrite the original with projections.
     normalized = usage_facts(imported)["ledger"]
@@ -91,6 +99,25 @@ def authenticate(work, case, generation, public_card, *, founder_ruling=None):
         receipt.update(founder_ruling=founder_ruling, retained_ledger_sha256=digest(retained),
                        accounting_authority='explicit founder ruling for exact generation and public ledger')
     return copy.deepcopy(imported), receipt
+
+
+def validate_legacy_import(work, case, generation, public_card, record, record_sha256):
+    """Unwired read-only worker validator; B supplies authenticated manifest inputs.
+
+    A matching hash proves consistency with the supplied trusted boundary, not
+    founder approval by itself. No caller or CLI is wired to this entry point.
+    """
+    from carry_over import migrate_legacy_import
+    require(isinstance(record_sha256, str) and re.fullmatch('[0-9a-f]{64}', record_sha256) and
+            digest(record) == record_sha256, 'import record differs from authenticated manifest')
+    _, _, archived = _authenticated_source(work, case, generation, public_card)
+    require('legacy_import' not in archived and 'job_money' not in archived, 'case already imported or assigned')
+    require(isinstance(archived.get('continuation_budget'), dict) and
+            digest(archived['continuation_budget']) == digest(public_card['continuation_budget']),
+            'legacy import requires the archived original ledger')
+    money = Path(work) / 'job-money.json'
+    require(not money.exists() and not money.is_symlink(), 'case already has job money')
+    return migrate_legacy_import(public_card, record)
 
 
 def install(work, sealed, case, generation, public_card, *, ruling_path=None, ruling_sha256=None, release_sha256=None):

@@ -1022,3 +1022,17 @@ hash before the ledger transaction records that hash, so later growing receipts
 cannot erase the evidence. Unknown unrelated invocations do not suppress a row's
 decrease record. The diagnosis APIs read only their input JSON; the pending
 projection is the sole source of first replacement eligibility for B.
+
+### Unwired legacy import implementation boundary
+
+The additive §8 legacy-import proposal passed `legacy-import-design-2.md`.
+Its first implementation supplies only pure dry-run/migration in `carry_over.py`
+and a read-only validator sharing `restore_ledger` authentication. These imports
+are accounting plus retirement, with unknown lifetime history; no resumable
+legacy history is invented. B has not adopted storage/delivery/holder routing,
+and `job_config.install` continues refusing legacy checkpoints. Exact numeric
+founder authorization is an input that B must authenticate, never authority
+created by D. Anonymous late-receipt attribution, resumable imports, extension/
+diagnosis runner integration and remaining stale-cap migration are outstanding.
+No Murphy row closes. Real canary6/c7d405 and resolved-waste cards prove the
+accounting transformations; authored restore layouts exercise boundary refusals.

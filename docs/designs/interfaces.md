@@ -840,6 +840,15 @@ member/path when adopting this format. The frozen nine-field RAM configuration
 is unchanged; `job_config.install` still refuses legacy checkpoints without
 job-money. No import record grants money or permission to run anything.
 
+The unwired Python entry points are `carry_over.legacy_import_dry_run(card)`,
+`legacy_import_batch_dry_run(cards)`, `migrate_legacy_import(card, record)` and
+`restore_ledger.validate_legacy_import(work, case, generation, public_card,
+record, record_sha256)`. The batch dry-run returns JSON-ready per-case records,
+refusals and totals; the caller can print it without any writes. The worker
+validator shares the existing archive/public/retained-ledger authentication
+helper with `restore_ledger.authenticate`; it does not create a second restore
+or publication path.
+
 The initial format is deliberately spend-accounting plus retirement. No saved
 legacy archive currently proves lifetime extension/diagnosis history. Therefore
 `lifetime_history` must be null (unknown, never zero); it stands for lifetime
@@ -932,7 +941,8 @@ rounds and waste remain. Each unresolved marker produces this exact event:
 ```
 
 Increase the top-level `list_cost_usd` by `estimated_added_usd`, starting from its
-existing numeric total or the sum of existing events when absent. Preserve all
+existing numeric total or the sum of existing events when absent. The result is
+a JSON number, not a money string. Preserve all
 other original totals, including calls. `case_spending` values the event through
 its existing list-cost component. Move each covered top-level marker to
 `resolved_unpriced_invocations` as
@@ -943,12 +953,16 @@ those covered markers. Store a content-free `legacy_import` card marker with
 `estimated_total_usd` at nine places; otherwise refuse, never change a known
 charge to force equality. With unknown usage set `status: retired` and
 `terminal_stop: retired_import_estimate`; with known usage set
-`terminal_stop: retired_import_history_unknown`. No current-state history or
+`status: retired` and `terminal_stop: retired_import_history_unknown`. Recompute
+the output `case_budget` with `case_spending` so its unknown count and total are
+current; `legacy_import` is a classified durable fact in `carry_over.FACTS`.
+No current-state history or
 extension count is fabricated.
 
 B must enforce **at most one accepted import per case per batch**, regardless of
 source generation. Worker/migration validation refuses any source already
-containing a `legacy-import:` event, import resolution marker or `legacy_import`
+containing a `legacy-import:` event, an entry with an `import_id` key in
+`resolved_unpriced_invocations`, or a `legacy_import`
 card marker, including a different import ID. Replay of the same original source
 and authorized record returns identical output; future publication must compare
 that output before an idempotent write, never migrate the migrated ledger again.
@@ -962,8 +976,12 @@ a separately reviewed attribution format before enablement. D's broader design
 requirement for late replacement remains outstanding, not silently satisfied.
 
 Tests use real `canary6-collected-card.json` and `c7d405-collected-card.json` for
-known-plus-$33 totals and real `infrastructure-kills.json` for resolved nested
-markers. Authored ten-marker input additionally makes $33 × 10 = $330 visible.
+known-plus-$33 totals. `canary6-confirm-timeout-card.json`,
+`c7d405-confirm-timeout-card.json` and `canary6-last-legacy-card.json` prove that
+resolved nested waste markers yield zero unresolved invocations, unchanged
+totals and `retired_import_history_unknown`. Resolution entries with an
+`infrastructure_waste_id` remain valid historical evidence. Authored ten-marker
+input additionally makes $33 × 10 = $330 visible.
 Wrong generation/ledger/record/authorization, invalid usage, repeat/cross-import,
 unknown history and input purity are tested. Both helpers remain unwired until B
 adopts and independently reviews manifest/holder integration. No Murphy row
