@@ -13,7 +13,7 @@ writer (Claude), against 1397efb. Final report below, verbatim.
 - **B1 — Reconciliation can produce a valid final decrease that collection permanently rejects.** `factory/budget.py:415`, `factory/budget.py:308`, `factory/batch_accounting.py:138`; design `docs/designs/stream-d.md:1901`.
 
   Concrete scenario, amounts relative to the unchanged saved ledger:
-  
+
   1. A $10 reservation has $2 booked and a closed-gate bound of $6. Settlement produces a $4 gap; the host ACK records total $6 and estimated gap $4.
   2. On resume, the supported missing-receipt reconciliation branch supplies a synthetic leaf without a gate snapshot. Settlement raises the gap to $8, charging $10. This intermediate state is never ACKed.
   3. A final receipt confirms the original $2 charge. Settlement correctly records an $8 release.

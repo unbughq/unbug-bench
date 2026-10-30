@@ -1607,7 +1607,7 @@ item 8.
 3. **Money cleanup and settlement** (medium to large; implemented in
    477d84a; design reviews 1–8 (review 8's blockers rejected, upheld by a
    second goldfish); full suite passed at 477d84a, 155 scripts, 0 failed;
-   diff review pending; not yet merged). Remove the leftover
+   diff review 1 passed (Codex); not yet merged). Remove the leftover
    paid-cap checks for new factory jobs. That means every remaining entry in
    the paid-cap inventory above: `g11_review.py`, `ttl_continuation.py`,
    `key_holder.py` and `gate_state.py`, plus the `coordinator.py`,
