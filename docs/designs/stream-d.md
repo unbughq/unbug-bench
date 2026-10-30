@@ -1898,7 +1898,11 @@ Change.
   default, and the maximum stays. With the real $50 Claude maximum, one blip
   without usage now costs one request's hold, not the whole ordinary budget.
   Receipts with no gate snapshot (synthetic reconciliation leaves) keep the
-  maximum.
+  maximum. Evidence without final usage never lowers an existing estimate. A
+  replayed or stale receipt keeps the larger charge, so only a final receipt
+  can lower it, through `reconciled_decreases` (the provenance B's collection
+  requires). A forged first snapshot is not defended against. The receipt
+  shares the work directory's trust with the ledger, as before.
 - `budget.complete_invocation`: a receipt without final usage settles through
   the existing `_settle_leaf` as `estimated`, charging that bound. That also removes the marker bound to that invocation.
   This is exactly what `reconcile_reservations` already does at the next
@@ -1970,9 +1974,16 @@ Only model outputs and the gate's unknown-request count are authored.
   route keeps its real maximum (the reviewer's OpenRouter gate maximum, and
   Claude's $50). The route receipt shows a started outcome and survives
   `inherit_recovery_history`. A later final receipt replaces the estimate
-  once. (a) A gated reviewer call books $0.01 and leaves one request without
-  usage. It is estimated at the gate hold, and the next writer `pending_call`
-  is admitted and completes. (b) A Claude writer blip without usage is
+  once. A replayed non-final receipt with a lower snapshot leaves the ledger
+  byte-identical. (a) A gated reviewer call books $0.01 and leaves one request
+  without usage. It is estimated at the gate hold, and the next writer
+  `pending_call`, at the real $50 Claude maximum, is admitted and completes.
+  Admitting a writer at $50 after any spend needs an ordinary limit above
+  spend + $50. The test sets 100 as authored configuration. Under the
+  default $50 ordinary limit, a Claude writer round after any spend is
+  refused whether usage is known or not. That is the existing rollout
+  prerequisite (E/A route-maximum report against the ordinary limit), not
+  part of row 21. (b) A Claude writer blip without usage is
   estimated at one request's hold. The router retries on the second Claude
   account inside the same call. On the committed code, (a) stops with
   `budget_exhausted` and (b) with `money_wait`.
@@ -2012,6 +2023,14 @@ receipts, or read saved proof records. A local draft of the
 also covers a concurrent sibling call: it streams while the first call fails
 with unknown usage, and it finishes without `money_wait`.
 
+Design review 4 responses. DeepSeek was interrupted with no report. A Claude
+rerun was stopped before it reported, at the founder's direction, and review 4 ran on Codex
+(`gpt-6.1-sol`, FAIL). B1: accepted. The admission subtest uses real
+maxima for both routes, with the ordinary-limit prerequisite stated above.
+M1: accepted. Non-final estimates are monotonic, and the test replays a
+stale snapshot. N1: accepted. The round-2 failed-stop text is marked
+superseded.
+
 Design review 3 responses. DeepSeek returned no final report, so review 3
 was rerun with a fresh Claude reviewer (FAIL). B1: accepted. The failed-stop
 marker was removed again by the same call's `complete_invocation`. The
@@ -2031,7 +2050,8 @@ the route receipts above. The settlement test asserts that the estimated
 call's receipt shows a started outcome and that `actual_model_work` holds
 with no events or markers. The projection test adds denied/admitted
 (not work) and interrupted (work). M1: accepted. A failed stop keeps the
-factory marker. N1: the comment beside it is now true. N2: line references
+factory marker (superseded by review 3: the exception is deleted, and the
+closed gate is the bound). N1: the comment beside it is now true. N2: line references
 are approximate, as elsewhere in this file.
 
 Design review 1 (DeepSeek, FAIL) responses. B1: accepted. The affected tests
