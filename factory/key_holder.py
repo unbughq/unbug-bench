@@ -145,8 +145,7 @@ def policy_load(path):
         if job['mode'] == 'batch':
             from batch import bind
             bind(policy, name, None, ROOT)
-            if (type(job['max_calls']) is not int or job['max_calls'] < 1 or
-                    type(job['max_cost']) not in (int, float) or not 0 < job['max_cost'] < math.inf):
+            if type(job['max_calls']) is not int or job['max_calls'] < 1:
                 raise ValueError('invalid batch job bounds')
         elif job['mode'] == 'any':  # 2026-10-19: repair or rerun any collected case; the case id comes with the launch request
             if restore_flags or job.get('variant') not in ('repair', 'rerun') or '--skip-build' in args or '--source' in args or '--rotation-slot' in args:
@@ -206,6 +205,8 @@ def admit_attempt(job, generation, req, receipts, counted):
     Extensions count ALL case rows, ignoring legacy resolution/cutoff knobs.
     The explicit request opt-in keeps an ordinary coordinator launch refused.
     """
+    if job.get('_batch_job'):
+        return None  # Batch authority, ownership and router backstops replace legacy attempts.
     additional_attempt_policy_check(job)
     auth = job.get('additional_attempt')
     requested = req.get('additional_attempt_generation')
@@ -351,7 +352,7 @@ def current_generation(job):
     if (type(calls) is not int or calls < 0 or type(cost) not in (int, float) or
             not math.isfinite(cost) or cost < 0 or not isinstance(budget.get('events'), list) or
             budget.get('active') or card.get('checkpoint_error') or
-            calls >= job['max_calls'] or cost >= job['max_cost']):
+            calls >= job['max_calls'] or (not job.get('_batch_job') and cost >= job['max_cost'])):
         raise ValueError('invalid, active or exhausted original recovery allowance')
     repair = bool(card.get('failed_gate')) and card['failed_gate'] in job.get('allow_failed_gates', [])
     if (not sealed_audit and not repair and
@@ -633,6 +634,13 @@ def serve(policy_path, hours, identity_file=None):
                             additional_attempt = admit_attempt(job, generation, req, receipts,
                                 sum(v['case'] == job['case'] and not resolved(v) for v in receipts))
                             attest_launch(job, generation, req)  # serialized with reservation; a stale coordinator cannot change the restore target
+                            if batch_job:
+                                from batch_money import authorize, configuration
+                                authority = authorize(policy, req['job'], None if generation == 'new' else generation,
+                                                      ROOT, CONTROL_HOME)
+                                config, config_sha = configuration(policy, req['job'], authority, CONTROL_HOME)
+                                job = {**job, 'args': [*job['args'], '--factory-job-config', str(config),
+                                                       '--factory-job-config-sha256', config_sha]}
                             consumed.add(stamp)  # reserve before any uncertain process start
                             budget = {'calls': 0, 'cost': 0} if job['mode'] == 'new' else json.loads((ROOT/'sealed'/job['card']).read_text())['continuation_budget']
                             receipts.append({'case': job['case'], 'job': name, 'generation': generation, 'at': time.time(), 'completed_ok': False,
@@ -668,6 +676,9 @@ def serve(policy_path, hours, identity_file=None):
                         else: raise ValueError('operation not allowed')
                     except CheckpointUsed:
                         result = {'error': 'checkpoint already used; reconcile before retrying'}
+                    except ValueError as error:
+                        public = error.args[0] if error.args in (('money_wait',), ('retired_batch_bound',)) else 'request refused; no key or private output returned'
+                        result = {'error': public}
                     except Exception:
                         result = {'error': 'request refused; no key or private output returned'}
                     try: conn.sendall(json.dumps(result).encode() + b'\n')

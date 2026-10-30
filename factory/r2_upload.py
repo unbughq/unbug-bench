@@ -4,7 +4,7 @@ key to the new VM, which downloads the ciphertext from R2 (bin/r2-presign links;
 import json, os, pathlib, subprocess, tempfile
 
 
-def case_recipient(work, sealed, case_id, founder_recipient):
+def case_recipient(work, sealed, case_id, founder_recipient, restore_recipient=None):
     """Public key of the case's own age identity. The identity lives in the work tree, so every resume reuses it."""
     ident = pathlib.Path(work) / ".casekey"
     if not ident.is_file():
@@ -19,7 +19,10 @@ def case_recipient(work, sealed, case_id, founder_recipient):
     try:
         with tempfile.NamedTemporaryFile(dir=sealed, prefix=".casekey-", delete=False) as stream:
             staged = pathlib.Path(stream.name)
-            subprocess.run(["age", "-r", founder_recipient, str(ident)], stdout=stream,
+            recipients = ['-r', founder_recipient]
+            if restore_recipient:
+                recipients += ['-r', restore_recipient]
+            subprocess.run(["age", *recipients, str(ident)], stdout=stream,
                            stderr=subprocess.PIPE, check=True)
             stream.flush()
             os.fsync(stream.fileno())

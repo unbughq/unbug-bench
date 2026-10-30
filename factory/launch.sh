@@ -20,6 +20,7 @@ case $n in *[!0-9]*|'') echo "N must be a positive integer" >&2; exit 1 ;; esac
 [ "$n" -gt 0 ] || exit 1
 qualified_release=""
 batch_release=""; batch_sha=""; checkpoint_sha=""
+job_config=""; job_config_sha=""; batch_case=""
 founder_ruling_sha=""
 admission_root=$root
 ttl_hours=8; max_spend=3; args=""; purpose=case; label=factory; restore=""; audit_g11=no; continue_review=no; reuse_worker=""; sealed_audit=""
@@ -35,6 +36,9 @@ while [ $# -gt 0 ]; do
     --batch-release) [ $# -ge 2 ] || exit 1; batch_release=$2; qualified_release=$2; shift 2 ;;
     --batch-sha256) [ $# -ge 2 ] || exit 1; batch_sha=$2; shift 2 ;;
     --checkpoint-sha256) [ $# -ge 2 ] || exit 1; checkpoint_sha=$2; shift 2 ;;
+    --factory-job-config) [ $# -ge 2 ] || exit 1; job_config=$2; shift 2 ;;
+    --factory-job-config-sha256) [ $# -ge 2 ] || exit 1; job_config_sha=$2; shift 2 ;;
+    --case-id) [ $# -ge 2 ] || exit 1; batch_case=$2; args="$args --case-id $(quote "$2")"; shift 2 ;;
     --audit-fairness|--rehearse-only) sealed_audit=$1; args="$args $(quote "$1")"; shift ;;
     --audit-g11) audit_g11=yes; args="$args '--audit-g11'"; shift ;;
     --restore-review) [ $# -ge 2 ] || { echo "missing value for $1" >&2; exit 1; }; restore=$2; continue_review=yes; audit_g11=yes; args="$args '--continue-g11-review'"; shift 2 ;;
@@ -57,9 +61,14 @@ done
 if [ -n "$batch_release" ]; then
   [ "$n" -eq 1 ] || { echo "batch jobs require N=1" >&2; exit 1; }
   python3 -B "$here/batch.py" verify --root "$root" --release "$batch_release" --sha256 "$batch_sha"
+  [ -n "$job_config" ] && [ -n "$job_config_sha" ] && [ -n "$batch_case" ] || { echo 'batch requires holder job configuration' >&2; exit 1; }
+  python3 -B "$here/job_config.py" check --path "$job_config" --sha256 "$job_config_sha" --case "$batch_case" --generation "$checkpoint_sha" --release "$batch_sha"
   args="$args --batch-release-sha256 $(quote "$batch_sha")"
+  args="$args --factory-job-config /dev/shm/secrets/factory-job.json --factory-job-config-sha256 $(quote "$job_config_sha")"
 elif [ -n "$batch_sha" ]; then
   echo "batch digest requires a batch release" >&2; exit 1
+elif [ -n "$job_config" ] || [ -n "$job_config_sha" ]; then
+  echo 'job configuration requires a batch release' >&2; exit 1
 fi
 if [ -n "$founder_ruling_sha" ] && [ -z "$restore" ]; then
   echo "founder ruling requires a restore" >&2; exit 1
@@ -685,6 +694,9 @@ PYCODE
   fi
   # Real keys, not boat's paid relay (off since 2026-10-16): files only, read on the VM.
   printf '%s' "$secrets_b64" | "$root/bin/push-secrets" "$id" $secrets
+  if [ -n "$job_config" ]; then
+    boat --stdin ssh "$id" "python3 -B ~/factory/job_config.py deliver --sha256 $(quote "$job_config_sha")" < "$job_config" >/dev/null
+  fi
   if [ -n "$restore" ]; then
     args="$args --resume $(quote "$restore") --resume-bench-sha $(quote "$bench_sha")"
     restore_to='~/work'; restored_case='case'

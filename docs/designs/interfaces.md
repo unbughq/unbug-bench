@@ -272,3 +272,243 @@ denial.
   Concurrent waits use the latest `retry_after`.
 - **Where the route came from.** Each lease's effective route is kept in
   the card's `route_receipts`.
+
+## 8. Batch money authority (B provides, D enforces)
+
+B serializes money admission under `~/.unbug-control/batches/<batch>/lock`.
+The authorized manifest has `money_limit_usd` (decimal string, nine places),
+`batch_deadline` (absolute UTC), `target_slots`, and root jobs with fixed case IDs
+and `requested_total_usd`. A pinned `replacement_policy:{schema:1,enabled:true}`
+authorizes replacement-derived jobs as described below; absent/disabled refuses
+them. Scheduling priority belongs to an admission/revision request, not another
+money owner for the same case. Covered settlement resumes run first; then
+replacement, same-owner exhaustion/diagnosis resume, extension, ordinary work,
+FIFO within each class. Blocked requests never block later eligible work.
+
+The durable authority is `~/.unbug-control/batch-money/<batch>/jobs/<job>.json`, copied unchanged
+into authenticated worker configuration and checkpointed:
+
+```json
+{"schema":1,"batch":"...","job":"...","case":"case-...",
+ "reservation_id":"<uuid4>","revision":1,"source_generation":null,
+ "committed_total_usd":"50.000000000","batch_deadline":"...Z"}
+```
+
+`source_generation` is null for fresh work; otherwise the exact acknowledged
+collected ciphertext sha256. The commitment is cumulative authority including
+already-spent money and infrastructure waste, never a fresh allowance. A case
+has one job money owner; changing stage/worker does not change that owner.
+Replacement cases have distinct jobs and reservations. A diagnosis of the same
+case uses its existing money owner and an ordinary same-owner relaunch; there
+is no separate diagnosis launch mode or configuration shape. A manifest amendment cannot lower a limit
+below spend or outstanding commitments; it cannot revive terminal batch-bound
+work. D requests revisions by collecting `terminal_stop: money_wait` with
+`money_wait: {requested_total_usd, reservation_id, revision, priority}`; it makes no further
+model call. B queues it until authority exists or emits `retired_batch_bound`
+at exhaustion/deadline. `money_wait` is separate from A's provider-wait reasons.
+
+B uses Decimal USD to nine places, rejects negative/nonfinite values, and sums
+one latest verified cumulative `case_budget.total_spent_usd` per money owner.
+Older cards may use `spent_usd + infrastructure_waste_usd` only when both are
+known and validated; missing/unknown totals block that owner's new admission,
+subject only to the conservative same-owner resume below.
+For each job, outstanding = max(0, commitment - latest collected total).
+Admission requires sum(collected totals) + sum(outstanding commitments) <=
+manifest money_limit_usd. Collection replaces the previous total and consumes
+outstanding authority; it never adds the cumulative total again. A decreasing
+cumulative total refuses acknowledgment unless receipt-backed reconciliation
+below verifies it. Reclassification
+of waste does not release money. A completed job releases unused authority only
+after verified terminal collection and worker retirement; loss/unreachability
+alone releases nothing. Boat infrastructure cash remains in E's existing shared
+reservation and is also shown separately; the model bound includes D's model
+infrastructure-waste charges, not a second charge for Boat cash.
+
+B issues initial authority/revisions and collection acknowledgment under the
+same lock. Relaunch binds source_generation to the newly acknowledged generation
+and increments revision (same reservation_id, unchanged cumulative amount unless
+explicitly re-admitted), except for the conservative same-revision source rebind
+below. D checks batch/job/case/deadline, exact source_generation,
+and revision against the authenticated launch configuration before any call.
+A stale copy cannot admit work: only the holder's current frozen job configuration
+is deliverable; old workers must be proved retired before revision/relaunch.
+The VM never raises live-worker authority in place. Money is reserved before
+holder submission; an uncertain submission retains its entire commitment.
+A publication failure never releases it.
+
+### Conservative resume and receipt reconciliation
+
+A provider-wait or crash checkpoint with `case_budget.total_spent_usd: null`
+may resume under the same batch/job/case/reservation owner and the same revision,
+with the same or a lower operating commitment. No money increase or new revision
+is permitted. The old full commitment remains held in B's durable money state,
+even if the operating commitment is lower. Count this owner once at that full
+held commitment for the batch bound; it is covered worst-case authority, not an
+unbounded unknown. Every unknown part must be mapped to an `unpriced_invocations`
+invocation ID or wait ID with its admitted per-invocation maximum. D's verified
+ledger coverage must show that known usage plus the outstanding admitted maxima,
+without double counting already-booked events, fits the held commitment. Missing
+mapping, missing maximum or unknown legacy usage refuses this exception.
+
+The predecessor must be proved retired and the collected input acknowledged as
+usual. The holder may then rebind `source_generation` to that collected SHA at
+the **same** monetary revision. This is an authenticated source transition, not
+a grant: batch/job/case/reservation/deadline stay fixed and commitment cannot
+increase. Both the RAM channel and the checkpointed copy advance to the new
+source before D's exact-equality check. Rebind starts from the current persisted
+source and advances along acknowledged collection lineage; replay of an older
+source (including A→B→A) refuses. D runs `settle()` first on that resume,
+before another model invocation. Covered same-owner/same-revision settlement
+resumes have priority ahead of replacement, diagnosis and extension. The worker
+reads its authenticated restored exhaustion state, settles and checks that the
+total is known before D runs its read-only diagnosis under the existing owner
+and authority. B supplies no settlement-only or diagnosis mode. A known settled
+checkpoint must be durably collected/acknowledged before dependent replacement
+admission; it does not wait for the diagnosis result. If an exhausted owner's
+total was unknown at launch, D checkpoints and exits after settlement without a
+model call; after collection/ACK its next ordinary same-owner resume diagnoses.
+This decision comes from authenticated restored state and D's projection, not a
+B launch mode. Unknown-total exhausted resumes belong to the first (settlement)
+priority class; known-total ones to the exhaustion/diagnosis resume class.
+A request blocked on money or
+an unknown total retains its FIFO position but never blocks later eligible
+requests, including the settlement that can unblock it. Until settlement produces a known total, new
+admission, increased commitment, revision old+1, replacement, diagnosis and
+extension all remain blocked. Other owners may use only their already-available
+batch headroom; this owner's full held commitment is never transferred.
+
+A late actual receipt may lower a previously conservative collected total,
+for example $10 to $8. B acknowledges the lower total only when authenticated
+D settlement supplies a receipt matching an existing `unpriced_invocation`
+invocation ID or `wait_id`. Persist a `reconciled_decrease` acknowledgment with
+that ID, old/new totals, collected generation and receipt digest; replay is
+idempotent and replaces the latest cumulative total, never adds a refund event.
+An unsupported decrease still refuses acknowledgment. A verified decrease does
+not poison later revisions or release held authority. Unused authority is still
+released only after verified terminal collection and worker retirement.
+
+Increment2b supplies these collection proofs and transitions before resume is
+enabled; increment2's fresh-only authorizer/installer continues to refuse them.
+The real practice qualification must collect a null-total provider wait, retire,
+resume at the same revision, settle and finish; it must also demonstrate a
+receipt-backed decrease and refusal of the same decrease without that receipt.
+
+### Replacement derivation and D's exhaustion projection
+
+B consumes D's pure exhaustion/actual-model-work eligibility function and its
+content-free pending-diagnosis projection. B does not reproduce their predicates
+from stop labels, dollar spend or reservation counts. A denied reservation is
+zero work and does not qualify; a real zero-cash subscription invocation can.
+Enqueue one replacement immediately when D declares the original eligible,
+without waiting for diagnosis. Unknown totals still block its admission until
+settlement under the rules above. Diagnosis runs inside the original's ordinary
+same-owner resume, after settlement and known-total checks; B schedules that
+resume from D's projection and never creates another diagnosis money owner.
+
+The finite manifest jobs map names roots, not a cap on derived work. For an
+enabled replacement policy, root job J derives J-r1, then J-r2 from J-r1, and so
+on; cases are case-<batch>-<derived-job>. Derived ordinals are canonical positive
+decimal without leading zeros. Root names may not end in -r<digits>, including
+-r01, so derivations cannot collide with root names. Increment2b's check_manifest
+enforces that reserved suffix and exact replacement_policy keys/types
+`{schema:1, enabled:bool}`. Each immediate original
+case gets at most one child across all generations/extensions/replays. Under the
+batch lock record parent case/job, root job, ordinal, child case/job and the
+eligible collected generation in the journal before admission. Replaying that
+derivation returns the same child. A derived child can itself qualify for its
+one replacement. It gets a distinct job/reservation and inherits the root's
+approved source/roles/non-money arguments and initial requested authority.
+
+Holder, bind, money validation and worker installation resolve derived jobs via
+the same pure manifest-template resolver; only the holder's verified journal
+derivation plus D eligibility permits admission. Do not insert mutable derived
+jobs into the frozen manifest/policy or change the nine-field RAM config shape.
+`target_slots` is the reporting goal and `max_concurrency` limits simultaneous
+workers, not lineage length; neither is capped by len(manifest.jobs). Increment2b
+removes both check_manifest's and key_holder.policy_load's root-count caps and
+replaces direct root-job lookups in batch.bind, all policy['jobs'] lookups in
+key_holder.serve (including orphan-resume policy_job membership),
+batch_money.channel/authorize and job_config.install with the shared resolver.
+The exact manifest.jobs==policy.jobs root-map check stays. There is
+no replacement-count, manifest-job-count or successful-candidate cap. Cumulative
+money and the absolute deadline bound the chain; normal capacity/retirement
+checks continue to apply. Test J→J-r1→J-r2 with replay of every derivation,
+distinct owners, one child per parent, root-only manifest, concurrency above the
+root count, and refusal at the money bound/deadline. Concrete D projection API
+names/fields are supplied by D and reviewed before this adapter is enabled.
+
+D's per-invocation reservation/settlement remains in the case ledger. B never
+books usage. Provider wait/relaunch consumes no D case counters or holder legacy
+attempt allowances. D remains disabled until this channel is implemented and
+its practice lifecycle qualification passes. Owner: B; review with batch-service.
+
+The ordinary case diagnosis threshold is distinct from this cumulative job share
+of batch authority. Show ordinary `spent_usd` and `infrastructure_waste_usd` on
+separate report lines. Waste never consumes ordinary case progress/diagnosis
+allowance, and reclassification never creates batch headroom. With commitment
+$13 and total $12 = case $8 + waste $4, $1 remains authorized. Batch money
+exhaustion is operational and unscored. There is no separate waste allowance.
+B grants no extension eligibility. ENGINEERING §3 now draws extensions from
+the founder-set cumulative batch bound through this channel, with no fixed
+per-extension dollar allowance. D enforces extension count/package/progress
+rules; a money commitment alone grants no extension eligibility.
+
+The money projection path is kept as `batch-money/<batch>/jobs/` for D's already
+reviewed consumer. It shares the journal's `batches/<batch>/lock`; it is no
+second service, spend ledger or independent lock. Manifest jobs omit max_cost.
+B removes batch.bind's max_cost/--max-cost emission for authenticated batch jobs
+in increment2; D's job_authority enforces committed_total_usd exclusively.
+
+### Worker installation and D's context (B installs, D reads)
+
+Delivery is an owner-only, atomic file `/dev/shm/secrets/factory-job.json`,
+installed by the verified host launcher over existing Boat stdin SSH. The
+holder freezes its bytes and SHA in launch state before provisioning. Launcher
+passes `--factory-job-config /dev/shm/secrets/factory-job.json` and
+`--factory-job-config-sha256 <sha256>` to run.py; batch job args cannot override
+either flag. The expected digest comes from holder-authenticated launch state,
+never from a restored file or card. No delivery filename/env convention is
+required from D. B's installer is `factory/job_config.py:install(c, args)`, called
+at context construction before D's `job_authority.for_case` or any model call.
+This module/CLI wiring ships in B increment2; until installed D stays fail-closed.
+
+The verified JSON has schema1 and exactly these root fields:
+`schema, batch_id, job_id, case_id, batch_deadline, source_generation,
+batch_release_sha256, manifest_sha256, job_money`. `job_money` is the exact
+nine-field money-channel dictionary above. All repeated batch/job/case/deadline/
+source fields must match it, and release/manifest digests must match the verified
+installed release. Filename ownership/mode, no-follow read, bytes digest and
+case identity are checked before trusting it. Host owner and runner are trusted;
+contestant/role UIDs cannot write this RAM directory or runner argv.
+
+B installs separate objects (no aliased mutable dictionaries):
+- `c.authenticated_job_config`: current verified RAM launch configuration; never
+  loaded from a checkpoint. D reads its `['job_money']` as current authority.
+- `c.batch_id`, `c.job_id`, `c.batch_deadline`, `c.source_generation`: from that
+  same independently verified current launch binding, not restored files.
+- `c.job_money`: case state persisted at `c.work / 'job-money.json'`, included
+  in checkpoints. On a fresh job, install an independent copy of current
+  authenticated `job_money` and persist before any model call.
+
+On resume first authenticate the encrypted checkpoint/accounting via the normal
+restore path, then load its persisted job-money copy separately. B validates
+same batch/job/case/reservation owner, preserves cumulative spend, and checks
+the holder's explicit transition: new revision, exact collected input generation
+and current authorized amount/deadline. If revision/source changes, B records
+old/new authority in checkpoint `job-money-history.json` and atomically advances
+the case's copy to the verified current holder revision before D admission.
+This is an authenticated transition, never a budget reset or a copy of restored
+config into both attributes. A commitment increase requires B's serialized
+admission; a stale revision/generation refuses. A same-revision replay at the
+same source must be byte-equivalent. Increment2b adds only the conservative
+source-rebind exception above; history is keyed by reservation/revision/source
+so repeated covered waits do not collide. The four binding attributes continue
+to use the RAM config. Increment2 refuses source changes until that proof and
+installer transition are implemented and reviewed.
+
+A legacy checkpoint lacking job-money needs an explicit manifest import record
+and authenticated cumulative-ledger migration before initial assignment; absence
+alone grants no authority. No case content/public-card limit substitutes for
+the holder binding. D's `for_case` then compares its persisted current case copy
+to `c.authenticated_job_config['job_money']` and the four context fields, using
+its documented API names unchanged.

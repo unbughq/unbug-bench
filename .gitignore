@@ -5,3 +5,4 @@ results/*
 !results/.gitkeep
 __pycache__/
 sealed/*.tar.gz.age
+sealed/generations/**/archive.age
