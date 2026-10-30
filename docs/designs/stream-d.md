@@ -1604,7 +1604,10 @@ item 8.
    second author call after a completed one. Pending receipts use strict
    intent, like completed ones. Closes row 10. Persisting intent across
    extension admission and attack-receipt publication supports row 9.
-3. **Money cleanup and settlement** (medium to large). Remove the leftover
+3. **Money cleanup and settlement** (medium to large; implemented in
+   477d84a; design reviews 1–8 (review 8's blockers rejected, upheld by a
+   second goldfish); full suite passed at 477d84a, 155 scripts, 0 failed;
+   diff review pending; not yet merged). Remove the leftover
    paid-cap checks for new factory jobs. That means every remaining entry in
    the paid-cap inventory above: `g11_review.py`, `ttl_continuation.py`,
    `key_holder.py` and `gate_state.py`, plus the `coordinator.py`,
