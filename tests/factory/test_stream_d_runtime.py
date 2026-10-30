@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import threading
@@ -173,6 +174,55 @@ class RuntimeTests(unittest.TestCase):
         run.finalize_accounting(c)
         self.assertEqual(c.card['diagnosis_state']['stop'], 'infrastructure_exhausted')
         self.assertFalse(diagnosis.pending_projection(c.card)['replacement_eligible'])
+
+    def test_main_new_exhaustion_survives_handlers_and_final_accounting(self):
+        import diagnosis
+        # Isolate main's fd redirection. The ledger and practice files are real;
+        # the prior completed judgment and subsequent failures are authored.
+        previous_id = str(uuid.uuid4())
+        harness = r'''
+import json, pathlib, shutil, sys, types
+from unittest.mock import patch
+sys.path.insert(0, str(pathlib.Path.cwd().parent / 'bin'))
+import budget, run
+root, practice, ledger = map(pathlib.Path, sys.argv[1:4])
+mode, previous_id = sys.argv[4:6]
+root.mkdir(); run.HOME = root; run.SEALED = root / 'out'
+run.Ctx = lambda: types.SimpleNamespace(job_money={})
+run.bench_manifest = lambda: 'public-practice-control'
+run.sh = lambda *a, **kw: types.SimpleNamespace(stdout='authored recipient')
+run.build_fixture = lambda c: shutil.copytree(practice, c.case)
+def fail(c):
+    c.ledger.parent.mkdir(exist_ok=True)
+    shutil.copyfile(ledger, c.ledger)
+    c.card['diagnosis_state'] = dict(schema_version=1, exhaustion_id=previous_id,
+        stop='budget_exhausted', status='completed', outcome='close_to_passing')
+    if mode == 'infrastructure':
+        c.exhaustion_occurred = True
+        c.card['infrastructure_gate'] = dict(gate='G10', exhausted=True)
+        raise KeyError('authored error after the G10 infrastructure stop')
+    raise budget.BudgetError('budget_exhausted')
+run.validate_and_repair = fail
+run.seal = lambda *a, **kw: None
+run.wipe = lambda c: (_ for _ in ()).throw(AssertionError('stopped case must checkpoint'))
+run.model_call = lambda *a, **kw: (_ for _ in ()).throw(AssertionError('no model work'))
+with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys, 'argv', ['run.py', '--dry-run']):
+    run.main()
+'''
+        for mode in ('infrastructure', 'budget'):
+            with self.subTest(mode=mode):
+                home = self.work / ('main-' + mode)
+                process = subprocess.run([sys.executable, '-B', '-c', harness, str(home), str(self.case),
+                    str(self.ledger), mode, previous_id], cwd=ROOT / 'factory', capture_output=True, text=True)
+                self.assertEqual(process.returncode, 0, process.stderr)
+                card = json.loads(next((home / 'out').glob('*.scorecard.json')).read_text())
+                state = card['diagnosis_state']
+                self.assertNotEqual(state['exhaustion_id'], previous_id)
+                self.assertEqual(uuid.UUID(state['exhaustion_id']).version, 4)
+                self.assertEqual(state['status'], 'pending')
+                self.assertEqual(state['stop'], 'infrastructure_exhausted' if mode == 'infrastructure'
+                                 else 'budget_exhausted')
+                self.assertEqual(diagnosis.pending_projection(card)['replacement_eligible'], mode == 'budget')
 
     def test_held_or_pending_extension_never_creates_a_new_diagnosis_id(self):
         import diagnosis
