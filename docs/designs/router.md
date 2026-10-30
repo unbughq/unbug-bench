@@ -411,3 +411,170 @@ Diff review 4 passes A with these recorded boundaries; none closes a Murphy row.
 - The inherited Go log check has a subsecond alias window: a line from key 1
   may share key 2's start second. This narrow scheduling risk is accepted for A,
   with both the real-account lifecycle and paid-fallback proof still open.
+
+
+## Follow-up: enforceable call maxima (2026-10-30)
+
+### Objective and evidence
+
+D must reserve the most a call can cost before it runs. Historical maxima, the
+$33 import estimate, timeouts and post-hoc usage monitors do not enforce this.
+The exact pinned CLIs (Codex 0.162.1, Claude 2.1.299, OpenCode 1.19.0) have no
+proved native aggregate bound. Pinned help/schema/source observations are saved
+in `tests/factory/fixtures/router-maxima-cli-audit.json.gz`. Only version/help ran
+in empty isolated config directories. Public router receipts prove paid
+DeepSeek behind a free request and billed reasoning/cache tokens; neither
+proves a future bound. No real model/worker/case, secret or production operation
+is part of development.
+
+Codex context/auto-compaction fields are thresholds, with request/stream retries
+and unbounded agent turns. OpenCode pinned prompt.ts uses `agent.steps ??
+Infinity` and its last-step branch injects a prompt rather than hard stopping;
+compaction is separate. Claude's native estimated budget can be exceeded, and a
+turn cap alone misses internal requests. These routes need wrapper enforcement.
+
+### One positive route: existing Claude subscription through a local gate
+
+Support exactly `claude/claude-opus-5-5`, on the existing two approved factory
+subscription account labels. Other routes, including direct paid/free OpenCode,
+Codex and unknown models, get no Lease and Wait('unbounded_route'). Keep all
+family/readiness/account checks independent. No cross-family fallback is added.
+
+New stdlib `factory/model_call_gate.py` is an invocation-scoped loopback HTTP
+server inside the existing worker process. `ModelRuntime._invoke` points only
+this pinned Claude CLI at it with `ANTHROPIC_BASE_URL`. The gate always forwards
+to `https://api.anthropic.com/v1/messages`, retaining the same OAuth bearer,
+version and OAuth beta capability; it has no configurable remote destination,
+credential store or payload logging. The control VM sees scheduling metadata
+only. This retains the CLI, subscription credentials/account ownership and
+upstream endpoint; it adds no API-only architecture, new authentication or
+security claim. The user explicitly authorized enforcing the wrapper this way.
+
+Primary proof of routing/auth compatibility:
+https://code.claude.com/docs/en/llm-gateway#subscriptions-and-gateways says setting
+only ANTHROPIC_BASE_URL preserves subscription auth and forwards OAuth capability.
+The pinned Claude native package embeds its SDK client constructor: it passes
+`oauthAccessToken` and the ANTHROPIC_BASE_URL override to the same client.
+The pinned SDK default also respects that base URL. Excerpts/hashes go in the
+public audit fixture. Public help omission does not prove a flag absent.
+
+The gate reserves one of **8** request slots under a lock *before* forwarding
+each accepted POST, including failed/uncertain attempts, retries, compaction and
+side queries. It performs no upstream retry or redirect. All requests share the
+same allowance; excess requests are rejected before forwarding, not after usage.
+An upstream exception still consumes its slot. Request concurrency cannot race
+the allowance. The router adds an execution-start RPC, using the existing
+observations table as a one-use lease-start marker, so a worker/process restart
+or repeated supplied lease cannot reset its allowance. A second start fails
+closed; a lost start acknowledgement never authorizes execution. This RPC sends
+only lease ID and returns its verified cap, never payloads.
+
+Only POST `/v1/messages` (optional `?beta=true`) is forwardable. Reject other
+methods/paths, redirects, compressed/chunked bodies, duplicate JSON keys,
+non-finite values, excessive body size (16MiB) and unrecognized request fields.
+Allowed fields are model,max_tokens,messages,system,tools,tool_choice,stream,
+stop_sequences,temperature,top_p,top_k,thinking,output_config,metadata,
+cache_control,service_tier. Model must be exactly claude-opus-5-5. Text, ordinary
+client tool-use/result and thinking/redacted-thinking history blocks are allowed;
+image/document/file/server-tool/reference content is rejected. Tools must be
+ordinary custom declarations (absent type or type='custom', with input_schema),
+never hosted tools, MCP, containers or server compaction/context-management.
+Only adaptive thinking is accepted when specified. Unknown betas/features that
+could add server work are removed: forward only OAuth and Claude-Code client
+capability betas (`oauth-2025-04-20`, `claude-code-20250219`), not arbitrary
+caller betas. Existing writer/stress WebSearch requests needing a server tool
+are rejected, not rerouted or claimed bounded. Local Bash/Edit/Read/Write tools
+continue normally. No arbitrary endpoint or paid server tool escapes this gate.
+
+Clamp `max_tokens` to **8192 per forwarded request**, including billed thinking;
+set CLI `CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192` too, but the gate is enforcement.
+Forward stream/nonstream responses without usage-based cutoff. Each accepted
+request has at most the provider's documented **1,000,000-token hard context**;
+aggregate input ceiling is 8,000,000 billed input/cache tokens, and aggregate
+output ceiling is 65,536 billed visible/thinking tokens. This deliberately uses
+the provider hard ceiling, not a text-byte tokenizer guess or a local compaction
+threshold. The Messages contract documents max_tokens and inclusion of thinking:
+https://platform.claude.com/docs/en/api/messages and
+https://platform.claude.com/docs/en/models/opus-5-5/overview . Record supporting
+public documentation URLs and retrieved facts in the audit artifact; pinned
+package/source excerpts have content hashes. Reject request
+features with independent charges; no claim that a token cap bounds hosted tools.
+
+Use `token_prices.py` to compute the ceiling from the maximum input/cache rate
+(currently $8/M) and output rate ($20/M), including its conservative 2*1.1 price
+modifier. Round upward, never discount for likely cache hits. Current ceiling is
+$143.683584 plus upward floating-point rounding. It is intentionally loose;
+D must refuse a reservation if its authorized remaining envelope is smaller.
+This does not change accounting, budgets, role plans or prices. It supplies a
+runnable bounded subscription route, not a guarantee every role can complete
+within eight requests or that the current ordinary $50 case envelope admits it.
+No historical receipt is used to promise a smaller maximum.
+
+### Lease and failure contract
+
+Required Lease fields: `max_usd: float` (finite nonnegative whole-invocation
+USD list-price ceiling), `max_input_tokens: int`, `max_output_tokens: int`
+(nonnegative aggregate billed input/cache and output/thinking over all requests),
+and `price_source: str` (verified tariff and enforcement provenance/version).
+`model_router.route_maximum(route)` is code-owned; no caller/config override.
+Server filters unbounded candidates before admission; capacity for them is zero.
+Old persisted leases missing caps cannot be replayed/renewed/started. Finish
+still releases old capacity and books nothing. No schema migration is needed:
+lease JSON holds caps; observations holds the one-use execution marker.
+
+Client validates route/account/pool/family/billing and all four maximum fields
+against the effective route's authoritative policy; exact types reject bool,
+NaN, missing and tampered fields. Runtime applies the same check to supplied
+Leases before callbacks/reservations/credentials; invalid/unbounded leases are
+released denied and enter the shared unbounded_route wait. `_invoke` independently
+requires a valid bound and one-use start before CLI setup. `running()` renewals
+compare cap bindings too. The one-use start is claimed before before_attempt,
+and `_invoke` consumes a private one-use launch permit from that context, so a
+replayed supplied lease cannot reserve again or reset the gate counter. No unbounded call can run by bypassing public admission.
+
+Route receipts retain caps. Per-lease usage receipts include caps and `cap_used`
+(requests forwarded, max_requests, per-request output limit and whether a request
+was rejected). Gate state is copied to the private invocation context and into
+the receipt on every exit, including timeout/cancellation. Gate closure prevents
+any later forwarding and precedes receipt writing. If a request is rejected for
+limit or unsupported features, `_invoke` raises BudgetError('model_call_cap')
+after cleanup rather than automatically retrying another lease/provider. It
+books nothing; D owns reservation/settlement and can conservatively use max_usd
+on unknown final usage. Existing budget incremental event IDs stay unchanged.
+
+Add unbounded_route to REASONS/public wait record contract; restart already
+consumes REASONS. It is not provider health and cannot clear on renewal/top-up.
+B sees zero exact-route capacity and waits for a reviewed enforcement release,
+not elapsed retry time. Existing rollout-on 60-second wait/checkpoint and
+off in-worker wait/deadlines remain. New call-cap exhaustion is a monetary bound
+stop, not provider outage/refusal; no inline automatic retry consumes another cap.
+
+### Implementation phases, risks and tests
+
+1. This design, interfaces section7 and audit artifact; fresh design goldfish
+   zoom_out/design_critic/implementation_readiness. Reviewer must explicitly judge
+   the positive path, native subscription semantics, complete request coverage,
+   provider hard context/token guarantee and security/section4 implications.
+2. Modify model_router.py, model_runtime.py, token_prices.py; add local gate.
+   Add gate to the existing launch_manifest trusted file list (minimal B/E seam),
+   never change E subprocess or C scoring. Adapt offline test support to an
+   explicitly mocked synthetic route-cap policy for old scheduler contracts;
+   those tests establish no real production bound. New tests keep real policy
+   and replay real public cards/ledgers, pinned artifacts and existing real Claude
+   usage receipts. Check output clamp, request N+1 refusal, concurrent requests,
+   retries/uncertain upstream counting, disallowed routes/features, client/supplied
+   tampering, one-use start/restart, receipt cap propagation, unchanged accounting,
+   wait/restart reason preservation, direct `_invoke` failclosed, both account
+   labels and no positive other route. Fake local upstream only; no model calls.
+3. Full `uv run --with numpy --with scipy python -B tests/run.py` (~12min), fresh
+   cross-family diff review, verbatim findings/responses and clean commits.
+
+One agent session and offline tests; no live compute spend. Delete no accounting
+path and add no general proxy/framework. Risks: conservative cap may exceed D's
+remaining envelope; strict request subset may reject CLI auxiliary features;
+pinned compatibility must be tested, not assumed. The gate trusts the existing
+factory/CLI code, not a hostile root process; no new network-isolation/security
+property is asserted. Same-worker processes already have this credential scope.
+No Mac dependency, control-VM payloads, new key or plan reduction. Murphy rows
+2,3,4,20,47,48 remain OPEN until real B/D end-to-end evidence. Green offline tests
+prove the bounded adapter contract, not successful production role completion.

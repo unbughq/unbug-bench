@@ -96,7 +96,7 @@ The worker then:
   "wait_id": "<uuid4>",
   "case": "case-...", "job": "...", "batch": "...",
   "role": "...", "route": "...", "account": "<label or null>",
-  "reason": "quota|rate|credit|outage|router_unavailable|credential_expiring",
+  "reason": "quota|rate|credit|outage|router_unavailable|credential_expiring|unbounded_route",
   "retry_after": "<UTC ISO time>",
   "evidence": "denied_before_work|interrupted",
   "lease_id": "<lease of the interrupted call, or null if denied before admission>",
@@ -272,6 +272,27 @@ denial.
   Concurrent waits use the latest `retry_after`.
 - **Where the route came from.** Each lease's effective route is kept in
   the card's `route_receipts`.
+
+- **Enforceable call maxima (A → D/B).** Every Lease requires
+  `max_usd: float` (finite nonnegative whole-invocation USD list-price ceiling),
+  `max_input_tokens: int`, `max_output_tokens: int` (aggregate billed input/cache
+  and output/thinking ceilings over all attempts/turns/compaction), and
+  `price_source: str` (verified tariff and enforcement provenance). D reserves
+  only after admission, using `lease.max_usd`. Client/runtime verify against
+  code-owned effective-route policy. Claude Opus 5.5 alone uses a worker-local
+  subscription request gate: at most 8 forwarded Messages requests, each capped
+  at 8192 output tokens and the documented 1M input context ceiling; no hosted
+  tools/auxiliary billable endpoints. Same credentials/account/upstream endpoint,
+  no control-VM payloads or logging. `token_prices.py` gives the conservative
+  list-price bound ($143.683584 rounded upward currently). D must have enough
+  authorized envelope. Other/unknown/unenforceable routes get no Lease and
+  Wait('unbounded_route'), including direct/supplied tampered Leases. B sees
+  capacity=0 for those routes and waits for reviewed enforcement. A one-use
+  execution-start RPC prevents resetting a lease's request allowance. All caps
+  and `cap_used` go in per-lease usage receipts; receipts/finish book nothing.
+  Gate rejection raises `model_call_cap`, a bound stop with no inline retry.
+  unbounded_route propagates through ordinary wait/checkpoint/restart and is not
+  provider health. See router.md follow-up for exact semantics and limitations.
 
 ## 8. Batch money authority (B provides, D enforces)
 
