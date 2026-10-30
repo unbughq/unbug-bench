@@ -435,8 +435,8 @@ diff review; the remaining extension obligations below are still open.
 
 `stream-d-active-extension-state.md` proposes the next recovery prerequisite:
 preserving the diagnosis that admitted an active extension and checking its
-private exhaustion binding. It is awaiting design review, and does not yet
-resolve the writer-intent or continuation obligations below.
+private exhaustion binding. It is implemented with passing design review 3;
+its full suite and diff review are in progress. It does not yet resolve the writer-intent or continuation obligations below.
 
 For B1, replace the implicit `active_extension_id` budget-bypass test with an
 explicit `pending_call(..., extension_proposal=...)` path. Under the existing

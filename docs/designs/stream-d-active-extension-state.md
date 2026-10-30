@@ -146,7 +146,9 @@ is needed. Tests must cover these observable transitions:
   unchanged diagnosis/history and no new reviewer/writer call. Change the diagnosis
   UUID as a negative control; replay must propagate
   `BudgetError('extension_history_invalid')` without changing extension-history.json,
-  extension-snapshots/, diagnosis/<id>/ or the card diagnosis_state/extension_history.
+  extension-snapshots/, diagnosis/<id>/ or the injected card diagnosis_state/extension_history.
+  Only the UUID changes here: status/outcome changes fail earlier public validation
+  and belong to the direct reader controls below.
   The binding does not set terminal_stop. Reconciliation may update the existing
   reservation ledger; dispatcher order stays unchanged. The second
   origin must verify frozen `extension_incomplete` evidence after admission.
