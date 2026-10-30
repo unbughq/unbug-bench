@@ -1892,7 +1892,8 @@ the cap would leave them with no money bound at all. They retire with their
 paths (`docs/factory-single-path.md`), not here.
 
 - `g11_review.py`: `batch.bind` refuses `--audit-g11` and
-  `--continue-g11-review` (`batch.py:143–151`). The G11 audit is a
+  `--restore-review`, the only launch of `--continue-g11-review`
+  (`batch.py:143–151`, `launch.sh:44`). The G11 audit is a
   non-factory audit job, like `bin/run-exam`.
 - `ttl_continuation.py`: a batch policy has only `mode: batch` jobs
   (`key_holder.py:128`), and `ttl_continuation.policy_check` requires
