@@ -1900,11 +1900,16 @@ Change.
   Receipts with no gate snapshot (synthetic reconciliation leaves) keep the
   maximum. Once a reservation is estimated, its charge is a ceiling, and
   evidence without final usage never moves it, up or down. Only booked usage
-  above the charge raises it, with a zero gap. So an estimate cannot grow
-  between two collections, and a final receipt's release equals the drop
-  from the last ACK. Only a final receipt can lower the charge, through
-  `reconciled_decreases` (the provenance B's collection requires). B's
-  per-invocation release check is unchanged. The row's current charge counts every event already bound to
+  above the charge raises it, with a zero gap. In D, an estimated row gains
+  events only through `_settle_leaf`: the streaming accountant books only
+  while the process runs, before `complete_invocation` estimates it, and
+  `settle`/`reconcile_reservations` run only on resume with no active call
+  (`usage_reconciliation_while_active`). So D never grows an estimate
+  between two collections. Only a final receipt can lower the charge,
+  through `reconciled_decreases` (the provenance B's collection requires).
+  B's collection check is unchanged by this increment. Its known limits
+  (a settled row that grows after its decrease record, and a ledger written
+  outside D's producers) predate it and are B's; see design review 8. The row's current charge counts every event already bound to
   it: its `event_ids` plus ledger events tagged with its lease and
   invocation. So a late booking followed by a stale replay keeps the total,
   and the decrease record uses that same charge. A forged first snapshot is not defended against. The receipt
@@ -2052,6 +2057,13 @@ receipts, or read saved proof records. A local draft of the
 `complete_invocation` change passes all three unchanged. The settlement test
 also covers a concurrent sibling call: it streams while the first call fails
 with unknown usage, and it finishes without `money_wait`.
+
+Design review 8 responses (Codex, FAIL). B1 and B2: rejected as outside
+this increment, pending a second goldfish (`stream-d-money-design-8-codex.md`).
+B1 needs a tagged booking on an estimated row outside `_settle_leaf`, which
+no D producer makes. B2 is a property of B's collection guard on the
+committed code, with or without this increment. The overclaim that B's
+check is now exact is removed above.
 
 Design review 7 responses (Codex, FAIL). B1: accepted. The round-6
 collection change is withdrawn, because one call's release could cover
