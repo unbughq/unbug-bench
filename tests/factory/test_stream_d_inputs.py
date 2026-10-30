@@ -337,7 +337,12 @@ class InputTests(unittest.TestCase):
         evidence = {'kind': 'work', 'path': 'gate-details/G4.json', 'sha256': hashlib.sha256(b'{}').hexdigest()}
         good = cache / 'G4.json'; good.write_text(json.dumps({'evidence': [evidence]}))
         for number, bad in enumerate(('/outside', '../outside', 'gate-cache/G4.json', 'missing.json')):
-            (cache / f'bad-{number}.json').write_text(json.dumps({'evidence': [{**evidence, 'path': bad}]}))
+            sha = hashlib.sha256(good.read_bytes()).hexdigest() if bad == 'gate-cache/G4.json' else evidence['sha256']
+            (cache / f'bad-{number}.json').write_text(json.dumps({'evidence': [{**evidence, 'path': bad, 'sha256': sha}]}))
+        current = self.bench / 'results/test.json'; current.parent.mkdir(); current.write_text('{}')
+        (cache / 'empty.json').write_text(json.dumps({'evidence': []}))
+        (cache / 'bad-kind.json').write_text(json.dumps({'evidence': [
+            {'kind': 'unknown', 'path': 'test.json', 'sha256': evidence['sha256']}]}))
         (cache / 'malformed.json').write_text('{')
         manifest = self.freeze()
         self.assertEqual([n for n in manifest['files'] if n.startswith('work/gate-cache/')], ['work/gate-cache/G4.json'])
@@ -422,6 +427,88 @@ class InputTests(unittest.TestCase):
         self.parent.symlink_to(self.work)
         self.assert_invalid()
         self.assertTrue(self.ledger.exists())
+
+    def test_terminal_refusal_stays_stopped_after_input_is_repaired(self):
+        original = self.restore_receipt.read_bytes()
+        self.restore_receipt.unlink(); self.assert_invalid()
+        self.restore_receipt.write_bytes(original)
+        self.assert_invalid()  # No reset_stop: repairing bytes is not operator recovery.
+        self.assertFalse((self.parent / 'input.json').exists())
+
+    def test_history_invalid_never_loads_or_relabels_inputs(self):
+        for published in (False, True):
+            if published:
+                self.reset_stop(); self.freeze()
+            self.c.card['terminal_stop'] = 'factory_bug_history_invalid'
+            before = copy.deepcopy(self.c.card)
+            with self.assertRaisesRegex(budget.BudgetError, '^factory_bug_history_invalid$'):
+                self.freeze()
+            self.assertEqual(self.c.card, before)
+            self.assertIsNone(diagnosis.pending_projection(self.c.card))
+
+    def test_creation_requires_settled_ledger_and_matching_pending_state(self):
+        ledger = self.ledger.read_bytes()
+        unsettled = json.loads(ledger); unsettled['active'] = {'authored': {'state': 'running'}}
+        self.ledger.write_text(json.dumps(unsettled)); self.assert_invalid()
+        self.assertFalse((self.parent / 'input.json').exists())
+        self.ledger.write_bytes(ledger); self.reset_stop()
+        self.c.checkpoint_card['diagnosis_state']['exhaustion_id'] = str(uuid.uuid4())
+        self.assert_invalid()
+        self.assertFalse((self.parent / 'input.json').exists())
+
+    def test_self_consistent_replay_cannot_change_required_record_semantics(self):
+        cache = self.work / 'gate-cache/G4.json'; cache.parent.mkdir()
+        detail = self.work / 'gate-details/G4.json'; detail.parent.mkdir(); detail.write_text('{}')
+        cache.write_text(json.dumps({'evidence': [{'kind': 'work', 'path': 'gate-details/G4.json',
+                                                'sha256': hashlib.sha256(b'{}').hexdigest()}]}))
+        manifest = self.freeze()
+        root = self.parent / 'inputs'
+        controls = [
+            ('card.json', lambda v: v['diagnosis_state'].update(status='completed', outcome='not_converging')),
+            ('card.json', lambda v: v['infrastructure_gate'].update(exhausted=False)),
+            ('ledger.json', lambda v: v.update(active={'authored': {'state': 'running'}})),
+            ('work/gate-cache/G4.json', lambda v: v['evidence'][0].update(path='missing.json')),
+        ]
+        for name, mutate in controls:
+            with self.subTest(record=name):
+                self.reset_stop()
+                path = root / name; original = path.read_bytes()
+                value = json.loads(original); mutate(value); path.write_text(json.dumps(value))
+                modified = copy.deepcopy(manifest)
+                modified['files'][name] = hashlib.sha256(path.read_bytes()).hexdigest()
+                (self.parent / 'input.json').write_text(json.dumps(modified))
+                self.assert_invalid()
+                path.write_bytes(original)
+        (self.parent / 'input.json').write_text(json.dumps(manifest))
+        self.reset_stop(); self.assertEqual(self.freeze(), manifest)
+
+    def test_selected_base_symlink_and_authenticated_release_mismatch_refuse(self):
+        original = self.c.args.batch_release_sha256
+        self.c.args.batch_release_sha256 = 'f' * 64
+        self.assert_invalid()
+        self.c.args.batch_release_sha256 = original; self.reset_stop()
+        current = self.bench / 'actual-results'; current.mkdir()
+        (current / 'test.json').write_text('{}')
+        (self.bench / 'results').symlink_to(current, target_is_directory=True)
+        self.assert_invalid()
+
+    def test_release_selection_is_anchored_to_shipped_factory_root(self):
+        worker = job_config.FACTORY.parent / 'worker-release-manifest.json'
+        value = json.loads(worker.read_text())
+        # Authored manifest controls are deliberately absent on disk. They are
+        # not shipped factory roots, even though right-anchored match accepts them.
+        value['files'].update({'elsewhere/factory/a.py': 'f' * 64,
+                              'elsewhere/factory/prompts/a.md': 'f' * 64,
+                              'factory/nested/factory/a.py': 'f' * 64})
+        worker.write_text(json.dumps(value))
+        release = worker.with_name('batch-release.json')
+        value = json.loads(release.read_text())
+        value['files'][worker.name] = hashlib.sha256(worker.read_bytes()).hexdigest()
+        release.write_text(json.dumps(value))
+        sha = hashlib.sha256(release.read_bytes()).hexdigest()
+        self.c.args.batch_release_sha256 = sha
+        self.c.authenticated_job_config['batch_release_sha256'] = sha
+        self.assertFalse(any('elsewhere/' in name or '/nested/' in name for name in self.freeze()['files']))
 
     def test_completed_extension_inputs_verify_snapshots_and_public_outcome(self):
         import extensions

@@ -141,3 +141,20 @@ passed in that run; no isolated rerun was needed. Log:
 The earlier ebf3b1a run's failure and isolated passing rerun remain recorded in
 diff review 22; this result does not replace that history. No Murphy row closes.
 
+## Nit follow-up
+
+Implemented N1–N6 in the next increment. Cache-through-cache now names the actual
+copied cache digest. Added direct authenticated/argument release mismatch,
+sticky refusal after bytes are repaired, active-ledger and initial-state controls,
+self-consistent manifest mutations (pending state, active ledger, infrastructure
+marker and retained cache), empty/bad-kind cache hints, and a symlinked selected
+base. History-invalid now refuses before the input error handler and keeps its
+original stop, with controls both before publication and on replay. The bench
+comment describes current-reader precedence. Release selection requires the exact
+factory or factory/prompts parent, with nested-path manifest controls.
+
+These pin semantic refusals; redundant checks at creation and replay need not each
+be independently necessary for the end-to-end refusal test to pass. No tests
+are claimed as proof of a source line rather than observable behavior. No dispatcher
+or Murphy closure is included. A fresh diff review and full suite follow.
+

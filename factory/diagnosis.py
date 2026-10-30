@@ -453,7 +453,7 @@ def _write_input_tree(c, bench, root, card, state):
                 if not path.is_dir():
                     name = prefix + '/' + path.relative_to(source).as_posix()
                     data = _input_bytes(path, base)
-                    # The current bench copy wins, exactly as the next seal does.
+                    # Current inventory wins, as current gates read it.
                     if not restored_bench or name not in files: add(name, data)
         elif source.exists():
             add(prefix, _input_bytes(source, base))
@@ -492,8 +492,8 @@ def _write_input_tree(c, bench, root, card, state):
     worker = job_config.read_file(job_config.FACTORY.parent / 'worker-release-manifest.json',
                                   release['files']['worker-release-manifest.json'])
     selected = {name: sha for name, sha in worker['files'].items()
-                if PurePosixPath(name).match('factory/*.py') or
-                PurePosixPath(name).match('factory/prompts/*.md') or
+                if (PurePosixPath(name).parent == PurePosixPath('factory') and name.endswith('.py')) or
+                (PurePosixPath(name).parent == PurePosixPath('factory/prompts') and name.endswith('.md')) or
                 (name in WORKER_BENCH and name.startswith('bin/'))}
     if not selected: raise ValueError('missing release source')
     for name, expected in selected.items():
@@ -534,6 +534,8 @@ def queued_inputs(c, bench, *, quiescent):
     import job_authority
     import shutil
     authority = job_authority.for_case(c)
+    if c.card.get('terminal_stop') == 'factory_bug_history_invalid':
+        raise BudgetError('factory_bug_history_invalid')
     try:
         if quiescent is not True or c.card.get('terminal_stop') == 'diagnosis_input_invalid':
             raise ValueError('not an input boundary')
