@@ -789,3 +789,11 @@ the B channel and reservation money strings use nine fixed decimal places.
 reserve_invocation rechecks the absolute authority deadline. Increment 2 must
 still call for_case immediately before every reservation, binding the current
 revision/source generation; never cache an authority across separate calls.
+
+Saved-card compatibility exam for Decimal valuation: the 20261029 recovery
+snapshot has exactly three projection differences, each removal of a zero-valued
+legacy_unattributed role label, for cases 6a8a7d, cae763 and 055481. The regression
+pins each original canonical card hash before applying that exact expected-field
+migration in memory. All saved totals, source cards and recovery/scientific
+decisions remain identical. Neither the captured cards nor the frozen before
+snapshot is regenerated or rewritten.
