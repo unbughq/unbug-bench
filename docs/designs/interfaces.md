@@ -535,8 +535,10 @@ conflicting IDs, duplicate event IDs or an event attributed to two rows refuses 
 `booked_usd` is that row's actual event charge, excluding its estimated gap;
 `remaining_usd = max(0, maximum_usd - booked_usd)`. Actual charges exceeding a
 maximum count in full; no spend is truncated. `booked_total_usd` is
-`case_spending(ledger)['known_total_spent_usd']` (or numeric total_spent_usd when
-that key is absent), minus ALL once-counted estimated_gap_usd. It includes
+the shared raw Decimal total underlying case_spending(ledger), minus ALL
+once-counted estimated_gap_usd, rounded normally once for this display. The
+implementation exposes a shared raw valuation helper rather than reparsing
+case_spending's rounded floats. It includes
 known legacy remainders and additive infrastructure waste. For the covered total, sum raw Decimal actual charges and raw per-row remaining
 gaps first, then round UP once to the nine-place unit. Row booked_usd rounds
 normally and remaining_usd rounds UP for reporting; their separately rounded
@@ -576,6 +578,8 @@ Emit nothing if released_usd <= 0. Shared event attribution refuses settlement.
 `wait_id` is null for crash/late-receipt reconciliation, otherwise a retained
 wait_settlements ID naming the same lease. A pending row with an unknown/null
 prior total settles without a decrease record, because that row was not estimated.
+release_uninvoked refuses every non-pending reservation, including an estimated
+row with no events; only settlement can release that row's gap with evidence.
 Further growing final receipts add actual usage and cannot release another gap.
 Replay adds no record and changes no total. B acknowledges each invocation once.
 
@@ -594,11 +598,13 @@ older-ledger search is needed. Duplicate receipt IDs never multiply R; conflicti
 duplicate records fail shape validation. Evaluate qualification on every ACK,
 including null P or T. An in-run estimate absent from the immediately previous
 map contributes zero and is not grounds for refusal by itself.
-Let R be the sum of qualifying released_usd, k their count, and epsilon =
-(k+1)*0.000000001 when k > 0, otherwise zero. When P and T are known accept iff
-T >= P - R - epsilon; this bounds per-record versus cumulative rounding at the
-nine-place boundary. With no qualifying record, any unsupported decrease still
-refuses. A null T must pass the conservative coverage/held-authority checks.
+Let R be the sum of qualifying released_usd and M the immediately previous
+ACK's estimated invocation map. Let epsilon = (2*len(M)+1)*0.000000001. When P and T are known accept iff
+T >= P - R - epsilon; this bounds re-estimation, releases that round to zero, and per-record versus
+cumulative rounding at the nine-place boundary. An unsupported decrease larger
+than that bounded rounding allowance still refuses, even without qualifying
+records. Each previously estimated row can lose less than two nanodollars to
+rounding, and the total roundings add less than one. A null T must pass the conservative coverage/held-authority checks.
 A null P permits any known T <= held commitment after normal owner/collection
 checks. These checks do not release held authority; even the rounding margin
 cannot create new commitment or transfer headroom to another owner.
@@ -645,8 +651,9 @@ terminal_stop, diagnosis_state.stop is the literal infrastructure_exhausted.
 - `pending_projection(card) -> dict | None`: None unless exhaustion is true and
   diagnosis for that exhaustion is still pending. Otherwise exactly
   `{"schema_version":1,"status":"pending","replacement_eligible":<bool>}`.
-  replacement_eligible = actual_model_work(card) AND NOT
-  recovery.infrastructure_exhausted(card). Infrastructure exhaustion requests
+  replacement_eligible = actual_model_work(card) AND the current exhaustion is
+  not infrastructure_exhausted. A valid diagnosis_state.stop identifies the
+  current exhaustion; legacy cards without it use recovery.infrastructure_exhausted(card). Infrastructure exhaustion requests
   read-only diagnosis only; it does not spawn replacement chains. B derives a child only from a PRESENT pending_projection with
   replacement_eligible exactly true; None always forbids first derivation.
   exhaustion and actual_model_work are diagnostic helpers, never a fallback
@@ -671,7 +678,12 @@ record before acting on any legacy projection. Malformed diagnosis_state fails
 closed to no projection. A validated close_to_passing continues in the same worker
 run into code-enforced extension admission; an interrupted extension resumes as
 ordinary same-owner work, so B needs no extra projection. factory_bug enters the
-existing coordinator maintainer queue; not_converging retires.
+existing coordinator maintainer queue; not_converging retires. Only a reviewed
+qualified fix and authenticated operation attribution admit a factory-bug resume
+(up to three lifetime resumes). That resume archives and clears the old
+infrastructure_gate marker before work; a later budget/round exhaustion creates
+a fresh diagnosis_state.stop and can qualify for replacement under the one-child
+journal rule. It does not reuse legacy restart's blanket infrastructure refusal.
 
 `terminal_stop: diagnosis_pending` is produced by D's same-owner runner when an
 exhausted unknown-at-launch owner has settled and must exit without a model
@@ -759,3 +771,8 @@ alone grants no authority. No case content/public-card limit substitutes for
 the holder binding. D's `for_case` then compares its persisted current case copy
 to `c.authenticated_job_config['job_money']` and the four context fields, using
 its documented API names unchanged.
+
+Review-17 implementation replays add a release rounded to zero, a re-estimation
+at the sub-nanodollar boundary, an infrastructure factory-bug resume followed by
+replacement-eligible budget exhaustion, and refusal to release an estimated
+reservation as uninvoked. B owns the ACK bound/map tests; D owns the producers.

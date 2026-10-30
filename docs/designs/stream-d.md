@@ -264,8 +264,9 @@ Append the outcome after evaluation. History lives outside `gates`, `gate_result
 included in the encrypted checkpoint. The public card projects operational
 IDs/counts/status and hashes only; no receipt text, findings or case files.
 Each schema-v1 entry has
-`extension_id`, `state` (active/complete), `writer_operation_id`,
-`entry`, `outcome` (null until complete), each snapshot with the fields above.
+`extension_id`, `writer_operation_id`,
+`entry`, `outcome` (null until complete), each snapshot with the fields above. Private state is derived from null/non-null
+outcome, never another mutable field.
 `late_recovery.invalidate/stop_defect` must preserve this file and field.
 
 One extension = one logical writer round, its stress review, one gate traversal.
@@ -868,8 +869,9 @@ resume is enabled. The lifecycle qualification must cover these §8 cases:
   checkpoint before a dependent replacement or the next same-owner diagnosis
   resume; there is no settlement-only or diagnosis launch mode.
 - A late receipt may replace a conservative gap with a lower actual charge.
-  B acknowledges reconciled_decrease only with a receipt matching the earlier
-  unpriced_invocation ID or wait_id. An unsupported decrease remains refused.
+  B acknowledges reconciled_decrease only under interfaces §8: an invocation
+  estimated in the immediately previous ACK and settled now, with the bounded
+  rounding allowance specified there. An unsupported decrease remains refused.
   D retains the invocation/wait settlement evidence in the checkpoint; neither
   side resets cumulative usage or silently releases the old commitment.
 - Diagnosis uses the original's ordinary same-owner resume and a content-free
@@ -998,3 +1000,9 @@ first exhaustion before diagnosis; B derives immediately from that collected
 projection. Completed diagnosis clears it. Subsequent distinct exhaustion may
 request diagnosis, but B's durable one-child-per-parent journal never admits a
 second child. D's pure card-only API does not pretend to read that external latch.
+
+Interface review 17: accept R1 and J1/J2. B uses epsilon=(2*len(previous
+estimated map)+1) nanodollars, including zero-release settlements and
+re-estimates. This grants no money or released commitment. Factory-bug resume
+archives/clears the old infrastructure_gate before work; current diagnosis_state
+identifies a subsequent exhaustion. release_uninvoked refuses non-pending rows.
