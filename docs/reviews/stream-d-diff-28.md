@@ -151,3 +151,26 @@ The diagnosis-only worker increment (`449005c..8f980b2`) now meets the passed de
 ## Elephant response to passed review
 
 Accepted. Optional N1 is deferred because the fixed worker layout is far below the full-path bound; reconsider the assumption if that layout changes. The pre-existing tomllib/Python-floor observation is recorded for the release owner, outside this diagnosis increment. All earlier accepted extension obligations remain open. No Murphy row closes and no runtime activation or live qualification is claimed.
+
+## Elephant full-suite result and rerun
+
+The full suite on the `8f980b2` implementation ran 151 scripts, with one failed:
+`tests/factory/test_transfer.py`. In `test_already_verified_result_needs_no_chunks`,
+the offline fake transport's metadata subprocess exceeded the test's two-second
+`BOAT_COMMAND_TIMEOUT_SECONDS` and exited 124. Launch guards passed; this was not
+the documented launch-guard flake. The transfer test, `factory/transfer.py` and
+`bin/boat-call` are unchanged from integration baseline `9701f56`.
+
+Log: `/tmp/stream-d-dispatch-path-fixes-suite.log`, SHA-256
+`b6fd94a2e69e93479ead0b394dac9ef278fb9058065f5c8b607eabe2fd05094b`.
+
+An isolated rerun with
+`uv run --with numpy --with scipy python -B tests/factory/test_transfer.py`
+passed all five tests without source changes. Its intentional timeout control
+still exercised the timeout path. Log: `/tmp/stream-d-transfer-isolated.log`,
+SHA-256 `9ef90cd0ff6aed391410cfe99e2db38f57a56b281ee848907e61c7a2c8188282`.
+
+This isolated pass does not replace the required full-suite pass. A fresh full
+run was started at `7027360` (documentation-only commits after `8f980b2`) with
+the prescribed command, logging to
+`/tmp/stream-d-dispatch-path-fixes-suite-2.log`; its result is pending.
