@@ -31,6 +31,7 @@ audit_runtime_preparation delivery_provenance owner_contract archive sha256 r2_o
 statement_sha256 statement_cipher_sha256 durable_checkpoint dry_run_roundtrip wall_minutes
 gate_minutes error checkpoint_error public_progress_error wipe calls_delta cost_delta
 audit_calls_total audit_cost_total continuations continuation_budget cleanup_errors
+legacy_import
 """.split())
 DERIVED = frozenset("builder_rounds candidate_attempts repairs case_budget".split())
 VOLATILE = frozenset("resume bench_workers_effective factory_slots_prepared".split())
@@ -107,6 +108,99 @@ def usage_facts(ledger):
         if marker not in unpriced: unpriced.append(marker)
     return {"ledger": durable, "legacy_remainder": remainder,
             "calls": max(observed["calls"], ledger.get("calls", observed["calls"]))}
+
+
+def legacy_import_dry_run(card):
+    """Unwired spend-only import proposal; exact numbers, no authorization."""
+    from budget import _spending, usd, BudgetError
+    try:
+        require(isinstance(card, dict) and isinstance(card.get('case'), str) and
+                re.fullmatch(r'case-[A-Za-z0-9-]+', card['case']), 'invalid import case')
+        require(isinstance(card.get('sha256'), str) and re.fullmatch('[0-9a-f]{64}', card['sha256']),
+                'invalid import generation')
+        require('legacy_import' not in card and 'job_money' not in card, 'case already imported or assigned')
+        ledger = card.get('continuation_budget')
+        usage_facts(ledger)
+        require(not ledger.get('active') and ledger.get('terminal_stop') != 'running',
+                'unfinished invocation count is unknown')
+        require(not ledger.get('invocation_reservations'), 'modern reservations require ordinary reconciliation')
+        require(not any(e['id'].startswith('legacy-import:') for e in ledger['events']) and
+                not any('import_id' in r for r in ledger.get('resolved_unpriced_invocations', [])),
+                'ledger already imported')
+        markers = ledger.get('unpriced_invocations', [])
+        raw, summary = _spending(ledger)
+        require(summary.get('unpriced_events', 0) == len(markers), 'unknown usage is not an invocation count')
+        identity = dict(case=card['case'], legacy_generation_sha256=card['sha256'], ledger_sha256=digest(ledger))
+        import_id = digest(identity)
+        invocations = [dict(invocation_id=digest(dict(import_id=import_id, marker_index=i, marker=marker)),
+                            marker_index=i, marker_sha256=digest(marker)) for i, marker in enumerate(markers)]
+        known, added = usd(raw), usd(33 * len(markers))
+        return dict(schema_version=1, import_id=import_id, **identity,
+            known_total_usd=format(known, '.9f'), unresolved_invocations=invocations,
+            unresolved_invocation_count=len(markers), per_unresolved_invocation_usd='33.000000000',
+            estimated_added_usd=format(added, '.9f'), estimated_total_usd=format(known + added, '.9f'),
+            lifetime_history=None, founder_authorized_total_usd=None)
+    except Refused:
+        raise
+    except (BudgetError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
+        raise Refused('invalid legacy import metadata') from None
+
+
+def legacy_import_batch_dry_run(cards):
+    """Report refused cases separately; never turn an unknown case into $0."""
+    from decimal import Decimal
+    require(isinstance(cards, list), 'import inventory must be a list')
+    names = [c.get('case') if isinstance(c, dict) else None for c in cards]
+    accepted, refused = [], []
+    for card, case in zip(cards, names):
+        try:
+            require(isinstance(case, str) and names.count(case) == 1, 'duplicate or missing import case')
+            accepted.append(legacy_import_dry_run(card))
+        except Refused as error:
+            refused.append({'case': case if isinstance(case, str) else None, 'reason': str(error)})
+    totals = {key: format(sum((Decimal(row[key]) for row in accepted), Decimal(0)), '.9f')
+              for key in ('known_total_usd', 'estimated_added_usd', 'estimated_total_usd')}
+    totals.update(unresolved_invocation_count=sum(r['unresolved_invocation_count'] for r in accepted),
+                  per_unresolved_invocation_usd='33.000000000')
+    return dict(accepted=accepted, refused=refused, totals=totals)
+
+
+def migrate_legacy_import(card, record):
+    """Return retired accounting state. Caller must authenticate exact approval.
+
+    Replaying the original source is deterministic. A migrated source refuses;
+    publication and the one-import-per-case journal belong to B, not this helper.
+    """
+    from budget import usd
+    expected = legacy_import_dry_run(card)
+    expected['founder_authorized_total_usd'] = expected['estimated_total_usd']
+    require(isinstance(record, dict) and digest(record) == digest(expected),
+            'import record or exact amount differs from dry-run')
+    result = copy.deepcopy(card)
+    ledger = result['continuation_budget']
+    markers = ledger.get('unpriced_invocations', [])
+    total = ledger.get('list_cost_usd', sum(e.get('list_cost_usd', 0) for e in ledger['events']))
+    for row in record['unresolved_invocations']:
+        identity = 'legacy-import:' + record['import_id'] + ':' + row['invocation_id']
+        ledger['events'].append(dict(id=identity, kind='legacy_import_estimate', role='legacy_import',
+            configured_model='legacy-unknown', cost=0, list_cost_usd=33,
+            estimated_subscription_cost_usd=0, calls=0))
+        ledger.setdefault('resolved_unpriced_invocations', []).append(dict(
+            original=copy.deepcopy(markers[row['marker_index']]), import_id=record['import_id'],
+            invocation_id=row['invocation_id'], estimate_event_id=identity))
+    if markers:
+        ledger['list_cost_usd'] = total + 33 * len(markers)
+        ledger['unpriced_invocations'] = []
+    usage_facts(ledger)
+    summary = case_spending(ledger)
+    require(summary['total_spent_usd'] is not None and
+            format(usd(summary['total_spent_usd']), '.9f') == record['estimated_total_usd'],
+            'migrated total differs from authorized estimate')
+    result['case_budget'] = summary
+    result.update(status='retired', terminal_stop=(
+        'retired_import_estimate' if markers else 'retired_import_history_unknown'),
+        legacy_import=dict(schema_version=1, import_id=record['import_id'], record_sha256=digest(record)))
+    return result
 
 
 def v0_to_v1(card):

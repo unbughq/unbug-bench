@@ -337,30 +337,178 @@ rejected, nonempty reason/evidence, verified relative paths and SHA-256 digests:
 ```
 
 For `factory_bug`, replace null with `{component, reproducer,
-affected_operations:[operation_id], fix_required}` (nonempty strings/list).
+affected_operations:[operation_id], fix_required}` (nonempty strings; the operation list may be empty when code proves no eligible charged operation).
 Bind results to the queued checkpoint; stale output cannot authorize newer work.
 Malformed/interrupted diagnosis is infrastructure, not a fourth case outcome;
 retain and repair/retry under the batch bounds. `not_converging` retires.
 
-Factory bugs enter the coordinator’s maintainer queue with reproducer/evidence.
-The maintainer follows ENGINEERING’s design/tests/goldfish flow; no automatic
-production edit. A reviewed qualified release identifies the finding and affected
-operations; the coordinator then resumes the checkpoint, at most three times.
-Move affected failed operations and their replay to `infrastructure_waste` by
-unique operation ID, keeping batch spend. Require operational receipts and the
-reviewed fix’s attribution; a model assertion alone cannot refund spend. Add a
-validator branch in `budget.py` for schema-v1 waste records
-`{kind:"factory_bug", id, diagnosis_sha256, fix_commit, fix_attribution_sha256,
-operation_ids, event_ids, infrastructure_waste_usd}`. Require unique operation/
-event IDs and amount equal to their settled receipt sum; replay operations are
-added once as they settle. Reclassification moves existing cost, never adds it
-twice or reduces batch total. `case_spending` excludes the classified event IDs
-from ordinary `spent_usd` and includes their sum once in `infrastructure_waste_usd`;
-`total_spent_usd` stays unchanged. Example: $12 booked, $4 classified → case $8,
-waste $4, batch total $12. Preserve the additive legacy infrastructure_kill
-validator because its charge has no already-booked event IDs.
-A fourth resume retires. Only conflicting substantive case judgments reach the founder.
-At batch bounds unfinished work retires, without holding the replacement.
+**Parent ruling, 2026-10-30: factory bugs do not wait for an in-batch fix.**
+Code is frozen per batch; ordinary plumbing releases roll forward at checkpoints.
+Fixes follow ENGINEERING §1 on a branch, with design, goldfish review and merge.
+There is no maintainer service, authenticated-fix delivery contract, mid-batch
+fix dependency, or automatic production edit.
+
+For a validated `factory_bug` outcome, persist the private finding and completed
+`diagnosis_state`, then stop unscored as `factory_bug_held`. No more model work is
+admitted for that held case in the current batch. The public card contains only
+`factory_bug: {finding_id, gate_or_stage, summary_class}`: `finding_id` is the
+existing exhaustion UUID4, `gate_or_stage` is the code-recorded gate/stage (or
+`unknown`), and `summary_class` is the fixed value `factory_bug`. No model prose,
+reproducer or case evidence is public. Retain the private finding at
+`diagnosis/<finding_id>/finding.json` in the encrypted checkpoint. `unbug status`
+shows a needs-attention item with action `factory bug: see finding <id>`; that
+ordinary attention list is the human handoff. B owns the single status rule.
+
+After a fix merges, an ordinary same-owner relaunch in a later batch release
+containing it goes through the normal `bind()`/import path. D reads the normal
+verified release/source binding, not a separate fix credential or message. Keep
+at most three lifetime factory-bug resumes: record admission before work, retain
+it across waits/crashes and do not count retries of that admitted resume again.
+A fourth retires. Clear the old `infrastructure_gate` before admitted work; the
+completed private finding remains evidence. A new exhaustion gets a fresh ID.
+The current retirement-only legacy-import proposal does not authorize this
+resume; B's normal bind/resumable-import path must supply ordinary authority.
+
+Affected failed operations and their replay go to `infrastructure_waste` by
+unique operation/event IDs and settled receipt sums. This is reclassification:
+$12 booked with $4 classified becomes case $8 + waste $4 = batch $12. It creates
+no headroom and adds no charge twice. Keep later receipt growth on the same
+attribution. Historical schema-v1 `fix_commit`/`fix_attribution_sha256` records
+remain readable, but are not a fix-delivery prerequisite for the new lifecycle.
+The retained validated finding and ordinary release/restore binding establish
+the source; attribution still requires actual operational receipts, never a
+model's asserted dollar amount. Preserve additive legacy `infrastructure_kill`
+records, whose charges have no already-booked event IDs.
+
+Parent clarification, 2026-10-30: infrastructure exhaustion keeps a PRESENT
+pending projection with `replacement_eligible:false` before diagnosis completes.
+B therefore queues its same-owner diagnosis and derives no child. Completed
+factory_bug diagnosis returns None under the existing completed-state rule and
+sets `terminal_stop: factory_bug_held`. No new B fact or component is needed. The batch fills available slots with ordinary
+new cases. Other exhausted cases already covered by the one-child journal do
+not gain another child when a factory bug is diagnosed. At batch bounds,
+unfinished work retires without blocking other cases. Tests cover held-state
+purity/no work, content-free status, same-batch refusal, normal later-release
+resume, three lifetime admissions with replay, no infrastructure replacement,
+and unchanged cumulative spend under waste reclassification. No row closes
+without the required real-artifact qualification.
+
+Implementation decisions for the held lifecycle:
+
+This increment implements the hold and refusal, not later-batch resume or waste
+attribution. The present `infra-attempts.json` has no per-attempt operation links.
+Therefore `eligible_operation_ids` and `failure_receipts` are always `[]` here,
+code intersects the schema-valid `affected_operations` with that empty eligible
+set (rather than rejecting a nonempty list), and no schema-v2 waste record is
+emitted. Retain the raw model output privately; the normalized accepted finding
+has `affected_operations: []`. Historical charges remain on the case
+line. The causal-receipt producer, replay mapping and v2 attribution activation
+below are requirements for a later reviewed addendum, not existing evidence or
+an enabled path. This closes ordinary-budget headroom until those proofs exist.
+The case can still be diagnosed and held; no in-batch work waits for the addendum.
+
+- `factory_bug_held` is exactly the `terminal_stop` literal, with `status: stopped`
+  and no scored case failure. Public `gate_or_stage` is one of the valid
+  `run.GATES` names (that list excludes G12), `stress`, or `unknown`. It comes only
+  from code-recorded stage/stop metadata, never the model's `component`.
+- `diagnosis/<finding_id>/finding.json` has exactly `{schema_version:1,
+  finding_id, held_batch_id, held_release_sha256, diagnosis,
+  eligible_operation_ids, failure_receipts}`. `diagnosis` is the validated result
+  schema above. The code supplies the UUID, authenticated current batch/release,
+  sorted operation IDs, and `{path, sha256}` failure-receipt references. It never
+  copies model-supplied authority into these fields. The private finding's
+  canonical digest is `diagnosis_sha256` in waste records.
+- Eligible failed operations are only those linked by code to an execution
+  attempt classified `invalid-infra` at the recorded stage. The code's attempt
+  receipt must list the operation IDs admitted in that attempt and bind their
+  ledger reservations/usage receipts. A model may narrow this set through
+  `affected_operations`, never enlarge it. Mere expenditure, a budget/round
+  stop, provider waiting, cancellation or a substantive gate failure does not
+  establish factory-bug causation. Without that code evidence the eligible set
+  is empty; the diagnosis can still hold a bug, but no historical charge is
+  reclassified. `affected_operations` may therefore be empty. Retry operation
+  IDs qualify only through a code-written link to that eligible failed unit
+  during its admitted resume; they are not free-form model output.
+- A new waste record has exactly `{schema_version:2, kind:"factory_bug", id,
+  finding_id, diagnosis_sha256, resume_id, resume_binding_sha256, operation_ids,
+  event_ids, infrastructure_waste_usd}`. `id` is `factory-bug:<finding_id>`.
+  IDs are sorted unique sets; event IDs are exactly the settled reservation
+  events for the eligible failed/replay operations; the amount is their sum as
+  a nine-place USD string. No record is emitted for an empty set. Extend that
+  same record on later settlement, never append another charge. `resume_id`
+  refers to the durable history below, and `resume_binding_sha256` hashes that
+  exact history entry using UTF-8 JSON with sorted keys, compact comma/colon
+  separators and allow_nan=False (the existing carry_over.digest convention).
+  Future settlement growth must preserve the nine-place string amount, not
+  rewrite it to a float. V1 records remain decode-only historical evidence;
+  new producers do not fill dummy fix commits or ask for fix credentials.
+- Hold records retain `held_batch_id`. A later resume requires a different
+  authenticated `batch_id` and `batch_release_sha256`, the same case lineage,
+  and a normal verified bind/import that preserves cumulative usage and history.
+  "Same-owner" across batches means the same continuing case, not reuse of the
+  previous batch/job/reservation money owner. B issues the new owner normally.
+  Inclusion in that later batch's approved manifest is the operator's decision
+  that the fix is present. D does not independently attest a code fix. Resuming
+  without the fix still consumes one of the three lifetime admissions.
+- The encrypted `factory-bug-resumes.json` will store an append-only list of exactly
+  `{schema_version:1, resume_id:<uuid4>, finding_id:<uuid4>, case, held_batch_id,
+  batch_id, job_id, reservation_id, source_generation, batch_release_sha256}`.
+  The current binding fields come from B's verified context; source_generation
+  is the input checkpoint, never its containing output checkpoint. Each finding
+  and resume ID occurs once, with at most three entries. On the first held
+  finding, create missing empty history only when there is no prior factory_bug
+  card field, factory_bug_resume_count, retained finding, or factory_bug waste
+  record of any schema. This includes pre-rollout running cases without inventing
+  prior resumes. Atomic durable write order is history first, finding second,
+  public marker, completed diagnosis_state and terminal_stop together last;
+  a crash before the finding can replay the empty history,
+  but a retained finding/hold with missing history refuses. Malformed history
+  never resets. Public `factory_bug_resume_count` is a top-level integer equal
+  to its length, present only once a valid history exists; a first hold shows 0.
+  Unreadable history or missing history that cannot safely initialize removes
+  the count and stops as factory_bug_history_invalid
+  (check case), never as a zero count. Append before any resumed model work. A replay of the same admitted finding
+  retains its entry/ID, including wait/crash continuation, and does not debit
+  another slot. This replay rule applies to the same admitted binding; movement
+  of an already-admitted resume into another batch belongs to B's reviewed
+  cross-batch addendum. A subsequent held finding has a new exhaustion/finding ID.
+  An unresumed hold stays charged to the case line. Future successful replay of
+  eligible failed units is waste only through the code-proven links, bounded by
+  the three admissions and those eligible units; arbitrary later work is excluded.
+- A crash after the finding but before the completed public state reuses the
+  immutable finding for that exhaustion ID before any further model invocation.
+  A differing replay refuses instead of overwriting it. A non-factory_bug result
+  cannot delete retained evidence. Completing the public state still requires
+  a valid history and verified finding binding.
+- B currently refuses cross-batch resumable imports. That reviewed B addendum is
+  an explicit prerequisite for the later-batch resume and its integration test.
+  D can ship holding, state validation, attribution restrictions and refusal now;
+  no D flag, public card or retired legacy-import record bypasses B's refusal.
+  The current batch proceeds with ordinary other cases and has no fix dependency.
+
+The public stage mapping uses the original code-recorded stop and only valid
+`run.GATES` labels (that list itself excludes G12):
+
+| Original stop | gate_or_stage |
+| --- | --- |
+| infrastructure_exhausted | infrastructure_gate.gate if in run.GATES, else unknown |
+| late_defect_needs_ruling:<gate> | the validated gate suffix |
+| stress_review_unresolved:* | stress |
+| budget_exhausted | unknown (the literal does not identify a role) |
+| extension_incomplete | failed_gate if in run.GATES, else unknown |
+| anything else | unknown |
+
+Required parent-ruling replays: pending known-total infrastructure has a present
+ineligible projection, queues one same-owner diagnosis and derives no child;
+a completed factory_bug diagnosis has `terminal_stop: factory_bug_held`, projects
+None and derives no child. D tests its states/API with the B core where possible;
+B owns the adapter end-to-end test. Resume-count/binding tests remain offline
+until B adopts the cross-batch path. Use saved 5813be for pending/completed
+infrastructure and the missing-history first-hold replay; use its retained ledger
+for input/charge preservation. The pre-rollout card acquires history on first
+hold; its later-resume test is an offline binding/history test until B adopts the
+path. Public-stage/count refusal tests use authored mutations of those real
+bytes. These do not claim rollout qualification.
 
 ## Resume, accounting and checkpoints
 
@@ -766,9 +914,10 @@ no Murphy row. The initial diff review is recorded verbatim in
   Do not populate both copies from restored files. Until B supplies this installer,
   for_case fails closed. No delivery filename/environment convention is invented
   by D. Deadlines compare UTC instants, as A's metadata API permits.
-- Authenticate the diagnosis and reviewed qualified-fix attribution before
+- Authenticate the retained diagnosis and ordinary release/restore binding before
   reclassify_factory_bug. This accounting helper validates shape, settled sums
-  and idempotence; a hex digest's shape alone never authenticates a reviewed fix.
+  and idempotence; no separate fix-delivery contract is required (parent ruling
+  2026-10-30). Historical fix-attribution fields remain decode-only evidence.
   Initial attribution waits until all named operation reservations settle. A
   later final receipt extends the same waste record by its unique event IDs;
   it never creates a second record or changes cumulative batch spend.
@@ -936,7 +1085,7 @@ D's public API is `diagnosis.exhaustion(card) -> bool`,
 All three are pure, contain no reference to their own output generation, and
 grant no authority. The pending projection has schema_version=1,
 status="pending", and replacement_eligible=actual_model_work(card) except
-that recovery.infrastructure_exhausted(card) is diagnosis-only and sets it false. B binds
+that current infrastructure exhaustion is diagnosis-only and has replacement_eligible false (parent clarification 2026-10-30). B binds
 it to its collected generation. A denied reservation alone is zero work;
 an actually invoked zero-cash subscription process is work. Private diagnosis
 results, findings, paths, and snapshots never enter that projection.
@@ -989,7 +1138,7 @@ The public extension history uses lifetime ordinal IDs 1..5 and hashes; null
 outcome_sha256 means active. Entry case/evidence is immutable; outcome appends
 once and a substantive late defect completes the extension as extension_incomplete.
 A close_to_passing diagnosis continues in the same worker into extension admission;
-factory_bug queues maintenance and not_converging retires. The required real-ledger
+factory_bug stops unscored as factory_bug_held; not_converging retires. The required real-ledger
 replays are listed in interfaces §8; no code is enabled by these clarifications.
 
 Parent ruling, 2026-10-30 (replacement derivation): B requires a present D
@@ -1004,7 +1153,7 @@ second child. D's pure card-only API does not pretend to read that external latc
 Interface review 17: accept R1 and J1/J2. B uses epsilon=(2*len(previous
 estimated map)+1) nanodollars, including zero-release settlements and
 re-estimates. This grants no money or released commitment. Factory-bug resume
-archives/clears the old infrastructure_gate before work; current diagnosis_state
+clears the old infrastructure_gate before work; current diagnosis_state
 identifies a subsequent exhaustion. release_uninvoked refuses non-pending rows.
 
 ### Increment 3a review boundary
@@ -1022,3 +1171,17 @@ hash before the ledger transaction records that hash, so later growing receipts
 cannot erase the evidence. Unknown unrelated invocations do not suppress a row's
 decrease record. The diagnosis APIs read only their input JSON; the pending
 projection is the sole source of first replacement eligibility for B.
+
+### Unwired legacy import implementation boundary
+
+The additive §8 legacy-import proposal passed `legacy-import-design-2.md`.
+Its first implementation supplies only pure dry-run/migration in `carry_over.py`
+and a read-only validator sharing `restore_ledger` authentication. These imports
+are accounting plus retirement, with unknown lifetime history; no resumable
+legacy history is invented. B has not adopted storage/delivery/holder routing,
+and `job_config.install` continues refusing legacy checkpoints. Exact numeric
+founder authorization is an input that B must authenticate, never authority
+created by D. Anonymous late-receipt attribution, resumable imports, extension/
+diagnosis runner integration and remaining stale-cap migration are outstanding.
+No Murphy row closes. Real canary6/c7d405 and resolved-waste cards prove the
+accounting transformations; authored restore layouts exercise boundary refusals.

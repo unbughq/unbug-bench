@@ -149,6 +149,7 @@ class GatePipeline:
         def stop_infrastructure(gate, outcome):
             if c.card.get('infrastructure_gate', {}).get('exhausted'): return
             c.stopped = True
+            c.exhaustion_occurred = True
             c.card["terminal_stop"] = "infrastructure_exhausted"
             c.card["infrastructure_gate"] = {"gate": gate, "error_type": outcome.info["error"],
                 "classification": "invalid-infra", "exhausted": True}

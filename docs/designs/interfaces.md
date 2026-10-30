@@ -707,8 +707,10 @@ terminal_stop, diagnosis_state.stop is the literal infrastructure_exhausted.
   `{"schema_version":1,"status":"pending","replacement_eligible":<bool>}`.
   replacement_eligible = actual_model_work(card) AND the current exhaustion is
   not infrastructure_exhausted. A valid diagnosis_state.stop identifies the
-  current exhaustion; legacy cards without it use recovery.infrastructure_exhausted(card). Infrastructure exhaustion requests
-  read-only diagnosis only; it does not spawn replacement chains. B derives a child only from a PRESENT pending_projection with
+  current exhaustion; legacy cards without it use recovery.infrastructure_exhausted(card).
+  Infrastructure exhaustion requests read-only diagnosis with a PRESENT pending
+  projection whose replacement_eligible is false; it does not spawn replacement
+  chains (parent clarification 2026-10-30). B derives a child only from a PRESENT pending_projection with
   replacement_eligible exactly true; None always forbids first derivation.
   exhaustion and actual_model_work are diagnostic helpers, never a fallback
   authorization when the projection is absent. B applies its one-child journal
@@ -723,7 +725,7 @@ status:"pending"|"completed", outcome:null|"factory_bug"|"close_to_passing"|
 checkpoint. Provider waits/retries of that diagnosis keep it. A validated result
 sets completed/outcome before checkpointing; pending_projection then returns
 None even if the original terminal_stop remains. An active extension,
-factory-bug maintainer queue or retired case cannot schedule another diagnosis
+factory_bug_held or retired case cannot schedule another diagnosis
 for that same ID. Only a later, distinct code-recorded exhaustion (for example
 a completed extension still failing) creates a fresh ID; no counter is reset.
 Legacy exhausted cards without diagnosis_state project pending until the runner
@@ -731,13 +733,48 @@ records their first ID; B still requires an authenticated explicit import/migrat
 record before acting on any legacy projection. Malformed diagnosis_state fails
 closed to no projection. A validated close_to_passing continues in the same worker
 run into code-enforced extension admission; an interrupted extension resumes as
-ordinary same-owner work, so B needs no extra projection. factory_bug enters the
-existing coordinator maintainer queue; not_converging retires. Only a reviewed
-qualified fix and authenticated operation attribution admit a factory-bug resume
-(up to three lifetime resumes). That resume archives and clears the old
-infrastructure_gate marker before work; a later budget/round exhaustion creates
-a fresh diagnosis_state.stop and can qualify for replacement under the one-child
-journal rule. It does not reuse legacy restart's blanket infrastructure refusal.
+ordinary same-owner work, so B needs no extra projection. factory_bug persists its
+private finding and completed state, then stops unscored as factory_bug_held;
+not_converging retires. The content-free public field is exactly
+`factory_bug: {finding_id:<exhaustion UUID4>, gate_or_stage:<code-recorded stage
+or unknown>, summary_class:"factory_bug"}`. Allowed stage labels are valid
+run.GATES names (that list excludes G12), stress and unknown; never model prose. Private evidence stays at
+`diagnosis/<finding_id>/finding.json`; public status says needs attention with
+`factory bug: see finding <id>`. No model work follows while held. B adds only
+that status rule, not a maintainer service or fix-delivery contract.
+
+Per the parent ruling of 2026-10-30, after the fix merges, resume is the ordinary
+same-owner bind/import into a later batch release containing the fix. It retains
+at most three lifetime resumes, with a durable admission before work and no
+second debit on wait/crash replay. It clears the old infrastructure_gate before
+work. A later exhaustion gets a fresh diagnosis_state.stop; B still enforces
+one child per parent. D uses normal verified release/source authority, never a
+separate fix message. Code-linked invalid-infra attempt receipts bound the eligible waste operations;
+a diagnosis can only narrow that set. No such per-attempt producer exists today,
+so this hold increment uses empty eligible/failure sets and emits no v2 waste
+record. Schema-valid affected_operations is intersected with the empty eligible
+set, not rejected merely for being nonempty; raw output stays private.
+Attribution activation needs a separately reviewed producer/addendum.
+V2 waste records and the encrypted lifetime
+factory-bug-resumes.json history follow stream-d's exact held-lifecycle schema.
+Public factory_bug_resume_count is a top-level integer equal to the valid
+history length, present only once history exists (0 on first hold). Missing
+history can be initialized before the first finding only with no prior hold,
+count, retained finding or factory-bug waste record; otherwise it stops as
+factory_bug_history_invalid with no count, as does unreadable history. Durable
+write order is history, finding, then completed diagnosis_state, terminal_stop
+and public factory_bug together. A replay reuses the immutable finding before
+another model call; differing replay refuses without overwriting evidence.
+The same continuing case
+gets a new B money owner across batches, preserving usage/history. The operator's
+later manifest inclusion is the fix decision; D does not attest the code change.
+Cross-batch resumable import remains blocked on B's reviewed addendum.
+Operational receipts support infrastructure-waste reclassification without
+changing the cumulative total. The retired legacy
+import format below grants no such resume. Infrastructure and factory_bug_held
+completed diagnoses project None. Pending infrastructure remains present and
+ineligible so B queues diagnosis without a child; other slots are filled with
+ordinary new cases.
 
 `terminal_stop: diagnosis_pending` is produced by D's same-owner runner when an
 exhausted unknown-at-launch owner has settled and must exit without a model
@@ -840,6 +877,15 @@ member/path when adopting this format. The frozen nine-field RAM configuration
 is unchanged; `job_config.install` still refuses legacy checkpoints without
 job-money. No import record grants money or permission to run anything.
 
+The unwired Python entry points are `carry_over.legacy_import_dry_run(card)`,
+`legacy_import_batch_dry_run(cards)`, `migrate_legacy_import(card, record)` and
+`restore_ledger.validate_legacy_import(work, case, generation, public_card,
+record, record_sha256)`. The batch dry-run returns JSON-ready per-case records,
+refusals and totals; the caller can print it without any writes. The worker
+validator shares the existing archive/public/retained-ledger authentication
+helper with `restore_ledger.authenticate`; it does not create a second restore
+or publication path.
+
 The initial format is deliberately spend-accounting plus retirement. No saved
 legacy archive currently proves lifetime extension/diagnosis history. Therefore
 `lifetime_history` must be null (unknown, never zero); it stands for lifetime
@@ -932,7 +978,8 @@ rounds and waste remain. Each unresolved marker produces this exact event:
 ```
 
 Increase the top-level `list_cost_usd` by `estimated_added_usd`, starting from its
-existing numeric total or the sum of existing events when absent. Preserve all
+existing numeric total or the sum of existing events when absent. The result is
+a JSON number, not a money string. Preserve all
 other original totals, including calls. `case_spending` values the event through
 its existing list-cost component. Move each covered top-level marker to
 `resolved_unpriced_invocations` as
@@ -943,12 +990,16 @@ those covered markers. Store a content-free `legacy_import` card marker with
 `estimated_total_usd` at nine places; otherwise refuse, never change a known
 charge to force equality. With unknown usage set `status: retired` and
 `terminal_stop: retired_import_estimate`; with known usage set
-`terminal_stop: retired_import_history_unknown`. No current-state history or
+`status: retired` and `terminal_stop: retired_import_history_unknown`. Recompute
+the output `case_budget` with `case_spending` so its unknown count and total are
+current; `legacy_import` is a classified durable fact in `carry_over.FACTS`.
+No current-state history or
 extension count is fabricated.
 
 B must enforce **at most one accepted import per case per batch**, regardless of
 source generation. Worker/migration validation refuses any source already
-containing a `legacy-import:` event, import resolution marker or `legacy_import`
+containing a `legacy-import:` event, an entry with an `import_id` key in
+`resolved_unpriced_invocations`, or a `legacy_import`
 card marker, including a different import ID. Replay of the same original source
 and authorized record returns identical output; future publication must compare
 that output before an idempotent write, never migrate the migrated ledger again.
@@ -962,8 +1013,12 @@ a separately reviewed attribution format before enablement. D's broader design
 requirement for late replacement remains outstanding, not silently satisfied.
 
 Tests use real `canary6-collected-card.json` and `c7d405-collected-card.json` for
-known-plus-$33 totals and real `infrastructure-kills.json` for resolved nested
-markers. Authored ten-marker input additionally makes $33 × 10 = $330 visible.
+known-plus-$33 totals. `canary6-confirm-timeout-card.json`,
+`c7d405-confirm-timeout-card.json` and `canary6-last-legacy-card.json` prove that
+resolved nested waste markers yield zero unresolved invocations, unchanged
+totals and `retired_import_history_unknown`. Resolution entries with an
+`infrastructure_waste_id` remain valid historical evidence. Authored ten-marker
+input additionally makes $33 × 10 = $330 visible.
 Wrong generation/ledger/record/authorization, invalid usage, repeat/cross-import,
 unknown history and input purity are tested. Both helpers remain unwired until B
 adopts and independently reviews manifest/holder integration. No Murphy row

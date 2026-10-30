@@ -97,3 +97,24 @@ def pending_projection(card):
                       else infrastructure_exhausted(card))
     return {'schema_version': 1, 'status': 'pending',
             'replacement_eligible': actual_model_work(card) and not infrastructure}
+
+
+def record_exhaustion(card, *, new_exhaustion=False):
+    """Runner-only checkpoint producer; never starts diagnosis or names its seal.
+
+    Call after accounting on the run that stops. A pending diagnosis keeps its
+    ID through retries. Only a new literal exhaustion can replace a completed
+    state; a retained infrastructure marker alone is not a new exhaustion.
+    """
+    from budget import BudgetError
+    history = extension_history(card)
+    if history is None: raise BudgetError('diagnosis_state_invalid')
+    state = _state(card, history)
+    if 'diagnosis_state' in card and state is None: raise BudgetError('diagnosis_state_invalid')
+    if state and state['status'] == 'pending': return
+    if state and not new_exhaustion: return
+    stop = 'infrastructure_exhausted' if infrastructure_exhausted(card) else card.get('terminal_stop')
+    if (not exhaustion(card) or not _trigger(card, stop, history) or
+            (history and history[-1]['outcome_sha256'] is None)): return
+    card['diagnosis_state'] = dict(schema_version=1, exhaustion_id=str(uuid.uuid4()),
+        stop=stop, status='pending', outcome=None)
