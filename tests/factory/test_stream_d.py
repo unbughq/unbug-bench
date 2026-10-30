@@ -22,6 +22,7 @@ sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
 import budget
 import job_authority
 from model_router import Lease
+from router_test_support import synthetic_maximum
 
 FIXTURE = ROOT / 'tests/factory/fixtures/invalid-runs-public-cards.json.gz'
 
@@ -53,7 +54,8 @@ class AccountingTests(unittest.TestCase):
 
     def reserve(self, maximum=10, operation=None, name='builder-continuation', lease_id=None):
         lease = Lease(lease_id or str(uuid.uuid4()), 'claude/claude-opus-5-5', 'claude-account1', 1,
-                      'subscription', 'anthropic', 'claude-account1')
+                      'subscription', 'anthropic', 'claude-account1',
+                      **synthetic_maximum('accounting-fixture-only'))
         row = budget.reserve_invocation(self.path, lease, maximum, authority(),
             operation_id=operation or str(uuid.uuid4()), call_name=name)
         return lease, row
@@ -131,7 +133,8 @@ class AccountingTests(unittest.TestCase):
         self.assertEqual(row, again)
         baseline = budget.case_spending(self.original)['total_spent_usd']
         def admit(_):
-            candidate = Lease(str(uuid.uuid4()), lease.route, lease.account, 1, lease.billing, lease.family, lease.pool)
+            candidate = Lease(str(uuid.uuid4()), lease.route, lease.account, 1, lease.billing, lease.family, lease.pool,
+                              **synthetic_maximum('accounting-fixture-only'))
             try:
                 budget.reserve_invocation(self.path, candidate, 6, authority(baseline + 20),
                     operation_id=str(uuid.uuid4()), call_name='reviewer-concurrent')
@@ -325,7 +328,8 @@ class JobMoneyTests(unittest.TestCase):
         from dataclasses import replace
         with tempfile.TemporaryDirectory() as temporary:
             expired = replace(authority(), batch_deadline='2020-01-01T00:00:00Z')
-            lease = Lease(str(uuid.uuid4()), 'claude/claude-opus-5-5', 'claude-token', 1, 'subscription', 'anthropic', 'claude-token')
+            lease = Lease(str(uuid.uuid4()), 'claude/claude-opus-5-5', 'claude-token', 1, 'subscription', 'anthropic', 'claude-token',
+                          **synthetic_maximum('accounting-fixture-only'))
             with self.assertRaisesRegex(budget.BudgetError, 'retired_batch_bound'):
                 budget.reserve_invocation(Path(temporary) / 'ledger.json', lease, 5, expired,
                     operation_id=str(uuid.uuid4()), call_name='builder-1')

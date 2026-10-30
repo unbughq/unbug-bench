@@ -48,7 +48,7 @@ claim that a live parallel WebFetch workflow completed under network denial.
 ## Focused checks
 
 `uv run --with numpy --with scipy python -B tests/factory/test_model_call_maxima.py`
-passes 15 tests, including real-receipt repricing, lost CLI final/unchanged
+passes 16 tests, including real-receipt repricing, lost CLI final/unchanged
 partial booking, exact near-ceiling float booking, supplied/RPC cap tampering,
 one-use start, interruption propagation, sticky exhaustion, close-before-send,
 missing/empty/malformed terminal provider usage retaining the whole W, refundable
@@ -56,6 +56,26 @@ concurrency waits, permanent unknown exhaustion, cancel/deadline/close wakeups,
 and preservation of cancellation_failed.
 Existing router (36), runtime (3), provider routes (4), and launch manifest (2)
 tests also pass.
+
+## Integration rebase
+
+Rebased onto factory-simplify `6abe1690d2cc65078a64b347d923cd0aba6be655`
+after the previous diff review. D's budget.py and B's authority/installer/money
+modules are byte-identical to that base. A's gate/router/runtime/pricing logic is
+byte-identical to the old reviewed d6e1f80 tree. Conflict resolution preserves
+B's entire interfaces section8 byte-for-byte and unions the required worker
+manifest test expectations. D accounting-only synthetic Lease constructors now
+carry the required fields. They are not enforcement proof.
+
+The new contract test uses an actual route policy Lease with the real
+job_authority reader and reserve_invocation/settle functions: 49.999999999 USD
+refuses without booking, 50.000000000 admits, unknown usage settles 50 once,
+replay adds zero and mismatched authority refuses. Maxima16, D accounting17,
+job_config4 and launch_manifest2 focused tests pass. No D2 dispatch or B practice
+qualification is claimed. All ten native probes were actually rerun against the
+integrated budget source and PASS; the artifact now records that base and the
+seven freshly verified source hashes. Full current-suite and fresh integration
+diff-review results follow; old hashes/results are not relabeled.
 
 ## Full suite
 

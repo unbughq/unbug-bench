@@ -717,6 +717,16 @@ Add model_call_gate to gate_state.MODEL: later gate edits also invalidate model
 evidence because normalization/rejection affects inference. This is an evidence
 identity seam only; no compatibility/scoring rule is broadened.
 
+Integration base is factory-simplify 6abe169 (D1 Decimal accounting and B1/B2
+money/worker authority). Preserve their accounting/authority/installers unchanged.
+Extend only D's synthetic Lease constructor fixtures for the four required fields;
+they remain accounting-only tests, not route-enforcement evidence. A separate
+contract check uses a real policy Lease, B's actual job_authority reader and D's
+reserve/settle functions: a sub-$50 commitment refuses before booking; $50 admits
+the route's maximum, unknown usage settles that maximum once, replay adds zero,
+and a stale authority copy refuses. D2 dispatch/reservation wiring and B's later
+practice qualification are still separate increments, not enabled by this test.
+
 ### Phases, exams, cost and completion
 
 1. Frozen design/interface/audit increment; fresh goldfish using zoom_out,

@@ -6,6 +6,7 @@ sys.path[:0] = [str(ROOT/'factory'), str(ROOT/'bin')]
 import argparse
 import copy
 from dataclasses import asdict, replace
+from datetime import datetime, timezone
 from decimal import Decimal
 import gzip
 import http.client
@@ -25,6 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 import calibration
 import budget
+import job_authority
 import model_call_gate as gate
 import model_router as router
 import model_runtime
@@ -241,6 +243,51 @@ class MaximaTests(unittest.TestCase):
         db.close()
         with self.assertRaisesRegex(ValueError,'unbounded'):store.rpc('renew',{'lease_id':identity})
         store.rpc('finish',dict(lease_id=identity,outcome='denied',receipt=None))
+
+    def test_real_route_maximum_fits_D_decimal_authority_and_unknown_settlement_once(self):
+        # Synthetic B binding/interrupt, actual A policy and D reader/accountant.
+        # B's installer and D's eventual dispatch wiring remain separate owners.
+        store=router.Store(self.root/'router.sqlite')
+        deadline=float(int(time.time())+3600)
+        for suffix,limit in (('short','49.999999999'),('fit','50.000000000')):
+            work=self.root/suffix;work.mkdir();path=work/'ledger.json'
+            path.write_text(json.dumps({'cost':0,'calls':0,'events':[]}));before=path.read_bytes()
+            record=store.rpc('acquire',dict(id=uuid.uuid4().hex,model=GATED_CLAUDE,
+                accounts=list(router.ACCOUNTS),role='writer',deadline=deadline))
+            actual=router.Lease(**{k:v for k,v in record.items() if k!='kind'})
+            self.assertTrue(router.valid_lease(actual,GATED_CLAUDE))
+            channel=dict(schema=1,batch='synthetic',job=suffix,case='case-'+suffix,
+                reservation_id=str(uuid.uuid4()),revision=1,source_generation=None,
+                committed_total_usd=limit,batch_deadline=datetime.fromtimestamp(deadline,timezone.utc).isoformat())
+            c=SimpleNamespace(card={},case_id=channel['case'],batch_id=channel['batch'],job_id=suffix,
+                batch_deadline=deadline,source_generation=None,job_money=copy.deepcopy(channel),
+                authenticated_job_config={'job_money':copy.deepcopy(channel)})
+            authority=job_authority.for_case(c);operation=str(uuid.uuid4())
+            if suffix=='short':
+                with self.assertRaisesRegex(budget.BudgetError,'^money_wait$'):
+                    budget.reserve_invocation(path,actual,actual.max_usd,authority,
+                        operation_id=operation,call_name='builder-1')
+                self.assertEqual(path.read_bytes(),before)
+            else:
+                row=budget.reserve_invocation(path,actual,actual.max_usd,authority,
+                    operation_id=operation,call_name='builder-1')
+                self.assertEqual(row['maximum_usd'],'50.000000000')
+                self.assertEqual(budget.outstanding_reservations(json.loads(path.read_text())),Decimal(50))
+                held=gate.Allowance(actual);self.assertIsNotNone(held.reserve(32768));held.close()
+                (work/'usage-receipts').mkdir();relative='usage-receipts/'+actual.lease_id+'.json'
+                (work/relative).write_text(json.dumps(dict(lease_id=actual.lease_id,invocation='builder-1',
+                    **{k:getattr(actual,k) for k in router.MAXIMUM_FIELDS},cap_used=held.snapshot(),
+                    events=[],booked_event_ids=[],usage_delta={},final_usage_known=False)))
+                wait=dict(wait_id=str(uuid.uuid4()),lease_id=actual.lease_id,call_id=relative,settled=False)
+                self.assertEqual(budget.settle(wait,work=work,ledger_path=path),50)
+                self.assertEqual(budget.settle(wait,work=work,ledger_path=path),0)
+                ledger=json.loads(path.read_text())
+                self.assertEqual(budget.case_spending(ledger)['total_spent_usd'],50)
+                self.assertEqual(ledger['invocation_reservations'][actual.lease_id]['estimated_gap_usd'],'50.000000000')
+                self.assertEqual(ledger['events'],[])  # Settlement never invents billed events.
+                c.job_money['revision']=2
+                with self.assertRaisesRegex(budget.BudgetError,'^money_wait$'):job_authority.for_case(c)
+            store.rpc('finish',dict(lease_id=actual.lease_id,outcome='denied',receipt=None))
 
     def test_cap_stop_is_not_preflight_failure_optional_skip_or_scientific_try(self):
         c=SimpleNamespace(case=self.root,card={},args=SimpleNamespace(bench_workers=1),
