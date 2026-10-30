@@ -776,3 +776,97 @@ Review-17 implementation replays add a release rounded to zero, a re-estimation
 at the sub-nanodollar boundary, an infrastructure factory-bug resume followed by
 replacement-eligible budget exhaustion, and refusal to release an estimated
 reservation as uninvoked. B owns the ACK bound/map tests; D owns the producers.
+
+### Legacy import record (proposed)
+
+This additive proposal is not enabled. D owns the pure dry-run/migration and the
+worker evidence validator. B owns adoption, manifest storage, delivery and holder
+admission. B chooses the manifest member/path when it adopts this record; no
+path is implicitly trusted. The frozen nine-field RAM configuration is unchanged.
+`job_config.install` continues to refuse a legacy checkpoint without job-money.
+
+One record has exactly these fields (all USD strings have nine decimal places):
+
+```json
+{
+  "schema_version": 1,
+  "import_id": "<sha256 of canonical {case, legacy_generation_sha256, ledger_sha256}>",
+  "case": "case-...",
+  "legacy_generation_sha256": "<verified restored archive sha256>",
+  "ledger_sha256": "<canonical original ledger sha256>",
+  "known_total_usd": "12.000000000",
+  "unresolved_invocations": [
+    {"invocation_id": "<uuid4>", "booked_event_ids": []}
+  ],
+  "unresolved_invocation_count": 1,
+  "per_unresolved_invocation_usd": "33.000000000",
+  "estimated_added_usd": "33.000000000",
+  "estimated_total_usd": "45.000000000",
+  "lifetime_history": null,
+  "founder_authorized_total_usd": null
+}
+```
+
+`known_total_usd` includes all known model charges and infrastructure waste from
+the shared raw Decimal valuation, rounded up once. An unresolved invocation must
+have a unique canonical UUID4 and an explicit `booked_event_ids` list in the
+retained ledger's `unpriced_invocations` marker. The list names exactly its already
+booked events; duplicate IDs, shared events, missing IDs/count, active work, other
+unknown monetary facts or any invocation reservation refuse this legacy format.
+It is not a conversion of a partially migrated modern ledger. No count is inferred
+from calls, elapsed time, model names or the number of anonymous markers.
+
+The per-invocation $33 addition is the conservative historical estimate described
+in D's design, not a route maximum or model allowance. The dry-run is pure and
+prints known total, unresolved count, $33 each, added estimate and final total,
+per case and summed across accepted cases. Refused cases are listed separately
+and contribute no invented zero to that sum. The dry-run leaves
+`founder_authorized_total_usd` null. The founder must authorize the exact final
+amount for each record; an accepted record has that field equal to
+`estimated_total_usd`. B authenticates that authorization through its ordinary
+manifest process. Merely filling in the field is not proof of authorization.
+
+`lifetime_history` is either null (unknown, never zero) or exactly
+`{extension_history, diagnosis_history, factory_bug_resumes}`. Extension history
+has D's exact public shape above. Diagnosis history is an ordered list of the
+exact `diagnosis_state` records above, with unique exhaustion IDs and only the
+last record possibly pending. Factory-bug resumes is an ordered list of
+`{exhaustion_id, fix_commit, fix_attribution_sha256}` with unique exhaustion IDs,
+at most three, each referring to a completed factory_bug diagnosis. The worker
+requires a byte-hash-authenticated checkpoint `lifetime-history.json` with exactly
+that object; canonical content equality to the manifest record is required.
+Missing history cannot become empty arrays. Such a case may have its spend
+imported, but retires as `retired_import_history_unknown` and cannot launch.
+The retained aggregate is a producer obligation for later checkpoint writers;
+this proposal does not invent a zero-history certificate for older archives.
+
+The worker receives the record, its expected digest and the exact source archive
+digest from B's independently authenticated manifest/restore boundary, not from
+the restored card. It verifies the record digest and exact schema, case/generation,
+public and archived ledger equality (and a separate retained ledger when present),
+then recomputes the dry-run, including history, against those bytes. Every money
+field and invocation identity must match. It refuses stale/different generations,
+tampered histories, unsupported usage, and absent numeric authorization. This
+validator is read-only; D's migration returns a new value and never writes the
+live worker ledger or installs job-money. B must review and wire publication.
+
+Migration preserves original events, rounds and waste. For each unresolved
+invocation it appends one explicit $33 estimate event with stable identity
+`legacy-import:<import_id>:<invocation_id>`, archives the original unknown marker
+in `resolved_unpriced_invocations`, and removes only that covered marker. Estimate
+events have zero calls and remain distinguishable from observed model work.
+Replay with the same record is idempotent; a different import never stacks an
+estimate. Unknown-usage imports retire as `retired_import_estimate`, regardless of
+history. Verified late final receipts may replace those estimates by the existing
+event-ID deduplication rule, never add final charges beside an unreleased estimate;
+that reconciliation must be reviewed before B enables this format. A legacy
+record alone does not make any exhaustion replacement-eligible for B.
+
+No import record grants a commitment, money revision, extension, diagnosis call,
+replacement, or resume. B must separately adopt the format and its retirement/
+diagnosis routing, account imported spend against the founder's batch bound, and
+issue ordinary job authority. Until then both helpers remain unwired and legacy
+job installation remains refused. Tests use saved cards for exact known totals,
+authored identified unknown markers for the visible $33 × 10 = $330 addition,
+wrong-generation/ledger/history/authorization refusals, input purity and replay.
+No Murphy row closes on these authored import records.
