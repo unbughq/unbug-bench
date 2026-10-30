@@ -19,4 +19,3 @@ No files changed, compilation, CLI probes, model calls, or production operations
 ## Author response
 
 PASS accepted. Implement frozen design at fc589e68bab1a4186c666aadc38d94efc5316df4. No blocking finding rejected; all prior blockers and majors were fixed/reviewed. No production-readiness or Murphy closure claim follows from this design pass.
-

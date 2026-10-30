@@ -49,7 +49,16 @@ tests also pass.
 
 ## Full suite
 
-The final implementation SHA and complete runner log are recorded here after
-the required full run. Current rotation packages remain unqualified because
+The first full run on `fcc003058d6a5a648041beb845d0c5e975fb86a2`
+completed 135 scripts with one failure, the historical C policy migration test.
+The complete log is `router-maxima-full-fcc0030.log.gz`; metadata with command,
+tested SHA and timestamps is `router-maxima-full-fcc0030.json`. The calibration
+interruption-label addition changes a digest that C deliberately pins. Runtime
+correctly refuses that unpinned migration. The test now exercises C's recorded
+target as its positive example and asserts refusal of the newer actual identity
+and panel. C's production compatibility policy and scoring are unchanged.
+
+A final full-suite result follows after the fresh diff review stabilizes fixes.
+Current rotation packages remain unqualified because
 their non-Claude routes have no enforceable bound; B's separately authorized
 practice-case exam remains required for production qualification.

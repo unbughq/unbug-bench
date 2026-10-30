@@ -694,6 +694,12 @@ router update across an in-flight unbounded old CLI. Missing-cap renewals would
 otherwise cancel old calls within60 seconds. No batch runs between A and B merge
 under the existing reviewed rollout contract; this increment performs no deploy.
 
+The propagation-only calibration change also changes its source identity. C's
+historical compatibility policy remains pinned to C's exact target: this slice
+does not authorize migration of old calibration evidence to a newer source
+identity. Its regression tests exercise that recorded target and reject the
+newer unpinned identity; no compatibility/scoring rule is broadened.
+
 ### Phases, exams, cost and completion
 
 1. Frozen design/interface/audit increment; fresh goldfish using zoom_out,

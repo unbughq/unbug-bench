@@ -1,0 +1,18 @@
+{
+  "tested_sha": "fcc003058d6a5a648041beb845d0c5e975fb86a2",
+  "command": [
+    "uv",
+    "run",
+    "--with",
+    "numpy",
+    "--with",
+    "scipy",
+    "python",
+    "-B",
+    "tests/run.py"
+  ],
+  "started_utc": "2026-10-30T01:52:55.124029+00:00",
+  "finished_utc": "2026-10-30T02:08:38.629232+00:00",
+  "exit_code": 1,
+  "log": "/tmp/router-maxima-full-fcc0030.log"
+}

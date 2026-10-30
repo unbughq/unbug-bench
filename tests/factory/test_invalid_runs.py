@@ -604,10 +604,10 @@ class InvalidRunsTests(unittest.TestCase):
     def test_pinned_policy_migration_keeps_valid_attempts_and_panels_only(self):
         import gate_state
         policy = json.loads((ROOT / 'factory/invalid-runs-compat.json').read_text())
-        live = run.calibration_identity(self.c, 'easy_calibrator', 'blind')
-        current = copy.deepcopy(live)
-        # Exercise C's exact historical migration, independent of later source
-        # changes. D's new calibration source cannot inherit C's pinned grant.
+        actual = run.calibration_identity(self.c, 'easy_calibrator', 'blind')
+        current = copy.deepcopy(actual)
+        # This historical migration authorizes exactly C's recorded target,
+        # not every later revision of these source files.
         for section in ('runner', 'files'):
             for name, value in policy['current_' + section].items():
                 if value is None: current['bench'][section].pop(name, None)
@@ -618,16 +618,23 @@ class InvalidRunsTests(unittest.TestCase):
                 if value is None: old['bench'][section].pop(name, None)
                 else: old['bench'][section][name] = value
         self.assertTrue(calibration.compatible_identity(old, current))
-        self.assertFalse(calibration.compatible_identity(old, live))
+        if actual != current:
+            self.assertFalse(calibration.compatible_identity(old, actual))
         changed = copy.deepcopy(old); changed['seed'] += 1
         self.assertFalse(calibration.compatible_identity(changed, current))
         changed = copy.deepcopy(old); changed['bench']['files']['bin/bench.py'] = '0' * 64
         self.assertFalse(calibration.compatible_identity(changed, current))
-        panel = json.loads(json.dumps(gate_state.inputs(self.c, 'G8', ROOT)))
+        actual_panel = json.loads(json.dumps(gate_state.inputs(self.c, 'G8', ROOT)))
+        panel = copy.deepcopy(actual_panel)
+        panel['cache'] = policy['current_files']['factory/gate_state.py']
+        for name, value in policy['current_files'].items():
+            if name in panel['bench']: panel['bench'][name] = value
         old_panel = copy.deepcopy(panel); old_panel['cache'] = policy['base_files']['factory/gate_state.py']
         for name, value in policy['base_files'].items():
             if name in old_panel['bench']: old_panel['bench'][name] = value
         self.assertTrue(calibration.compatible_panel(old_panel, panel))
+        if actual_panel != panel:
+            self.assertFalse(calibration.compatible_panel(old_panel, actual_panel))
         old_panel['seed'] += 1
         self.assertFalse(calibration.compatible_panel(old_panel, panel))
 

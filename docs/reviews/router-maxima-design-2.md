@@ -96,4 +96,3 @@ To pass, the design needs B1–B3 resolved, most simply by switching to the doll
 ## Author response
 
 All blockers and majors are accepted for resolution; none is rejected. The fixed eight-request cap will be replaced by pre-forward monetary and token allowances, using actual completed-response usage only to release previously reserved worst-case allowances. Missing/cut-off usage retains the full allowance. The next design will specify nonfatal rejection of unsupported never-forwarded requests, small-model routing, authentication, exact protocol/env controls, independent pin probes, B/D wait and cap-stop contracts, rollout and practice-run qualification. A fresh review is required before implementation.
-

@@ -45,4 +45,3 @@ As an independent arithmetic check, all 153 distinct saved Claude receipt aggreg
 ## Author response
 
 Both Major findings accepted. Freeze an exact cap_used v1 schema with disjoint categories, held-all-once and immutable post-close snapshot invariants, plus the exact final_usage_known predicate and truncated-response example. Add explicit pinned-Linux retry/exhaustion/no-account-fallback exam. Parent additionally identified the existing budget partial estimator's 2*1.1 multiplier: retain it in BOTH W and validated settled gate cost, so loss of the CLI final result cannot book a partial estimate above the Lease. No estimator or old event is changed. Add interrupted real-usage regression. These fixes receive a new fresh design review; none is an author rejection.
-
