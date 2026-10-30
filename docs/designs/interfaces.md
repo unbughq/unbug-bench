@@ -30,7 +30,8 @@ Streams own **Murphy rows and contracts**, not whole files. A file like
 ## 2. Router admission (A provides, D uses)
 
 `model_router.admit(role, case, deadline)` returns either `Lease(lease_id,
-route, account, expires_at)` or `Wait(reason, retry_after, evidence)`.
+route, account, expires_at, max_usd, max_input_tokens, max_output_tokens,
+price_source)` (full schema in section7) or `Wait(reason, retry_after, evidence)`.
 
 **Who calls it.** Nobody outside `model_router.py` calls the bare `admit()`.
 Everyone calls `model_router.await_lease(role, case, deadline) -> Lease`.
@@ -188,6 +189,7 @@ relaunch.
 | Reason | Limit | When reached |
 |---|---|---|
 | `rate`, `quota`, `outage`, `router_unavailable`, `credential_expiring` | 10 relaunches per case per reason. B relaunches only into free capacity, so most relaunches succeed. `credential_expiring` clears once B renews Codex. | Stop `provider_wait_unrecoverable`. Unscored. Maintainer alert. The cap is a backstop for a broken router, not a capacity limit: hitting it means a bug. |
+| `unbounded_route` | Zero while exact-route capacity is0; retry_after is a15-minute recheck hint. | B waits for an approved enforcement release/migration and positive capacity, or batch deadline. |
 | `credit` | One relaunch after a top-up is detected. Credit never clears on its own. | Stop `provider_wait_unrecoverable`. Unscored. Maintainer alert to top up. |
 
 At `batch_deadline`, the case stops as `provider_wait_deadline`. It is
@@ -273,26 +275,35 @@ denial.
 - **Where the route came from.** Each lease's effective route is kept in
   the card's `route_receipts`.
 
-- **Enforceable call maxima (A → D/B).** Every Lease requires
-  `max_usd: float` (finite nonnegative whole-invocation USD list-price ceiling),
+- **Enforceable call maxima (A → D/B).** Required Lease fields:
+  `max_usd: float` (finite nonnegative JOINT USD list-price ceiling),
   `max_input_tokens: int`, `max_output_tokens: int` (aggregate billed input/cache
-  and output/thinking ceilings over all attempts/turns/compaction), and
-  `price_source: str` (verified tariff and enforcement provenance). D reserves
-  only after admission, using `lease.max_usd`. Client/runtime verify against
-  code-owned effective-route policy. Claude Opus 5.5 alone uses a worker-local
-  subscription request gate: at most 8 forwarded Messages requests, each capped
-  at 8192 output tokens and the documented 1M input context ceiling; no hosted
-  tools/auxiliary billable endpoints. Same credentials/account/upstream endpoint,
-  no control-VM payloads or logging. `token_prices.py` gives the conservative
-  list-price bound ($143.683584 rounded upward currently). D must have enough
-  authorized envelope. Other/unknown/unenforceable routes get no Lease and
-  Wait('unbounded_route'), including direct/supplied tampered Leases. B sees
-  capacity=0 for those routes and waits for reviewed enforcement. A one-use
-  execution-start RPC prevents resetting a lease's request allowance. All caps
-  and `cap_used` go in per-lease usage receipts; receipts/finish book nothing.
-  Gate rejection raises `model_call_cap`, a bound stop with no inline retry.
-  unbounded_route propagates through ordinary wait/checkpoint/restart and is not
-  provider health. See router.md follow-up for exact semantics and limitations.
+  and visible/raw-thinking ceilings), `price_source: str` (tariff/enforcement
+  provenance). Individual token ceilings are not additive money permissions.
+  Client/runtime verify exact route-owned values before callbacks/reservations;
+  callers cannot supply/tamper with them. D reserves only after admission.
+  Claude Opus5.5 alone has a worker-local subscription gate: before EVERY forward,
+  strictly settled usage + all in-flight/unknown worst-case allowances + new W
+  must fit joint USD AND separate token ceilings. 1M hard context/request and
+  output clamp32768 include caches/thinking. Complete strictly validated usage
+  alone can release unused allowance; partial/uncertain usage keeps all of it.
+  Standard mode, no hosted tools/premium modes; small-model calls use same Opus.
+  Current route cap50.0 USD; W<=9.520896; input227272727/output2272727 tokens.
+  Existing token_prices/budget booking stays unchanged; gate books nothing.
+  Cap covers CLI-owned inference routed through its SDK, not hostile Bash/direct
+  network/account-wide spending; no new sandbox/security property is claimed.
+  Unsupported never-forwarded requests are nonfatal local errors, not money stops.
+  Other/unknown/unenforceable/direct/tampered routes get no Lease and
+  Wait('unbounded_route'); B sees capacity0 and does zero relaunches until an
+  approved bound release is migrated and exact-route capacity becomes positive.
+  retry_after=now+900 is only a recheck hint. D refuses qualification for any
+  unbounded required role: NONE of today's complete rotation packages is ready.
+  One-use execution-start prevents allowance reset. Usage/route receipts retain
+  all caps plus cap_used; finish/receipts book nothing. model_call_cap is an
+  unscored factory enforcement-limit stop for every role/probe, never writer
+  feedback/scientific fail/provider outage/inline retry. D diagnoses it as a
+  factory limit; a later invocation needs new authorised reservation/Lease.
+  Drain old leases before rollout; B's real practice run qualifies production.
 
 ## 8. Batch money authority (B provides, D enforces)
 
