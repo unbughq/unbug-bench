@@ -1866,6 +1866,14 @@ are left on that path.
 
 Change.
 
+- `budget._run_budgeted`: for a factory call (bound to a reservation), do not
+  append an `unpriced_invocations` marker when a subscription session ends
+  without its usage event. The pending reservation already holds that call's
+  remaining maximum in `outstanding_reservations`, and every admission and
+  `check_limits` counts it. The marker only turned that bounded gap into
+  "total unknown". Non-factory calls keep the marker. This removes the
+  window in which a sibling concurrent call's `check_limits`
+  (`budget.py:845`) reads an unknown total and stops with `money_wait`.
 - `budget.complete_invocation`: a receipt without final usage settles through
   the existing `_settle_leaf` as `estimated`, charging the reservation's
   remaining maximum. That also removes the marker bound to that invocation.
@@ -1875,11 +1883,15 @@ Change.
   `reconciled_decreases` record. `settle()` for a provider wait re-reads the
   same leaf and records its wait provenance as before. Unbound legacy markers
   (no reservation) are unchanged and still go through the $33 import.
-- `run.py` `main`: when `--batch-release-sha256` is given, set
-  `a.max_cost = None` before the card is built. An explicit `--max-cost` on a
+- `run.py` `main`: in the existing `if a.batch_release_sha256:` block, after
+  the release digest check, set `a.max_cost = None`. This is before the card
+  is built. An explicit `--max-cost` on a
   factory job is historical and ignored (`batch.bind` already strips it).
-  `recovery_config`, the stress binding, the G8/G9/G16 fingerprints and the
-  calibration identity then record `max_cost: None`. That value is the new
+  The stress binding, the G8/G9/G16 fingerprints and the calibration
+  identity then record `max_cost: None`. `recovery_config` records None
+  until the first `update_case_budget`, which already drops the key for
+  factory jobs (`model_runtime.py:265`). `coordinator.configuration_args`
+  already skips `max_cost` once `ordinary_limit_usd` is present. That value is the new
   accounting-policy version. The `max_cost` key stays in each of them, so
   non-factory fingerprints are byte-identical. Merging this is the one-time
   intentional migration: factory evidence already fingerprinted with 5 stops
@@ -1913,9 +1925,9 @@ paths (`docs/factory-single-path.md`), not here.
 So the plan's "remove" for these entries becomes "prove unreachable from a
 factory job". The search exam below holds that line.
 
-Deletes: the `pending` + marker branch in `complete_invocation`, and the
-factory job's $5 binding input. Adds one line in `run.py` and none
-elsewhere in production code.
+Deletes: the `pending` + marker branch in `complete_invocation`, the
+factory-call marker in `run_budgeted`, and the factory job's $5 binding
+input. Adds one line in `run.py` and one forbidden flag in `batch.py`.
 
 `factory/README.md`: the `--max-cost` paragraph says the flag is the
 non-factory and exam-owner cap. Batch jobs use the job money channel's
@@ -1937,8 +1949,10 @@ Only model outputs and the gate's unknown-request count are authored.
   the baseline plus the first maximum plus the second actual. Both subtests
   fail on the current code.
 - **Factory jobs carry no paid cap.** A `run.main` subprocess harness (same
-  pattern as the existing main test) runs with a real batch-release file and
-  an authored job installer. It records `c.args.max_cost is None` and
+  pattern as the existing main test) runs with an authored batch-release file
+  (only its digest is checked) and an authored job installer. Both are
+  contract configuration, like `job-money.json`. The real artifacts are the
+  5813be ledger and the practice case. It records `c.args.max_cost is None` and
   `recovery_config['max_cost'] is None`, then runs the real streaming
   accountant with a priced OpenCode event on the 5813be ledger. The factory
   setting books it past $5 without a stop. The non-factory control (5.0)
@@ -1955,8 +1969,27 @@ Rows. Row 8 closes with the no-paid-cap and search-exam tests. Row 21 closes
 with the settlement test. Both run on real saved ledger and case bytes
 through the real runtime, router and ledger code.
 
-Known window, not fixed. `run_budgeted` writes its marker just before the
-same thread's `complete_invocation` turns it into an estimate. A concurrent
-reservation inside that window still waits with `money_wait`. It is a short
-wait, not a stop, and B's coverage already counts bound markers at their
-maximum.
+Existing tests affected. `test_stream_d_runtime.py::
+test_stream_accountant_links_unknown_usage_and_settles_once_above_five_dollars`
+asserted the factory marker after `run_budgeted`. It now asserts no marker,
+a known total with the reservation outstanding, and the same estimate after
+reconciliation. The direct `complete_invocation` callers in
+`test_batch_accounting.py`, `test_stream_d_coverage.py` and
+`test_router_cheap_maxima.py` plant their own markers, or pass final
+receipts, or read saved proof records. A local draft of the
+`complete_invocation` change passes all three unchanged. The settlement test
+also covers a concurrent sibling call: it streams while the first call fails
+with unknown usage, and it finishes without `money_wait`.
+
+Design review 1 (DeepSeek, FAIL) responses. B1: accepted. The affected tests
+are listed above. Its premise that those tests assert the pending+marker
+state is wrong for the three direct callers, which pass under the change. M1:
+accepted, and the window is worse than the original text said. A sibling's
+`check_limits` stops, so it is not a short wait. Fixed at the source by
+deleting the factory marker, not by narrowing the window. M2: accepted as
+wording. The release file is authored configuration, and the row-8 proof
+rests on the real ledger and the real accountant. N1: accepted. `restart.py`
+is protected only by `launch.sh:494`'s early return. Item 8's search exam
+must keep it unreachable. N2: accepted. Add `--continue-g11-review` to
+`batch.bind`'s forbidden set. N3: noted. The `gate_state` literal stays 5,
+because it is the non-factory default.
