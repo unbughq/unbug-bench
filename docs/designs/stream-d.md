@@ -1432,6 +1432,12 @@ dispatcher uses `diagnosis-<exhaustion_id>` as the initial reservation call_name
 and `diagnosis-<exhaustion_id>-repair-<ordinal>` for schema repair, so this check
 uses those exact names in the ledger rather than model text. These names are
 an obligation on future dispatcher wiring, which is not enabled here.
+The proposed worker-dispatch addendum also binds `attempts.json`, `decision.json`
+and `raw-bytes-*` to the input manifest. Before those producers are wired, extend
+this orphan check to those paths as well. The repair suffix is a global logical
+call ordinal; its attempt journal distinguishes schema repair from a judgment on
+the next approved route. Exact raw bytes have a separate byte-hash filename so
+the existing canonical-JSON factory-bug producer cannot overwrite them.
 Only an unbound pending attempt with none of that evidence may remove orphan
 inputs and staging directories and re-stage current bytes. Refuse symlink parents
 rather than following them during cleanup. Once input.json exists, never rewrite the snapshot from
