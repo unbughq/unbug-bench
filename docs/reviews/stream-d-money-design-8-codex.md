@@ -86,3 +86,70 @@ from a different model family; its verdict is recorded below.
 - **Overclaim fixed.** The design said B's check is now exact and that a
   release always equals the drop from the last ACK. It now states the D
   producer invariant and names B's known limits.
+
+## Second goldfish (fresh Claude, adjudication)
+
+Reviewer: a fresh Claude `general-purpose` subagent, read-only, a
+different model family from the first goldfish (Codex), against 0617cae.
+Final report below, verbatim.
+
+---
+
+**Verdicts:** REJECTION UPHELD for B1 and for B2. But the text the author used to reject B1, which the design repeats, contains a false premise that must be corrected. I rate that as Major, not blocking.
+
+**B1: REJECTION UPHELD**
+
+1. **Factual claim.** Mostly true, but the stated reasoning is wrong.
+   - The accountant books only inside `_run_budgeted`, which runs synchronously (`model_runtime.py:640`). Each event is tagged and added to the row's `event_ids` in one save (`budget.py:930-932`, `1072-1074`). The process is stopped before the call returns.
+   - `complete_invocation` runs after `_invoke` returns (`model_runtime.py:466-467`).
+   - The rejection says `reconcile_reservations` runs "only from `run.resume_provider_wait`". That is false. It also runs:
+     - at the start of every factory `_call` (`model_runtime.py:324-327`), excluding only active call names and the call's own lease;
+     - in `finalize_accounting` (`run.py:2870-2875`), with no active-call guard and no dispatch lock;
+     - in `diagnosis_dispatch.py:289-292`, which is guarded.
+   - The `_call` path is still safe:
+     - a call's name is active from before its process starts until after `run_budgeted` returns (`model_runtime.py:408-412`);
+     - `run_budgeted` refuses a row that is not pending (`budget.py:805-807`).
+   - The `finalize_accounting` path is not fully safe. An exam owner child call runs on a daemon HTTP thread that is not joined (`exam_responder.py:176-191`). If it is still running, `finalize_accounting` can estimate its row. The child's cancelled exit path then books partial usage, tagged, onto that estimated row (`budget.py:1230-1245` through `subscription_usage`).
+   - This does not reach B1's harm. B1 also needs a final receipt that writes a release record. Cancel is always set before `finalize_accounting`, so the child ends `interrupted` and its receipt is non-final (`model_runtime.py:451-457`). The per-lease receipt is written once and never rewritten. The charge can grow, but no release record can subsidise another call.
+2. **Scope.** Rows 8 and 21 need no hardening of B's guard against ledgers that D's own code never writes. Out of scope.
+
+**B2: REJECTION UPHELD**
+
+1. **Factual claim.** True.
+   - `batch_accounting.py` is unchanged against both HEAD and `4f9f931`.
+   - `_releases` checks a record's arithmetic and settled state only. It never compares the record against current bookings (`batch_accounting.py:131-139`).
+   - Credit is counted across all calls together (`:160-163`).
+   - Growth from settled to settled skips the record branch, because `previous_gap` is 0 (`budget.py:263`, `308`).
+   - The committed test shows that growth (`test_batch_accounting.py:65-86`), driven by a receipt the test itself rewrites.
+   - D never makes a second final receipt for a lease. The per-lease receipt is written once (`model_runtime.py:450`), leases are not reused (`budget.py:157-161`, `805-807`), and wait aggregates reuse the per-lease receipts (`run.py:255-261`).
+   - The increment does make more rows `estimated` at a collection. But it adds no path that gives them a later final receipt, so the hole does not get wider.
+2. **Scope.** Out of scope. The design now says B's check is unchanged and names B's known limits.
+
+**New issue from the rejection text and the narrowed claim (Major, not blocking)**
+
+Design, `_settle_leaf` paragraph:
+- It says "`settle`/`reconcile_reservations` run only on resume with no active call". That is false (call sites above).
+- It says "So D never grows an estimate between two collections". That is false in the `finalize_accounting` and owner-child race above. The growth is harmless to B, because it has no release record.
+- Fix: state the true reasons, which are per-call exclusion, the pending check, and that a call still running at `finalize_accounting` ends non-final. Or pass `exclude_calls=c.active_model_calls` in `finalize_accounting`, which is one line.
+- Smaller inconsistency: the late-booking test drives a transition the text says D never produces. That is fine as a defensive test, but it should be labelled as one.
+
+**Files read**
+- `docs/ENGINEERING.md` sections 1–2, `tools/egm/agents/zoom_out.md`, `tools/egm/agents/design_critic.md`
+- `docs/designs/stream-d.md` (third increment), `docs/reviews/stream-d-money-design-6-codex.md`, `-7-codex.md`, `-8-codex.md`
+- `factory/budget.py`, `factory/model_runtime.py`, `factory/run.py`, `factory/batch_accounting.py`, `factory/batch_holder.py`, `factory/diagnosis_dispatch.py`, `factory/exam_responder.py`, `factory/gate_pipeline.py`
+- `tests/factory/test_batch_accounting.py` at HEAD
+- Diffs against HEAD and `4f9f931`
+
+---
+
+## Elephant response to the second goldfish
+
+B1 and B2 are dropped. The Major is accepted and fixed in the design text:
+the `_settle_leaf` paragraph now names the real reasons (the pending check
+in `run_budgeted`, the per-call exclusion in `_call`'s reconcile, the
+active-call refusal on resume) and the one exception (the exam-owner child
+still running at `finalize_accounting`, which ends non-final and never
+writes a release record). The late-booking test is labelled defensive. The
+one-line `exclude_calls` alternative is not taken: it would leave that row
+pending on the final card, which changes the card for no gain. The B
+hardening (per-invocation ACK evidence) is handed to B in the stream report.

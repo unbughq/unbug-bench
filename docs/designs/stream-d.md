@@ -1901,11 +1901,17 @@ Change.
   maximum. Once a reservation is estimated, its charge is a ceiling, and
   evidence without final usage never moves it, up or down. Only booked usage
   above the charge raises it, with a zero gap. In D, an estimated row gains
-  events only through `_settle_leaf`: the streaming accountant books only
-  while the process runs, before `complete_invocation` estimates it, and
-  `settle`/`reconcile_reservations` run only on resume with no active call
-  (`usage_reconciliation_while_active`). So D never grows an estimate
-  between two collections. Only a final receipt can lower the charge,
+  events only through `_settle_leaf`, with one exception. The streaming
+  accountant books only while its process runs, inside `run_budgeted`, which
+  refuses a row that is not pending. `complete_invocation` estimates the row
+  after that returns. `reconcile_reservations` at the start of `_call`
+  excludes active call names and the call's own lease, and
+  `resume_provider_wait` refuses while a call is active. The exception: an
+  exam-owner child call still running on its HTTP thread when
+  `finalize_accounting` reconciles can book cancelled partial usage onto the
+  row that reconcile estimated. That call always ends interrupted with a
+  non-final receipt, written once, so its charge can only grow and it never
+  writes a release record. Only a final receipt can lower the charge,
   through `reconciled_decreases` (the provenance B's collection requires).
   B's collection check is unchanged by this increment. Its known limits
   (a settled row that grows after its decrease record, and a ledger written
@@ -2005,7 +2011,9 @@ Only model outputs and the gate's unknown-request count are authored.
   account inside the same call. On the committed code, (a) stops with
   `budget_exhausted` and (b) with `money_wait`.
 - **Late booking and wait replay** (`test_batch_accounting.py::
-  test_late_booking_and_wait_replay_never_lower_until_final`). On the saved
+  test_late_booking_and_wait_replay_never_lower_until_final`). A defensive
+  test: D produces a late booking on an estimated row only in the
+  exam-owner case above, and never follows it with a final receipt. On the saved
   ledger through provider-wait `settle()`: estimate, a late booking tagged to
   the row, a stale non-final replay, then a final receipt that lowers, equals
   or raises the charge. Every step passes `collection_facts` against the
@@ -2063,7 +2071,10 @@ this increment, pending a second goldfish (`stream-d-money-design-8-codex.md`).
 B1 needs a tagged booking on an estimated row outside `_settle_leaf`, which
 no D producer makes. B2 is a property of B's collection guard on the
 committed code, with or without this increment. The overclaim that B's
-check is now exact is removed above.
+check is now exact is removed above. A second goldfish (fresh Claude)
+upheld both rejections and found one Major: the stated reason missed two
+`reconcile_reservations` call sites and the exam-owner race. Fixed above by
+stating the real reasons. No code change.
 
 Design review 7 responses (Codex, FAIL). B1: accepted. The round-6
 collection change is withdrawn, because one call's release could cover
