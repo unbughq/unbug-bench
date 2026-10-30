@@ -332,6 +332,43 @@ def reconcile(policy, root, home):
     return ready
 
 
+def orphaned(policy, root, home):
+    """Discover only initialized controllers; the existing controller lock wins."""
+    enabled(); record = money.manifest(policy, root)
+    ready = []
+    with money.locked(home, record['id']) as directory:
+        for identity, op in _operations(directory, record, policy).items():
+            if not op['dispatch_started'] or op['retirement'] is not None or op['state'] == 'failed': continue
+            path = home / 'launches' / op['launch_id']
+            if (path / 'complete').exists() or not (path / 'monitor.sh').is_file(): continue
+            try:
+                with operation_lock(directory, identity), service._regular(path / 'controller.lock') as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    if service._json(path / 'launch.json') == op['launch']: ready.append(identity)
+            except (OSError, ValueError): pass
+    return ready
+
+
+def resume_controller(policy, root, home, identity, identity_bytes):
+    enabled(); record = money.manifest(policy, root)
+    directory = home / 'batches' / record['id']
+    with operation_lock(directory, identity):
+        with money.locked(home, record['id']):
+            op = _operations(directory, record, policy)[identity]
+            path = home / 'launches' / op['launch_id']
+            if (not op['dispatch_started'] or op['retirement'] is not None or op['state'] == 'failed' or
+                    (path / 'complete').exists() or not (path / 'monitor.sh').is_file() or
+                    service._json(path / 'launch.json') != op['launch']): raise ValueError('request_refused')
+            with service._regular(path / 'controller.lock') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        child = subprocess.Popen(['/bin/sh', str(root / 'factory/launch.sh'), '--resume-launch', op['launch_id']],
+                                 cwd=root, env={**os.environ, 'PATH': policy['path'], 'UNBUG_CONTROL_HOME': str(home)},
+                                 stdin=subprocess.PIPE)
+        try: child.stdin.write(identity_bytes); child.stdin.close()
+        except BrokenPipeError: pass
+        return child.wait()
+
+
 def source_directory(policy, root, home, identity):
     """Pure POST resolver used by both bind and the shell before restore."""
     enabled(); record = money.manifest(policy, root)
@@ -547,7 +584,7 @@ def dispatch(policy, root, home, identity, identity_bytes):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('dispatch', 'collect', 'source', 'restore-check'))
+    parser.add_argument('command', choices=('dispatch', 'resume', 'collect', 'source', 'restore-check'))
     parser.add_argument('--operation', required=True)
     parser.add_argument('--policy', type=Path, default=Path(os.environ.get('UNBUG_CONTROL_HOME',
                         str(Path.home() / '.unbug-control'))) / 'policy.json')
@@ -557,9 +594,11 @@ def main():
         enabled()
         from key_holder import policy_load, ROOT, CONTROL_HOME
         policy = policy_load(a.policy)
-        if a.command == 'dispatch':
+        if a.command in ('dispatch', 'resume'):
             key = bytearray(sys.stdin.buffer.read(4097))
-            try: return dispatch(policy, ROOT, CONTROL_HOME, a.operation, key) or 0
+            try:
+                action = dispatch if a.command == 'dispatch' else resume_controller
+                return action(policy, ROOT, CONTROL_HOME, a.operation, key) or 0
             finally: key[:] = b'\0' * len(key)
         if a.command == 'collect':
             reconcile(policy, ROOT, CONTROL_HOME)

@@ -494,12 +494,14 @@ def serve(policy_path, hours, identity_file=None):
             if code is not None:
                 batch_holder.record_exit(policy, ROOT, CONTROL_HOME, operation, code)
                 del batch_children[operation]
-        for operation in batch_holder.reconcile(policy, ROOT, CONTROL_HOME):
+        pending = [(op, 'dispatch') for op in batch_holder.reconcile(policy, ROOT, CONTROL_HOME)]
+        pending += [(op, 'resume') for op in batch_holder.orphaned(policy, ROOT, CONTROL_HOME)]
+        for operation, action in pending:
             if operation in batch_children: continue
             log = log_dir / ('batch-' + operation + '-' + str(time.time_ns()) + '.log')
             with log.open('xb') as output:
                 child = subprocess.Popen([sys.executable, '-B', str(ROOT / 'factory/batch_holder.py'),
-                        'dispatch', '--operation', operation, '--policy', str(policy_path)],
+                        action, '--operation', operation, '--policy', str(policy_path)],
                         stdin=subprocess.PIPE, stdout=output, stderr=output, cwd=ROOT,
                         env={**os.environ, 'UNBUG_CONTROL_HOME': str(CONTROL_HOME),
                              'UNBUG_SECRETS_FILE': str(secrets_file)}, start_new_session=True)

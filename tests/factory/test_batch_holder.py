@@ -293,6 +293,21 @@ class HolderTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.reserve(source=first['sha256'])
         with self.assertRaises(ValueError): self.reserve()
 
+    def test_initialized_orphan_uses_existing_resume_path(self):
+        op = self.started(self.reserve()); path = self.home / 'launches' / op['launch_id']
+        (path / 'monitor.sh').write_text('poll=1\n')
+        self.assertEqual(holder.orphaned(self.policy, self.root, self.home), [op['operation_id']])
+        with (path / 'controller.lock').open() as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assertEqual(holder.orphaned(self.policy, self.root, self.home), [])
+        self.policy['path'] = '/usr/bin:/bin'
+        child = SimpleNamespace(stdin=io.BytesIO(), wait=lambda: 0)
+        with patch.object(holder.subprocess, 'Popen', return_value=child) as launch:
+            holder.resume_controller(self.policy, self.root, self.home, op['operation_id'], b'authored identity')
+        self.assertEqual(launch.call_args.args[0][-2:], ['--resume-launch', op['launch_id']])
+        (path / 'complete').touch()
+        self.assertEqual(holder.orphaned(self.policy, self.root, self.home), [])
+
     def test_retired_without_output_status_is_not_running(self):
         op = self.started(self.reserve()); self.retirement(op); self.reconcile()
         self.assertEqual(status.read_rows(self.policy, self.root, self.home)[1][0]['phase'], 'not collected')
