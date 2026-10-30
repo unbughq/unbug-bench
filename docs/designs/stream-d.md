@@ -1073,14 +1073,15 @@ and retains its exact-source mismatch refusal assertions.
 
 ## Increment 3: diagnosis, extensions, and policy migration
 
-**Parent ruling, 2026-10-30:** under the founder's "pit stops, not capacity"
-direction, cumulative `max_total_calls` becomes telemetry for authenticated
-new-schema factory cases and their extensions. This is the parent's ruling;
-the founder has not separately confirmed it. Preserve historical D1 metadata,
-but do not present this change as a new founder confirmation. The scorecard
+**Founder decisions, 2026-10-30:** the cumulative `max_total_calls` limit is
+removed for new-schema cases and their extensions; call counts remain telemetry.
+Dollar ceilings apply to paid routes only. The 47 old cases are retired; cb5e2
+and 14d35 are set aside. These decisions supersede the earlier provisional
+parent ruling. Preserve historical D1 metadata. The scorecard
 shows `model calls: N (telemetry)`. Keep per-invocation `max_role_calls`, time
 limits, qualified enforced-route maxima, and the numeric protections of
-`bin/run-exam`. Money and the absolute batch deadline still bound every call.
+`bin/run-exam`. Dollar ceilings bound paid routes; the absolute batch deadline
+bounds every call.
 Replay the real 5813be (2496), e15450 (1627), and 873d7f (1040) ledgers beyond
 the former 1000-call threshold with authored money/deadline headroom; retain
 their original events and totals and prove a further invocation progresses.

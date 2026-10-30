@@ -334,6 +334,7 @@ def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_a
             import copy
             import extensions
             if (role != 'writer' or not isinstance(receipt, dict) or receipt.get('actor') != 'writer' or
+                    not isinstance(receipt.get('binding'), dict) or
                     type(receipt.get('round')) is not int or receipt['round'] < 1 or
                     set(receipt) & {'schema_version', 'operation_id', 'phase', 'lease_id',
                                     'invocation_id', 'resumed_from_wait', 'extension_id'}):
