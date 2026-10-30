@@ -56,6 +56,37 @@ class RenderTests(unittest.TestCase):
         text = self.render([row(stopped_rejection)])
         self.assertIn('Sealed 0', text); self.assertIn('nothing needs you', text)
 
+    def test_authored_factory_bug_held_is_unscored_and_actionable(self):
+        # New public operational fields edited onto saved real cards, not D output.
+        for original in (SEALED, REJECTED, OLD):
+            card = {**original, 'terminal_stop': 'factory_bug_held',
+                    'factory_bug': {'finding_id': 'finding-123', 'gate_or_stage': 'G10',
+                                    'summary_class': 'private text never displayed'}}
+            before = deepcopy(card)
+            text = self.render([row(card)])
+            self.assertIn('Sealed 0 / 3', text)
+            self.assertIn('0 rejected, 1 stopped', text)
+            self.assertIn('factory bug: see finding finding-123', text)
+            self.assertIn('| factory bug held', text)
+            self.assertNotIn('unknown stop', text)
+            self.assertNotIn('private text', text)
+            self.assertEqual(card, before)
+        card.update(case_budget={'spent_usd': 8, 'limit_usd': 10})
+        text = self.render([row(card)])
+        self.assertIn('near limit', text)
+        self.assertIn('factory bug: see finding finding-123', text)
+        for phase in ('running', 'pending', 'failed'):
+            self.assertNotIn('factory bug:', self.render([row(card, phase=phase)]))
+        for value in (None, '', 123, True, 'bad\n', 'private detail', 'x' * 129, 'é', {}):
+            card['factory_bug'] = {'finding_id': value}
+            text = self.render([row(card)])
+            self.assertIn('factory bug: finding unreadable', text)
+            self.assertNotIn('see finding', text)
+            self.assertNotIn('private detail', text)
+        for value in (None, [], {}):
+            card['factory_bug'] = value
+            self.assertIn('factory bug: finding unreadable', self.render([row(card)]))
+
     def test_real_calls_above_historical_cap_have_no_call_rule(self):
         card = next(c for c in CARDS if c.get('continuation_budget', {}).get('calls', 0) > 300
                     and c.get('terminal_stop') in (None, 'paused') and not c.get('case_budget')
@@ -140,12 +171,12 @@ class ReadTests(unittest.TestCase):
                             entries={}, derivations={}, queue={}, next_sequence=0)
         self.snapshot('j')
 
-    def snapshot(self, job, generation='b' * 64):
+    def snapshot(self, job, generation='b' * 64, source_card=SEALED):
         # Independent authored snapshot schema, not batch_service.collect output.
         case = 'case-practice-' + job
         path = self.directory / 'generations' / case / generation
         path.mkdir(parents=True)
-        card = {**SEALED, 'case': case, 'sha256': generation, 'batch_release_sha256': 'a' * 64}
+        card = {**source_card, 'case': case, 'sha256': generation, 'batch_release_sha256': 'a' * 64}
         card_path = path / (case + '.scorecard.json')
         card_path.write_text(json.dumps(card))
         manifest = dict(schema=1, batch='practice', job=job, case=case, generation=generation,
@@ -171,6 +202,21 @@ class ReadTests(unittest.TestCase):
         self.assertEqual([r['phase'] for r in rows], ['stopped', 'not collected'])
         self.assertEqual(before, {str(p.relative_to(self.root)): p.read_bytes()
                                  for p in self.root.rglob('*') if p.is_file()})
+
+    def test_authored_held_snapshot_reads_to_status_with_saved_ledger(self):
+        saved = next(c for c in CARDS if c['case'].endswith('5813be'))
+        card = {**saved, 'terminal_stop': 'factory_bug_held',
+                'factory_bug': {'finding_id': 'finding-infra-1', 'gate_or_stage': 'G10',
+                                'summary_class': 'infrastructure'}}
+        self.snapshot('k', source_card=card)
+        before = {str(p): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        target, rows = self.read()
+        held = next(r for r in rows if r['case'] == 'case-practice-k')
+        self.assertEqual(held['card']['continuation_budget'], saved['continuation_budget'])
+        text = status.render(target, rows, set(), {})
+        self.assertIn('case-practice-k: factory bug: see finding finding-infra-1', text)
+        self.assertIn('factory bug held', text)
+        self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob('*') if p.is_file()})
 
     def test_multiple_generations_need_exact_pointer_then_tampering_refuses(self):
         entry, path = self.snapshot('j', 'c' * 64)
