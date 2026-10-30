@@ -1210,6 +1210,40 @@ public practice bytes, with authored judgment, binding and interruption controls
 They prove write ordering, immutable replay, no model lease after a hold, and
 unchanged spend; they do not close a Murphy row or qualify a live rollout.
 
+### Extension state implementation boundary
+
+`factory/extensions.py` implements the passed extension eligibility/progress
+rules as worker-owned state helpers. It consumes code-produced snapshots and
+an already admitted writer lease/reservation; it does not create a lease, grant
+money or invoke a writer. The runner, snapshot producer, changed-gate baseline
+evaluation and scientific-version migration remain unwired in this slice.
+
+The private history stores schema_version, ordinal extension_id, immutable
+writer_operation_id, cumulative round, entry, outcome (initially null) and
+append-only comparisons. Each comparison retains the original entry/outcome
+case digests with evidence at a common current version. Snapshot fields are
+source_generation, case_sha256 (canonical digest of relative file digests),
+ordered stages, frontier and evidence (relative work path to byte digest).
+Stage rows contain stage, version, status, binding_sha256 and evidence_sha256;
+pass/fail require bound retained evidence, while pending/unreached carry null
+evidence and binding. The public projection is exactly the §8 history shape.
+
+Entry/outcome case bytes and evidence are copied to
+`work/extension-snapshots/<ordinal>/<entry|outcome>/{case,evidence}` before the
+private history append; comparison evidence is retained under
+`comparison-<canonical-pair-digest>/<entry|outcome>/`. Files and parent
+directories are fsynced before publishing history. Repairs do not touch these
+paths. Admission replays retain the same ordinal and writer operation; an
+outcome is appended once. A pending execution cannot complete an extension.
+
+`test_stream_d_extensions.py` uses the verified saved practice case and 5813be
+ledger, with explicitly authored stage receipts and lease controls. It checks
+the five-extension lifetime bound, cumulative writer rounds, no ID before an
+actual reservation, repair survival, immutable snapshot bytes, exact-version
+progress, regression/pending distinctions and retained baseline comparisons.
+It does not qualify live gate receipts or a live extension run, and closes no
+Murphy row. Money admission stays under the existing B runtime prerequisite.
+
 ### Queued diagnosis inputs (review-17 follow-up)
 
 The dispatcher must never pass live `work` as the result validator's evidence
