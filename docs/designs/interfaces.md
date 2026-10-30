@@ -315,6 +315,16 @@ denial.
   factory limit; a later invocation needs new authorised reservation/Lease.
   Drain old leases before rollout; B's real practice run qualifies production.
   Its normal completion must show validated_requests>0 and unknown_requests==0.
+  **D2 enablement prerequisite (founder/D/B):** with this max_usd=50 and a
+  default $50 commitment, only one separately reserved invocation fits from zero
+  spend once positively charged; any priced ordinary writer call triggers D's ordinary
+  $50 diagnosis test. Two concurrent nested owners need $100 plus settled usage.
+  Size commitments/revisions to settled+outstanding+new maxima, or approve a
+  lower route profile against the real receipt fit table before enabling D2.
+  First-call success is not package availability. D2 must reserve exactly the
+  verified valid_lease-checked lease.max_usd rounded upward to nine places, never
+  a smaller caller-chosen amount. D ignores cap_used when settling an unknown
+  receipt: maximum minus already-booked events, rather than held W, is the gap.
 
 ## 8. Batch money authority (B provides, D enforces)
 

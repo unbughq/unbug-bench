@@ -727,6 +727,23 @@ the route's maximum, unknown usage settles that maximum once, replay adds zero,
 and a stale authority copy refuses. D2 dispatch/reservation wiring and B's later
 practice qualification are still separate increments, not enabled by this test.
 
+With max_usd=50 and a default $50 job commitment, D2 can admit at most one
+separately reserved Claude CLI invocation from zero spend once it has any
+positive charge; that invocation may itself contain many provider requests.
+After settlement at $3, for example, another invocation needs $3+$50 authority
+and gets money_wait at a $50 commitment. D's ordinary $50 threshold diagnoses
+after any priced ordinary writer call because spent+next_writer_max exceeds $50. Two
+concurrent nested owners each reserving this route need $100 plus settled usage.
+First-call success therefore does not qualify package availability. Before D2
+enablement, the founder, D and B must agree job commitments/revisions sized to
+settled usage plus each outstanding/new per-call maximum, or approve a lower
+route maximum against the 153-receipt fit table. A chooses neither authority nor
+a replacement profile in this slice. D2 must reserve exactly a valid_lease-checked
+route-owned lease.max_usd, rounded upward to nine places; a caller's smaller
+maximum would under-reserve. D intentionally ignores cap_used for settlement:
+unknown usage consumes the reservation maximum minus already-booked events,
+not the gate's currently held W.
+
 ### Phases, exams, cost and completion
 
 1. Frozen design/interface/audit increment; fresh goldfish using zoom_out,

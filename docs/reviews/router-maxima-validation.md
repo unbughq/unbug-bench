@@ -77,6 +77,17 @@ integrated budget source and PASS; the artifact now records that base and the
 seven freshly verified source hashes. Full current-suite and fresh integration
 diff-review results follow; old hashes/results are not relabeled.
 
+At max_usd=50, a default $50 job can admit only one separately reserved Claude
+invocation from zero spend once that call has a positive charge. Another needs
+settled+50 authority, any priced ordinary writer call triggers D's ordinary $50 diagnosis
+test, and two concurrent nested owners need $100 plus settled spend. A first-call
+success must not qualify package availability. Founder/D/B must size commitments
+or revisions accordingly, or approve a separately reviewed lower route profile
+against the 153-receipt table, before D2 enablement. D2 reserves the exact verified
+Lease maximum (nine-place upward rounding); D's unknown settlement intentionally
+uses maximum minus booked events, not cap_used.held_usd. No authority or route
+profile is changed to conceal this limitation.
+
 ## Full suite
 
 The first full run on `fcc003058d6a5a648041beb845d0c5e975fb86a2`
