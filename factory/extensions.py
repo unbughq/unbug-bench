@@ -4,6 +4,7 @@ Admission consumes an already reserved writer lease, never a model's permission
 or a round allowance. All private state lives outside current gate results.
 """
 import copy
+import errno
 import hashlib
 import json
 import os
@@ -96,7 +97,7 @@ def read(c):
     path = c.work / 'extension-history.json'
     if path.is_symlink(): raise BudgetError('extension_history_invalid')
     try: history = json.loads(path.read_text()) if path.exists() else []
-    except (ValueError, OSError): raise BudgetError('extension_history_invalid') from None
+    except (ValueError, FileNotFoundError): raise BudgetError('extension_history_invalid') from None
     if not isinstance(history, list) or len(history) > LIMIT: raise BudgetError('extension_history_invalid')
     operations, diagnoses = set(), set()
     for number, row in enumerate(history, 1):
@@ -117,7 +118,7 @@ def read(c):
             if not any(r['operation_id'] == row['writer_operation_id'] and
                        r['call_name'] == 'builder-' + str(row['round']) for r in reservations.values()):
                 raise ValueError()
-        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        except (FileNotFoundError, ValueError, KeyError, TypeError, AttributeError):
             raise BudgetError('extension_history_invalid') from None
         validate_snapshot(row['entry'])
         _verify_case(c, number, 'entry', row['entry'])
@@ -152,6 +153,11 @@ def read(c):
         else:
             previous[-1]['outcome_sha256'] = None  # Completed outcome was committed.
         if observed != previous: raise BudgetError('extension_history_invalid')
+    if history and history[-1]['outcome'] is None:
+        state = _state(c.card, projected)
+        if (not state or state['status'] != 'completed' or state['outcome'] != 'close_to_passing'
+                or state['exhaustion_id'] != history[-1]['exhaustion_id']):
+            raise BudgetError('extension_history_invalid')
     c.card['extension_history'] = projected
     return history
 
@@ -258,6 +264,34 @@ def propose(c, snapshot):
             raise BudgetError('extension_comparison_pending')
     return {'extension_id': len(history) + 1, 'round': c.card.get('builder_rounds', 0) + 1,
             'entry': copy.deepcopy(snapshot), 'exhaustion_id': state['exhaustion_id']}
+
+
+def verify_proposal(c, proposal):
+    """Verify a fresh proposal and current bytes without publishing admission."""
+    import job_authority
+    from diagnosis import _input_bytes
+    if (not isinstance(proposal, dict) or set(proposal) != {
+            'extension_id', 'round', 'entry', 'exhaustion_id'} or
+            type(proposal['extension_id']) is not int or type(proposal['round']) is not int or
+            proposal['extension_id'] < 1 or proposal['round'] < 1):
+        raise BudgetError('extension_reservation_mismatch')
+    if propose(c, proposal['entry']) != proposal:
+        raise BudgetError('extension_reservation_mismatch')
+    entry = proposal['entry']
+    if (entry['source_generation'] != job_authority.for_case(c).source_generation or
+            entry['case_sha256'] != digest(tree(c.case))):
+        raise BudgetError('extension_snapshot_changed')
+    for name, expected in entry['evidence'].items():
+        try:
+            data = _input_bytes(c.work / name, c.work)
+        except (FileNotFoundError, ValueError):
+            raise BudgetError('extension_snapshot_changed') from None
+        except OSError as error:
+            if error.errno in (errno.ELOOP, errno.ENOTDIR, errno.ENXIO, errno.EISDIR):
+                raise BudgetError('extension_snapshot_changed') from None
+            raise
+        if hashlib.sha256(data).hexdigest() != expected:
+            raise BudgetError('extension_snapshot_changed')
 
 
 def admit(c, proposal, lease, operation_id):

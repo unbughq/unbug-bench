@@ -101,7 +101,7 @@ def pilot_wall(c, user, slot, remove=False):
             sh(c, pre + ["-F", chain]); sh(c, pre + ["-X", chain])
             continue
         sh(c, pre + ["-N", chain], check=True)
-        if binary == "iptables":
+        if binary == "iptables" and slot is not None:
             import bench
             services = bench.inventory_services([bench.load_scenario(c.case / "base")])
             ports = [9000 + 100 * slot, 9001 + 100 * slot] + [p for ps in bench.inventory_service_ports(services, slot).values() for p in ps]
@@ -320,7 +320,8 @@ def provider_continuation(c, receipt, role):
             and receipt.get('lease_id') is None)
 
 
-def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_admitted=None, deadline=None):
+def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_admitted=None, deadline=None,
+                 extension_proposal=None):
     """One logical writer/stress unit, including all admitted fallback attempts."""
     from budget import reserve_invocation, release_uninvoked
     import job_authority
@@ -329,19 +330,38 @@ def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_a
     with model_runtime.dispatch(c, name):
         resume_provider_wait(c)
         authority = job_authority.for_case(c)
+        if extension_proposal is not None:
+            import copy
+            import extensions
+            if (role != 'writer' or not isinstance(receipt, dict) or receipt.get('actor') != 'writer' or
+                    not isinstance(receipt.get('binding'), dict) or
+                    type(receipt.get('round')) is not int or receipt['round'] < 1 or
+                    set(receipt) & {'schema_version', 'operation_id', 'phase', 'lease_id',
+                                    'invocation_id', 'resumed_from_wait', 'extension_id'}):
+                raise BudgetError('extension_reservation_mismatch')
+            extension_proposal = copy.deepcopy(extension_proposal)
+            extensions.verify_proposal(c, extension_proposal)
+            if receipt['round'] != extension_proposal['round'] or name != 'builder-' + str(receipt['round']):
+                raise BudgetError('extension_reservation_mismatch')
         lease = model_router.await_lease(role, c, deadline)
-        operation = receipt.get('operation_id') or str(uuid.uuid4())
+        operation = (str(uuid.uuid4()) if extension_proposal is not None else
+                     receipt.get('operation_id') or str(uuid.uuid4()))
         prior_operation = getattr(c, 'model_operation_id', None)
         c.model_operation_id = operation
         try:
             maximum = model_runtime.invocation_maximum(c, lease)
-            if role == 'writer' and not getattr(c, 'active_extension_id', None):
+            if extension_proposal is not None:
+                extensions.verify_proposal(c, extension_proposal)
+            elif role == 'writer':
                 _, summary = update_case_budget(c)
                 if summary['spent_usd'] is None or summary['spent_usd'] + float(maximum) > summary['ordinary_limit_usd']:
                     raise BudgetError('budget_exhausted')
             reservation = reserve_invocation(c.ledger, lease, maximum, job_authority.for_case(c),
                 operation_id=operation, call_name=name)
-            if on_admitted is not None: on_admitted()
+            if extension_proposal is not None:
+                extension = extensions.admit(c, extension_proposal, lease, operation)
+                receipt['extension_id'] = extension['extension_id']
+            elif on_admitted is not None: on_admitted()
             def admitted():
                 row = c.invocation_reservation
                 receipt.update(schema_version=2, operation_id=operation, phase='pending', lease_id=c.model_lease.lease_id,
@@ -350,6 +370,7 @@ def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_a
                 if role == 'writer': c.card['builder_rounds'] = receipt['round']
             c.model_lease, c.invocation_reservation = lease, reservation
             admitted()
+            if extension_proposal is not None and on_admitted is not None: on_admitted()
             return opencode(c, models, text, cwd, name, lease=lease, before_attempt=admitted,
                             on_complete=on_complete, deadline=deadline)
         except BaseException:
@@ -2423,7 +2444,47 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
     return summary
 
 
-def make_pilots(c, identities, concurrent):
+def stop_pilot(c, user):
+    import pwd
+    from diagnosis_task import _quiet
+    try: uid = pwd.getpwnam(user).pw_uid
+    except KeyError: return False
+    sh(c, ["sudo", "pkill", "-KILL", "-u", user])
+    _quiet(uid)
+    return True
+
+
+def archive_pilot_state(c):
+    """Quiesce every old identity before archiving it or reconciling usage."""
+    history = c.work / f'previous-gate-runs-{time.time_ns()}'
+    for user, home in pilot_homes():
+        present = stop_pilot(c, user)
+        if present or home.exists():
+            pilot_wall(c, user, None, remove=True)
+        if home.exists():
+            history.mkdir(exist_ok=True)
+            sh(c, ['sudo', 'mv', home, history / f'{user}-home'], check=True)
+            sh(c, ['sudo', 'chown', '-R', f'{os.getuid()}:{os.getgid()}', history], check=True)
+        if present: sh(c, ['sudo', 'userdel', user], check=True)
+    if (c.work / 'pilot').exists():
+        history.mkdir(exist_ok=True)
+        shutil.move(c.work / 'pilot', history / 'pilot')
+    from diagnosis_dispatch import cleanup_tasks
+    cleanup_tasks(c)
+
+
+def dispose_diagnosis_pilot(c):
+    from diagnosis_dispatch import DiagnosisTaskCleanupError
+    try:
+        present = stop_pilot(c, 'pilot')
+        pilot_wall(c, 'pilot', None, remove=True)
+        shred_tree(pilot_home('pilot'), sudo=True)
+        if present: sh(c, ['sudo', 'userdel', 'pilot'], check=True)
+    except Exception:
+        raise DiagnosisTaskCleanupError('pilot disposal failed') from None
+
+
+def make_pilots(c, identities, concurrent, *, diagnosis=False):
     sh(c, ["chmod", "700", HOME], check=True)  # case, transcripts and bench stay private
     for user, slot in identities:
         if user not in ("pilot", "pilot-strong", "pilot-easy"):
@@ -2436,10 +2497,12 @@ def make_pilots(c, identities, concurrent):
         shred_tree(home, sudo=True)
         sh(c, ["sudo", "userdel", user])
         sh(c, ["sudo", "useradd", "-m", "-s", "/bin/bash", user], check=True)
-        for d in (".config/opencode", ".local/share/opencode/auth.json"):
+        for d in (() if diagnosis else (".config/opencode", ".local/share/opencode/auth.json")):
             if (HOME / d).exists(): sh(c, ["sudo", "cp", "-a", "--parents", d, home], cwd=HOME, check=True)
         sh(c, ["sudo", "chown", "-R", f"{user}:{user}", home], check=True)
-        if concurrent:
+        if diagnosis:
+            sh(c, ['sudo', 'install', '-d', '-m', '700', '-o', user, '-g', user, home / '.cache'], check=True)
+        if concurrent and not diagnosis:
             # The runner may traverse for per-call scratch setup; other pilot UIDs cannot.
             sh(c, ["sudo", "chown", f"{user}:{os.getgid()}", home], check=True)
             sh(c, ["sudo", "chmod", "750", home], check=True)
@@ -2996,6 +3059,14 @@ def main():
             install(c, a)
             c.card.get('recovery_config', {}).pop('max_total_calls', None)
         if a.resume:
+            if model_runtime.factory_job(c):
+                from diagnosis_dispatch import carry_context
+                carry_context(c)
+            archive_pilot_state(c)
+            if model_runtime.factory_job(c):
+                from diagnosis_dispatch import dispatch
+                dispatch(c, sys.modules[__name__])
+        if a.resume:
             c.limits_raised = raised_limits({**prev_card, 'continuation_budget': jload(c.ledger)}, a.case_budget, a.rounds,
                 explicit_budget=explicit('--case-budget'), explicit_rounds=explicit('--rounds'))
             c.card.update(c.limits_raised)
@@ -3014,21 +3085,6 @@ def main():
         sh(c, ["find", BENCH, "-name", "._*", "-delete"])  # macOS AppleDouble junk in the snapshot breaks bin/checkpoint
         sh(c, COMPOSE + ["up", "-d", "--wait", "postgres", "redis"], check=True)
         c.manifest0 = bench_manifest()
-        if a.resume:
-            history = c.work / f'previous-gate-runs-{time.time_ns()}'
-            for old in list(c.work.iterdir()):
-                # Reviews and durable attempts stay at the paths their receipts verify.
-                if old.name == 'pilot':
-                    history.mkdir(exist_ok=True)
-                    shutil.move(old, history / old.name)
-            for user, home in pilot_homes():
-                if home.exists():
-                    pilot_wall(c, user, 0, remove=True)
-                    history.mkdir(exist_ok=True)
-                    sh(c, ['sudo', 'mv', home, history / f'{user}-home'], check=True)
-                    sh(c, ['sudo', 'chown', '-R', f'{os.getuid()}:{os.getgid()}', history], check=True)
-                    sh(c, ['sudo', 'pkill', '-KILL', '-u', user])  # a paused call can leave the CLI running as this user
-                    sh(c, ['sudo', 'userdel', user], check=True)
         if a.dry_run:
             if not (a.resume and (c.case / "case.json").exists()): build_fixture(c)  # a resumed dry run keeps its fixture
         elif not a.rehearse_only:

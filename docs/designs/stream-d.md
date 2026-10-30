@@ -1073,14 +1073,15 @@ and retains its exact-source mismatch refusal assertions.
 
 ## Increment 3: diagnosis, extensions, and policy migration
 
-**Parent ruling, 2026-10-30:** under the founder's "pit stops, not capacity"
-direction, cumulative `max_total_calls` becomes telemetry for authenticated
-new-schema factory cases and their extensions. This is the parent's ruling;
-the founder has not separately confirmed it. Preserve historical D1 metadata,
-but do not present this change as a new founder confirmation. The scorecard
+**Founder decisions, 2026-10-30:** the cumulative `max_total_calls` limit is
+removed for new-schema cases and their extensions; call counts remain telemetry.
+Dollar ceilings apply to paid routes only. The 47 old cases are retired; cb5e2
+and 14d35 are set aside. These decisions supersede the earlier provisional
+parent ruling. Preserve historical D1 metadata. The scorecard
 shows `model calls: N (telemetry)`. Keep per-invocation `max_role_calls`, time
 limits, qualified enforced-route maxima, and the numeric protections of
-`bin/run-exam`. Money and the absolute batch deadline still bound every call.
+`bin/run-exam`. Dollar ceilings bound paid routes; the absolute batch deadline
+bounds every call.
 Replay the real 5813be (2496), e15450 (1627), and 873d7f (1040) ledgers beyond
 the former 1000-call threshold with authored money/deadline headroom; retain
 their original events and totals and prove a further invocation progresses.
@@ -1273,7 +1274,8 @@ root. Before its first model call, retain immutable input bytes at
 `{schema_version:1, case_id, exhaustion_id, generation, files}`. `files` is the
 exact sorted map of input-relative POSIX file names to SHA-256 digests. The case
 and exhaustion ID come from the current authenticated context/pending state;
-on initial creation, generation must equal B's verified non-null input
+on initial creation, generation comes from the existing worker restore-accounting
+receipt's `generation` field and must equal B's verified non-null input
 `source_generation`. It never names the generation containing this new snapshot.
 No new field is added to the public state or nine-field RAM configuration.
 
@@ -1283,15 +1285,38 @@ Input selection belongs to code, not to model output. The input tree contains:
 - `ledger.json`: the bytes at `c.ledger` (the live cumulative ledger, normally
   `SEALED/<case>.continuation-budget.json`), after reconciliation and before
   reserving a diagnosis invocation. Do not use a stale work ledger copy.
-  `card.json`: a canonical JSON copy of `c.checkpoint_card`, the authenticated
-  restored card, whose `sha256` equals the initial `source_generation` and whose
-  pending exhaustion ID equals the current one. It is not the newly built card;
+- `card.json`: a canonical JSON copy of `c.checkpoint_card`, the authenticated
+  archived card, whose case and pending exhaustion ID equal the current ones.
+  It is not the newly built card. Its `sha256` may be absent or name an older
+  generation: `RunArtifacts.seal` writes this card before creating the archive,
+  so it cannot name its containing ciphertext. Never derive or validate the
+  input generation from that field;
+- `restore-accounting.json`: the unchanged receipt bytes from
+  `c.ledger.parent / (c.case_id + '.restore-accounting.json')`, outside `work`.
+  Require `type(version) is int` and `version == 1`, the matching `case`,
+  `accounting_authenticated is True`, and a non-null SHA-256 `generation` matching
+  the authenticated current job authority's `source_generation` on creation.
+  Validate its `ledger_sha256` and `public_card_sha256` as SHA-256 values. Bind
+  the archived card's `continuation_budget` using the existing canonical
+  `carry_over.digest`: it must equal `retained_ledger_sha256` when that existing
+  correction field is present, otherwise `ledger_sha256`. The live reconciled
+  ledger may have grown after restore; it is separately frozen as `ledger.json`
+  and is not required to hash to the pre-settlement receipt's ledger digest.
+  Missing or null archived `continuation_budget` refuses input-invalid; no
+  fallback to a mutable work ledger is inferred;
 - `work/`: reuse the work-root evidence selected by `gate_state.inventory`
   (gate-details, judge_breadth, review-*), plus `bench-results` for restored
   bench-kind evidence. Current inventory bench-kind files go under that same
-  `work/bench-results/` prefix; if both copies exist they must agree. Retain the
+  `work/bench-results/` prefix. At creation, a current `bench/results/<rel>`
+  file takes precedence over a restored `work/bench-results/<rel>` file with
+  the same relative name. Here current means the live inventory copy, without
+  an mtime filter; this agrees with the current gates' lookup order. The seal
+  also overwrites restored copies, but only for files written since `c.t0`.
+  Read selected paths safely on both sides; do not mutate either live copy.
+  Restored-only paths remain available. Replay never reselects a current copy:
+  the published manifest's bytes are immutable. Retain the
   remaining writer/stress and lifecycle inputs by name: attack-state.json,
-  attacks, gate-cache, gate-continuation.json, late-defect.json,
+  attacks, gate-continuation.json, late-defect.json,
   extension-history.json, extension-snapshots, transcripts, usage-receipts,
   infra-attempts.json, strong_calibrator, easy_calibrator, early_probe,
   independent-* directories, fixes, evidence, history, verdict.json,
@@ -1311,9 +1336,55 @@ Input selection belongs to code, not to model output. The input tree contains:
   score-claims or land file is added. Do not run tool qualification again.
 
 The minimum is a nonempty case tree, the valid pending authenticated card,
-the reconciled JSON ledger, and all selected release source. Every evidence
-reference in a copied gate-cache record must resolve to a copied work file
-(bench-kind references resolve under work/bench-results) with the stated hash.
+the restore-accounting receipt, the reconciled JSON ledger, and all selected
+release source.
+
+The receipt is code-owned provenance, not requester-supplied authority. It
+proves this exact archive generation was extracted and its accounting
+authenticated on this worker; unlike mutable current `source_generation`, its
+bytes can be frozen with the original input for later replay.
+`launch.sh` freezes the selected public card/archive, verifies the restored
+ciphertext digest, extracts through the existing restore path, then passes the
+public card and that digest as `--generation` to `restore_ledger.py` before
+starting the runner. `restore_ledger.install` calls `authenticate` and
+`_authenticated_source`, which check case identity, public-card generation and
+public/archived/retained accounting equality (or the existing authenticated
+founder correction), then atomically writes the ledger and
+`sealed/<case>.restore-accounting.json`. B's independently verified RAM job
+configuration supplies the matching current source binding; a restored card or
+receipt cannot replace that configuration. D reads the existing receipt without
+adding a field, altering its producer, re-running restore, or inventing a new
+launch mode. Selected-file no-symlink/regular-file checks apply to this receipt.
+Missing, malformed, wrong-case, unauthenticated, wrong-generation or
+ledger-mismatched receipts stop `diagnosis_input_invalid` before publication.
+
+On replay, validate the frozen receipt and card together against the original
+manifest generation, including their case and ledger bindings. Never compare
+that original generation to a later live restore receipt or current source
+binding: a later ordinary restore legitimately replaces the live receipt while
+carrying the immutable input snapshot. Existing authenticated job checks still
+apply to the current owner. Missing or altered frozen receipt bytes refuse like
+any other missing or changed input. No card SHA is synthesized or overwritten.
+
+Gate-cache records are optional reuse hints, not diagnosis authority. At
+creation, copy all selected current work/bench evidence first, then consider
+`work/gate-cache/*.json`. Copy a cache record only when it has a nonempty valid
+`evidence` list and every reference has a safe canonical relative path, kind
+`work` or `bench`, a SHA-256 digest, and resolves with that digest in the already
+copied evidence (bench-kind uses `work/bench-results`). Omit stale, missing-
+evidence or malformed cache records without changing or deleting their live
+bytes. This follows `gate_state.load`'s treatment of unusable cache hints; no
+cached verdict is promoted or re-certified. Retained cache records are
+historical pass receipts; a current gate outcome comes from the authenticated
+card and current gate details, never from a retained cache's `info` alone.
+A passing gate followed by a failed
+rerun may leave a stale cache while overwriting its evidence, and must remain
+diagnosable. Current failed gate details and other selected receipts are kept.
+Unsafe selected paths, symlinks and nonregular files still refuse before reading;
+only semantic cache invalidity is omitted. No record can resolve through another
+cache file. Only files selected by this rule enter the manifest. On replay,
+never omit or reselect anything: exact frozen inventory/digests and all retained
+cache references remain mandatory. Damage after publication is input-invalid.
 Required stop evidence follows its existing producer, not a universal
 gate-detail filename:
 
@@ -1362,6 +1433,12 @@ dispatcher uses `diagnosis-<exhaustion_id>` as the initial reservation call_name
 and `diagnosis-<exhaustion_id>-repair-<ordinal>` for schema repair, so this check
 uses those exact names in the ledger rather than model text. These names are
 an obligation on future dispatcher wiring, which is not enabled here.
+The proposed worker-dispatch addendum also binds `attempts.json`, `decision.json`,
+`raw-bytes-*`, `audit-bytes-*` and `audit-*.json` to the input manifest. Before those producers are wired, extend
+this orphan check to those paths as well. The repair suffix is a global logical
+call ordinal; its attempt journal distinguishes schema repair from a judgment on
+the next approved route. Exact raw bytes have a separate byte-hash filename so
+the existing canonical-JSON factory-bug producer cannot overwrite them.
 Only an unbound pending attempt with none of that evidence may remove orphan
 inputs and staging directories and re-stage current bytes. Refuse symlink parents
 rather than following them during cleanup. Once input.json exists, never rewrite the snapshot from
@@ -1417,10 +1494,34 @@ but before public completion, append live usage and attempt replay: preserve
 input bytes, finding and exhaustion ID, do no model work and stop input-invalid.
 Repeat after completed hold, and cover raw-result/reservation-only evidence.
 Separately test genuine pre-manifest orphan re-staging after live settlement,
-initial generation mismatch, G4/G6 late-defect receipts without gate details,
+initial generation mismatch, archived cards with absent or older sha256 accepted
+through a real `restore_ledger.install` receipt, missing/false/mismatched receipt
+refusals, a changed live receipt after later restore leaving replay unchanged,
+frozen receipt corruption refusal, and these real `restore_ledger.install`
+receipt branches: (1) an authenticated founder correction with public ledger
+unequal to archived ledger succeeds through `retained_ledger_sha256`; deleting
+that correction field or altering its digest refuses, and (2) a carried-forward
+ruling with `ruling_carried_forward: true` and no `retained_ledger_sha256` succeeds
+through `ledger_sha256`. Authored ruling/control envelopes are explicitly marked
+and use the saved real ledger and public-practice bytes. Cover missing embedded
+accounting and strict boolean/version types too. G4/G6 late-defect receipts without gate details,
 their missing/wrong-gate/wrong-digest refusals, completed extension outcome
 bindings, the infrastructure crash marker, gate-cache reference resolution, release digest mismatch,
-and unchanged replay across a later authenticated source generation. Assert
+and unchanged replay across a later authenticated source generation. Add a
+pass-then-fail-then-exhaust replay: save a genuine gate-cache record over retained
+practice evidence, overwrite its detail as a failed rerun does, freeze successfully
+with the stale cache omitted, and retain the failed detail and unchanged live
+cache. Also cover missing and malformed cache references, absolute/`..` references,
+and references through another cache file (all omitted, never followed), plus a
+symlinked cache file (refused before semantic filtering). Keep valid records and
+refuse changed retained cache bytes on replay. Replay differing restored/current
+fixed-name bench files using the `plain` and `reference` `checkpoint.json`
+receipts in `tests/factory/fixtures/invalid-runs-real.json.gz`: freeze the current bytes,
+retain restored-only files, omit caches naming superseded bytes, preserve both
+live copies, and keep replay unchanged after the live current bytes change again.
+The fixture proves precedence with saved artifacts and authored layout; it does
+not claim two live bench preparations were run. The overwrite need is established
+by `RunArtifacts.seal` and the fixed-name writes in `bin/bench.py`. Assert
 None projections for invalid history both before and after a completed hold.
 These are offline control tests and close no Murphy row.
 
@@ -1432,3 +1533,33 @@ and retained work evidence. This is a measured fixture subtotal, not a claim
 about the full private 5813be archive (which was not decrypted). Input files'
 actual sizes can be summed at implementation verification. There is no new
 quota or garbage collection policy in this amendment.
+
+### Queued input implementation boundary
+
+The original `ebf3b1a` slice predates the generation/cache/bench amendments above
+and is unqualified until their implementation passes a new diff review.
+
+`diagnosis.queued_inputs(c, bench, quiescent=True)` creates or verifies the
+private input manifest described above and returns it. The consumer uses that
+manifest's original generation and the fixed inputs directory for held-result
+validation and replay. `diagnosis_input_invalid` is excluded by the pure
+exhaustion projection and cannot mint a new ID. This slice implements input
+selection, source/evidence checks, durable publication, orphan recovery and
+terminal refusals. It does not call the helper from the runner, start a model,
+implement the diagnosis role's process isolation, or enable money admission.
+Dispatcher wiring must enforce the passed read-only isolation and call this
+helper before any finding replay, reservation or model invocation.
+
+`tests/factory/test_stream_d_inputs.py` uses the verified practice case and
+saved 5813be ledger. It authors release and lifecycle envelopes, copies actual
+shipped source bytes, and explicitly distinguishes those controls from live
+qualification. Together with the held/projection/extension tests it covers
+frozen evidence, missing manifests after binding, pre-manifest interruptions,
+required receipt paths, digest failures, terminal projections and unchanged
+replay across later generations. No Murphy row closes.
+
+The subsequent diagnosis-only worker increment is specified in
+`stream-d-worker-dispatch.md` (design review 5). It adds the runner consumer,
+retained-answer replay and disposable role helper. Its code is subject to a
+separate diff review and full suite. The shared B activation constant remains
+false; extension comparison/execution and live qualification remain outstanding.

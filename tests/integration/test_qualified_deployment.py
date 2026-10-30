@@ -369,9 +369,21 @@ opencode_pin='--version'
         (self.home / 'host/factory/launcher-sha256.json').write_bytes((ROOT / 'factory/launcher-sha256.json').read_bytes())
         gate = LAUNCHER[a:b]
         if sequence is not None:
-            # Advance only the helper clock; exercise its actual pinned bytes and shell order.
-            gate = gate.replace('import hashlib, pathlib, sys',
-                'import hashlib, pathlib, sys, time\nclock=[time.monotonic()]\ntime.monotonic=lambda:clock[0]\ntime.sleep=lambda seconds:clock.__setitem__(0,clock[0]+seconds)')
+            # Keep subprocess wait/reaping on real time; only readiness sleeps
+            # advance the fake clock. Still verify and execute the pinned bytes.
+            entry = "exec(compile(code, str(path), 'exec'), {'__name__': '__main__', '__file__': str(path)})"
+            self.assertEqual(gate.count(entry), 1)
+            gate = gate.replace(entry, '''import time, types
+namespace = {'__name__': 'readiness_fixture', '__file__': str(path)}
+exec(compile(code, str(path), 'exec'), namespace)
+clock = [time.monotonic()]
+namespace['time'] = types.SimpleNamespace(monotonic=lambda: clock[0],
+    sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds), time=time.time)
+before = clock[0]
+namespace['subprocess'].time.sleep(.001)
+assert clock[0] == before, 'subprocess sleep advanced readiness clock'
+namespace['main']()
+''')
         script = 'set -eu\n' + gate + '''
 root=$HOME/host; qualified_release=yes; reuse_worker=""; serial=0
 state=$HOME; ttl_seconds=1800; margin=420; spend_file=$HOME/public-spend.json

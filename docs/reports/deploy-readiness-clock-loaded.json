@@ -1,0 +1,56 @@
+{
+  "cpu_burners": 3,
+  "loaded": [
+    {
+      "run": 1,
+      "exit_code": 0,
+      "seconds": 19.25,
+      "suite_active_at_start": true,
+      "suite_active_at_end": true,
+      "tests": 21,
+      "log_sha256": "5e33a6cac3616b3017dd6f528c07bfbd56b9416c3b0e017bb39b81a8cebb0f39"
+    },
+    {
+      "run": 2,
+      "exit_code": 0,
+      "seconds": 19.86,
+      "suite_active_at_start": true,
+      "suite_active_at_end": true,
+      "tests": 21,
+      "log_sha256": "e986c5f3d0411c41535d42023a78c1fb9310eac96ea8edb3d8a6d915441ac2c0"
+    },
+    {
+      "run": 3,
+      "exit_code": 0,
+      "seconds": 20.7,
+      "suite_active_at_start": true,
+      "suite_active_at_end": true,
+      "tests": 21,
+      "log_sha256": "016bb8bc436d5d675cab5a1afdfefe7834a85df27474c7327647de380227cc88"
+    },
+    {
+      "run": 4,
+      "exit_code": 0,
+      "seconds": 20.09,
+      "suite_active_at_start": true,
+      "suite_active_at_end": true,
+      "tests": 21,
+      "log_sha256": "863d23eda56d023cebc50b910afa44b99f44e05a1ab2df17add9d0dfc702c7be"
+    },
+    {
+      "run": 5,
+      "exit_code": 0,
+      "seconds": 20.16,
+      "suite_active_at_start": true,
+      "suite_active_at_end": true,
+      "tests": 21,
+      "log_sha256": "35139257e22561c556feea77673613e8bef87880a9322f2e6c77ee355fd613c8"
+    }
+  ],
+  "full_suite_exit": 0,
+  "full_suite_summary": "154 test scripts run; 0 failed.",
+  "full_suite_log_sha256": "b9a6dc60bb5f97cffae95ae13b68efdcd8ad933985833d8159a2e524adc24063",
+  "full_suite_command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "loaded_command": "uv run --with numpy --with scipy python -B tests/integration/test_qualified_deployment.py",
+  "source_commit": "2629f74"
+}

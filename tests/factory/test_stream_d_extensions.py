@@ -3,6 +3,7 @@
 This proves lifecycle/progress guards, not live gate or checkpoint qualification.
 """
 import copy
+import errno
 import hashlib
 import json
 from pathlib import Path
@@ -14,6 +15,9 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
 import budget
+import batch_service
+import diagnosis
+import run
 import extensions
 import job_authority
 import late_recovery
@@ -42,8 +46,8 @@ class ExtensionTests(unittest.TestCase):
         self.c.card['diagnosis_state'] = dict(schema_version=1, exhaustion_id=str(uuid.uuid4()),
             stop='budget_exhausted', status='completed', outcome='close_to_passing')
 
-    def reserve(self, entry):
-        self.diagnosis()
+    def reserve(self, entry, *, retain_diagnosis=False):
+        if not retain_diagnosis: self.diagnosis()
         proposal = extensions.propose(self.c, entry)
         operation = str(uuid.uuid4())
         route = self.c.models['attacker'][0]
@@ -243,6 +247,150 @@ class ExtensionTests(unittest.TestCase):
         self.c.card['extension_history'][-1]['entry_sha256'] = 'f' * 64
         with self.assertRaisesRegex(budget.BudgetError, '^extension_history_invalid$'):
             extensions.read(self.c)
+
+
+    def active_origin(self, origin):
+        self.c.card.update(builder_rounds=8, recovery_config={'rounds': 8}, gates={})
+        if origin == 'extension_incomplete':
+            self.begin(self.snapshot(1))
+            extensions.complete(self.c, self.snapshot(2))
+            self.c.card['terminal_stop'] = origin
+            diagnosis.record_exhaustion(self.c.card, new_exhaustion=True)
+            self.c.card['diagnosis_state'].update(status='completed', outcome='close_to_passing')
+        else:
+            self.diagnosis()
+            self.c.card['diagnosis_state']['stop'] = origin
+        entry = self.snapshot(2 if origin == 'extension_incomplete' else 1)
+        proposal, lease, operation = self.reserve(entry, retain_diagnosis=True)
+        row = extensions.admit(self.c, proposal, lease, operation)
+        self.c.card['builder_rounds'] = row['round']
+        return row, proposal, lease
+
+    def check_active_checkpoints(self, origin):
+        row, proposal, lease = self.active_origin(origin)
+        saved = copy.deepcopy(self.c.card['diagnosis_state'])
+        history = copy.deepcopy(self.c.card['extension_history'])
+        private = (self.work / 'extension-history.json').read_bytes()
+        reservations = set(json.loads(self.ledger.read_text())['invocation_reservations'])
+        self.c.stopped = True
+        self.c.exhaustion_occurred = True
+        self.c.card['infrastructure_gate'] = {'gate': 'G10', 'exhausted': True}
+        # Authored queue envelope; real D projection and batch enqueue code.
+        record = dict(schema=1, id='practice', jobs={'j': dict(mode='batch', case='case-practice-j',
+            max_calls=10, requested_total_usd='1.000000000')}, money_limit_usd='3.000000000',
+            batch_deadline='2099-01-01T00:00:00Z', max_concurrency=1, target_slots=1,
+            restore_recipient=(ROOT / 'factory/control-recipient.txt').read_text().strip(),
+            replacement_policy={'schema': 1, 'enabled': True})
+        for stop in ('extension_comparison_pending', 'provider_wait', 'money_wait',
+                     'runner_error:ValueError', 'infrastructure_exhausted', 'budget_exhausted'):
+            self.c.card['terminal_stop'] = stop
+            for _ in range(2):
+                run.finalize_accounting(self.c)
+                self.assertEqual(self.c.card['diagnosis_state'], saved)
+                self.assertEqual(self.c.card['extension_history'], history)
+                self.assertFalse(any(e['stage'] == 'diagnosis_state' for e in self.c.card.get('cleanup_errors', [])))
+                self.assertFalse(diagnosis.exhaustion(self.c.card))
+                self.assertIsNone(diagnosis.pending_projection(self.c.card))
+                self.assertEqual((self.work / 'extension-history.json').read_bytes(), private)
+                self.assertEqual(set(json.loads(self.ledger.read_text())['invocation_reservations']), reservations)
+            for total in (None, self.baseline):
+                card = copy.deepcopy(self.c.card)
+                card['case_budget'] = {'total_spent_usd': total}
+                facts = batch_service._project(card, diagnosis)
+                state = dict(queue={}, derivations={}, next_sequence=0)
+                batch_service._enqueue(state, record, dict(job='j', generation='a' * 64, facts=facts), card)
+                self.assertEqual(state['queue'], {})
+                self.assertEqual(state['derivations'], {})
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_already_active$'):
+            extensions.propose(self.c, proposal['entry'])
+        # One-write lag is repaired using the verified private projection.
+        self.c.card['extension_history'] = history[:-1]
+        self.assertEqual(extensions.read(self.c)[-1], row)
+        self.assertEqual(self.c.card['extension_history'], history)
+        extensions.complete(self.c, self.snapshot(3))
+        self.c.card['terminal_stop'] = 'extension_incomplete'
+        run.finalize_accounting(self.c)
+        pending = copy.deepcopy(self.c.card['diagnosis_state'])
+        self.assertEqual((pending['status'], pending['stop']), ('pending', 'extension_incomplete'))
+        self.assertNotEqual(pending['exhaustion_id'], saved['exhaustion_id'])
+        run.finalize_accounting(self.c)
+        self.assertEqual(self.c.card['diagnosis_state'], pending)
+
+    def test_late_g4_active_checkpoints(self):
+        self.check_active_checkpoints('late_defect_needs_ruling:G4')
+
+    def test_late_g6_active_checkpoints(self):
+        self.check_active_checkpoints('late_defect_needs_ruling:G6')
+
+    def test_second_extension_active_checkpoints(self):
+        self.check_active_checkpoints('extension_incomplete')
+        self.assertEqual(len(self.c.card['extension_history']), 2)
+
+    def test_active_binding_rejects_changed_diagnosis_without_private_mutation(self):
+        row, proposal, lease = self.active_origin('late_defect_needs_ruling:G4')
+        saved = copy.deepcopy(self.c.card)
+        before = extensions.tree(self.work)
+        for change in ({'exhaustion_id': str(uuid.uuid4())}, {'status': 'pending', 'outcome': None},
+                       {'outcome': 'factory_bug'}, {'outcome': 'not_converging'}):
+            for action in (lambda: extensions.read(self.c),
+                           lambda: extensions.admit(self.c, proposal, lease, row['writer_operation_id']),
+                           lambda: extensions.complete(self.c, proposal['entry'])):
+                self.c.card = copy.deepcopy(saved)
+                self.c.card['diagnosis_state'].update(change)
+                with self.assertRaisesRegex(budget.BudgetError, '^extension_history_invalid$'): action()
+                self.assertEqual(extensions.tree(self.work), before)
+                self.assertEqual(self.c.card['extension_history'], saved['extension_history'])
+        self.c.card = saved
+        self.assertEqual(extensions.active(self.c), row)
+
+    def test_prefix_exception_does_not_validate_other_states_or_missing_origin(self):
+        self.active_origin('late_defect_needs_ruling:G4')
+        saved = copy.deepcopy(self.c.card)
+        for changes in ({'stop': 'extension_incomplete'}, {'status': 'pending', 'outcome': None},
+                        {'outcome': 'factory_bug'}, {'outcome': 'not_converging'}):
+            card = copy.deepcopy(saved)
+            card['diagnosis_state'].update(changes)
+            self.assertIsNone(diagnosis._state(card, diagnosis.extension_history(card)))
+            with self.assertRaisesRegex(budget.BudgetError, '^diagnosis_state_invalid$'):
+                diagnosis.record_exhaustion(card, new_exhaustion=True)
+        card = copy.deepcopy(saved); card['builder_rounds'] = 7
+        self.assertIsNone(diagnosis._state(card, diagnosis.extension_history(card)))
+        card = copy.deepcopy(saved); card['diagnosis_state']['stop'] = 'extension_incomplete'
+        self.assertIsNone(diagnosis._state(card, None))
+        card = copy.deepcopy(saved); card['extension_history'][0]['extension_id'] = False
+        self.assertIsNone(diagnosis.extension_history(card))
+        with self.assertRaisesRegex(budget.BudgetError, '^diagnosis_state_invalid$'):
+            diagnosis.record_exhaustion(card)
+
+    def test_active_read_errors_keep_io_infrastructure_and_bad_records_semantic(self):
+        self.active_origin('late_defect_needs_ruling:G4')
+        saved = copy.deepcopy(self.c.card)
+        before = extensions.tree(self.work)
+        read_text = Path.read_text
+        for target in (self.work / 'extension-history.json', self.ledger):
+            for error in (PermissionError(errno.EACCES, 'authored permission'),
+                          OSError(errno.EIO, 'authored disk error')):
+                def failing(path, *args, **kwargs):
+                    if path == target: raise error
+                    return read_text(path, *args, **kwargs)
+                with patch.object(Path, 'read_text', failing):
+                    with self.assertRaises(type(error)): extensions.read(self.c)
+                self.assertEqual(self.c.card, saved)
+                self.assertEqual(extensions.tree(self.work), before)
+            original = target.read_bytes()
+            for content in (b'{', b'null'):
+                target.write_bytes(content)
+                with self.assertRaisesRegex(budget.BudgetError, '^extension_history_invalid$'):
+                    extensions.read(self.c)
+                target.write_bytes(original)
+            target.unlink()
+            with self.assertRaisesRegex(budget.BudgetError, '^extension_history_invalid$'):
+                extensions.read(self.c)
+            target.mkdir()
+            with self.assertRaises(IsADirectoryError): extensions.read(self.c)
+            target.rmdir(); target.write_bytes(original)
+            self.assertEqual(self.c.card, saved)
+        self.assertEqual(extensions.tree(self.work), before)
 
 
 if __name__ == '__main__': unittest.main()
