@@ -73,7 +73,7 @@ def exhaustion(card):
     stop, gates = card.get('terminal_stop'), card.get('gates', {})
     if (not isinstance(gates, dict) or gates.get('G12') == 'pass' or
             card.get('status') in ('sealed', 'retired') or
-            stop in ('provider_wait', 'paused', 'ttl_retired', 'factory_bug_history_invalid') or
+            stop in ('provider_wait', 'paused', 'ttl_retired', 'factory_bug_history_invalid', 'diagnosis_input_invalid') or
             (isinstance(stop, str) and stop.startswith('retired'))): return False
     history = extension_history(card)
     if history is None: return False
@@ -339,3 +339,206 @@ def require_model_work(card):
             isinstance(state, dict) and state.get('status') == 'completed' and
             state.get('outcome') == 'factory_bug'):
         raise BudgetError('factory_bug_held')
+
+
+def _input_bytes(path, base):
+    """Read selected regular files without following any selected parent link."""
+    import stat
+    path, base = Path(path), Path(base)
+    relative = path.relative_to(base)
+    if '..' in relative.parts: raise ValueError('unsafe input path')
+    if any(base.joinpath(*relative.parts[:i]).is_symlink() for i in range(len(relative.parts) + 1)):
+        raise ValueError('unsafe input path')
+    if not stat.S_ISREG(path.stat().st_mode): raise ValueError('nonregular input')
+    return path.read_bytes()
+
+
+def _input_inventory(root):
+    if root.is_symlink() or not root.is_dir(): raise ValueError('missing input directory')
+    result = {}
+    for path in sorted(root.rglob('*')):
+        if path.is_symlink(): raise ValueError('unsafe input path')
+        if path.is_dir(): continue
+        result[path.relative_to(root).as_posix()] = hashlib.sha256(_input_bytes(path, root)).hexdigest()
+    return result
+
+
+def _input_stop_evidence(c, card, state):
+    stop = state['stop']
+    if stop.startswith('late_defect_needs_ruling:'):
+        from late_recovery import digest
+        record = json.loads(_input_bytes(c.work / 'late-defect.json', c.work))
+        marker = card.get('late_defect', {})
+        gate = stop.split(':', 1)[1]
+        if record['gate'] != gate or marker['gate'] != gate or marker['record_sha256'] != digest(record):
+            raise ValueError('late-defect binding')
+    elif stop == 'extension_incomplete':
+        import extensions
+        from types import SimpleNamespace
+        restored = SimpleNamespace(work=c.work, ledger=c.ledger, card=copy.deepcopy(card))
+        history = extensions.read(restored)
+        if (not history or history[-1]['outcome'] is None or
+                restored.card['extension_history'] != card.get('extension_history')):
+            raise ValueError('extension outcome binding')
+    elif stop == 'infrastructure_exhausted':
+        from run import GATES
+        marker = card['infrastructure_gate']
+        if marker['exhausted'] is not True or marker.get('gate') not in GATES:
+            raise ValueError('infrastructure marker')
+
+
+def _write_input_tree(c, bench, root, card, state):
+    """Select existing evidence and verified shipped source; never copy all work."""
+    import gate_state
+    import job_config
+    from launch_manifest import WORKER_BENCH
+    files = {}
+
+    def add(name, data, expected=None):
+        relative = PurePosixPath(name)
+        if relative.is_absolute() or '..' in relative.parts or relative.as_posix() != name:
+            raise ValueError('unsafe input name')
+        actual = hashlib.sha256(data).hexdigest()
+        if (expected is not None and actual != expected) or (name in files and files[name] != actual):
+            raise ValueError('different input copies')
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open('wb') as output:
+            output.write(data); output.flush(); os.fsync(output.fileno())
+        files[name] = actual
+
+    def add_tree(source, prefix, base):
+        if source.is_symlink(): raise ValueError('unsafe input tree')
+        if source.is_dir():
+            for path in sorted(source.rglob('*')):
+                if path.is_symlink(): raise ValueError('unsafe input tree')
+                if not path.is_dir():
+                    add(prefix + '/' + path.relative_to(source).as_posix(), _input_bytes(path, base))
+        elif source.exists():
+            add(prefix, _input_bytes(source, base))
+
+    add_tree(c.case, 'case', c.case)
+    if not any(name.startswith('case/') for name in files): raise ValueError('missing case')
+    ledger = _input_bytes(c.ledger, c.ledger.parent)
+    value = json.loads(ledger)
+    if not isinstance(value, dict) or value.get('active'): raise ValueError('unsettled active input')
+    add('ledger.json', ledger)
+    add('card.json', json.dumps(card, sort_keys=True, separators=(',', ':'), allow_nan=False).encode())
+    for (kind, name), path in gate_state.inventory(c, bench).items():
+        prefix, base = ('work/bench-results/', bench / 'results') if kind == 'bench' else ('work/', c.work)
+        add(prefix + name, _input_bytes(path, base))
+    names = ('bench-results', 'attack-state.json', 'attacks', 'gate-cache', 'gate-continuation.json',
+             'late-defect.json', 'extension-history.json', 'extension-snapshots', 'transcripts',
+             'usage-receipts', 'infra-attempts.json', 'strong_calibrator', 'easy_calibrator',
+             'early_probe', 'fixes', 'evidence', 'history', 'verdict.json', 'prototype.json',
+             'public-search.json', 'idea-realism.json', 'audit-baseline.json', 'delivery-provenance.json')
+    paths = [c.work / name for name in names] + list(c.work.glob('independent-*'))
+    for path in paths: add_tree(path, 'work/' + path.name, c.work)
+    release_sha = c.authenticated_job_config['batch_release_sha256']
+    if release_sha != c.args.batch_release_sha256: raise ValueError('release mismatch')
+    release = job_config.read_file(job_config.FACTORY.parent / 'batch-release.json', release_sha)
+    worker = job_config.read_file(job_config.FACTORY.parent / 'worker-release-manifest.json',
+                                  release['files']['worker-release-manifest.json'])
+    selected = {name: sha for name, sha in worker['files'].items()
+                if PurePosixPath(name).match('factory/*.py') or
+                PurePosixPath(name).match('factory/prompts/*.md') or
+                (name in WORKER_BENCH and name.startswith('bin/'))}
+    if not selected: raise ValueError('missing release source')
+    for name, expected in selected.items():
+        relative = PurePosixPath(name)
+        base = job_config.FACTORY if relative.parts[0] == 'factory' else bench
+        path = base.joinpath(*relative.parts[1:]) if relative.parts[0] == 'factory' else base / name
+        add('source/' + name, _input_bytes(path, base), expected)
+    return dict(sorted(files.items()))
+
+
+def _verify_input_records(c, root, manifest):
+    from types import SimpleNamespace
+    files = manifest['files']
+    if not any(name.startswith('case/') for name in files) or not any(name.startswith('source/') for name in files):
+        raise ValueError('missing required input set')
+    card = json.loads(_input_bytes(root / 'card.json', root))
+    ledger = json.loads(_input_bytes(root / 'ledger.json', root))
+    state = _state(card, extension_history(card))
+    if (card.get('case') != c.case_id or card.get('sha256') != manifest['generation'] or
+            state is None or state['status'] != 'pending' or state['exhaustion_id'] != manifest['exhaustion_id'] or
+            not isinstance(ledger, dict) or ledger.get('active')):
+        raise ValueError('invalid frozen source binding')
+    frozen = SimpleNamespace(work=root / 'work', ledger=root / 'ledger.json', card=card)
+    _input_stop_evidence(frozen, card, state)
+    for path in (root / 'work/gate-cache').glob('*.json'):
+        record = json.loads(_input_bytes(path, root))
+        for item in record['evidence']:
+            if item['kind'] not in ('bench', 'work'): raise ValueError('unknown gate evidence')
+            prefix = 'work/bench-results/' if item['kind'] == 'bench' else 'work/'
+            if files.get(prefix + item['path']) != item['sha256']: raise ValueError('missing gate evidence')
+
+
+def queued_inputs(c, bench, *, quiescent):
+    """Retain/verify private inputs before diagnosis; grants no invocation authority.
+
+    Return the immutable manifest. Callers use its generation and the fixed
+    diagnosis/<exhaustion_id>/inputs directory for result and finding validation.
+    """
+    import job_authority
+    import shutil
+    authority = job_authority.for_case(c)
+    try:
+        if quiescent is not True or c.card.get('terminal_stop') == 'diagnosis_input_invalid':
+            raise ValueError('not an input boundary')
+        state = _state(c.card, extension_history(c.card))
+        if state is None: raise ValueError('missing diagnosis state')
+        parent = _finding_path(c, state['exhaustion_id']).parent
+        manifest_path, root, staged = parent / 'input.json', parent / 'inputs', parent / '.inputs-staging'
+        if any(path.is_symlink() for path in (manifest_path, root, staged)):
+            raise ValueError('unsafe input path')
+        if manifest_path.exists():
+            manifest = json.loads(_input_bytes(manifest_path, c.work))
+            if (not isinstance(manifest, dict) or set(manifest) !=
+                    {'schema_version', 'case_id', 'exhaustion_id', 'generation', 'files'} or
+                    type(manifest['schema_version']) is not int or manifest['schema_version'] != 1 or
+                    manifest['case_id'] != c.case_id or manifest['exhaustion_id'] != state['exhaustion_id'] or
+                    not _sha(manifest['generation']) or not isinstance(manifest['files'], dict) or
+                    not manifest['files'] or manifest['files'] != _input_inventory(root)):
+                raise ValueError('changed input manifest')
+            _verify_input_records(c, root, manifest)
+            return manifest
+        # Missing publication is recoverable only before any consumer bound it.
+        ledger = json.loads(_input_bytes(c.ledger, c.ledger.parent))
+        call = 'diagnosis-' + state['exhaustion_id']
+        bound = any(row.get('call_name') == call or
+                    re.fullmatch(re.escape(call) + r'-repair-[0-9]+', str(row.get('call_name', '')))
+                    for row in ledger.get('invocation_reservations', {}).values())
+        if (state['status'] != 'pending' or (parent / 'finding.json').exists() or
+                any(parent.glob('raw-result-*.json')) or bound):
+            raise ValueError('bound diagnosis lacks manifest')
+        card = getattr(c, 'checkpoint_card', None)
+        if (not _sha(authority.source_generation) or not isinstance(card, dict) or
+                card.get('sha256') != authority.source_generation or card.get('case') != c.case_id or
+                card.get('diagnosis_state') != state):
+            raise ValueError('initial input binding')
+        parent.mkdir(parents=True, exist_ok=True)
+        for path in (root, staged):
+            if path.exists(): shutil.rmtree(path)
+        staged.mkdir()
+        files = _write_input_tree(c, Path(bench), staged, card, state)
+        # File contents were synced by the writer. Persist names before manifest.
+        directories = [p for p in staged.rglob('*') if p.is_dir()]
+        for path in sorted(directories, key=lambda p: len(p.parts), reverse=True) + [staged]:
+            fd = os.open(path, os.O_RDONLY)
+            try: os.fsync(fd)
+            finally: os.close(fd)
+        os.replace(staged, root)
+        for path in (parent, parent.parent, c.work):
+            fd = os.open(path, os.O_RDONLY)
+            try: os.fsync(fd)
+            finally: os.close(fd)
+        manifest = dict(schema_version=1, case_id=c.case_id, exhaustion_id=state['exhaustion_id'],
+                        generation=authority.source_generation, files=files)
+        _verify_input_records(c, root, manifest)
+        atomic_json(manifest_path, manifest)
+        return manifest
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, BudgetError):
+        c.card.update(status='stopped', terminal_stop='diagnosis_input_invalid')
+        c.stopped = True
+        raise BudgetError('diagnosis_input_invalid') from None

@@ -1432,3 +1432,24 @@ and retained work evidence. This is a measured fixture subtotal, not a claim
 about the full private 5813be archive (which was not decrypted). Input files'
 actual sizes can be summed at implementation verification. There is no new
 quota or garbage collection policy in this amendment.
+
+### Queued input implementation boundary
+
+`diagnosis.queued_inputs(c, bench, quiescent=True)` creates or verifies the
+private input manifest described above and returns it. The consumer uses that
+manifest's original generation and the fixed inputs directory for held-result
+validation and replay. `diagnosis_input_invalid` is excluded by the pure
+exhaustion projection and cannot mint a new ID. This slice implements input
+selection, source/evidence checks, durable publication, orphan recovery and
+terminal refusals. It does not call the helper from the runner, start a model,
+implement the diagnosis role's process isolation, or enable money admission.
+Dispatcher wiring must enforce the passed read-only isolation and call this
+helper before any finding replay, reservation or model invocation.
+
+`tests/factory/test_stream_d_inputs.py` uses the verified practice case and
+saved 5813be ledger. It authors release and lifecycle envelopes, copies actual
+shipped source bytes, and explicitly distinguishes those controls from live
+qualification. Together with the held/projection/extension tests it covers
+frozen evidence, missing manifests after binding, pre-manifest interruptions,
+required receipt paths, digest failures, terminal projections and unchanged
+replay across later generations. No Murphy row closes.
