@@ -246,7 +246,7 @@ def collect(policy, root, home, job, directory):
 def _replacement(facts):
     pending = facts['pending_projection']
     return facts['exhaustion'] and facts['actual_model_work'] and (
-        pending is None or pending['replacement_eligible'])
+        pending is not None and pending['replacement_eligible'])
 
 
 def _enqueue(state, record, entry, card):

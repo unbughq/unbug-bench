@@ -176,24 +176,39 @@ class ServiceTests(unittest.TestCase):
                          ['exhaustion', 'actual_model_work', 'pending_projection'])
         self.assertTrue(all(c == card for _, c in self.api_calls))
         self.assertIsNone(result['facts']['pending_projection'])
-        self.assertEqual([r['reason'] for r in result['queue']], ['settlement', 'unknown_total'])
+        self.assertEqual([r['reason'] for r in result['queue']], ['settlement'])
+        self.assertEqual(self.state()['derivations'], {})
         before = self.journal.read_bytes()
         changed = SimpleNamespace()  # would fail any call; stored facts must win
         self.assertEqual(self.plan(card, changed), result)
         self.assertEqual(self.journal.read_bytes(), before)
 
     def test_two_child_chain_dedup_across_generations_and_restart(self):
+        self.api = self.answers(pending=dict(schema_version=1, status='pending', replacement_eligible=True))
         card = self.input(total=0); self.collect(); self.plan(card)
         child = self.input('j-r1', total=0); self.collect('j-r1'); self.plan(child)
-        later = self.input(payload=KEY, total=0); self.collect(); self.plan(later)
+        later = self.input(payload=KEY, total=0); self.collect(); self.plan(later, self.answers())
         state = self.state()
-        self.assertEqual([r['job'] for r in service.ordered_queue(state)], ['j-r1', 'j-r2'])
+        self.assertEqual([r['job'] for r in service.ordered_queue(state) if r['kind'] == 'replacement'],
+                         ['j-r1', 'j-r2'])
         self.assertEqual(len(state['derivations']), 2)
         self.assertEqual(state['derivations'][card['case']]['eligible_generation'], card['sha256'])
         self.assertEqual(self.collect('j-r1')['facts'], self.plan(child)['facts'])
         state['derivations'][card['case']]['child_job'] = 'j-r2'
         self.journal.write_text(json.dumps(state))
         with self.assertRaises(ValueError): self.plan(later)
+
+    def test_none_projection_never_derives_even_with_both_predicates_true(self):
+        card = self.input(total=0); self.collect()
+        result = self.plan(card)
+        self.assertTrue(result['facts']['exhaustion'])
+        self.assertTrue(result['facts']['actual_model_work'])
+        self.assertEqual(result['queue'], [])
+        self.assertEqual(self.state()['derivations'], {})
+        before = self.journal.read_bytes()
+        eligible = self.answers(pending=dict(schema_version=1, status='pending', replacement_eligible=True))
+        self.assertEqual(self.plan(card, eligible), result)
+        self.assertEqual(self.journal.read_bytes(), before)
 
     def test_predicate_no_work_false_projection_and_disabled_replacements(self):
         for index, (work, pending, count) in enumerate((
@@ -243,6 +258,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(service.resolve_job(self.record, 'j-r200')['ordinal'], 200)
 
     def test_failed_plan_write_is_atomic_and_replay_rebuilds_once(self):
+        self.api = self.answers(pending=dict(schema_version=1, status='pending', replacement_eligible=True))
         card = self.input(); self.collect()
         before = self.journal.read_bytes()
         with patch.object(service, 'atomic_json', side_effect=OSError('authored crash')):
