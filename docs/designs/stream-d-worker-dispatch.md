@@ -13,7 +13,8 @@ for an existing reviewer is also insufficient: that reviewer runs as the runner.
 
 The change composes those existing helpers at the ordinary runner entry, using
 B's same-owner restore and A's reviewer admission. B's `DIAGNOSIS_ENABLED` stays
-false. No enforced-route bound, release qualification, launcher, job configuration
+false and is now also read by the worker before diagnosis reservation (see Stops).
+No enforced-route bound, release qualification, launcher, job configuration
 field, new money owner, repair ruling or runtime-enable flag is added.
 
 The next implementation/review boundary is **diagnosis only**: entry, settlement,
@@ -81,10 +82,20 @@ The lock alone is not a claim that background gates have joined: this entry runs
 before any gate executor starts, and later transitions occur only after its join.
 Decide unknown-at-restore with `batch_accounting.card_total(checkpoint_card) is
 None`, using the authenticated archived card before reconciliation, never the
-post-settlement card. If unknown, settle and checkpoint
+post-settlement card. If unknown with a **pending** state, settle and checkpoint
 `diagnosis_pending` without a model. B must collect and acknowledge the known
-total before the next diagnosis resume. This run does not call `queued_inputs`,
-so it cannot freeze a pre-ACK ledger/generation. The archived receipt proves extraction;
+total before the next diagnosis resume. This pending-state branch does not call
+`queued_inputs`, so it cannot freeze a pre-ACK ledger/generation.
+
+If unknown with a **completed** state, settle, verify the already-existing
+immutable manifest/inputs through `queued_inputs`, and replay the retained
+decision/finding model-free. No new snapshot may be created for a completed
+state; a missing manifest or required private result refuses input-invalid.
+Re-emit the verified outcome's stop: factory_bug_held, retired_not_converging or
+extension_comparison_pending. Do not derive an unverified outcome from the
+public label or rewrite a completed state to diagnosis_pending. This branch
+also makes no reservation or model call and exits after settlement; test each
+completed outcome across two finalizations. The archived receipt proves extraction;
 it does not supply money or replace B's current RAM configuration.
 
 Call `queued_inputs` before finding/decision replay, reservation or invocation.
@@ -139,7 +150,12 @@ distinguishes judgment from schema repair. Retain exact bytes privately as
 `raw-bytes-<byte-sha256>` before validation, including malformed/partial output.
 The existing `raw-result-<canonical-json-sha256>.json` producer remains unchanged
 and cannot overwrite these files. Missing-manifest binding checks must also
-recognize raw-bytes files, attempts.json and decision.json before orphan cleanup.
+recognize raw-bytes files, audit-bytes files, attempts.json and decision.json
+before orphan cleanup. Interrupted/predecessor/orphan bytes are audit-only and
+use `audit-bytes-<byte-sha256>`. They are legal unreferenced audit artifacts.
+Only a raw-bytes file referenced by a journal row's raw_sha256 can be an answer;
+unreferenced raw-bytes files are interrupted publication artifacts, never answers,
+and are preserved for audit without changing the row's status.
 
 A private `attempts.json` has exactly `{schema_version:1, exhaustion_id,
 input_sha256, schema_sha256, family, attempts}`. `attempts` is an ordered list
@@ -204,6 +220,9 @@ Only that slot can currently obtain a bounded diagnosis route; the rest wait.
 The completed-call ceiling there is twice GATED_CLAUDE's qualified max_usd per
 input/schema, plus interrupted invocations at their conservative reservations,
 all within the unchanged current job commitment and deadline.
+`retired_diagnosis_malformed` leaves diagnosis_state pending; there is no fourth
+completed outcome. Re-entry re-detects deterministic exhaustion from the verified
+journal without a model and stops again. The retired stop projects None.
 
 Persist the validated normalized decision in `decision.json` before changing
 public lifecycle state. It has exactly `schema_version:1`, `exhaustion_id`,
@@ -257,6 +276,15 @@ Prepare reads the verified manifest/journal from the fixed runner work path;
 judgment mode copies inputs, repair mode exposes no case/evidence copy. Root
 ownership is set before the UID may access the tree. Remove unlinks a stale
 leaf symlink rather than following it, and refuses symlink ancestors.
+Prepare derives mode from the **last pending journal row's kind**; a missing,
+nonpending or contradictory row returns input_invalid. Prepare always removes
+the previous task tree before rebuilding it, including any old inputs subtree.
+Call prepare once for each logical row immediately before opencode (again on a
+new process resuming that same row), not for A's internal invocation retries.
+Finish collection and task removal for one logical row before appending the next
+row, so repair can never inherit a judgment's exposed input tree. Reset/collect
+read the last row's kind even after it has been marked valid/malformed; no new
+logical row is appended while an old task tree is live.
 
 After the role is killed/joined, collect reads the exposed tree and fixed
 output/result.json through regular/no-follow/nonblocking descriptors. Output
@@ -269,16 +297,30 @@ damage remains input-invalid, not a schema repair opportunity.
 
 The bounded captured response is one JSON object with exactly
 `{schema_version:1, status, inputs_sha256, raw_sha256, raw_base64}`. Status is
-ok, missing, unsafe, oversized or input_invalid. inputs_sha256 is the canonical
-file-map digest of the exposed input copy, null in repair mode; raw fields are
+ok, missing, unsafe, oversized or input_invalid. inputs_sha256 is
+`carry_over.digest(_input_inventory(exposed))`, which must equal
+`carry_over.digest(manifest['files'])`, and is null in repair mode; raw fields are
 the exact retained prefix and its SHA-256. Prepare/reset/remove return the same
 shape with empty raw bytes and status ok only on success. The runner rejects
 unexpected fields, identity/root mismatch, invalid base64/digest or a response
 larger than 96 KiB before decoding. The fixed helper command itself carries
 case/id; no result text supplies a path or authority. Capture through a private
-pipe, never stdio logs. Reset first collects the bounded partial output for
-private audit, then recreates output/ after confirming no pilot process remains.
-The runner persists collected bytes under raw-bytes-* before task-tree deletion.
+pipe, never stdio logs. Before reset, the runner separately calls collect and
+persists any predecessor bytes as audit-bytes-*. Reset itself returns empty raw
+bytes and recreates output/ after confirming no pilot process remains. A final
+successful transport collection is retained as raw-bytes-* and referenced by
+its journal row; interruption/cleanup collections are audit-bytes-* only.
+Persist bytes before task-tree deletion.
+
+Remove runs in finally after each logical call and again idempotently at every
+dispatcher exit if a task tree exists or setup began. Provider wait, money wait
+and exceptions do not skip it. A removal failure stops as infrastructure
+(`runner_error:DiagnosisTaskCleanupError`), preserving journal/input state; no
+new model call is allowed before cleanup succeeds. Fresh entry kills old pilots,
+collects bounded orphan bytes for audit and removes any stale task tree as part
+of old-role cleanup before replay/activation. With no old task, a disabled gate
+causes no helper call at all. Cleaning an existing stale tree is the only
+gate-false helper exception; it never creates a UID, task tree or inference.
 
 Do not copy the runner's general configuration or credential stores into this
 task home. Model runtime prepares only its existing per-invocation provider
@@ -433,8 +475,13 @@ same-owner resume (including a raised-budget resume) can already deliver a
 dispatcher-eligible card. Entering dispatch through those paths is intended;
 none may fall through to a writer. They do not bypass activation or create money.
 
-Before **any new diagnosis invocation or reservation**, read the single existing
-`batch_service.DIAGNOSIS_ENABLED` from the verified installed release. Require it
+Immediately after settlement, queued-input verification and model-free outcome
+replay/application, and **before** driver qualification, pilot creation, helper
+prepare, router exclusions, leases or reservations, read the single existing
+`batch_service.DIAGNOSIS_ENABLED` from the verified installed release. Here that
+means the batch_service module imported from job_config.FACTORY in this worker,
+read as `batch_service.DIAGNOSIS_ENABLED is True`, not a file parse or a value
+copied into c. Require it
 to be literal True. False or an unavailable gate stops diagnosis_pending while
 preserving the same exhaustion ID. This is a second consumer of B's existing
 activation gate, not a new worker flag, config field or grant of authority. Do
@@ -444,6 +491,14 @@ the gate is false. Every enabled invocation still requires normal job authority,
 lease, enforced route bound and reservation. This honors the user's instruction
 that money admission remains fail-closed until B runtime activation; changing
 the shared flag belongs to the future reviewed B/D integration, not this slice.
+The installed release is immutable during a worker process, so this check is
+not repeated inside A's internal retry loop. With the gate false, only retained
+model-free outcomes may be applied; otherwise stop diagnosis_pending. No role
+qualification or setup occurs. The already-required old-pilot/stale-task cleanup
+is the only privileged work allowed before this check. Test a fresh false-gate
+entry with make_pilots, verify_selected_drivers and the helper patched to fail if
+called; separately test stale-task false-gate entry permits collect/remove only,
+without creating a task, user, lease or reservation.
 
 Current `batch_service._enqueue` handles present diagnosis projections and
 unknown-total exhaustion only; it is not the missing extension/provider/money
@@ -481,10 +536,15 @@ Add controls for operation UUID preservation across provider wait/crash, stale
 output across A's internal retry and stale task-tree rebuild, repair-route
 pinning, fixed helper bounds and no-follow handling (symlink/FIFO/missing/oversized),
 exact public-field carry-forward, archival of all pilot identities, and orphan
-refusal for raw-bytes/attempts/decision without input.json. Exercise finalization
+refusal for raw-bytes/audit-bytes/attempts/decision without input.json. Exercise finalization
 twice on completed close-to-passing infrastructure state for comparison_pending
 and money_wait, proving unchanged IDs and no new reservations. These remain
 authored control envelopes over the saved real input/ledger artifacts.
+Also cover unknown-total completed factory_bug, not_converging and close-to-passing
+states: verification/replay keeps the correct outcome stop and ID through two
+finalizations, without new snapshots or calls. Test judgment-to-repair removes
+the inputs subtree, legal audit-only/unreferenced interrupted bytes never become
+answers, per-call and exit removal, and cleanup failure followed by safe resume.
 
 The later extension increment's tests must exercise real reservation/history producers, the crash between
 admission and attack receipt, completed-writer validation, active stress resume,
