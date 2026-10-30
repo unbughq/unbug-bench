@@ -737,8 +737,8 @@ ordinary same-owner work, so B needs no extra projection. factory_bug persists i
 private finding and completed state, then stops unscored as factory_bug_held;
 not_converging retires. The content-free public field is exactly
 `factory_bug: {finding_id:<exhaustion UUID4>, gate_or_stage:<code-recorded stage
-or unknown>, summary_class:"factory_bug"}`. Allowed stage labels are non-sealing
-run.GATES names, writer, stress, diagnosis and unknown; never model prose. Private evidence stays at
+or unknown>, summary_class:"factory_bug"}`. Allowed stage labels are valid
+run.GATES names (that list excludes G12), stress and unknown; never model prose. Private evidence stays at
 `diagnosis/<finding_id>/finding.json`; public status says needs attention with
 `factory bug: see finding <id>`. No model work follows while held. B adds only
 that status rule, not a maintainer service or fix-delivery contract.
@@ -752,14 +752,20 @@ one child per parent. D uses normal verified release/source authority, never a
 separate fix message. Code-linked invalid-infra attempt receipts bound the eligible waste operations;
 a diagnosis can only narrow that set. No such per-attempt producer exists today,
 so this hold increment uses empty eligible/failure sets and emits no v2 waste
-record. Attribution activation needs a separately reviewed producer/addendum.
+record. Schema-valid affected_operations is intersected with the empty eligible
+set, not rejected merely for being nonempty; raw output stays private.
+Attribution activation needs a separately reviewed producer/addendum.
 V2 waste records and the encrypted lifetime
 factory-bug-resumes.json history follow stream-d's exact held-lifecycle schema.
 Public factory_bug_resume_count is a top-level integer equal to the valid
 history length, present only once history exists (0 on first hold). Missing
 history can be initialized before the first finding only with no prior hold,
-count, retained finding or factory-bug waste record; otherwise it fails closed.
-Unreadable history has no count and stops as factory_bug_history_invalid. The same continuing case
+count, retained finding or factory-bug waste record; otherwise it stops as
+factory_bug_history_invalid with no count, as does unreadable history. Durable
+write order is history, finding, then completed diagnosis_state, terminal_stop
+and public factory_bug together. A replay reuses the immutable finding before
+another model call; differing replay refuses without overwriting evidence.
+The same continuing case
 gets a new B money owner across batches, preserving usage/history. The operator's
 later manifest inclusion is the fix decision; D does not attest the code change.
 Cross-batch resumable import remains blocked on B's reviewed addendum.

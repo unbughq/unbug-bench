@@ -113,7 +113,8 @@ def record_exhaustion(card, *, new_exhaustion=False):
     if 'diagnosis_state' in card and state is None: raise BudgetError('diagnosis_state_invalid')
     if state and state['status'] == 'pending': return
     if state and not new_exhaustion: return
-    if (not exhaustion(card) or not _trigger(card, card.get('terminal_stop'), history) or
+    stop = 'infrastructure_exhausted' if infrastructure_exhausted(card) else card.get('terminal_stop')
+    if (not exhaustion(card) or not _trigger(card, stop, history) or
             (history and history[-1]['outcome_sha256'] is None)): return
     card['diagnosis_state'] = dict(schema_version=1, exhaustion_id=str(uuid.uuid4()),
-        stop=card['terminal_stop'], status='pending', outcome=None)
+        stop=stop, status='pending', outcome=None)

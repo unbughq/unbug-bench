@@ -129,6 +129,51 @@ class RuntimeTests(unittest.TestCase):
         restored.card['diagnosis_state']['status'] = 'completed'
         self.assertEqual(self.c.card['diagnosis_state'], state)
 
+    def test_infrastructure_marker_wins_over_overwritten_stop_at_checkpoint(self):
+        import diagnosis
+        for stop in ('budget_exhausted', 'runner_error:KeyError'):
+            with self.subTest(stop=stop):
+                self.c.card = copy.deepcopy(self.source)
+                self.c.card.update(status='stopped', terminal_stop=stop, gates={},
+                                   infrastructure_gate={'gate': 'G10', 'exhausted': True})
+                self.c.stopped = True
+                run.finalize_accounting(self.c)
+                state = self.c.card['diagnosis_state']
+                self.assertEqual(state['stop'], 'infrastructure_exhausted')
+                self.assertEqual(state['status'], 'pending')
+                self.assertEqual(uuid.UUID(state['exhaustion_id']).version, 4)
+                self.assertFalse(diagnosis.pending_projection(self.c.card)['replacement_eligible'])
+                run.finalize_accounting(self.c)
+                self.assertEqual(self.c.card['diagnosis_state'], state)
+
+    def test_g10_finally_crash_keeps_budget_exhaustion_ineligible(self):
+        import diagnosis
+        from gate_pipeline import GatePipeline
+        c = self.c
+        c.card.update(gates={}, failed_gate=None)
+        c.prepared_factory_slots = 3
+        boundaries = []
+        def boundary(context):
+            boundaries.append(True)
+            if len(boundaries) == 2: raise budget.BudgetError('budget_exhausted')
+        def check(context, gate):
+            if gate == 'G10': raise KeyError('authored crashed G10')
+            return True, {}
+        noop = lambda *args: None
+        pipeline = GatePipeline(ROOT, check, lambda c: 'unchanged-practice-case', noop, noop,
+            boundary, noop, lambda c: None, ('G6', 'G7', 'G10'), (), noop, {})
+        # Use the real retry and G10 finally path, with authored gate outcomes.
+        with patch.object(pipeline, 'check', side_effect=check):
+            with self.assertRaisesRegex(budget.BudgetError, '^budget_exhausted$'):
+                pipeline.run(c)
+        self.assertTrue(c.exhaustion_occurred)
+        self.assertTrue(c.card['infrastructure_gate']['exhausted'])
+        self.assertEqual(c.card['infrastructure_gate']['gate'], 'G10')
+        c.card['terminal_stop'] = 'budget_exhausted'  # main retains the outer exception
+        run.finalize_accounting(c)
+        self.assertEqual(c.card['diagnosis_state']['stop'], 'infrastructure_exhausted')
+        self.assertFalse(diagnosis.pending_projection(c.card)['replacement_eligible'])
+
     def test_held_or_pending_extension_never_creates_a_new_diagnosis_id(self):
         import diagnosis
         self.c.card.update(terminal_stop='infrastructure_exhausted', gates={})

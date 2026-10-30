@@ -3055,7 +3055,8 @@ def main():
             write_provider_wait(c, error)
         else:
             c.card['terminal_stop'] = 'paused' if isinstance(error, PauseRequested) else str(error)
-            c.exhaustion_occurred = isinstance(error, BudgetError)
+            # The producer still filters non-exhaustion BudgetError stop labels.
+            c.exhaustion_occurred = getattr(c, 'exhaustion_occurred', False) or isinstance(error, BudgetError)
         if isinstance(error, PauseRequested): c.card.update(pause_terminal(error, c.case_id))
         if str(error) == 'budget_exhausted' and (c.work / 'attack-state.json').exists() and c.card.get('stress_review', {}).get('status') != 'completed':
             c.card['stress_review'] = {'status': 'unresolved', 'reason': 'budget_exhausted'}
@@ -3067,7 +3068,7 @@ def main():
         from run_validity import InfrastructureExhausted
         c.card['terminal_stop'] = ('infrastructure_exhausted' if isinstance(error, InfrastructureExhausted)
                                    else 'runner_error:' + type(error).__name__)
-        c.exhaustion_occurred = isinstance(error, InfrastructureExhausted)
+        c.exhaustion_occurred = getattr(c, 'exhaustion_occurred', False) or isinstance(error, InfrastructureExhausted)
     finally:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)  # finishing up: a late pause request must not break the seal
         c.card["wall_minutes"] = round((time.time() - c.t0) / 60, 1)

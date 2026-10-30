@@ -398,16 +398,18 @@ Implementation decisions for the held lifecycle:
 This increment implements the hold and refusal, not later-batch resume or waste
 attribution. The present `infra-attempts.json` has no per-attempt operation links.
 Therefore `eligible_operation_ids` and `failure_receipts` are always `[]` here,
-`affected_operations` must be empty for an accepted factory_bug diagnosis, and
-no schema-v2 waste record is emitted. Historical charges remain on the case
+code intersects the schema-valid `affected_operations` with that empty eligible
+set (rather than rejecting a nonempty list), and no schema-v2 waste record is
+emitted. Retain the raw model output privately; the normalized accepted finding
+has `affected_operations: []`. Historical charges remain on the case
 line. The causal-receipt producer, replay mapping and v2 attribution activation
 below are requirements for a later reviewed addendum, not existing evidence or
 an enabled path. This closes ordinary-budget headroom until those proofs exist.
 The case can still be diagnosed and held; no in-batch work waits for the addendum.
 
 - `factory_bug_held` is exactly the `terminal_stop` literal, with `status: stopped`
-  and no scored case failure. Public `gate_or_stage` is one of the non-sealing
-  `run.GATES` names, `writer`, `stress`, `diagnosis`, or `unknown`. It comes only
+  and no scored case failure. Public `gate_or_stage` is one of the valid
+  `run.GATES` names (that list excludes G12), `stress`, or `unknown`. It comes only
   from code-recorded stage/stop metadata, never the model's `component`.
 - `diagnosis/<finding_id>/finding.json` has exactly `{schema_version:1,
   finding_id, held_batch_id, held_release_sha256, diagnosis,
@@ -458,11 +460,13 @@ The case can still be diagnosed and held; no in-batch work waits for the addendu
   card field, factory_bug_resume_count, retained finding, or factory_bug waste
   record of any schema. This includes pre-rollout running cases without inventing
   prior resumes. Atomic durable write order is history first, finding second,
-  public marker last; a crash before the finding can replay the empty history,
+  public marker, completed diagnosis_state and terminal_stop together last;
+  a crash before the finding can replay the empty history,
   but a retained finding/hold with missing history refuses. Malformed history
   never resets. Public `factory_bug_resume_count` is a top-level integer equal
   to its length, present only once a valid history exists; a first hold shows 0.
-  Unreadable history removes the count and stops as factory_bug_history_invalid
+  Unreadable history or missing history that cannot safely initialize removes
+  the count and stops as factory_bug_history_invalid
   (check case), never as a zero count. Append before any resumed model work. A replay of the same admitted finding
   retains its entry/ID, including wait/crash continuation, and does not debit
   another slot. This replay rule applies to the same admitted binding; movement
@@ -471,6 +475,11 @@ The case can still be diagnosed and held; no in-batch work waits for the addendu
   An unresumed hold stays charged to the case line. Future successful replay of
   eligible failed units is waste only through the code-proven links, bounded by
   the three admissions and those eligible units; arbitrary later work is excluded.
+- A crash after the finding but before the completed public state reuses the
+  immutable finding for that exhaustion ID before any further model invocation.
+  A differing replay refuses instead of overwriting it. A non-factory_bug result
+  cannot delete retained evidence. Completing the public state still requires
+  a valid history and verified finding binding.
 - B currently refuses cross-batch resumable imports. That reviewed B addendum is
   an explicit prerequisite for the later-batch resume and its integration test.
   D can ship holding, state validation, attribution restrictions and refusal now;
