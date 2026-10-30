@@ -349,8 +349,10 @@ def _input_bytes(path, base):
     if '..' in relative.parts: raise ValueError('unsafe input path')
     if any(base.joinpath(*relative.parts[:i]).is_symlink() for i in range(len(relative.parts) + 1)):
         raise ValueError('unsafe input path')
-    if not stat.S_ISREG(path.stat().st_mode): raise ValueError('nonregular input')
-    return path.read_bytes()
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, 'rb') as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode): raise ValueError('nonregular input')
+        return stream.read()
 
 
 def _input_inventory(root):
@@ -361,6 +363,42 @@ def _input_inventory(root):
         if path.is_dir(): continue
         result[path.relative_to(root).as_posix()] = hashlib.sha256(_input_bytes(path, root)).hexdigest()
     return result
+
+
+def _input_restore_receipt(raw, card, case, generation):
+    from carry_over import digest
+    receipt = json.loads(raw)
+    if (not isinstance(receipt, dict) or type(receipt.get('version')) is not int or
+            receipt['version'] != 1 or receipt.get('case') != case or
+            receipt.get('accounting_authenticated') is not True or not _sha(generation) or
+            receipt.get('generation') != generation or
+            not _sha(receipt.get('ledger_sha256')) or not _sha(receipt.get('public_card_sha256'))):
+        raise ValueError('invalid restore receipt')
+    retained = receipt.get('retained_ledger_sha256', receipt['ledger_sha256'])
+    if (not _sha(retained) or not isinstance(card.get('continuation_budget'), dict) or
+            digest(card['continuation_budget']) != retained):
+        raise ValueError('restore ledger binding')
+
+
+def _input_cache_resolves(record, files):
+    """A cache is a historical hint; missing current evidence makes it unusable."""
+    try:
+        evidence = record['evidence']
+        if not isinstance(evidence, list) or not evidence: return False
+        for item in evidence:
+            name = item['path']
+            path = PurePosixPath(name)
+            if (not isinstance(name, str) or not name or path.is_absolute() or
+                    '..' in path.parts or path.as_posix() != name or
+                    item['kind'] not in ('bench', 'work') or not _sha(item['sha256'])):
+                return False
+            prefix = 'work/bench-results/' if item['kind'] == 'bench' else 'work/'
+            target = prefix + name
+            if target.startswith('work/gate-cache/') or files.get(target) != item['sha256']:
+                return False
+        return True
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def _input_stop_evidence(c, card, state):
@@ -407,13 +445,16 @@ def _write_input_tree(c, bench, root, card, state):
             output.write(data); output.flush(); os.fsync(output.fileno())
         files[name] = actual
 
-    def add_tree(source, prefix, base):
+    def add_tree(source, prefix, base, *, restored_bench=False):
         if source.is_symlink(): raise ValueError('unsafe input tree')
         if source.is_dir():
             for path in sorted(source.rglob('*')):
                 if path.is_symlink(): raise ValueError('unsafe input tree')
                 if not path.is_dir():
-                    add(prefix + '/' + path.relative_to(source).as_posix(), _input_bytes(path, base))
+                    name = prefix + '/' + path.relative_to(source).as_posix()
+                    data = _input_bytes(path, base)
+                    # The current bench copy wins, exactly as the next seal does.
+                    if not restored_bench or name not in files: add(name, data)
         elif source.exists():
             add(prefix, _input_bytes(source, base))
 
@@ -424,16 +465,27 @@ def _write_input_tree(c, bench, root, card, state):
     if not isinstance(value, dict) or value.get('active'): raise ValueError('unsettled active input')
     add('ledger.json', ledger)
     add('card.json', json.dumps(card, sort_keys=True, separators=(',', ':'), allow_nan=False).encode())
+    receipt = c.ledger.parent / (c.case_id + '.restore-accounting.json')
+    add('restore-accounting.json', _input_bytes(receipt, c.ledger.parent))
     for (kind, name), path in gate_state.inventory(c, bench).items():
         prefix, base = ('work/bench-results/', bench / 'results') if kind == 'bench' else ('work/', c.work)
         add(prefix + name, _input_bytes(path, base))
-    names = ('bench-results', 'attack-state.json', 'attacks', 'gate-cache', 'gate-continuation.json',
+    names = ('bench-results', 'attack-state.json', 'attacks', 'gate-continuation.json',
              'late-defect.json', 'extension-history.json', 'extension-snapshots', 'transcripts',
              'usage-receipts', 'infra-attempts.json', 'strong_calibrator', 'easy_calibrator',
              'early_probe', 'fixes', 'evidence', 'history', 'verdict.json', 'prototype.json',
              'public-search.json', 'idea-realism.json', 'audit-baseline.json', 'delivery-provenance.json')
     paths = [c.work / name for name in names] + list(c.work.glob('independent-*'))
-    for path in paths: add_tree(path, 'work/' + path.name, c.work)
+    for path in paths:
+        add_tree(path, 'work/' + path.name, c.work, restored_bench=path.name == 'bench-results')
+    cache = c.work / 'gate-cache'
+    if cache.is_symlink() or (cache.exists() and not cache.is_dir()):
+        raise ValueError('unsafe cache directory')
+    for path in sorted(cache.glob('*.json')):
+        raw = _input_bytes(path, c.work)  # Unsafe files refuse even if the hint is stale.
+        try: record = json.loads(raw)
+        except (ValueError, UnicodeError): continue
+        if _input_cache_resolves(record, files): add('work/gate-cache/' + path.name, raw)
     release_sha = c.authenticated_job_config['batch_release_sha256']
     if release_sha != c.args.batch_release_sha256: raise ValueError('release mismatch')
     release = job_config.read_file(job_config.FACTORY.parent / 'batch-release.json', release_sha)
@@ -460,18 +512,17 @@ def _verify_input_records(c, root, manifest):
     card = json.loads(_input_bytes(root / 'card.json', root))
     ledger = json.loads(_input_bytes(root / 'ledger.json', root))
     state = _state(card, extension_history(card))
-    if (card.get('case') != c.case_id or card.get('sha256') != manifest['generation'] or
+    if (card.get('case') != c.case_id or
             state is None or state['status'] != 'pending' or state['exhaustion_id'] != manifest['exhaustion_id'] or
             not isinstance(ledger, dict) or ledger.get('active')):
         raise ValueError('invalid frozen source binding')
+    _input_restore_receipt(_input_bytes(root / 'restore-accounting.json', root),
+                           card, c.case_id, manifest['generation'])
     frozen = SimpleNamespace(work=root / 'work', ledger=root / 'ledger.json', card=card)
     _input_stop_evidence(frozen, card, state)
     for path in (root / 'work/gate-cache').glob('*.json'):
         record = json.loads(_input_bytes(path, root))
-        for item in record['evidence']:
-            if item['kind'] not in ('bench', 'work'): raise ValueError('unknown gate evidence')
-            prefix = 'work/bench-results/' if item['kind'] == 'bench' else 'work/'
-            if files.get(prefix + item['path']) != item['sha256']: raise ValueError('missing gate evidence')
+        if not _input_cache_resolves(record, files): raise ValueError('missing gate evidence')
 
 
 def queued_inputs(c, bench, *, quiescent):
@@ -514,7 +565,7 @@ def queued_inputs(c, bench, *, quiescent):
             raise ValueError('bound diagnosis lacks manifest')
         card = getattr(c, 'checkpoint_card', None)
         if (not _sha(authority.source_generation) or not isinstance(card, dict) or
-                card.get('sha256') != authority.source_generation or card.get('case') != c.case_id or
+                card.get('case') != c.case_id or
                 card.get('diagnosis_state') != state):
             raise ValueError('initial input binding')
         parent.mkdir(parents=True, exist_ok=True)

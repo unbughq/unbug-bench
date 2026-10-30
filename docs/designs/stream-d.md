@@ -1308,7 +1308,9 @@ Input selection belongs to code, not to model output. The input tree contains:
   bench-kind evidence. Current inventory bench-kind files go under that same
   `work/bench-results/` prefix. At creation, a current `bench/results/<rel>`
   file takes precedence over a restored `work/bench-results/<rel>` file with
-  the same relative name, matching the existing seal's overwrite behaviour.
+  the same relative name. Here current means the live inventory copy, without
+  an mtime filter; this agrees with the current gates' lookup order. The seal
+  also overwrites restored copies, but only for files written since `c.t0`.
   Read selected paths safely on both sides; do not mutate either live copy.
   Restored-only paths remain available. Replay never reselects a current copy:
   the published manifest's bytes are immutable. Retain the
@@ -1373,7 +1375,8 @@ evidence or malformed cache records without changing or deleting their live
 bytes. This follows `gate_state.load`'s treatment of unusable cache hints; no
 cached verdict is promoted or re-certified. Retained cache records are
 historical pass receipts; a current gate outcome comes from the authenticated
-card and current gate details, never from a retained cache's `info` alone. A passing gate followed by a failed
+card and current gate details, never from a retained cache's `info` alone.
+A passing gate followed by a failed
 rerun may leave a stale cache while overwriting its evidence, and must remain
 diagnosable. Current failed gate details and other selected receipts are kept.
 Unsafe selected paths, symlinks and nonregular files still refuse before reading;
@@ -1505,7 +1508,8 @@ cache. Also cover missing and malformed cache references, absolute/`..` referenc
 and references through another cache file (all omitted, never followed), plus a
 symlinked cache file (refused before semantic filtering). Keep valid records and
 refuse changed retained cache bytes on replay. Replay differing restored/current
-fixed-name bench files using saved execution receipts: freeze the current bytes,
+fixed-name bench files using the `plain` and `reference` `checkpoint.json`
+receipts in `tests/factory/fixtures/invalid-runs-real.json.gz`: freeze the current bytes,
 retain restored-only files, omit caches naming superseded bytes, preserve both
 live copies, and keep replay unchanged after the live current bytes change again.
 The fixture proves precedence with saved artifacts and authored layout; it does
@@ -1524,6 +1528,9 @@ actual sizes can be summed at implementation verification. There is no new
 quota or garbage collection policy in this amendment.
 
 ### Queued input implementation boundary
+
+The original `ebf3b1a` slice predates the generation/cache/bench amendments above
+and is unqualified until their implementation passes a new diff review.
 
 `diagnosis.queued_inputs(c, bench, quiescent=True)` creates or verifies the
 private input manifest described above and returns it. The consumer uses that
