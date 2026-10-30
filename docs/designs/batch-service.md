@@ -1354,3 +1354,29 @@ and holder/scoped-restore work remain separately gated as specified above.
 
 Design15 test clarification: pending/completed queue assertions each use a fresh
 journal; an existing pending row is never silently removed by later planning.
+
+## Later increment: cross-batch carry-over
+
+Parent backlog ruling, 2026-10-30; D factory-bug amendment review305c10c.
+Order: implement/review only after2b.2 and the end-to-end practice qualification.
+This is a backlog record, not a change to current bind/owner/import authority.
+
+Problem: bind currently rejects a card from a different batch release, so a case
+held for a factory bug cannot resume in the next batch release containing its fix.
+A reviewed cross-batch addendum must let a new batch import a held or
+deadline-stopped case from the previous batch's verified collected generation,
+under the same owner, retaining cumulative spend and D's lifetime history. The
+retained spend and commitment count against the new batch money bound. D's
+lifetime maximum of3 factory-bug resumes remains enforced; import resets nothing.
+
+The later addendum must specify authenticated source/retirement/fix/history
+bindings and owner transfer without duplicate live authority, new-batch money
+admission, restart/replay and refusal behavior before changing bind. It must use
+the same ordinary checkpoint launch path. D's review305c10c history contract is
+the producer prerequisite; B owns this reviewed cross-batch integration.
+
+Tests will use a real held/deadline-stopped collected generation, retain its
+spend/history through import, prove new-bound accounting and replay, reject
+unqualified fixes or simultaneous old authority, and enforce the fourth-resume
+refusal. Real-artifact proof is required before closing new-batch-service-4.
+Current cross-batch resume stays blocked. No implementation is included here.
