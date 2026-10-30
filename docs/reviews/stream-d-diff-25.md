@@ -172,3 +172,13 @@ conditions against validate_result. All changes await a fresh diff goldfish.
 Focused validation: 72 dispatch/input/held tests passed, then the added real-main
 qualification retry control passed separately. Full-suite validation follows
 on the complete revised source/test tree. No Murphy row closes.
+
+## Revised full-suite result
+
+At unchanged source/test commit 1bb3a93, the required command
+`uv run --with numpy --with scipy python -B tests/run.py` passed:
+**151 scripts, 0 failed**. Launch guards passed; no isolated rerun was needed.
+Log: `/tmp/stream-d-dispatch-fixes-suite.log`, SHA-256
+`221f2abc1694371c63173e0001413b501ed1d22c7bcdeaad94da655e2f3a487d`.
+Fresh Claude diff27 remains pending. This suite result does not supersede the
+failed diff25 verdict without that independent follow-up. No Murphy row closes.
