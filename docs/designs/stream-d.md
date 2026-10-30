@@ -1284,7 +1284,7 @@ Input selection belongs to code, not to model output. The input tree contains:
 - `ledger.json`: the bytes at `c.ledger` (the live cumulative ledger, normally
   `SEALED/<case>.continuation-budget.json`), after reconciliation and before
   reserving a diagnosis invocation. Do not use a stale work ledger copy.
-  `card.json`: a canonical JSON copy of `c.checkpoint_card`, the authenticated
+- `card.json`: a canonical JSON copy of `c.checkpoint_card`, the authenticated
   archived card, whose case and pending exhaustion ID equal the current ones.
   It is not the newly built card. Its `sha256` may be absent or name an older
   generation: `RunArtifacts.seal` writes this card before creating the archive,
@@ -1292,15 +1292,17 @@ Input selection belongs to code, not to model output. The input tree contains:
   input generation from that field;
 - `restore-accounting.json`: the unchanged receipt bytes from
   `c.ledger.parent / (c.case_id + '.restore-accounting.json')`, outside `work`.
-  Require integer `version: 1`, the matching `case`, literal
-  `accounting_authenticated: true`, and a non-null SHA-256 `generation` matching
+  Require `type(version) is int` and `version == 1`, the matching `case`,
+  `accounting_authenticated is True`, and a non-null SHA-256 `generation` matching
   the authenticated current job authority's `source_generation` on creation.
   Validate its `ledger_sha256` and `public_card_sha256` as SHA-256 values. Bind
   the archived card's `continuation_budget` using the existing canonical
   `carry_over.digest`: it must equal `retained_ledger_sha256` when that existing
   correction field is present, otherwise `ledger_sha256`. The live reconciled
   ledger may have grown after restore; it is separately frozen as `ledger.json`
-  and is not required to hash to the pre-settlement receipt's ledger digest;
+  and is not required to hash to the pre-settlement receipt's ledger digest.
+  Missing or null archived `continuation_budget` refuses input-invalid; no
+  fallback to a mutable work ledger is inferred;
 - `work/`: reuse the work-root evidence selected by `gate_state.inventory`
   (gate-details, judge_breadth, review-*), plus `bench-results` for restored
   bench-kind evidence. Current inventory bench-kind files go under that same
@@ -1329,7 +1331,10 @@ The minimum is a nonempty case tree, the valid pending authenticated card,
 the restore-accounting receipt, the reconciled JSON ledger, and all selected
 release source.
 
-The receipt is code-owned provenance, not requester-supplied authority.
+The receipt is code-owned provenance, not requester-supplied authority. It
+proves this exact archive generation was extracted and its accounting
+authenticated on this worker; unlike mutable current `source_generation`, its
+bytes can be frozen with the original input for later replay.
 `launch.sh` freezes the selected public card/archive, verifies the restored
 ciphertext digest, extracts through the existing restore path, then passes the
 public card and that digest as `--generation` to `restore_ledger.py` before
@@ -1351,9 +1356,22 @@ that original generation to a later live restore receipt or current source
 binding: a later ordinary restore legitimately replaces the live receipt while
 carrying the immutable input snapshot. Existing authenticated job checks still
 apply to the current owner. Missing or altered frozen receipt bytes refuse like
-any other missing or changed input. No card SHA is synthesized or overwritten. Every evidence
-reference in a copied gate-cache record must resolve to a copied work file
-(bench-kind references resolve under work/bench-results) with the stated hash.
+any other missing or changed input. No card SHA is synthesized or overwritten. Gate-cache records are optional reuse hints, not diagnosis authority. At
+creation, copy all selected current work/bench evidence first, then consider
+`work/gate-cache/*.json`. Copy a cache record only when it has a nonempty valid
+`evidence` list and every reference has a safe canonical relative path, kind
+`work` or `bench`, a SHA-256 digest, and resolves with that digest in the already
+copied evidence (bench-kind uses `work/bench-results`). Omit stale, missing-
+evidence or malformed cache records without changing or deleting their live
+bytes. This follows `gate_state.load`'s treatment of unusable cache hints; no
+cached verdict is promoted or re-certified. A passing gate followed by a failed
+rerun may leave a stale cache while overwriting its evidence, and must remain
+diagnosable. Current failed gate details and other selected receipts are kept.
+Unsafe selected paths, symlinks and nonregular files still refuse before reading;
+only semantic cache invalidity is omitted. No record can resolve through another
+cache file. Only files selected by this rule enter the manifest. On replay,
+never omit or reselect anything: exact frozen inventory/digests and all retained
+cache references remain mandatory. Damage after publication is input-invalid.
 Required stop evidence follows its existing producer, not a universal
 gate-detail filename:
 
@@ -1460,10 +1478,22 @@ Separately test genuine pre-manifest orphan re-staging after live settlement,
 initial generation mismatch, archived cards with absent or older sha256 accepted
 through a real `restore_ledger.install` receipt, missing/false/mismatched receipt
 refusals, a changed live receipt after later restore leaving replay unchanged,
-frozen receipt corruption refusal, G4/G6 late-defect receipts without gate details,
+frozen receipt corruption refusal, and these real `restore_ledger.install`
+receipt branches: (1) an authenticated founder correction with public ledger
+unequal to archived ledger succeeds through `retained_ledger_sha256`; deleting
+that correction field or altering its digest refuses, and (2) a carried-forward
+ruling with `ruling_carried_forward: true` and no `retained_ledger_sha256` succeeds
+through `ledger_sha256`. Authored ruling/control envelopes are explicitly marked
+and use the saved real ledger and public-practice bytes. Cover missing embedded
+accounting and strict boolean/version types too. G4/G6 late-defect receipts without gate details,
 their missing/wrong-gate/wrong-digest refusals, completed extension outcome
 bindings, the infrastructure crash marker, gate-cache reference resolution, release digest mismatch,
-and unchanged replay across a later authenticated source generation. Assert
+and unchanged replay across a later authenticated source generation. Add a
+pass-then-fail-then-exhaust replay: save a genuine gate-cache record over retained
+practice evidence, overwrite its detail as a failed rerun does, freeze successfully
+with the stale cache omitted, and retain the failed detail and unchanged live
+cache. Also cover missing and malformed cache references, valid records retained,
+and changed retained cache bytes refusing on replay. Assert
 None projections for invalid history both before and after a completed hold.
 These are offline control tests and close no Murphy row.
 
