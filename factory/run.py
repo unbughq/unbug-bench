@@ -2651,6 +2651,8 @@ def scorecard_text(card):
              "calibrators: " + json.dumps(calibrators) + "   fake pass: " + str(card.get('fake_pass', '-')),
              f"surprises: {c.get('surprises', '-')}   scenarios: {c.get('scenarios', '-')}   provenance: {c.get('provenance', '-')}   source: {card['source']}   builder rounds: {card.get('builder_rounds', '-')}",
              f"wipe: {json.dumps(card.get('wipe'))}   wall: {card.get('wall_minutes')} min" + (f"   error: {card['error']}" if card.get("error") else "")]
+    if card.get('batch_release_sha256'):
+        lines.append(f"model calls: {(card.get('continuation_budget') or {}).get('calls', 0)} (telemetry)")
     if card.get("terminal_stop"): lines.append("STOPPED: " + card["terminal_stop"])
     if card.get("checkpoint_error"): lines.append("checkpoint error: " + card["checkpoint_error"])
     if card.get("dry_run_roundtrip"): lines.append(f"seal round trip: {json.dumps(card['dry_run_roundtrip'])}")

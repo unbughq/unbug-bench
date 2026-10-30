@@ -7,6 +7,7 @@ codex-cli 0.162.1 `exec --json`; Claude Code 2.1.299 `-p --output-format stream-
 """
 from contextlib import contextmanager, nullcontext
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -206,7 +207,32 @@ def _usage_leaves(work, relative, seen=None, depth=0):
         raise BudgetError('invalid_usage_receipt') from None
 
 
-def _settle_leaf(ledger, receipt):
+def _retain_final_receipts(work, leaves):
+    """Persist evidence before its digest enters the atomic ledger transaction."""
+    for receipt in leaves:
+        if not receipt['final_usage_known']: continue
+        data = json.dumps(receipt, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+        directory = Path(work) / 'usage-receipts' / 'final'
+        if directory.is_symlink(): raise BudgetError('invalid_usage_receipt')
+        directory.mkdir(exist_ok=True)
+        path = directory / (hashlib.sha256(data).hexdigest() + '.json')
+        if path.is_symlink(): raise BudgetError('invalid_usage_receipt')
+        if path.exists():
+            if path.read_bytes() != data: raise BudgetError('invalid_usage_receipt')
+        else:
+            fd, temporary = tempfile.mkstemp(dir=directory)
+            try:
+                with os.fdopen(fd, 'wb') as file:
+                    file.write(data); file.flush(); os.fsync(file.fileno())
+                os.replace(temporary, path)
+                parent = os.open(directory, os.O_RDONLY)
+                try: os.fsync(parent)
+                finally: os.close(parent)
+            finally:
+                if os.path.exists(temporary): os.unlink(temporary)
+
+
+def _settle_leaf(ledger, receipt, wait_id=None):
     lease_id = receipt['lease_id']
     row = ledger.get('invocation_reservations', {}).get(lease_id)
     if row is None:
@@ -218,8 +244,13 @@ def _settle_leaf(ledger, receipt):
         raise BudgetError('usage_reservation_missing')
     if row['state'] == 'settled' and not receipt['final_usage_known']:
         raise BudgetError('usage_receipt_regressed')
+    # Capture this row's estimate, independent of unrelated unknown usage.
+    previous_gap = usd(row.get('estimated_gap_usd', 0)) if row['state'] == 'estimated' else Decimal(0)
     events = {e['id']: e for e in ledger.get('events', []) if e.get('id')}
-    ids = set(row['event_ids']) | set(receipt['booked_event_ids'])
+    before_ids = set(row['event_ids']) | {i for i, e in events.items()
+        if e.get('invocation_id') == row['invocation_id'] and e.get('lease_id') == lease_id}
+    booked_before = sum((event_charge(events[i]) for i in row['event_ids'] if i in events), Decimal(0))
+    ids = before_ids | set(receipt['booked_event_ids'])
     for event in receipt['events']:
         if not isinstance(event, dict): raise BudgetError('invalid_usage_event')
         identity = event.get('id')
@@ -235,11 +266,34 @@ def _settle_leaf(ledger, receipt):
             ledger[key] = ledger.get(key, 0) + event.get(key, 0)
         ledger['calls'] = ledger.get('calls', 0) + event.get('calls', 1)
     if not ids <= events.keys(): raise BudgetError('usage_event_missing')
+    # A receipt cannot assign another invocation's events to this row.
+    for other_lease, other in ledger.get('invocation_reservations', {}).items():
+        if other_lease != lease_id and ids.intersection(other['event_ids']):
+            raise BudgetError('usage_event_shared')
+    for identity in ids:
+        event = events[identity]
+        if ((event.get('lease_id') is not None or event.get('invocation_id') is not None) and
+                (event.get('lease_id'), event.get('invocation_id')) != (lease_id, row['invocation_id'])):
+            raise BudgetError('invalid_usage_binding')
     booked = sum((event_charge(events[i]) for i in ids), Decimal(0))
     estimate = (max(Decimal(0), usd(row['maximum_usd']) - booked).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
                 if not receipt['final_usage_known'] else Decimal(0))
     row.update(event_ids=sorted(ids), estimated_gap_usd=format(estimate, '.9f'),
                state='settled' if receipt['final_usage_known'] else 'estimated')
+    if previous_gap > 0 and receipt['final_usage_known']:
+        before_money, actual_money = usd(booked_before), usd(booked)
+        released = before_money + previous_gap - actual_money
+        if released > 0:
+            records = ledger.setdefault('reconciled_decreases', [])
+            if any(r['invocation_id'] == row['invocation_id'] for r in records):
+                raise BudgetError('usage_receipt_regressed')
+            records.append({'schema_version': 1, 'kind': 'reconciled_decrease',
+                'invocation_id': row['invocation_id'], 'wait_id': wait_id,
+                'receipt_sha256': hashlib.sha256(json.dumps(receipt, sort_keys=True,
+                    separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
+                'booked_before_usd': format(before_money, '.9f'),
+                'previous_estimate_usd': format(previous_gap, '.9f'),
+                'actual_charge_usd': format(actual_money, '.9f'), 'released_usd': format(released, '.9f')})
     # A later final receipt can extend a previously classified operation. Keep
     # the same attribution/record ID and recompute only its settled event sum.
     waste_records = ledger.get('infrastructure_waste', [])
@@ -285,10 +339,15 @@ def settle(record, *, work, ledger_path):
             path = work / 'usage-receipts' / (lease_id + '.json')
             if row['state'] in ('pending', 'estimated') and lease_id not in included and path.is_file():
                 leaves.extend(_usage_leaves(work, path.relative_to(work).as_posix()))
-        for receipt in leaves: _settle_leaf(ledger, receipt)
+        _retain_final_receipts(work, leaves)
+        for receipt in leaves: _settle_leaf(ledger, receipt, identity)
         summary = case_spending(ledger)
         after = summary.get('known_total_spent_usd', summary['total_spent_usd'])
-        ledger.setdefault('wait_settlements', {}).setdefault(identity, {'lease_ids': sorted({r['lease_id'] for r in leaves})})
+        wait = ledger.setdefault('wait_settlements', {}).setdefault(identity, {'lease_ids': []})
+        # Replays can discover later receipts. Retain their provenance too;
+        # denied zero-usage leaves without a reservation carry no work.
+        wait['lease_ids'] = sorted(set(wait['lease_ids']) | {r['lease_id'] for r in leaves
+            if r['lease_id'] in ledger.get('invocation_reservations', {})})
     record['settled'] = True
     live = work / 'provider_wait.json'
     if live.exists(): _save(live, record)
@@ -299,6 +358,7 @@ def complete_invocation(work, ledger_path, lease_id):
     """Release known-complete or never-started work; interruptions stay for settle."""
     relative = 'usage-receipts/' + lease_id + '.json'
     leaves = _usage_leaves(Path(work), relative)
+    _retain_final_receipts(work, leaves)
     with ledger_transaction(ledger_path) as ledger:
         for receipt in leaves:
             if receipt['lease_id'] != lease_id: raise BudgetError('wait_receipt_mismatch')
@@ -315,7 +375,9 @@ def release_uninvoked(ledger_path, lease_id):
     with ledger_transaction(ledger_path) as ledger:
         row = ledger.get('invocation_reservations', {}).get(lease_id)
         if row is None: return
-        if row['event_ids']: raise BudgetError('reservation_already_invoked')
+        if row['state'] == 'settled' and not row['event_ids'] and usd(row.get('estimated_gap_usd', 0)) == 0:
+            return  # Both wrapper and caller may unwind the same unstarted lease.
+        if row['state'] != 'pending' or row['event_ids']: raise BudgetError('reservation_already_invoked')
         row.update(state='settled', estimated_gap_usd='0.000000000')
 
 
@@ -335,6 +397,7 @@ def reconcile_reservations(work, ledger_path, *, exclude_leases=(), exclude_call
             else:
                 leaves = [{'lease_id': lease_id, 'events': [], 'booked_event_ids': row['event_ids'],
                            'final_usage_known': False}]
+            _retain_final_receipts(work, leaves)
             for receipt in leaves: _settle_leaf(ledger, receipt)
 
 
@@ -365,7 +428,7 @@ def reclassify_factory_bug(path, record):
         if case_spending(ledger)['total_spent_usd'] is None: raise BudgetError('invalid_waste_attribution')
 
 
-def case_spending(ledger, models_used=None):
+def _spending(ledger, models_used=None):
     """One valuation for usage, classification and batch totals.
 
     Preserve provider precision internally. Public totals use the nine-place
@@ -463,11 +526,97 @@ def case_spending(ledger, models_used=None):
     known = total - waste
     breakdown = {role: float(usd(value)) for role, value in breakdown.items()
                  if role != 'legacy_unattributed' or usd(value)}
-    return {'spent_usd': None if unpriced else float(known), 'breakdown_by_role': breakdown,
+    return model_total + additive_waste, {'spent_usd': None if unpriced else float(known), 'breakdown_by_role': breakdown,
             'infrastructure_waste_usd': float(waste), 'infrastructure_waste': records,
             'total_spent_usd': None if unpriced else float(total),
             **({'unpriced_events': unpriced, 'known_spent_usd': float(known),
                 'known_total_spent_usd': float(total)} if unpriced else {})}
+
+
+def case_spending(ledger, models_used=None):
+    return _spending(ledger, models_used)[1]
+
+
+def _bound_events(ledger):
+    """One event-to-reservation join for coverage and settlement, legacy included."""
+    rows, events = ledger.get('invocation_reservations', {}), ledger.get('events', [])
+    if not isinstance(rows, dict) or not isinstance(events, list): raise BudgetError('invalid_usage_binding')
+    by_id, owners, claims = {}, {}, {}
+    for lease, row in rows.items():
+        if not isinstance(row, dict) or row.get('lease_id') != lease: raise BudgetError('invalid_usage_binding')
+        identity = row.get('invocation_id')
+        if identity in by_id or not isinstance(identity, str): raise BudgetError('invalid_usage_binding')
+        by_id[identity] = lease
+        ids = row.get('event_ids')
+        if not isinstance(ids, list) or len(set(ids)) != len(ids): raise BudgetError('invalid_usage_binding')
+        for event_id in ids:
+            if event_id in claims: raise BudgetError('usage_event_shared')
+            claims[event_id] = lease
+    indexed = {}
+    for event in events:
+        if not isinstance(event, dict) or not isinstance(event.get('id'), str) or not event['id']:
+            raise BudgetError('invalid_usage_event')
+        identity = event['id']
+        if identity in indexed: raise BudgetError('usage_event_shared')
+        event_charge(event)
+        indexed[identity] = event
+        lease, invocation, bound = event.get('lease_id'), event.get('invocation_id'), claims.get(identity)
+        if lease is not None or invocation is not None:
+            if lease not in rows or by_id.get(invocation) != lease or bound not in (None, lease):
+                raise BudgetError('invalid_usage_binding')
+            bound = lease
+        if bound is not None: owners[identity] = bound
+    if not claims.keys() <= indexed.keys(): raise BudgetError('usage_event_missing')
+    return indexed, owners
+
+
+def usage_coverage(ledger):
+    """Pure conservative coverage using case_spending's raw Decimal valuation."""
+    try:
+        if not isinstance(ledger, dict): return None
+        rows = ledger.get('invocation_reservations', {})
+        unknown, waits = ledger.get('unpriced_invocations', []), ledger.get('wait_settlements', {})
+        if not isinstance(unknown, list) or not isinstance(waits, dict): return None
+        indexed, owners = _bound_events(ledger)
+        raw_total, summary = _spending(ledger)
+        if summary.get('unpriced_events', 0) != len(unknown): return None
+        from diagnosis import _uuid4
+        keys = {'schema_version', 'invocation_id', 'operation_id', 'lease_id', 'route', 'account',
+                'billing', 'pool', 'family', 'call_name', 'parent_call_name', 'maximum_usd', 'state', 'event_ids'}
+        for lease, row in rows.items():
+            if (not keys <= row.keys() or row.keys() - keys - {'estimated_gap_usd'} or
+                    type(row['schema_version']) is not int or row['schema_version'] != 1 or
+                    not isinstance(lease, str) or not lease or not _uuid4(row['invocation_id']) or
+                    not _uuid4(row['operation_id']) or row['state'] not in ('pending', 'estimated', 'settled') or
+                    not isinstance(row['maximum_usd'], str) or
+                    not re.fullmatch(r'(?:0|[1-9][0-9]*)\.[0-9]{9}', row['maximum_usd'])): return None
+            gap = row.get('estimated_gap_usd', '0.000000000')
+            if (not isinstance(gap, str) or not re.fullmatch(r'(?:0|[1-9][0-9]*)\.[0-9]{9}', gap)
+                    or (row['state'] != 'estimated' and usd(gap) != 0)): return None
+        for marker in unknown:
+            if not isinstance(marker, dict): return None
+            row = rows.get(marker.get('lease_id'))
+            if row is None or row['state'] == 'settled' or row['invocation_id'] != marker.get('invocation_id'):
+                return None
+        for identity, wait in waits.items():
+            if (not _uuid4(identity) or not isinstance(wait, dict) or set(wait) != {'lease_ids'}
+                    or not isinstance(wait['lease_ids'], list) or
+                    any(lease not in rows for lease in wait['lease_ids'])): return None
+        booked = raw_total - sum((usd(row.get('estimated_gap_usd', 0)) for row in rows.values()), Decimal(0))
+        covered, result = booked, []
+        for lease, row in rows.items():
+            if row['state'] == 'settled': continue
+            charge = sum((event_charge(indexed[i]) for i, owner in owners.items() if owner == lease), Decimal(0))
+            remaining = max(Decimal(0), usd(row['maximum_usd']) - charge)
+            covered += remaining
+            result.append({'invocation_id': row['invocation_id'], 'lease_id': lease,
+                'wait_ids': sorted(i for i, wait in waits.items() if lease in wait['lease_ids']),
+                'maximum_usd': row['maximum_usd'], 'booked_usd': format(usd(charge), '.9f'),
+                'remaining_usd': format(remaining.quantize(Decimal('.000000001'), rounding=ROUND_CEILING), '.9f')})
+        return {'schema_version': 1, 'booked_total_usd': format(usd(booked), '.9f'),
+                'covered_total_usd': format(covered.quantize(Decimal('.000000001'), rounding=ROUND_CEILING), '.9f'),
+                'invocations': sorted(result, key=lambda row: row['invocation_id'])}
+    except (BudgetError, ValueError, TypeError, KeyError, AttributeError, InvalidOperation): return None
 
 
 def invocation_role(name):
@@ -645,7 +794,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             ledger['zero_token_streak'] = 0
             ledger.pop('active', None)
         cause = ('cost_limit' if not factory and ledger['cost'] >= max_cost else
-                 'total_call_limit' if ledger['calls'] >= max_total_calls else
+                 'total_call_limit' if not factory and ledger['calls'] >= max_total_calls else
                  'call_limit' if max_calls == 0 else
                  'timeout' if timeout == 0 else
                  'stalled' if progress_timeout == 0 else None)
@@ -695,7 +844,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             total = case_spending(ledger)['total_spent_usd']
             if total is None or usd(total) + outstanding_reservations(ledger) > job_authority.committed_total_usd:
                 raise BudgetError('money_wait')
-        if ledger['calls'] >= max_total_calls:
+        if not factory and ledger['calls'] >= max_total_calls:
             raise BudgetError('total_call_limit')
         if count >= max_calls:
             raise BudgetError('call_limit')

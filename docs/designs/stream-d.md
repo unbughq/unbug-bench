@@ -264,8 +264,9 @@ Append the outcome after evaluation. History lives outside `gates`, `gate_result
 included in the encrypted checkpoint. The public card projects operational
 IDs/counts/status and hashes only; no receipt text, findings or case files.
 Each schema-v1 entry has
-`extension_id`, `state` (active/complete), `writer_operation_id`,
-`entry`, `outcome` (null until complete), each snapshot with the fields above.
+`extension_id`, `writer_operation_id`,
+`entry`, `outcome` (null until complete), each snapshot with the fields above. Private state is derived from null/non-null
+outcome, never another mutable field.
 `late_recovery.invalidate/stop_defect` must preserve this file and field.
 
 One extension = one logical writer round, its stress review, one gate traversal.
@@ -868,8 +869,9 @@ resume is enabled. The lifecycle qualification must cover these §8 cases:
   checkpoint before a dependent replacement or the next same-owner diagnosis
   resume; there is no settlement-only or diagnosis launch mode.
 - A late receipt may replace a conservative gap with a lower actual charge.
-  B acknowledges reconciled_decrease only with a receipt matching the earlier
-  unpriced_invocation ID or wait_id. An unsupported decrease remains refused.
+  B acknowledges reconciled_decrease only under interfaces §8: an invocation
+  estimated in the immediately previous ACK and settled now, with the bounded
+  rounding allowance specified there. An unsupported decrease remains refused.
   D retains the invocation/wait settlement evidence in the checkpoint; neither
   side resets cumulative usage or silently releases the old commitment.
 - Diagnosis uses the original's ordinary same-owner resume and a content-free
@@ -914,3 +916,109 @@ invalid-runs-compat.json pins and captured artifacts remain unchanged. D's
 intentional scientific migration is still pending; no historical result is
 relabelled. The smoke preallocation test mutates the current boundary-call text
 and retains its exact-source mismatch refusal assertions.
+
+## Increment 3: diagnosis, extensions, and policy migration
+
+**Parent ruling, 2026-10-30:** under the founder's "pit stops, not capacity"
+direction, cumulative `max_total_calls` becomes telemetry for authenticated
+new-schema factory cases and their extensions. This is the parent's ruling;
+the founder has not separately confirmed it. Preserve historical D1 metadata,
+but do not present this change as a new founder confirmation. The scorecard
+shows `model calls: N (telemetry)`. Keep per-invocation `max_role_calls`, time
+limits, qualified enforced-route maxima, and the numeric protections of
+`bin/run-exam`. Money and the absolute batch deadline still bound every call.
+Replay the real 5813be (2496), e15450 (1627), and 873d7f (1040) ledgers beyond
+the former 1000-call threshold with authored money/deadline headroom; retain
+their original events and totals and prove a further invocation progresses.
+
+D's public API is `diagnosis.exhaustion(card) -> bool`,
+`actual_model_work(card) -> bool`, and `pending_projection(card) -> dict | None`.
+All three are pure, contain no reference to their own output generation, and
+grant no authority. The pending projection has schema_version=1,
+status="pending", and replacement_eligible=actual_model_work(card) except
+that recovery.infrastructure_exhausted(card) is diagnosis-only and sets it false. B binds
+it to its collected generation. A denied reservation alone is zero work;
+an actually invoked zero-cash subscription process is work. Private diagnosis
+results, findings, paths, and snapshots never enter that projection.
+
+Use the existing same-owner ordinary restore after settlement for diagnosis.
+Bind a diagnosis request to the acknowledged input generation and immutable
+input digests, never the checkpoint being written. A resume launched with an
+unknown exhausted total exits after settlement with no model invocation; B
+must collect and acknowledge that known total before the next diagnosis resume.
+An existing active extension retains its one authorized round and operation ID;
+new writer admission creates its immutable history entry only after a lease and
+money reservation exist. Five is a lifetime maximum. Progress is the furthest
+contiguous pipeline point with complete valid evidence, compared at identical
+ordered stage/version vectors, with every earlier pass retained. Missing or
+changed-version evidence is pending reconstruction, never regression or a new
+extension grant. Repairs preserve entry/outcome snapshots and their case bytes.
+
+Migrate cumulative paid-cost and call-limit bindings once for stress, G8, G9,
+G16, G10 and dependent G17; retain original scientific receipts as history.
+Legacy cap/allowance fields remain decode-only evidence and cannot authorize
+new-schema work. Legacy imports require explicit authenticated cumulative-usage
+and lifetime-history migration; unknown invocation counts refuse import. A dry
+run must show the known total and $33 per unresolved invocation before the
+parent/founder authorizes the exact amounts. No automatic import grants money.
+
+Production dispatch remains fail-closed. This increment does not populate
+ENFORCED_ROUTE_BOUNDS, enable B's resume/replacement adapter, or claim B/E
+checkpoint qualification. Real crash/capped-call closure exams remain required;
+authored control-flow inputs on saved public bytes do not close those rows.
+
+
+Increment-3 interface clarification (interfaces design review 15): use the exact
+pure budget.usage_coverage API and per-invocation reconciled_decreases shapes in
+interfaces §8. No duplicate coverage field is persisted. The runner owns the
+schema-v1 diagnosis_state/exhaustion_id lifecycle specified there; completed
+results clear pending_projection, and provider waits retain the same ID.
+diagnosis_pending is the settlement-before-diagnosis checkpoint stop, authenticated
+by that pending state. extension_incomplete requires a completed extension outcome,
+not an infrastructure interruption. infrastructure_exhausted goes to diagnosis
+without authorizing a replacement. These clarify the exhaustion-routing list
+above; no model result grants a resume, extension or money. No code is enabled by
+this documentation change.
+
+
+Interface review 16 clarifications: B qualifies decreases only against the
+immediately previous ACK's estimated invocation map, including null-total ACKs.
+D emits the single row-transition receipt regardless of unrelated unknown totals;
+released amounts and B's bounded nanodollar comparison follow interfaces §8.
+The public extension history uses lifetime ordinal IDs 1..5 and hashes; null
+outcome_sha256 means active. Entry case/evidence is immutable; outcome appends
+once and a substantive late defect completes the extension as extension_incomplete.
+A close_to_passing diagnosis continues in the same worker into extension admission;
+factory_bug queues maintenance and not_converging retires. The required real-ledger
+replays are listed in interfaces §8; no code is enabled by these clarifications.
+
+Parent ruling, 2026-10-30 (replacement derivation): B requires a present D
+pending_projection with replacement_eligible exactly true. None forbids first
+derivation even when exhaustion and actual_model_work remain true (including a
+completed infrastructure diagnosis). D records pending state and checkpoints the
+first exhaustion before diagnosis; B derives immediately from that collected
+projection. Completed diagnosis clears it. Subsequent distinct exhaustion may
+request diagnosis, but B's durable one-child-per-parent journal never admits a
+second child. D's pure card-only API does not pretend to read that external latch.
+
+Interface review 17: accept R1 and J1/J2. B uses epsilon=(2*len(previous
+estimated map)+1) nanodollars, including zero-release settlements and
+re-estimates. This grants no money or released commitment. Factory-bug resume
+archives/clears the old infrastructure_gate before work; current diagnosis_state
+identifies a subsequent exhaustion. release_uninvoked refuses non-pending rows.
+
+### Increment 3a review boundary
+
+The first increment-3 implementation slice supplies the pure §8 diagnosis and
+coverage APIs, one retained final receipt/decrease per estimated invocation, and
+the parent-ruled cumulative-call telemetry branch. It changes no B enable flag,
+route maxima, extension admission or legacy import authority. The full extension
+runner/snapshots and stale-cap/import/scientific migration remain increment 3b;
+this boundary is not a claim that increment 3 or any Murphy row is complete.
+
+The coverage helper and public case_spending share one raw valuation. Retained
+final receipts are atomically written beneath usage-receipts/final by canonical
+hash before the ledger transaction records that hash, so later growing receipts
+cannot erase the evidence. Unknown unrelated invocations do not suppress a row's
+decrease record. The diagnosis APIs read only their input JSON; the pending
+projection is the sole source of first replacement eligibility for B.

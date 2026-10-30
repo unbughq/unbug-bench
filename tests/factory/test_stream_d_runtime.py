@@ -87,6 +87,26 @@ class RuntimeTests(unittest.TestCase):
                 'release_rereviews': [], 'release_review_attempts': [], 'next_phase': 'G1' if role == 'writer' else 'gates',
                 **({'review_attempt': uuid.uuid4().hex} if role == 'stress_tester' else {})}
 
+    def test_pre_route_failure_preserves_original_error_after_double_release(self):
+        for family_change in (False, True):
+            with self.subTest(family_change=family_change):
+                self.ledger.write_text(json.dumps(self.source['continuation_budget']))
+                self.c.card['builder_rounds'] = 0
+                self.c.card['roles']['writer']['model'] = (
+                    self.c.models['strong_calibrator'][0] if family_change else self.c.models['builder'][0])
+                error = ValueError if family_change else budget.BudgetError
+                message = 'role family changed' if family_change else 'money_wait'
+                with patch.object(model_runtime, 'case_budget_boundary',
+                                  side_effect=None if family_change else budget.BudgetError('money_wait')):
+                    with self.assertRaisesRegex(error, '^' + message + '$'):
+                        run.pending_call(self.c, self.c.models['builder'], 'pre-route failure', self.case,
+                            'builder-1', self.receipt(), role='writer', on_complete=lambda: None)
+                ledger = json.loads(self.ledger.read_text())
+                row, = ledger['invocation_reservations'].values()
+                self.assertEqual((row['state'], row['event_ids'], row['estimated_gap_usd']),
+                                 ('settled', [], '0.000000000'))
+                self.assertEqual(budget.case_spending(ledger)['total_spent_usd'], self.baseline)
+
     def test_stream_accountant_links_unknown_usage_and_settles_once_above_five_dollars(self):
         self.assertGreater(self.source['continuation_budget']['cost'], 5)
         lease = model_router.Lease(str(uuid.uuid4()), self.c.models['builder'][0], 'claude-token', 1,
@@ -111,6 +131,45 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(budget.case_spending(current)['total_spent_usd'], round(self.baseline + 100, 9))
         budget.reconcile_reservations(self.work, self.ledger)
         self.assertEqual(json.loads(self.ledger.read_text()), current)
+
+    def test_real_high_call_cards_continue_with_telemetry_and_invocation_limit_stays(self):
+        for suffix, count in (('5813be', 2496), ('e15450', 1627), ('873d7f', 1040)):
+            with self.subTest(case=suffix):
+                card = next(r['card'] for r in cards() if r['card']['case'].endswith(suffix)
+                            and r['card']['continuation_budget']['calls'] == count)
+                original = copy.deepcopy(card['continuation_budget'])
+                self.ledger.write_text(json.dumps(original))
+                lease = model_router.Lease(uuid.uuid4().hex, self.c.models['attacker'][0], 'free', 1,
+                                           'free', 'minimax', 'free')
+                authority = job_authority.for_case(self.c)
+                row = budget.reserve_invocation(self.ledger, lease, 1, authority,
+                    operation_id=str(uuid.uuid4()), call_name='builder-telemetry')
+                event = {'type': 'step_finish', 'part': {'id': 'telemetry-' + suffix, 'messageID': 'message-' + suffix, 'cost': 0,
+                                                       'tokens': {'input': 1, 'output': 1, 'reasoning': 0,
+                                                                  'cache': {'read': 0, 'write': 0}}}}
+                code = 'print(' + repr(json.dumps(event)) + ', flush=True)'
+                budget.run_budgeted([sys.executable, '-c', code], self.work, os.environ.copy(),
+                    self.work / ('telemetry-' + suffix + '.jsonl'), self.ledger, 3,
+                    max_cost=None, max_calls=2, max_total_calls=1000, driver='opencode',
+                    configured_model=lease.route, role='writer', invocation_name='builder-telemetry',
+                    case_budget=200, job_authority=authority, invocation_id=row['invocation_id'],
+                    lease_id=lease.lease_id, concurrent=True, resume=True)
+                after = json.loads(self.ledger.read_text())
+                self.assertGreater(after['calls'], count)
+                self.assertEqual(after['events'][:len(original['events'])], original['events'])
+                self.assertEqual(budget.case_spending(after)['total_spent_usd'],
+                                 budget.case_spending(original)['total_spent_usd'])
+                card = {**card, 'batch_release_sha256': 'a' * 64, 'continuation_budget': after}
+                self.assertIn(f"model calls: {after['calls']} (telemetry)", run.scorecard_text(card))
+                event['part']['id'] += '-second'
+                code = 'print(' + repr(json.dumps(event)) + ', flush=True)'
+                with self.assertRaisesRegex(budget.BudgetError, '^call_limit$'):
+                    budget.run_budgeted([sys.executable, '-c', code], self.work, os.environ.copy(),
+                        self.work / ('capped-' + suffix + '.jsonl'), self.ledger, 3,
+                        max_cost=None, max_calls=1, max_total_calls=1000, driver='opencode',
+                        configured_model=lease.route, role='writer', invocation_name='builder-telemetry',
+                        case_budget=200, job_authority=authority, invocation_id=row['invocation_id'],
+                        lease_id=lease.lease_id, concurrent=True, resume=True)
 
     def test_denied_before_admission_changes_no_reservation_round_or_receipt(self):
         for account in ('claude-token', 'claude-factory-token-2'): self.store.capacities[account] = 0
