@@ -288,7 +288,9 @@ denial.
   output clamp32768 include caches/thinking. Complete strictly validated usage
   alone can release unused allowance; partial/uncertain usage keeps all of it.
   Standard mode, no hosted tools/premium modes; small-model calls use same Opus.
-  Current route cap50.0 USD; W<=9.520896; input227272727/output2272727 tokens.
+  Current route cap50.0 USD; W<=19.041792; input113636363/output1136363 tokens.
+  BOTH settled gate cost and W use existing claude_cost2*1.1, preserving the
+  unchanged partial-ledger estimate bound even when the CLI final result is lost.
   Existing token_prices/budget booking stays unchanged; gate books nothing.
   Cap covers CLI-owned inference routed through its SDK, not hostile Bash/direct
   network/account-wide spending; no new sandbox/security property is claimed.
@@ -299,7 +301,13 @@ denial.
   retry_after=now+900 is only a recheck hint. D refuses qualification for any
   unbounded required role: NONE of today's complete rotation packages is ready.
   One-use execution-start prevents allowance reset. Usage/route receipts retain
-  all caps plus cap_used; finish/receipts book nothing. model_call_cap is an
+  all caps plus exact cap_used v1 (router.md serialized schema): disjoint
+  forwarded=validated+unknown+in_flight counters; decimal-string settled/held USD,
+  integer settled/held tokens, unsupported count, clamp and exhausted/closed flags.
+  Held includes all unknown+inflight once. Snapshot only after close converts
+  active to unknown and forbids late refunds. final_usage_known additionally
+  requires closed and zero unknown/inflight even when CLI says success.
+  finish/receipts book nothing. model_call_cap is an
   unscored factory enforcement-limit stop for every role/probe, never writer
   feedback/scientific fail/provider outage/inline retry. D diagnoses it as a
   factory limit; a later invocation needs new authorised reservation/Lease.

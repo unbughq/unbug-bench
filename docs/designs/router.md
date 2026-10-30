@@ -502,15 +502,20 @@ capability betas: claude-code-20250219,oauth-2025-04-20,
 interleaved-thinking-2025-05-14,effort-2025-11-24. Unknown custom billing/provider
 headers never pass. https://platform.claude.com/docs/en/api/service-tiers and
 https://platform.claude.com/docs/en/build-with-claude/fast-mode provide the tier
-and speed controls. This removes the 2x fast-mode factor for this gate ONLY;
-keep the conservative 1.1 US-only multiplier. Existing accounting helpers and
-budget.py booking remain unchanged.
+and speed controls. Retain the EXISTING 2*1.1 multiplier for BOTH W and
+validated settled usage: budget.subscription_usage(partial=True) calls the
+existing claude_cost estimator at that rate if the CLI final result is lost,
+even when every HTTP response completed. Dropping 2x only in the gate would let
+that already-booked partial estimate exceed the Lease. Premium modes stay blocked;
+this deliberately conservative charge matches the unchanged estimator, not a
+claim that standard-mode cash billing is doubled. No D accounting/old event is
+erased, rebooked or changed.
 
 ### Enforce a joint dollar allowance before every forward
 
 The code-owned route profile has max_usd=50.0. `token_prices.py` owns its tariff,
 using current input/cache-read/cache-write/output rates (4,.2,8,20 per million)
-and the enforced standard-mode 1.1 multiplier. All arithmetic for admission and
+and its unchanged conservative 2*1.1 multiplier. All arithmetic for admission and
 usage replacement uses Decimal from integer usage/rate strings; round the
 advertised float maximum upward where necessary. This is a **joint weighted
 ceiling**: max_input_tokens and max_output_tokens are independent safety ceilings,
@@ -529,8 +534,8 @@ maximum. Record the observed per-response iteration range from saved cards
 without assuming aggregate invocation counters are individual requests.
 
 Before opening upstream network, under ONE lock, reserve this request's W:
-`(1,000,000 * max(input,cache-read,cache-write rate) + requested_clamped_output * output_rate) * 1.1 / 1,000,000`.
-At 32K, W=$9.520896 (<$50). Require settled dollar usage + ALL in-flight/unknown
+`(1,000,000 * max(input,cache-read,cache-write rate) + requested_clamped_output * output_rate) * 2*1.1 / 1,000,000`.
+At 32K, W=$19.041792 (<$50). Require settled dollar usage + ALL in-flight/unknown
 allowances + new W <= lease.max_usd. Separately reserve 1M input tokens and the
 clamped output tokens, checking the corresponding aggregate ceilings under the
 same lock. No previous partial or optimistic usage releases anything.
@@ -549,8 +554,8 @@ from partial streams or unknown responses. Updating gate allowances books NOTHIN
 in the case ledger. Existing budget event IDs/accounting are independent.
 
 There is no fixed 8-request limit. The aggregate safety ceilings are computed by
-flooring `50/min(input/cache tariff *1.1)` and `50/(output tariff *1.1)` in tokens:
-currently max_input_tokens=227272727 and max_output_tokens=2272727. They are
+flooring `50/min(input/cache tariff *2*1.1)` and `50/(output tariff *2*1.1)` in tokens:
+currently max_input_tokens=113636363 and max_output_tokens=1136363. They are
 separately enforced even when a response costs zero. All requests, including
 retries/side calls/compaction, contend for the SAME remaining allowance; unknown
 responses cannot silently reopen it. A lost worker/process cannot reset it:
@@ -611,10 +616,50 @@ Execution-start markers prevent repeated supplied leases restarting the allowanc
 The private invoke consumes a one-use context permit and independently validates
 policy before any CLI setup. Other drivers have no enforcement adapter and deny.
 
-Route and per-lease usage receipts retain all four cap fields and cap_used:
-forwarded/completed/unknown request counts, settled/held USD and tokens, maximum
-per-request output, unsupported request count, exhaustion and in-flight status.
-This records enforcement and books nothing. D's normal receipt/event settlement
+Route and per-lease usage receipts retain all four cap fields. `cap_used` v1 is
+exactly this object (USD values are finite nonnegative plain base-10 DECIMAL
+STRINGS, no exponent; all counters/token fields are nonnegative JSON integers,
+never bool; flags are JSON booleans):
+
+```json
+{"version":1,"forwarded_requests":2,"validated_requests":1,"unknown_requests":1,
+ "in_flight_requests":0,"unsupported_requests":0,
+ "settled_usd":"0.00132","held_usd":"19.041792",
+ "settled_input_tokens":100,"held_input_tokens":1000000,
+ "settled_output_tokens":10,"held_output_tokens":32768,
+ "max_request_output_tokens":32768,"exhausted":false,"closed":true}
+```
+
+This example has one complete validated 100-input/10-output uncached response,
+and one truncated response retaining its entire W/input/output allowance. It is
+synthetic schema illustration, not a real receipt. `forwarded_requests` counts
+allowances consumed before upstream attempts, including uncertain attempts.
+Its disjoint categories obey `forwarded=validated+unknown+in_flight`. Normally
+terminated HTTP with malformed/missing usage is UNKNOWN, never validated.
+Unsupported counts only authenticated requests rejected before forwarding;
+unauthenticated callers change nothing. Settled fields sum VALIDATED requests
+only at existing claude_cost conservative rates. Held fields sum UNKNOWN plus
+IN_FLIGHT allowances, each exactly once, never also settled. Exhausted means a
+monetary/token pre-admission test failed, not unsupported or auth rejection.
+The maximum request output field is the code-owned per-request clamp, not an
+observed output maximum.
+
+At gate close, under the admission lock: prohibit new forwards; convert EVERY
+remaining in-flight request to unknown without releasing its allowance; close
+active connections; take one immutable snapshot with closed=true and in_flight=0.
+A late handler cannot refund or mutate this snapshot. Validated replacement
+occurs only after the complete HTTP body/stream EOF and exactly one final stop,
+not immediately on a partial event or early message_stop followed by trailing
+controls. A duplicate control after message_stop invalidates usage and releases
+nothing. Run-time receipts are written after gate close on every exit.
+
+`final_usage_known = (not invoked) OR (outcome == done AND existing ledger/event
+checks pass AND cap_used.closed AND cap_used.unknown_requests ==0 AND
+cap_used.in_flight_requests ==0)`. Thus even a successful CLI summary cannot hide
+a malformed/truncated gate response. The example's final_usage_known is false.
+If no CLI ran, the denied-before-work receipt has the zero-count closed snapshot
+and known zero usage. A monetary stop remains interrupted, even if prior HTTP
+requests validated. This records enforcement and books nothing. D's normal receipt/event settlement
 uses the advertised maximum for an unknown gap without double booking. Never
 claim a partial HTTP response has exact final usage merely because a later CLI
 summary exists. Per-lease public metadata contains no prompt or credential.
@@ -662,7 +707,12 @@ under the existing reviewed rollout contract; this increment performs no deploy.
    honestly: these are aggregate receipts, not full request traces. Never split
    them into invented per-request histories or treat past maxima as enforcement.
    Replay real iteration/usage fields to exercise cache/reasoning pricing and
-   unchanged ledger bytes. New direct tests cover pre-network rejection,
+   unchanged ledger bytes. Add the lost-final regression: feed real retained
+   per-response iteration usage through completed HTTP responses, then lose the
+   CLI result; current budget.partial assistant-event booking MUST remain <=
+   Lease.max_usd, including when ALL HTTP responses completed before interruption.
+   Compare existing events unchanged and never invent per-request splits of an
+   aggregate receipt. New direct tests cover pre-network rejection,
    concurrency, all unknown/partial/duplicate/malformed usage retention, separate
    token limits, nonfatal unsupported/auth errors, exact headers/env, supplied/RPC
    tampering, one-use starts, restart and receipt serialization.
@@ -673,7 +723,13 @@ under the existing reviewed rollout contract; this increment performs no deploy.
    Patch the Python HTTPSConnection boundary only inside the test process to the
    fake loopback upstream; production has no URL override. Exercise writer tools,
    rejected hosted WebSearch, same-model side requests, multi-turn Bash tool use,
-   max_tokens stop, client compaction and sudo pilot path. Save argv/env names,
+   max_tokens stop, client compaction and sudo pilot path. Explicitly script a
+   retry-producing upstream failure through the ACTUAL pinned Linux CLI: every
+   subsequent inference attempt must re-enter the SAME gate/allowance; uncertain
+   attempts keep full W, and exhaustion prevents another forward or account
+   fallback. Wrapper outcome after cleanup must be model_call_cap, not cancelled
+   or provider outage. Do not rely on MAX_RETRIES=0; the earlier pin probe proved
+   it insufficient. Save argv/env names,
    architecture, binary/image hashes, sanitised request shapes/outcomes and commands.
    Existing local Docker was started by parent for this reversible verification;
    no Boat/control-VM operation is authorised. If a platform prerequisite fails,
