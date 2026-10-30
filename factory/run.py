@@ -1174,6 +1174,15 @@ def write_and_attack(c, prev):
             skip_writer = resume_writer_validation
             if resume_writer_validation and receipt.get('output_sha256') != case_hash(c):
                 attack_unresolved(c, 'writer_output_changed')
+            if resume_writer_validation:
+                if (type(receipt.get('repair_requested')) is not bool or
+                        not isinstance(receipt.get('before_repair_sha256'), str) or
+                        not re.fullmatch(r'[0-9a-f]{64}', receipt['before_repair_sha256'])):
+                    attack_unresolved(c, 'invalid_recovery_receipt')
+                # Completion checkpoints precede validation, including this refusal.
+                # Check before retained findings can trigger freshness/model work.
+                if receipt['repair_requested'] and receipt['before_repair_sha256'] == receipt['output_sha256']:
+                    attack_unresolved(c, 'unchanged_repair')
             problems = receipt.get('validation_problems') or receipt.get('input_problems')
             source = receipt.get('findings_report')
             if source is not None:

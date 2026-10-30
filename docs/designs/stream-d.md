@@ -1563,3 +1563,101 @@ The subsequent diagnosis-only worker increment is specified in
 retained-answer replay and disposable role helper. Its code is subject to a
 separate diff review and full suite. The shared B activation constant remains
 false; extension comparison/execution and live qualification remain outstanding.
+
+
+## Remaining increments after 4f291fb (2026-10-30)
+
+A bounded first batch can run safely with diagnosis off, subject to the existing
+A/B/E launch, money, isolation and collection qualification. D does not require
+extensions to run ordinary cases. This is not a claim that those external launch
+checks have passed or that the batch will finish unattended. At exhaustion B
+currently returns `diagnosis_unavailable` with an empty queue. That batch loses
+automatic diagnosis, replacement dispatch on that path, near-pass extensions,
+and factory-bug recovery. It can retain ordinary successful cases but can stop
+on exhausted cases (`diagnosis_pending`, a case-level hold). This does not
+mean a batch-wide halt. Do not enable diagnosis merely to avoid that stop.
+
+The ordered increments are:
+
+1. Complete writer validation consistently after a checkpoint interruption
+   (small: runner change and focused replay tests). This benefits ordinary cases
+   with diagnosis off immediately. Targets row 10; closes no full row alone.
+   The design below is the only increment implemented in this handoff.
+2. Persist writer continuation intent across reservation, extension admission
+   and attack-receipt publication (medium: runner and extension state tests).
+   Keep one operation/round after a crash, retain findings, and resume completed
+   validation without another author call. Targets row 10 and the extension
+   part of row 9; closes neither until qualification in increment 7.
+3. Produce scientific receipts and stable per-gate versions (large: gate state,
+   run receipts and saved-artifact tests). Plumbing changes must preserve passes;
+   changed bench logic invalidates only the corresponding gate. Targets rows 9
+   and 39; closes neither until increment 7.
+4. Isolate extension comparisons (medium: immutable entry/outcome evaluation
+   using increment 3 receipts). Re-evaluate changed versions at one common
+   version without modifying the live candidate; invalid execution stays pending.
+   Targets row 9; closes no full row before increment 7.
+5. Wire continuation routing (large: one writer/stress/gate unit, diagnosis
+   outcomes, B checkpoint/money adapters and retained-answer schema repair).
+   Include freshness retrieval and unfinished stress work; remove the remaining
+   legacy recovery allowances only on the qualified ordinary launch path.
+   Targets rows 8, 9, 11, 12, 13 and 15; closes none before increment 7.
+6. Finish accounting and capped calibration evidence (medium: settlement and
+   G10 capped/no-submission receipt integration). Keep unknown usage bounded and
+   operational interruption distinct from demonstrated wrong fixes. Targets
+   rows 21 and 39; closes neither before increment 7.
+7. Qualify the integrated path on retained real run artifacts and authorized
+   live A/B/E lifecycle runs (large, cross-stream). Exercise all crash boundaries,
+   provider waits, collection, limits and diagnosis/extension outcomes. This is
+   the closure increment for rows 8–13, 15, 21 and 39, only where each exam proves
+   the full row. Enable diagnosis only after these prerequisites pass review.
+
+### First increment: completed writer validation parity
+
+Problem: the ordinary writer path checks `repair_requested` and
+`before_repair_sha256` after completion and refuses `unchanged_repair`. The
+restored `phase: completed` path skips that check and runs G1/early checks.
+A kill in the automatic completion checkpoint therefore changes the decision
+for exactly the same completed bytes. A completed repair that changed nothing
+can proceed to stress only because it was interrupted.
+
+Change: in `factory/run.py`, apply the same unchanged-repair check to a completed
+writer receipt before resumed G1/early validation. Reuse the saved intent and
+before hash; do not invoke a writer, renumber the round, create a reservation or
+reinterpret a provider wait. The existing output-hash verification still runs
+first. Refuse a completed writer receipt with a missing/non-boolean repair intent
+or missing/non-SHA256 before hash as `invalid_recovery_receipt`; those fields are
+already written by the V2 completion producer. Legacy V1 behavior stays intact.
+No new schema, launcher, toggle or authorization is needed. Delete the semantic
+difference between uninterrupted and restored completion; add no subsystem.
+
+Tests: extend `tests/factory/test_stream_d_runtime.py` using its hash-verified
+saved practice case and captured 5813be ledger. Author only lifecycle/model
+controls. Run an unchanged requested repair both uninterrupted and killed at
+its completion checkpoint: both must stop `unchanged_repair`, retain round 1,
+and call the writer exactly once with no stress call. Resume a changed repair
+and confirm stress proceeds without another writer. Resume a no-repair first
+writer whose bytes are unchanged and confirm it can validate. Missing/malformed
+intent fields must refuse before any model or resumed validation call. Existing
+changed-output checks remain. These controls prove crash parity, not a live
+interrupted writer exam, so row 10 remains open. Run the full required suite and
+a fresh Claude diff review. There is no new storage or model cost; the restored
+no-op repair now avoids a stress invocation. The risk is rejecting old malformed
+V2 receipts; fail closed instead of guessing whether repair was required.
+
+
+First-increment design review corrections (B1, M1, N1, N2): put both the
+completed-intent validation and unchanged-repair check inside
+`if modern_writer_unit and not awaiting_stress`, immediately after its existing
+completed output-hash check, guarded by `resume_writer_validation`. This is
+before loading receipt findings and before the shared `if report and problems`
+freshness/early-review path, which can itself call models or return a pass.
+Do not put the check in the later resumed-G1 branch. Strict intent validation
+applies only to completed writer receipts; pending receipts are unchanged in
+this increment. Round-one parity controls seed both uninterrupted and killed
+runs with the same `prev = {'failed_gate': 'G1', 'failed_detail': ...}`; the
+failed-detail envelope is authored over the verified saved practice files.
+Also produce a completed round-two repair after a retained authored stress report
+with blocking findings. After the completion kill, patch `loop_freshness`,
+`confirm_hits` and `early_review` to fail if called, and verify unchanged-repair
+and malformed-intent refusals precede these hooks. Keep output-hash precedence
+as a separate changed-output control.
