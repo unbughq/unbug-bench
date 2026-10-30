@@ -1901,7 +1901,10 @@ Change.
   maximum. Evidence without final usage never lowers an existing estimate. A
   replayed or stale receipt keeps the larger charge, so only a final receipt
   can lower it, through `reconciled_decreases` (the provenance B's collection
-  requires). A forged first snapshot is not defended against. The receipt
+  requires). The row's current charge counts every event already bound to
+  it: its `event_ids` plus ledger events tagged with its lease and
+  invocation. So a late booking followed by a stale replay keeps the total,
+  and the decrease record uses that same charge. A forged first snapshot is not defended against. The receipt
   shares the work directory's trust with the ledger, as before.
 - `budget.complete_invocation`: a receipt without final usage settles through
   the existing `_settle_leaf` as `estimated`, charging that bound. That also removes the marker bound to that invocation.
@@ -1911,6 +1914,12 @@ Change.
   `reconciled_decreases` record. `settle()` for a provider wait re-reads the
   same leaf and records its wait provenance as before. Unbound legacy markers
   (no reservation) are unchanged and still go through the $33 import.
+- `batch_holder._extends` (B-owned, three lines): an estimated reservation
+  that becomes settled needs a `reconciled_decreases` record only when its
+  settled charge is lower. The producer writes that record only for a
+  positive release, so an equal or higher final charge used to leave a
+  collection incident that no later generation could clear. Both charges
+  are bound events plus the open estimate.
 - `run.py` `main`: in the existing `if a.batch_release_sha256:` block, after
   the release digest check, set `a.max_cost = None`. This is before the card
   is built. An explicit `--max-cost` on a
@@ -1987,6 +1996,17 @@ Only model outputs and the gate's unknown-request count are authored.
   estimated at one request's hold. The router retries on the second Claude
   account inside the same call. On the committed code, (a) stops with
   `budget_exhausted` and (b) with `money_wait`.
+- **Late booking and wait replay** (`test_batch_accounting.py::
+  test_late_booking_and_wait_replay_never_lower_until_final`). On the saved
+  ledger through provider-wait `settle()`: estimate, a late booking tagged to
+  the row, a stale non-final replay, then a final receipt that lowers, equals
+  or raises the charge. Every step passes `collection_facts` against the
+  prior facts, and only the lowering receipt writes a decrease record.
+- **Equal or higher final receipt clears an incident**
+  (`test_batch_holder.py::test_equal_or_higher_final_receipt_clears_incident`).
+  A refused generation with an estimated row goes through the holder's
+  incident recovery. Equal and higher final charges clear it. A lower settled
+  charge without a record still does not extend.
 - **Factory jobs carry no paid cap.** A `run.main` subprocess harness (same
   pattern as the existing main test) runs with an authored batch-release file
   (only its digest is checked) and an authored job installer. Both are
@@ -2005,7 +2025,7 @@ Only model outputs and the gate's unknown-request count are authored.
   binding key. A new occurrence fails the test until someone classifies it.
 
 Rows. Row 8 closes with the no-paid-cap and search-exam tests. Row 21 closes
-with the settlement test. Both run on real saved ledger and case bytes
+with the settlement, late-booking and incident tests. Both run on real saved ledger and case bytes
 through the real runtime, router and ledger code. Row 8 closes for batch
 jobs only. Non-batch runs and the exam owner keep their cap by design. Row
 21 closes for reservation-bound calls. An unbound legacy marker, like the
@@ -2022,6 +2042,12 @@ receipts, or read saved proof records. A local draft of the
 `complete_invocation` change passes all three unchanged. The settlement test
 also covers a concurrent sibling call: it streams while the first call fails
 with unknown usage, and it finishes without `money_wait`.
+
+Design review 5 responses (Codex, FAIL). B1: accepted. The current charge
+counts late-booked events bound to the row. M1: accepted. `_extends` accepts
+an equal or higher final charge without a decrease record. M2: accepted.
+The late-booking and incident tests above. N1: accepted. The test module
+docstring names the money rows.
 
 Design review 4 responses. DeepSeek was interrupted with no report. A Claude
 rerun was stopped before it reported, at the founder's direction, and review 4 ran on Codex
