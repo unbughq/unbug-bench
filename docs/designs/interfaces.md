@@ -426,7 +426,8 @@ jobs into the frozen manifest/policy or change the nine-field RAM config shape.
 `target_slots` is the reporting goal and `max_concurrency` limits simultaneous
 workers, not lineage length; neither is capped by len(manifest.jobs). Increment2b
 removes both check_manifest's and key_holder.policy_load's root-count caps and
-replaces direct root-job lookups in batch.bind, key_holder.serve,
+replaces direct root-job lookups in batch.bind, all policy['jobs'] lookups in
+key_holder.serve (including orphan-resume policy_job membership),
 batch_money.channel/authorize and job_config.install with the shared resolver.
 The exact manifest.jobs==policy.jobs root-map check stays. There is
 no replacement-count, manifest-job-count or successful-candidate cap. Cumulative

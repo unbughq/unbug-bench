@@ -8,7 +8,8 @@ Design PASS: docs/reviews/batch-service-design-6.md. Code PASS:
 docs/reviews/batch-service-diff-4.md; the trusted host import blocker from
 diff-3 is fixed and covered by a fresh-process regression. Contract PASS:
 docs/reviews/batch-service-diff-5.md, copied to interfaces-design-12.md, and the
-latest replacement/diagnosis refinement PASS in diff-6 / interfaces-design-13.
+latest replacement/diagnosis refinement PASS in diff-6 / interfaces-design-13
+and diff-7 / interfaces-design-14 (readiness clarifications).
 The failed contract review and response are preserved in diff-4 and
 interfaces-design-11. No review objections were rejected.
 
@@ -17,6 +18,10 @@ Command: `uv run --with numpy --with scipy python -B tests/run.py`.
 Log: /tmp/unbug-batch-increment2-final-tests.log. The earlier run's sole failure
 was the independent expected worker inventory missing the three intended B
 files; that expectation is fixed and its focused test passes.
+Final log SHA256:
+5096b1725028449403e174fdd0894eeb894f02e0f13e31de104d5fb49941debc.
+No code/test/tool files changed after reviewed implementation19289c8; subsequent
+commits contain only design refinements, reviews and these evidence reports.
 
 ## Delivered
 

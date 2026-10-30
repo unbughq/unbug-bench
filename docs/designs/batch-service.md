@@ -825,7 +825,8 @@ or change the existing RAM config shape to represent these jobs.
 
 Increment2b removes both check_manifest's and key_holder.policy_load's current
 <=len(jobs) restrictions. Replace direct derived-job lookups in batch.bind,
-key_holder.serve (policy['jobs'][name]), batch_money.channel/authorize and
+key_holder.serve (all policy['jobs'] lookups, including policy['jobs'][name] and
+orphan-resume policy_job membership), batch_money.channel/authorize and
 job_config.install (record['jobs'][job_id]) with the shared resolver before
 derived work is enabled. Keep manifest.jobs==policy.jobs as the root-map check.
 target_slots remains the reporting goal; max_concurrency
