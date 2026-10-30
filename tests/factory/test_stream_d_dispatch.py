@@ -75,6 +75,7 @@ class DispatchTests(unittest.TestCase):
         self.patch(dispatch, 'helper', side_effect=self.helper)
         self.patch(run, 'opencode', side_effect=self.call)
         self.answer = 'factory_bug'
+        self.rotate_first_route = False
         self.addCleanup(self.writable_tasks)
 
     def writable_tasks(self):
@@ -92,6 +93,7 @@ class DispatchTests(unittest.TestCase):
     def call(self, c, models, text, cwd, name, *, user, before_attempt):
         # Real admission and settlement; no process or inference was invoked.
         routes = model_router.routes(models[0])
+        if self.rotate_first_route and not self.calls: routes = list(reversed(routes))
         route = next(row for row in routes if row['pool'] + '/' + row['route'] not in c.router_excluded)
         lease = model_router.Lease(lease_id=uuid.uuid4().hex, expires_at=time.time() + 300,
                                   **route, **synthetic_maximum(route['route']))
@@ -154,6 +156,14 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
     def test_main_resume_enters_diagnosis_before_compose_models_or_writer(self):
+        self.main_resume()
+
+    def test_main_driver_failure_retries_with_the_same_exhaustion(self):
+        published = self.main_resume('qualification')
+        self.c.checkpoint_card = published
+        self.main_resume()
+
+    def main_resume(self, fault='none'):
         import job_config
         (self.work / 'logs').mkdir(exist_ok=True)
         (self.work.parent.parent / 'batch-release.json').write_bytes((job_config.FACTORY.parent / 'batch-release.json').read_bytes())
@@ -167,8 +177,8 @@ class DispatchTests(unittest.TestCase):
 import json, pathlib, sys
 from unittest.mock import patch
 sys.path[:0]=[sys.argv[1], sys.argv[2]]
-import run, job_config, founder_ruling, free_models, diagnosis_task, model_router
-home, case, release, source, bench = sys.argv[3:]
+import run, job_config, founder_ruling, free_models, diagnosis_task, model_router, batch_service, worker_release
+home, case, release, source, bench, fault = sys.argv[3:]
 run.HOME=pathlib.Path(home); run.SEALED=run.HOME/'sealed'; run.BENCH=pathlib.Path(bench)
 job_config.FACTORY=pathlib.Path(source); diagnosis_task.ROOT=run.HOME/'tasks'
 run.bench_manifest=lambda: 'authored-clean-bench'
@@ -182,17 +192,22 @@ run.pilot_homes=lambda: []
 founder_ruling.context=lambda c: None
 free_models.first_resume=lambda *a: False
 job_config.install=install
+if fault == 'qualification':
+ batch_service.DIAGNOSIS_ENABLED=True
+ def unavailable(*a,**k): raise ValueError('authored CLI version mismatch')
+ worker_release.verify_selected_drivers=unavailable
 with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resume-bench-sha','authored-clean-bench',
                               '--batch-release-sha256',release]): run.main()
 '''
         process = subprocess.run([sys.executable, '-B', '-c', code, str(ROOT / 'factory'), str(ROOT / 'bin'),
             str(self.work.parent.parent), self.c.case_id, self.c.args.batch_release_sha256,
-            str(job_config.FACTORY), str(self.bench)], capture_output=True, text=True, timeout=30)
+            str(job_config.FACTORY), str(self.bench), fault], capture_output=True, text=True, timeout=30)
         self.assertEqual(process.returncode, 0, process.stderr)
         published = json.loads((self.ledger.parent / (self.c.case_id + '.scorecard.json')).read_text())
-        self.assertEqual(published['terminal_stop'], 'diagnosis_pending')
+        self.assertEqual(published['terminal_stop'], 'runner_error:ValueError' if fault == 'qualification' else 'diagnosis_pending')
         self.assertEqual(published['diagnosis_state']['exhaustion_id'], self.parent.name)
         self.assertNotIn('invocation_reservations', published['continuation_budget'])
+        return published
 
     def test_all_outcomes_replay_after_unknown_total_and_preserve_id(self):
         # Separate contexts because each outcome is immutable.
@@ -240,6 +255,8 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.assertEqual(len(self.calls), 1)
 
     def test_schema_only_repair_gets_no_inputs_and_keeps_route(self):
+        self.rotate_first_route = True
+        self.assertGreater(len({r['route'] for r in model_router.routes(self.c.card['roles']['reviewer']['model'])}), 1)
         def answer(c, cwd, callback):
             if len(self.calls) == 1: (cwd / 'result.json').write_text('authored malformed response')
             else:
@@ -253,6 +270,187 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.assertTrue(repair[0].endswith('-repair-1'))
         self.assertNotIn('"inputs":', repair[3])
         self.assertFalse((task.ROOT / self.c.case_id / self.parent.name).exists())
+
+    def test_changed_decision_cannot_disagree_with_its_valid_raw_answer(self):
+        self.answer = 'close_to_passing'
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('extension_comparison_pending')
+        path = self.parent / 'decision.json'; value = json.loads(path.read_text())
+        value['diagnosis']['reason'] = 'different but schema-valid authored reason'
+        atomic_json(path, value)
+        self.resume(); self.stopped('diagnosis_input_invalid')
+        self.assertEqual(len(self.calls), 1)
+
+    def test_reviewer_must_differ_from_each_archived_author_family(self):
+        roles = copy.deepcopy(self.c.checkpoint_card['roles'])
+        for peer in ('writer', 'stress_tester', 'strong_calibrator'):
+            with self.subTest(peer=peer):
+                self.c.checkpoint_card['roles'] = copy.deepcopy(roles)
+                self.c.checkpoint_card['roles']['reviewer'] = copy.deepcopy(roles[peer])
+                self.c.card['terminal_stop'] = 'infrastructure_exhausted'
+                self.stopped('diagnosis_input_invalid')
+        self.pilots.assert_not_called(); self.qualify.assert_not_called()
+
+    def test_successful_role_with_changed_exposed_digest_refuses_immediately(self):
+        def helper(c, operation, identity):
+            response, raw = self.helper(c, operation, identity)
+            if operation == 'collect' and raw:
+                self.assertEqual(response['status'], 'ok')
+                response['inputs_sha256'] = 'f' * 64
+            return response, raw
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'helper', side_effect=helper):
+            self.stopped('diagnosis_input_invalid')
+        self.assertEqual(len(self.calls), 1)
+        self.assertFalse((self.parent / 'decision.json').exists())
+
+    def test_unknown_task_names_refuse_cleanup(self):
+        root = task.ROOT / self.c.case_id; root.mkdir(parents=True)
+        (root / 'temporary-unknown').mkdir()
+        with self.assertRaisesRegex(dispatch.DiagnosisTaskCleanupError, 'unknown task name'):
+            dispatch.cleanup_tasks(self.c)
+        self.assertTrue((root / 'temporary-unknown').exists())
+
+    def test_failed_orphan_audit_preserves_bytes_for_the_next_resume(self):
+        self.freeze()
+        path = task.ROOT / self.c.case_id / self.parent.name / 'output'
+        path.mkdir(parents=True); (path / 'result.json').write_text('retained orphan')
+        with patch.object(dispatch, 'audit', side_effect=OSError('authored unavailable audit disk')):
+            with self.assertRaises(dispatch.DiagnosisTaskCleanupError): dispatch.cleanup_tasks(self.c)
+        self.assertEqual((path / 'result.json').read_text(), 'retained orphan')
+        dispatch.cleanup_tasks(self.c)
+        self.assertFalse(path.exists())
+        self.assertTrue(list(self.parent.glob('audit-bytes-*')))
+
+    def test_failed_interruption_audit_preserves_task_until_a_later_cleanup(self):
+        def answer(c, cwd, callback):
+            (cwd / 'result.json').write_text('interrupted bytes')
+            raise Crash()
+        audit = dispatch.audit
+        def failed_audit(c, identity, response, raw):
+            if raw: raise OSError('authored disk failure')
+            return audit(c, identity, response, raw)
+        self.answer = answer
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'audit', side_effect=failed_audit):
+            with self.assertRaises(dispatch.DiagnosisTaskCleanupError): dispatch.dispatch(self.c, run)
+        output = task.ROOT / self.c.case_id / self.parent.name / 'output/result.json'
+        self.assertEqual(output.read_text(), 'interrupted bytes')
+        dispatch.cleanup_tasks(self.c)
+        self.assertFalse(output.exists())
+
+    def retry_after(self, fault, expected=OSError):
+        import recovery
+        identity = self.parent.name
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), fault:
+            with self.assertRaises(expected) as raised: dispatch.dispatch(self.c, run)
+        # The unchanged runner handler publishes this exact infrastructure label.
+        label = 'runner_error:' + type(raised.exception).__name__
+        self.assertTrue(recovery.RETRY.fullmatch(label))
+        self.assertNotIn(self.c.card.get('terminal_stop'), dispatch.INVALID)
+        self.c.card.update(status='stopped', terminal_stop=label)
+        self.c.stopped = True
+        run.finalize_accounting(self.c)
+        self.assertEqual(self.c.card['diagnosis_state']['exhaustion_id'], identity)
+        self.resume()
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('factory_bug_held')
+        self.assertEqual(self.c.card['diagnosis_state']['exhaustion_id'], identity)
+
+    def test_driver_qualification_failure_is_retryable(self):
+        self.retry_after(patch.object(worker_release, 'verify_selected_drivers',
+            side_effect=ValueError('authored wrong installed CLI')), ValueError)
+        self.assertNotIn('diagnosis_driver_qualification', self.c.card)
+
+    def test_prepare_transport_failure_is_retryable(self):
+        def helper(c, operation, identity):
+            if operation == 'prepare': raise ValueError('authored nonzero helper exit')
+            return self.helper(c, operation, identity)
+        self.retry_after(patch.object(dispatch, 'helper', side_effect=helper), ValueError)
+
+    def test_reset_transport_failure_is_retryable(self):
+        def helper(c, operation, identity):
+            if operation == 'reset': raise ValueError('authored reset helper failure')
+            return self.helper(c, operation, identity)
+        self.retry_after(patch.object(dispatch, 'helper', side_effect=helper), ValueError)
+
+    def test_raw_answer_disk_failure_is_retryable(self):
+        import errno
+        retain = dispatch.retain
+        def failed(path, raw):
+            if path.name.startswith('raw-bytes-'): raise OSError(errno.ENOSPC, 'authored full disk')
+            return retain(path, raw)
+        self.retry_after(patch.object(dispatch, 'retain', side_effect=failed))
+
+    def test_decision_publication_disk_failure_is_retryable(self):
+        import errno
+        def failed(path, value):
+            if path.name == 'decision.json': raise OSError(errno.ENOSPC, 'authored full disk')
+            return atomic_json(path, value)
+        self.retry_after(patch.object(dispatch, 'atomic_json', side_effect=failed))
+        self.assertEqual(len(self.calls), 1)
+
+    def test_history_creation_disk_failure_is_retryable(self):
+        import errno
+        def failed(path, value):
+            if path.name == 'factory-bug-resumes.json': raise OSError(errno.ENOSPC, 'authored full disk')
+            return atomic_json(path, value)
+        self.retry_after(patch.object(diagnosis, 'atomic_json', side_effect=failed))
+        self.assertEqual(len(self.calls), 1)
+
+    def test_input_manifest_disk_failure_is_retryable(self):
+        import errno
+        def failed(path, value):
+            if path.name == 'input.json': raise OSError(errno.ENOSPC, 'authored full disk')
+            return atomic_json(path, value)
+        self.retry_after(patch.object(diagnosis, 'atomic_json', side_effect=failed))
+        self.assertEqual(len(self.calls), 1)
+
+    def test_model_free_publication_failure_is_retryable_before_the_gate(self):
+        import errno
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'decision', side_effect=Crash):
+            with self.assertRaises(Crash): dispatch.dispatch(self.c, run)
+        state = copy.deepcopy(self.c.card['diagnosis_state'])
+        for file, module in (('decision.json', dispatch), ('scorecard.json', diagnosis)):
+            def failed(path, value):
+                if path.name == file: raise OSError(errno.ENOSPC, 'authored full disk')
+                return atomic_json(path, value)
+            with patch.object(module, 'atomic_json', side_effect=failed):
+                with self.assertRaises(OSError): dispatch.dispatch(self.c, run)
+            self.c.card.update(status='stopped', terminal_stop='runner_error:OSError')
+            self.c.stopped = True; run.finalize_accounting(self.c)
+            self.assertEqual(self.c.card['diagnosis_state'], state)
+            self.resume()
+        self.stopped('factory_bug_held')
+        self.assertEqual(len(self.calls), 1)
+
+    def test_declared_result_contract_matches_validated_fields_and_outcomes(self):
+        manifest = self.freeze(); value = self.result(manifest)
+        schema = diagnosis.RESULT_SCHEMA
+        def fields(node, sample):
+            self.assertEqual(node['type'], 'object')
+            self.assertIs(node['additionalProperties'], False)
+            self.assertEqual(set(node['required']), set(sample))
+            self.assertEqual(set(node['properties']), set(sample))
+        fields(schema, value)
+        fields(schema['properties']['evidence']['items'], value['evidence'][0])
+        fields(schema['properties']['factory_bug']['anyOf'][1], value['factory_bug'])
+        def validate(answer):
+            return diagnosis.validate_result(answer, case=self.c.case_id,
+                generation=manifest['generation'], evidence_root=self.parent / 'inputs')
+        for key in schema['required']:
+            bad = copy.deepcopy(value); del bad[key]
+            with self.assertRaises(budget.BudgetError): validate(bad)
+        self.assertEqual(schema['properties']['schema_version'], {'type': 'integer', 'const': 1})
+        with self.assertRaises(budget.BudgetError): validate({**value, 'schema_version': True})
+        with self.assertRaises(budget.BudgetError): validate({**value, 'extra': 'forbidden'})
+        outcomes = schema['properties']['outcome']['enum']
+        self.assertEqual(set(outcomes), set(dispatch.STOPS))
+        conditional, = schema['allOf']
+        self.assertEqual(conditional['if']['properties']['outcome']['const'], 'factory_bug')
+        self.assertEqual(conditional['then']['properties']['factory_bug']['type'], 'object')
+        self.assertEqual(conditional['else']['properties']['factory_bug']['type'], 'null')
+        for outcome in outcomes:
+            correct = {**value, 'outcome': outcome, 'factory_bug': value['factory_bug'] if outcome == 'factory_bug' else None}
+            self.assertEqual(validate(correct), correct)
+            wrong = {**correct, 'factory_bug': None if outcome == 'factory_bug' else value['factory_bug']}
+            with self.assertRaises(budget.BudgetError): validate(wrong)
 
     def test_partial_prepare_cleanup_is_audit_only_and_keeps_pending_operation(self):
         def interrupt(c, cwd, callback):
@@ -378,6 +576,9 @@ class IsolationPolicyTests(unittest.TestCase):
             def gate(*args):
                 yield SimpleNamespace(server=SimpleNamespace(server_port=12345))
             def budgeted(cmd, cwd, env, *args, **kwargs):
+                inserted = sum(row[4:7] == ['-I', 'factory-pilot', '1'] for row in events)
+                removed = sum(row[4:6] == ['-D', 'factory-pilot'] for row in events)
+                self.assertEqual(inserted - removed, 2, 'runtime must install its listener permits before transport')
                 seen.append((cmd, dict(env)))
                 return subprocess.CompletedProcess(cmd, 0)
             ambient = {key: 'authored-only' for key in ('UNBUG_JUDGE', 'RESTORE_KEY', 'AWS_SECRET_ACCESS_KEY',
@@ -400,6 +601,7 @@ class IsolationPolicyTests(unittest.TestCase):
             self.assertEqual(codex[0][1], '--preserve-env=CODEX_HOME,PATH')
             self.assertNotIn('WebSearch', claude[0][-1])
             self.assertEqual(set(opencode[1]) & set(ambient), {'OPENROUTER_API_KEY'})
+            self.assertEqual(set(opencode[0][1].removeprefix('--preserve-env=').split(',')), set(opencode[1]))
 
     def test_environment_for_each_driver_has_only_one_selected_provider(self):
         env = {key: 'authored-control' for key in ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR',

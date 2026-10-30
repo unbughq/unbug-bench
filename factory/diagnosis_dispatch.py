@@ -32,6 +32,14 @@ STOPS = {'factory_bug': 'factory_bug_held', 'close_to_passing': 'extension_compa
 
 
 class DiagnosisTaskCleanupError(RuntimeError): pass
+class InputVerificationError(ValueError): pass
+
+
+def verify(action, *args, **kwargs):
+    """Only read/validation operations belong here, never publication or runtime."""
+    try: return action(*args, **kwargs)
+    except (FileNotFoundError, ValueError, KeyError, TypeError, AttributeError, IndexError):
+        raise InputVerificationError('invalid retained diagnosis input') from None
 
 
 def stop(c, label):
@@ -52,7 +60,7 @@ def retain(path, raw):
     """Immutable private bytes, synced before a journal can reference them."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() or path.is_symlink():
-        if d._input_bytes(path, path.parent) != raw: raise ValueError('changed retained bytes')
+        if verify(d._input_bytes, path, path.parent) != raw: raise InputVerificationError('changed retained bytes')
         return
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'wb') as stream:
@@ -110,15 +118,14 @@ def cleanup_tasks(c):
             audit(c, path.name, response, raw)
         except Exception:
             raise DiagnosisTaskCleanupError('task audit failed') from None
-        finally:
-            remove_task(c, path.name)
+        remove_task(c, path.name)
 
 
 def contract(root):
     try:
         templates = [d._input_bytes(root / 'source/factory/prompts' / name, root).decode()
                      for name in ('diagnosis.md', 'diagnosis-repair.md')]
-    except (OSError, ValueError): raise BudgetError('diagnosis_schema_wait') from None
+    except (FileNotFoundError, ValueError): raise BudgetError('diagnosis_schema_wait') from None
     return templates, digest(dict(schema=d.RESULT_SCHEMA, judgment_template=templates[0], repair_template=templates[1]))
 
 
@@ -209,7 +216,7 @@ def decision(c, parent, manifest, result):
     value = dict(schema_version=1, exhaustion_id=manifest['exhaustion_id'], input_sha256=digest(manifest), diagnosis=result)
     path = parent / 'decision.json'
     if path.exists():
-        if read(path, c.work) != value: raise ValueError('changed decision')
+        if verify(read, path, c.work) != value: raise InputVerificationError('changed decision')
     else: atomic_json(path, value)
     return result
 
@@ -220,7 +227,7 @@ def apply(c, parent, manifest, result):
         d.persist_factory_bug(c, result, generation=manifest['generation'], evidence_root=root)
     else:
         state = c.card['diagnosis_state']
-        if state['status'] == 'completed' and state['outcome'] != result['outcome']: raise ValueError('changed outcome')
+        if state['status'] == 'completed' and state['outcome'] != result['outcome']: raise InputVerificationError('changed outcome')
         state.update(status='completed', outcome=result['outcome'])
         c.card.update(status='stopped', terminal_stop=STOPS[result['outcome']])
         atomic_json(c.work / 'scorecard.json', c.card)
@@ -233,20 +240,23 @@ def replay(c, parent, manifest, journal_value=None):
     if path.exists() or path.is_symlink():
         if (not journal_value or not journal_value['attempts'] or
                 journal_value['attempts'][-1]['status'] != 'valid'):
-            raise ValueError('decision lacks completed journal')
-        value = read(path, c.work)
+            raise InputVerificationError('decision lacks completed journal')
+        value = verify(read, path, c.work)
         if (not isinstance(value, dict) or set(value) != {'schema_version', 'exhaustion_id', 'input_sha256', 'diagnosis'} or
                 type(value['schema_version']) is not int or value['schema_version'] != 1 or
                 value['exhaustion_id'] != manifest['exhaustion_id'] or value['input_sha256'] != digest(manifest)):
-            raise ValueError('invalid decision')
+            raise InputVerificationError('invalid decision')
         result = d.validate_result(value['diagnosis'], case=c.case_id, generation=manifest['generation'],
                                    evidence_root=parent / 'inputs')
-        if result != value['diagnosis']: raise ValueError('unnormalized decision')
-        retained = validate(c, manifest, parent / 'inputs', raw_answer(parent, journal_value['attempts'][-1]))
-        if result != retained: raise ValueError('decision differs from retained answer')
+        if result != value['diagnosis']: raise InputVerificationError('unnormalized decision')
+        retained = verify(validate, c, manifest, parent / 'inputs', verify(raw_answer, parent, journal_value['attempts'][-1]))
+        if result != retained: raise InputVerificationError('decision differs from retained answer')
     finding = parent / 'finding.json'
     if finding.exists() or finding.is_symlink():
-        if result is not None and read(finding, c.work).get('diagnosis') != result: raise ValueError('conflicting finding')
+        if result is not None:
+            previous = verify(read, finding, c.work)
+            if not isinstance(previous, dict) or previous.get('diagnosis') != result:
+                raise InputVerificationError('conflicting finding')
         d.restore_factory_bug(c, generation=manifest['generation'], evidence_root=parent / 'inputs')
         stop(c, 'factory_bug_held')
     if result is not None: apply(c, parent, manifest, result)
@@ -277,10 +287,10 @@ def _dispatch(c, r):
     model_runtime.prepare_dispatch(c)
     with c.model_dispatch_lock:
         if c.active_model_calls: raise BudgetError('usage_reconciliation_while_active')
-        unknown = card_total(previous) is None
+        unknown = verify(card_total, previous) is None
         r.resume_provider_wait(c)
         reconcile_reservations(c.work, c.ledger)
-        ledger = read(c.ledger, c.ledger.parent)
+        ledger = verify(read, c.ledger, c.ledger.parent)
         if ledger.get('active') or any(row['state'] == 'pending' for row in ledger.get('invocation_reservations', {}).values()):
             raise BudgetError('usage_reconciliation_pending')
         if unknown and state['status'] == 'pending': stop(c, 'diagnosis_pending')
@@ -291,15 +301,15 @@ def _dispatch(c, r):
         value = None
         if (parent / 'attempts.json').exists() or (parent / 'attempts.json').is_symlink():
             templates, schema_sha = contract(parent / 'inputs')
-            model, family = reviewer(c)
-            value = journal(c, parent, manifest, schema_sha, family)
+            model, family = verify(reviewer, c)
+            value = verify(journal, c, parent, manifest, schema_sha, family)
         replay(c, parent, manifest, value)
         if value is None:
             templates, schema_sha = contract(parent / 'inputs')
-            model, family = reviewer(c)
-            value = journal(c, parent, manifest, schema_sha, family)
+            model, family = verify(reviewer, c)
+            value = verify(journal, c, parent, manifest, schema_sha, family)
         if value['attempts'] and value['attempts'][-1]['status'] == 'valid':
-            try: result = validate(c, manifest, parent / 'inputs', raw_answer(parent, value['attempts'][-1]))
+            try: result = verify(validate, c, manifest, parent / 'inputs', verify(raw_answer, parent, value['attempts'][-1]))
             except (ValueError, BudgetError): invalid(c)
             apply(c, parent, manifest, decision(c, parent, manifest, result))
         if state['status'] == 'completed': invalid(c)
@@ -307,7 +317,7 @@ def _dispatch(c, r):
         if routes and all(row['route'] in closed_routes(value) for row in routes): stop(c, 'retired_diagnosis_malformed')
         if batch_service.DIAGNOSIS_ENABLED is not True: stop(c, 'diagnosis_pending')
         from worker_release import verify_selected_drivers
-        c.card['diagnosis_driver_qualification'] = verify_selected_drivers({'reviewer': [model]},
+        c.diagnosis_driver_qualification = verify_selected_drivers({'reviewer': [model]},
             lambda driver: r.pinned_cli(driver) if driver in ('codex', 'claude') else r.OPENCODE_BIN)
         return invoke(c, r, parent, manifest, model, routes, templates, value)
 
@@ -316,7 +326,7 @@ def dispatch(c, r):
     """Called immediately after verified job installation; all handled paths stop."""
     try:
         return _dispatch(c, r)
-    except (ValueError, KeyError, TypeError, AttributeError, OSError, IndexError):
+    except InputVerificationError:
         invalid(c)
     except BudgetError as error:
         if str(error) in ('diagnosis_result_invalid', 'diagnosis_finding_invalid'):
@@ -330,6 +340,7 @@ def invoke(c, r, parent, manifest, model, routes, templates, value):
     old_operation = getattr(c, 'model_operation_id', None)
     old_exclusions = getattr(c, 'router_excluded', None)
     prepared = False
+    preserve_task = False
     try:
         r.make_pilots(c, [('pilot', None)], True, diagnosis=True)
         while True:
@@ -353,14 +364,15 @@ def invoke(c, r, parent, manifest, model, routes, templates, value):
             prepared = True  # A partial prepare must also be removed.
             response, _ = helper(c, 'prepare', identity)
             expected = digest(manifest['files']) if row['kind'] == 'judgment' else None
-            if response['status'] != 'ok' or response['inputs_sha256'] != expected: invalid(c)
+            if response['status'] != 'ok' or response['inputs_sha256'] != expected:
+                raise RuntimeError('task preparation failed')
             exposed = task.ROOT / c.case_id / identity
             context = dict(case_id=c.case_id, checkpoint_sha256=manifest['generation'],
                            output=str(exposed / 'output/result.json'), schema=d.RESULT_SCHEMA)
             if pinned is None: context['inputs'] = str(exposed / 'inputs')
             else:
                 previous = rows[row['repair_of']]
-                context.update(retained_answer=raw_answer(parent, previous).decode('utf-8', errors='replace'),
+                context.update(retained_answer=verify(raw_answer, parent, previous).decode('utf-8', errors='replace'),
                                error=previous['error'])
             text = templates[1 if pinned else 0] + '\nRun context (data):\n' + json.dumps(context, sort_keys=True)
 
@@ -393,10 +405,12 @@ def invoke(c, r, parent, manifest, model, routes, templates, value):
                     response, raw = helper(c, 'collect', identity)
                     audit(c, identity, response, raw)
                 except Exception:
+                    preserve_task = True
                     raise DiagnosisTaskCleanupError('interrupted task audit failed') from None
                 raise
             finally:
-                remove_task(c, identity); prepared = False
+                if not preserve_task:
+                    remove_task(c, identity); prepared = False
             if result is not None: apply(c, parent, manifest, decision(c, parent, manifest, result))
     finally:
         if old_operation is None: c.__dict__.pop('model_operation_id', None)
@@ -406,4 +420,4 @@ def invoke(c, r, parent, manifest, model, routes, templates, value):
         try:
             r.dispose_diagnosis_pilot(c)
         finally:
-            if prepared: remove_task(c, identity)
+            if prepared and not preserve_task: remove_task(c, identity)

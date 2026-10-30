@@ -196,7 +196,7 @@ def validate_result(value, *, case, generation, evidence_root):
             if (not isinstance(operations, list) or
                     any(not _uuid4(v) for v in operations) or len(set(operations)) != len(operations)): raise ValueError()
         elif bug is not None: raise ValueError()
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+    except (FileNotFoundError, ValueError, KeyError, TypeError, AttributeError):
         raise BudgetError('diagnosis_result_invalid') from None
     result = copy.deepcopy(value)
     if result['outcome'] == 'factory_bug':
@@ -224,7 +224,8 @@ def _factory_bug_history(c):
     path = Path(c.work) / 'factory-bug-resumes.json'
     try:
         if path.is_symlink(): raise ValueError()
-        if not path.exists():
+        create = not path.exists()
+        if create:
             cards = (c.card, getattr(c, 'checkpoint_card', {}))
             if any('factory_bug' in card or 'factory_bug_resume_count' in card for card in cards):
                 raise ValueError()
@@ -238,8 +239,7 @@ def _factory_bug_history(c):
                 if not isinstance(waste, list) or any(
                         not isinstance(row, dict) or row.get('kind') == 'factory_bug' for row in waste):
                     raise ValueError()
-            atomic_json(path, [])
-        history = json.loads(path.read_text())
+        history = [] if create else json.loads(path.read_text())
         if not isinstance(history, list) or len(history) > 3: raise ValueError()
         keys = {'schema_version', 'resume_id', 'finding_id', 'case', 'held_batch_id',
                 'batch_id', 'job_id', 'reservation_id', 'source_generation', 'batch_release_sha256'}
@@ -256,12 +256,13 @@ def _factory_bug_history(c):
         for card in (c.card, getattr(c, 'checkpoint_card', {})):
             count = card.get('factory_bug_resume_count', len(history))
             if type(count) is not int or count != len(history): raise ValueError()
-        return history
-    except (OSError, ValueError, KeyError, TypeError):
+    except (FileNotFoundError, ValueError, KeyError, TypeError):
         c.card.pop('factory_bug_resume_count', None)
         c.card.update(status='stopped', terminal_stop='factory_bug_history_invalid')
         c.stopped = True
         raise BudgetError('factory_bug_history_invalid') from None
+    if create: atomic_json(path, [])
+    return history
 
 
 def _held_context(c):
@@ -311,7 +312,7 @@ def _read_factory_bug_finding(c, path, authority, release, state, generation, ev
                 finding['finding_id'] != state['exhaustion_id'] or finding['held_batch_id'] != authority.batch or
                 finding['held_release_sha256'] != release or finding['eligible_operation_ids'] != [] or
                 finding['failure_receipts'] != []): raise ValueError()
-    except (OSError, ValueError, KeyError, TypeError):
+    except (FileNotFoundError, ValueError, KeyError, TypeError):
         raise BudgetError('diagnosis_finding_invalid') from None
     result = validate_result(finding['diagnosis'], case=c.case_id, generation=generation,
                              evidence_root=evidence_root)
@@ -626,7 +627,7 @@ def queued_inputs(c, bench, *, quiescent):
         _verify_input_records(c, root, manifest)
         atomic_json(manifest_path, manifest)
         return manifest
-    except (OSError, ValueError, KeyError, TypeError, AttributeError, BudgetError):
+    except (FileNotFoundError, ValueError, KeyError, TypeError, AttributeError, BudgetError):
         c.card.update(status='stopped', terminal_stop='diagnosis_input_invalid')
         c.stopped = True
         raise BudgetError('diagnosis_input_invalid') from None

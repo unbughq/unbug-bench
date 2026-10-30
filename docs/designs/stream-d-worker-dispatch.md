@@ -356,6 +356,9 @@ bytes and recreates output/ after confirming no pilot process remains. A final
 successful transport collection is retained as raw-bytes-* and referenced by
 its journal row; interruption/cleanup collections are audit-bytes-* only.
 Persist bytes before task-tree deletion.
+If an audit collection or persistence fails, keep the disposable tree for the
+next cleanup and stop as infrastructure. Dispose of the pilot identity, but do
+not erase the only remaining audit bytes merely because the call is unwinding.
 An audit collect with status missing and zero bytes writes neither audit bytes
 nor metadata. This is the normal first-before_attempt case on an empty output
 directory. Other statuses, including input_invalid on a stale partial tree,
@@ -624,6 +627,15 @@ archived roles/gates before it can fail. Retained decisions require their valid
 journal row and exact raw answer; legacy finding-only replay remains supported.
 The pending unknown-total branch creates no snapshot until a later ACK resume.
 An intact unsupported schema contract stops diagnosis_schema_wait.
+
+Diff-25 correction: input-invalid conversion surrounds retained-input reads and
+validation only. Driver qualification, helper transport/setup and publication
+I/O propagate to the runner's retryable infrastructure handler. Missing required
+retained files still refuse verification; other filesystem I/O failures (including
+full disks and permission failures) do not create sticky input/history stops.
+The history initializer writes outside its verification handler. Driver
+qualification is retained only on the private run context, not as a new public
+scorecard field.
 
 The controls in `test_stream_d_dispatch.py` use the saved practice bytes and
 5813be ledger through real snapshot, reservation and settlement functions.
