@@ -1433,7 +1433,7 @@ and `diagnosis-<exhaustion_id>-repair-<ordinal>` for schema repair, so this chec
 uses those exact names in the ledger rather than model text. These names are
 an obligation on future dispatcher wiring, which is not enabled here.
 The proposed worker-dispatch addendum also binds `attempts.json`, `decision.json`,
-`raw-bytes-*` and `audit-bytes-*` to the input manifest. Before those producers are wired, extend
+`raw-bytes-*`, `audit-bytes-*` and `audit-*.json` to the input manifest. Before those producers are wired, extend
 this orphan check to those paths as well. The repair suffix is a global logical
 call ordinal; its attempt journal distinguishes schema repair from a judgment on
 the next approved route. Exact raw bytes have a separate byte-hash filename so

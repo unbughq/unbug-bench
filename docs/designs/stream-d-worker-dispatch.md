@@ -62,6 +62,12 @@ factored existing archive/kill/remove step for **all** pilot identities, includi
 pilot-strong and pilot-easy. Kill/join first, remove their firewall chains, then
 archive their homes and remove users. Do not shred retained home evidence that
 ordinary resume would have archived. This needs no Compose or base scenario.
+The factored old-role cleanup runs on every factory worker resume, including
+held/retired and non-dispatch paths. It enumerates every canonical UUID child of
+`/var/lib/unbug-diagnosis/<current case>/`, not only the current exhaustion ID,
+and collects audit-only output then removes each stale tree. Do not depend on
+VM disposal or a later diagnosis to erase a previous outcome's plaintext copy.
+Unknown/noncanonical names refuse cleanup as infrastructure; never follow links.
 
 Prevent completed-state re-minting at its producer: `record_exhaustion` may
 replace a completed diagnosis only when `new_exhaustion` is true **and** the
@@ -153,6 +159,12 @@ and cannot overwrite these files. Missing-manifest binding checks must also
 recognize raw-bytes files, audit-bytes files, attempts.json and decision.json
 before orphan cleanup. Interrupted/predecessor/orphan bytes are audit-only and
 use `audit-bytes-<byte-sha256>`. They are legal unreferenced audit artifacts.
+For each nonempty or non-missing audit collection, retain a companion
+`audit-<canonical-record-sha256>.json` with exactly `{schema_version:1, status,
+inputs_sha256, raw_sha256}` from the bounded helper response. Raw audit bytes
+are persisted first, then this metadata; neither is authority or an answer.
+Include audit-*.json in the missing-manifest binding check as well. An interrupted
+audit write is preserved but cannot change journal status or diagnosis state.
 Only a raw-bytes file referenced by a journal row's raw_sha256 can be an answer;
 unreferenced raw-bytes files are interrupted publication artifacts, never answers,
 and are preserved for audit without changing the row's status.
@@ -223,6 +235,8 @@ all within the unchanged current job commitment and deadline.
 `retired_diagnosis_malformed` leaves diagnosis_state pending; there is no fourth
 completed outcome. Re-entry re-detects deterministic exhaustion from the verified
 journal without a model and stops again. The retired stop projects None.
+Perform this re-detection in model-free replay **before** the activation gate,
+so a disabled gate cannot relabel a retired malformed diagnosis as pending.
 
 Persist the validated normalized decision in `decision.json` before changing
 public lifecycle state. It has exactly `schema_version:1`, `exhaustion_id`,
@@ -238,7 +252,16 @@ and stop `retired_not_converging`. For `close_to_passing`, complete diagnosis
 state and stop `extension_comparison_pending` until the reviewed extension
 controller exists. A decision never grants
 an extension, money, a gate pass or a writer call.
-Write decision first, finding second, completed public state last. A valid
+The complete durable order is: raw bytes; journal row marked valid/malformed
+with its raw digest; decision (valid only); finding (factory bug only); completed
+public state. A valid journal row with retained referenced bytes but no decision
+is completed model-free during replay **before** the activation gate: re-run the
+strict validator against the original frozen inputs and write decision.json.
+This makes no role, lease or reservation. Missing referenced bytes or validation
+failure on a row marked valid is diagnosis_input_invalid, not a retry. A
+malformed row with no next repair row may only start that repair after activation
+and normal admission. An unreferenced raw file or a pending row is not sufficient
+to derive a decision. A valid
 factory-bug decision with no finding replays through `persist_factory_bug`.
 A legacy retained finding with no decision replays through `restore_factory_bug`
 without synthesizing an old model answer. If both exist, require their normalized
@@ -292,8 +315,14 @@ is bounded at **65536 bytes**, reading at most one extra byte to detect excess.
 Missing, symlinked, FIFO/nonregular and oversized results are malformed outputs,
 not transport retries. For excess retain exactly the bounded prefix and its
 digest; a malformed prefix cannot be validated as a complete result. For absent
-or unsafe output retain an empty prefix plus the fixed error class. Input-copy
-damage remains input-invalid, not a schema repair opportunity.
+or unsafe output retain an empty prefix plus the fixed error class. Only the
+post-role collect in the same process that received successful prepare for that
+logical row enforces the exposed copy's integrity as input-invalid. Orphan,
+stale-tree, interrupted-call and predecessor collects are **audit-only**: record
+their bounded status/map digest with audit bytes, but never use either to change
+diagnosis state or terminal_stop. A partial copy left by a crash during prepare
+is disposable plumbing, not evidence that the runner's frozen inputs changed.
+Always verify the original frozen root separately through queued_inputs.
 
 The bounded captured response is one JSON object with exactly
 `{schema_version:1, status, inputs_sha256, raw_sha256, raw_base64}`. Status is
@@ -311,6 +340,10 @@ bytes and recreates output/ after confirming no pilot process remains. A final
 successful transport collection is retained as raw-bytes-* and referenced by
 its journal row; interruption/cleanup collections are audit-bytes-* only.
 Persist bytes before task-tree deletion.
+An audit collect with status missing and zero bytes writes neither audit bytes
+nor metadata. This is the normal first-before_attempt case on an empty output
+directory. Other statuses, including input_invalid on a stale partial tree,
+remain audit-only and do not prevent remove/rebuild or a gate-false pending stop.
 
 Remove runs in finally after each logical call and again idempotently at every
 dispatcher exit if a task tree exists or setup began. Provider wait, money wait
@@ -545,6 +578,14 @@ states: verification/replay keeps the correct outcome stop and ID through two
 finalizations, without new snapshots or calls. Test judgment-to-repair removes
 the inputs subtree, legal audit-only/unreferenced interrupted bytes never become
 answers, per-call and exit removal, and cleanup failure followed by safe resume.
+Add gate-false replay controls for a valid row with retained bytes but no decision
+(decision completes model-free), and missing/invalid referenced bytes (input
+invalid, no setup). Crash mid-prepare with a partial exposed inputs tree, then
+resume: audit/remove preserve the ID; false gate stops diagnosis_pending, patched
+true gate re-prepares the same logical row. Cleanup must also remove prior-ID
+task trees on terminal and ordinary resumes. Assert each driver's environment
+contains no cloud/restore/job/judge key; OpenCode gets at most its selected single
+provider key and no OPENCODE_ENABLE_EXA; Codex sudo preserves only CODEX_HOME,PATH.
 
 The later extension increment's tests must exercise real reservation/history producers, the crash between
 admission and attack receipt, completed-writer validation, active stress resume,
