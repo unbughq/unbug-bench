@@ -1689,3 +1689,131 @@ with blocking findings. After the completion kill, patch `loop_freshness`,
 `confirm_hits` and `early_review` to fail if called, and verify unchanged-repair
 and malformed-intent refusals precede these hooks. Keep output-hash precedence
 as a separate changed-output control.
+
+### Second increment: writer continuation and durable intent
+
+Problem. A modern (schema 2) writer receipt can be interrupted at three
+points. Two of them still diverge from the uninterrupted path.
+
+1. **Mid-call** (CLI started, no `done` usage receipt). Resume already reuses
+   round `n` and `operation_id`. But it reads intent with `.get` defaults
+   (`run.py:1313–1314`). A receipt missing `before_repair_sha256` falls back
+   to the hash of the half-edited bytes, so the unchanged-repair decision is
+   computed against the wrong baseline. Resume also sends the retained
+   findings back through the shared `if report and problems:` block
+   (`loop_freshness`, then `early_review`). That block already ran before the
+   writer was admitted. Running it again can make model calls, change the
+   findings the writer receives, or, if freshness clears them, run
+   `early_review` and return `stress_review: completed` on half-written bytes
+   with no stress round. The same re-run happens for a `validated` receipt with
+   `validation_problems`: its G1 problems are replaced by the old stress
+   findings, or cleared and passed, where the uninterrupted loop would have
+   sent report and G1 problems to writer `n+1`.
+2. **Call returned, completion receipt not yet written.** `ModelRuntime._call`
+   writes `usage-receipts/<lease>.json` with `outcome: done`, settles, finishes
+   the lease and returns; `_opencode` then runs `on_complete`. A kill in that
+   window leaves `phase: pending`, and resume pays for a second author call
+   for work that already finished. This is the rehearsal-salvage case
+   (`builder-4` recorded, no `attacker-4`), which needed a bundle-only adapter.
+3. **Completed receipt.** Handled by increment 1.
+
+Change, all in `factory/run.py`, no new schema or file:
+
+- **Strict intent at load.** One helper, `writer_intent_valid(receipt)`:
+  `repair_requested` is a bool, `before_repair_sha256` is 64 lowercase hex,
+  and both `findings_report` and `input_problems` keys are present. All four
+  have been written into every V2 writer receipt before admission since
+  753b33e. In the `modern_writer_unit and not awaiting_stress` block, after
+  the existing completed output-hash check (precedence unchanged), a
+  `pending` or `completed` writer receipt that fails it is refused as
+  `invalid_recovery_receipt` before any model, freshness or validation call.
+  The pending-merge in the writer loop then reads the saved values directly
+  (no `.get` defaults). `validated` receipts are unchanged.
+- **Durable intent at admission.** `pending_call` refuses a `role='writer'`
+  receipt that fails `writer_intent_valid` with
+  `BudgetError('writer_intent_missing')` before `await_lease`. Every writer
+  admission, ordinary or extension, therefore writes intent into the pending
+  receipt that `admitted()` publishes as `attack-state.json` (the file B's
+  checkpoint carries). A future extension caller cannot pay for a call whose
+  resume would be refused. Supports row 9; closes none of it.
+- **Retained inputs are final.** Skip the shared `if report and problems:`
+  block when `modern_writer_unit`. A modern writer receipt carries the exact
+  `findings_report`/`input_problems` (or `validation_problems`) the
+  uninterrupted loop would pass to the next writer call; they were already
+  freshness-processed after the stress round that produced them. Legacy and
+  stress-unit resume keep the block.
+- **Completion from the retained usage receipt.** After intent validation, a
+  `pending` writer receipt is promoted to `completed` when
+  `usage-receipts/<lease_id>.json` exists with that `lease_id`,
+  `invocation == 'builder-<round>'` and `outcome == 'done'`, and the ledger
+  reservation for that lease has the receipt's `operation_id` and
+  `invocation_id`. The lease ID must be 32 lowercase hex (path safety).
+  Promotion uses the same producer as `on_complete`: the `writer_completed`
+  closure becomes a module function `complete_writer(c, receipt, path)` called
+  from both places. The receipt then follows the increment-1 completed path:
+  unchanged-repair check, then resumed G1/early validation, then stress. No
+  checkpoint is added at promotion. The restored generation already holds the
+  final bytes and the `done` receipt; the CLI writes the case before it exits
+  and the usage receipt is written after, so any generation with the receipt
+  has the bytes. A kill after promotion repeats it from the same evidence.
+  The `done` receipt carries no new trust: it lives in the same work directory
+  as `attack-state.json`. A receipt whose lease is null (`resumed_from_wait`),
+  missing, `interrupted` or bound to another operation is not promoted; the
+  call runs again under the same `operation_id` and round, which is the only
+  honest option when its output may be partial.
+
+Money and rounds. A mid-call resume pays for one new call under the same
+operation and round; the interrupted reservation is settled or estimated by
+the existing `reconcile_reservations` at resume. It does not add a writer
+round, rewrite `builder_rounds` beyond `n`, or touch any allowance. The writer
+continuation still checks the ordinary threshold at its next lease
+(Diff-7 decision above). A promoted completion pays nothing more.
+
+Nits folded in from completion diff review 1:
+
+- **N1.** The findings test drops `g1` from its fail-if-called list. `prev`
+  carries `failed_gate`, which short-circuits the pre-anchor G1 probe at
+  `run.py:1081–1082`, so the guard proved nothing about the refusal. A comment
+  says the probe predates both increments and is out of scope.
+- **N2.** `completed_writer_control` resets `provider_resume_done` and
+  `model_resume_state['done']` before the resumed run, as the neighbouring
+  precedent does, so the resume settles through `resume_provider_wait` and
+  `reconcile_reservations` like a fresh process.
+
+Tests, in `tests/factory/test_stream_d_runtime.py` on the hash-verified saved
+practice case and the captured 5813be ledger. Only model outputs and kills
+are authored.
+
+- `completed_writer_control` gains `window='checkpoint'|'returned'`.
+  `returned` kills right after `ModelRuntime.call` returns, before
+  `on_complete`. The three existing completion tests (unchanged requested
+  repair refuses with no new work, changed repair goes to stress without a
+  second writer, unchanged first writer without a repair request validates)
+  run in both windows.
+- Mid-call kill in round two after an authored stress report with blocking
+  findings. On resume: exactly one more `builder-2` call, with the same
+  `operation_id`, round 2, `builder_rounds == 2` and byte-identical prompt
+  context (same `attack_report` and `precheck_problems`). `loop_freshness` is
+  not called with `round-1.json` and `early_review` is not called before
+  `attacker-2`. The case then completes stress.
+- Strict pending intent: from that killed receipt, missing or malformed
+  `repair_requested`/`before_repair_sha256` and missing `findings_report`/
+  `input_problems` each refuse `invalid_recovery_receipt` with no model call,
+  receipt and ledger bytes unchanged after the resume settlement.
+- Validated-with-problems parity: kill after a round-one `validated` receipt
+  with G1 problems and a retained findings report; resume calls writer 2 with
+  that report and the G1 problems, with no freshness or early review first.
+- `pending_call` refuses a writer receipt without intent before any lease or
+  reservation. The shared `receipt()` helper gains valid intent fields.
+
+Rows. These tests exercise every row-10 boundary (mid-call, returned,
+completed, validated) on real saved case and ledger bytes through the real
+runtime, router and ledger code, the same standard used to close rows 22, 23
+and 36. If diff review accepts that, row 10 closes with these test names.
+Otherwise it waits for item 8. Row 9 stays open. Full required suite and a
+fresh goldfish diff review follow.
+
+Risk. Old V2 receipts missing intent now refuse instead of guessing; none are
+produced since 753b33e. A validated-with-problems resume no longer re-runs
+freshness on stale findings. That is a behaviour change, and it matches the
+uninterrupted loop.
