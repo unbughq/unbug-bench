@@ -58,6 +58,34 @@ class ProjectionTests(unittest.TestCase):
         self.card.pop('infrastructure_gate')
         self.assertTrue(diagnosis.pending_projection(self.card)['replacement_eligible'])
 
+    def test_b_core_queues_pending_infrastructure_but_never_derives_a_child(self):
+        # B's saved-ciphertext transport harness uses authored envelope bindings.
+        # Use D's real predicates, not the harness's authored answers.
+        import test_batch_service as batch_test
+        import budget
+        harness = batch_test.ServiceTests(); harness.setUp(); self.addCleanup(harness.doCleanups)
+        total = budget.case_spending(self.card['continuation_budget'])['total_spent_usd']
+        self.state(stop='infrastructure_exhausted')
+        pending = harness.input(total=total, terminal_stop='infrastructure_exhausted', gates={},
+            diagnosis_state=copy.deepcopy(self.card['diagnosis_state']),
+            continuation_budget=copy.deepcopy(self.card['continuation_budget']))
+        harness.collect()
+        planned = harness.plan(pending, diagnosis)
+        self.assertEqual(planned['facts']['pending_projection'],
+                         dict(schema_version=1, status='pending', replacement_eligible=False))
+        self.assertEqual([(q['kind'], q['job']) for q in planned['queue']], [('resume', 'j')])
+        self.assertEqual(harness.state()['derivations'], {})
+        completed_state = {**pending['diagnosis_state'], 'status': 'completed', 'outcome': 'factory_bug'}
+        completed = harness.input(payload=batch_test.KEY, total=total, terminal_stop='factory_bug_held', gates={},
+            diagnosis_state=completed_state, continuation_budget=copy.deepcopy(self.card['continuation_budget']),
+            factory_bug=dict(finding_id=completed_state['exhaustion_id'], gate_or_stage='unknown', summary_class='factory_bug'))
+        harness.collect()
+        after = harness.plan(completed, diagnosis)
+        self.assertEqual(completed['terminal_stop'], 'factory_bug_held')
+        self.assertIsNone(after['facts']['pending_projection'])
+        self.assertFalse(any(q['source_generation'] == completed['sha256'] for q in after['queue']))
+        self.assertEqual(harness.state()['derivations'], {})
+
     def test_bare_denied_or_estimated_reservation_is_zero_work(self):
         self.card['continuation_budget'] = {'events': [], 'invocation_reservations':
             {'denied': {'state': 'settled'}, 'crash': {'state': 'estimated', 'estimated_gap_usd': '10.000000000'}}}

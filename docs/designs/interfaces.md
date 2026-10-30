@@ -750,9 +750,16 @@ second debit on wait/crash replay. It clears the old infrastructure_gate before
 work. A later exhaustion gets a fresh diagnosis_state.stop; B still enforces
 one child per parent. D uses normal verified release/source authority, never a
 separate fix message. Code-linked invalid-infra attempt receipts bound the eligible waste operations;
-a diagnosis can only narrow that set. V2 waste records and the encrypted lifetime
+a diagnosis can only narrow that set. No such per-attempt producer exists today,
+so this hold increment uses empty eligible/failure sets and emits no v2 waste
+record. Attribution activation needs a separately reviewed producer/addendum.
+V2 waste records and the encrypted lifetime
 factory-bug-resumes.json history follow stream-d's exact held-lifecycle schema.
-Public factory_bug_resume_count is the history length. The same continuing case
+Public factory_bug_resume_count is a top-level integer equal to the valid
+history length, present only once history exists (0 on first hold). Missing
+history can be initialized before the first finding only with no prior hold,
+count, retained finding or factory-bug waste record; otherwise it fails closed.
+Unreadable history has no count and stops as factory_bug_history_invalid. The same continuing case
 gets a new B money owner across batches, preserving usage/history. The operator's
 later manifest inclusion is the fix decision; D does not attest the code change.
 Cross-batch resumable import remains blocked on B's reviewed addendum.

@@ -395,6 +395,16 @@ without the required real-artifact qualification.
 
 Implementation decisions for the held lifecycle:
 
+This increment implements the hold and refusal, not later-batch resume or waste
+attribution. The present `infra-attempts.json` has no per-attempt operation links.
+Therefore `eligible_operation_ids` and `failure_receipts` are always `[]` here,
+`affected_operations` must be empty for an accepted factory_bug diagnosis, and
+no schema-v2 waste record is emitted. Historical charges remain on the case
+line. The causal-receipt producer, replay mapping and v2 attribution activation
+below are requirements for a later reviewed addendum, not existing evidence or
+an enabled path. This closes ordinary-budget headroom until those proofs exist.
+The case can still be diagnosed and held; no in-batch work waits for the addendum.
+
 - `factory_bug_held` is exactly the `terminal_stop` literal, with `status: stopped`
   and no scored case failure. Public `gate_or_stage` is one of the non-sealing
   `run.GATES` names, `writer`, `stress`, `diagnosis`, or `unknown`. It comes only
@@ -425,7 +435,10 @@ Implementation decisions for the held lifecycle:
   a nine-place USD string. No record is emitted for an empty set. Extend that
   same record on later settlement, never append another charge. `resume_id`
   refers to the durable history below, and `resume_binding_sha256` hashes that
-  exact history entry. V1 records remain decode-only historical evidence;
+  exact history entry using UTF-8 JSON with sorted keys, compact comma/colon
+  separators and allow_nan=False (the existing carry_over.digest convention).
+  Future settlement growth must preserve the nine-place string amount, not
+  rewrite it to a float. V1 records remain decode-only historical evidence;
   new producers do not fill dummy fix commits or ask for fix credentials.
 - Hold records retain `held_batch_id`. A later resume requires a different
   authenticated `batch_id` and `batch_release_sha256`, the same case lineage,
@@ -435,29 +448,58 @@ Implementation decisions for the held lifecycle:
   Inclusion in that later batch's approved manifest is the operator's decision
   that the fix is present. D does not independently attest a code fix. Resuming
   without the fix still consumes one of the three lifetime admissions.
-- The encrypted `factory-bug-resumes.json` stores an append-only list of exactly
+- The encrypted `factory-bug-resumes.json` will store an append-only list of exactly
   `{schema_version:1, resume_id:<uuid4>, finding_id:<uuid4>, case, held_batch_id,
   batch_id, job_id, reservation_id, source_generation, batch_release_sha256}`.
   The current binding fields come from B's verified context; source_generation
   is the input checkpoint, never its containing output checkpoint. Each finding
-  and resume ID occurs once, with at most three entries. A new-schema fresh case
-  creates the empty history once; a restore with missing/malformed history never
-  resets it. Public `factory_bug_resume_count` is derived as its length.
-  Append before any resumed model work. A replay of the same admitted finding
+  and resume ID occurs once, with at most three entries. On the first held
+  finding, create missing empty history only when there is no prior factory_bug
+  card field, factory_bug_resume_count, retained finding, or factory_bug waste
+  record of any schema. This includes pre-rollout running cases without inventing
+  prior resumes. Atomic durable write order is history first, finding second,
+  public marker last; a crash before the finding can replay the empty history,
+  but a retained finding/hold with missing history refuses. Malformed history
+  never resets. Public `factory_bug_resume_count` is a top-level integer equal
+  to its length, present only once a valid history exists; a first hold shows 0.
+  Unreadable history removes the count and stops as factory_bug_history_invalid
+  (check case), never as a zero count. Append before any resumed model work. A replay of the same admitted finding
   retains its entry/ID, including wait/crash continuation, and does not debit
-  another slot. A subsequent held finding has a new exhaustion/finding ID.
+  another slot. This replay rule applies to the same admitted binding; movement
+  of an already-admitted resume into another batch belongs to B's reviewed
+  cross-batch addendum. A subsequent held finding has a new exhaustion/finding ID.
+  An unresumed hold stays charged to the case line. Future successful replay of
+  eligible failed units is waste only through the code-proven links, bounded by
+  the three admissions and those eligible units; arbitrary later work is excluded.
 - B currently refuses cross-batch resumable imports. That reviewed B addendum is
   an explicit prerequisite for the later-batch resume and its integration test.
   D can ship holding, state validation, attribution restrictions and refusal now;
   no D flag, public card or retired legacy-import record bypasses B's refusal.
   The current batch proceeds with ordinary other cases and has no fix dependency.
 
+The public stage mapping uses the original code-recorded stop and only valid
+`run.GATES` labels (that list itself excludes G12):
+
+| Original stop | gate_or_stage |
+| --- | --- |
+| infrastructure_exhausted | infrastructure_gate.gate if in run.GATES, else unknown |
+| late_defect_needs_ruling:<gate> | the validated gate suffix |
+| stress_review_unresolved:* | stress |
+| budget_exhausted | unknown (the literal does not identify a role) |
+| extension_incomplete | failed_gate if in run.GATES, else unknown |
+| anything else | unknown |
+
 Required parent-ruling replays: pending known-total infrastructure has a present
 ineligible projection, queues one same-owner diagnosis and derives no child;
 a completed factory_bug diagnosis has `terminal_stop: factory_bug_held`, projects
 None and derives no child. D tests its states/API with the B core where possible;
 B owns the adapter end-to-end test. Resume-count/binding tests remain offline
-until B adopts the cross-batch path. These do not claim rollout qualification.
+until B adopts the cross-batch path. Use saved 5813be for pending/completed
+infrastructure and the missing-history first-hold replay; use its retained ledger
+for input/charge preservation. The pre-rollout card acquires history on first
+hold; its later-resume test is an offline binding/history test until B adopts the
+path. Public-stage/count refusal tests use authored mutations of those real
+bytes. These do not claim rollout qualification.
 
 ## Resume, accounting and checkpoints
 
