@@ -400,8 +400,18 @@ B consumes D's pure exhaustion/actual-model-work eligibility function and its
 content-free pending-diagnosis projection. B does not reproduce their predicates
 from stop labels, dollar spend or reservation counts. A denied reservation is
 zero work and does not qualify; a real zero-cash subscription invocation can.
-Enqueue one replacement immediately when D declares the original eligible,
-without waiting for diagnosis. Unknown totals still block its admission until
+Enqueue one replacement immediately when D's pending_projection(card) returns a
+PRESENT record whose replacement_eligible is exactly true, before diagnosis runs.
+A None projection NEVER permits first derivation, even when exhaustion(card)
+and actual_model_work(card) both return true. B never re-derives eligibility from
+those predicates or stop labels. This is the parent ruling of 2026-10-30.
+D checkpoints the pending state on first exhaustion, before any diagnosis call,
+so the first collected exhausted card with actual work exposes an eligible
+projection (except infrastructure exhaustion). Completed diagnosis clears it.
+B's one-child-per-parent journal is the durable latch: later exhaustions may
+request diagnosis again, but never make that parent eligible to derive another
+child. Replay returns the existing derivation without new admission.
+Do not wait for diagnosis. Unknown totals still block its admission until
 settlement under the rules above. Diagnosis runs inside the original's ordinary
 same-owner resume, after settlement and known-total checks; B schedules that
 resume from D's projection and never creates another diagnosis money owner.
@@ -637,8 +647,12 @@ terminal_stop, diagnosis_state.stop is the literal infrastructure_exhausted.
   `{"schema_version":1,"status":"pending","replacement_eligible":<bool>}`.
   replacement_eligible = actual_model_work(card) AND NOT
   recovery.infrastructure_exhausted(card). Infrastructure exhaustion requests
-  read-only diagnosis only; it does not spawn replacement chains. B calls
-  these functions rather than copying the predicates, and binds output to its
+  read-only diagnosis only; it does not spawn replacement chains. B derives a child only from a PRESENT pending_projection with
+  replacement_eligible exactly true; None always forbids first derivation.
+  exhaustion and actual_model_work are diagnostic helpers, never a fallback
+  authorization when the projection is absent. B applies its one-child journal
+  before derivation, so later pending states cannot admit a second child.
+  B calls these functions rather than copying the predicates, and binds output to its
   verified collected case/generation externally.
 
 D's runner records the content-free field `diagnosis_state` with exactly

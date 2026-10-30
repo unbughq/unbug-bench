@@ -989,3 +989,12 @@ once and a substantive late defect completes the extension as extension_incomple
 A close_to_passing diagnosis continues in the same worker into extension admission;
 factory_bug queues maintenance and not_converging retires. The required real-ledger
 replays are listed in interfaces §8; no code is enabled by these clarifications.
+
+Parent ruling, 2026-10-30 (replacement derivation): B requires a present D
+pending_projection with replacement_eligible exactly true. None forbids first
+derivation even when exhaustion and actual_model_work remain true (including a
+completed infrastructure diagnosis). D records pending state and checkpoints the
+first exhaustion before diagnosis; B derives immediately from that collected
+projection. Completed diagnosis clears it. Subsequent distinct exhaustion may
+request diagnosis, but B's durable one-child-per-parent journal never admits a
+second child. D's pure card-only API does not pretend to read that external latch.
