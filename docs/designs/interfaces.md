@@ -277,11 +277,13 @@ denial.
 
 B serializes money admission under `~/.unbug-control/batches/<batch>/lock`.
 The authorized manifest has `money_limit_usd` (decimal string, nine places),
-`batch_deadline` (absolute UTC), `target_slots`, and jobs with a fixed case ID,
-`requested_total_usd`. Scheduling priority (`replacement`, `diagnosis`,
-`extension`, `ordinary`) belongs to an admission/revision request, not to a
-second job for the same case. No missing field creates authority. FIFO within priority;
-replacement first, diagnosis next, extension next, ordinary last.
+`batch_deadline` (absolute UTC), `target_slots`, and root jobs with fixed case IDs
+and `requested_total_usd`. A pinned `replacement_policy:{schema:1,enabled:true}`
+authorizes replacement-derived jobs as described below; absent/disabled refuses
+them. Scheduling priority belongs to an admission/revision request, not another
+money owner for the same case. Covered settlement resumes run first; then
+replacement, same-owner exhaustion/diagnosis resume, extension, ordinary work,
+FIFO within each class. Blocked requests never block later eligible work.
 
 The durable authority is `~/.unbug-control/batch-money/<batch>/jobs/<job>.json`, copied unchanged
 into authenticated worker configuration and checkpointed:
@@ -297,7 +299,8 @@ collected ciphertext sha256. The commitment is cumulative authority including
 already-spent money and infrastructure waste, never a fresh allowance. A case
 has one job money owner; changing stage/worker does not change that owner.
 Replacement cases have distinct jobs and reservations. A diagnosis of the same
-case uses its existing money owner. A manifest amendment cannot lower a limit
+case uses its existing money owner and an ordinary same-owner relaunch; there
+is no separate diagnosis launch mode or configuration shape. A manifest amendment cannot lower a limit
 below spend or outstanding commitments; it cannot revive terminal batch-bound
 work. D requests revisions by collecting `terminal_stop: money_wait` with
 `money_wait: {requested_total_usd, reservation_id, revision, priority}`; it makes no further
@@ -356,9 +359,12 @@ source before D's exact-equality check. Rebind starts from the current persisted
 source and advances along acknowledged collection lineage; replay of an older
 source (including A→B→A) refuses. D runs `settle()` first on that resume,
 before another model invocation. Covered same-owner/same-revision settlement
-resumes have priority ahead of replacement, diagnosis and extension. For a
-rounds/money-exhausted owner this is settlement-only: no model invocation, then
-checkpoint and collect through the same launcher. A request blocked on money or
+resumes have priority ahead of replacement, diagnosis and extension. The worker
+reads its authenticated restored exhaustion state, settles and checks that the
+total is known before D runs its read-only diagnosis under the existing owner
+and authority. B supplies no settlement-only or diagnosis mode. A known settled
+checkpoint must be durably collected/acknowledged before dependent replacement
+admission; it does not wait for the diagnosis result. A request blocked on money or
 an unknown total retains its FIFO position but never blocks later eligible
 requests, including the settlement that can unblock it. Until settlement produces a known total, new
 admission, increased commitment, revision old+1, replacement, diagnosis and
@@ -380,6 +386,42 @@ enabled; increment2's fresh-only authorizer/installer continues to refuse them.
 The real practice qualification must collect a null-total provider wait, retire,
 resume at the same revision, settle and finish; it must also demonstrate a
 receipt-backed decrease and refusal of the same decrease without that receipt.
+
+### Replacement derivation and D's exhaustion projection
+
+B consumes D's pure exhaustion/actual-model-work eligibility function and its
+content-free pending-diagnosis projection. B does not reproduce their predicates
+from stop labels, dollar spend or reservation counts. A denied reservation is
+zero work and does not qualify; a real zero-cash subscription invocation can.
+Enqueue one replacement immediately when D declares the original eligible,
+without waiting for diagnosis. Unknown totals still block its admission until
+settlement under the rules above. Diagnosis runs inside the original's ordinary
+same-owner resume, after settlement and known-total checks; B schedules that
+resume from D's projection and never creates another diagnosis money owner.
+
+The finite manifest jobs map names roots, not a cap on derived work. For an
+enabled replacement policy, root job J derives J-r1, then J-r2 from J-r1, and so
+on; cases are case-<batch>-<derived-job>. Root names may not end in -r<positive
+integer>, so derivations cannot collide with root names. Each immediate original
+case gets at most one child across all generations/extensions/replays. Under the
+batch lock record parent case/job, root job, ordinal, child case/job and the
+eligible collected generation in the journal before admission. Replaying that
+derivation returns the same child. A derived child can itself qualify for its
+one replacement. It gets a distinct job/reservation and inherits the root's
+approved source/roles/non-money arguments and initial requested authority.
+
+Holder, bind, money validation and worker installation resolve derived jobs via
+the same pure manifest-template resolver; only the holder's verified journal
+derivation plus D eligibility permits admission. Do not insert mutable derived
+jobs into the frozen manifest/policy or change the nine-field RAM config shape.
+`target_slots` is the reporting goal and `max_concurrency` limits simultaneous
+workers, not lineage length; neither is capped by len(manifest.jobs). There is
+no replacement-count, manifest-job-count or successful-candidate cap. Cumulative
+money and the absolute deadline bound the chain; normal capacity/retirement
+checks continue to apply. Test J→J-r1→J-r2 with replay of every derivation,
+distinct owners, one child per parent, root-only manifest, concurrency above the
+root count, and refusal at the money bound/deadline. Concrete D projection API
+names/fields are supplied by D and reviewed before this adapter is enabled.
 
 D's per-invocation reservation/settlement remains in the case ledger. B never
 books usage. Provider wait/relaunch consumes no D case counters or holder legacy

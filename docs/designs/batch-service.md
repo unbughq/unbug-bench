@@ -91,6 +91,7 @@ Schema-v1 example (IDs/amounts are illustrative, not authorization):
 {"schema":1,"id":"practice-b","batch_deadline":"2026-11-01T00:00:00Z",
  "money_limit_usd":"3.000000000","target_slots":1,"max_concurrency":1,
  "restore_recipient":"age1...",
+ "replacement_policy":{"schema":1,"enabled":true},
  "router":{"config_path":"factory/batches/practice-b-router.json",
            "config_sha256":"<64hex>","url":"https://router.example:8765"},
  "jobs":{"practice":{"case":"case-practice-b-practice","mode":"batch",
@@ -100,7 +101,7 @@ Schema-v1 example (IDs/amounts are illustrative, not authorization):
  "daily_need":{"boat_usd":"0.100000000","openrouter_usd":"0.200000000"}}
 ```
 
-`target_slots`/`max_concurrency` positive integers, concurrency <= job count;
+`target_slots`/`max_concurrency` positive integers, independent of root job count;
 case is exactly case-<batch>-<job>. UTC deadline has explicit zone, amounts are
 finite nonnegative decimal strings of nine places (model bound positive),
 router config contains database path, capacity integer 0–100 per pool, allowed
@@ -765,38 +766,69 @@ fresh goldfish diff review are mandatory before parent merges this increment.
 
 Use this service's existing durable admission queue and `launch(batch, job,
 checkpoint_or_empty)` for all job kinds. No second launcher or service. Requests
-carry kind `replacement`, `diagnosis` or `extension`, original money-owner job,
-source generation and a stable request ID; persist queue sequence and deduplicate
-before launch. Replacement is first, diagnosis next, extension last, FIFO within
-each class. Blocked requests retain their position; capacity, deadline and money
-admission still apply. Ordinary work follows these three classes. A covered
-same-owner/same-revision settlement resume per interfaces§8 runs ahead of all
-three classes. For an exhausted owner this is settlement-only: no model
-invocation, then checkpoint and collect through the same launcher. A request
-blocked on money or an unknown total retains its FIFO position but does not
-block later eligible requests. Rebind must start from the current persisted
-source and advance along acknowledged collection lineage; stale A→B→A refuses.
+carry the original owner, source generation and stable request ID; persist queue
+sequence and deduplicate before launch. Covered same-owner/same-revision resumes
+that can settle unknown usage go first, then replacements, same-owner exhaustion
+resumes, extensions and ordinary work, FIFO within each class. Blocked requests
+retain their place without blocking later eligible requests. Capacity, deadline
+and money admission still apply. Rebind starts at the current persisted source
+and advances along acknowledged collection lineage; stale A→B→A refuses.
 
-For a rounds/money exhaustion projection, enqueue at most one replacement for
-the original case immediately, without waiting for diagnosis. Eligibility needs
-at least one real provider model invocation; a denied reservation is zero work
-and gets no replacement. A zero-cash subscription invocation still counts as
-real work. Replacement has a distinct case/job/reservation from the original;
-replay across collected generations cannot create a second replacement. Unknown
-original totals block replacement until settle as interfaces§8 requires.
+Diagnosis adds no launch mode, flags or frozen-config fields. B uses D's pure
+exhaustion/actual-work eligibility function and content-free pending-diagnosis
+projection, not a predicate re-derived from public stop labels/spend/counters.
+B relaunches the exhausted original through the ordinary same-owner launch;
+the worker reads its authenticated restored card, settles, requires a known
+total and then D runs the read-only diagnosis with the original money owner.
+No diagnosis call is admitted while usage is unknown. A known settled checkpoint
+must reach B's verified collection/ACK before dependent replacement admission;
+that acknowledgment does not wait for the diagnosis result. This uses the
+existing D/B durable boundary hook, not another launcher or a host-side settler.
 
-Next enqueue D's read-only diagnosis using the original money owner, preserving
-the same cumulative spend and reservation. Extension requests use that owner too
-and can raise revision old+1 only after D projects close_to_passing and its code
-accepts count/package/progress eligibility. B grants no eligibility itself. No
-diagnosis/extension dispatch while the preceding worker is live or usage unknown.
-D will supply its concrete verified projection fields before integration; until
-their adapter and acceptance tests pass, these request kinds remain disabled.
-The hook consumes that projection, never infers eligibility from a public stop
-label or supplies an alternate ledger. Tests must prove priority/FIFO, one
-replacement despite replay, zero invocations→no replacement, original owner for
-diagnosis/extension, and the unknown-total block. This is planned2b scope, not
-authority granted by increment2.
-Also test that an exhausted unknown-total owner gets a settlement-only resume
-before its blocked replacement, that settlement makes the request eligible,
-and that blocked FIFO entries do not prevent later eligible work.
+Immediately enqueue one replacement when D's eligibility says the original is
+exhausted and did actual model work; never wait for diagnosis. A denied
+reservation is zero work; real zero-cash subscription invocation can qualify.
+Unknown original totals still block replacement admission until settlement.
+Extension requests preserve the original owner and can raise revision old+1 only
+after D projects close_to_passing and its code accepts count/package/progress
+eligibility. B grants no eligibility itself. The concrete D function/projection
+API is provided by D and reviewed before adapter enablement.
+
+### Authorized replacement chains
+
+The manifest roots are templates, not a finite work queue. Its pinned
+replacement_policy:{schema:1,enabled:true} explicitly authorizes derived jobs;
+absent/disabled refuses them. Root job names reserve the terminal -r<positive
+integer> suffix for derived children. Root J yields J-r1, whose one replacement
+is J-r2, and so on, with case-<batch>-<job> case IDs. No root may use that suffix,
+so template lookup and child identity are unambiguous. Each child inherits the
+root's approved source/roles/non-money args and initial requested authority;
+it has a distinct cumulative money owner and reservation.
+
+Under the batch lock, journal derivation binds parent case/job, root job,
+ordinal, child case/job and D's eligible collected generation before reservation.
+The deduplication key is the immediate parent case, not generation or extension.
+Replay returns its already-recorded child, even when the parent is collected or
+extended again. A child that D later declares eligible may itself yield one
+child. The same pure template resolver is used by batch.bind, holder, batch_money
+and job_config.install; holder admission additionally requires the journal-bound
+derivation and D eligibility. Do not mutate the frozen manifest/policy jobs map
+or change the existing RAM config shape to represent these jobs.
+
+Increment2b removes check_manifest's current <=len(jobs) restriction and direct
+record['jobs'][derived_id] assumptions from bind/holder/money/installer before
+derived work is enabled. target_slots remains the reporting goal; max_concurrency
+is a simultaneous-worker bound independent of root count. No hidden chain cap
+comes from manifest job count, replacement count or number of sealed candidates.
+The cumulative batch bound and deadline limit total derived work; capacity and
+verified retirement constrain dispatch as usual. Both sealed originals and
+replacements are retained under ENGINEERING§3.
+
+Tests: root-only manifest, max_concurrency greater than root count, J→J-r1→J-r2,
+deterministic IDs and distinct owners, once per parent despite generation and
+extension replays, actual-work eligibility including denied-zero and zero-cash,
+FIFO/eligible bypass, settlement resume ahead of a blocked replacement, known
+settlement ACK without waiting for diagnosis, same-owner diagnosis/extension,
+and refusal at money/deadline. Actual eligibility calls use D's implementation;
+until its concrete adapter and tests pass, derived/diagnosis integration stays
+disabled. This is planned2b scope, not authority granted by increment2.
