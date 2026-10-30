@@ -67,3 +67,14 @@ Both majors are fine while nothing calls the producer, but each would leave a ca
 
 PASS accepted for the explicitly unwired producer. Ma1 and Ma2 accepted and required before dispatcher wiring: factory_bug_history_invalid is a terminal attention stop with no pending projection, and the result/replay evidence root must be the immutable queued input snapshot, never the live work ledger. Add regression assertions for pending and completed history-invalid cards and a live-ledger append after an interrupted finding write. N2 will receive type guards; N4 remains an explicit edit point in B's later cross-batch addendum. No finding rejected and no Murphy row closed. Keep the currently running fab9014 suite pinned; the dispatcher slice must include and review these fixes before activation.
 
+
+## Full-suite verification
+
+The writer ran `uv run --with numpy --with scipy python -B tests/run.py`
+pinned to `fab9014a9773784538450faa9cc4bd4469b2e210`. Result:
+**146 test scripts run; 0 failed.** Production code and tests remained
+byte-identical to that commit for the entire run; only the review record,
+queued-input design proposal and excluded drafts changed.
+Log: `/tmp/stream-d-held-suite.log`; SHA-256: `82727510d70053e13406eccfe9c5056a11a758adbb3d6487cf61c56e0455ed9e`.
+The producer remains unwired. Both accepted majors must be fixed before
+diagnosis dispatch invokes it. No Murphy row closes.
