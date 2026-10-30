@@ -2749,6 +2749,12 @@ def inherit_recovery_history(c, previous):
     for key in ('builder_rounds', 'models_used', 'budget_raised', 'rounds_raised', 'founder_ruling'):
         if key in previous and key not in c.card: c.card[key] = copy.deepcopy(previous[key])
     if model_runtime.factory_job(c):
+        import diagnosis
+        history = diagnosis.extension_history(previous)
+        if history is None or ('diagnosis_state' in previous and diagnosis._state(previous, history) is None):
+            raise BudgetError('diagnosis_state_invalid')
+        for key in ('diagnosis_state', 'extension_history'):
+            if key in previous: c.card[key] = copy.deepcopy(previous[key])
         ordinary = (previous.get('case_budget') or {}).get('ordinary_limit_usd')
         configured = (previous.get('recovery_config') or {}).get('ordinary_limit_usd')
         if ordinary is not None and configured is not None and ordinary != configured:
@@ -2780,6 +2786,13 @@ def finalize_accounting(c):
             c.card.setdefault('cleanup_errors', []).append({'stage':stage, 'error':type(error).__name__})
             c.card.setdefault('terminal_stop', 'runner_error:' + type(error).__name__)
             c.stopped = True
+    if model_runtime.factory_job(c) and getattr(c, 'stopped', False):
+        # The first exhausted run stops and checkpoints a pending request. Model
+        # diagnosis belongs to a later same-owner resume, after B collection.
+        import diagnosis
+        try: diagnosis.record_exhaustion(c.card, new_exhaustion=getattr(c, 'exhaustion_occurred', False))
+        except BudgetError:
+            c.card.setdefault('cleanup_errors', []).append({'stage': 'diagnosis_state', 'error': 'BudgetError'})
 
 
 def argument_parser():
@@ -3042,6 +3055,7 @@ def main():
             write_provider_wait(c, error)
         else:
             c.card['terminal_stop'] = 'paused' if isinstance(error, PauseRequested) else str(error)
+            c.exhaustion_occurred = isinstance(error, BudgetError)
         if isinstance(error, PauseRequested): c.card.update(pause_terminal(error, c.case_id))
         if str(error) == 'budget_exhausted' and (c.work / 'attack-state.json').exists() and c.card.get('stress_review', {}).get('status') != 'completed':
             c.card['stress_review'] = {'status': 'unresolved', 'reason': 'budget_exhausted'}
@@ -3053,6 +3067,7 @@ def main():
         from run_validity import InfrastructureExhausted
         c.card['terminal_stop'] = ('infrastructure_exhausted' if isinstance(error, InfrastructureExhausted)
                                    else 'runner_error:' + type(error).__name__)
+        c.exhaustion_occurred = isinstance(error, InfrastructureExhausted)
     finally:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)  # finishing up: a late pause request must not break the seal
         c.card["wall_minutes"] = round((time.time() - c.t0) / 60, 1)

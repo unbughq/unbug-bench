@@ -111,6 +111,45 @@ class RuntimeTests(unittest.TestCase):
                                  ('settled', [], '0.000000000'))
                 self.assertEqual(budget.case_spending(ledger)['total_spent_usd'], self.baseline)
 
+    def test_first_exhaustion_is_checkpointed_pending_without_inline_diagnosis(self):
+        import diagnosis
+        self.c.stopped = True
+        self.c.card.update(terminal_stop='budget_exhausted', gates={})
+        self.patch(run, 'model_call', side_effect=AssertionError('diagnosis must not run inline'))
+        run.finalize_accounting(self.c)
+        state = copy.deepcopy(self.c.card['diagnosis_state'])
+        self.assertEqual(state['status'], 'pending')
+        self.assertTrue(diagnosis.pending_projection(self.c.card)['replacement_eligible'])
+        self.assertNotIn('sha256', state)
+        run.finalize_accounting(self.c)
+        self.assertEqual(self.c.card['diagnosis_state'], state)
+        restored = SimpleNamespace(card={}, args=self.c.args, job_money=self.c.job_money)
+        run.inherit_recovery_history(restored, self.c.card)
+        self.assertEqual(restored.card['diagnosis_state'], state)
+        restored.card['diagnosis_state']['status'] = 'completed'
+        self.assertEqual(self.c.card['diagnosis_state'], state)
+
+    def test_held_or_pending_extension_never_creates_a_new_diagnosis_id(self):
+        import diagnosis
+        self.c.card.update(terminal_stop='infrastructure_exhausted', gates={})
+        diagnosis.record_exhaustion(self.c.card)
+        self.c.card['diagnosis_state'].update(status='completed', outcome='factory_bug')
+        self.c.card.update(terminal_stop='factory_bug_held', infrastructure_gate={'exhausted': True})
+        state = copy.deepcopy(self.c.card['diagnosis_state'])
+        diagnosis.record_exhaustion(self.c.card)
+        self.assertEqual(self.c.card['diagnosis_state'], state)
+        self.c.card.update(terminal_stop='budget_exhausted', extension_history=[dict(
+            schema_version=1, extension_id=1, writer_operation_id=str(uuid.uuid4()),
+            entry_sha256='a' * 64, outcome_sha256=None)])
+        diagnosis.record_exhaustion(self.c.card)
+        self.assertEqual(self.c.card['diagnosis_state'], state)
+        self.c.card['extension_history'][0]['outcome_sha256'] = 'b' * 64
+        self.c.card['terminal_stop'] = 'extension_incomplete'
+        diagnosis.record_exhaustion(self.c.card)
+        self.assertEqual(self.c.card['diagnosis_state'], state)
+        diagnosis.record_exhaustion(self.c.card, new_exhaustion=True)
+        self.assertNotEqual(self.c.card['diagnosis_state']['exhaustion_id'], state['exhaustion_id'])
+
     def test_stream_accountant_links_unknown_usage_and_settles_once_above_five_dollars(self):
         self.assertGreater(self.source['continuation_budget']['cost'], 5)
         lease = model_router.Lease(str(uuid.uuid4()), self.c.models['builder'][0], 'claude-token', 1,
