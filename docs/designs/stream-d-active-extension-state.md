@@ -14,7 +14,7 @@ Those conditions were true when the completed close-to-passing diagnosis was
 made, before its new extension was admitted. Applying them to the post-admission
 history makes that legitimate state invalid. `finalize_accounting` records a
 diagnosis-state cleanup error, and the current diagnosis dispatcher refuses the
-next resume before it even reads the private extension history. The initial
+next resume before it even reads the private extension history. `inherit_recovery_history` also refuses before dispatch on real resumes. The initial
 budget/infrastructure exhaustion controls miss this because their triggers do
 not depend on extension history.
 
@@ -25,6 +25,15 @@ current dispatcher still stops verified close-to-passing cases at
 receipt crash window, B2 comparison isolation, M5 scientific receipts and M6
 continuation routing remain open. In particular, this does not claim to recover
 the missing writer intent left by the current first-admission write order.
+
+The goal is to remember why the extra round was granted while that round is
+still running, without granting another round or losing the original decision.
+
+Target files are `factory/diagnosis.py` (`_state`, `exhaustion`),
+`factory/extensions.py` (`read`), and existing
+`tests/factory/test_stream_d_extensions.py` and `test_stream_d_dispatch.py`.
+The extension tests also cover public projection, batch enqueue and finalization
+through their real APIs; no additional harness is needed.
 
 No new field, schema, launcher, authority or runtime switch is added.
 `DIAGNOSIS_ENABLED` remains false. The work is one implementation increment,
@@ -41,6 +50,8 @@ a late-defect diagnosis.
 In `_state(card, history)`, after validating the diagnosis envelope and before
 checking its original trigger, select the history used only for that check:
 
+- Guard the prefix condition with `history and ...`, so callers passing None
+  for malformed history do not index it.
 - If the state is `status='completed', outcome='close_to_passing'`, and the
   supplied validated public history ends in an active row
   (`outcome_sha256 is None`), use `history[:-1]` for the trigger check.
@@ -63,8 +74,14 @@ validation before `_state` is used.
 `record_exhaustion` continues to test a new literal stop against the **full**
 current history. Its active-row guard remains. It must not mint another ID while
 the extension is active, even if finalization receives `new_exhaustion=True`
-from an infrastructure or budget exception. `pending_projection` stays None
-for an active extension. Once an outcome is retained and the runner stops with
+from an infrastructure or budget exception. `exhaustion` explicitly returns False for any valid history ending in an active
+row, including budget/infrastructure stops and retained infrastructure markers.
+This keeps active work out of batch settlement/replacement queues; active
+continuation routing remains a separate increment. For budget/infrastructure
+origins this deliberately removes the old settlement enqueue; an unknown total
+stays held until that routing increment. `pending_projection` stays None
+for an active extension. As a consequence (not a separate edit), `propose` now reports `extension_already_active` for
+a valid active diagnosis instead of the misleading `extension_diagnosis_required`. Once an outcome is retained and the runner stops with
 a new literal `extension_incomplete`, the existing finalizer mints the next
 pending exhaustion normally, using the full completed history.
 
@@ -72,6 +89,7 @@ pending exhaustion normally, using the full completed history.
 
 In `extensions.read`, after verifying every private row, reservation, snapshot
 and comparison and constructing `projected = public(history)`, add one check
+after the public lag check and before assigning the public projection,
 when the last private row is active:
 
 1. `_state(c.card, projected)` must return a completed close-to-passing state.
@@ -95,7 +113,9 @@ diagnosis application, as in the passed admission design.
 For the history-file and ledger-read handlers in `extensions.read`, narrow
 `OSError` to `FileNotFoundError`, as already done for diagnosis history readers.
 Missing/malformed retained records remain semantic history refusals. Permission,
-EIO and other non-missing read failures propagate as infrastructure. This does
+EIO and other non-missing read failures propagate as infrastructure. This follows the existing diagnosis-reader precedent: directory/wrong-type paths
+propagate as infrastructure too, verified with a directory control. A permanent
+wrong-type fault therefore retries until infrastructure exhaustion. It does
 not change snapshot validation or add a terminal recovery/reset mechanism.
 
 ## Tests and artifacts
@@ -121,7 +141,24 @@ is needed. Tests must cover these observable transitions:
   diagnosis-state cleanup error, None pending projection, no new reservation or
   writer. Reconciliation may settle an already-existing reservation; do not
   assert unchanged accounting bytes when it legitimately does so.
-- Complete the active extension and finalize a literal `extension_incomplete`.
+- For both origins, use the existing dispatcher harness to retain a decision and
+  replay it with the extension active. Assert `extension_comparison_pending`,
+  unchanged diagnosis/history and no new reviewer/writer call. Change the diagnosis
+  UUID as a negative control; replay must propagate
+  `BudgetError('extension_history_invalid')` without changing extension-history.json,
+  extension-snapshots/, diagnosis/<id>/ or the card diagnosis_state/extension_history.
+  The binding does not set terminal_stop. Reconciliation may update the existing
+  reservation ledger; dispatcher order stays unchanged. The second
+  origin must verify frozen `extension_incomplete` evidence after admission.
+- Exercise `inherit_recovery_history` directly for a valid active origin, before
+  dispatcher replay. Its shared `_state` validation is the entry-path change; a
+  second subprocess main harness would duplicate that validation.
+- Assert `exhaustion` False and pending projection None for active cards under all
+  listed stops, budget exhaustion and a retained infrastructure marker. Exercise
+  batch projection/enqueue with known and unknown totals: neither settlement nor
+  replacement work is enqueued for the active card.
+- Complete the active extension and finalize a literal `extension_incomplete`
+  with `exhaustion_occurred=True`.
   Assert exactly one new pending exhaustion ID, then a second finalization keeps
   that new ID. This kills an overbroad implementation that preserves the old
   completed diagnosis forever.

@@ -24,6 +24,8 @@ import batch_service
 import budget
 from carry_over import digest
 import diagnosis
+import extensions
+import test_stream_d_extensions as extension_tests
 import diagnosis_dispatch as dispatch
 import diagnosis_task as task
 import job_authority
@@ -235,6 +237,73 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
                     self.c.checkpoint_card = copy.deepcopy(self.c.card)
                     self.install_receipt()
                     self.parent = self.work / 'diagnosis' / self.c.card['diagnosis_state']['exhaustion_id']
+
+    def admit_active_control(self, frontier):
+        entry = extension_tests.ExtensionTests.snapshot(self, frontier)
+        proposal, lease, operation = extension_tests.ExtensionTests.reserve(self, entry, retain_diagnosis=True)
+        row = extensions.admit(self.c, proposal, lease, operation)
+        self.c.card['builder_rounds'] = row['round']
+        return row
+
+    def check_active_dispatch(self, origin):
+        self.answer = 'close_to_passing'
+        self.c.card.update(builder_rounds=8, recovery_config={'rounds': 8})
+        if origin.startswith('late_defect'):
+            gate = origin.split(':')[1]
+            record = dict(version=1, gate=gate, detail='authored defect')
+            (self.work / 'late-defect.json').write_text(json.dumps(record))
+            self.c.card['late_defect'] = dict(gate=gate, record_sha256=digest(record))
+            self.c.card['terminal_stop'] = origin
+            self.c.card['diagnosis_state']['stop'] = origin
+        self.c.checkpoint_card = copy.deepcopy(self.c.card)
+        self.install_receipt()
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+            self.stopped('extension_comparison_pending')
+        if origin == 'extension_incomplete':
+            self.admit_active_control(1)
+            extensions.complete(self.c, extension_tests.ExtensionTests.snapshot(self, 2))
+            self.c.card['terminal_stop'] = origin
+            self.c.exhaustion_occurred = True
+            run.finalize_accounting(self.c)
+            self.parent = self.work / 'diagnosis' / self.c.card['diagnosis_state']['exhaustion_id']
+            self.c.checkpoint_card = copy.deepcopy(self.c.card)
+            self.install_receipt()
+            with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+                self.stopped('extension_comparison_pending')
+        self.admit_active_control(2 if origin == 'extension_incomplete' else 1)
+        saved = copy.deepcopy(self.c.card)
+        private = {name: extensions.tree(self.work / name) for name in ('extension-snapshots', 'diagnosis')}
+        history = (self.work / 'extension-history.json').read_bytes()
+        calls = list(self.calls)
+        self.pilots.reset_mock(); self.qualify.reset_mock(); self.helper_calls.clear()
+        for _ in range(2):
+            self.resume()
+            run.inherit_recovery_history(self.c, self.c.checkpoint_card)
+            self.stopped('extension_comparison_pending')
+            self.assertEqual(self.c.card['diagnosis_state'], saved['diagnosis_state'])
+            self.assertEqual(self.c.card['extension_history'], saved['extension_history'])
+            self.assertEqual(self.calls, calls)
+            self.assertEqual({name: extensions.tree(self.work / name) for name in private}, private)
+            self.assertEqual((self.work / 'extension-history.json').read_bytes(), history)
+        self.pilots.assert_not_called(); self.qualify.assert_not_called()
+        self.assertEqual(self.helper_calls, [])
+        self.c.card['diagnosis_state']['exhaustion_id'] = str(uuid.uuid4())
+        wrong = copy.deepcopy(self.c.card['diagnosis_state'])
+        self.resume()
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_history_invalid$'):
+            dispatch.dispatch(self.c, run)
+        self.assertEqual(self.c.card['diagnosis_state'], wrong)
+        self.assertEqual(self.c.card['extension_history'], saved['extension_history'])
+        self.assertNotIn('terminal_stop', self.c.card)
+        self.assertEqual((self.work / 'extension-history.json').read_bytes(), history)
+        self.assertEqual({name: extensions.tree(self.work / name) for name in private}, private)
+        self.assertEqual(self.calls, calls)
+
+    def test_late_origin_active_dispatch_replays_retained_decision(self):
+        self.check_active_dispatch('late_defect_needs_ruling:G4')
+
+    def test_second_extension_active_dispatch_verifies_frozen_completed_history(self):
+        self.check_active_dispatch('extension_incomplete')
 
     def test_valid_journal_without_decision_finishes_before_gate(self):
         with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'decision', side_effect=Crash):

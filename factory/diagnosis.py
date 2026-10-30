@@ -61,7 +61,13 @@ def _state(card, history):
     if (not isinstance(state, dict) or set(state) !=
             {'schema_version', 'exhaustion_id', 'stop', 'status', 'outcome'} or
             type(state['schema_version']) is not int or state['schema_version'] != 1 or
-            not _uuid4(state['exhaustion_id']) or not _trigger(card, state['stop'], history)): return None
+            not _uuid4(state['exhaustion_id'])): return None
+    # Validate the retained decision against the history before its admission.
+    origin = history
+    if (state['status'] == 'completed' and state['outcome'] == 'close_to_passing'
+            and history and history[-1]['outcome_sha256'] is None):
+        origin = history[:-1]
+    if not _trigger(card, state['stop'], origin): return None
     if state['status'] == 'pending' and state['outcome'] is None: return state
     if state['status'] == 'completed' and state['outcome'] in ('factory_bug', 'close_to_passing', 'not_converging'):
         return state
@@ -76,7 +82,7 @@ def exhaustion(card):
             stop in ('provider_wait', 'paused', 'ttl_retired', 'factory_bug_history_invalid', 'diagnosis_input_invalid') or
             (isinstance(stop, str) and stop.startswith('retired'))): return False
     history = extension_history(card)
-    if history is None: return False
+    if history is None or (history and history[-1]['outcome_sha256'] is None): return False
     if 'diagnosis_state' in card and _state(card, history) is None: return False
     if stop == 'diagnosis_pending':
         state = _state(card, history)

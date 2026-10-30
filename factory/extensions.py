@@ -97,7 +97,7 @@ def read(c):
     path = c.work / 'extension-history.json'
     if path.is_symlink(): raise BudgetError('extension_history_invalid')
     try: history = json.loads(path.read_text()) if path.exists() else []
-    except (ValueError, OSError): raise BudgetError('extension_history_invalid') from None
+    except (ValueError, FileNotFoundError): raise BudgetError('extension_history_invalid') from None
     if not isinstance(history, list) or len(history) > LIMIT: raise BudgetError('extension_history_invalid')
     operations, diagnoses = set(), set()
     for number, row in enumerate(history, 1):
@@ -118,7 +118,7 @@ def read(c):
             if not any(r['operation_id'] == row['writer_operation_id'] and
                        r['call_name'] == 'builder-' + str(row['round']) for r in reservations.values()):
                 raise ValueError()
-        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        except (FileNotFoundError, ValueError, KeyError, TypeError, AttributeError):
             raise BudgetError('extension_history_invalid') from None
         validate_snapshot(row['entry'])
         _verify_case(c, number, 'entry', row['entry'])
@@ -153,6 +153,11 @@ def read(c):
         else:
             previous[-1]['outcome_sha256'] = None  # Completed outcome was committed.
         if observed != previous: raise BudgetError('extension_history_invalid')
+    if history and history[-1]['outcome'] is None:
+        state = _state(c.card, projected)
+        if (not state or state['status'] != 'completed' or state['outcome'] != 'close_to_passing'
+                or state['exhaustion_id'] != history[-1]['exhaustion_id']):
+            raise BudgetError('extension_history_invalid')
     c.card['extension_history'] = projected
     return history
 
