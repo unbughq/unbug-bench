@@ -100,3 +100,13 @@ survives the real continuation reader. No broader receipt-shape validator is
 added to this unwired one-line fix. The tested dictionary guard and fresh-UUID
 intent remain unchanged. No finding is rejected, no Murphy row closes, and
 active continuation/B2/M5/M6 remain open. The full-suite result is pending.
+
+## Elephant full-suite result
+
+The prescribed `uv run --with numpy --with scipy python -B tests/run.py`
+completed on the reviewed `9ec3a12` source: **152 scripts, 0 failed**, exit 0.
+Only documentation changed during the run. Launch guards passed, so no isolated
+rerun was needed. Log: `/tmp/stream-d-admission-binding-suite.log`, SHA-256
+`8e92703d786f7eddefda1ee97f29e27c276771b6748a08c9d37d27f48631fb32`.
+Together with fresh Claude diff review 30, this passes the binding correction.
+No Murphy row closes; the unwired and live-qualification boundaries above remain.
