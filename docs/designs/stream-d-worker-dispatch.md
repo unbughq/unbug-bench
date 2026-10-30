@@ -426,6 +426,10 @@ This section records accepted work for the next extension addendum, not approval
 to implement the earlier sketches. The two design-1 blockers remain open until
 a fresh design review passes their concrete implementation and tests.
 
+The next bounded proposal is `stream-d-extension-admission.md`: an unwired
+first-writer admission seam. It does not close active-extension continuation,
+scientific receipts or comparison reconstruction, and is awaiting design review.
+
 For B1, replace the implicit `active_extension_id` budget-bypass test with an
 explicit `pending_call(..., extension_proposal=...)` path. Under the existing
 dispatch lock, immediately before reservation, require exact equality with a
