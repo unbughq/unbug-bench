@@ -35,11 +35,44 @@ before `raised_limits`, `restore_gate_crash`, Compose setup, pilot-home archival
 private extension history. Restore
 the operational diagnosis/extension state and original code-recorded stop
 context; do not infer authority from current CLI stop labels. Ordinary cases
-continue through the existing path. Factor the later Compose/pilot cleanup and
-model-driver preparation into runner helpers so the extension path can invoke
-them after diagnosis without traversing ordinary build. Pending diagnosis, a completed decision
+continue through the existing path. Factor only the existing pilot archival and
+cleanup into a helper for this slice; Compose and extension startup refactors
+remain extension work. Pending diagnosis, a completed decision
 awaiting application, and an active extension enter the dispatcher. Held or
 history/input-invalid cases stop before any role selection or model work.
+
+Copy only these archived fields on the dispatcher path, byte-for-byte when
+present: `source`, `seed`, `rotation_slot`, `roles`, `models`, `models_used`,
+`gates`, `gate_results`, `gate_minutes`, `early_gates`, `failed_gate`,
+`failed_detail`, `infrastructure_gate`, `late_defect`, `stress_review`,
+`statement_sha256`, `admission`, `dedup`, `dedup_skipped`, `idea_realism`,
+`candidate_attempts`, `rejected_candidates`, `builder_rounds`, `recovery_config`,
+`factory_slots_prepared`, `diagnosis_state`, `extension_history`, `factory_bug`
+and `factory_bug_resume_count`. Case identity must already match current
+authenticated authority. Do not copy archived sha256, current money authority,
+provider configuration, current route receipts or current accounting. Normal
+finalization recomputes accounting; only status, terminal_stop and intended
+diagnosis transitions change carried lifecycle fields. Historical gate fields
+remain historical evidence, not a new gate certification. Normal publication
+sanitization still controls the public card.
+
+Before reconciliation/snapshot and before making a diagnosis pilot, run the
+factored existing archive/kill/remove step for **all** pilot identities, including
+pilot-strong and pilot-easy. Kill/join first, remove their firewall chains, then
+archive their homes and remove users. Do not shred retained home evidence that
+ordinary resume would have archived. This needs no Compose or base scenario.
+
+Prevent completed-state re-minting at its producer: `record_exhaustion` may
+replace a completed diagnosis only when `new_exhaustion` is true **and** the
+current terminal_stop itself passes `_trigger(card, terminal_stop, history)`.
+Use that literal stop for the new state; a retained infrastructure marker cannot
+substitute a trigger or change its identity. Pending-state preservation and
+first-exhaustion behavior stay unchanged. Thus extension_comparison_pending,
+money_wait, runner errors and every other dispatcher stop preserve a completed
+ID even if the outer exception handler marks exhaustion_occurred. Test two
+resumes through real finalization with an exhausted infrastructure marker,
+completed close-to-passing state and each of those stops: identical ID, no new
+reservation. A distinct literal exhaustion still creates exactly one new ID.
 
 Serialize through the existing model dispatch lock, settle a restored provider
 wait using `resume_provider_wait`, reconcile invocation reservations, and require
@@ -64,7 +97,7 @@ dispatches diagnosis inline before collection.
 ## Diagnosis result and retry lifecycle
 
 Resolve the archived `roles.reviewer.model`, check its actual family against the
-archived writer and strong calibrator models, and reject contradictory family
+archived writer, stress tester and strong calibrator models, and reject contradictory family
 metadata. Keep that reviewer family through A's approved fallbacks. No arbitrary
 current reviewer override can change the queued role's family. Existing model
 runtime still validates the current role and every reserved lease.
@@ -74,6 +107,29 @@ Copy the archived resolved roles into `c.card['roles']` for dispatch, derive
 roles stop `diagnosis_input_invalid`. Use `run.opencode` (whose diagnosis call
 names map to reviewer), never `pending_call`, which owns attack-state.json.
 Use its `before_attempt` callback to bind the actual admitted invocation.
+
+The fixed templates are `factory/prompts/diagnosis.md` and
+`factory/prompts/diagnosis-repair.md`. The judgment template states the three
+outcomes and their lack of authority, requires schema-v1 JSON at the fixed
+output/result.json, states the exact original manifest generation, and tells the
+role to cite nonempty relative evidence paths and hashes from its exposed inputs
+copy. Validation always uses the runner's original frozen inputs root; the
+exposed copy must hash identically. No role-produced verdict can change a gate,
+grant money or certify its own provenance.
+
+The repair template gets the retained bounded raw bytes (UTF-8 with explicit
+replacement for invalid bytes), the fixed validator error class, and the same
+schema only. It requests syntax/schema repair without a new scientific judgment;
+no case/evidence tree is exposed in repair mode. Both modes receive fixed case,
+generation and output identifiers, never model-chosen destinations. A strict
+`RESULT_SCHEMA` JSON object in diagnosis.py describes the existing result schema
+including additionalProperties:false. The existing validator remains the
+semantic/evidence authority. Contract tests keep its field set and schema in
+agreement. `schema_sha256 = carry_over.digest({schema: RESULT_SCHEMA,
+judgment_template: <exact template UTF-8>, repair_template: <exact template UTF-8>})`.
+Both journal and decision `input_sha256` mean `carry_over.digest(manifest)`.
+Templates are read from the selected frozen release source, not replaced by
+live prompt edits on replay. These digests never grant authority.
 
 Use the exact call names `diagnosis-<exhaustion_id>` and
 `diagnosis-<exhaustion_id>-repair-<ordinal>`. The first logical judgment uses the
@@ -97,6 +153,12 @@ Each invocation is exactly `{lease_id, invocation_id, route, pool}` and must
 match a retained ledger reservation's operation and call name. Append the actual
 invocation in `opencode.before_attempt`, after reservation and before process start.
 The journal never derives those fields from model output.
+All three record types and raw bytes live beside finding.json under
+`work/diagnosis/<exhaustion_id>/`, using the existing `_finding_path` parent.
+Write a pending logical row with a new UUID operation and invocations:[] before
+opencode. Set `c.model_operation_id` to that durable row's operation for the call;
+restore/remove the prior value in finally on every exit. A retry after a wait or
+crash uses the same row and operation, not a fresh implicit runtime UUID.
 
 A pre-admission denial has no invocation row. An interrupted call remains
 pending, with its retained invocation reconciled from the ledger before another
@@ -106,6 +168,15 @@ answer. Only completed valid/malformed transport calls consume deterministic
 judgment/repair slots; interruptions remain bounded by the same money/deadline.
 Provider waits preserve the pending logical attempt. Exact schema, ordinal,
 repair adjacency, digest and ledger binding checks reject mutated journals.
+At every actual `before_attempt`, after journaling its reservation and before
+process start, use the trusted helper to retain any partial predecessor output,
+empty and recreate output/ as pilot:pilot 0700. Never accept a first invocation's
+partial result as a fallback invocation's answer. On a fresh dispatcher entry,
+kill/join the old UID, collect any bounded orphan output for audit only, remove
+the stale task tree without following links, and rebuild from verified inputs.
+Orphan bytes alone do not turn an interrupted journal row into a completed call.
+The completed logical call's route is the last journaled invocation's route;
+earlier transport-failed invocations do not consume a deterministic route slot.
 
 After a completed malformed answer, request one schema-only repair of those
 retained bytes from the same family. If still malformed, exclude **every**
@@ -119,10 +190,20 @@ the journal and `routes(model)` **before** awaiting another lease and stop
 exhaustion test. Unbounded/unavailable routes remain A/B
 waits, not deterministic failures. Preserve and restore caller router settings
 so diagnosis exclusions never affect the next writer.
+Pin schema repair to the route of its completed malformed judgment by excluding
+all other configured routes, while allowing any pool on that same route. A
+provider outage therefore waits through A instead of moving the repair to a
+different route. After malformed repair, exclusion targets that judgment route.
+Scope and restore both exclusions and model_operation_id in finally.
 Today only GATED_CLAUDE has an enforced maximum. Other reviewer families therefore
 wait on `unbounded_route`; they are neither silently rerouted across families nor
 declared deterministically exhausted. At most two completed diagnosis calls per
 approved same-family route are made for these immutable inputs/schema.
+In today's two rotation tables only one of eight slots has an Anthropic reviewer.
+Only that slot can currently obtain a bounded diagnosis route; the rest wait.
+The completed-call ceiling there is twice GATED_CLAUDE's qualified max_usd per
+input/schema, plus interrupted invocations at their conservative reservations,
+all within the unchanged current job commitment and deadline.
 
 Persist the validated normalized decision in `decision.json` before changing
 public lifecycle state. It has exactly `schema_version:1`, `exhaustion_id`,
@@ -164,12 +245,40 @@ input file and directory root-owned, group-readable by this UID and unwritable
 by it. Make the containing directory root-owned too, so it cannot rename and
 replace the inputs. The only writable task directory is a separate output area.
 Re-hash the exposed input copy before and after the role and compare it with the
-manifest. A fixed trusted collection helper, invoked through sudo after the
-role's processes have been killed/joined, reads the exposed tree and fixed
-`output/result.json` through no-follow descriptors and returns bytes through a
-private captured pipe to the runner. It never prints contents to stdio logs or
-accepts a model-supplied source path. The runner validates and retains those bytes
-inside its own private work directory before deleting the task tree.
+manifest. The shipped trusted helper is `factory/diagnosis_task.py`, included in
+the authenticated worker manifest and selected factory source. Its command is
+`sudo -- python3 -I -B <job_config.FACTORY/diagnosis_task.py> <operation> <case> <exhaustion_id>`.
+Operations are exactly prepare, reset, collect and remove. Case must match
+`case-[A-Za-z0-9-]{1,128}` and exhaustion_id must be canonical UUID4. There are no
+path arguments. Source work is the invoking runner's passwd home (from sudo's
+SUDO_UID), followed by work/<case>/diagnosis/<id>/inputs; task paths are derived
+under the fixed /var/lib root. Ancestors must be directories, never symlinks.
+Prepare reads the verified manifest/journal from the fixed runner work path;
+judgment mode copies inputs, repair mode exposes no case/evidence copy. Root
+ownership is set before the UID may access the tree. Remove unlinks a stale
+leaf symlink rather than following it, and refuses symlink ancestors.
+
+After the role is killed/joined, collect reads the exposed tree and fixed
+output/result.json through regular/no-follow/nonblocking descriptors. Output
+is bounded at **65536 bytes**, reading at most one extra byte to detect excess.
+Missing, symlinked, FIFO/nonregular and oversized results are malformed outputs,
+not transport retries. For excess retain exactly the bounded prefix and its
+digest; a malformed prefix cannot be validated as a complete result. For absent
+or unsafe output retain an empty prefix plus the fixed error class. Input-copy
+damage remains input-invalid, not a schema repair opportunity.
+
+The bounded captured response is one JSON object with exactly
+`{schema_version:1, status, inputs_sha256, raw_sha256, raw_base64}`. Status is
+ok, missing, unsafe, oversized or input_invalid. inputs_sha256 is the canonical
+file-map digest of the exposed input copy, null in repair mode; raw fields are
+the exact retained prefix and its SHA-256. Prepare/reset/remove return the same
+shape with empty raw bytes and status ok only on success. The runner rejects
+unexpected fields, identity/root mismatch, invalid base64/digest or a response
+larger than 96 KiB before decoding. The fixed helper command itself carries
+case/id; no result text supplies a path or authority. Capture through a private
+pipe, never stdio logs. Reset first collects the bounded partial output for
+private audit, then recreates output/ after confirming no pilot process remains.
+The runner persists collected bytes under raw-bytes-* before task-tree deletion.
 
 Do not copy the runner's general configuration or credential stores into this
 task home. Model runtime prepares only its existing per-invocation provider
@@ -203,8 +312,13 @@ The no-bench-port wall also needs the existing bounded Claude transport to work:
 after `model_call_gate.enforce` creates its private listener, add a temporary
 UID-specific allow for that exact loopback port and remove it in finally before
 the listener closes. Only the trusted runtime's newly created gate supplies the
-port, never the model or a file. All other local/container ports remain denied.
-Test that the scoped permit is removed on success, failure and cancellation.
+port, never the model or a file. Insert both direct and conntrack ORIGINAL
+loopback permits with `-I factory-pilot 1`, ahead of LOCAL REJECT, inside
+`with enforce(...)` in `_invoke`, only for user pilot and diagnosis call names.
+Remove those exact rules in finally; the next make_pilots flushes the old chain
+after a crash. All other local/container ports remain denied. Test cleanup on
+success, failure and cancellation. The analogous pre-existing Claude calibrator
+loopback issue is outside this diagnosis slice and is not claimed fixed here.
 
 Kill/join the role's process tree, retain raw output and usage, remove its network
 rules and dispose of the home before any checkpoint or extension work. A cleanup
@@ -307,11 +421,29 @@ only if the existing immutable comparison proves strict progress.
 | --- | --- | --- |
 | Unknown exhausted input, settlement complete | diagnosis_pending | Present pending projection permits B's existing same-owner settlement/diagnosis request when its planner is enabled. No snapshot/model before the next ACK. |
 | Pending diagnosis, provider admission or mid-call wait | provider_wait | Retain pending state and A's existing provider_wait.json. B's ordinary provider-wait resume adapter is required before activation; this slice adds no queue. |
-| Pending diagnosis or completed decision, commitment insufficient | money_wait | Preserve state; await B's ordinary money revision/resume adapter. No new D money grant or projection is invented. |
+| Pending diagnosis, commitment insufficient | money_wait | Preserve state; await B's ordinary money revision/resume adapter. No new D money grant or projection is invented. Completed-decision replay needs no model or money. |
 | Completed close-to-passing decision; active extension; reconstruction not implemented | extension_comparison_pending | Projection remains None. Current batch_service does not enqueue this case; B's resumable-work adapter and the extension controller are required before activation. |
-| Crash before/after a retained decision | Existing runner_error:<type> checkpoint, or process death without a new checkpoint | Resume the acknowledged generation through B's existing same-owner/orphan mechanism once that runtime adapter is qualified. Retained decision replays before a model. No automatic relaunch is claimed today. |
+| Crash before/after a retained decision | Existing runner_error:<type> checkpoint, or process death without a new checkpoint | Existing restart/holder/explicit resume paths can already deliver this card. Retained decisions replay before a model; new model admission still requires B's shared activation gate and verified money authority. |
 | Input/history corruption | diagnosis_input_invalid / factory_bug_history_invalid | Terminal None projection; retain evidence and no automatic reset. |
 | Accepted factory bug / not converging / malformed-route exhaustion | factory_bug_held / retired_not_converging / retired_diagnosis_malformed | Completed/retired None projection, no more model work for this diagnosis. |
+
+Existing `recovery.require_restart_stop` / RETRY accepts runner_error and several
+transport stops; key_holder's HOLDER_STOPS and an explicitly authorized ordinary
+same-owner resume (including a raised-budget resume) can already deliver a
+dispatcher-eligible card. Entering dispatch through those paths is intended;
+none may fall through to a writer. They do not bypass activation or create money.
+
+Before **any new diagnosis invocation or reservation**, read the single existing
+`batch_service.DIAGNOSIS_ENABLED` from the verified installed release. Require it
+to be literal True. False or an unavailable gate stops diagnosis_pending while
+preserving the same exhaustion ID. This is a second consumer of B's existing
+activation gate, not a new worker flag, config field or grant of authority. Do
+not cache a copied flag value or change its default. Verified immutable replay
+and held/retired outcome application remain model-free and can proceed while
+the gate is false. Every enabled invocation still requires normal job authority,
+lease, enforced route bound and reservation. This honors the user's instruction
+that money admission remains fail-closed until B runtime activation; changing
+the shared flag belongs to the future reviewed B/D integration, not this slice.
 
 Current `batch_service._enqueue` handles present diagnosis projections and
 unknown-total exhaustion only; it is not the missing extension/provider/money
@@ -320,8 +452,11 @@ waits behind disabled activation and remains subject to B's batch deadline;
 this code does not promise a working automatic resume path for it. No new
 launcher is added. The fail-closed test asserts `batch_service.plan` returns
 `diagnosis_unavailable` and an empty queue with DIAGNOSIS_ENABLED false, plus
-worker refusal without verified job authority. There is no worker-side copy of
-that planner flag and no claim that a configured worker can observe it.
+worker refusal without verified job authority. Also test the same flag false in
+the dispatcher on an actual restart-eligible runner_error card: no writer, no
+lease and no reservation. With that shared flag patched true in offline control
+tests, assert at most the bounded diagnosis attempts and no writer. This tests
+the future path without enabling production or adding a worker-specific toggle.
 
 ## Deletions, tests and Murphy rows
 
@@ -342,6 +477,14 @@ family mismatch, schema repair/fallback and route exhaustion, provider waits,
 isolation/cleanup, no writer after close-to-passing, and the precise B-planner and
 worker-authority refusals above. Reuse the
 existing input refusals and history-invalid None projections as controls.
+Add controls for operation UUID preservation across provider wait/crash, stale
+output across A's internal retry and stale task-tree rebuild, repair-route
+pinning, fixed helper bounds and no-follow handling (symlink/FIFO/missing/oversized),
+exact public-field carry-forward, archival of all pilot identities, and orphan
+refusal for raw-bytes/attempts/decision without input.json. Exercise finalization
+twice on completed close-to-passing infrastructure state for comparison_pending
+and money_wait, proving unchanged IDs and no new reservations. These remain
+authored control envelopes over the saved real input/ledger artifacts.
 
 The later extension increment's tests must exercise real reservation/history producers, the crash between
 admission and attack receipt, completed-writer validation, active stress resume,
