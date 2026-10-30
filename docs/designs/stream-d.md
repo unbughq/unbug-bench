@@ -1219,7 +1219,7 @@ money or invoke a writer. The runner, snapshot producer, changed-gate baseline
 evaluation and scientific-version migration remain unwired in this slice.
 
 The private history stores schema_version, ordinal extension_id, immutable
-writer_operation_id, cumulative round, entry, outcome (initially null) and
+writer_operation_id, authorizing exhaustion_id, cumulative round, entry, outcome (initially null) and
 append-only comparisons. Each comparison retains the original entry/outcome
 case digests with evidence at a common current version. Snapshot fields are
 source_generation, case_sha256 (canonical digest of relative file digests),
@@ -1235,6 +1235,27 @@ private history append; comparison evidence is retained under
 directories are fsynced before publishing history. Repairs do not touch these
 paths. Admission replays retain the same ordinal and writer operation; an
 outcome is appended once. A pending execution cannot complete an extension.
+No pending stage can authorize entry either. Each completed close_to_passing
+diagnosis authorizes one extension only; its exhaustion_id is unique in private
+history. Replaying that active extension retains its ID and binding. A further
+extension requires a newly completed diagnosis. Its proposed snapshot must
+match the selected compared outcome in case digest, ordered stage bindings,
+frontier and evidence; source generation may advance through an ordinary
+checkpoint. Earlier progress cannot authorize a newly regressed current case.
+
+Retained rounds are consecutive and each is bound to its writer operation's
+ledger reservation `call_name: builder-<round>`. A completed history's last
+round must equal the restored builder_rounds counter. An active entry permits
+that round or exactly one less, because admission precedes invocation; replay
+does not increment the counter. Other counters refuse instead of resetting.
+
+The private write commits before the in-memory public projection. On replay,
+verify all retained snapshots and operation/round reservations first. Accept
+either the exact public projection or its immediately preceding view: the
+last active admission omitted, or the last completed outcome still null with
+all other fields identical. Reconstruct only that projection. A comparison
+append changes no public field. Unrelated mismatches still refuse; this is
+recovery of a committed transition, not authority from public card fields.
 
 `test_stream_d_extensions.py` uses the verified saved practice case and 5813be
 ledger, with explicitly authored stage receipts and lease controls. It checks

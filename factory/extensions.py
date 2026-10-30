@@ -98,14 +98,27 @@ def read(c):
     try: history = json.loads(path.read_text()) if path.exists() else []
     except (ValueError, OSError): raise BudgetError('extension_history_invalid') from None
     if not isinstance(history, list) or len(history) > LIMIT: raise BudgetError('extension_history_invalid')
+    operations, diagnoses = set(), set()
     for number, row in enumerate(history, 1):
         if (not isinstance(row, dict) or set(row) != {'schema_version', 'extension_id',
-                'writer_operation_id', 'round', 'entry', 'outcome', 'comparisons'} or
+                'writer_operation_id', 'exhaustion_id', 'round', 'entry', 'outcome', 'comparisons'} or
                 type(row['schema_version']) is not int or row['schema_version'] != 1 or
                 type(row['extension_id']) is not int or row['extension_id'] != number or
                 not _uuid4(row['writer_operation_id']) or type(row['round']) is not int or row['round'] < 1 or
+                not _uuid4(row['exhaustion_id']) or row['exhaustion_id'] in diagnoses or
+                row['writer_operation_id'] in operations or
+                (number > 1 and row['round'] != history[number - 2]['round'] + 1) or
                 not isinstance(row['comparisons'], list) or (number < len(history) and row['outcome'] is None)):
             raise BudgetError('extension_history_invalid')
+        operations.add(row['writer_operation_id']); diagnoses.add(row['exhaustion_id'])
+        # The private round cannot be relabelled without its retained operation.
+        try:
+            reservations = json.loads(c.ledger.read_text()).get('invocation_reservations', {})
+            if not any(r['operation_id'] == row['writer_operation_id'] and
+                       r['call_name'] == 'builder-' + str(row['round']) for r in reservations.values()):
+                raise ValueError()
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            raise BudgetError('extension_history_invalid') from None
         validate_snapshot(row['entry'])
         _verify_case(c, number, 'entry', row['entry'])
         if row['outcome'] is not None:
@@ -122,7 +135,23 @@ def read(c):
                     raise BudgetError('extension_snapshot_changed')
     projected = public(history)
     if extension_history({'extension_history': projected}) is None: raise BudgetError('extension_history_invalid')
-    if c.card.get('extension_history', projected) != projected: raise BudgetError('extension_history_invalid')
+    count = c.card.get('builder_rounds', 0)
+    if type(count) is not int or count < 0: raise BudgetError('extension_history_invalid')
+    if history:
+        last = history[-1]
+        allowed = (last['round'] - 1, last['round']) if last['outcome'] is None else (last['round'],)
+        if count not in allowed: raise BudgetError('extension_history_invalid')
+    observed = c.card.get('extension_history', [])
+    if extension_history({'extension_history': observed}) is None: raise BudgetError('extension_history_invalid')
+    if observed != projected:
+        # Only the immediately previous public view can lag a durable write.
+        previous = copy.deepcopy(projected)
+        if not history: raise BudgetError('extension_history_invalid')
+        if history[-1]['outcome'] is None:
+            previous.pop()  # Admission was committed before public publication.
+        else:
+            previous[-1]['outcome_sha256'] = None  # Completed outcome was committed.
+        if observed != previous: raise BudgetError('extension_history_invalid')
     c.card['extension_history'] = projected
     return history
 
@@ -208,6 +237,10 @@ def propose(c, snapshot):
         raise BudgetError('extension_diagnosis_required')
     if history and history[-1]['outcome'] is None: raise BudgetError('extension_already_active')
     if len(history) >= LIMIT: raise BudgetError('retired_extension_limit')
+    if any(row['exhaustion_id'] == state['exhaustion_id'] for row in history):
+        raise BudgetError('extension_diagnosis_already_used')
+    if any(row['status'] == 'pending' for row in snapshot['stages']):
+        raise BudgetError('extension_execution_pending')
     if snapshot['stages'][0]['status'] != 'pass': raise BudgetError('retired_no_progress')
     if history:
         prior = history[-1]
@@ -219,6 +252,10 @@ def propose(c, snapshot):
         result = progress(pair['entry'], pair['outcome']) if pair else 'pending'
         if result == 'pending': raise BudgetError('extension_comparison_pending')
         if result != 'progress': raise BudgetError('retired_no_progress')
+        # A later checkpoint may change lineage, not the case/evidence compared.
+        if any(snapshot[key] != pair['outcome'][key]
+               for key in ('case_sha256', 'stages', 'frontier', 'evidence')):
+            raise BudgetError('extension_comparison_pending')
     return {'extension_id': len(history) + 1, 'round': c.card.get('builder_rounds', 0) + 1,
             'entry': copy.deepcopy(snapshot), 'exhaustion_id': state['exhaustion_id']}
 
@@ -230,8 +267,8 @@ def admit(c, proposal, lease, operation_id):
     history = read(c)
     if history and history[-1]['outcome'] is None:
         row = history[-1]
-        if (row['extension_id'], row['writer_operation_id'], row['round'], row['entry']) != (
-                proposal['extension_id'], operation_id, proposal['round'], proposal['entry']):
+        if (row['extension_id'], row['writer_operation_id'], row['round'], row['entry'], row['exhaustion_id']) != (
+                proposal['extension_id'], operation_id, proposal['round'], proposal['entry'], proposal['exhaustion_id']):
             raise BudgetError('extension_reservation_mismatch')
         return row
     if propose(c, proposal['entry']) != proposal: raise BudgetError('extension_reservation_mismatch')
@@ -243,7 +280,8 @@ def admit(c, proposal, lease, operation_id):
         raise BudgetError('extension_reservation_missing')
     _save_case(c, proposal['extension_id'], 'entry', proposal['entry'])
     row = dict(schema_version=1, extension_id=proposal['extension_id'], writer_operation_id=operation_id,
-               round=proposal['round'], entry=proposal['entry'], outcome=None, comparisons=[])
+               exhaustion_id=proposal['exhaustion_id'], round=proposal['round'],
+               entry=proposal['entry'], outcome=None, comparisons=[])
     history.append(row); _write(c, history)
     return row
 
