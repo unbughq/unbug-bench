@@ -73,7 +73,7 @@ def exhaustion(card):
     stop, gates = card.get('terminal_stop'), card.get('gates', {})
     if (not isinstance(gates, dict) or gates.get('G12') == 'pass' or
             card.get('status') in ('sealed', 'retired') or
-            stop in ('provider_wait', 'paused', 'ttl_retired') or
+            stop in ('provider_wait', 'paused', 'ttl_retired', 'factory_bug_history_invalid') or
             (isinstance(stop, str) and stop.startswith('retired'))): return False
     history = extension_history(card)
     if history is None: return False
@@ -128,7 +128,7 @@ def record_exhaustion(card, *, new_exhaustion=False):
 
 
 def validate_result(value, *, case, generation, evidence_root):
-    """A judgment can describe an outcome, never grant money or a gate pass."""
+    """Validate against immutable queued inputs, never the worker's live ledger."""
     try:
         if (not _sha(generation) or not isinstance(value, dict) or set(value) != {'schema_version', 'case_id',
                 'checkpoint_sha256', 'outcome', 'reason', 'evidence', 'factory_bug'} or
@@ -171,11 +171,11 @@ def validate_result(value, *, case, generation, evidence_root):
     return result
 
 
-
 def _held_stage(card, stop):
     from run import GATES
     if stop == 'infrastructure_exhausted':
-        value = card.get('infrastructure_gate', {}).get('gate')
+        marker = card.get('infrastructure_gate')
+        value = marker.get('gate') if isinstance(marker, dict) else None
     elif stop.startswith('late_defect_needs_ruling:'):
         value = stop.split(':', 1)[1]
     elif stop.startswith('stress_review_unresolved:'):
@@ -256,7 +256,8 @@ def _complete_factory_bug(c, finding, history, state):
     # The finding and history are already durable. Publish completion last.
     card = copy.deepcopy(c.card)
     recorded = getattr(c, 'checkpoint_card', {})
-    if recorded.get('diagnosis_state', {}).get('exhaustion_id') != state['exhaustion_id']:
+    prior_state = recorded.get('diagnosis_state') if isinstance(recorded, dict) else None
+    if not isinstance(prior_state, dict) or prior_state.get('exhaustion_id') != state['exhaustion_id']:
         recorded = card
     card['diagnosis_state'].update(status='completed', outcome='factory_bug')
     card.update(status='stopped', terminal_stop='factory_bug_held',
@@ -268,12 +269,30 @@ def _complete_factory_bug(c, finding, history, state):
     c.stopped = True
 
 
+def _read_factory_bug_finding(c, path, authority, release, state, generation, evidence_root):
+    try:
+        finding = json.loads(path.read_text())
+        if (not isinstance(finding, dict) or set(finding) != {'schema_version', 'finding_id',
+                'held_batch_id', 'held_release_sha256', 'diagnosis', 'eligible_operation_ids', 'failure_receipts'} or
+                type(finding['schema_version']) is not int or finding['schema_version'] != 1 or
+                finding['finding_id'] != state['exhaustion_id'] or finding['held_batch_id'] != authority.batch or
+                finding['held_release_sha256'] != release or finding['eligible_operation_ids'] != [] or
+                finding['failure_receipts'] != []): raise ValueError()
+    except (OSError, ValueError, KeyError, TypeError):
+        raise BudgetError('diagnosis_finding_invalid') from None
+    result = validate_result(finding['diagnosis'], case=c.case_id, generation=generation,
+                             evidence_root=evidence_root)
+    if result != finding['diagnosis'] or result['outcome'] != 'factory_bug':
+        raise BudgetError('diagnosis_finding_invalid')
+    return finding
+
+
 def persist_factory_bug(c, result, *, generation, evidence_root):
     authority, release, state = _held_context(c)
     raw_result = copy.deepcopy(result)
     result = validate_result(result, case=c.case_id, generation=generation,
                              evidence_root=evidence_root)
-    if result['outcome'] != 'factory_bug': raise BudgetError('diagnosis_outcome_changed')
+    if result['outcome'] != 'factory_bug': raise BudgetError('diagnosis_outcome_not_factory_bug')
     finding = dict(schema_version=1, finding_id=state['exhaustion_id'], held_batch_id=authority.batch,
                    held_release_sha256=release, diagnosis=result, eligible_operation_ids=[], failure_receipts=[])
     path = _finding_path(c, state['exhaustion_id'])
@@ -281,9 +300,8 @@ def persist_factory_bug(c, result, *, generation, evidence_root):
         raise BudgetError('diagnosis_finding_invalid')
     history = _factory_bug_history(c)
     if path.exists():
-        try:
-            if json.loads(path.read_text()) != finding: raise ValueError()
-        except (OSError, ValueError): raise BudgetError('diagnosis_finding_invalid') from None
+        previous = _read_factory_bug_finding(c, path, authority, release, state, generation, evidence_root)
+        if previous != finding: raise BudgetError('diagnosis_finding_invalid')
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
         # The accepted finding has no attribution; retain the original model
@@ -308,20 +326,7 @@ def restore_factory_bug(c, *, generation, evidence_root):
     if not path.exists():
         if state['status'] == 'completed': raise BudgetError('diagnosis_finding_invalid')
         return False
-    try:
-        finding = json.loads(path.read_text())
-        if (not isinstance(finding, dict) or set(finding) != {'schema_version', 'finding_id',
-                'held_batch_id', 'held_release_sha256', 'diagnosis', 'eligible_operation_ids', 'failure_receipts'} or
-                type(finding['schema_version']) is not int or finding['schema_version'] != 1 or
-                finding['finding_id'] != state['exhaustion_id'] or finding['held_batch_id'] != authority.batch or
-                finding['held_release_sha256'] != release or finding['eligible_operation_ids'] != [] or
-                finding['failure_receipts'] != []): raise ValueError()
-    except (OSError, ValueError, KeyError, TypeError):
-        raise BudgetError('diagnosis_finding_invalid') from None
-    result = validate_result(finding['diagnosis'], case=c.case_id, generation=generation,
-                             evidence_root=evidence_root)
-    if result != finding['diagnosis'] or result['outcome'] != 'factory_bug':
-        raise BudgetError('diagnosis_finding_invalid')
+    finding = _read_factory_bug_finding(c, path, authority, release, state, generation, evidence_root)
     history = _factory_bug_history(c)
     _complete_factory_bug(c, finding, history, state)
     return True

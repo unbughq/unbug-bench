@@ -26,6 +26,11 @@ class HeldTests(unittest.TestCase):
                            infrastructure_gate={'gate': 'G10', 'exhausted': True})
         diagnosis.record_exhaustion(self.c.card)
         self.c.authenticated_job_config['batch_release_sha256'] = self.c.args.batch_release_sha256
+        # Authored queued-input layout; immutable bytes copied from the real
+        # saved ledger. The dispatcher must verify this source binding.
+        self.inputs = self.work / 'diagnosis' / self.c.card['diagnosis_state']['exhaustion_id'] / 'inputs'
+        self.inputs.mkdir(parents=True)
+        (self.inputs / self.ledger.name).write_bytes(self.ledger.read_bytes())
         self.result = dict(schema_version=1, case_id=self.c.case_id, checkpoint_sha256=self.source['sha256'],
             outcome='factory_bug', reason='authored finding control',
             evidence=[dict(path=self.ledger.name, sha256=hashlib.sha256(self.ledger.read_bytes()).hexdigest(),
@@ -35,10 +40,10 @@ class HeldTests(unittest.TestCase):
 
     def persist(self, result=None):
         held.persist_factory_bug(self.c, self.result if result is None else result,
-                                 generation=self.source['sha256'], evidence_root=self.work)
+                                 generation=self.source['sha256'], evidence_root=self.inputs)
 
     def restore(self):
-        return held.restore_factory_bug(self.c, generation=self.source['sha256'], evidence_root=self.work)
+        return held.restore_factory_bug(self.c, generation=self.source['sha256'], evidence_root=self.inputs)
 
     def test_pre_rollout_first_hold_normalizes_operations_and_keeps_spend(self):
         before = self.ledger.read_bytes()
@@ -77,7 +82,17 @@ class HeldTests(unittest.TestCase):
             with self.assertRaises(OSError): self.persist()
         self.assertEqual(self.c.card['diagnosis_state']['status'], 'pending')
         self.assertNotIn('factory_bug', self.c.card)
+        finding = next((self.work / 'diagnosis').glob('*/finding.json'))
+        before = finding.read_bytes()
+        ledger = json.loads(self.ledger.read_text())
+        ledger['events'].append(dict(id='authored-later-receipt', role='reviewer', calls=1,
+                                    cost=0, list_cost_usd=0, estimated_subscription_cost_usd=0))
+        ledger['calls'] += 1
+        self.ledger.write_text(json.dumps(ledger))
+        live = self.ledger.read_bytes()
         self.assertTrue(self.restore())
+        self.assertEqual(finding.read_bytes(), before)
+        self.assertEqual(self.ledger.read_bytes(), live)
         self.assertEqual(self.c.card['terminal_stop'], 'factory_bug_held')
 
     def test_crash_after_history_replays_empty_history(self):
@@ -98,16 +113,22 @@ class HeldTests(unittest.TestCase):
         with self.assertRaisesRegex(budget.BudgetError, 'factory_bug_history_invalid'): self.restore()
         self.assertNotIn('factory_bug_resume_count', self.c.card)
         self.assertEqual(self.c.card['terminal_stop'], 'factory_bug_history_invalid')
+        self.assertFalse(diagnosis.exhaustion(self.c.card))
+        self.assertIsNone(diagnosis.pending_projection(self.c.card))
+        state = copy.deepcopy(self.c.card['diagnosis_state'])
+        diagnosis.record_exhaustion(self.c.card, new_exhaustion=True)
+        self.assertEqual(self.c.card['diagnosis_state'], state)
 
     def test_unreadable_history_and_prior_waste_refuse_initialization(self):
         history = self.work / 'factory-bug-resumes.json'
         history.write_text('{}')
         with self.assertRaisesRegex(budget.BudgetError, 'factory_bug_history_invalid'): self.persist()
+        self.assertFalse(diagnosis.exhaustion(self.c.card))
+        self.assertIsNone(diagnosis.pending_projection(self.c.card))
         history.unlink()
         ledger = json.loads(self.ledger.read_text())
         ledger['infrastructure_waste'] = [{'kind': 'factory_bug'}]
         self.ledger.write_text(json.dumps(ledger))
-        self.result['evidence'][0]['sha256'] = hashlib.sha256(self.ledger.read_bytes()).hexdigest()
         with self.assertRaisesRegex(budget.BudgetError, 'factory_bug_history_invalid'): self.persist()
         self.assertFalse(history.exists())
 
@@ -174,12 +195,36 @@ class HeldTests(unittest.TestCase):
         ):
             altered = copy.deepcopy(self.result); change(altered)
             with self.assertRaisesRegex(budget.BudgetError, 'diagnosis_result_invalid'): self.persist(altered)
-        linked = self.work / 'linked'; linked.symlink_to(self.ledger)
+        linked = self.inputs / 'linked'; linked.symlink_to(self.ledger)
         altered = copy.deepcopy(self.result); altered['evidence'][0]['path'] = 'linked'
         with self.assertRaisesRegex(budget.BudgetError, 'diagnosis_result_invalid'): self.persist(altered)
         with self.assertRaisesRegex(budget.BudgetError, 'diagnosis_result_invalid'):
-            diagnosis.validate_result(self.result, case=self.c.case_id, generation=None, evidence_root=self.work)
+            diagnosis.validate_result(self.result, case=self.c.case_id, generation=None, evidence_root=self.inputs)
         self.assertFalse((self.work / 'factory-bug-resumes.json').exists())
+
+    def test_changed_immutable_evidence_refuses_finding_replay(self):
+        self.persist()
+        state = copy.deepcopy(self.c.card['diagnosis_state'])
+        evidence = self.inputs / self.ledger.name
+        evidence.write_bytes(evidence.read_bytes() + b'\n')
+        with self.assertRaisesRegex(budget.BudgetError, 'diagnosis_result_invalid'): self.restore()
+        self.assertEqual(self.c.card['diagnosis_state'], state)
+
+    def test_persist_and_restore_apply_the_same_exact_finding_schema(self):
+        self.persist()
+        finding = next((self.work / 'diagnosis').glob('*/finding.json'))
+        record = json.loads(finding.read_text()); record['schema_version'] = True
+        finding.write_text(json.dumps(record))
+        before = finding.read_bytes()
+        for action in (self.persist, self.restore):
+            with self.assertRaisesRegex(budget.BudgetError, 'diagnosis_finding_invalid'): action()
+            self.assertEqual(finding.read_bytes(), before)
+
+    def test_malformed_stage_metadata_is_content_free_unknown(self):
+        self.c.checkpoint_card = {'diagnosis_state': None}
+        self.c.card['infrastructure_gate'] = None
+        self.persist()
+        self.assertEqual(self.c.card['factory_bug']['gate_or_stage'], 'unknown')
 
 
 if __name__ == '__main__': unittest.main()

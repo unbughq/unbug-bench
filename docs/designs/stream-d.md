@@ -1210,6 +1210,61 @@ public practice bytes, with authored judgment, binding and interruption controls
 They prove write ordering, immutable replay, no model lease after a hold, and
 unchanged spend; they do not close a Murphy row or qualify a live rollout.
 
+### Extension state implementation boundary
+
+`factory/extensions.py` implements the passed extension eligibility/progress
+rules as worker-owned state helpers. It consumes code-produced snapshots and
+an already admitted writer lease/reservation; it does not create a lease, grant
+money or invoke a writer. The runner, snapshot producer, changed-gate baseline
+evaluation and scientific-version migration remain unwired in this slice.
+
+The private history stores schema_version, ordinal extension_id, immutable
+writer_operation_id, authorizing exhaustion_id, cumulative round, entry, outcome (initially null) and
+append-only comparisons. Each comparison retains the original entry/outcome
+case digests with evidence at a common current version. Snapshot fields are
+source_generation, case_sha256 (canonical digest of relative file digests),
+ordered stages, frontier and evidence (relative work path to byte digest).
+Stage rows contain stage, version, status, binding_sha256 and evidence_sha256;
+pass/fail require bound retained evidence, while pending/unreached carry null
+evidence and binding. The public projection is exactly the §8 history shape.
+
+Entry/outcome case bytes and evidence are copied to
+`work/extension-snapshots/<ordinal>/<entry|outcome>/{case,evidence}` before the
+private history append; comparison evidence is retained under
+`comparison-<canonical-pair-digest>/<entry|outcome>/`. Files and parent
+directories are fsynced before publishing history. Repairs do not touch these
+paths. Admission replays retain the same ordinal and writer operation; an
+outcome is appended once. A pending execution cannot complete an extension.
+No pending stage can authorize entry either. Each completed close_to_passing
+diagnosis authorizes one extension only; its exhaustion_id is unique in private
+history. Replaying that active extension retains its ID and binding. A further
+extension requires a newly completed diagnosis. Its proposed snapshot must
+match the selected compared outcome in case digest, ordered stage bindings,
+frontier and evidence; source generation may advance through an ordinary
+checkpoint. Earlier progress cannot authorize a newly regressed current case.
+
+Retained rounds are consecutive and each is bound to its writer operation's
+ledger reservation `call_name: builder-<round>`. A completed history's last
+round must equal the restored builder_rounds counter. An active entry permits
+that round or exactly one less, because admission precedes invocation; replay
+does not increment the counter. Other counters refuse instead of resetting.
+
+The private write commits before the in-memory public projection. On replay,
+verify all retained snapshots and operation/round reservations first. Accept
+either the exact public projection or its immediately preceding view: the
+last active admission omitted, or the last completed outcome still null with
+all other fields identical. Reconstruct only that projection. A comparison
+append changes no public field. Unrelated mismatches still refuse; this is
+recovery of a committed transition, not authority from public card fields.
+
+`test_stream_d_extensions.py` uses the verified saved practice case and 5813be
+ledger, with explicitly authored stage receipts and lease controls. It checks
+the five-extension lifetime bound, cumulative writer rounds, no ID before an
+actual reservation, repair survival, immutable snapshot bytes, exact-version
+progress, regression/pending distinctions and retained baseline comparisons.
+It does not qualify live gate receipts or a live extension run, and closes no
+Murphy row. Money admission stays under the existing B runtime prerequisite.
+
 ### Queued diagnosis inputs (review-17 follow-up)
 
 The dispatcher must never pass live `work` as the result validator's evidence
@@ -1225,45 +1280,155 @@ No new field is added to the public state or nine-field RAM configuration.
 Input selection belongs to code, not to model output. The input tree contains:
 
 - `case/`: the current case tree, with symlinks refused;
-- `ledger.json`: a copy of the settled cumulative ledger, captured before the
-  diagnosis invocation is reserved; `card.json`: the authenticated input card;
-- `work/`: only retained writer/stress/gate evidence: attack-state.json, attacks,
-  gate-details, gate-cache, gate-continuation.json, late-defect.json,
+- `ledger.json`: the bytes at `c.ledger` (the live cumulative ledger, normally
+  `SEALED/<case>.continuation-budget.json`), after reconciliation and before
+  reserving a diagnosis invocation. Do not use a stale work ledger copy.
+  `card.json`: a canonical JSON copy of `c.checkpoint_card`, the authenticated
+  restored card, whose `sha256` equals the initial `source_generation` and whose
+  pending exhaustion ID equals the current one. It is not the newly built card;
+- `work/`: reuse the work-root evidence selected by `gate_state.inventory`
+  (gate-details, judge_breadth, review-*), plus `bench-results` for restored
+  bench-kind evidence. Current inventory bench-kind files go under that same
+  `work/bench-results/` prefix; if both copies exist they must agree. Retain the
+  remaining writer/stress and lifecycle inputs by name: attack-state.json,
+  attacks, gate-cache, gate-continuation.json, late-defect.json,
   extension-history.json, extension-snapshots, transcripts, usage-receipts,
-  infra-attempts.json, strong_calibrator, easy_calibrator, early_probe, review-*
-  and independent-* directories. Missing optional evidence stays missing;
-- `source/`: matching release source under factory/*.py, factory/prompts/*.md,
-  bin/*.py, and the explicit extensionless evaluators bin/checkpoint,
-  bin/strategy, bin/verify-negative, bin/run-exam, bin/score-claims and bin/land.
+  infra-attempts.json, strong_calibrator, easy_calibrator, early_probe,
+  independent-* directories, fixes, evidence, history, verdict.json,
+  prototype.json, public-search.json, idea-realism.json, audit-baseline.json
+  and delivery-provenance.json. These named roots are optional unless required
+  below; they are not replaced by a recursive copy of work;
+- `source/`: exactly the verified worker release manifest's `files` entries
+  matching `factory/*.py`, `factory/prompts/*.md`, and the bin entries in
+  `launch_manifest.WORKER_BENCH`. These are a subset of `worker_files`, stamped
+  with the `worker_release.source_files` digest convention. Read the existing
+  `batch-release.json` by the authenticated `batch_release_sha256`, then read
+  `worker-release-manifest.json` by that release's recorded digest, using
+  `job_config.read_file` as install already does. Each selected source file is
+  required and its copied bytes must equal its manifest digest. Use the existing
+  worker mapping: factory paths under the installed factory root, bin paths
+  under BENCH. No independent source list and no unshipped run-exam,
+  score-claims or land file is added. Do not run tool qualification again.
+
+The minimum is a nonempty case tree, the valid pending authenticated card,
+the reconciled JSON ledger, and all selected release source. Every evidence
+reference in a copied gate-cache record must resolve to a copied work file
+(bench-kind references resolve under work/bench-results) with the stated hash.
+Required stop evidence follows its existing producer, not a universal
+gate-detail filename:
+
+- `late_defect_needs_ruling:<gate>` requires copied `work/late-defect.json`:
+  its gate and the authenticated card's `late_defect.gate` equal the stop's
+  gate, and `late_recovery.digest(record)` equals `late_defect.record_sha256`.
+  G4/G6 need no gate-detail file; `stop_defect` already retains their detail
+  in this bound receipt.
+- `extension_incomplete` requires the completed last outcome in copied
+  `work/extension-history.json` and its immutable snapshots. Verify with the
+  extension history reader against the authenticated card's §8 projection;
+  the last outcome must be non-null and its canonical digest must equal that
+  projection's `outcome_sha256`. This reuses the snapshot validation instead of
+  fabricating a gate-detail receipt.
+- `infrastructure_exhausted` requires the authenticated input card's
+  `infrastructure_gate.exhausted: true` marker with its code-recorded gate.
+  A crash may have produced no detail file, which does not prevent diagnosis.
+- Budget/stress-round exhaustion requires its valid pending state and retained
+  ledger; no universal gate-detail file is required.
+
+Any existing gate-detail files remain additional evidence. Missing or mismatched
+required stop receipts are invalid inputs, not evidence of a writer failure.
+Missing required inputs use `diagnosis_input_invalid`, defined below.
+
+Statements are excluded: they belong to the separately encrypted statement
+channel, not this diagnosis of factory execution. The selected calibration and
+gate receipts describe the relevant execution without importing that channel.
+Unlisted work artifacts are excluded because no diagnosis input contract needs
+them; the explicit list above includes writer handoff, G11 audit and delivery
+provenance. This is evidence selection, not a new gate pass or permission grant.
 
 Never copy the whole worker home, logs/stdio, other case roots, credential
 stores, environment files, restore keys or job configuration into these inputs.
-Reject symlinks and non-regular selected files. Snapshot creation occurs at the
-ordinary quiescent boundary with no active model calls. Stage into a temporary
-directory, hash the copies, fsync files/directories, atomically publish inputs,
-then durably write input.json. A crash with inputs but no manifest may verify
-and reuse those same bytes only while they still match the authenticated source;
-otherwise it refuses. Once input.json exists, never rewrite the snapshot from
+Reject symlinks and non-regular selected files. Snapshot creation uses the same
+joined-worker condition as `durable_checkpoint.checkpoint_progress(...,
+quiescent=True)`, after reconciliation and with no active model calls. It does
+not add a new checkpoint state or require an extra upload. Stage into
+`work/diagnosis/<exhaustion_id>/.inputs-staging/`, hash the copies, fsync
+files/directories, atomically publish inputs on that same filesystem, then
+durably write input.json. No model call can precede that manifest. If input.json
+is absent, first inspect this exhaustion's retained state, before cleanup or
+finding validation. Any `finding.json`, `raw-result-*.json`, completed
+diagnosis_state or retained diagnosis invocation reservation makes this
+`diagnosis_input_invalid`; preserve all remaining inputs and findings. The
+dispatcher uses `diagnosis-<exhaustion_id>` as the initial reservation call_name
+and `diagnosis-<exhaustion_id>-repair-<ordinal>` for schema repair, so this check
+uses those exact names in the ledger rather than model text. These names are
+an obligation on future dispatcher wiring, which is not enabled here.
+Only an unbound pending attempt with none of that evidence may remove orphan
+inputs and staging directories and re-stage current bytes. Refuse symlink parents
+rather than following them during cleanup. Once input.json exists, never rewrite the snapshot from
 new work. Replays verify its exact file inventory and digests, case and
 exhaustion ID. A later same-owner wait/checkpoint generation does not rebind the
 original generation: the authenticated archive carries that immutable input.
 
-The model's checkpoint_sha256 and evidence paths bind to this original input
-manifest and inputs directory. Both result validation and finding replay use
+The model's checkpoint_sha256 equals the original manifest generation and its
+evidence paths are relative to inputs. That generation identifies the restored
+ancestor; it is not a claim that post-settlement ledger bytes were in that
+ancestor. The manifest, snapshot and finding are retained together under the
+same exhaustion ID inside subsequent authenticated encrypted archives. The
+manifest hashes establish the exact evidence bytes. Both result validation and finding replay use
 that root. Live ledger growth after diagnosis, or a crash after finding.json
 but before public completion, therefore cannot invalidate the retained finding.
 Changed immutable evidence still refuses. Dispatcher wiring must load and
-verify this input manifest before reusing a finding or starting a model.
+verify this input manifest before reusing a finding or starting a model. The
+diagnosis role's only readable case/evidence root is this inputs directory,
+under the existing launcher isolation and `case_permissions`; a copy allowlist
+alone is not isolation. This amendment enables no dispatcher.
+
+Every input-protocol refusal sets `status: stopped` and
+`terminal_stop: diagnosis_input_invalid`, preserving the existing
+`diagnosis_state` as evidence rather than completing or replacing it. This
+includes missing/null/mismatched initial source generation, mismatched case or
+exhaustion ID, unsafe paths, missing required inputs, release mismatches and any
+missing/changed/extra frozen file or invalid manifest. `exhaustion` returns false
+and `pending_projection` returns None for this stop even with an infrastructure
+marker; `record_exhaustion` cannot mint a new ID. The ordinary final checkpoint
+persists the stopped card. It is intentionally not a known status stop, so
+status shows `check case`; B queues no automatic diagnosis retry. Existing held
+model guards remain in force. Recovery is a separately reviewed operator
+correction through the ordinary bind/import path, never an automatic reset.
 
 `factory_bug_history_invalid` is a terminal attention stop: exhaustion returns
 false and pending_projection returns None, including when an infrastructure
 marker remains or a previously completed hold's history is damaged. It cannot
-create a new diagnosis ID. The shared held-dispatch guard remains in force;
+create a new diagnosis ID. A damaged completed hold does replace its stop with
+`factory_bug_history_invalid`, removes the derived count and preserves its
+finding and public factory_bug marker; `check case` takes priority over the
+ordinary held action. No code clears this stop automatically; repair needs the
+same reviewed operator correction as invalid inputs. The shared held-dispatch guard remains in force;
 B's later cross-batch resume addendum must explicitly update that guard with
 its authenticated admission path, not bypass it through another model caller.
 
-The follow-up tests use the saved 5813be ledger and verified practice bytes:
+Targets are `factory/diagnosis.py` and the held/input tests. The follow-up tests
+use the saved 5813be ledger and verified practice bytes:
 freeze input, write a finding, interrupt public completion, append to the live
 ledger, then replay the same finding without a model. Corrupting frozen input
-must refuse. Assert None projections for invalid history both before and after
-a completed hold. These are offline control tests and close no Murphy row.
+must stop as diagnosis_input_invalid with exhaustion false and a None projection,
+including with an infrastructure marker. Remove the manifest after a finding
+but before public completion, append live usage and attempt replay: preserve
+input bytes, finding and exhaustion ID, do no model work and stop input-invalid.
+Repeat after completed hold, and cover raw-result/reservation-only evidence.
+Separately test genuine pre-manifest orphan re-staging after live settlement,
+initial generation mismatch, G4/G6 late-defect receipts without gate details,
+their missing/wrong-gate/wrong-digest refusals, completed extension outcome
+bindings, the infrastructure crash marker, gate-cache reference resolution, release digest mismatch,
+and unchanged replay across a later authenticated source generation. Assert
+None projections for invalid history both before and after a completed hold.
+These are offline control tests and close no Murphy row.
+
+Storage cost is one immutable input copy per exhausted diagnosis, retained in
+later encrypted archives. In the offline 5813be harness, the verified practice
+tree is 94,188 bytes, the saved ledger serialized with json.dumps is 781,508
+bytes, and the saved card is 784,266 bytes: 1,659,962 bytes before release source
+and retained work evidence. This is a measured fixture subtotal, not a claim
+about the full private 5813be archive (which was not decrypted). Input files'
+actual sizes can be summed at implementation verification. There is no new
+quota or garbage collection policy in this amendment.
