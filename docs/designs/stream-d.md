@@ -1874,21 +1874,33 @@ Change.
   "total unknown". Non-factory calls keep the marker. This removes the
   window in which a sibling concurrent call's `check_limits`
   (`budget.py:845`) reads an unknown total and stops with `money_wait`.
-  One exception keeps the bound marker: a failed stop
-  (`cancellation-failed:` in `starts`). That process may still be running,
-  past its reservation, so the case total stays unknown and fails closed.
+  A failed stop needs no marker either. `model_call_gate.enforce` closes the
+  call's gate on exit, and a closed `Allowance` refuses every further request,
+  so a process that outlived the stop cannot spend past the gate's bound.
 - `diagnosis.actual_model_work`: markers were also process-start evidence
   for replacement eligibility. A subscription call that dies before its usage
   event leaves no event. With no marker, it would look like zero work. The
   card's `route_receipts` already record each lease's outcome. The runtime
   resets an unstarted call to `denied` (`model_runtime.py:413–414`), so
   `done` or `interrupted` means a process started. Count those rows as work.
+  `run.inherit_recovery_history` carries `route_receipts` across a resume,
+  as it already does for `diagnosis_state`. `ModelRuntime._call` records the
+  outcome before `complete_invocation`, so an accounting error cannot leave a
+  started call reading `admitted`.
   This also closes a gap that predates this change: `finalize_accounting`
   reconciles bound markers away before `record_exhaustion` reads them. Saved
   cards carry no `route_receipts`, so their projections are unchanged.
+- `budget._settle_leaf`: a receipt without final usage is charged at the
+  smaller of the reservation maximum and the closed gate's bound in the
+  receipt (`cap_used.settled_usd + held_usd`). The gate holds each request's
+  worst case until its usage validates. That bound applies only when the gate
+  forwarded at least one request. Otherwise the snapshot is the unstarted
+  default, and the maximum stays. With the real $50 Claude maximum, one blip
+  without usage now costs one request's hold, not the whole ordinary budget.
+  Receipts with no gate snapshot (synthetic reconciliation leaves) keep the
+  maximum.
 - `budget.complete_invocation`: a receipt without final usage settles through
-  the existing `_settle_leaf` as `estimated`, charging the reservation's
-  remaining maximum. That also removes the marker bound to that invocation.
+  the existing `_settle_leaf` as `estimated`, charging that bound. That also removes the marker bound to that invocation.
   This is exactly what `reconcile_reservations` already does at the next
   call or resume, done at the point the call ends. A later final receipt
   replaces the estimate once, through the same settler and its
@@ -1949,17 +1961,21 @@ Tests, in `tests/factory/test_stream_d_runtime.py` on the hash-verified
 practice case and the captured 5813be ledger (priced cost already above $5).
 Only model outputs and the gate's unknown-request count are authored.
 
-- **Unknown usage settles, and the next admission proceeds.** Two subtests
-  through the real `run.model_call` / `ModelRuntime._call` / router / ledger.
-  (a) A stress call returns `done`, but the gate recorded an unknown request.
-  The ledger row is `estimated` at its maximum, there is no unpriced marker,
-  and the total is known. The next writer `pending_call` is admitted and
-  completes, with no `budget_exhausted`. (b) A writer call starts, records an
-  unknown request and fails with `claude_error`. The router retries on the
-  second Claude account inside the same call, and that retry is admitted.
-  There are two reservations, the first is `estimated`, and the total equals
-  the baseline plus the first maximum plus the second actual. Both subtests
-  fail on the current code.
+- **Unknown usage settles at the gate bound, and the next admission
+  proceeds** (`test_unknown_usage_settles_at_gate_bound_and_next_admission_proceeds`).
+  Two subtests through the real `ModelRuntime._invoke`, the real
+  `run_budgeted` (so `on_started` and the reset to `denied` run), the real
+  router and ledger, and the real `Allowance` arithmetic. The CLI byte
+  streams and the one request without usage are authored. Each estimated
+  route keeps its real maximum (the reviewer's OpenRouter gate maximum, and
+  Claude's $50). The route receipt shows a started outcome and survives
+  `inherit_recovery_history`. A later final receipt replaces the estimate
+  once. (a) A gated reviewer call books $0.01 and leaves one request without
+  usage. It is estimated at the gate hold, and the next writer `pending_call`
+  is admitted and completes. (b) A Claude writer blip without usage is
+  estimated at one request's hold. The router retries on the second Claude
+  account inside the same call. On the committed code, (a) stops with
+  `budget_exhausted` and (b) with `money_wait`.
 - **Factory jobs carry no paid cap.** A `run.main` subprocess harness (same
   pattern as the existing main test) runs with an authored batch-release file
   (only its digest is checked) and an authored job installer. Both are
@@ -1979,7 +1995,10 @@ Only model outputs and the gate's unknown-request count are authored.
 
 Rows. Row 8 closes with the no-paid-cap and search-exam tests. Row 21 closes
 with the settlement test. Both run on real saved ledger and case bytes
-through the real runtime, router and ledger code.
+through the real runtime, router and ledger code. Row 8 closes for batch
+jobs only. Non-batch runs and the exam owner keep their cap by design. Row
+21 closes for reservation-bound calls. An unbound legacy marker, like the
+attempt-6 Codex ledger the row cites, stays on the $33 import path.
 
 Existing tests affected. `test_stream_d_runtime.py::
 test_stream_accountant_links_unknown_usage_and_settles_once_above_five_dollars`
@@ -1992,6 +2011,20 @@ receipts, or read saved proof records. A local draft of the
 `complete_invocation` change passes all three unchanged. The settlement test
 also covers a concurrent sibling call: it streams while the first call fails
 with unknown usage, and it finishes without `money_wait`.
+
+Design review 3 responses. DeepSeek returned no final report, so review 3
+was rerun with a fresh Claude reviewer (FAIL). B1: accepted. The failed-stop
+marker was removed again by the same call's `complete_invocation`. The
+exception is deleted, and the closed gate is the bound. M1: accepted. The
+estimate uses the gate's bound and is tested with the real maxima. M2:
+accepted. `route_receipts` inheritance is named above. M3: accepted. The
+settlement test runs the real `run_budgeted`. N1: accepted. The outcome is
+recorded before accounting. N2: accepted as a known gap. A runner killed
+mid-call loses the in-memory receipt row until the next checkpoint, so that
+call reads as no work. The reservation still settles. N3: accepted.
+`run.main` refuses a G11 audit on a batch job. N4: noted, unreachable and
+fails closed. N5: accepted. Row 8 is narrowed to batch jobs when it closes.
+N6: noted. `route_receipts` grow per call, like `events`.
 
 Design review 2 (DeepSeek, FAIL) responses. B1: accepted. Fixed through
 the route receipts above. The settlement test asserts that the estimated
