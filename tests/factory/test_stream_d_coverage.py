@@ -90,6 +90,39 @@ class CoverageTests(unittest.TestCase):
         self.assertIsNotNone(budget.case_spending(self.ledger())['total_spent_usd'])
         self.assertEqual(len(self.ledger()['reconciled_decreases']), 1)
 
+    def test_wait_replay_retains_new_lease_provenance(self):
+        first, _ = self.reserve(); later, row = self.reserve(); partial, _ = self.reserve()
+        budget.reconcile_reservations(self.work, self.path, exclude_leases=(first.lease_id,))
+        wait = self.wait(first, self.receipt(first, [('first', 1)]))
+        budget.settle(wait, work=self.work, ledger_path=self.path)
+        self.receipt(later, [('late-final', 2)], final=True)
+        self.receipt(partial, [('late-partial', 3)])
+        budget.settle(wait, work=self.work, ledger_path=self.path)
+        ledger = self.ledger()
+        self.assertEqual(ledger['wait_settlements'][wait['wait_id']]['lease_ids'],
+                         sorted([first.lease_id, later.lease_id, partial.lease_id]))
+        decrease, = ledger['reconciled_decreases']
+        self.assertEqual((decrease['invocation_id'], decrease['wait_id'], decrease['released_usd']),
+                         (row['invocation_id'], wait['wait_id'], '8.000000000'))
+        coverage = budget.usage_coverage(ledger)
+        pending = next(r for r in coverage['invocations'] if r['lease_id'] == partial.lease_id)
+        self.assertEqual(pending['wait_ids'], [wait['wait_id']])
+        budget.settle(wait, work=self.work, ledger_path=self.path)
+        self.assertEqual(self.ledger(), ledger)
+
+    def test_unreserved_zero_usage_denial_keeps_coverage_available(self):
+        from types import SimpleNamespace
+        denied = SimpleNamespace(lease_id=str(uuid.uuid4()))
+        relative = self.receipt(denied, [], final=True)
+        path = self.work / relative
+        receipt = json.loads(path.read_text()); receipt['outcome'] = 'denied'
+        path.write_text(json.dumps(receipt))
+        wait = self.wait(denied, relative)
+        before = budget.usage_coverage(self.ledger())
+        budget.settle(wait, work=self.work, ledger_path=self.path)
+        self.assertEqual(self.ledger()['wait_settlements'][wait['wait_id']]['lease_ids'], [])
+        self.assertEqual(budget.usage_coverage(self.ledger()), before)
+
     def test_malformed_or_ambiguous_coverage_fails_closed(self):
         lease, row = self.reserve(); l2, _ = self.reserve()
         original = self.ledger()

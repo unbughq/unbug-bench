@@ -343,7 +343,11 @@ def settle(record, *, work, ledger_path):
         for receipt in leaves: _settle_leaf(ledger, receipt, identity)
         summary = case_spending(ledger)
         after = summary.get('known_total_spent_usd', summary['total_spent_usd'])
-        ledger.setdefault('wait_settlements', {}).setdefault(identity, {'lease_ids': sorted({r['lease_id'] for r in leaves})})
+        wait = ledger.setdefault('wait_settlements', {}).setdefault(identity, {'lease_ids': []})
+        # Replays can discover later receipts. Retain their provenance too;
+        # denied zero-usage leaves without a reservation carry no work.
+        wait['lease_ids'] = sorted(set(wait['lease_ids']) | {r['lease_id'] for r in leaves
+            if r['lease_id'] in ledger.get('invocation_reservations', {})})
     record['settled'] = True
     live = work / 'provider_wait.json'
     if live.exists(): _save(live, record)
