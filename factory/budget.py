@@ -289,6 +289,43 @@ def settle(record, *, work, ledger_path):
     return round(after - before, 9)
 
 
+def complete_invocation(work, ledger_path, lease_id):
+    """Release known-complete or never-started work; interruptions stay for settle."""
+    relative = 'usage-receipts/' + lease_id + '.json'
+    leaves = _usage_leaves(Path(work), relative)
+    with ledger_transaction(ledger_path) as ledger:
+        for receipt in leaves:
+            if receipt['lease_id'] != lease_id: raise BudgetError('wait_receipt_mismatch')
+            if receipt['final_usage_known']: _settle_leaf(ledger, receipt)
+
+
+def release_uninvoked(ledger_path, lease_id):
+    with ledger_transaction(ledger_path) as ledger:
+        row = ledger.get('invocation_reservations', {}).get(lease_id)
+        if row is None: return
+        if row['event_ids']: raise BudgetError('reservation_already_invoked')
+        row.update(state='settled', estimated_gap_usd='0.000000000')
+
+
+def reconcile_reservations(work, ledger_path, *, exclude_leases=(), exclude_calls=()):
+    """Ordinary crash reconciliation, called only after exclusive case ownership.
+
+    Missing receipts do not prove a free call: charge the remaining reservation
+    explicitly. Late receipts replace that estimate through the same settler.
+    """
+    work = Path(work)
+    with ledger_transaction(ledger_path) as ledger:
+        for lease_id, row in ledger.get('invocation_reservations', {}).items():
+            if lease_id in exclude_leases or row['call_name'] in exclude_calls: continue
+            if row['state'] == 'settled': continue
+            relative = 'usage-receipts/' + lease_id + '.json'
+            if (work / relative).is_file(): leaves = _usage_leaves(work, relative)
+            else:
+                leaves = [{'lease_id': lease_id, 'events': [], 'booked_event_ids': row['event_ids'],
+                           'final_usage_known': False}]
+            for receipt in leaves: _settle_leaf(ledger, receipt)
+
+
 def reclassify_factory_bug(path, record):
     """Only the diagnosis/fix-evidence validator may supply this attribution.
 
@@ -427,7 +464,14 @@ def invocation_role(name):
             'reviewer2' if name.startswith('reviewer-2') else 'reviewer')
 
 
-def require_case_budget(ledger, limit, configured_model=None):
+def require_case_budget(ledger, limit, configured_model=None, *, job_authority=None, lease_id=None):
+    if job_authority is not None:
+        from job_authority import JobAuthority
+        if not isinstance(job_authority, JobAuthority): raise BudgetError('money_wait')
+        spent = case_spending(ledger)['total_spent_usd']
+        if spent is None or usd(spent) + outstanding_reservations(ledger, lease_id) >= job_authority.committed_total_usd:
+            raise BudgetError('money_wait')
+        return
     spent = case_spending(ledger)['spent_usd']
     if spent is None or spent >= limit or (str(configured_model).startswith('codex/') and configured_model not in CODEX_PRICES):
         raise BudgetError('budget_exhausted')
@@ -498,7 +542,8 @@ def resume_ledger(ledger_path):
 
 def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
-                 progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None):
+                 progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
+                 job_authority=None, invocation_id=None, lease_id=None):
     # Preserve the original whole-session lock unless concurrency is explicitly enabled.
     settings = locals()
     path = Path(ledger_path)
@@ -512,7 +557,8 @@ def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
 
 def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
-                 progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None, _serial_lock=None, _activity_lock=None, _admission_lock=None):
+                 progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
+                 job_authority=None, invocation_id=None, lease_id=None, _serial_lock=None, _activity_lock=None, _admission_lock=None):
     """Return CompletedProcess, or raise BudgetError without exposing transcript text.
 
     max_calls limits this invocation; max_total_calls and max_cost span roles.
@@ -524,7 +570,19 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     """
     if driver not in ('opencode', 'codex', 'claude'):
         raise ValueError('Unknown driver')
-    if not all(_number(v) for v in (max_cost, max_calls, timeout, max_total_calls, progress_timeout, case_budget)) or not isinstance(max_zero_tokens, int) or max_zero_tokens < 1:
+    from job_authority import JobAuthority
+    factory = isinstance(job_authority, JobAuthority)
+    if ((job_authority is not None and not factory) or (max_cost is None and not factory)
+            or (factory and (max_cost is not None or not invocation_id or not lease_id))):
+        raise ValueError('factory budget requires admitted invocation and job authority')
+    batch_limited = False
+    if factory:
+        from model_router import epoch
+        remaining = epoch(job_authority.batch_deadline) - time.time()
+        if remaining <= 0: raise BudgetError('retired_batch_bound')
+        batch_limited = remaining < timeout
+        timeout = min(timeout, remaining)
+    if not all(_number(v) for v in ((() if factory else (max_cost,)) + (max_calls, timeout, max_total_calls, progress_timeout, case_budget))) or not isinstance(max_zero_tokens, int) or max_zero_tokens < 1:
         raise ValueError('Budget ceilings and timeout must be finite and nonnegative')
     if '--attach' in cmd or any(str(arg).startswith('--attach=') for arg in cmd):
         raise ValueError('Budget enforcement requires an exclusive local process')
@@ -536,7 +594,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     path = Path(ledger_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     ledger = None
-    invocation = uuid.uuid4().hex
+    invocation = invocation_id or uuid.uuid4().hex
 
     @contextmanager
     def transaction():
@@ -562,7 +620,11 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         if (not _number(ledger.get('cost')) or not _number(ledger.get('calls'))
                 or not isinstance(ledger.get('events'), list)):
             raise BudgetError('Invalid budget ledger; no process started')
-        require_case_budget(ledger, case_budget, configured_model)
+        require_case_budget(ledger, case_budget, configured_model, job_authority=job_authority, lease_id=lease_id)
+        if factory:
+            reservation = ledger.get('invocation_reservations', {}).get(lease_id, {})
+            if (reservation.get('invocation_id') != invocation or reservation.get('state') != 'pending'
+                    or reservation.get('route') != configured_model): raise BudgetError('reservation_mismatch')
         previous = ledger.get('terminal_stop')
         if previous not in (None, 'complete') and not (concurrent and previous == 'running' and not resume):
             if not resume: raise BudgetError('Budget ledger stopped: ' + str(previous))
@@ -570,7 +632,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         if resume:
             ledger['zero_token_streak'] = 0
             ledger.pop('active', None)
-        cause = ('cost_limit' if ledger['cost'] >= max_cost else
+        cause = ('cost_limit' if not factory and ledger['cost'] >= max_cost else
                  'total_call_limit' if ledger['calls'] >= max_total_calls else
                  'call_limit' if max_calls == 0 else
                  'timeout' if timeout == 0 else
@@ -584,7 +646,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         fcntl.flock(_activity_lock, fcntl.LOCK_SH)
     if _admission_lock is not None:
         fcntl.flock(_admission_lock, fcntl.LOCK_UN)
-    seen = {item['id'] for item in ledger['events']}
+    seen = {item['id'] for item in ledger['events'] if item.get('id')}
     provider_model = configured_model or driver + '/unknown'
     with transaction():
         ledger.update(driver=driver, configured_model=configured_model)
@@ -615,8 +677,12 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
 
     def check_limits():
         if collecting_usage: return  # accounting buffered output after the process was stopped
-        if ledger['cost'] >= max_cost:
+        if not factory and ledger['cost'] >= max_cost:
             raise BudgetError('cost_limit')
+        if factory:
+            total = case_spending(ledger)['total_spent_usd']
+            if total is None or usd(total) + outstanding_reservations(ledger) > job_authority.committed_total_usd:
+                raise BudgetError('money_wait')
         if ledger['calls'] >= max_total_calls:
             raise BudgetError('total_call_limit')
         if count >= max_calls:
@@ -681,6 +747,9 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         record = {'id': identity, 'cost': 0, 'priced': 'subscription', 'tokens': usage,
                   'configured_model': configured_model, 'calls': count}
         record.update(role=role or 'legacy_unattributed', invocation=invocation_name)
+        if factory:
+            record.update(invocation_id=invocation, lease_id=lease_id)
+            ledger['invocation_reservations'][lease_id]['event_ids'].append(identity)
         if partial: record['estimated_from_partial_usage'] = True
         if estimate is not None:
             record['estimated_subscription_cost_usd'] = estimate
@@ -819,7 +888,9 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             'model': part.get('model', event.get('model')),
             'modelID': part.get('modelID', event.get('modelID')),
             'providerID': part.get('providerID', event.get('providerID')),
+            **({'invocation_id': invocation, 'lease_id': lease_id} if factory else {}),
         })
+        if factory: ledger['invocation_reservations'][lease_id]['event_ids'].append(identity)
         tokens_seen([tokens[k] for k in ('input', 'output', 'reasoning')] + list(tokens['cache'].values()))
         if (part['cost'] == 0 and any([tokens[k] for k in ('input', 'output', 'reasoning')]
                                            + list(tokens['cache'].values()))
@@ -877,7 +948,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                     tool_cpu, last_output = cpu, now
                 remaining = deadline - now
                 if remaining <= 0:
-                    raise BudgetError('timeout')
+                    raise BudgetError('retired_batch_bound' if batch_limited else 'timeout')
                 for key, _ in selector.select(min(remaining, progress_timeout - (now - last_output), 0.1)):
                     chunk = os.read(key.fd, 65536)
                     if not chunk:
@@ -904,7 +975,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             try:
                 returncode = process.wait(timeout=max(0, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
-                raise BudgetError('timeout') from None
+                raise BudgetError('retired_batch_bound' if batch_limited else 'timeout') from None
             if returncode:
                 raise BudgetError('process_error')
             if not usages or starts - finishes:
@@ -918,7 +989,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     except BaseException as error:
         if (process is not None and driver in ('codex', 'claude')
                 and isinstance(error, BudgetError)
-                and str(error) in ('call_limit', 'total_call_limit', 'cost_limit', 'timeout')):
+                and str(error) in ('call_limit', 'total_call_limit', 'cost_limit', 'timeout', 'retired_batch_bound')):
             # Stop first: collecting usage must never grant another model response.
             # Only drain bytes already emitted; no grace period for a missing receipt.
             try:
@@ -996,7 +1067,8 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             finally:
                 collecting_usage = False
             if driver in ('codex', 'claude') and (starts - finishes or (process is not None and not usages)):
-                ledger.setdefault('unpriced_invocations', []).append({'role': role, 'model': configured_model})
+                ledger.setdefault('unpriced_invocations', []).append({'role': role, 'model': configured_model,
+                    **({'invocation_id': invocation, 'lease_id': lease_id} if factory else {})})
             if invocation in ledger.get('active', []): ledger['active'].remove(invocation)
             if not ledger.get('active'): ledger.pop('active', None)
             if ledger.get('terminal_stop') in (None, 'running', 'complete'):

@@ -802,3 +802,48 @@ over the attributed event IDs, preserving the same valuation through admission.
 Settled rows alone determine derived late-attribution event IDs, even while a
 new replay lease is pending. The input event_ids/amount fields remain part of
 the reviewed schema; they are checked, never taken as a second spend booking.
+
+## Increment 2: runtime and pending-unit integration
+
+This increment wires the accounting foundation into authenticated factory jobs
+(batch-release binding or installed job_money). Legacy non-factory execution
+keeps its numeric cap until the separate cap-migration increment. Every new job
+needs B's independently installed current binding and E/A's qualified effective
+route bounds. The enforcement inventory is intentionally empty: tests inject
+authored bounds, but no production route is qualified by prices or receipts.
+Missing/stale authority or unknown bounds refuses model work. Reporting still
+projects settled spend after authority expires; it never grants admission.
+
+Dispatch shares one case RLock through automatic checkpointing; G10's owner
+alone may bypass it when a matching tester reservation is active. The merged E
+owner server is ThreadingHTTPServer with an owner_lock, so that bypass uses the
+existing single active owner request rather than changing the HTTP contract.
+Both tester and owner reserve independently. The factory streaming accountant
+uses short ledger transactions even when scientific concurrent_roles is false.
+Events and unknown invocations carry the admitted invocation/lease IDs. A known
+completion or never-started denial releases its reservation; an exclusive crash
+reconciliation conservatively charges a missing receipt and late receipts replace
+the estimate. Live parent calls are excluded from child reconciliation.
+
+Writer/stress receipts retain V1 fields and add V2 operation/phase/binding/output
+fields. Admission precedes receipt/counter mutation. Writer completion is saved
+inside opencode before its automatic checkpoint and before G1; restored completed
+work resumes validation. Provider settlement precedes pending reset and archival;
+the archive plus ledger wait marker proves continuation while awaiting a new
+lease. L1 interruption, null denial and L2 interruption keep one operation and
+round. UNBUG_PROVIDER_WAIT=0 never forces deferred admission. The absolute money
+deadline bounds the accountant; its expiry is retired_batch_bound, never a
+contestant timeout. Final accounting reconciles only after calls join, leaving
+provider-wait settlement for resume as specified.
+
+tests/factory/test_stream_d_runtime.py replays the captured paid ledger 5813be
+(already above $5) and hash-verified captured public-practice files, with authored
+CLI envelopes, model outputs, provider conditions and job configuration. It
+executes the real streaming accountant, local router and owner HTTP protocol.
+It makes no real-crash, B/E qualification or Murphy-row closure claim.
+
+Still pending in subsequent increments: diagnosis/extensions and immutable stage
+snapshots; legacy receipt/import migration; complete removal of new-schema stale
+allowances/caps across launch/resume/audit; scientific binding migration; B's
+qualified installer and acknowledged checkpoint integration; real crash/capped
+artifact closure exams. No row closes with this incremental runtime wiring.

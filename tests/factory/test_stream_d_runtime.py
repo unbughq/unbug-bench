@@ -1,0 +1,364 @@
+"""Control-flow replays using saved public ledgers and practice-case bytes.
+
+Model outputs, provider conditions and the job config are authored test inputs.
+Only Python stream emitters and the real local router/HTTP protocol execute;
+there is no model CLI, cloud launch, decryption or real crash-artifact claim.
+These tests do not close Murphy rows or qualify B/E rollout.
+"""
+import copy
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import threading
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+import urllib.request
+import urllib.error
+import uuid
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
+import budget
+import durable_checkpoint
+import exam_responder
+import job_authority
+import model_router
+import model_runtime
+import run
+from router_test_support import offline_router
+from test_stream_d import cards
+
+
+class Killed(BaseException): pass
+
+
+class RuntimeTests(unittest.TestCase):
+    def setUp(self):
+        self.patch(run, 'BENCH', ROOT)
+        router, self.store = offline_router(); self.addCleanup(router.close)
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        self.work = Path(temporary.name)
+        self.case = self.work / 'case'; self.case.mkdir()
+        (self.work / 'transcripts').mkdir()
+        practice = json.loads(gzip.decompress((ROOT / 'tests/factory/fixtures/invalid-runs-practice.json.gz').read_bytes()))
+        for name, value in practice['files'].items():
+            data = value.encode()
+            self.assertEqual(hashlib.sha256(data).hexdigest(), practice['sha256'][name])
+            target = self.case / name; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data)
+        # A genuine ledger already beyond the old $5 priced-provider cap.
+        self.source = next(row['card'] for row in cards() if row['card']['case'].endswith('5813be'))
+        self.ledger = self.work / 'ledger.json'; self.ledger.write_text(json.dumps(self.source['continuation_budget']))
+        self.channel = json.loads((ROOT / 'tests/fixtures/factory/stream-d/job-money.json').read_text())
+        self.channel.update(case=self.source['case'], source_generation=self.source['sha256'])
+        args = run.argument_parser().parse_args(['--source', 'hunt', '--batch-release-sha256', 'a' * 64])
+        writer, stress, reviewer, strong = ('claude/claude-opus-5-5', 'opencode/minimax-m3.1-flash-free',
+                                           'openrouter/deepseek/deepseek-v4.1-flash', 'codex/gpt-6.1-sol')
+        self.c = c = SimpleNamespace(work=self.work, case=self.case, ledger=self.ledger, args=args,
+            case_id=self.source['case'], seed=7, manifest0='public-practice-control-flow', role_cancel=threading.Event(),
+            card={'case': self.source['case'], 'builder_rounds': 0, 'roles': {
+                role: {'model': model} for role, model in zip(('writer', 'stress_tester', 'reviewer', 'strong_calibrator'),
+                                                             (writer, stress, reviewer, strong))}},
+            models={'builder': [writer], 'attacker': [stress], 'reviewers': [[reviewer]], 'strong_calibrator': [strong]},
+            job_money=self.channel, authenticated_job_config={'job_money': copy.deepcopy(self.channel)},
+            batch_id=self.channel['batch'], job_id=self.channel['job'], batch_deadline=self.channel['batch_deadline'],
+            source_generation=self.channel['source_generation'])
+        self.baseline = budget.case_spending(self.source['continuation_budget'])['total_spent_usd']
+        self.patch(model_router, 'metadata', return_value=(c.batch_id, c.job_id, model_router.epoch(c.batch_deadline)))
+        bounds = {'requests': 1, 'input_tokens': 1000, 'output_tokens': 1000, 'tool_fees_usd': '0'}
+        configured = {model: bounds for model in (writer, stress, reviewer, strong)}
+        self.bounds = patch.dict(model_runtime.ENFORCED_ROUTE_BOUNDS, configured); self.bounds.start(); self.addCleanup(self.bounds.stop)
+
+    def patch(self, target, name, *args, **kwargs):
+        patched = patch.object(target, name, *args, **kwargs)
+        value = patched.start(); self.addCleanup(patched.stop); return value
+
+    def receipt(self, role='writer'):
+        return {'round': 1, 'round_limit': 8, 'binding': {'case': 'control-input'}, 'report': 'round-1.json',
+                'actor': role, 'repair_pending' if role == 'writer' else 'review_pending': True,
+                'release_rereviews': [], 'release_review_attempts': [], 'next_phase': 'G1' if role == 'writer' else 'gates',
+                **({'review_attempt': uuid.uuid4().hex} if role == 'stress_tester' else {})}
+
+    def test_stream_accountant_links_unknown_usage_and_settles_once_above_five_dollars(self):
+        self.assertGreater(self.source['continuation_budget']['cost'], 5)
+        lease = model_router.Lease(str(uuid.uuid4()), self.c.models['builder'][0], 'claude-token', 1,
+                                   'subscription', 'anthropic', 'claude-token')
+        authority = job_authority.for_case(self.c)
+        row = budget.reserve_invocation(self.ledger, lease, 100, authority,
+            operation_id=str(uuid.uuid4()), call_name='builder-stream-test')
+        # Authored CLI envelopes hit the real streaming accountant; no CLI/model starts.
+        stream = [{'type': 'system', 'subtype': 'init', 'session_id': 'stream-test'}, {'type': 'result', 'is_error': True}]
+        code = '\n'.join('print(' + repr(json.dumps(event)) + ', flush=True)' for event in stream)
+        with self.assertRaisesRegex(budget.BudgetError, '^claude_error$'):
+            budget.run_budgeted([sys.executable, '-c', code], self.work, os.environ.copy(), self.work / 'stream.jsonl',
+                self.ledger, 3, max_cost=None, driver='claude', configured_model=lease.route, role='writer',
+                invocation_name='builder-stream-test', case_budget=200, job_authority=authority,
+                invocation_id=row['invocation_id'], lease_id=lease.lease_id, concurrent=True, resume=True,
+                max_total_calls=self.source['continuation_budget']['calls'] + 10)
+        current = json.loads(self.ledger.read_text())
+        self.assertEqual(current['unpriced_invocations'][0]['invocation_id'], row['invocation_id'])
+        budget.reconcile_reservations(self.work, self.ledger)
+        current = json.loads(self.ledger.read_text())
+        self.assertEqual(current['unpriced_invocations'], [])
+        self.assertEqual(budget.case_spending(current)['total_spent_usd'], round(self.baseline + 100, 9))
+        budget.reconcile_reservations(self.work, self.ledger)
+        self.assertEqual(json.loads(self.ledger.read_text()), current)
+
+    def test_denied_before_admission_changes_no_reservation_round_or_receipt(self):
+        for account in ('claude-token', 'claude-factory-token-2'): self.store.capacities[account] = 0
+        before = self.ledger.read_bytes()
+        invoke = self.patch(model_runtime.ModelRuntime, '_invoke', side_effect=AssertionError('CLI must not start'))
+        with self.assertRaises(model_router.ProviderWait) as error:
+            run.pending_call(self.c, self.c.models['builder'], 'retained findings', self.case, 'builder-1', self.receipt(),
+                             role='writer', on_complete=lambda: self.fail('must not complete'))
+        self.assertIsNone(error.exception.wait.lease_id)
+        self.assertEqual(self.c.card['builder_rounds'], 0)
+        self.assertFalse((self.work / 'attack-state.json').exists())
+        self.assertEqual(self.ledger.read_bytes(), before); invoke.assert_not_called()
+
+    def test_missing_stale_or_expired_authority_refuses_before_router_admission(self):
+        admit = self.patch(model_router, 'await_lease', side_effect=AssertionError('must not admit'))
+        for change, reason in (({'job_money': None}, 'money_wait'),
+                               ({'source_generation': 'f' * 64}, 'money_wait'),
+                               ({'job_money': {**self.channel, 'batch_deadline': '2020-01-01T00:00:00Z'},
+                                 'authenticated_job_config': {'job_money': {**self.channel, 'batch_deadline': '2020-01-01T00:00:00Z'}}},
+                                'retired_batch_bound')):
+            with self.subTest(reason=reason), patch.multiple(self.c, **change):
+                with self.assertRaisesRegex(budget.BudgetError, '^' + reason + '$'):
+                    run.model_call(self.c, self.c.models['builder'], 'must refuse', self.case, 'builder-1')
+                self.assertIsNotNone(model_runtime.update_case_budget(self.c)[1]['total_spent_usd'])
+        admit.assert_not_called()
+        self.assertNotIn('invocation_reservations', json.loads(self.ledger.read_text()))
+
+    def test_unknown_route_bounds_release_lease_without_model_work_or_unit(self):
+        self.bounds.stop()
+        invoke = self.patch(model_runtime.ModelRuntime, '_invoke', side_effect=AssertionError('must not invoke'))
+        with self.assertRaisesRegex(budget.BudgetError, '^route_maximum_unknown$'):
+            run.pending_call(self.c, self.c.models['builder'], 'must refuse', self.case, 'builder-1', self.receipt(),
+                             role='writer', on_complete=lambda: self.fail('must not complete'))
+        self.assertEqual(self.c.card['builder_rounds'], 0)
+        self.assertFalse((self.work / 'attack-state.json').exists())
+        self.assertNotIn('invocation_reservations', json.loads(self.ledger.read_text()))
+        invoke.assert_not_called()
+
+    def test_batch_deadline_interrupt_is_unscored_retirement_not_contestant_timeout(self):
+        lease = model_router.Lease(str(uuid.uuid4()), self.c.models['builder'][0], 'claude-token', 1,
+                                   'subscription', 'anthropic', 'claude-token')
+        authority = replace(job_authority.for_case(self.c), batch_deadline=(
+            datetime.now(timezone.utc) + timedelta(seconds=.2)).isoformat())
+        row = budget.reserve_invocation(self.ledger, lease, 1, authority,
+            operation_id=str(uuid.uuid4()), call_name='builder-deadline-test')
+        with self.assertRaisesRegex(budget.BudgetError, '^retired_batch_bound$'):
+            budget.run_budgeted([sys.executable, '-c', 'import time; time.sleep(5)'], self.work, os.environ.copy(),
+                self.work / 'deadline.jsonl', self.ledger, 2, max_cost=None, driver='claude', configured_model=lease.route,
+                role='writer', invocation_name='builder-deadline-test', case_budget=200, job_authority=authority,
+                invocation_id=row['invocation_id'], lease_id=lease.lease_id, concurrent=True, resume=True,
+                max_total_calls=self.source['continuation_budget']['calls'] + 10)
+        budget.reconcile_reservations(self.work, self.ledger)
+        current = json.loads(self.ledger.read_text())
+        self.assertEqual(current['terminal_stop'], 'retired_batch_bound')
+        self.assertEqual(budget.case_spending(current)['total_spent_usd'], round(self.baseline + 1, 9))
+
+    def test_ordinary_threshold_uses_next_maximum_without_call_or_reservation(self):
+        with budget.ledger_transaction(self.ledger) as ledger:
+            ledger['list_cost_usd'] += 44 - self.baseline
+        self.patch(model_runtime, 'invocation_maximum', return_value=Decimal(12))
+        invoke = self.patch(model_runtime.ModelRuntime, '_invoke', side_effect=AssertionError('CLI must not start'))
+        with self.assertRaisesRegex(budget.BudgetError, '^budget_exhausted$'):
+            run.pending_call(self.c, self.c.models['builder'], 'retained findings', self.case, 'builder-1', self.receipt(),
+                             role='writer', on_complete=lambda: self.fail('must not complete'))
+        self.assertEqual(self.c.card['builder_rounds'], 0)
+        self.assertNotIn('invocation_reservations', json.loads(self.ledger.read_text())); invoke.assert_not_called()
+
+    def test_writer_completion_checkpoints_then_resumes_validation_without_second_writer(self):
+        self.c.recipient = 'synthetic-only'
+        calls, checkpoints, kill = [], [], [True]
+        def invoke(runtime, c, models, text, cwd, name, **kwargs):
+            calls.append(name)
+            if name == 'builder-1': (self.case / 'draft.txt').write_text('completed writer unit')
+            elif name == 'attacker-1': (self.work / 'attacks/round-1.json').write_text('{"complete":true,"blocking":[]}')
+            else: self.fail(name)
+            return 0
+        def checkpoint(c, *args, **kwargs):
+            receipt = json.loads((self.work / 'attack-state.json').read_text())
+            self.assertEqual(receipt['phase'], 'completed'); checkpoints.append(receipt['actor'])
+            if kill[0]: kill[0] = False; raise Killed()
+        self.patch(model_runtime.ModelRuntime, '_invoke', invoke)
+        self.patch(durable_checkpoint, 'checkpoint_progress', checkpoint)
+        self.patch(run, 'prompt', lambda role, text: text)
+        self.patch(run, 'run_context', lambda c, **kwargs: json.dumps(kwargs))
+        self.patch(run, 'g1', lambda c: (True, {'problems': []}))
+        self.patch(run, 'early_checks', lambda c: None); self.patch(run, 'early_review', lambda c: None)
+        self.patch(run, 'loop_freshness', lambda c, result, report: (result, report))
+        with self.assertRaises(Killed): run.write_and_attack(self.c, {})
+        saved = json.loads((self.work / 'attack-state.json').read_text())
+        self.assertFalse(saved['repair_pending']); self.assertEqual(saved['output_sha256'], run.case_hash(self.c))
+        self.assertEqual(self.c.card['builder_rounds'], 1)
+        self.c.args.resume = self.c.case_id
+        self.c.provider_resume_done = False; self.c.model_resume_state['done'] = False
+        run.write_and_attack(self.c, copy.deepcopy(self.c.card))
+        self.assertEqual(calls, ['builder-1', 'attacker-1'])
+        self.assertEqual(self.c.card['builder_rounds'], 1)
+        self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 1})
+        self.assertEqual(checkpoints, ['writer', 'stress_tester'])
+
+    def test_three_waits_continue_the_same_writer_or_stress_unit(self):
+        for role, key, name, pools, added in (
+                ('writer', 'builder', 'builder-1', ('claude-token', 'claude-factory-token-2'), .1232),
+                ('stress_tester', 'attacker', 'attacker-1', ('opencode-go-key', 'opencode-go-key-2', 'openrouter-key'), 0)):
+            with self.subTest(role=role):
+                # Reset only the authored test context and actual source ledger.
+                self.ledger.write_text(json.dumps(self.source['continuation_budget']))
+                (self.work / 'attack-state.json').unlink(missing_ok=True)
+                self.c.card['builder_rounds'] = 0
+                self.c.provider_resume_done = False
+                if hasattr(self.c, 'model_resume_state'): self.c.model_resume_state['done'] = False
+                receipt = self.receipt(role)
+                def invoke(runtime, c, *args, **kwargs):
+                    raise budget.BudgetError('provider_limit:' + c.model_lease.route,
+                        provider_failure={'reason': 'quota', 'scope': 'account', 'model': c.model_lease.route})
+                def attempt():
+                    with self.assertRaises(model_router.ProviderWait) as error:
+                        run.pending_call(self.c, self.c.models[key], 'retained findings', self.case, name, receipt,
+                                         role=role, on_complete=lambda: self.fail('must not complete'))
+                    return run.write_provider_wait(self.c, error.exception)
+                def resume():
+                    self.c.provider_resume_done = False; self.c.model_resume_state['done'] = False
+                    self.c.card.pop('terminal_stop', None); self.c.card.pop('provider_wait', None)
+                    run.resume_provider_wait(self.c)
+                    saved = json.loads((self.work / 'attack-state.json').read_text())
+                    self.assertIsNone(saved['lease_id']); self.assertIsNone(saved['invocation_id'])
+                    self.assertEqual(saved['operation_id'], operation)
+                    self.assertTrue(run.provider_continuation(self.c, saved, role))
+                    receipt.clear(); receipt.update(saved)
+                with patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
+                    first = attempt(); operation = receipt['operation_id']; first_lease = first['lease_id']
+                    self.assertIsNotNone(first_lease); resume()
+                    for pool in pools: self.store.capacities[pool] = 0
+                    second = attempt(); self.assertIsNone(second['lease_id']); self.assertIsNone(second['call_id']); resume()
+                    for pool in pools: self.store.capacities[pool] = 1
+                    third = attempt(); self.assertIsNotNone(third['lease_id']); self.assertNotEqual(third['lease_id'], first_lease); resume()
+                current = json.loads(self.ledger.read_text())
+                self.assertEqual(len(current['invocation_reservations']), 2)
+                self.assertEqual(budget.case_spending(current)['total_spent_usd'], round(self.baseline + added, 9))
+                self.assertEqual(self.c.card['builder_rounds'], 1 if role == 'writer' else 0)
+                for path in (self.work / 'provider_waits').glob('*.json'):
+                    # Only replays from this unit; older subtest archives name another ledger.
+                    record = json.loads(path.read_text())
+                    if record['role'] == role:
+                        self.assertEqual(budget.settle(record, work=self.work, ledger_path=self.ledger), 0)
+                self.assertFalse((self.work / 'provider_wait.json').exists())
+
+    def test_flag_off_keeps_crash_reservation_without_forcing_router_deferral(self):
+        observed, invoked = [], []
+        await_lease = model_router.await_lease
+        def admit(role, c, deadline=None):
+            observed.append(getattr(c, 'router_deferred', False))
+            return await_lease(role, c, deadline)
+        def invoke(runtime, c, *args, **kwargs):
+            invoked.append(c.model_lease.lease_id)
+            with budget.ledger_transaction(self.ledger) as ledger:
+                ledger.setdefault('unpriced_invocations', []).append({'role': 'writer', 'model': c.model_lease.route,
+                    'invocation_id': c.invocation_reservation['invocation_id'], 'lease_id': c.model_lease.lease_id})
+            raise budget.BudgetError('provider_limit:' + c.model_lease.route,
+                provider_failure={'reason': 'quota', 'scope': 'account', 'model': c.model_lease.route})
+        with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '0'}), patch.object(model_router, 'await_lease', admit), \
+                patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
+            with self.assertRaisesRegex(budget.BudgetError, '^money_wait$'):
+                run.pending_call(self.c, self.c.models['builder'], 'retained findings', self.case, 'builder-1', self.receipt(),
+                                 role='writer', on_complete=lambda: self.fail('must not complete'))
+        self.assertEqual(len(invoked), 1); self.assertEqual(observed, [False, False])
+        self.assertFalse((self.work / 'provider_wait.json').exists())
+        self.assertEqual(len(json.loads(self.ledger.read_text())['invocation_reservations']), 1)
+        budget.reconcile_reservations(self.work, self.ledger)
+        self.assertIsNotNone(budget.case_spending(json.loads(self.ledger.read_text()))['total_spent_usd'])
+
+    def test_owner_http_question_uses_independent_lease_while_tester_holds_lock(self):
+        self.owner_http('done')
+
+    def test_owner_denial_cancels_tester_and_settles_only_tester_reservation(self):
+        self.owner_http('denied')
+
+    def test_interrupted_owner_usage_settles_both_independent_leases_once(self):
+        self.owner_http('interrupted')
+
+    def owner_http(self, outcome):
+        parent = 'strong-calibrator-strong_calibrator-1'
+        workspace = self.work / 'strong_calibrator/try-1'; workspace.mkdir(parents=True)
+        calls, owner_errors = [], []
+        model_call = run.model_call
+        def call(c, models, text, cwd, name, **kwargs):
+            try: return model_call(c, models, text, cwd, name, **kwargs)
+            except BaseException as error:
+                if name != parent: owner_errors.append(error)
+                raise
+        self.patch(run, 'model_call', call)
+        def invoke(runtime, c, models, text, cwd, name, **kwargs):
+            calls.append((name, c.model_lease.lease_id, c.model_lease.family))
+            if name == parent:
+                self.assertIn(parent, self.c.active_model_calls)
+                try:
+                    with urllib.request.urlopen(urllib.request.Request(url,
+                            data=b'{"question":"What does the supplied public practice contract establish?"}'), timeout=3) as response:
+                        self.assertTrue(json.load(response)['answer'])
+                except urllib.error.HTTPError as error:
+                    error.close()
+                    self.assertNotEqual(outcome, 'done'); self.assertTrue(self.c.role_cancel.is_set())
+                    raise budget.BudgetError('cancelled') from None
+            else:
+                self.assertTrue(c._owner_lock_bypass); self.assertEqual(c.parent_call_name, parent)
+                if outcome == 'interrupted':
+                    with budget.ledger_transaction(self.ledger) as ledger:
+                        identity = str(uuid.uuid4())
+                        ledger['events'].append({'id': identity, 'cost': .0005, 'role': 'reviewer', 'invocation': name,
+                            'invocation_id': c.invocation_reservation['invocation_id'], 'lease_id': c.model_lease.lease_id})
+                        ledger['cost'] += .0005; ledger['calls'] += 1
+                        ledger['invocation_reservations'][c.model_lease.lease_id]['event_ids'].append(identity)
+                    raise budget.BudgetError('provider_limit:' + c.model_lease.route,
+                        provider_failure={'reason': 'quota', 'scope': 'account', 'model': c.model_lease.route})
+                (Path(cwd) / 'answer.json').write_text('{"answer":"Use the supplied public practice contract."}')
+            return 0
+        self.patch(model_runtime.ModelRuntime, '_invoke', invoke)
+        self.c.recipient = 'synthetic-only'
+        checkpoint = self.patch(durable_checkpoint, 'checkpoint_progress', side_effect=AssertionError('active G10 cannot checkpoint'))
+        if outcome == 'denied':
+            for route in model_router.routes(self.c.models['reviewers'][0][0]):
+                self.store.capacities[route['pool']] = 0
+        model_runtime.prepare_dispatch(self.c)
+        try:
+            with exam_responder.owner_server(self.c, run, workspace, parent_call_name=parent) as url:
+                run.model_call(self.c, self.c.models['strong_calibrator'], 'owner protocol test', self.case, parent, user='pilot')
+        except budget.BudgetError as error:
+            self.assertNotEqual(outcome, 'done'); self.assertEqual(str(error), 'cancelled')
+            self.assertTrue(owner_errors)
+            self.assertIsInstance(owner_errors[0], model_router.ProviderWait)
+            record = run.write_provider_wait(self.c, error)
+            budget.settle(record, work=self.work, ledger_path=self.ledger)
+            self.assertEqual(budget.settle(record, work=self.work, ledger_path=self.ledger), 0)
+            self.assertEqual(self.c.card['terminal_stop'], 'provider_wait')
+            self.assertNotIn('failed_gate', self.c.card)
+            expected = .019 if outcome == 'denied' else .02002
+            self.assertEqual(budget.case_spending(json.loads(self.ledger.read_text()))['total_spent_usd'], round(self.baseline + expected, 9))
+        else:
+            self.assertEqual(outcome, 'done')
+        reservations = list(json.loads(self.ledger.read_text())['invocation_reservations'].values())
+        count = 1 if outcome == 'denied' else 2
+        self.assertEqual(len(calls), count); self.assertEqual(len(reservations), count)
+        self.assertEqual(len({row[1] for row in calls}), count)
+        self.assertEqual({row[2] for row in calls}, {'openai'} if outcome == 'denied' else {'openai', 'deepseek'})
+        if outcome != 'denied':
+            owner = next(row for row in reservations if row['parent_call_name'])
+            self.assertEqual(owner['parent_call_name'], parent)
+        if outcome == 'done': self.assertTrue(all(row['state'] == 'settled' for row in reservations))
+        self.assertEqual(len(self.c.card['route_receipts']), count)
+        checkpoint.assert_not_called()
+
+
+if __name__ == '__main__': unittest.main()

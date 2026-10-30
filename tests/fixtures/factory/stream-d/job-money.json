@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "batch": "test-batch",
+  "job": "test-job",
+  "case": "case-practice",
+  "reservation_id": "bc97cc76-9028-457d-b116-8887ac02f62f",
+  "revision": 1,
+  "source_generation": null,
+  "committed_total_usd": "200.000000000",
+  "batch_deadline": "2030-11-01T00:00:00Z"
+}

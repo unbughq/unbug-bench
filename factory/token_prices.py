@@ -1,4 +1,5 @@
 """Pinned USD list prices per million tokens; unknown models fail closed."""
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 # Source: https://developers.openai.com/api/docs/models/gpt-6.1-sol
 # Verified 2026-10-24. Standard list price, not subscription billing.
 CODEX_PRICES = {"codex/gpt-6.1-sol": (2.0, 0.10, 10.0)}  # input, cached input, output
@@ -6,6 +7,39 @@ CODEX_PRICES = {"codex/gpt-6.1-sol": (2.0, 0.10, 10.0)}  # input, cached input, 
 # https://platform.claude.com/docs/en/about-claude/pricing (2026-10-25).
 # Missing cache TTL uses the dearer one-hour write rate. Results use the CLI receipt.
 CLAUDE_PRICES = {"claude/claude-opus-5-5": (4.0, 0.20, 8.0, 20.0)}
+
+# These are the existing runtime's pinned overrides, not new provider quotes.
+PAID_PRICES = {'openrouter/deepseek/deepseek-v4.1-flash': (.02, 1.0),
+               'openrouter/meta/muse-spark-1.3-contributor': (.10, .20),
+               'opencode-go/muse-spark-1.3-contributor': (.10, .20)}
+
+
+def invocation_maximum(model, bounds):
+    """Price E/A's enforced bounds; missing bounds/prices never become zero.
+
+    This function does not attest that a CLI enforces those bounds. Runtime
+    dispatch accepts only the separately qualified enforcement inventory.
+    """
+    if not isinstance(bounds, dict): return None
+    names = ('requests', 'input_tokens', 'output_tokens')
+    if any(type(bounds.get(k)) is not int or bounds[k] < 0 for k in names) or bounds['requests'] < 1:
+        return None
+    try:
+        fee = Decimal(str(bounds['tool_fees_usd']))
+        if not fee.is_finite() or fee < 0: return None
+    except (KeyError, InvalidOperation, ValueError): return None
+    if model in CODEX_PRICES:
+        incoming, cached, outgoing = CODEX_PRICES[model]
+        rates = max(incoming, cached) * 2, outgoing * 1.5
+    elif model in CLAUDE_PRICES:
+        incoming, cached, written, outgoing = CLAUDE_PRICES[model]
+        rates = max(incoming, cached, written) * 2.2, outgoing * 2.2
+    elif model in PAID_PRICES: rates = PAID_PRICES[model]
+    elif isinstance(model, str) and model.endswith(('-free', ':free')): rates = (0, 0)
+    else: return None
+    maximum = bounds['requests'] * (bounds['input_tokens'] * Decimal(str(rates[0]))
+        + bounds['output_tokens'] * Decimal(str(rates[1]))) / 1000000 + fee
+    return maximum.quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
 
 
 def claude_cost(model, usage):

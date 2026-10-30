@@ -63,7 +63,7 @@ def contract(root, reviewer):
 
 
 @contextlib.contextmanager
-def owner_server(c, r, workspace, host="127.0.0.1"):
+def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
     """Shared, metered reviewer answerer; facts and raw answers stay private."""
     protocol = responder(r.BENCH)
     private = workspace / "owner"
@@ -76,6 +76,8 @@ def owner_server(c, r, workspace, host="127.0.0.1"):
     token = secrets.token_hex(24)
     failure = []
     cancel = threading.Event()
+    import model_runtime
+    model_runtime.prepare_dispatch(c)
     owner = copy.copy(c)
     owner.args = copy.copy(c.args)
     owner.card = {**c.card, "model_transition": True}  # owner identity is pinned; no route substitution
@@ -83,6 +85,9 @@ def owner_server(c, r, workspace, host="127.0.0.1"):
     owner.args.concurrent_roles = True  # nested owner call shares the tester's active ledger
     owner.role_cancel, owner.budget_resumed = cancel, True
     owner.calibrator_slot_offset = 0  # do not publish a checkpoint during another active call
+    if parent_call_name is not None:
+        owner._owner_lock_bypass = True
+        owner.parent_call_name = parent_call_name
     count = 0
     owner_lock = threading.Lock()
 
@@ -188,10 +193,10 @@ def owner_server(c, r, workspace, host="127.0.0.1"):
 
 
 @contextlib.contextmanager
-def owner_channel(c, r, workspace, destination, user):
+def owner_channel(c, r, workspace, destination, user, *, parent_call_name=None):
     """Only this pilot can reach the endpoint; owner evidence stays behind its UID wall."""
     from urllib.parse import urlparse
-    with owner_server(c, r, workspace) as url:
+    with owner_server(c, r, workspace, parent_call_name=parent_call_name) as url:
         rule = ["sudo", "iptables", "-w", "5", "-I", "factory-" + user, "1",
                 "-d", "127.0.0.1", "-p", "tcp", "--dport", str(urlparse(url).port), "-j", "ACCEPT"]
         client = workspace / "owner/ask-human"
