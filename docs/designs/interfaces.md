@@ -316,8 +316,8 @@ denial.
   Drain old leases before rollout; B's real practice run qualifies production.
   Its normal completion must show validated_requests>0 and unknown_requests==0.
   **D2 enablement prerequisite (founder/D/B):** with this max_usd=50 and a
-  default $50 commitment, only one separately reserved invocation fits from zero
-  spend once positively charged; any priced ordinary writer call triggers D's ordinary
+  default $50 commitment, from zero spend only one such invocation fits; after
+  it records any positive charge, a further one cannot. Any priced ordinary writer call triggers D's ordinary
   $50 diagnosis test. Two concurrent nested owners need $100 plus settled usage.
   Size commitments/revisions to settled+outstanding+new maxima, or approve a
   lower route profile against the real receipt fit table before enabling D2.

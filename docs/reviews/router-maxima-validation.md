@@ -103,6 +103,23 @@ The second run on `de33c1b6207440d01bf6bb61b028fd6d8d410eff` was deliberately
 interrupted after fresh diff review found M1. Its partial log and interruption
 metadata are saved as `router-maxima-full-de33c1b.log.gz` and `.json`; it is not
 claimed as a passing run. A final full-suite result follows stabilized fixes.
+
+The integrated full run PASSES: **139 test scripts run; 0 failed**, exit0,
+on tested implementation `0a91d8abb7fee8c275af50ae641ab8ff94418c2b`, base
+`6abe1690d2cc65078a64b347d923cd0aba6be655`. Command:
+`uv run --with numpy --with scipy python -B tests/run.py`. It ran from
+2026-10-30T02:45:16.984398Z to 03:01:42.286237Z. Complete terminal log:
+`router-maxima-full-0a91d8a.log.gz`; metadata, command, exact SHA, timestamps,
+script count and uncompressed/compressed log hashes:
+`router-maxima-full-0a91d8a.json`. Subsequent changes are documentation/review
+records only; `git diff 0a91d8a HEAD -- factory tests bin tools` is empty.
+
+Final design/readiness PASS is `router-maxima-design-4.md`. Final fresh
+cross-family integrated diff PASS is `router-maxima-diff-4.md`: zero Blockers,
+zero Majors, with the terminal green suite and archival hashes independently
+verified. All prior reviews and responses remain verbatim records. No blocking
+finding was rejected. No merge, push, deployment or real model/case run occurred.
+
 Current rotation packages remain unqualified because
 their non-Claude routes have no enforceable bound; B's separately authorized
 practice-case exam remains required for production qualification.
