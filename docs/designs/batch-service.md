@@ -1000,19 +1000,34 @@ Full suite, fresh diff review and parent merge precede further integration.
 The outbox, pointer activation, monetary collection proofs, source transitions,
 capacity dispatch and holder/scoped-restore addendum remain next work.
 
-## Increment2b.2 draft: D collection accounting proofs
+## Increment2b.2: D collection accounting proofs
 
-Status: D interface source is 6055678 on t3/stream-d-implementation, specifically
-interfaces.md section 8, "D coverage, reconciliation, and diagnosis APIs
-(increment 3)". D's Claude interface review 18, saved at bcec881, passes
-4274a48..6055678. The parent confirmed that PASS. D will renumber its review
-files to avoid collisions; B keeps its existing numbering. This draft imports
-no D commit and enables nothing. D increment3a implementation is still under
-diff review. Before code integration, the parent must identify its reviewed,
-merged implementation SHA, and B must pass its final design review against it.
+Status: final integration design against D increment3a, reviewed code 9cb25e6
+merged into factory-simplify at cfe616f. B rebased onto cfe616f. The exact APIs
+are in factory/budget.py and factory/diagnosis.py; producer replay fixtures are
+tests/factory/test_stream_d_coverage.py, tests/factory/test_stream_d.py and
+projection fixtures tests/factory/test_stream_d_projection.py at that merge.
+Design13 passed the earlier contract. Design14 found two implementation-readiness
+issues; fresh design15 passes the resolutions below.
 DIAGNOSIS_ENABLED stays False until the later activation review and practice
-qualification. The separately reviewed present-projection correction implements
-the parent's 2026-10-30 ruling now; it grants no launch authority.
+qualification. This increment implements the offline accounting consumer and
+real-D projection regressions, not money ACK, holder, outbox or resume authority.
+
+The provenance gate runs after snapshot verification and the disabled-adapter
+check, before the deadline check and stored-facts replay or importing/calling D. Every card without
+an object diagnosis_state refuses legacy_projection_unbound while enabled,
+including non-exhausted cards; no request is lost and the label is an internal
+refusal, not a public status. D validates object contents. A malformed object returns exhaustion:false and
+pending_projection:None, so B queues neither settlement nor diagnosis nor a child,
+for both known and unknown totals. B never infers exhaustion itself. This can
+strand the owner's hold; new-batch-service-3 records the activation prerequisite
+for a durable holder incident/freeze and evidence-backed recovery. The gate also
+refuses new non-exhausted cards without diagnosis_state; activation must review
+that classification before enabling. Adapter-off returns diagnosis_unavailable
+even for stored facts; the gate never replays those facts while disabled.
+Regressions pin these behaviors and unchanged journal bytes on provenance refusal. Use the shared total normalization helper in
+_enqueue solely to distinguish unknown from known, including case_budget:null;
+this replaces its unsafe .get chain, with no accounting/admission wiring.
 
 Problem: increment2b.1 authenticates local snapshot bytes and schedules opaque D
 answers, but cannot justify a null total or a lower cumulative total. The
@@ -1090,7 +1105,10 @@ Do not sum the reported ordinary and waste subtotals in B. A missing/non-object
 continuation_budget refuses accounting even if the scheduler can display it.
 Put the total normalization in one batch_accounting helper; eventual _enqueue
 wiring must use that helper too, fixing its current null-case_budget exception.
-No scheduler wiring is part of this proof-only increment.
+Only that normalization helper is shared with _enqueue in this increment;
+no monetary proof or admission wiring is added. Both card and API total are
+normalized upward from their reported values; a historical higher-precision
+card disagreeing with D's rounded reported total refuses rather than guessing.
 
 Only the consumed D record shapes and API result shapes have exact field sets;
 do not impose a new closed schema on the entire historical ledger or card.
@@ -1237,18 +1255,36 @@ call-count/ordinal cap; money/deadline and simultaneous capacity remain bounds.
 
 ### Tests, deletion and delivery
 
+Files: add factory/batch_accounting.py and tests/factory/test_batch_accounting.py;
+edit factory/batch_service.py (provenance gate and normalized total only),
+tests/factory/test_batch_service.py (authored contract fixture provenance),
+add tests/factory/test_batch_service_d.py (real D projection integration), and
+add the new host module to factory/launch_manifest.py TRUSTED_FILES and the
+independent worker inventory in tests/tools/test_launch_manifest.py.
+
+Refusal labels are deterministic: invalid_accounting_input for input shape,
+money, reservation identity/state or card/D total disagreement;
+accounting_api_refused for API exception, mutation, None or malformed API result;
+malformed_reconciliation for any decrease record shape, arithmetic, conflict or
+missing/non-settled matching row; uncovered_total for null-T coverage > held or
+null-P/known-T > held; unsupported_decrease for T < P-R-epsilon.
+
 Planned tests: tests/factory/test_batch_accounting.py. Separate the evidence:
 
-- Unmodified saved 5813be/e15450 card ledgers exercise known-total and legacy/
-  unbound-event behavior through reviewed D APIs. They contain no new receipt
-  transitions; do not describe them as reconciliation evidence. Owner/previous
-  ACK inputs are explicitly authored because these cards predate B authority.
+- Unmodified saved e15450 passes known-total accounting with authored previous/
+  held inputs. Unmodified 5813be has case_budget:null but D reports13.779870815;
+  it refuses invalid_accounting_input. A separately labelled authored variant
+  supplies case_budget.total_spent_usd from D and passes. Neither unmodified
+  card exercises the consumer's null-T coverage path; D's direct legacy-coverage
+  tests own that proof. These saved cards contain no reconciliation transitions.
+  Owner/previous ACK inputs are authored because the cards predate B authority.
 - D-produced ledger sequences from D's reviewed public settlement path or
   reviewed fixtures exercise receipt-backed 10-to-8, duplicate record replay,
   an in-run estimate absent from the previous map, null-P/null-T map replacement,
-  and a later growing receipt after a release. Name the exact source paths and
-  D SHA in the final design review after 3a lands; their absence currently
-  blocks implementation qualification. B asserts the ACK/map sequence only.
+  and a later growing receipt after a release. Design15 verified these source paths at merged cfe616f. B asserts the ACK/map sequence only.
+  B re-drives budget.settle and complete_invocation using
+  test_stream_d.AccountingTests.setUp/ledger/reserve/receipt/wait helpers, as
+  test_stream_d_coverage.py does. It never calls _settle_leaf.
   Leaf-order invariance, creation of estimated-to-settled records and growing
   receipt producer properties stay in D's suite; B never calls _settle_leaf.
 - Explicitly authored ACK maps/held amounts layered on those ledger outputs
@@ -1272,21 +1308,28 @@ D interface review18 adds three explicit B obligations to the final 2b.2 review:
 the old predicate-fallback sentence above is deleted; extensions defer to D's
 eligibility and section8 money; and an actual D projection integration test must
 show infrastructure exhaustion with actual work derives no child both while
-pending and after completion. Name tests/factory/test_stream_d_projection.py
-at D's reviewed merged implementation SHA in the final review. Its infrastructure
+pending and after completion. Design15 verified tests/factory/test_stream_d_projection.py at cfe616f. Its infrastructure
 states are authored D states layered on the real paused5813be card, not saved
 infrastructure-exhaustion artifacts. Use that fixture and public diagnosis API
-(8b8ece6 supplies the completed-state regression as
-supporting evidence, not merged-code authority). Feed those returned facts to
-B's journal with clearly authored collection bindings. Pending must yield
-replacement_eligible:false and no child; completed must yield None and no child
-even if both predicates remain true. Preserve existing deterministic two-child,
+(the completed-state regression is present in merged cfe616f). Feed those returned facts to
+B's journal with clearly authored collection bindings. For the parent's known-total lifecycle, explicitly author case_budget.total_spent_usd
+from D's real case_spending: pending yields replacement_eligible:false, one
+same-owner resume with reason exhaustion, and no child. Completed diagnosis
+sets terminal_stop:factory_bug_held and the public finding card; with a known
+total it yields None and no queue or child. Step2's status regression additionally
+asserts "factory bug: see finding <id>". The retained infrastructure_gate marker
+may keep exhaustion true; it never substitutes for a present projection.
+Separate variants retaining 5813be's case_budget:null queue only a same-owner
+settlement resume in both pending and completed infrastructure phases (the
+completed variant retains the infrastructure marker). No child is derived.
+These queue-only tests grant no accounting ACK; the unmodified null card's
+card/D mismatch refuses accounting as specified above. Preserve existing deterministic two-child,
 same-parent replay and changed-projection tests. No B stop predicates are added.
 Also pass an authored legacy exhausted state with actual work but no
 diagnosis_state through D's real pending_projection. Even when that projection
 is present and eligible, B must refuse with legacy_projection_unbound, create
 neither child nor resume request, and leave journal bytes/facts unchanged. Cover
-known and unknown totals and a pre-existing facts:null entry collected with the
+known (explicitly authored from D) and unknown totals and a pre-existing facts:null entry collected with the
 adapter off. No import fixture may bypass the absent reviewed import format.
 
 The later integration exam additionally proves durable ACK replay, rollback at
@@ -1308,3 +1351,6 @@ the gates above keep them away from launch authority. Full suite and a fresh
 diff review remain mandatory. Builds toward rows6,27,28,35,51; closes none
 without the required real lifecycle artifacts. Migration command/qualification
 and holder/scoped-restore work remain separately gated as specified above.
+
+Design15 test clarification: pending/completed queue assertions each use a fresh
+journal; an existing pending row is never silently removed by later planning.

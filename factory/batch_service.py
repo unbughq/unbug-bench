@@ -11,6 +11,7 @@ import tempfile
 import time
 
 import batch_money
+from batch_accounting import card_total
 import collection
 from launch_manifest import collection_files
 from registry import atomic_json
@@ -252,7 +253,7 @@ def _replacement(facts):
 def _enqueue(state, record, entry, card):
     facts = entry['facts']
     job = _lineage(state, record, entry['job'])
-    unknown = card.get('case_budget', {}).get('total_spent_usd') is None
+    unknown = card_total(card) is None
     def request(key, kind, owner, source, parent, reason):
         if key in state['queue']: return
         state['queue'][key] = dict(kind=kind, job=owner['job'], case=owner['case'],
@@ -292,8 +293,10 @@ def plan(policy, root, home, case, generation, now=None):
         entry = state['entries'].get(case + '/' + generation)
         if entry is None: raise ValueError('uncollected generation')
         card = _snapshot(directory, entry, record, policy['batch']['sha256'])
+        if not DIAGNOSIS_ENABLED: return dict(status='diagnosis_unavailable', facts=None, queue=[])
+        if not isinstance(card.get('diagnosis_state'), dict):
+            raise ValueError('legacy_projection_unbound')
         if entry['facts'] is None:
-            if not DIAGNOSIS_ENABLED: return dict(status='diagnosis_unavailable', facts=None, queue=[])
             if batch_money.deadline(record['batch_deadline']) <= (time.time() if now is None else now):
                 raise ValueError('retired_batch_bound')
             import diagnosis

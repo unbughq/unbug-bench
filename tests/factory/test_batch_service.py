@@ -75,7 +75,8 @@ class ServiceTests(unittest.TestCase):
         card = deepcopy(CARD)
         card.update(case=case, batch_release_sha256='a' * 64,
                     archive=case + '.checkpoint.tar.gz.age', sha256=hashlib.sha256(payload).hexdigest(),
-                    case_budget={'total_spent_usd': total})
+                    case_budget={'total_spent_usd': total},
+                    diagnosis_state={})  # Authored provenance for contract-only API doubles.
         card.update(changes)
         (self.source / card['archive']).write_bytes(payload)
         (self.source / (case + '.casekey.age')).write_bytes(KEY)
