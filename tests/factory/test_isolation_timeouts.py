@@ -32,6 +32,8 @@ from gate_pipeline import GatePipeline
 
 FIXTURES = Path(__file__).with_name('fixtures') / 'isolation-timeouts'
 LOAD = lambda name: json.loads((FIXTURES / name).read_text())
+# Hang guard only, never a deadline under test: a loaded host may need minutes.
+HANG_GUARD_SECONDS = 300
 LAUNCH = LOAD('launch.json')['argv']
 CREATED = LOAD('created.json')
 
@@ -98,7 +100,7 @@ class ProcessesTests(unittest.TestCase):
             try:
                 with patch.object(run, 'SEALED', self.home / 'sealed'):
                     with self.assertRaises(run.PauseRequested if pause else run.BudgetError):
-                        run.sh(self.c, self.command, timeout=5, capture=True)
+                        run.sh(self.c, self.command, timeout=HANG_GUARD_SECONDS, capture=True)
             finally:
                 timer.cancel()
                 if old is not None: signal.signal(signal.SIGTERM, old)
@@ -126,8 +128,25 @@ class ProcessesTests(unittest.TestCase):
         parent = ("import subprocess,sys,pathlib,time; subprocess.Popen([sys.executable,'-c'," + repr(child)
                   + "],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); "
                   + "p=pathlib.Path(" + repr(str(self.heartbeat)) + ")\nwhile not p.exists(): time.sleep(.01)")
-        self.assertEqual(run.sh(self.c, [sys.executable, '-c', parent], timeout=5), 0)
+        self.assertEqual(run.sh(self.c, [sys.executable, '-c', parent], timeout=HANG_GUARD_SECONDS), 0)
         self.stopped()
+
+    def test_loaded_host_slow_ps_and_zombie_group_still_clean_up(self):
+        # A loaded control host makes ps slow, not hung; cleanup must still see descendants.
+        tools = self.home / 'tools'; tools.mkdir()
+        (tools / 'ps').write_text(f'#!/bin/sh\nsleep 3\nexec {shutil.which("ps")} "$@"\n')
+        (tools / 'ps').chmod(0o755)
+        with patch.dict(os.environ, {'PATH': str(tools) + os.pathsep + os.environ['PATH']}):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                processes.run(self.command, timeout=.6)
+        self.stopped()
+        # An exited, unreaped session leader: macOS refuses killpg on a zombie-only group.
+        zombie = subprocess.Popen(['true'], start_new_session=True)
+        while subprocess.run(['ps', '-o', 'stat=', '-p', str(zombie.pid)],
+                             capture_output=True, text=True).stdout.strip()[:1] != 'Z':
+            time.sleep(.01)
+        processes.kill_tree(zombie.pid, alive=True)
+        zombie.wait()
 
     def test_context_deadline_is_nested_and_finalization_independent(self):
         with processes.deadline(.15):
@@ -144,7 +163,7 @@ os.environ['UNBUG_DIAGNOSTIC_PROCESS_GROUP']='1'
 try: processes.run([sys.executable,'-c','import time; time.sleep(60)'],timeout=.2)
 except subprocess.TimeoutExpired: print('owner survived')
 """
-        result = subprocess.run([sys.executable, '-c', code, str(ROOT / 'bin')], capture_output=True, text=True, timeout=5)
+        result = subprocess.run([sys.executable, '-c', code, str(ROOT / 'bin')], capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), 'owner survived')
 
@@ -252,7 +271,7 @@ class SupervisorTests(unittest.TestCase):
                 result = subprocess.run([sys.executable, str(ROOT / 'factory/runner_supervisor.py'), '--',
                     sys.executable, '-B', str(factory / 'run.py'), *fresh, '--dry-run'],
                     env={**os.environ,'HOME':str(home),'FACTORY_RUNNER_SECONDS':'10'},
-                    capture_output=True, text=True, timeout=15)
+                    capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
                 self.assertEqual(result.returncode, 1)
                 data = json.loads((home / 'sealed/runner-status.json').read_text())
                 self.assertEqual((data['attempt'], data['exit_status']), (attempts, 1))
@@ -269,7 +288,7 @@ class SupervisorTests(unittest.TestCase):
         command = [sys.executable, str(ROOT / 'factory/runner_supervisor.py'), '--', sys.executable, '-c', code,
                    *worker_args()]  # real saved worker arguments; injected interpreter ignores them
         return subprocess.run(command, env={**os.environ, 'HOME': str(self.home),
-            'FACTORY_RUNNER_SECONDS': str(seconds)}, capture_output=True, text=True, timeout=12)
+            'FACTORY_RUNNER_SECONDS': str(seconds)}, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
 
     def test_startup_retry_then_ready_uses_safe_receipt(self):
         result = self.invoke("""import os,pathlib,sys
@@ -328,11 +347,11 @@ else: raise SystemExit(9)
     def test_pinned_control_cmd_and_saved_json_shapes(self):
         for command in ('billing', 'list'):
             result = subprocess.run([str(ROOT / 'bin/boat-call'), command, '--json'],
-                env=self.env, capture_output=True, text=True, timeout=5)
+                env=self.env, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(result.stdout), LOAD(command + '.json'))
         bad = subprocess.run([str(ROOT / 'bin/boat-call'), 'list', '--json'],
-            env={**self.env, 'TEST_VERSION': 'boat wrong'}, capture_output=True, text=True, timeout=5)
+            env={**self.env, 'TEST_VERSION': 'boat wrong'}, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         self.assertNotEqual(bad.returncode, 0)
         self.assertEqual(bad.stdout, '')
 
@@ -341,11 +360,11 @@ else: raise SystemExit(9)
         shutil.copy2(self.cli, installed)
         env = {**self.env, 'HOME':str(self.home)}; env.pop('BOAT_CMD')
         result = subprocess.run([str(ROOT / 'bin/boat-call'), 'list', '--json'],
-            env=env, capture_output=True, text=True, timeout=5)
+            env=env, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), LOAD('list.json'))
         bad = subprocess.run([str(ROOT / 'bin/boat-call'), 'list', '--json'],
-            env={**env,'TEST_VERSION':'boat wrong'}, capture_output=True, text=True, timeout=5)
+            env={**env,'TEST_VERSION':'boat wrong'}, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         self.assertNotEqual(bad.returncode, 0)
         self.assertEqual(bad.stdout, '')
 
@@ -364,7 +383,7 @@ guard_exit 1
 """
         result = subprocess.run(['sh', '-c', script, 'sh', str(ROOT), str(state), str(spend),
             str(CREATED['ttlSeconds'])], env={**self.env, 'BOAT_CMD':str(lost),
-            'UNBUG_LAUNCH_STATE':str(state)}, capture_output=True, text=True, timeout=5)
+            'UNBUG_LAUNCH_STATE':str(state)}, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue((state / 'new.1.pending').exists())
         self.assertFalse((state / 'complete').exists())
@@ -380,7 +399,7 @@ guard_exit 1
             record = self.home / f'spend-{i}.json'
             jobs.append((record, subprocess.Popen([str(ROOT / 'bin/boat-spend'), '--check', '1', str(hours),
                 str(balance * 2), str(record)], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)))
-        for _, process in jobs: process.communicate(timeout=8)
+        for _, process in jobs: process.communicate(timeout=HANG_GUARD_SECONDS)
         self.assertEqual(sorted(p.returncode for _, p in jobs), [0, 1])
         record = next(path for path, p in jobs if p.returncode == 0)
         ledger_path = self.home / 'control/boat-reservations.json'
@@ -389,13 +408,13 @@ guard_exit 1
         ledger_path.write_text(json.dumps(ledger))  # fault injection: abandoned controller
         refused = next(path for path,p in jobs if p.returncode != 0)
         retry = subprocess.run([str(ROOT / 'bin/boat-spend'), '--check', '1', str(hours),
-            str(balance * 2), str(refused)], env=self.env, capture_output=True, text=True, timeout=5)
+            str(balance * 2), str(refused)], env=self.env, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         self.assertEqual(retry.returncode, 0, retry.stderr)
         self.assertEqual(json.loads(ledger_path.read_text())['reservations'][str(record.resolve())]['status'],
                          'reconciled_expired')
         ids = self.home / 'ids'; ids.write_text(CREATED['id'] + '\n')
         result = subprocess.run([str(ROOT / 'bin/boat-spend'), '--finish', str(record), '0', str(ids)],
-            env=self.env, capture_output=True, text=True, timeout=5)
+            env=self.env, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         self.assertEqual(result.returncode, 0, result.stderr)
         data = json.loads(record.read_text())
         self.assertIsNone(data['actual_spend_usd'])

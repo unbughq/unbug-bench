@@ -409,7 +409,7 @@ exit "$status"
                                     timeout=HANG_GUARD_SECONDS, env=dict(os.environ, UNBUG_CLOUD='boat',
                                     BOAT_CMD=str(fake), FAKE_STATE=str(cloud), FAKE_MODE=mode,
                                     # Only the never-completing operation should reach the deadline.
-                                    **({'BOAT_DELETION_TIMEOUT_SECONDS': '3'} if mode == 'deletion-incomplete' else {})))
+                                    **({'BOAT_DELETION_TIMEOUT_SECONDS': '10'} if mode == 'deletion-incomplete' else {})))
             evidence = spend.with_suffix('.deletions') / 'vm-1'
             assert not temporary.exists()
             assert (evidence / 'deletion-request.json').exists(), (mode, result.returncode, result.stderr)
