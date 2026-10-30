@@ -24,7 +24,8 @@ STOPS = {None: 'stopped', 'complete': 'complete', 'paused': 'paused',
          'provider_wait_deadline': 'provider wait deadline', 'money_wait': 'waiting for money',
          'retired_batch_bound': 'batch bound reached', 'ttl_retired': 'worker lifetime reached',
          'total_call_limit': 'historical call limit', 'call_limit': 'call limit',
-         'stalled': 'stalled', 'budget_exhausted': 'budget exhausted'}
+         'stalled': 'stalled', 'budget_exhausted': 'budget exhausted',
+         'factory_bug_held': 'factory bug held'}
 COUNTS = ('running', 'waiting', 'rejected', 'stopped', 'not collected', 'unreadable')
 
 
@@ -135,7 +136,13 @@ def render(target, rows, workers, progress, *, now=None):
                 actions.append('launch stuck')
         elif phase == 'stopped':
             failed, stop = card.get('failed_gate'), card.get('terminal_stop')
-            if failed:
+            if stop == 'factory_bug_held':
+                reason = STOPS[stop]
+                finding = _block(card, 'factory_bug').get('finding_id')
+                actions.append('factory bug: see finding ' + finding if isinstance(finding, str)
+                               and re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', finding)
+                               else 'factory bug: finding unreadable')
+            elif failed:
                 bucket, reason = 'rejected', 'rejected'
                 if isinstance(failed, str) and _stage(failed):
                     stage, reason = failed, 'rejected at ' + failed

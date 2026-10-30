@@ -72,6 +72,7 @@ The thresholds are in one table at the top of the script.
 | Journal says `launched`, but the worker isn't in `boat-call list` and no new card was collected | journal, Boat | `worker gone` |
 | A running stage started more than 5 h ago (above the 4 h agent timeout) | live `progress.json` | `check case` |
 | A stopped case's `terminal_stop` starts with `stress_review_unresolved:`, or is `freshness_unresolved` or `freshness_review_unavailable` | card | `needs ruling` |
+| A stopped case has `terminal_stop: factory_bug_held` | public `factory_bug.finding_id` | `factory bug: see finding <id>` |
 | A stopped case's `terminal_stop` is not on the script's known list | card | `check case` |
 | Spend ≥ 80% of `limit_usd`, or rounds ≥ 80% of `recovery_config.rounds` | card | `near limit` |
 | Journal `failed` or `pending` for more than 30 min | journal | `launch stuck` |
@@ -182,7 +183,48 @@ Calls: absent means —; present values must be nonnegative int (never bool),
 otherwise ?. Known stops are null/complete, paused, provider_wait,
 provider_wait_unrecoverable, provider_wait_deadline, money_wait,
 retired_batch_bound, ttl_retired, total_call_limit, call_limit, stalled,
-budget_exhausted, and provider_limit:* (plain provider limit).
+budget_exhausted, factory_bug_held, and provider_limit:* (plain provider limit).
 Freshness unresolved/unavailable and stress_review_unresolved:* need ruling.
 Any other stop, including free-form Budget ledger stopped text, displays
 unknown stop and check case; arbitrary text is never echoed.
+
+
+## Factory bug held (parent ruling, 2026-10-30)
+
+Files changed: factory/batch_status.py, tests/factory/test_batch_status.py and
+this design. No new module. The separate accounting increment owns D-to-B queue
+assertions in tests/factory/test_batch_service_d.py. This status increment owns
+rendering tests and reading one authored snapshot through read_rows then render;
+it does not duplicate queue tests or require their implementation to pass.
+
+Parent ruling supersedes the old maintainer-queue wording: D must complete a
+factory-bug diagnosis with terminal_stop:factory_bug_held, unscored, and public
+factory_bug:{finding_id,gate_or_stage,summary_class}, all strings. This is a D
+producer obligation not yet implemented at cfe616f. D must update interfaces.md
+and stream-d.md to match and identify the finding lookup location before activation. Status tests explicitly author the
+fields on saved real cards; no implemented producer is claimed here.
+
+Status recognizes factory_bug_held as stopped, never sealed or rejected, even
+if stale failed_gate/G12 results remain. Inside phase=stopped, handle this stop
+before failed_gate and sealed classification. The per-case reason is the fixed
+label `factory bug held`. Needs attention includes the action whose exact wording
+is `factory bug: see finding <id>`. This is the action wording, not an exclusive
+flag: the existing near-limit rule still applies and can coexist. Running, pending and failed
+journal lifecycle takes precedence and does not show the held action.
+
+finding_id is a nonempty string of at most 128 ASCII letters, digits, underscores,
+dots or hyphens, validated by re.fullmatch. Missing/malformed identifiers show
+`factory bug: finding unreadable`. Status does not inspect or print gate_or_stage
+or summary_class; only the finding token can appear. No maintainer queue,
+command, source, dependency or mutation is added.
+
+Tests edit the saved real cards, labelled as authored operational fields. Cover
+known stop/action, unscored precedence over stale failed_gate/G12, malformed
+identifier redaction (including a trailing newline), 80-percent near-limit
+coexistence, and running/pending precedence. The snapshot-read test retains the
+saved continuation_budget unchanged and authors only the operational snapshot
+bindings and held/finding fields. The accounting increment separately proves
+the pending and completed infrastructure queues with real D. No real lifecycle
+or Murphy closure is claimed. Full suite and fresh goldfish review are required.
+
+Risk: held cases count as stopped; the attention action is what surfaces them.
