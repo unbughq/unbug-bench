@@ -29,3 +29,11 @@
 - PASS accepted. No blocking finding or nit needs a fix; no finding rejected.
 - This narrow review covers only 84cf56c..512eee4. Fresh review7 covers the runtime implementation and full design/contracts. Full-suite validation remains pending.
 - No Murphy row closure claimed; the scientific migration remains a later obligation.
+
+## Full-suite validation
+
+`uv run --with numpy --with scipy python -B tests/run.py` completed with
+136 test scripts, 0 failed, on the runtime/source-test tree at 512eee4
+(5dc7750 adds this review only). Log: /tmp/stream-d-increment-2-verified-suite.log.
+The first run had six failed scripts; four legacy adapter failures and the two
+exact source-test migrations are fixed above. Runtime goldfish7 remains required.
