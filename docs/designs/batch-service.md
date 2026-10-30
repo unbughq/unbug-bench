@@ -462,6 +462,18 @@ no second worker until predecessor deleted and list proves absent. If installati
 cannot fit the remaining envelope, stop and report rather than exceed it. Use
 recorded structured provider denial from real logs, with fixed public event ID,
 never force a real paid outage. Prove settled wait not charged/counted twice,
+including wait → collect `total_spent_usd:null` with mapped admitted maxima →
+retire → same-owner/same-revision resume from that generation → settle first →
+finish. While unknown, assert the full old commitment stays held and no increase,
+old+1 revision, replacement, diagnosis or extension is admitted. Also collect a
+late actual receipt lowering a conservative total (for example10 to8), verify
+its invocation/wait ID and `reconciled_decrease` acknowledgment, replay without
+double counting, and demonstrate that the same decrease without receipt refuses.
+Verify later valid revisions remain admissible and unused authority is released
+only after terminal collection plus retirement. Record real denial/receipt IDs
+and conservative charges; authored fault injections are labelled as such and
+cannot alone close a real-artifact row. These assertions are required before
+enabling continuations; increment2's fresh-only tests do not claim them.
 restart service after checkpoint and after accepted launch before ACK, zero
 capacity makes zero workers, relaunch uses collected card sha, finish unscored
 infrastructure attempts and normal sealed result distinct. Include independent
@@ -625,14 +637,29 @@ a pretend authorization receipt.
 
 Future collection updates preserve the same aggregate: replace a job's latest
 verified cumulative total, never add it. Unsettled new-schema provider waits
-can continue under their unchanged already-reserved commitment (not a fresh
-money grant), keeping the whole commitment reserved while D settles. Unknown
-legacy usage never qualifies for this exception. No extra money is granted,
-released or transferred while totals are unknown. A decreasing total needs
-authenticated D receipt reconciliation; this increment refuses that transition
-rather than inventing a refund. Define and review that reconciliation together
-with collection in increment2b before enabling it. Only terminal+retired+settled
-proof may release unused commitment; no missing/unreachable worker releases it.
+or crashes may continue at the same owner and revision, with the same or lower
+operating commitment, only when every unknown part maps to an unpriced invocation
+or wait with an admitted maximum and verified coverage fits the old full held
+commitment. Count that owner once at the old full commitment, retaining it even
+if the operating commitment is lower. Unknown legacy usage never qualifies.
+No increase, old+1 revision, replacement, diagnosis or extension is admitted while
+this owner's total is unknown. Settle runs first on the permitted resume.
+Increment2b must authenticate retirement/collection and perform a same-revision
+source rebind to the exact restored generation, advancing the persisted channel
+before D checks equality with RAM authority. This requires history keyed by
+reservation/revision/source, not a new monetary grant. No extra money is granted,
+released or transferred while totals are unknown.
+
+A late actual receipt may lower a conservative cumulative total. Acknowledge it
+only when D's authenticated settlement matches an existing unpriced invocation
+ID or wait_id; record `reconciled_decrease`, that ID, old/new totals, generation
+and receipt digest idempotently. Replace the latest total without a refund event;
+do not refuse future valid revisions because of this reconciled decrease. An
+unbacked decrease still refuses. Only terminal+retired+settled proof may release
+unused commitment; no missing/unreachable worker releases it. These are the
+binding interfaces§8 collection rules for2b, not implemented by this fresh-only
+increment. Review their concrete coverage/receipt proof inputs with collection
+before enabling continuations.
 
 ### Host configuration and delivery
 
@@ -697,6 +724,10 @@ Crash before checkpoint loses both together; same local replay repairs the
 history/file pair without a second grant. Model calls never happen in the gap.
 Older file revision, mismatched owner/source, lowered amount or same-revision
 different bytes => money_wait, no call. A prior retired_batch_bound never revives.
+These are increment2's implemented restrictions. Increment2b must add the
+reviewed conservative same-revision source transition described above; it is the
+only planned exception to same-revision byte equality and the no-lowered-amount
+rule. It retains the old full host hold and keeps independent RAM provenance.
 
 Legacy-import assignment is NOT implemented or allowed here: a restored archive
 without job-money.json refuses money_wait even when given a current config.
@@ -729,3 +760,34 @@ consumer counts as this proof. If D is not yet merged, run against its actual
 reviewed module in an isolated process, record branch/SHA, and repeat in the
 merged tree before enablement. No skip authorizes enablement. Full suite and
 fresh goldfish diff review are mandatory before parent merges this increment.
+
+## Increment2b scheduling hook for D
+
+Use this service's existing durable admission queue and `launch(batch, job,
+checkpoint_or_empty)` for all job kinds. No second launcher or service. Requests
+carry kind `replacement`, `diagnosis` or `extension`, original money-owner job,
+source generation and a stable request ID; persist queue sequence and deduplicate
+before launch. Replacement is first, diagnosis next, extension last, FIFO within
+each class. Blocked requests retain their position; capacity, deadline and money
+admission still apply. Ordinary work follows these three classes.
+
+For a rounds/money exhaustion projection, enqueue at most one replacement for
+the original case immediately, without waiting for diagnosis. Eligibility needs
+at least one real provider model invocation; a denied reservation is zero work
+and gets no replacement. A zero-cash subscription invocation still counts as
+real work. Replacement has a distinct case/job/reservation from the original;
+replay across collected generations cannot create a second replacement. Unknown
+original totals block replacement until settle as interfaces§8 requires.
+
+Next enqueue D's read-only diagnosis using the original money owner, preserving
+the same cumulative spend and reservation. Extension requests use that owner too
+and can raise revision old+1 only after D projects close_to_passing and its code
+accepts count/package/progress eligibility. B grants no eligibility itself. No
+diagnosis/extension dispatch while the preceding worker is live or usage unknown.
+D will supply its concrete verified projection fields before integration; until
+their adapter and acceptance tests pass, these request kinds remain disabled.
+The hook consumes that projection, never infers eligibility from a public stop
+label or supplies an alternate ledger. Tests must prove priority/FIFO, one
+replacement despite replay, zero invocations→no replacement, original owner for
+diagnosis/extension, and the unknown-total block. This is planned2b scope, not
+authority granted by increment2.

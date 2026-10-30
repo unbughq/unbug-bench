@@ -307,12 +307,14 @@ at exhaustion/deadline. `money_wait` is separate from A's provider-wait reasons.
 B uses Decimal USD to nine places, rejects negative/nonfinite values, and sums
 one latest verified cumulative `case_budget.total_spent_usd` per money owner.
 Older cards may use `spent_usd + infrastructure_waste_usd` only when both are
-known and validated; missing/unknown totals block that owner's new admission.
+known and validated; missing/unknown totals block that owner's new admission,
+subject only to the conservative same-owner resume below.
 For each job, outstanding = max(0, commitment - latest collected total).
 Admission requires sum(collected totals) + sum(outstanding commitments) <=
 manifest money_limit_usd. Collection replaces the previous total and consumes
 outstanding authority; it never adds the cumulative total again. A decreasing
-cumulative total refuses acknowledgment pending reconciliation. Reclassification
+cumulative total refuses acknowledgment unless receipt-backed reconciliation
+below verifies it. Reclassification
 of waste does not release money. A completed job releases unused authority only
 after verified terminal collection and worker retirement; loss/unreachability
 alone releases nothing. Boat infrastructure cash remains in E's existing shared
@@ -322,13 +324,55 @@ infrastructure-waste charges, not a second charge for Boat cash.
 B issues initial authority/revisions and collection acknowledgment under the
 same lock. Relaunch binds source_generation to the newly acknowledged generation
 and increments revision (same reservation_id, unchanged cumulative amount unless
-explicitly re-admitted). D checks batch/job/case/deadline, exact source_generation,
+explicitly re-admitted), except for the conservative same-revision source rebind
+below. D checks batch/job/case/deadline, exact source_generation,
 and revision against the authenticated launch configuration before any call.
 A stale copy cannot admit work: only the holder's current frozen job configuration
 is deliverable; old workers must be proved retired before revision/relaunch.
 The VM never raises live-worker authority in place. Money is reserved before
 holder submission; an uncertain submission retains its entire commitment.
 A publication failure never releases it.
+
+### Conservative resume and receipt reconciliation
+
+A provider-wait or crash checkpoint with `case_budget.total_spent_usd: null`
+may resume under the same batch/job/case/reservation owner and the same revision,
+with the same or a lower operating commitment. No money increase or new revision
+is permitted. The old full commitment remains held in B's durable money state,
+even if the operating commitment is lower. Count this owner once at that full
+held commitment for the batch bound; it is covered worst-case authority, not an
+unbounded unknown. Every unknown part must be mapped to an `unpriced_invocations`
+invocation ID or wait ID with its admitted per-invocation maximum. D's verified
+ledger coverage must show that known usage plus the outstanding admitted maxima,
+without double counting already-booked events, fits the held commitment. Missing
+mapping, missing maximum or unknown legacy usage refuses this exception.
+
+The predecessor must be proved retired and the collected input acknowledged as
+usual. The holder may then rebind `source_generation` to that collected SHA at
+the **same** monetary revision. This is an authenticated source transition, not
+a grant: batch/job/case/reservation/deadline stay fixed and commitment cannot
+increase. Both the RAM channel and the checkpointed copy advance to the new
+source before D's exact-equality check. D runs `settle()` first on that resume,
+before another model invocation. Until settlement produces a known total, new
+admission, increased commitment, revision old+1, replacement, diagnosis and
+extension all remain blocked. Other owners may use only their already-available
+batch headroom; this owner's full held commitment is never transferred.
+
+A late actual receipt may lower a previously conservative collected total,
+for example $10 to $8. B acknowledges the lower total only when authenticated
+D settlement supplies a receipt matching an existing `unpriced_invocation`
+invocation ID or `wait_id`. Persist a `reconciled_decrease` acknowledgment with
+that ID, old/new totals, collected generation and receipt digest; replay is
+idempotent and replaces the latest cumulative total, never adds a refund event.
+An unsupported decrease still refuses acknowledgment. A verified decrease does
+not poison later revisions or release held authority. Unused authority is still
+released only after verified terminal collection and worker retirement.
+
+Increment2b supplies these collection proofs and transitions before resume is
+enabled; increment2's fresh-only authorizer/installer continues to refuse them.
+The real practice qualification must collect a null-total provider wait, retire,
+resume at the same revision, settle and finish; it must also demonstrate a
+receipt-backed decrease and refusal of the same decrease without that receipt.
 
 D's per-invocation reservation/settlement remains in the case ledger. B never
 books usage. Provider wait/relaunch consumes no D case counters or holder legacy
@@ -392,8 +436,12 @@ old/new authority in checkpoint `job-money-history.json` and atomically advances
 the case's copy to the verified current holder revision before D admission.
 This is an authenticated transition, never a budget reset or a copy of restored
 config into both attributes. A commitment increase requires B's serialized
-admission; a stale revision/generation refuses. A same-revision replay must be
-byte-equivalent. The four binding attributes continue to use the RAM config.
+admission; a stale revision/generation refuses. A same-revision replay at the
+same source must be byte-equivalent. Increment2b adds only the conservative
+source-rebind exception above; history is keyed by reservation/revision/source
+so repeated covered waits do not collide. The four binding attributes continue
+to use the RAM config. Increment2 refuses source changes until that proof and
+installer transition are implemented and reviewed.
 
 A legacy checkpoint lacking job-money needs an explicit manifest import record
 and authenticated cumulative-ledger migration before initial assignment; absence

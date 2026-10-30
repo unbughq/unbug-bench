@@ -10,7 +10,6 @@ import stat
 import sys
 import tempfile
 
-from budget import BudgetError
 from batch_money import check_manifest, amount
 from registry import atomic_json
 
@@ -40,6 +39,7 @@ def host_check(path, digest, case, generation, release):
 
 def install(c, args):
     """Must run after restore authentication and before any D/model admission."""
+    from budget import BudgetError
     if not getattr(args, 'batch_release_sha256', None):
         if getattr(args, 'factory_job_config', None) or getattr(args, 'factory_job_config_sha256', None):
             raise BudgetError('money_wait')

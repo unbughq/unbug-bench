@@ -2,6 +2,7 @@
 import hashlib
 import json
 import multiprocessing
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -56,6 +57,12 @@ class MoneyTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), digest)
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(money.configuration(self.policy, 'a', first, self.home), (path, digest))
+
+    def test_host_job_config_does_not_load_worker_accounting(self):
+        code = ('import sys; sys.path.insert(0,' + repr(str(ROOT / 'factory')) + '); '
+                'import job_config; assert "budget" not in sys.modules; '
+                'assert "job_authority" not in sys.modules')
+        subprocess.run([sys.executable, '-B', '-c', code], check=True)
 
     def test_expired_or_changed_manifest_has_no_authority(self):
         with self.assertRaisesRegex(money.MoneyWait, 'retired_batch_bound'):

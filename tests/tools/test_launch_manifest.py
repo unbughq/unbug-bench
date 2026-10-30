@@ -73,15 +73,18 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(key_holder.PINNED, manifest.TRUSTED_FILES)
 
         # Independent upload expectation from the real release inventory, with
-        # its two documentation files excluded and the two new modules included.
+        # its documentation excluded and explicitly reviewed additions included.
         expected_worker = {n for n in build['source_sha256'] if n.startswith('factory/')}
         expected_worker -= {'factory/README.md', 'factory/IMPROVEMENTS.md',
                             'factory/apply_free_model_cutover.py', 'factory/free_model_patch.py'}
         expected_worker |= {'factory/launch_manifest.py', 'factory/restore_sync.py',
                             'factory/runner_supervisor.py', 'factory/batch.py',
                             'factory/model_router.py', 'factory/job_authority.py',
+                            'factory/batch_money.py', 'factory/job_config.py',
+                            'factory/control-recipient.txt',
                             'factory/collection.py', 'factory/freshness_retrieval.py',
                             'factory/independent_review.py', 'factory/invalid-runs-compat.json'}
+        expected_worker.update(str(p.relative_to(ROOT)) for p in (ROOT/'factory/batches').glob('*.json'))
         self.assertEqual({n for n in manifest.worker_files(ROOT) if n.startswith('factory/')},
                          expected_worker)
         # A stray file beside the runner cannot enter the upload through tar.
