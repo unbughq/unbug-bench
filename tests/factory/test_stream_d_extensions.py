@@ -193,6 +193,27 @@ class ExtensionTests(unittest.TestCase):
         with self.assertRaisesRegex(budget.BudgetError, '^extension_history_invalid$'):
             extensions.read(self.c)
 
+    def test_completed_writer_operation_cannot_be_admitted_again(self):
+        row, _, _ = self.begin(self.snapshot(1))
+        extensions.complete(self.c, self.snapshot(2))
+        self.diagnosis()
+        proposal = extensions.propose(self.c, self.snapshot(2))
+        operation = row['writer_operation_id']
+        route = self.c.models['attacker'][0]
+        lease = model_router.Lease(uuid.uuid4().hex, route, 'free', 1, 'free', 'minimax', 'free',
+                                   **synthetic_maximum(route))
+        budget.reserve_invocation(self.ledger, lease, 0, job_authority.for_case(self.c),
+            operation_id=operation, call_name='builder-' + str(proposal['round']))
+        before = (self.work / 'extension-history.json').read_bytes()
+        public = copy.deepcopy(self.c.card['extension_history'])
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
+            extensions.admit(self.c, proposal, lease, operation)
+        self.assertEqual((self.work / 'extension-history.json').read_bytes(), before)
+        self.assertEqual(self.c.card['extension_history'], public)
+        self.assertFalse((self.work / 'extension-snapshots/2').exists())
+        self.assertEqual(len(extensions.read(self.c)), 1)
+        self.assertIsNone(extensions.active(self.c))
+
     def test_durable_admission_and_completion_replay_publication_interruptions(self):
         self.c.card['builder_rounds'] = 8
         proposal, lease, operation = self.reserve(self.snapshot(1))

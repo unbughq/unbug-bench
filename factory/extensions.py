@@ -272,6 +272,8 @@ def admit(c, proposal, lease, operation_id):
             raise BudgetError('extension_reservation_mismatch')
         return row
     if propose(c, proposal['entry']) != proposal: raise BudgetError('extension_reservation_mismatch')
+    if any(row['writer_operation_id'] == operation_id for row in history):
+        raise BudgetError('extension_reservation_mismatch')
     ledger = json.loads(c.ledger.read_text())
     reserved = ledger.get('invocation_reservations', {}).get(lease.lease_id, {})
     if (not _uuid4(operation_id) or reserved.get('state') != 'pending' or
