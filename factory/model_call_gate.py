@@ -11,7 +11,9 @@ import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
+import pwd
 import socket
+import subprocess
 import threading
 import time
 
@@ -27,6 +29,7 @@ ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CLAUDE_CODE_OAUTH_TOKEN
     'FACTORY_STRATEGY_SECONDS', 'FACTORY_STRATEGY_WORKERS')
 BETAS = 'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,effort-2025-11-24'
 HEADROOM = Decimal('0.000001')
+_RETAINED = []  # Unresolved firewall cleanup must never release a reusable port.
 BODY_FIELDS = {'model', 'max_tokens', 'messages', 'system', 'tools', 'tool_choice',
     'stream', 'stop_sequences', 'temperature', 'top_p', 'top_k', 'thinking',
     'output_config', 'metadata', 'cache_control', 'service_tier', 'context_management'}
@@ -390,12 +393,45 @@ class Gate:
 
     def remaining(self): return max(.01, self.deadline-time.monotonic())
 
-    def close(self):
-        self.state.close(); self.server.shutdown(); self.server.server_close(); self.thread.join(timeout=1)
+    def close(self, release_socket=True):
+        self.state.close(); self.server.shutdown()
+        if release_socket: self.server.server_close()
+        else: _RETAINED.append(self.server)
+        self.thread.join(timeout=1)
 
 
 @contextmanager
-def enforce(lease, env, cap_used, timeout, cancel=None):
+def _wall_access(gate, lease, user):
+    attempted = confirmed = False
+    revoked = True
+    try:
+        if user is not None:
+            uid = pwd.getpwnam(user).pw_uid
+            chain = 'factory-' + user
+            rule = ['-m', 'owner', '--uid-owner', str(uid), '-o', 'lo', '-d', '127.0.0.1/32',
+                    '-p', 'tcp', '--dport', str(gate.server.server_port),
+                    '-m', 'comment', '--comment', 'factory-gate:' + lease.lease_id, '-j', 'ACCEPT']
+            attempted = True; revoked = False
+            subprocess.run(['sudo', 'iptables', '-w', '5', '-I', chain, '1', *rule],
+                           check=True, capture_output=True, timeout=30)
+            confirmed = True
+        yield
+    finally:
+        if attempted:
+            try:
+                subprocess.run(['sudo', 'iptables', '-w', '5', '-D', chain, *rule],
+                               check=True, capture_output=True, timeout=30)
+                revoked = True
+            except BaseException:
+                revoked = False
+        # Even successful deletion cannot exclude late insertion after a timeout.
+        release = not attempted or (confirmed and revoked)
+        gate.close(release_socket=release)
+        if not release: raise BudgetError('cancellation_failed') from None
+
+
+@contextmanager
+def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
     import model_router
     if lease.route != GATED_CLAUDE or not model_router.valid_maximum(lease):
         raise BudgetError('unbounded_route')
@@ -410,11 +446,12 @@ def enforce(lease, env, cap_used, timeout, cancel=None):
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1', DISABLE_AUTOUPDATER='1')
     env.clear(); env.update(clean)
     failure = None
-    try: yield gate
+    try:
+        with _wall_access(gate, lease, user): yield gate
     except BudgetError as error:
         failure = error
         raise
     finally:
-        gate.close(); cap_used.clear(); cap_used.update(gate.state.snapshot())
+        cap_used.clear(); cap_used.update(gate.state.snapshot())
         if gate.state.exhaustion.is_set() and str(failure) != 'cancellation_failed':
             raise BudgetError('model_call_cap') from None

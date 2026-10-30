@@ -589,7 +589,7 @@ class ModelRuntime:
                 factory_kwargs = dict(job_authority=job_authority.for_case(c), invocation_id=reservation['invocation_id'],
                                       lease_id=reservation['lease_id'],
                                       on_started=lambda: c.model_process_state.update(started=True))
-            with model_call_gate.enforce(lease, env, c.model_cap_used, limit, getattr(c, 'role_cancel', None)) as gate:
+            with model_call_gate.enforce(lease, env, c.model_cap_used, limit, getattr(c, 'role_cancel', None), user=user) as gate:
                 result = run_budgeted(cmd, None if user else cwd, env, transcript, c.ledger, limit,
                                   max_cost=None if factory_job(c) else c.args.max_cost,
                                   max_calls=c.args.max_role_calls, max_total_calls=c.args.max_total_calls, driver=driver,
