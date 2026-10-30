@@ -230,8 +230,8 @@ search, never excludes an otherwise authenticated unsettled receipt. Book each
 missing event/gap once by lease/event/wait ID. Null owner denial adds $0 while
 tester spend remains conservative until settle. The interrupted G10 unit is
 unscored and never writer feedback. Keep owner.calibrator_slot_offset=0 so the
-HTTP thread cannot publish. Its non-threading HTTPServer serializes questions,
-so only one owner is live beside the tester. These are minimal exam_responder.py
+HTTP thread cannot publish. Its ThreadingHTTPServer uses a non-blocking owner_lock
+to serialize questions, so only one owner is live beside the tester. These are minimal exam_responder.py
 and wrapper edits, with no A record/API change.
 
 Holding a tester lease while its reviewer pool is busy can waste its reservation
@@ -847,3 +847,37 @@ snapshots; legacy receipt/import migration; complete removal of new-schema stale
 allowances/caps across launch/resume/audit; scientific binding migration; B's
 qualified installer and acknowledged checkpoint integration; real crash/capped
 artifact closure exams. No row closes with this incremental runtime wiring.
+
+### B collection/settlement integration obligations
+
+The founder resolved the provider-wait money join on 2026-10-30; B owns the
+corresponding interfaces §8 addition. Keep on-resume-only settlement and
+fail-closed dispatch. The lifecycle qualification must cover both cases below
+against that §8 text when it lands:
+
+- An unknown total permits only a same-owner conservative resume with no
+  commitment increase and no new revision, the old full commitment still held,
+  and every unknown part mapped in unpriced_invocations to an admitted maximum.
+  B counts the owner at its full commitment. New admission, increase, revision+1,
+  replacement, diagnosis and extension remain blocked until settle yields a known
+  total. Missing or unbounded attribution cannot use this exception.
+- A late receipt may replace a conservative gap with a lower actual charge.
+  B acknowledges reconciled_decrease only with a receipt matching the earlier
+  unpriced_invocation ID or wait_id. An unsupported decrease remains refused.
+  D retains the invocation/wait settlement evidence in the checkpoint; neither
+  side resets cumulative usage or silently releases the old commitment.
+
+Diff-6 runtime decisions: wrapper-only calls reserve immediately after admission,
+before initial renewal or credential re-read. A lease that fails before its CLI
+starts emits a known-zero denied receipt and releases its reservation. A missing
+reservation may settle at zero only for an explicitly denied, final-known receipt
+with no events or booked IDs; interrupted/unknown usage still refuses. The actual
+Popen success callback distinguishes CLI setup failure from an interrupted process.
+Every unknown process receipt has an invocation/lease attribution in
+unpriced_invocations even if no streaming envelope arrived. A validated writer
+awaiting stress keeps round n across a changed binding and re-reviews stress at
+n; it never runs writer n+1 for a plumbing migration. Its output digest must
+still match. The ordinary threshold follows await_lease because it prices the
+chosen effective route; a provider wait may precede diagnosis without consuming
+the unit. Rate maxima use the same existing long-context/fast/US-only tariffs as
+receipt valuation, not historical-spend multipliers, with one paid-price table.

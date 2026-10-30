@@ -10,8 +10,8 @@ CLAUDE_PRICES = {"claude/claude-opus-5-5": (4.0, 0.20, 8.0, 20.0)}
 
 # These are the existing runtime's pinned overrides, not new provider quotes.
 PAID_PRICES = {'openrouter/deepseek/deepseek-v4.1-flash': (.02, 1.0),
-               'openrouter/meta/muse-spark-1.3-contributor': (.10, .20),
-               'opencode-go/muse-spark-1.3-contributor': (.10, .20)}
+               'openrouter/meta/muse-spark-1.3-contributor': (.10, .20, .002, .10)}
+PAID_PRICES['opencode-go/muse-spark-1.3-contributor'] = PAID_PRICES['openrouter/meta/muse-spark-1.3-contributor']
 
 
 def invocation_maximum(model, bounds):
@@ -29,12 +29,16 @@ def invocation_maximum(model, bounds):
         if not fee.is_finite() or fee < 0: return None
     except (KeyError, InvalidOperation, ValueError): return None
     if model in CODEX_PRICES:
+        # Same published long-context tariff used by codex_cost below. Apply
+        # its highest rate even if the enforced input bound is shorter.
         incoming, cached, outgoing = CODEX_PRICES[model]
         rates = max(incoming, cached) * 2, outgoing * 1.5
     elif model in CLAUDE_PRICES:
+        # Same fast-mode/US-only tariff used by claude_cost below (2 * 1.1),
+        # including the highest applicable one-hour cache-write input price.
         incoming, cached, written, outgoing = CLAUDE_PRICES[model]
         rates = max(incoming, cached, written) * 2.2, outgoing * 2.2
-    elif model in PAID_PRICES: rates = PAID_PRICES[model]
+    elif model in PAID_PRICES: rates = PAID_PRICES[model][:2]
     elif isinstance(model, str) and model.endswith(('-free', ':free')): rates = (0, 0)
     else: return None
     maximum = bounds['requests'] * (bounds['input_tokens'] * Decimal(str(rates[0]))

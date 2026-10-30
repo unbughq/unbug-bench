@@ -150,15 +150,18 @@ def opencode_config(model=None, case=None):
     MCP off (about 28k prompt tokens a call, unneeded). In /tmp so the pilot user can read it; no secret."""
     path = pathlib.Path("/tmp/factory-" + model.replace("/", "-").replace(":", "-") + ".json") if model else pathlib.Path("/tmp/factory-opencode.json")
     base = os.environ.get("OPENCODE_API_KEY_BASE_URL")
+    from token_prices import PAID_PRICES
+    def price(route):
+        return dict(zip(('input', 'output', 'cache_read', 'cache_write'), PAID_PRICES[route]))
     cfg = {"mcp": {"computer": {"enabled": False}},
            "compaction": {"auto": True}, "permission": {"task": "deny"},  # on since 2026-10-17: off, MiMo re-read ~500k tokens a step
            "provider": {"openrouter": {"models": {
-               "deepseek/deepseek-v4.1-flash": {"cost": {"input": 0.02, "output": 1.00}},
+               "deepseek/deepseek-v4.1-flash": {"cost": price('openrouter/deepseek/deepseek-v4.1-flash')},
                "meta/muse-spark-1.3-contributor": {
-               "cost": {"input": 0.10, "output": 0.20, "cache_read": 0.002, "cache_write": 0.10}}}}}}
+               "cost": price('openrouter/meta/muse-spark-1.3-contributor')}}}}}
     if model: cfg["small_model"] = model  # Compaction shares the admitted model/family/account.
     # OpenCode v1.19 does not know Muse Contributor's price; without one the budget guard stops the run.
-    go = {"models": {"muse-spark-1.3-contributor": {"cost": {"input": 0.10, "output": 0.20, "cache_read": 0.002, "cache_write": 0.10}}}}
+    go = {"models": {"muse-spark-1.3-contributor": {"cost": price('opencode-go/muse-spark-1.3-contributor')}}}
     go["options"] = {"apiKey": "{env:OPENCODE_API_KEY}"}
     if base: go["options"]["baseURL"] = base.rstrip("/") + "/go/v1"
     cfg["provider"]["opencode-go"] = go
@@ -336,6 +339,11 @@ class ModelRuntime:
             context.router_condition_since = None
             started = time.monotonic()
             try:
+                if factory_job(c):
+                    import budget, job_authority
+                    reservation = budget.reserve_invocation(c.ledger, lease, invocation_maximum(c, lease), job_authority.for_case(c),
+                        operation_id=operation_id, call_name=name, parent_call_name=getattr(c, 'parent_call_name', None))
+                    c.invocation_reservation = context.invocation_reservation = reservation
                 with model_router.running(lease, context.role_cancel) as lost:
                     if lease.account and not (model_router.SECRETS / lease.account).is_file():
                         raise BudgetError('codex_login_expired' if lease.account == 'codex-auth.json' else 'credential_expiring',
@@ -347,18 +355,16 @@ class ModelRuntime:
                     limit = duration - active_seconds
                     if deadline is not None: limit = min(limit, deadline - time.monotonic())
                     if limit <= 0: raise BudgetError('timeout')
-                    if factory_job(c):
-                        import budget, job_authority
-                        reservation = budget.reserve_invocation(c.ledger, lease, invocation_maximum(c, lease), job_authority.for_case(c),
-                            operation_id=operation_id, call_name=name, parent_call_name=getattr(c, 'parent_call_name', None))
-                        c.invocation_reservation = context.invocation_reservation = reservation
                     if before_attempt is not None: before_attempt()
                     invoked, outcome = True, 'interrupted'
+                    context.model_process_state = {'started': False}
                     if factory_job(c): c.active_model_calls.add(name)
                     try:
                         code = self._invoke(context, [lease.route], text, cwd, name, user=user, timeout=limit, deadline=deadline)
                     finally:
                         if factory_job(c): c.active_model_calls.discard(name)
+                        if factory_job(c) and not context.model_process_state['started']:
+                            invoked, outcome = False, 'denied'
                     if lost.is_set(): raise model_router.RouterUnavailable('lease renewal uncertain')
                     if code: raise BudgetError('process_error')
                     outcome = 'done'
@@ -556,7 +562,8 @@ class ModelRuntime:
                 import job_authority
                 reservation = c.invocation_reservation
                 factory_kwargs = dict(job_authority=job_authority.for_case(c), invocation_id=reservation['invocation_id'],
-                                      lease_id=reservation['lease_id'])
+                                      lease_id=reservation['lease_id'],
+                                      on_started=lambda: c.model_process_state.update(started=True))
             result = run_budgeted(cmd, None if user else cwd, env, transcript, c.ledger, limit,
                                   max_cost=None if factory_job(c) else c.args.max_cost,
                                   max_calls=c.args.max_role_calls, max_total_calls=c.args.max_total_calls, driver=driver,

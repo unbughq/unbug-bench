@@ -148,6 +148,64 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn('invocation_reservations', json.loads(self.ledger.read_text()))
         invoke.assert_not_called()
 
+    def test_wrapper_pre_cli_renewal_failure_or_lost_credential_settles_zero(self):
+        rpc, await_lease = model_router._rpc, model_router.await_lease
+        for cause in ('renewal', 'credential'):
+            with self.subTest(cause=cause):
+                self.c.provider_resume_done = False
+                if hasattr(self.c, 'model_resume_state'): self.c.model_resume_state['done'] = False
+                def fail_renewal(operation, payload):
+                    if operation == 'renew': raise model_router.RouterUnavailable('authored renewal blip')
+                    return rpc(operation, payload)
+                removed = []
+                def lose_credential(role, c, deadline=None):
+                    lease = await_lease(role, c, deadline)
+                    path = model_router.SECRETS / lease.account
+                    removed.append((path, path.read_bytes())); path.unlink()
+                    return lease
+                with patch.object(model_router, '_rpc', fail_renewal if cause == 'renewal' else rpc), \
+                        patch.object(model_router, 'await_lease', lose_credential if cause == 'credential' else await_lease), \
+                        patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=AssertionError('must not start')):
+                    with self.assertRaises(model_router.ProviderWait) as error:
+                        run.model_call(self.c, self.c.models['builder'], 'must not start', self.case, 'builder-pre-cli')
+                for path, data in removed: path.write_bytes(data)
+                record = run.write_provider_wait(self.c, error.exception)
+                self.assertIsNotNone(record['lease_id'])
+                leaf = json.loads((self.work / record['call_id']).read_text())
+                self.assertEqual(leaf['outcome'], 'denied'); self.assertTrue(leaf['final_usage_known'])
+                self.c.provider_resume_done = False; self.c.model_resume_state['done'] = False
+                run.resume_provider_wait(self.c)
+                self.assertFalse((self.work / 'provider_wait.json').exists())
+                self.assertEqual(budget.case_spending(json.loads(self.ledger.read_text()))['total_spent_usd'], self.baseline)
+
+    def test_pre_process_setup_failure_releases_reservation_at_zero(self):
+        self.patch(model_runtime.ModelRuntime, '_invoke', side_effect=OSError('authored CLI setup failure'))
+        with self.assertRaises(OSError):
+            run.model_call(self.c, self.c.models['builder'], 'must not start', self.case, 'builder-setup')
+        rows = list(json.loads(self.ledger.read_text())['invocation_reservations'].values())
+        self.assertEqual(len(rows), 1); self.assertEqual(rows[0]['state'], 'settled')
+        self.assertEqual(rows[0]['estimated_gap_usd'], '0.000000000')
+        self.assertEqual(budget.case_spending(json.loads(self.ledger.read_text()))['total_spent_usd'], self.baseline)
+
+    def test_unreserved_receipt_requires_explicit_known_zero_denial(self):
+        lease_id = str(uuid.uuid4())
+        directory = self.work / 'usage-receipts'; directory.mkdir()
+        relative = 'usage-receipts/' + lease_id + '.json'
+        receipt = {'lease_id': lease_id, 'events': [], 'booked_event_ids': [], 'final_usage_known': True,
+                   'outcome': 'denied', 'usage_delta': {'cost': 0}}
+        (self.work / relative).write_text(json.dumps(receipt))
+        record = {'wait_id': str(uuid.uuid4()), 'lease_id': lease_id, 'call_id': relative, 'settled': False}
+        self.assertEqual(budget.settle(record, work=self.work, ledger_path=self.ledger), 0)
+        self.assertEqual(budget.settle(record, work=self.work, ledger_path=self.ledger), 0)
+        for change in ({'final_usage_known': False}, {'outcome': 'interrupted'},
+                       {'usage_delta': {'cost': 1}}, {'unidentified_events': 1},
+                       {'events': [{'id': 'unreserved', 'cost': 1}], 'booked_event_ids': ['unreserved']}):
+            (self.work / relative).write_text(json.dumps({**receipt, **change}))
+            before = self.ledger.read_bytes()
+            with self.assertRaisesRegex(budget.BudgetError, '^usage_reservation_missing$'):
+                budget.settle({**record, 'wait_id': str(uuid.uuid4()), 'settled': False}, work=self.work, ledger_path=self.ledger)
+            self.assertEqual(self.ledger.read_bytes(), before)
+
     def test_batch_deadline_interrupt_is_unscored_retirement_not_contestant_timeout(self):
         lease = model_router.Lease(str(uuid.uuid4()), self.c.models['builder'][0], 'claude-token', 1,
                                    'subscription', 'anthropic', 'claude-token')
@@ -181,6 +239,7 @@ class RuntimeTests(unittest.TestCase):
         self.c.recipient = 'synthetic-only'
         calls, checkpoints, kill = [], [], [True]
         def invoke(runtime, c, models, text, cwd, name, **kwargs):
+            c.model_process_state['started'] = True
             calls.append(name)
             if name == 'builder-1': (self.case / 'draft.txt').write_text('completed writer unit')
             elif name == 'attacker-1': (self.work / 'attacks/round-1.json').write_text('{"complete":true,"blocking":[]}')
@@ -209,6 +268,38 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 1})
         self.assertEqual(checkpoints, ['writer', 'stress_tester'])
 
+    def test_validated_writer_rebinding_resumes_stress_without_second_writer(self):
+        calls, killed = [], [False]
+        def invoke(runtime, c, models, text, cwd, name, **kwargs):
+            c.model_process_state['started'] = True
+            calls.append(name)
+            if name == 'builder-1': (self.case / 'draft.txt').write_text('completed writer unit')
+            elif name == 'attacker-1': (self.work / 'attacks/round-1.json').write_text('{"complete":true,"blocking":[]}')
+            else: self.fail('unexpected new author round: ' + name)
+            return 0
+        boundary = run.case_budget_boundary
+        def interrupt(c, *args, **kwargs):
+            saved = run.jload(self.work / 'attack-state.json', {})
+            if not killed[0] and saved.get('phase') == 'validated' and saved.get('awaiting_stress'):
+                killed[0] = True; raise Killed()
+            return boundary(c, *args, **kwargs)
+        self.patch(model_runtime.ModelRuntime, '_invoke', invoke)
+        self.patch(run, 'case_budget_boundary', interrupt)
+        self.patch(run, 'prompt', lambda role, text: text)
+        self.patch(run, 'g1', lambda c: (True, {'problems': []}))
+        self.patch(run, 'early_checks', lambda c: None); self.patch(run, 'early_review', lambda c: None)
+        self.patch(run, 'loop_freshness', lambda c, result, report: (result, report))
+        with self.assertRaises(Killed): run.write_and_attack(self.c, {})
+        saved = json.loads((self.work / 'attack-state.json').read_text())
+        self.assertEqual(saved['phase'], 'validated'); self.assertEqual(self.c.card['builder_rounds'], 1)
+        binding = run.attack_binding(self.c)
+        self.patch(run, 'attack_binding', return_value={**binding, 'prompt': 'f' * 64})
+        self.c.args.resume = self.c.case_id
+        run.write_and_attack(self.c, copy.deepcopy(self.c.card))
+        self.assertEqual(calls, ['builder-1', 'attacker-1'])
+        self.assertEqual(self.c.card['builder_rounds'], 1)
+        self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 1})
+
     def test_three_waits_continue_the_same_writer_or_stress_unit(self):
         for role, key, name, pools, added in (
                 ('writer', 'builder', 'builder-1', ('claude-token', 'claude-factory-token-2'), .1232),
@@ -222,6 +313,7 @@ class RuntimeTests(unittest.TestCase):
                 if hasattr(self.c, 'model_resume_state'): self.c.model_resume_state['done'] = False
                 receipt = self.receipt(role)
                 def invoke(runtime, c, *args, **kwargs):
+                    c.model_process_state['started'] = True
                     raise budget.BudgetError('provider_limit:' + c.model_lease.route,
                         provider_failure={'reason': 'quota', 'scope': 'account', 'model': c.model_lease.route})
                 def attempt():
@@ -263,6 +355,7 @@ class RuntimeTests(unittest.TestCase):
             observed.append(getattr(c, 'router_deferred', False))
             return await_lease(role, c, deadline)
         def invoke(runtime, c, *args, **kwargs):
+            c.model_process_state['started'] = True
             invoked.append(c.model_lease.lease_id)
             with budget.ledger_transaction(self.ledger) as ledger:
                 ledger.setdefault('unpriced_invocations', []).append({'role': 'writer', 'model': c.model_lease.route,
@@ -301,6 +394,7 @@ class RuntimeTests(unittest.TestCase):
                 raise
         self.patch(run, 'model_call', call)
         def invoke(runtime, c, models, text, cwd, name, **kwargs):
+            c.model_process_state['started'] = True
             calls.append((name, c.model_lease.lease_id, c.model_lease.family))
             if name == parent:
                 self.assertIn(parent, self.c.active_model_calls)

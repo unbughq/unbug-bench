@@ -209,7 +209,13 @@ def _usage_leaves(work, relative, seen=None, depth=0):
 def _settle_leaf(ledger, receipt):
     lease_id = receipt['lease_id']
     row = ledger.get('invocation_reservations', {}).get(lease_id)
-    if row is None: raise BudgetError('usage_reservation_missing')
+    if row is None:
+        if (receipt.get('outcome') == 'denied' and receipt['final_usage_known']
+                and receipt['events'] == [] and receipt['booked_event_ids'] == []
+                and receipt.get('unidentified_events', 0) == 0
+                and isinstance(receipt.get('usage_delta', {}), dict)
+                and all(usd(v) == 0 for v in receipt.get('usage_delta', {}).values())): return
+        raise BudgetError('usage_reservation_missing')
     if row['state'] == 'settled' and not receipt['final_usage_known']:
         raise BudgetError('usage_receipt_regressed')
     events = {e['id']: e for e in ledger.get('events', []) if e.get('id')}
@@ -297,6 +303,12 @@ def complete_invocation(work, ledger_path, lease_id):
         for receipt in leaves:
             if receipt['lease_id'] != lease_id: raise BudgetError('wait_receipt_mismatch')
             if receipt['final_usage_known']: _settle_leaf(ledger, receipt)
+            else:
+                row = ledger['invocation_reservations'][lease_id]
+                unknown = ledger.setdefault('unpriced_invocations', [])
+                if not any(e.get('invocation_id') == row['invocation_id'] for e in unknown):
+                    unknown.append({'role': invocation_role(row['call_name']), 'model': row['route'],
+                                    'invocation_id': row['invocation_id'], 'lease_id': lease_id})
 
 
 def release_uninvoked(ledger_path, lease_id):
@@ -543,7 +555,7 @@ def resume_ledger(ledger_path):
 def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 job_authority=None, invocation_id=None, lease_id=None):
+                 job_authority=None, invocation_id=None, lease_id=None, on_started=None):
     # Preserve the original whole-session lock unless concurrency is explicitly enabled.
     settings = locals()
     path = Path(ledger_path)
@@ -558,7 +570,7 @@ def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
 def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 job_authority=None, invocation_id=None, lease_id=None, _serial_lock=None, _activity_lock=None, _admission_lock=None):
+                 job_authority=None, invocation_id=None, lease_id=None, on_started=None, _serial_lock=None, _activity_lock=None, _admission_lock=None):
     """Return CompletedProcess, or raise BudgetError without exposing transcript text.
 
     max_calls limits this invocation; max_total_calls and max_cost span roles.
@@ -930,6 +942,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             process = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
                                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                        start_new_session=True)  # codex exec waits on an open stdin
+            if on_started is not None: on_started()
             selector.register(process.stdout, selectors.EVENT_READ)
             pending = b''
             tool_cpu = tool_cpu_ticks(process.pid)

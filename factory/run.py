@@ -1141,6 +1141,10 @@ def write_and_attack(c, prev):
         if receipt.get("repair_pending") and not modern_writer_unit:
             attack_unresolved(c, "interrupted_repair")
         awaiting_stress = receipt.get('awaiting_stress') and receipt['binding'] == attack_binding(c)
+        if (modern_writer_unit and receipt['phase'] == 'validated' and receipt.get('awaiting_stress')):
+            if receipt.get('output_sha256') != case_hash(c): attack_unresolved(c, 'writer_output_changed')
+            awaiting_stress = True
+            if binding_changed: rereview_round = n
         if final_resume: skip_writer = False
         if awaiting_stress:
             start_round, skip_writer = n, True
@@ -2362,7 +2366,8 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
                 call_context.budget_resumed = True
                 call_context.args.concurrent_roles = True
                 call_context.role_cancel = getattr(c, "role_cancel", None) or threading.Event()
-                channel = owner_channel(call_context, sys.modules[__name__], ws, dest, user, parent_call_name=call_name)
+                channel = owner_channel(call_context, sys.modules[__name__], ws, dest, user,
+                    **({'parent_call_name': call_name} if model_runtime.factory_job(c) else {}))
             else:
                 channel = contextlib.nullcontext("")
             try:
