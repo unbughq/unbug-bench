@@ -79,7 +79,7 @@ class ManifestTests(unittest.TestCase):
                             'factory/apply_free_model_cutover.py', 'factory/free_model_patch.py'}
         expected_worker |= {'factory/launch_manifest.py', 'factory/restore_sync.py',
                             'factory/runner_supervisor.py', 'factory/batch.py',
-                            'factory/model_router.py', 'factory/job_authority.py',
+                            'factory/model_router.py', 'factory/job_authority.py', 'factory/diagnosis.py',
                             'factory/batch_money.py', 'factory/job_config.py', 'factory/batch_service.py',
                             'factory/batch_status.py',
                             'factory/control-recipient.txt',

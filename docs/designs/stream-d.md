@@ -1006,3 +1006,19 @@ estimated map)+1) nanodollars, including zero-release settlements and
 re-estimates. This grants no money or released commitment. Factory-bug resume
 archives/clears the old infrastructure_gate before work; current diagnosis_state
 identifies a subsequent exhaustion. release_uninvoked refuses non-pending rows.
+
+### Increment 3a review boundary
+
+The first increment-3 implementation slice supplies the pure §8 diagnosis and
+coverage APIs, one retained final receipt/decrease per estimated invocation, and
+the parent-ruled cumulative-call telemetry branch. It changes no B enable flag,
+route maxima, extension admission or legacy import authority. The full extension
+runner/snapshots and stale-cap/import/scientific migration remain increment 3b;
+this boundary is not a claim that increment 3 or any Murphy row is complete.
+
+The coverage helper and public case_spending share one raw valuation. Retained
+final receipts are atomically written beneath usage-receipts/final by canonical
+hash before the ledger transaction records that hash, so later growing receipts
+cannot erase the evidence. Unknown unrelated invocations do not suppress a row's
+decrease record. The diagnosis APIs read only their input JSON; the pending
+projection is the sole source of first replacement eligibility for B.
