@@ -42,3 +42,15 @@ Diagnosis/held work, queued-input design, and `.stream-d-next` were excluded. Sn
 PASS accepted. The whole extension-state slice is covered by reviews 18, 20 and
 21 and their accepted fixes. The full suite is pinned to a769d67; no result is
 claimed until it finishes. No Murphy row closes and runtime wiring remains off.
+
+## Full-suite verification
+
+`uv run --with numpy --with scipy python -B tests/run.py` completed on
+`a769d6741d9159091b1048003c718d7c5e365cdb`: **147 test scripts run; 0 failed**.
+Production code and tests stayed byte-identical to that SHA throughout the run;
+only this review record and excluded drafts changed. The same run covers the
+unchanged held follow-up reviewed in stream-d-diff-19.md at 83ebec3.
+Log: `/tmp/stream-d-extension-passed-suite.log`.
+Log SHA-256: `92527b8d50bdc427389033f45bb1ece9d3e7d253c05ad9216fc08912c02e4228`.
+The earlier interrupted runs are superseded and provide no passing evidence.
+No Murphy row closes. Extensions and diagnosis dispatch remain unwired.

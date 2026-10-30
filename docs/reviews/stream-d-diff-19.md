@@ -43,3 +43,10 @@ PASS accepted for this follow-up. Production snapshot creation/verification and
 dispatcher activation remain outstanding. The full suite is running on the
 later extension-fix SHA 042f1ae, which contains this unchanged held patch; no
 suite result is claimed until completion. No Murphy row closes.
+
+## Full-suite verification
+
+The final corrected run on `a769d6741d9159091b1048003c718d7c5e365cdb`, which
+contains this held patch unchanged, passed **147 scripts, 0 failed**. See
+stream-d-diff-21.md for the SHA-pinned log and digest. The intermediate
+042f1ae run was stopped as superseded and is not evidence.
