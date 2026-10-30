@@ -1874,6 +1874,18 @@ Change.
   "total unknown". Non-factory calls keep the marker. This removes the
   window in which a sibling concurrent call's `check_limits`
   (`budget.py:845`) reads an unknown total and stops with `money_wait`.
+  One exception keeps the bound marker: a failed stop
+  (`cancellation-failed:` in `starts`). That process may still be running,
+  past its reservation, so the case total stays unknown and fails closed.
+- `diagnosis.actual_model_work`: markers were also process-start evidence
+  for replacement eligibility. A subscription call that dies before its usage
+  event leaves no event. With no marker, it would look like zero work. The
+  card's `route_receipts` already record each lease's outcome. The runtime
+  resets an unstarted call to `denied` (`model_runtime.py:413–414`), so
+  `done` or `interrupted` means a process started. Count those rows as work.
+  This also closes a gap that predates this change: `finalize_accounting`
+  reconciles bound markers away before `record_exhaustion` reads them. Saved
+  cards carry no `route_receipts`, so their projections are unchanged.
 - `budget.complete_invocation`: a receipt without final usage settles through
   the existing `_settle_leaf` as `estimated`, charging the reservation's
   remaining maximum. That also removes the marker bound to that invocation.
@@ -1980,6 +1992,14 @@ receipts, or read saved proof records. A local draft of the
 `complete_invocation` change passes all three unchanged. The settlement test
 also covers a concurrent sibling call: it streams while the first call fails
 with unknown usage, and it finishes without `money_wait`.
+
+Design review 2 (DeepSeek, FAIL) responses. B1: accepted. Fixed through
+the route receipts above. The settlement test asserts that the estimated
+call's receipt shows a started outcome and that `actual_model_work` holds
+with no events or markers. The projection test adds denied/admitted
+(not work) and interrupted (work). M1: accepted. A failed stop keeps the
+factory marker. N1: the comment beside it is now true. N2: line references
+are approximate, as elsewhere in this file.
 
 Design review 1 (DeepSeek, FAIL) responses. B1: accepted. The affected tests
 are listed above. Its premise that those tests assert the pending+marker
