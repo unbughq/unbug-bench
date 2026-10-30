@@ -51,6 +51,8 @@ also run it directly.
    - spend as `case_budget.spent_usd / limit_usd` as of the last card, or
      `—`. A running case therefore shows its last collected numbers;
    - rounds as `builder_rounds / recovery_config.rounds`, or `—`;
+   - cumulative continuation_budget.calls as calls N, or calls — if absent;
+     no denominator and no call-count near-limit rule;
    - stop reason in plain words.
 
 A source that is missing or won't parse shows as `unreadable` and is
@@ -88,7 +90,7 @@ flagged.
 
 ## Size and test
 
-About 80 lines, plus one test.
+One small read-only module and command, plus one test file.
 
 - **Stopped cases:** the test uses copies of real VM cards.
 - **Running cases:** no saved real file has a stage in progress, so the
@@ -99,3 +101,64 @@ About 80 lines, plus one test.
   real rejected card, and one rejected card edited to carry a stop reason.
 - **Old cards:** cards from before these fields existed produce no false
   flags. 266 of 297 real cards lack `case_budget`.
+
+## Implementation against B's staged journal
+
+Add factory/batch_status.py and executable bin/unbug; unbug status reads
+the existing control home's policy and pinned manifest through
+batch_money.manifest. --control-home selects a test/operator state directory,
+default UNBUG_CONTROL_HOME or ~/.unbug-control. This command writes nothing,
+dispatches nothing, decrypts nothing and closes no Murphy row. No VM install is
+part of this increment. Activation later symlinks bin/unbug from the approved
+release to /usr/local/bin/unbug, with the VM rollout record.
+
+The collection core currently has no launch metadata or current pointers.
+For each manifest root and recorded derived job, select the unique journal
+entry, or the entry named by current/<case>.json when multiple entries exist.
+The pointer's generation and manifest_sha256 must match that journal entry.
+Never use dictionary order, file mtimes or archive filenames as chronology.
+Ambiguous generations with no verified selector are unreadable, not guessed.
+Current-pointer publication and launch metadata are later dispatcher obligations.
+Status does not write them or enable their production.
+
+The read adapter also accepts the umbrella journal's optional fields state,
+worker_id, pending_since and collected_generation. state launched with no
+collected_generation means running. A collected_generation means stopped;
+otherwise a core pending entry's own verified snapshot is its collected card.
+For a running row its generation (unless fresh) is the last collected card.
+An absent last card for a genuinely fresh launch displays — for spend, rounds
+and calls without an unreadable-card warning. pending_since is an ISO UTC time;
+its absence alone never fires launch stuck. pending/failed rows with no card
+show that state; missing required snapshot/card is unreadable.
+
+Read the snapshot manifest and its pinned public scorecard bytes without
+decryption or re-hashing large ciphertext archives. The public card must match
+the selected case, collected ciphertext sha and release. Never fall back to a
+flat card with an unrelated generation. With journal authority unchanged by a
+read-only command, absent or malformed sources become unreadable.
+
+Use one bounded boat-call list --json request per invocation (30 seconds).
+Require sandboxes[] with unique string id values and pageInfo.hasMore == false;
+an incomplete page is boat unreadable, never worker gone. Pagination remains the
+service inventory's responsibility. For each running worker confirmed present,
+use exactly one bounded read-only boat-call ssh <id> cat of
+~/sealed/<case>.progress.json. Missing worker_id is unknown, never worker gone.
+Transport/schema errors are rendered as fixed unreadable labels, without stderr
+or arbitrary source text. Known operational stop labels are mapped to plain
+words; unknown labels show unknown stop, check case (never print free-form text).
+Allow only public_progress's operational stage names. Concurrent running stages
+are all listed, and the oldest valid running start determines duration/check case.
+
+Use the existing real public-card corpus for sealed/rejected/old-card tests.
+Explicitly authored journal/Boat/progress fixtures test running precedence,
+missing/stale sources, every threshold, pointer ambiguity, rejected-with-stop,
+and calls above a historical max_total_calls with no call alert or denominator.
+A recording transport asserts one list and one cat per present running worker;
+failed/incomplete inventory cannot make false worker-gone reports.
+
+Implement provider_wait overdue/top-up-login rules when their existing card
+fields are present. The wallet/day-of-need rule stays deferred: this increment
+has no authenticated provider-balance adapter and must not infer cash from
+account delta observations. No new dependency, balance probe or scheduler.
+Nothing is deleted because no prior status command exists. Full suite and a
+fresh batch-service diff review precede parent merge.
