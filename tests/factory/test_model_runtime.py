@@ -73,6 +73,8 @@ class ModelRuntimeTests(unittest.TestCase):
         self.addCleanup(offline_router()[0].close)
         import json
         from budget import run_budgeted
+        from contextlib import contextmanager
+        import model_call_gate
         source = 'opencode/deepseek-v4.1-flash-free'
         target = 'openrouter/deepseek/deepseek-v4.1-flash'
         with tempfile.TemporaryDirectory() as temporary:
@@ -84,16 +86,25 @@ class ModelRuntimeTests(unittest.TestCase):
                     max_total_calls=20, no_progress_minutes=1, max_zero_tokens=3, resume=None))
             runtime = model_runtime.ModelRuntime(root, mock.Mock(), mock.Mock(), mock.Mock(), mock.Mock())
             counter = [0]
+            @contextmanager
+            def config_only(lease, env, cap_used, timeout, cancel=None, *, user=None):
+                # Synthetic scheduler caps, real config builder; native proof separately
+                # exercises real leases/gate/CLI. No provider traffic in this test.
+                if lease.route == target:
+                    clean = model_call_gate.openrouter_environment(lease, env,
+                        types.SimpleNamespace(server=types.SimpleNamespace(server_port=1), token='synthetic'))
+                    env.clear(); env.update(clean)
+                yield cancel
             def budgeted(cmd, cwd, env, *args, **kwargs):
                 if cmd[cmd.index('-m') + 1] == source:
                     raise model_runtime.BudgetError('provider_limit:' + source)
                 counter[0] += 1
                 self.assertEqual(cmd[cmd.index('-m') + 1], target)
                 self.assertEqual(kwargs['configured_model'], target)
-                cfg = json.loads(pathlib.Path(env['OPENCODE_CONFIG']).read_text())
+                cfg = json.loads(env['OPENCODE_CONFIG_CONTENT'])
                 self.assertEqual(cfg['small_model'], target)
                 rates = cfg['provider']['openrouter']['models']['deepseek/deepseek-v4.1-flash']['cost']
-                self.assertEqual(rates, {'input': .02, 'output': 1.0})
+                self.assertEqual(rates, {'input': .14, 'output': .42, 'cache_read': .0042, 'cache_write': 0})
                 receipt = {'type': 'step_finish', 'sessionID': 'synthetic', 'part': {
                     'id': str(counter[0]), 'messageID': str(counter[0]),
                     'cost': rates['input'] + rates['output'], 'tokens': {
@@ -102,7 +113,8 @@ class ModelRuntimeTests(unittest.TestCase):
                 return run_budgeted([sys.executable, '-c', 'print(' + repr(json.dumps(receipt)) + ')'],
                                     cwd, env, *args, **kwargs)
             with mock.patch.object(model_runtime, '_opencode_flags', return_value=()), \
-                 mock.patch.object(model_runtime, 'run_budgeted', side_effect=budgeted):
+                 mock.patch.object(model_runtime, 'run_budgeted', side_effect=budgeted), \
+                 mock.patch.object(model_call_gate, 'enforce', config_only):
                 runtime.call(c, [source], 'synthetic', root, 'attacker-1')
                 # A restored context has no in-memory route cache; an old cached Go route also loses.
                 c.routes = {source: 'opencode-go/deepseek-v4.1-flash'}
@@ -114,10 +126,10 @@ class ModelRuntimeTests(unittest.TestCase):
             self.assertEqual(c.card['route_receipts'][-1]['billing'], 'paid')
             self.assertEqual(c.card['models_used'], {'attacker-1': target, 'attacker-2': target})
             ledger = json.loads(c.ledger.read_text())
-            self.assertAlmostEqual(ledger['cost'], 2.04)
+            self.assertAlmostEqual(ledger['cost'], 1.12)
             self.assertEqual(ledger['calls'], 2)
             self.assertTrue(all(e['configured_model'] == target for e in ledger['events']))
-            self.assertAlmostEqual(c.card['case_budget']['spent_usd'], 2.04)
+            self.assertAlmostEqual(c.card['case_budget']['spent_usd'], 1.12)
 
     def test_import_does_not_probe_or_install_a_cli(self):
         self.addCleanup(offline_router()[0].close)

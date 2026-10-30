@@ -11,13 +11,19 @@ import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
+import pwd
+from pathlib import Path
+import secrets
+import sys
 import socket
+import subprocess
 import threading
 import time
 
 from budget import BudgetError
 from token_prices import (GATED_CLAUDE, CLAUDE_CONTEXT, CLAUDE_OUTPUT,
-                          CLAUDE_GATE_FIELDS, CLAUDE_PRICES, claude_gate_cost)
+                          CLAUDE_GATE_FIELDS, CLAUDE_PRICES, claude_gate_cost, claude_standard_usage,
+                          GATED_OPENROUTER, OPENROUTER_OUTPUT, openrouter_gate_cost, runtime_prices)
 
 ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CLAUDE_CODE_OAUTH_TOKEN',
     'CLAUDE_CONFIG_DIR', 'DISABLE_AUTOUPDATER', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
@@ -27,6 +33,7 @@ ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CLAUDE_CODE_OAUTH_TOKEN
     'FACTORY_STRATEGY_SECONDS', 'FACTORY_STRATEGY_WORKERS')
 BETAS = 'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,effort-2025-11-24'
 HEADROOM = Decimal('0.000001')
+_RETAINED = []  # Unresolved firewall cleanup must never release a reusable port.
 BODY_FIELDS = {'model', 'max_tokens', 'messages', 'system', 'tools', 'tool_choice',
     'stream', 'stop_sequences', 'temperature', 'top_p', 'top_k', 'thinking',
     'output_config', 'metadata', 'cache_control', 'service_tier', 'context_management'}
@@ -86,6 +93,7 @@ def request_body(raw):
     output = body.get('max_tokens')
     if type(output) is not int or not 0 <= output: raise ValueError('invalid output bound')
     body['max_tokens'] = min(output, CLAUDE_OUTPUT)
+    body['inference_geo'] = 'global'  # Override workspace defaults; forbidden geo must error.
     body.pop('context_management', None)  # No server-side sampling/compaction.
     if 'thinking' in body:
         if not isinstance(body['thinking'], dict) or body['thinking'].get('type') != 'adaptive':
@@ -123,11 +131,11 @@ def request_body(raw):
     return body
 
 
-def empty_usage():
+def empty_usage(route=GATED_CLAUDE):
     return dict(version=1, forwarded_requests=0, validated_requests=0, unknown_requests=0,
         in_flight_requests=0, unsupported_requests=0, settled_usd='0', held_usd='0',
         settled_input_tokens=0, held_input_tokens=0, settled_output_tokens=0,
-        held_output_tokens=0, max_request_output_tokens=CLAUDE_OUTPUT, exhausted=False, closed=True)
+        held_output_tokens=0, max_request_output_tokens=GATED_OPENROUTER[route]['output'] if route in GATED_OPENROUTER else CLAUDE_OUTPUT, exhausted=False, closed=True)
 
 
 class Allowance:
@@ -148,11 +156,23 @@ class Allowance:
     def _held(self):
         return [self.retained[i] + sum(v[i] for v in self.active.values()) for i in range(3)]
 
+    def amount(self, usage):
+        if self.lease.route == GATED_CLAUDE:
+            cost = claude_gate_cost(usage)
+            if cost is None: return None
+            return cost, sum(usage[k] for k in CLAUDE_GATE_FIELDS[:3]), usage['output_tokens']
+        cost = openrouter_gate_cost(self.lease.route, usage)
+        return None if cost is None else (cost, usage['prompt_tokens'], usage['completion_tokens'])
+
     def reserve(self, output):
-        worst = dict.fromkeys(CLAUDE_GATE_FIELDS, 0)
-        incoming = max(range(3), key=lambda i: CLAUDE_PRICES[GATED_CLAUDE][i])
-        worst[CLAUDE_GATE_FIELDS[incoming]], worst['output_tokens'] = CLAUDE_CONTEXT, output
-        allowance = (claude_gate_cost(worst), CLAUDE_CONTEXT, output)
+        if self.lease.route == GATED_CLAUDE:
+            worst = dict.fromkeys(CLAUDE_GATE_FIELDS, 0)
+            incoming = max(range(3), key=lambda i: CLAUDE_PRICES[GATED_CLAUDE][i])
+            worst[CLAUDE_GATE_FIELDS[incoming]], worst['output_tokens'] = CLAUDE_CONTEXT, output
+        else:
+            profile = GATED_OPENROUTER[self.lease.route]
+            worst = dict(prompt_tokens=profile['context'], completion_tokens=profile['output'])
+        allowance = self.amount(worst)
         with self.condition:
             maximum = (Decimal(str(self.lease.max_usd)), self.lease.max_input_tokens, self.lease.max_output_tokens)
             while not self.closed and not self.is_set():
@@ -176,10 +196,8 @@ class Allowance:
         with self.condition:
             allowance = self.active.pop(identity, None)
             if allowance is None: return  # close already retained it; never refund late.
-            amount = None
-            if usage is not None:
-                amount = (claude_gate_cost(usage), sum(usage[k] for k in CLAUDE_GATE_FIELDS[:3]), usage['output_tokens'])
-                if any(amount[i] > allowance[i] for i in range(3)): amount = None
+            amount = self.amount(usage)
+            if amount is not None and any(amount[i] > allowance[i] for i in range(3)): amount = None
             target = self.settled if amount is not None else self.retained
             for i in range(3): target[i] += (amount or allowance)[i]
             if amount is None: self.unknown += 1
@@ -189,7 +207,7 @@ class Allowance:
     def snapshot(self):
         with self.lock:
             held = self._held()
-            result = empty_usage()
+            result = empty_usage(self.lease.route)
             result.update(forwarded_requests=self.forwarded, validated_requests=self.validated,
                 unknown_requests=self.unknown, in_flight_requests=len(self.active),
                 unsupported_requests=self.unsupported, settled_usd=format(self.settled[0], 'f'),
@@ -225,7 +243,7 @@ class Usage:
         self.invalid = False
 
     def merge(self, usage):
-        if not isinstance(usage, dict): self.invalid = True; return
+        if not claude_standard_usage(usage): self.invalid = True; return
         for key in CLAUDE_GATE_FIELDS:
             if key not in usage: continue
             value = usage[key]
@@ -297,6 +315,176 @@ class Usage:
         return self.counts
 
 
+OPENROUTER_FIELDS = {'model', 'messages', 'tools', 'tool_choice', 'stream', 'stream_options',
+    'usage', 'max_tokens', 'max_completion_tokens', 'temperature', 'top_p', 'top_k', 'stop',
+    'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'seed', 'min_p',
+    'reasoning', 'include_reasoning', 'reasoning_effort', 'response_format'}
+REASONING_EFFORTS = {'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'}
+
+
+def openrouter_body(raw, route):
+    body = _json(raw)
+    if not isinstance(body, dict) or set(body) - OPENROUTER_FIELDS or body.get('model') != route.partition('/')[2]:
+        raise ValueError('unsupported request')
+    profile = GATED_OPENROUTER[route]
+    maxima = [body[k] for k in ('max_tokens', 'max_completion_tokens') if k in body]
+    if any(type(v) is not int or v < 1 for v in maxima): raise ValueError('invalid output bound')
+    body['max_tokens'] = min(OPENROUTER_OUTPUT, *maxima) if maxima else OPENROUTER_OUTPUT
+    body.pop('max_completion_tokens', None)
+    for key in ('stream', 'include_reasoning'):
+        if key in body and type(body[key]) is not bool: raise ValueError('invalid flag')
+    for key, allowed in (('stream_options', {'include_usage'}), ('usage', {'include'})):
+        if key in body and (not isinstance(body[key], dict) or set(body[key]) - allowed
+                or any(type(v) is not bool for v in body[key].values())): raise ValueError('invalid usage control')
+    body['usage'] = {'include': True}
+    if body.get('stream'): body['stream_options'] = {'include_usage': True}
+    else: body.pop('stream_options', None)
+    reasoning = body.get('reasoning', {})
+    if not isinstance(reasoning, dict) or set(reasoning) - {'enabled', 'exclude', 'effort', 'max_tokens'}:
+        raise ValueError('unsupported reasoning')
+    for key in ('enabled', 'exclude'):
+        if key in reasoning and type(reasoning[key]) is not bool: raise ValueError('invalid reasoning flag')
+    if 'effort' in reasoning and reasoning['effort'] not in REASONING_EFFORTS: raise ValueError('invalid effort')
+    if 'reasoning_effort' in body and body['reasoning_effort'] not in REASONING_EFFORTS: raise ValueError('invalid effort')
+    if 'max_tokens' in reasoning:
+        if type(reasoning['max_tokens']) is not int or reasoning['max_tokens'] < 1: raise ValueError('invalid reasoning bound')
+        reasoning['max_tokens'] = min(reasoning['max_tokens'], body['max_tokens'])
+    for key in ('temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'min_p'):
+        if key in body and (type(body[key]) not in (int, float) or not math.isfinite(body[key])):
+            raise ValueError('invalid sampling')
+    for key in ('top_k', 'seed'):
+        if key in body and type(body[key]) is not int: raise ValueError('invalid sampling')
+    if 'stop' in body and (not isinstance(body['stop'], (str, list))
+            or isinstance(body['stop'], list) and any(not isinstance(v, str) for v in body['stop'])):
+        raise ValueError('invalid stop')
+    messages = body.get('messages')
+    if not isinstance(messages, list) or not messages: raise ValueError('invalid messages')
+    for message in messages:
+        if (not isinstance(message, dict) or set(message) - {'role', 'content', 'name', 'tool_calls', 'tool_call_id', 'reasoning', 'reasoning_details'}
+                or message.get('role') not in ('system', 'developer', 'user', 'assistant', 'tool')):
+            raise ValueError('unsupported message')
+        content = message.get('content')
+        if isinstance(content, list):
+            if any(not isinstance(v, dict) or set(v) != {'type', 'text'} or v['type'] != 'text'
+                   or not isinstance(v['text'], str) for v in content): raise ValueError('text only')
+        elif not isinstance(content, str) and not (content is None and message['role'] == 'assistant'):
+            raise ValueError('text only')
+        for key in ('name', 'tool_call_id', 'reasoning'):
+            if key in message and not isinstance(message[key], str): raise ValueError('invalid message text')
+        details = message.get('reasoning_details', [])
+        if not isinstance(details, list): raise ValueError('invalid reasoning details')
+        for detail in details:
+            if (not isinstance(detail, dict) or set(detail) - {'type', 'text', 'summary', 'data', 'signature', 'id', 'format', 'index'}
+                    or detail.get('type') not in ('reasoning.text', 'reasoning.summary', 'reasoning.encrypted')
+                    or any(not isinstance(v, str) and not (k in ('id', 'signature') and v is None) for k,v in detail.items() if k != 'index')
+                    or 'index' in detail and type(detail['index']) is not int): raise ValueError('invalid reasoning detail')
+        calls = message.get('tool_calls', [])
+        if not isinstance(calls, list): raise ValueError('invalid tool calls')
+        for call in calls:
+            if not isinstance(call, dict) or set(call) != {'id', 'type', 'function'} or call['type'] != 'function' or not isinstance(call['id'], str):
+                raise ValueError('unsupported tool call')
+            function = call['function']
+            if not isinstance(function, dict) or set(function) != {'name', 'arguments'} or any(not isinstance(v, str) for v in function.values()):
+                raise ValueError('unsupported tool call')
+    tools = body.get('tools', [])
+    if not isinstance(tools, list): raise ValueError('invalid tools')
+    for tool in tools:
+        if not isinstance(tool, dict) or set(tool) != {'type', 'function'} or tool['type'] != 'function':
+            raise ValueError('local function tools only')
+        function = tool['function']
+        if (not isinstance(function, dict) or set(function) - {'name', 'description', 'parameters', 'strict'}
+                or not isinstance(function.get('name'), str) or not isinstance(function.get('parameters'), dict)
+                or 'description' in function and not isinstance(function['description'], str)
+                or 'strict' in function and type(function['strict']) is not bool): raise ValueError('unsupported function')
+    choice = body.get('tool_choice', 'auto')
+    if isinstance(choice, dict):
+        if (set(choice) != {'type', 'function'} or choice['type'] != 'function'
+                or not isinstance(choice['function'], dict) or set(choice['function']) != {'name'}
+                or not isinstance(choice['function']['name'], str)): raise ValueError('unsupported tool choice')
+    elif choice not in ('auto', 'none', 'required'): raise ValueError('unsupported tool choice')
+    format_ = body.get('response_format', {'type': 'text'})
+    if (not isinstance(format_, dict) or format_.get('type') not in ('text', 'json_object', 'json_schema')
+            or set(format_) - {'type', 'json_schema'}): raise ValueError('unsupported format')
+    if format_['type'] == 'json_schema':
+        schema = format_.get('json_schema')
+        if (not isinstance(schema, dict) or set(schema) - {'name', 'description', 'schema', 'strict'}
+                or not isinstance(schema.get('schema'), dict)): raise ValueError('unsupported schema')
+    incoming, _, outgoing = map(float, profile['prices'])
+    body['provider'] = dict(only=[profile['endpoint']], allow_fallbacks=False, require_parameters=True,
+                           max_price=dict(prompt=incoming, completion=outgoing, request=0, image=0))
+    return body
+
+
+class OpenRouterUsage:
+    """Refund only one complete generation with authoritative terminal usage."""
+    def __init__(self, route, streaming):
+        self.route, self.streaming = route, streaming
+        self.buffer, self.body = b'', bytearray()
+        self.invalid = False
+        self.identity, self.usage = None, None
+        self.terminal = self.done = 0
+
+    def event(self, event):
+        if self.done or not isinstance(event, dict) or 'error' in event: self.invalid = True; return
+        identity = event.get('id')
+        if not isinstance(identity, str) or not identity or self.identity is not None and identity != self.identity:
+            self.invalid = True; return
+        self.identity = identity
+        if event.get('model') != self.route.partition('/')[2]: self.invalid = True; return
+        choices = event.get('choices')
+        if not isinstance(choices, list) or len(choices) > 1: self.invalid = True; return
+        if choices:
+            choice = choices[0]
+            if not isinstance(choice, dict) or type(choice.get('index')) is not int or choice['index'] != 0 or self.terminal:
+                self.invalid = True; return
+            finish = choice.get('finish_reason')
+            if finish is not None:
+                if finish not in ('stop', 'length', 'tool_calls', 'content_filter'): self.invalid = True; return
+                self.terminal += 1
+        if event.get('usage') is not None:
+            if self.usage is not None or self.terminal != 1: self.invalid = True; return
+            usage = event['usage'];profile = GATED_OPENROUTER[self.route]
+            cost = openrouter_gate_cost(self.route, usage)
+            if (cost is None or usage['prompt_tokens'] > profile['context'] or usage['completion_tokens'] > profile['output']
+                    or type(usage.get('total_tokens')) is not int
+                    or usage['total_tokens'] != usage['prompt_tokens'] + usage['completion_tokens']):
+                self.invalid = True; return
+            for field, key, maximum in (('prompt_tokens_details', 'cached_tokens', usage['prompt_tokens']),
+                                        ('completion_tokens_details', 'reasoning_tokens', usage['completion_tokens'])):
+                if field in usage:
+                    details = usage[field]
+                    if not isinstance(details, dict): self.invalid = True; return
+                    if key in details and (type(details[key]) is not int or not 0 <= details[key] <= maximum):
+                        self.invalid = True; return
+            self.usage = usage
+
+    def feed(self, chunk):
+        if self.invalid: return
+        if not self.streaming:
+            self.body.extend(chunk)
+            if len(self.body) > 4*1024*1024: self.invalid = True; self.body.clear()
+            return
+        self.buffer += chunk
+        if len(self.buffer) > 4*1024*1024: self.invalid = True; self.buffer = b''; return
+        while b'\n' in self.buffer:
+            line, self.buffer = self.buffer.split(b'\n', 1)
+            if not line.startswith(b'data:'): continue
+            data = line[5:].strip()
+            if data == b'[DONE]':
+                if self.done or self.terminal != 1 or self.usage is None: self.invalid = True
+                self.done += 1
+            else:
+                try: self.event(_json(data))
+                except (ValueError, TypeError, RecursionError): self.invalid = True
+
+    def final(self):
+        if not self.streaming and not self.invalid:
+            try: self.event(_json(self.body)); self.done = 1
+            except (ValueError, TypeError, AttributeError, RecursionError): self.invalid = True
+        if self.invalid or self.done != 1 or self.terminal != 1 or self.buffer.strip(): return None
+        return self.usage
+
+
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     def handle_error(self, *args): pass
@@ -314,19 +502,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         gate = self.server.gate
+        paid = gate.route in GATED_OPENROUTER
         self.connection.settimeout(min(15, gate.remaining()))
         auth = self.headers.get_all('Authorization', [])
         if len(auth) != 1 or not hmac.compare_digest(auth[0].encode(), ('Bearer ' + gate.token).encode()):
             self.error(401, 'authentication_error', 'gate_authentication_required'); return
         try:
-            if (self.path not in ('/v1/messages', '/v1/messages?beta=true') or self.headers.get('Transfer-Encoding')
+            if (self.path not in (('/api/v1/chat/completions',) if paid else ('/v1/messages', '/v1/messages?beta=true')) or self.headers.get('Transfer-Encoding')
                     or self.headers.get('Content-Encoding', 'identity') != 'identity'
                     or len(self.headers.get_all('Content-Length', [])) != 1): raise ValueError()
             size = int(self.headers['Content-Length'])
             if not 0 < size <= 16 * 1024 * 1024: raise ValueError()
             raw = self.rfile.read(size)
             if len(raw) != size: raise ValueError()
-            body = request_body(raw)
+            body = openrouter_body(raw, gate.route) if paid else request_body(raw)
         except (ValueError, TypeError, RecursionError):
             with gate.state.lock:
                 if not gate.state.closed: gate.state.unsupported += 1
@@ -336,11 +525,11 @@ class Handler(BaseHTTPRequestHandler):
             self.error(400, 'invalid_request_error',
                 'model_call_cap' if gate.state.exhaustion.is_set() else 'invocation_stopped'); return
         encoded = json.dumps(body, allow_nan=False).encode()
-        headers = {'Authorization': auth[0], 'Content-Type': 'application/json',
-            'anthropic-version': '2023-06-01', 'anthropic-beta': BETAS, 'Accept-Encoding': 'identity'}
+        headers = {'Authorization': 'Bearer ' + gate.upstream_token, 'Content-Type': 'application/json', 'Accept-Encoding': 'identity'}
+        if not paid: headers.update({'anthropic-version': '2023-06-01', 'anthropic-beta': BETAS})
         for key in ('User-Agent', 'x-app'):
             if self.headers.get(key): headers[key] = self.headers[key]
-        connection = http.client.HTTPSConnection('api.anthropic.com', timeout=gate.remaining())
+        connection = http.client.HTTPSConnection('openrouter.ai' if paid else 'api.anthropic.com', timeout=gate.remaining())
         usage, sent = None, False
         try:
             with gate.state.lock:
@@ -354,7 +543,8 @@ class Handler(BaseHTTPRequestHandler):
                 if gate.state.closed: return
             connection.request('POST', self.path, encoded, headers)
             response = connection.getresponse()
-            parser = Usage(body['max_tokens'], 'text/event-stream' in response.getheader('Content-Type', ''))
+            streaming = 'text/event-stream' in response.getheader('Content-Type', '')
+            parser = OpenRouterUsage(gate.route, streaming) if paid else Usage(body['max_tokens'], streaming)
             self.send_response(response.status)
             for key, value in response.getheaders():
                 if key.lower() not in HOP_HEADERS and not key.lower().startswith('proxy-'): self.send_header(key, value)
@@ -378,7 +568,9 @@ class Handler(BaseHTTPRequestHandler):
 
 class Gate:
     def __init__(self, lease, token, timeout, cancel=None):
-        self.token, self.timeout = token, max(.01, timeout)
+        self.route, self.upstream_token = lease.route, token
+        self.token = secrets.token_urlsafe(32) if lease.route in GATED_OPENROUTER else token
+        self.timeout = max(.01, timeout)
         self.deadline = time.monotonic() + self.timeout
         self.state = Allowance(lease, cancel, self.deadline)
         self.server = Server(('127.0.0.1', 0), Handler); self.server.gate = self
@@ -389,31 +581,88 @@ class Gate:
 
     def remaining(self): return max(.01, self.deadline-time.monotonic())
 
-    def close(self):
-        self.state.close(); self.server.shutdown(); self.server.server_close(); self.thread.join(timeout=1)
+    def close(self, release_socket=True):
+        self.state.close(); self.server.shutdown()
+        if release_socket: self.server.server_close()
+        else: _RETAINED.append(self.server)
+        self.thread.join(timeout=1)
 
 
 @contextmanager
-def enforce(lease, env, cap_used, timeout, cancel=None):
+def _wall_access(gate, lease, user):
+    attempted = confirmed = False
+    revoked = True
+    try:
+        if user is not None:
+            uid = pwd.getpwnam(user).pw_uid
+            chain = 'factory-' + user
+            rule = ['-m', 'owner', '--uid-owner', str(uid), '-o', 'lo', '-d', '127.0.0.1/32',
+                    '-p', 'tcp', '--dport', str(gate.server.server_port),
+                    '-m', 'comment', '--comment', 'factory-gate:' + lease.lease_id, '-j', 'ACCEPT']
+            attempted = True; revoked = False
+            subprocess.run(['sudo', 'iptables', '-w', '5', '-I', chain, '1', *rule],
+                           check=True, capture_output=True, timeout=30)
+            confirmed = True
+        yield
+    finally:
+        if attempted:
+            try:
+                subprocess.run(['sudo', 'iptables', '-w', '5', '-D', chain, *rule],
+                               check=True, capture_output=True, timeout=30)
+                revoked = True
+            except BaseException:
+                revoked = False
+        # Even successful deletion cannot exclude late insertion after a timeout.
+        release = not attempted or (confirmed and revoked)
+        gate.close(release_socket=release)
+        if not release: raise BudgetError('cancellation_failed') from None
+
+
+def openrouter_environment(lease, env, gate):
+    profile = GATED_OPENROUTER[lease.route]
+    model = lease.route.partition('/')[2]
+    cfg = dict(model=lease.route, small_model=lease.route, enabled_providers=['openrouter'],
+        permission={'task': 'deny'}, compaction={'auto': True}, provider={'openrouter': {
+            'npm': '@openrouter/ai-sdk-provider', 'whitelist': [model],
+            'options': {'baseURL': 'http://127.0.0.1:' + str(gate.server.server_port) + '/api/v1', 'apiKey': gate.token},
+            'models': {model: {'id': model, 'name': model, 'limit': {'context': profile['context'], 'output': OPENROUTER_OUTPUT},
+                'cost': runtime_prices(lease.route), 'modalities': {'input': ['text'], 'output': ['text']}}}}})
+    keys = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
+            'FACTORY_STRATEGY_DIAGNOSTIC', 'FACTORY_STRATEGY_SECONDS', 'FACTORY_STRATEGY_WORKERS')
+    clean = {k: env[k] for k in keys if k in env}
+    clean.update(OPENCODE_CONFIG_CONTENT=json.dumps(cfg), OPENCODE_ENABLE_EXA='1', OPENCODE_PURE='1',
+        OPENCODE_DISABLE_PROJECT_CONFIG='1', OPENCODE_DISABLE_MODELS_FETCH='1', OPENCODE_DISABLE_AUTOUPDATE='1')
+    return clean
+
+
+@contextmanager
+def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
     import model_router
-    if lease.route != GATED_CLAUDE or not model_router.valid_maximum(lease):
+    if (lease.route != GATED_CLAUDE and lease.route not in GATED_OPENROUTER) or not model_router.valid_maximum(lease):
         raise BudgetError('unbounded_route')
-    token = env.get('CLAUDE_CODE_OAUTH_TOKEN', '')
+    paid = lease.route in GATED_OPENROUTER
+    if paid and (sys.platform != 'linux' or Path('/etc/opencode').exists()
+            or any(not env.get(k) for k in ('XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME'))):
+        raise BudgetError('route_feature_unsupported')
+    token = env.get('OPENROUTER_API_KEY' if paid else 'CLAUDE_CODE_OAUTH_TOKEN', '')
     if not token: raise BudgetError('credential_expiring')
     gate = Gate(lease, token, timeout, cancel)
-    clean = {k: env[k] for k in ENV_KEYS if k in env}
-    clean.update(ANTHROPIC_BASE_URL='http://127.0.0.1:' + str(gate.server.server_port),
-        ANTHROPIC_SMALL_FAST_MODEL=GATED_CLAUDE.partition('/')[2],
-        CLAUDE_CODE_MAX_OUTPUT_TOKENS=str(CLAUDE_OUTPUT), CLAUDE_CODE_MAX_RETRIES='0',
-        CLAUDE_CODE_GZIP_REQUEST_BODIES='0', CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='1',
-        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1', DISABLE_AUTOUPDATER='1')
+    if paid: clean = openrouter_environment(lease, env, gate)
+    else:
+        clean = {k: env[k] for k in ENV_KEYS if k in env}
+        clean.update(ANTHROPIC_BASE_URL='http://127.0.0.1:' + str(gate.server.server_port),
+            ANTHROPIC_SMALL_FAST_MODEL=GATED_CLAUDE.partition('/')[2],
+            CLAUDE_CODE_MAX_OUTPUT_TOKENS=str(CLAUDE_OUTPUT), CLAUDE_CODE_MAX_RETRIES='0',
+            CLAUDE_CODE_GZIP_REQUEST_BODIES='0', CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='1',
+            CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1', DISABLE_AUTOUPDATER='1')
     env.clear(); env.update(clean)
     failure = None
-    try: yield gate
+    try:
+        with _wall_access(gate, lease, user): yield gate
     except BudgetError as error:
         failure = error
         raise
     finally:
-        gate.close(); cap_used.clear(); cap_used.update(gate.state.snapshot())
+        cap_used.clear(); cap_used.update(gate.state.snapshot())
         if gate.state.exhaustion.is_set() and str(failure) != 'cancellation_failed':
             raise BudgetError('model_call_cap') from None

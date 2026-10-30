@@ -17,7 +17,7 @@ def synthetic_maximum(route):
 
 
 @contextmanager
-def synthetic_enforcement(lease, env, cap_used, timeout, cancel=None):
+def synthetic_enforcement(lease, env, cap_used, timeout, cancel=None, *, user=None):
     # Every caller of this helper mocks the CLI or runs a synthetic event emitter.
     yield cancel
 

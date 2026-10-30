@@ -589,7 +589,7 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
 
     def test_three_waits_continue_the_same_writer_or_stress_unit(self):
         for role, key, name, pools, added in (
-                ('writer', 'builder', 'builder-1', ('claude-token', 'claude-factory-token-2'), .1232),
+                ('writer', 'builder', 'builder-1', ('claude-token', 'claude-factory-token-2'), .056),
                 ('stress_tester', 'attacker', 'attacker-1', ('opencode-go-key', 'opencode-go-key-2', 'openrouter-key'), 0)):
             with self.subTest(role=role):
                 # Reset only the authored test context and actual source ledger.
@@ -725,7 +725,7 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
             self.assertEqual(budget.settle(record, work=self.work, ledger_path=self.ledger), 0)
             self.assertEqual(self.c.card['terminal_stop'], 'provider_wait')
             self.assertNotIn('failed_gate', self.c.card)
-            expected = .019 if outcome == 'denied' else .02002
+            expected = .019 if outcome == 'denied' else .01956  # Current DeepSeek list quote: .14 input / .42 output.
             self.assertEqual(budget.case_spending(json.loads(self.ledger.read_text()))['total_spent_usd'], round(self.baseline + expected, 9))
         else:
             self.assertEqual(outcome, 'done')
