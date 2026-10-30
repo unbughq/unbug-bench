@@ -1249,9 +1249,20 @@ exam_responder.docker_owner_server already does. `enforce` gains only optional
 nor revocation uses run.sh or any cancel-gated callback. No user means no firewall calls.
 Resolve the user with pwd.getpwnam; validate the existing chain via successful
 rule insertion rather than creating a missing wall. Use sudo iptables -w 5
-with argument arrays, no shell. Setup failure closes the gate and refuses
-subprocess launch as a usage-monitor infrastructure error; D's existing
-uninvoked release applies. No firewall command contains a provider token.
+with argument arrays, no shell. Cleanup ownership begins **before attempting
+insertion**. Record attempted=True before subprocess.run; confirmed=True only
+after exit 0. A rejected or uncertain insertion refuses CLI launch and enters
+the same finally cleanup path. Always attempt exact-rule deletion after any
+insertion attempt, including a raised timeout or other exception.
+
+For simplicity, every unconfirmed insertion remains unresolved even if a
+subsequent delete reports success: a successful delete alone cannot exclude a
+late insertion by a surviving command. Retain the bound server socket in
+_RETAINED, close serving/state, snapshot cap_used, and raise cancellation_failed.
+Only a confirmed insertion followed by confirmed deletion releases the socket.
+Failures before any insertion attempt (e.g. missing Unix user) can safely close
+the socket. The CLI never starts on any setup failure; D's existing uninvoked
+release applies. No firewall command contains a provider token.
 
 The exception surrounds run_budgeted's lifetime. Cleanup never depends on
 the CLI already being dead: process-group cancellation can leave descendants,
@@ -1262,8 +1273,8 @@ Specify Gate.close(release_socket=True): state.close(), server.shutdown(),
 then server_close() only if release_socket; join the serving thread in both
 paths. If release_socket is false, append the server to module-level _RETAINED
 so garbage collection cannot close its bound socket. In enforce's finally:
-first run exact-rule revocation (independent of cancel), then close using the
-revocation-success flag, always snapshot cap_used, and on revocation failure
+first run exact-rule revocation (independent of cancel), then close using
+release_socket=(insertion_confirmed and revocation_confirmed), always snapshot cap_used, and on revocation failure
 raise BudgetError('cancellation_failed'). That error overrides the in-flight
 exception and model_call_cap. No new invocation is allowed to continue as if
 cleanup succeeded. Test a second bind gets EADDRINUSE while retained.
@@ -1282,7 +1293,11 @@ Unit tests verify the exact insertion/deletion argv, numeric UID restriction,
 unique comments, no firewall calls for user=None, setup failure before launch,
 exception/cancellation cleanup (set the actual cancel event before exit and
 assert direct delete still executes), concurrent independent rules and
-fail-closed revocation failure with a still-bound port. These tests do not replace the live wall proof.
+fail-closed revocation failure with a still-bound port. Simulate an insert
+that records the rule then raises TimeoutExpired: no CLI launch, cleanup is
+attempted, cancellation_failed wins, cap_used is snapshotted, and a fresh bind
+gets EADDRINUSE even if the simulated delete succeeds. This pins uncertainty
+retention rather than treating subprocess failure as proof no rule exists. These tests do not replace the live wall proof.
 
 Commit `tests/factory/live/gate_wall_probe.py`, importing the real
 run.pilot_wall and gate. Copy the repository's actual public
