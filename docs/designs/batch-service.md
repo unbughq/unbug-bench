@@ -917,8 +917,10 @@ this increment never loads that draft module in production.
 
 Use a pure projection wrapper and queue transition for authored contract tests;
 they cannot issue money or launch. Persist D's returned facts bound to the entry
-key. Queue a child iff exhaustion AND actual_model_work are true and a present
-pending projection does not say replacement_eligible:false. Queue an ordinary
+key. Parent ruling 2026-10-30: first derivation requires a present pending
+projection with replacement_eligible:true, with both predicates true as the
+contract consistency check. A None projection never creates a child, whatever
+the predicates say; B does not copy D's stop predicates. Queue an ordinary
 same-owner resume when pending_projection is present or the exhausted total is
 unknown as below. This combines D's API
 answers; B never inspects events/tokens/receipts to recreate eligibility. Preserve
