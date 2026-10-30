@@ -806,3 +806,42 @@ Until that and other-role enforcement qualify, no production readiness or Murphy
 row closure is claimed. Rows2,3,4,20,47,48 remain OPEN. One implementation session,
 offline suite and Linux probes; no cloud/model spend. Reuse stdlib/existing ledger;
 no general proxy/framework, transport replacement or security architecture.
+
+
+### Integration rebase onto D2/D3a and B journal/status (2026-10-30)
+
+Rebase base: factory-simplify `cfe616f`. Preserve D's serialized dispatch,
+per-lease reservations, invocation/operation IDs, parent-call binding, process
+start callback, complete/reconcile settlement and lease-aware budget boundary.
+The only new D admission wiring replaces its empty ENFORCED_ROUTE_BOUNDS lookup
+in `model_runtime.invocation_maximum` with `valid_lease` validation and exactly
+`Decimal(str(lease.max_usd))`, rounded upward to nine places. Both pending writer/
+stress calls and ordinary wrapper calls already use this helper. D's separate
+pricing helper and pinned OpenCode prices remain intact; they grant no admission.
+
+The runtime validates A's full Lease before reserving, preserves D's zero-cost
+release of an uninvoked rejected supplied Lease, and combines D's run_budgeted
+invocation_id/lease_id/job_authority/on_started/concurrent arguments with A's
+real enforcement gate and invocation-local cancellation. Reservation precedes
+one-use start (needed for D's pre-start reconciliation); start still precedes
+callbacks and CLI setup. Failed start/renewal/setup settles known zero if no
+process began; an interrupted process retains A's cap receipt and D's conservative
+maximum settlement. No D accounting or C invalid-run classification is changed.
+Historical compatibility tests still accept only C's exact registered target
+and unconditionally reject newer live source/panel identities. Worker manifest
+expectations are the union of A, B and D modules.
+
+Tests adapt D's synthetic route bounds to the Lease policy seam, retain all D
+control-flow assertions, and use the real router policy, gate, runtime and D
+accountant with only the process boundary mocked to verify $50 reservation,
+invocation IDs, known-zero setup failure, unknown cap-stop settlement and replay.
+Tampered/expired leases refuse; unsupported routes still wait unbounded_route.
+The required full offline suite and a fresh goldfish review cover this integration.
+The old Linux probe artifact remains evidence for its recorded source hashes;
+it is not relabelled as a native re-run of this new runtime integration.
+
+D can now consume the four validated Lease maxima fields for bounded Claude
+admission. The previously documented $50 ordinary-threshold/commitment limits,
+unbounded non-Claude roles, drained rollout and B practice qualification remain;
+this wiring does not qualify rotation packages or authorize any launch. No Murphy
+row closes, no authority increases and no pricing/profile change is introduced.

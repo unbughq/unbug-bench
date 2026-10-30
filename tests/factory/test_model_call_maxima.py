@@ -246,7 +246,7 @@ class MaximaTests(unittest.TestCase):
 
     def test_real_route_maximum_fits_D_decimal_authority_and_unknown_settlement_once(self):
         # Synthetic B binding/interrupt, actual A policy and D reader/accountant.
-        # B's installer and D's eventual dispatch wiring remain separate owners.
+        # B's installer is separate; D admission uses the validated Lease maximum.
         store=router.Store(self.root/'router.sqlite')
         deadline=float(int(time.time())+3600)
         for suffix,limit in (('short','49.999999999'),('fit','50.000000000')):
@@ -265,11 +265,11 @@ class MaximaTests(unittest.TestCase):
             authority=job_authority.for_case(c);operation=str(uuid.uuid4())
             if suffix=='short':
                 with self.assertRaisesRegex(budget.BudgetError,'^money_wait$'):
-                    budget.reserve_invocation(path,actual,actual.max_usd,authority,
+                    budget.reserve_invocation(path,actual,model_runtime.invocation_maximum(c,actual),authority,
                         operation_id=operation,call_name='builder-1')
                 self.assertEqual(path.read_bytes(),before)
             else:
-                row=budget.reserve_invocation(path,actual,actual.max_usd,authority,
+                row=budget.reserve_invocation(path,actual,model_runtime.invocation_maximum(c,actual),authority,
                     operation_id=operation,call_name='builder-1')
                 self.assertEqual(row['maximum_usd'],'50.000000000')
                 self.assertEqual(budget.outstanding_reservations(json.loads(path.read_text())),Decimal(50))
@@ -288,6 +288,70 @@ class MaximaTests(unittest.TestCase):
                 c.job_money['revision']=2
                 with self.assertRaisesRegex(budget.BudgetError,'^money_wait$'):job_authority.for_case(c)
             store.rpc('finish',dict(lease_id=actual.lease_id,outcome='denied',receipt=None))
+
+    def test_factory_dispatch_preserves_lease_maximum_gate_and_invocation_identity(self):
+        # Actual router policy, runtime gate and D accountant; fake process boundary.
+        # Neither a CLI nor an upstream connection is launched.
+        store = router.Store(self.root / 'router.sqlite')
+        secrets = self.root / 'secrets'; secrets.mkdir()
+        (secrets / 'claude-token').write_text('synthetic-only')
+        runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(),
+            lambda path, **kw: shutil.rmtree(path), Mock())
+        for outcome in ('done', 'interrupted', 'denied'):
+            with self.subTest(outcome=outcome):
+                work = self.root / outcome; work.mkdir(); (work / 'transcripts').mkdir()
+                path = work / 'ledger.json'
+                path.write_text(json.dumps({'cost': 0, 'calls': 0, 'events': []}))
+                deadline = float(int(time.time()) + 3600)
+                channel = dict(schema=1, batch='synthetic', job=outcome, case='case-'+outcome,
+                    reservation_id=str(uuid.uuid4()), revision=1, source_generation=None,
+                    committed_total_usd='50.000000000', batch_deadline=router.utc(deadline))
+                c = SimpleNamespace(work=work, case=work, ledger=path,
+                    args=run.argument_parser().parse_args(['--source', 'hunt']),
+                    card={'roles': {'writer': {'model': GATED_CLAUDE}}},
+                    case_id=channel['case'], batch_id=channel['batch'], job_id=outcome,
+                    batch_deadline=deadline, source_generation=None,
+                    job_money=copy.deepcopy(channel), authenticated_job_config={'job_money': copy.deepcopy(channel)},
+                    router_accounts=('claude-token',))
+                def process(cmd, cwd, env, transcript, ledger, timeout, **kw):
+                    row = json.loads(path.read_text())['invocation_reservations'][kw['lease_id']]
+                    self.assertEqual(row['maximum_usd'], '50.000000000')
+                    self.assertEqual(kw['invocation_id'], row['invocation_id'])
+                    self.assertEqual(kw['job_authority'].committed_total_usd, Decimal(50))
+                    self.assertIsNone(kw['max_cost']); self.assertTrue(kw['concurrent'])
+                    self.assertTrue(env['ANTHROPIC_BASE_URL'].startswith('http://127.0.0.1:'))
+                    self.assertIsNotNone(kw['cancel'])
+                    if outcome == 'denied': raise OSError('synthetic setup failure')
+                    kw['on_started']()
+                    if outcome == 'interrupted': raise budget.BudgetError('model_call_cap')
+                    return SimpleNamespace(returncode=0)
+                with patch.object(router, '_rpc', store.rpc), patch.object(router, 'SECRETS', secrets), \
+                     patch.object(model_runtime, 'pinned_cli', return_value='synthetic-no-cli'), \
+                     patch.object(model_runtime, 'run_budgeted', side_effect=process) as called:
+                    if outcome == 'done':
+                        self.assertEqual(runtime.call(c, [GATED_CLAUDE], 'synthetic', work, 'builder-1'), 0)
+                    else:
+                        label = 'model_call_cap' if outcome == 'interrupted' else 'usage_monitor:OSError'
+                        with self.assertRaisesRegex(budget.BudgetError, '^'+label+'$'):
+                            runtime.call(c, [GATED_CLAUDE], 'synthetic', work, 'builder-1')
+                    called.assert_called_once()
+                ledger = json.loads(path.read_text())
+                row, = ledger['invocation_reservations'].values()
+                self.assertEqual(row['state'], 'pending' if outcome == 'interrupted' else 'settled')
+                receipt = json.loads((work / 'usage-receipts' / (row['lease_id']+'.json')).read_text())
+                self.assertEqual(receipt['outcome'], outcome)
+                self.assertEqual(receipt['max_usd'], 50.0)
+                self.assertEqual(receipt['final_usage_known'], outcome != 'interrupted')
+                budget.reconcile_reservations(work, path)
+                row = json.loads(path.read_text())['invocation_reservations'][row['lease_id']]
+                self.assertEqual(Decimal(row['estimated_gap_usd']), 50 if outcome == 'interrupted' else 0)
+                before = path.read_bytes(); budget.reconcile_reservations(work, path)
+                self.assertEqual(path.read_bytes(), before)
+                self.assertEqual(store.rpc('status', {})['leases'], [])
+        for changed in ({'max_usd': 1.0}, {'max_input_tokens': 1}, {'max_output_tokens': 1},
+                        {'price_source': 'caller'}, {'expires_at': 1}, {'account': 'claude-token-2'}):
+            with self.subTest(changed=changed), self.assertRaisesRegex(budget.BudgetError, '^route_maximum_unknown$'):
+                model_runtime.invocation_maximum(c, replace(lease(), **changed))
 
     def test_cap_stop_is_not_preflight_failure_optional_skip_or_scientific_try(self):
         c=SimpleNamespace(case=self.root,card={},args=SimpleNamespace(bench_workers=1),

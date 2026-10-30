@@ -34,9 +34,6 @@ CODEX_OFF = ["multi_agent", "apps", "plugins", "remote_plugin", "browser_use", "
              "in_app_browser", "computer_use", "image_generation"]
 INTERRUPTED_LOCK = threading.Lock()
 DISPATCH_INIT_LOCK = threading.Lock()
-# Empty until E/A qualify actual CLI request/token/tool-fee enforcement. Prices
-# or historical receipts alone cannot populate this inventory.
-ENFORCED_ROUTE_BOUNDS = {}
 
 
 def factory_job(c):
@@ -72,10 +69,13 @@ def dispatch(c, name):
 
 
 def invocation_maximum(c, lease):
-    from token_prices import invocation_maximum as maximum
-    value = maximum(lease.route, ENFORCED_ROUTE_BOUNDS.get(lease.route))
-    if value is None: raise BudgetError('route_maximum_unknown')
-    return value
+    from decimal import Decimal, ROUND_CEILING
+    if not model_router.valid_lease(lease, getattr(lease, 'route', None),
+            getattr(c, 'router_accounts', model_router.ACCOUNTS)):
+        raise BudgetError('route_maximum_unknown')
+    return Decimal(str(lease.max_usd)).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
+
+
 def attacker_timeout(c):
     # Stress review reads the case's files. Keep a twenty-minute exploration
     # base, add a minute per input file, bounded by forty minutes/operator cap.
@@ -591,7 +591,7 @@ class ModelRuntime:
                                       on_started=lambda: c.model_process_state.update(started=True))
             with model_call_gate.enforce(lease, env, c.model_cap_used, limit, getattr(c, 'role_cancel', None)) as gate:
                 result = run_budgeted(cmd, None if user else cwd, env, transcript, c.ledger, limit,
-                                      max_cost=None if factory_job(c) else c.args.max_cost,
+                                  max_cost=None if factory_job(c) else c.args.max_cost,
                                   max_calls=c.args.max_role_calls, max_total_calls=c.args.max_total_calls, driver=driver,
                                   progress_timeout=c.args.no_progress_minutes * 60, max_zero_tokens=c.args.max_zero_tokens,
                                   configured_model=model, resume=(bool(getattr(c.args, "resume", None)) and not getattr(c, "budget_resumed", False))

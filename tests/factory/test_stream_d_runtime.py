@@ -34,7 +34,7 @@ import job_authority
 import model_router
 import model_runtime
 import run
-from router_test_support import offline_router
+from router_test_support import offline_router, synthetic_maximum
 from test_stream_d import cards
 
 
@@ -74,8 +74,12 @@ class RuntimeTests(unittest.TestCase):
         self.baseline = budget.case_spending(self.source['continuation_budget'])['total_spent_usd']
         self.patch(model_router, 'metadata', return_value=(c.batch_id, c.job_id, model_router.epoch(c.batch_deadline)))
         bounds = {'requests': 1, 'input_tokens': 1000, 'output_tokens': 1000, 'tool_fees_usd': '0'}
-        configured = {model: bounds for model in (writer, stress, reviewer, strong)}
-        self.bounds = patch.dict(model_runtime.ENFORCED_ROUTE_BOUNDS, configured); self.bounds.start(); self.addCleanup(self.bounds.stop)
+        from token_prices import invocation_maximum
+        configured = {model: {**synthetic_maximum(model), 'max_usd': float(invocation_maximum(model, bounds))}
+                      for model in (writer, stress, reviewer, strong)}
+        # Accounting/control-flow only: these synthetic bounds do not qualify a route.
+        self.bounds = patch.object(model_router, 'route_maximum', configured.get)
+        self.bounds.start(); self.addCleanup(self.bounds.stop)
 
     def patch(self, target, name, *args, **kwargs):
         patched = patch.object(target, name, *args, **kwargs)
@@ -110,7 +114,8 @@ class RuntimeTests(unittest.TestCase):
     def test_stream_accountant_links_unknown_usage_and_settles_once_above_five_dollars(self):
         self.assertGreater(self.source['continuation_budget']['cost'], 5)
         lease = model_router.Lease(str(uuid.uuid4()), self.c.models['builder'][0], 'claude-token', 1,
-                                   'subscription', 'anthropic', 'claude-token')
+                                   'subscription', 'anthropic', 'claude-token',
+                                   **synthetic_maximum(self.c.models['builder'][0]))
         authority = job_authority.for_case(self.c)
         row = budget.reserve_invocation(self.ledger, lease, 100, authority,
             operation_id=str(uuid.uuid4()), call_name='builder-stream-test')
@@ -140,7 +145,7 @@ class RuntimeTests(unittest.TestCase):
                 original = copy.deepcopy(card['continuation_budget'])
                 self.ledger.write_text(json.dumps(original))
                 lease = model_router.Lease(uuid.uuid4().hex, self.c.models['attacker'][0], 'free', 1,
-                                           'free', 'minimax', 'free')
+                                           'free', 'minimax', 'free', **synthetic_maximum(self.c.models['attacker'][0]))
                 authority = job_authority.for_case(self.c)
                 row = budget.reserve_invocation(self.ledger, lease, 1, authority,
                     operation_id=str(uuid.uuid4()), call_name='builder-telemetry')
@@ -198,11 +203,12 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn('invocation_reservations', json.loads(self.ledger.read_text()))
 
     def test_unknown_route_bounds_release_lease_without_model_work_or_unit(self):
-        self.bounds.stop()
+        self.patch(model_router, 'route_maximum', return_value=None)
         invoke = self.patch(model_runtime.ModelRuntime, '_invoke', side_effect=AssertionError('must not invoke'))
-        with self.assertRaisesRegex(budget.BudgetError, '^route_maximum_unknown$'):
+        with self.assertRaises(model_router.ProviderWait) as error:
             run.pending_call(self.c, self.c.models['builder'], 'must refuse', self.case, 'builder-1', self.receipt(),
                              role='writer', on_complete=lambda: self.fail('must not complete'))
+        self.assertEqual(error.exception.wait.reason, 'unbounded_route')
         self.assertEqual(self.c.card['builder_rounds'], 0)
         self.assertFalse((self.work / 'attack-state.json').exists())
         self.assertNotIn('invocation_reservations', json.loads(self.ledger.read_text()))
@@ -268,7 +274,8 @@ class RuntimeTests(unittest.TestCase):
 
     def test_batch_deadline_interrupt_is_unscored_retirement_not_contestant_timeout(self):
         lease = model_router.Lease(str(uuid.uuid4()), self.c.models['builder'][0], 'claude-token', 1,
-                                   'subscription', 'anthropic', 'claude-token')
+                                   'subscription', 'anthropic', 'claude-token',
+                                   **synthetic_maximum(self.c.models['builder'][0]))
         authority = replace(job_authority.for_case(self.c), batch_deadline=(
             datetime.now(timezone.utc) + timedelta(seconds=.2)).isoformat())
         row = budget.reserve_invocation(self.ledger, lease, 1, authority,
