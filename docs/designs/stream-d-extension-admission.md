@@ -15,13 +15,25 @@ B1's active-resume portion, B2 and extension M5/M6 remain open in
 `stream-d-worker-dispatch.md`. The diagnosis dispatcher still stops a completed
 close-to-passing result at `extension_comparison_pending`. B's existing
 `DIAGNOSIS_ENABLED` stays false. No new launch path, money channel, configuration
-field or runtime flag is introduced.
+field or runtime flag is introduced. The planned work is one implementation
+increment followed by its full suite and fresh diff review.
 
 The snapshot supplied here is code-owned data. The seam verifies its shape,
 current case bytes, current evidence bytes and eligibility. It cannot certify
 that authored stage receipts are real scientific verdicts. Before wiring, the
 separate stage producer must establish that property; no model answer may be
 passed straight to this interface. Tests explicitly retain that boundary.
+Eligibility trusts `diagnosis_state` from B's authenticated restored card, or
+the current `diagnosis_dispatch.apply` publication after verified replay. This
+seam does not separately read `decision.json`; future callers must preserve that
+producer boundary. Adding another producer of completed close-to-passing state
+would therefore change the ordinary-budget bypass trust boundary.
+
+The future stage producer must select scientific evidence, excluding admission
+and accounting files such as `attack-state.json`, `extension-history.json` and
+the live ledger. Those files can change during reservation/admission. This seam
+retains the existing snapshot inventory rules; it does not broaden their meaning
+into scientific authority or treat every work file as eligible stage evidence.
 
 ## Interface and ordering
 
@@ -29,11 +41,17 @@ Add optional keyword `extension_proposal=None` to `run.pending_call`. Existing
 callers pass nothing and retain ordinary admission. No production caller is
 added in this increment. A non-null value is permitted only for `role='writer'`,
 with receipt actor `writer`, receipt round equal to the proposal round and name
-exactly `builder-<round>`. Rounds must be positive strict integers. A receipt
-marked `completed` or `validated` refuses this first-admission path. A preexisting
-active extension also refuses; continuation must use the later reviewed path.
+exactly `builder-<round>`. Rounds must be positive strict integers. A first-admission
+receipt must have neither an `operation_id` key nor a `phase` key, even with a
+null value. In particular, pending, completed and validated receipts refuse as
+`extension_reservation_mismatch` before a lease. The seam always generates a
+fresh writer operation UUID; it never adopts an earlier ordinary writer's
+operation or spending. A preexisting active extension also refuses; continuation
+must use the later reviewed path.
 
-Add `extensions.verify_proposal(c, proposal)` as a read-only eligibility check.
+Add `extensions.verify_proposal(c, proposal)` as an eligibility check that writes
+no files. The existing `read(c)` may normalize `c.card['extension_history']` to
+the verified public projection, as it already does for `propose` and `admit`.
 It requires the exact proposal key set returned by `propose`, strict integer
 extension ID and round, and exact equality with a fresh
 `extensions.propose(c, proposal['entry'])`. This invokes the existing independent
@@ -47,10 +65,15 @@ job-authority and history checks. In addition:
 
 Malformed proposals become `BudgetError('extension_reservation_mismatch')`;
 changed case/evidence bytes become `extension_snapshot_changed`. Existing
-eligibility and authority errors retain their labels. Missing evidence is
-changed evidence. Non-missing filesystem failures propagate as infrastructure,
-as in the passed diagnosis correction; they are not converted to sticky history
-or input errors. This helper writes no snapshot, history or receipt.
+eligibility and authority errors retain their labels. For evidence reads,
+`FileNotFoundError`, the `_input_bytes` unsafe-path/nonregular `ValueError`
+cases and `OSError` with `errno.ELOOP` all become `extension_snapshot_changed`.
+ELOOP covers a leaf symlink appearing between the ancestor check and no-follow
+open. Other filesystem failures, including permission denial and EIO, propagate
+as infrastructure, as in the passed diagnosis correction; they are not converted
+to sticky history or input errors. Keep the proposal-shape validation separate
+from the evidence-read handler so a read's `ValueError` cannot be relabelled as
+malformed proposal. This helper writes no snapshot, history or receipt.
 
 All checks and admission stay under the existing `model_runtime.dispatch` lock.
 The concrete order in `pending_call` is:
@@ -59,8 +82,10 @@ The concrete order in `pending_call` is:
 2. If a proposal is supplied, check the caller role/name/receipt contract and
    `verify_proposal` before requesting a lease. Keep a deep local copy, so a
    callback cannot mutate the caller's proposal into different admitted data.
-3. Request the existing writer lease. Scope the existing operation UUID exactly
-   as today. Calculate the route maximum.
+3. Request the existing writer lease. Generate a fresh operation UUID for this
+   first-admission branch, and scope/restore it with the same existing `finally`
+   used by ordinary calls. Ordinary calls retain their existing receipt-based
+   operation reuse. Calculate the route maximum.
 4. For an ordinary writer, always check the ordinary budget. Ignore any
    `active_extension_id` attribute. For an extension writer, re-run
    `verify_proposal` on the local copy immediately before reservation, because
@@ -105,6 +130,10 @@ continuation path must recover the stored round/operation and repair a lagging
 attack receipt, including the history-before-receipt crash window. This increment
 does not silently retry first admission on that state.
 
+A handled failure after history publication releases the demonstrably uninvoked
+reservation to `state='settled'` with zero estimated gap; it does not leave a
+pending reservation just because the history exists. That settled row still
+binds the retained operation, and future continuation may reserve a new lease.
 A failure after the attack receipt or callback likewise keeps the admitted ID.
 Infrastructure failures propagate to existing runner handling. No new stop or
 automatic reset is added. Fallback retries within a successfully entered
@@ -127,8 +156,13 @@ only the CLI/transport is substituted. No live qualification is claimed.
   immutable entry and one extension ID. Assert history and attack receipt are
   present before the callback and CLI, and contain the same round/operation/ID.
 - Wrong role, name, round, extra proposal keys, wrong exhaustion, changed source
-  generation, completed receipt, active history, changed case, missing/changed
-  evidence and symlinked evidence refuse before any new lease or reservation.
+  generation, active history, changed case and missing/changed evidence refuse
+  before any new lease or reservation. Receipts containing `operation_id` or
+  `phase` refuse `extension_reservation_mismatch`, including a pending ordinary
+  writer operation already bound to a settled reservation and null-valued keys.
+  Symlinked/nonregular evidence and an injected no-follow-open ELOOP refuse
+  specifically `extension_snapshot_changed`. Inject ELOOP only at the read
+  boundary, while exercising the real reader for actual symlink/FIFO controls.
   Assert unchanged case/evidence/history/round/attack receipt and zero callbacks.
 - Mutate the case, evidence or diagnosis during a substituted `await_lease` return.
   The second verification refuses before reservation and releases that lease.
@@ -142,7 +176,9 @@ only the CLI/transport is substituted. No live qualification is claimed.
   ledger image at that boundary). Run the existing reconciler. Assert no history,
   no writer, and conservative accounting, not zero cost.
 - Interrupt history publication and attack-receipt publication independently.
-  Assert no writer/callback, at most one retained ID and no ordinal reuse. A fresh
+  Assert no writer/callback, at most one retained ID and no ordinal reuse. After
+  handled publication failure, assert the uninvoked reservation is settled with
+  zero estimated gap. A fresh
   first-admission attempt refuses the active row. The tests explicitly do not
   claim continuation recovery.
 - Force one admitted provider fallback through the existing runtime harness.
@@ -160,4 +196,7 @@ increment passing. No Murphy row closes: the stage receipts are authored and the
 extension dispatcher, real Unix isolation, live provider and B runtime remain
 unqualified. This deletes the attribute-based bypass and adds no module or
 dependency. Cost is two bounded reads of the current case/evidence per first
-admission, plus the existing immutable copy after reservation.
+admission, plus the existing immutable copy after reservation. Each `propose`
+and `admit` also verifies retained history snapshots: at most five prior rows,
+plus their retained comparison pairs. These are existing verification reads,
+not a new history cache or trust shortcut.

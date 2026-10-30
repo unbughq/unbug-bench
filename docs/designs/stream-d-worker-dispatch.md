@@ -428,7 +428,9 @@ a fresh design review passes their concrete implementation and tests.
 
 The next bounded proposal is `stream-d-extension-admission.md`: an unwired
 first-writer admission seam. It does not close active-extension continuation,
-scientific receipts or comparison reconstruction, and is awaiting design review.
+scientific receipts or comparison reconstruction. Design review 1 passed the
+unwired boundary; its two majors and five nits are addressed in a focused
+amendment awaiting review before implementation.
 
 For B1, replace the implicit `active_extension_id` budget-bypass test with an
 explicit `pending_call(..., extension_proposal=...)` path. Under the existing
