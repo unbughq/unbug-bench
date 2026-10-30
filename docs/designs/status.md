@@ -127,7 +127,8 @@ Status does not write them or enable their production.
 
 Reuse batch_service._load and resolve_job for the read adapter, after explicitly
 checking journal.json exists. Open the existing batch lock read-only with shared
-flock; never call batch_money.locked, which creates directories/files. Every
+nonblocking flock; a busy or missing lock means unreadable, never an indefinite
+status hang. Never call batch_money.locked, which creates directories/files. Every
 accepted core entry is stopped using its own snapshot. A root or recorded derived
 job without an entry is not collected, gets that count bucket, and fires neither
 worker gone nor launch stuck. Missing journal is unreadable for the batch.

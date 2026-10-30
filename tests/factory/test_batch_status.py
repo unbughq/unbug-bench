@@ -6,11 +6,14 @@ case/release metadata in scratch space; they do not qualify a real batch.
 from contextlib import redirect_stdout
 from copy import deepcopy
 import gzip
+import fcntl
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -209,6 +212,23 @@ class ReadTests(unittest.TestCase):
             self.assertEqual(status.main(['status', '--control-home', str(absent)]), 1)
         self.assertIn('Batch unreadable', out.getvalue())
         self.assertFalse(absent.exists())
+
+    def test_busy_writer_lock_refuses_immediately(self):
+        with (self.directory / 'lock').open('rb') as writer:
+            fcntl.flock(writer, fcntl.LOCK_EX)
+            with self.assertRaises(BlockingIOError): self.read()
+
+    def test_real_entrypoint_does_not_write_import_bytecode(self):
+        command = self.root / 'bin/unbug'
+        command.parent.mkdir()
+        command.write_bytes((ROOT / 'bin/unbug').read_bytes())
+        command.chmod(0o755)
+        # Trivial imported module isolates the entrypoint's bytecode policy.
+        (self.root / 'factory/batch_status.py').write_text('def main(): return 0\n')
+        env = {k: v for k, v in os.environ.items() if k not in (
+            'PYTHONDONTWRITEBYTECODE', 'PYTHONPYCACHEPREFIX')}
+        subprocess.run([str(command), 'status'], check=True, env=env)
+        self.assertFalse((self.root / 'factory/__pycache__').exists())
 
     def test_authored_binding_changes_refuse_even_with_valid_file_hashes(self):
         entry = next(iter(self.journal['entries'].values()))
