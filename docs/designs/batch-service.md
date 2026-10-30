@@ -769,7 +769,13 @@ carry kind `replacement`, `diagnosis` or `extension`, original money-owner job,
 source generation and a stable request ID; persist queue sequence and deduplicate
 before launch. Replacement is first, diagnosis next, extension last, FIFO within
 each class. Blocked requests retain their position; capacity, deadline and money
-admission still apply. Ordinary work follows these three classes.
+admission still apply. Ordinary work follows these three classes. A covered
+same-owner/same-revision settlement resume per interfaces§8 runs ahead of all
+three classes. For an exhausted owner this is settlement-only: no model
+invocation, then checkpoint and collect through the same launcher. A request
+blocked on money or an unknown total retains its FIFO position but does not
+block later eligible requests. Rebind must start from the current persisted
+source and advance along acknowledged collection lineage; stale A→B→A refuses.
 
 For a rounds/money exhaustion projection, enqueue at most one replacement for
 the original case immediately, without waiting for diagnosis. Eligibility needs
@@ -791,3 +797,6 @@ label or supplies an alternate ledger. Tests must prove priority/FIFO, one
 replacement despite replay, zero invocations→no replacement, original owner for
 diagnosis/extension, and the unknown-total block. This is planned2b scope, not
 authority granted by increment2.
+Also test that an exhausted unknown-total owner gets a settlement-only resume
+before its blocked replacement, that settlement makes the request eligible,
+and that blocked FIFO entries do not prevent later eligible work.

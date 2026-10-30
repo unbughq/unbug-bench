@@ -352,8 +352,15 @@ usual. The holder may then rebind `source_generation` to that collected SHA at
 the **same** monetary revision. This is an authenticated source transition, not
 a grant: batch/job/case/reservation/deadline stay fixed and commitment cannot
 increase. Both the RAM channel and the checkpointed copy advance to the new
-source before D's exact-equality check. D runs `settle()` first on that resume,
-before another model invocation. Until settlement produces a known total, new
+source before D's exact-equality check. Rebind starts from the current persisted
+source and advances along acknowledged collection lineage; replay of an older
+source (including A→B→A) refuses. D runs `settle()` first on that resume,
+before another model invocation. Covered same-owner/same-revision settlement
+resumes have priority ahead of replacement, diagnosis and extension. For a
+rounds/money-exhausted owner this is settlement-only: no model invocation, then
+checkpoint and collect through the same launcher. A request blocked on money or
+an unknown total retains its FIFO position but never blocks later eligible
+requests, including the settlement that can unblock it. Until settlement produces a known total, new
 admission, increased commitment, revision old+1, replacement, diagnosis and
 extension all remain blocked. Other owners may use only their already-available
 batch headroom; this owner's full held commitment is never transferred.
