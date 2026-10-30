@@ -24,6 +24,9 @@ import time
 ROOT = _BENCH_ROOT
 sys.path.insert(0, str(ROOT / 'factory'))
 from launch_manifest import worker_files
+# Hang guard only, not a deadline under test: phases are event-driven, so a
+# loaded host may legitimately need minutes for one synthetic launch.
+HANG_GUARD_SECONDS = 900
 FAKE = r'''#!/usr/bin/env python3
 import json, os, pathlib, shlex, signal, subprocess, sys, time
 root = pathlib.Path(os.environ["FAKE_STATE"])
@@ -403,9 +406,10 @@ exit "$status"
 '''
             result = subprocess.run(['/bin/sh', '-c', script, 'sh', str(bench),
                                      str(temporary), str(spend)], capture_output=True, text=True,
-                                    timeout=10, env=dict(os.environ, UNBUG_CLOUD='boat',
+                                    timeout=HANG_GUARD_SECONDS, env=dict(os.environ, UNBUG_CLOUD='boat',
                                     BOAT_CMD=str(fake), FAKE_STATE=str(cloud), FAKE_MODE=mode,
-                                    BOAT_DELETION_TIMEOUT_SECONDS='3'))
+                                    # Only the never-completing operation should reach the deadline.
+                                    **({'BOAT_DELETION_TIMEOUT_SECONDS': '3'} if mode == 'deletion-incomplete' else {})))
             evidence = spend.with_suffix('.deletions') / 'vm-1'
             assert not temporary.exists()
             assert (evidence / 'deletion-request.json').exists(), (mode, result.returncode, result.stderr)
@@ -474,7 +478,7 @@ exit "$status"
             # Publish before communicate releases stdin and the stdout prelude.
             (state / 'launcher.pid').write_text(str(proc.pid))
             try:
-                out, err = proc.communicate(IDENTITY, timeout=60)
+                out, err = proc.communicate(IDENTITY, timeout=HANG_GUARD_SECONDS)
             except subprocess.TimeoutExpired:
                 # Never leave a failed synthetic controller running after
                 # its temporary fixture is removed.
