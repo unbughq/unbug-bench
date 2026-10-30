@@ -116,3 +116,10 @@ I worked read-only, so the review file is not saved. The text above is the full 
 ## Elephant resolution
 
 PASS accepted for 7528c22..9111751. No blocking finding rejected. Optional N1–N4 are retained for B's adoption review: normalize non-JSON-record errors, add the probe-only refusal assertions, consolidate the estimate constant, and select one generation per case before batch dry-run. These helpers remain unwired. No Murphy row closes. Full-suite evidence is recorded separately when the pinned 9111751 run completes.
+
+## Full-suite result
+
+`uv run --with numpy --with scipy python -B tests/run.py`: **144 scripts, 0 failed**.
+`/tmp/stream-d-import-suite.log` starts with 91117512f25464dd3e1d7a7373be47112985550d.
+The reviewed implementation and tests stayed unchanged throughout the run; only
+unrelated design/review documents and excluded drafts changed. No row closes.

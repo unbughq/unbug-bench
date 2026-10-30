@@ -337,7 +337,7 @@ rejected, nonempty reason/evidence, verified relative paths and SHA-256 digests:
 ```
 
 For `factory_bug`, replace null with `{component, reproducer,
-affected_operations:[operation_id], fix_required}` (nonempty strings/list).
+affected_operations:[operation_id], fix_required}` (nonempty strings; the operation list may be empty when code proves no eligible charged operation).
 Bind results to the queued checkpoint; stale output cannot authorize newer work.
 Malformed/interrupted diagnosis is infrastructure, not a fourth case outcome;
 retain and repair/retry under the batch bounds. `not_converging` retires.
@@ -380,10 +380,11 @@ the source; attribution still requires actual operational receipts, never a
 model's asserted dollar amount. Preserve additive legacy `infrastructure_kill`
 records, whose charges have no already-booked event IDs.
 
-Infrastructure exhaustion gets no replacement: its pending projection is None,
-including before diagnosis, and `factory_bug_held` also projects None. The
-pending `diagnosis_state` still records a diagnosis request; projection absence
-never authorizes child derivation. The batch fills available slots with ordinary
+Parent clarification, 2026-10-30: infrastructure exhaustion keeps a PRESENT
+pending projection with `replacement_eligible:false` before diagnosis completes.
+B therefore queues its same-owner diagnosis and derives no child. Completed
+factory_bug diagnosis returns None under the existing completed-state rule and
+sets `terminal_stop: factory_bug_held`. No new B fact or component is needed. The batch fills available slots with ordinary
 new cases. Other exhausted cases already covered by the one-child journal do
 not gain another child when a factory bug is diagnosed. At batch bounds,
 unfinished work retires without blocking other cases. Tests cover held-state
@@ -391,6 +392,72 @@ purity/no work, content-free status, same-batch refusal, normal later-release
 resume, three lifetime admissions with replay, no infrastructure replacement,
 and unchanged cumulative spend under waste reclassification. No row closes
 without the required real-artifact qualification.
+
+Implementation decisions for the held lifecycle:
+
+- `factory_bug_held` is exactly the `terminal_stop` literal, with `status: stopped`
+  and no scored case failure. Public `gate_or_stage` is one of the non-sealing
+  `run.GATES` names, `writer`, `stress`, `diagnosis`, or `unknown`. It comes only
+  from code-recorded stage/stop metadata, never the model's `component`.
+- `diagnosis/<finding_id>/finding.json` has exactly `{schema_version:1,
+  finding_id, held_batch_id, held_release_sha256, diagnosis,
+  eligible_operation_ids, failure_receipts}`. `diagnosis` is the validated result
+  schema above. The code supplies the UUID, authenticated current batch/release,
+  sorted operation IDs, and `{path, sha256}` failure-receipt references. It never
+  copies model-supplied authority into these fields. The private finding's
+  canonical digest is `diagnosis_sha256` in waste records.
+- Eligible failed operations are only those linked by code to an execution
+  attempt classified `invalid-infra` at the recorded stage. The code's attempt
+  receipt must list the operation IDs admitted in that attempt and bind their
+  ledger reservations/usage receipts. A model may narrow this set through
+  `affected_operations`, never enlarge it. Mere expenditure, a budget/round
+  stop, provider waiting, cancellation or a substantive gate failure does not
+  establish factory-bug causation. Without that code evidence the eligible set
+  is empty; the diagnosis can still hold a bug, but no historical charge is
+  reclassified. `affected_operations` may therefore be empty. Retry operation
+  IDs qualify only through a code-written link to that eligible failed unit
+  during its admitted resume; they are not free-form model output.
+- A new waste record has exactly `{schema_version:2, kind:"factory_bug", id,
+  finding_id, diagnosis_sha256, resume_id, resume_binding_sha256, operation_ids,
+  event_ids, infrastructure_waste_usd}`. `id` is `factory-bug:<finding_id>`.
+  IDs are sorted unique sets; event IDs are exactly the settled reservation
+  events for the eligible failed/replay operations; the amount is their sum as
+  a nine-place USD string. No record is emitted for an empty set. Extend that
+  same record on later settlement, never append another charge. `resume_id`
+  refers to the durable history below, and `resume_binding_sha256` hashes that
+  exact history entry. V1 records remain decode-only historical evidence;
+  new producers do not fill dummy fix commits or ask for fix credentials.
+- Hold records retain `held_batch_id`. A later resume requires a different
+  authenticated `batch_id` and `batch_release_sha256`, the same case lineage,
+  and a normal verified bind/import that preserves cumulative usage and history.
+  "Same-owner" across batches means the same continuing case, not reuse of the
+  previous batch/job/reservation money owner. B issues the new owner normally.
+  Inclusion in that later batch's approved manifest is the operator's decision
+  that the fix is present. D does not independently attest a code fix. Resuming
+  without the fix still consumes one of the three lifetime admissions.
+- The encrypted `factory-bug-resumes.json` stores an append-only list of exactly
+  `{schema_version:1, resume_id:<uuid4>, finding_id:<uuid4>, case, held_batch_id,
+  batch_id, job_id, reservation_id, source_generation, batch_release_sha256}`.
+  The current binding fields come from B's verified context; source_generation
+  is the input checkpoint, never its containing output checkpoint. Each finding
+  and resume ID occurs once, with at most three entries. A new-schema fresh case
+  creates the empty history once; a restore with missing/malformed history never
+  resets it. Public `factory_bug_resume_count` is derived as its length.
+  Append before any resumed model work. A replay of the same admitted finding
+  retains its entry/ID, including wait/crash continuation, and does not debit
+  another slot. A subsequent held finding has a new exhaustion/finding ID.
+- B currently refuses cross-batch resumable imports. That reviewed B addendum is
+  an explicit prerequisite for the later-batch resume and its integration test.
+  D can ship holding, state validation, attribution restrictions and refusal now;
+  no D flag, public card or retired legacy-import record bypasses B's refusal.
+  The current batch proceeds with ordinary other cases and has no fix dependency.
+
+Required parent-ruling replays: pending known-total infrastructure has a present
+ineligible projection, queues one same-owner diagnosis and derives no child;
+a completed factory_bug diagnosis has `terminal_stop: factory_bug_held`, projects
+None and derives no child. D tests its states/API with the B core where possible;
+B owns the adapter end-to-end test. Resume-count/binding tests remain offline
+until B adopts the cross-batch path. These do not claim rollout qualification.
 
 ## Resume, accounting and checkpoints
 
@@ -967,7 +1034,7 @@ D's public API is `diagnosis.exhaustion(card) -> bool`,
 All three are pure, contain no reference to their own output generation, and
 grant no authority. The pending projection has schema_version=1,
 status="pending", and replacement_eligible=actual_model_work(card) except
-that current infrastructure exhaustion is diagnosis-only and returns None (parent ruling 2026-10-30). B binds
+that current infrastructure exhaustion is diagnosis-only and has replacement_eligible false (parent clarification 2026-10-30). B binds
 it to its collected generation. A denied reservation alone is zero work;
 an actually invoked zero-cash subscription process is work. Private diagnosis
 results, findings, paths, and snapshots never enter that projection.

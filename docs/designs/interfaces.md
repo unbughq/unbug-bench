@@ -703,15 +703,14 @@ terminal_stop, diagnosis_state.stop is the literal infrastructure_exhausted.
   usage event/unknown marker is false. No private file or route-receipt invoked
   flag is consulted; no such flag is required from A.
 - `pending_projection(card) -> dict | None`: None unless exhaustion is true and
-  diagnosis for that exhaustion is still pending, and also None for current
-  infrastructure exhaustion or factory_bug_held (parent ruling 2026-10-30).
-  Other pending exhaustion projects exactly
+  diagnosis for that exhaustion is still pending. Otherwise exactly
   `{"schema_version":1,"status":"pending","replacement_eligible":<bool>}`.
   replacement_eligible = actual_model_work(card) AND the current exhaustion is
   not infrastructure_exhausted. A valid diagnosis_state.stop identifies the
   current exhaustion; legacy cards without it use recovery.infrastructure_exhausted(card).
-  Infrastructure exhaustion requests read-only diagnosis through diagnosis_state,
-  but pending_projection returns None; it does not spawn replacement chains. B derives a child only from a PRESENT pending_projection with
+  Infrastructure exhaustion requests read-only diagnosis with a PRESENT pending
+  projection whose replacement_eligible is false; it does not spawn replacement
+  chains (parent clarification 2026-10-30). B derives a child only from a PRESENT pending_projection with
   replacement_eligible exactly true; None always forbids first derivation.
   exhaustion and actual_model_work are diagnostic helpers, never a fallback
   authorization when the projection is absent. B applies its one-child journal
@@ -738,7 +737,8 @@ ordinary same-owner work, so B needs no extra projection. factory_bug persists i
 private finding and completed state, then stops unscored as factory_bug_held;
 not_converging retires. The content-free public field is exactly
 `factory_bug: {finding_id:<exhaustion UUID4>, gate_or_stage:<code-recorded stage
-or unknown>, summary_class:"factory_bug"}`. Private evidence stays at
+or unknown>, summary_class:"factory_bug"}`. Allowed stage labels are non-sealing
+run.GATES names, writer, stress, diagnosis and unknown; never model prose. Private evidence stays at
 `diagnosis/<finding_id>/finding.json`; public status says needs attention with
 `factory bug: see finding <id>`. No model work follows while held. B adds only
 that status rule, not a maintainer service or fix-delivery contract.
@@ -749,10 +749,19 @@ at most three lifetime resumes, with a durable admission before work and no
 second debit on wait/crash replay. It clears the old infrastructure_gate before
 work. A later exhaustion gets a fresh diagnosis_state.stop; B still enforces
 one child per parent. D uses normal verified release/source authority, never a
-separate fix message. Operational receipts support infrastructure-waste
-reclassification without changing the cumulative total. The retired legacy
+separate fix message. Code-linked invalid-infra attempt receipts bound the eligible waste operations;
+a diagnosis can only narrow that set. V2 waste records and the encrypted lifetime
+factory-bug-resumes.json history follow stream-d's exact held-lifecycle schema.
+Public factory_bug_resume_count is the history length. The same continuing case
+gets a new B money owner across batches, preserving usage/history. The operator's
+later manifest inclusion is the fix decision; D does not attest the code change.
+Cross-batch resumable import remains blocked on B's reviewed addendum.
+Operational receipts support infrastructure-waste reclassification without
+changing the cumulative total. The retired legacy
 import format below grants no such resume. Infrastructure and factory_bug_held
-projections are None; other slots are filled with ordinary new cases.
+completed diagnoses project None. Pending infrastructure remains present and
+ineligible so B queues diagnosis without a child; other slots are filled with
+ordinary new cases.
 
 `terminal_stop: diagnosis_pending` is produced by D's same-owner runner when an
 exhausted unknown-at-launch owner has settled and must exit without a model
