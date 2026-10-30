@@ -56,6 +56,8 @@ def dispatch(c, name):
     if not factory_job(c):
         yield
         return
+    from diagnosis import require_model_work
+    require_model_work(c.card)
     prepare_dispatch(c)
     if getattr(c, '_owner_lock_bypass', False):
         parent = getattr(c, 'parent_call_name', None)

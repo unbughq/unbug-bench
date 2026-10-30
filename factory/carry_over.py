@@ -31,9 +31,9 @@ audit_runtime_preparation delivery_provenance owner_contract archive sha256 r2_o
 statement_sha256 statement_cipher_sha256 durable_checkpoint dry_run_roundtrip wall_minutes
 gate_minutes error checkpoint_error public_progress_error wipe calls_delta cost_delta
 audit_calls_total audit_cost_total continuations continuation_budget cleanup_errors
-legacy_import
+legacy_import diagnosis_state extension_history factory_bug
 """.split())
-DERIVED = frozenset("builder_rounds candidate_attempts repairs case_budget".split())
+DERIVED = frozenset("builder_rounds candidate_attempts repairs case_budget factory_bug_resume_count".split())
 VOLATILE = frozenset("resume bench_workers_effective factory_slots_prepared".split())
 OPERATIONS = {"freshness_repair": 2, "rereview": 2, "round": 8, "repair": 2,
               "prototype": 2, "candidate": 3, "diagnostic": 1}
