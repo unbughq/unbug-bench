@@ -59,6 +59,17 @@ def snapshot():
 class SavedRecoveryTests(unittest.TestCase):
     def test_all_real_cards_preserve_public_decisions_and_accounting(self):
         expected = json.loads((FIXTURES / '20261029-recovery-before.json').read_text())
+        # Stream D's Decimal valuation drops only these three empty legacy
+        # labels. Keep the captured evidence/snapshot unchanged and pin the exact
+        # migration; all totals and every recovery/scientific decision still match.
+        empty_legacy = {
+            'case-20261019T061510Z-6a8a7d.scorecard.json': '3aa4b30d5f43251d1f19d3fa0ad60d0a8aaf2b4271f314bb803ad655e23bdc25',
+            'case-20261020T094950Z-cae763.scorecard.json': '843a6eb5676bade7bfa8a49424b879237a33b5bdf8b11ebded02a46c1a94e4c7',
+            'case-20261020T094956Z-055481.scorecard.json': '65eff8b973c0220a4b69578dbc177c2b68b2c3bb9a8a07d36b414060699236e2'}
+        for row in expected:
+            if row['name'] in empty_legacy:
+                self.assertEqual(row['card_sha256'], empty_legacy[row['name']])
+                self.assertEqual(row['decisions']['spent']['breakdown_by_role'].pop('legacy_unattributed'), 0)
         self.assertEqual(snapshot(), expected)
 
     def test_latest_live_cards_require_a_freshness_ruling(self):

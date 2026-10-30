@@ -738,3 +738,67 @@ Founder still authorizes batch money/deadline and conservative-import policy
 at launch. No founder action is needed for this documentation; a fixed extension
 price would need new package receipts. B/E dependencies are rollout blockers,
 not implementation choices to guess around.
+
+## Incremental implementation obligations (diff review 1)
+
+Increment 1 adds accounting primitives only; it enables no dispatch and closes
+no Murphy row. The initial diff review is recorded verbatim in
+`docs/reviews/stream-d-diff-1.md`. Before enabling the runtime, increment 2 must:
+
+- Pass each reservation's invocation_id through run_budgeted/_run_budgeted to
+  incremental events and unpriced_invocations, so settle removes only the
+  matching unknown invocation. Cover the real streaming-accountant path.
+- Release an admitted but never-invoked lease at known $0, and conservatively
+  settle a crashed admitted reservation with no receipt. A provider denial
+  before any lease still creates nothing. Preserve operation IDs across waits.
+- Use the concurrent streaming accountant (short ledger transactions) for
+  new-schema jobs while the case RLock serializes actual model dispatch. Never
+  hold the ledger's serial session lock while an independently reserved G10
+  owner call can be nested. Root concurrent_roles/scientific settings stay pinned.
+- Obtain the cumulative limit only from JobAuthority, never card/argv. The
+  reserve_invocation API now requires that object. The raw numeric limit is no
+  longer an accepted argument.
+- B must install job_money from the checkpointed channel, and install
+  authenticated_job_config['job_money'] from its current holder-delivered frozen
+  launch configuration. It must independently install batch_id, job_id,
+  batch_deadline and source_generation from the verified launch/restore binding.
+  Do not populate both copies from restored files. Until B supplies this installer,
+  for_case fails closed. No delivery filename/environment convention is invented
+  by D. Deadlines compare UTC instants, as A's metadata API permits.
+- Authenticate the diagnosis and reviewed qualified-fix attribution before
+  reclassify_factory_bug. This accounting helper validates shape, settled sums
+  and idempotence; a hex digest's shape alone never authenticates a reviewed fix.
+  Initial attribution waits until all named operation reservations settle. A
+  later final receipt extends the same waste record by its unique event IDs;
+  it never creates a second record or changes cumulative batch spend.
+
+The parent adopted the no-fixed-amount amendment in ENGINEERING §3 at a3bb9dc.
+Dispatch still requires both B's qualified channel and E/A's enforced route maxima.
+
+Money precision for the additive accounting helpers: a single Decimal valuation
+preserves provider precision through summation, including derived legacy Codex
+prices. Ledger settlement adds raw event amounts as the streaming accountant
+does. Role rounding never feeds the cumulative total. Initial factory-bug
+attribution and late receipt extension use that same valuation; public total
+and waste round once to nine places and ordinary spend is their difference.
+Stored event_ids/amount are derived; id, diagnosis/fix attribution and
+operation_ids are immutable and define replay identity. Existing settled waste
+stays classified while a replay lease is pending. Maxima and unknown gaps round
+up to the nine-place unit. Public card totals remain JSON numbers for compatibility;
+the B channel and reservation money strings use nine fixed decimal places.
+reserve_invocation rechecks the absolute authority deadline. Increment 2 must
+still call for_case immediately before every reservation, binding the current
+revision/source generation; never cache an authority across separate calls.
+
+Saved-card compatibility exam for Decimal valuation: the 20261029 recovery
+snapshot has exactly three projection differences, each removal of a zero-valued
+legacy_unattributed role label, for cases 6a8a7d, cae763 and 055481. The regression
+pins each original canonical card hash before applying that exact expected-field
+migration in memory. All saved totals, source cards and recovery/scientific
+decisions remain identical. Neither the captured cards nor the frozen before
+snapshot is regenerated or rewritten.
+The coordinator supplies factory-bug amounts as usd(sum(event_charge(event)))
+over the attributed event IDs, preserving the same valuation through admission.
+Settled rows alone determine derived late-attribution event IDs, even while a
+new replay lease is pending. The input event_ids/amount fields remain part of
+the reviewed schema; they are checked, never taken as a second spend booking.
