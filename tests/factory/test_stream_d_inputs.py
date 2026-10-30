@@ -342,7 +342,7 @@ class InputTests(unittest.TestCase):
         current = self.bench / 'results/test.json'; current.parent.mkdir(); current.write_text('{}')
         (cache / 'empty.json').write_text(json.dumps({'evidence': []}))
         (cache / 'bad-kind.json').write_text(json.dumps({'evidence': [
-            {'kind': 'unknown', 'path': 'test.json', 'sha256': evidence['sha256']}]}))
+            {'kind': 'unknown', 'path': 'gate-details/G4.json', 'sha256': evidence['sha256']}]}))
         (cache / 'malformed.json').write_text('{')
         manifest = self.freeze()
         self.assertEqual([n for n in manifest['files'] if n.startswith('work/gate-cache/')], ['work/gate-cache/G4.json'])

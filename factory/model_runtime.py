@@ -14,6 +14,7 @@ from typing import Callable
 import json
 import os
 import pathlib
+import pwd
 import re
 import shutil
 import subprocess
@@ -147,12 +148,12 @@ def rotation(slot, table_name=None):
     return {role: dict(table['families'][fam]) for role, fam in row.items()}
 
 
-def opencode_config(model=None, case=None):
+def opencode_config(model=None, case=None, *, diagnosis=False):
     """Merged over the user config: provider keys come from the environment (factory/launch.sh loads
     them from ~/.secrets; boat's paid relay is off since 2026-10-16), and boat's desktop `computer`
     MCP off (about 28k prompt tokens a call, unneeded). In /tmp so the pilot user can read it; no secret."""
     path = pathlib.Path("/tmp/factory-" + model.replace("/", "-").replace(":", "-") + ".json") if model else pathlib.Path("/tmp/factory-opencode.json")
-    base = os.environ.get("OPENCODE_API_KEY_BASE_URL")
+    base = None if diagnosis else os.environ.get("OPENCODE_API_KEY_BASE_URL")
     from token_prices import PAID_PRICES
     def price(route):
         return dict(zip(('input', 'output', 'cache_read', 'cache_write'), PAID_PRICES[route]))
@@ -163,6 +164,7 @@ def opencode_config(model=None, case=None):
                "meta/muse-spark-1.3-contributor": {
                "cost": price('openrouter/meta/muse-spark-1.3-contributor')}}}}}
     if model: cfg["small_model"] = model  # Compaction shares the admitted model/family/account.
+    if diagnosis: cfg['permission'].update(webfetch='deny', websearch='deny')
     # OpenCode v1.19 does not know Muse Contributor's price; without one the budget guard stops the run.
     go = {"models": {"muse-spark-1.3-contributor": {"cost": price('opencode-go/muse-spark-1.3-contributor')}}}
     go["options"] = {"apiKey": "{env:OPENCODE_API_KEY}"}
@@ -182,6 +184,35 @@ def opencode_config(model=None, case=None):
         json.dump(cfg, staged)
     os.chmod(staged.name, 0o644); os.replace(staged.name, path)
     return path
+
+
+def diagnosis_environment(env, driver, lease, home):
+    """Only the selected transport account crosses the diagnosis UID boundary."""
+    clean = {key: env[key] for key in ('PATH', 'LANG', 'LC_ALL') if key in env}
+    clean.update(HOME=str(home), TMPDIR=str(home / '.cache'))
+    key = ('CLAUDE_CODE_OAUTH_TOKEN' if driver == 'claude' else
+           'OPENROUTER_API_KEY' if lease.account == 'openrouter-key' else
+           'OPENCODE_API_KEY' if driver == 'opencode' and lease.account else None)
+    if key and key in env: clean[key] = env[key]
+    return clean
+
+
+@contextmanager
+def diagnosis_loopback(c, command, gate, enabled):
+    """Permit exactly A's ephemeral listener, before the pilot LOCAL rejection."""
+    rules = []
+    try:
+        if enabled:
+            port = str(gate.server.server_port)
+            for rule in (["-d", "127.0.0.1", "-p", "tcp", "--dport", port, "-j", "ACCEPT"],
+                         ["-p", "tcp", "-m", "conntrack", "--ctdir", "ORIGINAL",
+                          "--ctorigdst", "127.0.0.1", "--ctorigdstport", port, "-j", "ACCEPT"]):
+                command(c, ['sudo', 'iptables', '-w', '5', '-I', 'factory-pilot', '1', *rule], check=True)
+                rules.append(rule)
+        yield
+    finally:
+        for rule in reversed(rules):
+            command(c, ['sudo', 'iptables', '-w', '5', '-D', 'factory-pilot', *rule], check=True)
 
 
 def pinned_cli(kind):
@@ -512,16 +543,21 @@ class ModelRuntime:
         effort = c.card.get('roles', {}).get(role, {}).get('effort', model_effort(model))
         env, scratch = {**os.environ, **getattr(c, "model_env", {})}, None
         env = diagnostic_env(c, name, role, env)
+        diagnosis = user == 'pilot' and name.startswith('diagnosis-')
+        if diagnosis: env = diagnosis_environment(env, driver, lease, self.pilot_home(user))
         if user: env.pop("UNBUG_JUDGE", None)  # calibrators solve like contestants: no administrator judge reads
         if driver == "opencode":
             cli_model = model
             cmd = [OPENCODE_BIN, "run", *_opencode_flags(OPENCODE_BIN), "-m", cli_model, "--format", "json", "--auto", "--title", f"factory-{name}", text]
             if effort != 'default': cmd[2:2] = ['--variant', effort]
-            if user: cmd = ["sudo", "--preserve-env", "-H", "-u", user] + cmd
+            if user:
+                preserve = '--preserve-env=' + ','.join((*env, 'OPENCODE_CONFIG', 'XDG_DATA_HOME')) if diagnosis else '--preserve-env'
+                cmd = ["sudo", preserve, "-H", "-u", user] + cmd
             if user:
                 scratch = pathlib.Path(tempfile.mkdtemp(prefix='factory-tester-state-'))
                 self.command(c, ['sudo', 'chown', '-R', f'{user}:{user}', scratch], check=True)
-            env.update({"OPENCODE_ENABLE_EXA": "1", "OPENCODE_CONFIG": str(opencode_config(cli_model, case=c.case_id)),
+            if not diagnosis: env['OPENCODE_ENABLE_EXA'] = '1'
+            env.update({"OPENCODE_CONFIG": str(opencode_config(cli_model, case=c.case_id, diagnosis=diagnosis)),
                         "XDG_DATA_HOME": str(scratch if user else env.get("XDG_DATA_HOME", self.home / ".local/share/factory-opencode"))})
         else:  # fresh config/state dir per call, no session files: roles share nothing but what run.py passes
             # Not /tmp: codex refuses its helper binaries under a temp dir. Prepared where the runner can write; an
@@ -592,7 +628,8 @@ class ModelRuntime:
                                       lease_id=reservation['lease_id'],
                                       on_started=lambda: c.model_process_state.update(started=True))
             with model_call_gate.enforce(lease, env, c.model_cap_used, limit, getattr(c, 'role_cancel', None)) as gate:
-                result = run_budgeted(cmd, None if user else cwd, env, transcript, c.ledger, limit,
+                with diagnosis_loopback(c, self.command, gate, diagnosis):
+                    result = run_budgeted(cmd, None if user else cwd, env, transcript, c.ledger, limit,
                                   max_cost=None if factory_job(c) else c.args.max_cost,
                                   max_calls=c.args.max_role_calls, max_total_calls=c.args.max_total_calls, driver=driver,
                                   progress_timeout=c.args.no_progress_minutes * 60, max_zero_tokens=c.args.max_zero_tokens,
@@ -619,6 +656,7 @@ class ModelRuntime:
             # sudo cannot pass SIGKILL on: after any stop the isolated user's CLI may survive the process-group kill.
             for stage, action in (
                     ('model_process', lambda: self.command(c, ["sudo", "pkill", "-KILL", "-u", user]) if user else None),
+                    ('model_join', lambda: __import__('diagnosis_task')._quiet(pwd.getpwnam(user).pw_uid) if diagnosis else None),
                     ('model_scratch', lambda: self.cleanup(scratch, sudo=bool(user)) if scratch else None)):
                 try: action()
                 except Exception as error:

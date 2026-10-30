@@ -200,7 +200,8 @@ def fail(c):
     if mode == 'infrastructure':
         c.exhaustion_occurred = True
         c.card['infrastructure_gate'] = dict(gate='G10', exhausted=True)
-        raise KeyError('authored error after the G10 infrastructure stop')
+        from run_validity import InfrastructureExhausted
+        raise InfrastructureExhausted('authored new G10 infrastructure exhaustion')
     raise budget.BudgetError('budget_exhausted')
 run.validate_and_repair = fail
 run.seal = lambda *a, **kw: None

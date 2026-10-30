@@ -1556,3 +1556,9 @@ qualification. Together with the held/projection/extension tests it covers
 frozen evidence, missing manifests after binding, pre-manifest interruptions,
 required receipt paths, digest failures, terminal projections and unchanged
 replay across later generations. No Murphy row closes.
+
+The subsequent diagnosis-only worker increment is specified in
+`stream-d-worker-dispatch.md` (design review 5). It adds the runner consumer,
+retained-answer replay and disposable role helper. Its code is subject to a
+separate diff review and full suite. The shared B activation constant remains
+false; extension comparison/execution and live qualification remain outstanding.

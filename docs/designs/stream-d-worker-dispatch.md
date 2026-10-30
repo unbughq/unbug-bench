@@ -270,6 +270,22 @@ decision state stops `diagnosis_input_invalid`, preserving existing bytes/IDs.
 
 ## Role isolation
 
+Design-5 refinements: prepare builds in place under the canonical UUID, never a
+temporary sibling. Every helper operation holds an exclusive flock on the fixed
+root-owned `<case>/.lock`; cleanup ignores only this known lock file. A root
+helper surviving runner death therefore cannot race a later helper. Cleanup
+failure on a completed outcome temporarily publishes retryable infrastructure;
+successful replay restores its outcome stop and exhaustion ID without a model.
+
+Schema-v1 validation remains code-owned; never execute frozen Python. The journal
+binds the versioned schema and exact frozen templates. An intact unsupported
+schema digest stops `diagnosis_schema_wait`, preserving state without inference;
+it is not input corruption. Audit bytes use `audit-bytes-[0-9a-f]{64}` (no suffix)
+and metadata `audit-[0-9a-f]{64}.json`. Prior-ID audits stay under that ID's private
+work/diagnosis directory. Audit metadata is presence-only for orphan binding and
+is never parsed as replay authority. Test metadata-only orphans too. Rebuilding
+a stale tree means prepare after activation, never cleanup before the gate.
+
 Reuse the existing disposable `pilot` UID. Add explicit `diagnosis=True` to
 `make_pilots`; in that mode skip both general configuration/auth copies and call
 `pilot_wall` with `slot=None`. That wall variant never loads a scenario or opens
@@ -599,3 +615,21 @@ until the corresponding real-artifact exams prove their full claim, including
 any A/B/E dependency. Offline authored dispatch controls are not live isolation,
 bounded-provider or collection qualification. No launch or decryption is required
 or authorized by this design.
+
+## Diagnosis-only implementation boundary
+
+The implementation uses `diagnosis_dispatch.py`, the fixed root helper and two
+prompts, with the runner entry before Compose or author work. Cleanup carries
+archived roles/gates before it can fail. Retained decisions require their valid
+journal row and exact raw answer; legacy finding-only replay remains supported.
+The pending unknown-total branch creates no snapshot until a later ACK resume.
+An intact unsupported schema contract stops diagnosis_schema_wait.
+
+The controls in `test_stream_d_dispatch.py` use the saved practice bytes and
+5813be ledger through real snapshot, reservation and settlement functions.
+Answers, release/job envelopes and failures are authored; accounts/root commands
+and transport are substituted. Helper file modes, bounded reads, flock, replay,
+driver argv/env and main-entry routing execute offline. These are no claim of
+VM isolation, live diagnosis, B runtime activation or Murphy closure. The
+extension obligations above remain open. The input bad-kind control also now
+names existing evidence, addressing diff-24 N1.

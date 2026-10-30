@@ -120,11 +120,44 @@ def record_exhaustion(card, *, new_exhaustion=False):
     if state and state['status'] == 'pending': return
     if state and not new_exhaustion: return
     if card.get('terminal_stop') == 'factory_bug_held': return
-    stop = 'infrastructure_exhausted' if infrastructure_exhausted(card) else card.get('terminal_stop')
+    stop = card.get('terminal_stop')
+    if state:
+        # A retained infrastructure marker is evidence, not another exhaustion.
+        if not _trigger(card, stop, history): return
+    elif infrastructure_exhausted(card):
+        stop = 'infrastructure_exhausted'
     if (not exhaustion(card) or not _trigger(card, stop, history) or
             (history and history[-1]['outcome_sha256'] is None)): return
     card['diagnosis_state'] = dict(schema_version=1, exhaustion_id=str(uuid.uuid4()),
         stop=stop, status='pending', outcome=None)
+
+
+RESULT_SCHEMA = {
+    'type': 'object', 'additionalProperties': False,
+    'required': ['schema_version', 'case_id', 'checkpoint_sha256', 'outcome', 'reason', 'evidence', 'factory_bug'],
+    'properties': {
+        'schema_version': {'type': 'integer', 'const': 1},
+        'case_id': {'type': 'string'},
+        'checkpoint_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
+        'outcome': {'enum': ['factory_bug', 'close_to_passing', 'not_converging']},
+        'reason': {'type': 'string', 'minLength': 1},
+        'evidence': {'type': 'array', 'minItems': 1, 'items': {
+            'type': 'object', 'additionalProperties': False, 'required': ['path', 'sha256', 'finding'],
+            'properties': {'path': {'type': 'string', 'minLength': 1},
+                           'sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
+                           'finding': {'type': 'string', 'minLength': 1}}}},
+        'factory_bug': {'anyOf': [{'type': 'null'}, {
+            'type': 'object', 'additionalProperties': False,
+            'required': ['component', 'reproducer', 'affected_operations', 'fix_required'],
+            'properties': {**{key: {'type': 'string', 'minLength': 1}
+                              for key in ('component', 'reproducer', 'fix_required')},
+                           'affected_operations': {'type': 'array', 'uniqueItems': True,
+                                                   'items': {'type': 'string', 'format': 'uuid'}}}}]},
+    },
+    'allOf': [{'if': {'properties': {'outcome': {'const': 'factory_bug'}}},
+               'then': {'properties': {'factory_bug': {'type': 'object'}}},
+               'else': {'properties': {'factory_bug': {'type': 'null'}}}}],
+}
 
 
 def validate_result(value, *, case, generation, evidence_root):
@@ -562,8 +595,10 @@ def queued_inputs(c, bench, *, quiescent):
         bound = any(row.get('call_name') == call or
                     re.fullmatch(re.escape(call) + r'-repair-[0-9]+', str(row.get('call_name', '')))
                     for row in ledger.get('invocation_reservations', {}).values())
-        if (state['status'] != 'pending' or (parent / 'finding.json').exists() or
-                any(parent.glob('raw-result-*.json')) or bound):
+        if (state['status'] != 'pending' or any((parent / name).exists()
+                for name in ('finding.json', 'attempts.json', 'decision.json')) or
+                any(any(parent.glob(pattern)) for pattern in
+                    ('raw-result-*.json', 'raw-bytes-*', 'audit-bytes-*', 'audit-*.json')) or bound):
             raise ValueError('bound diagnosis lacks manifest')
         card = getattr(c, 'checkpoint_card', None)
         if (not _sha(authority.source_generation) or not isinstance(card, dict) or
