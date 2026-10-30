@@ -106,7 +106,6 @@ def render(target, rows, workers, progress, *, now=None):
         rounds = _pair(card.get('builder_rounds'), recovery.get('rounds'))
         stage, duration, reason, actions = '—', '—', phase, []
         bucket = phase if phase in COUNTS else 'stopped'
-        if row.get('card_unreadable'): actions.append('unreadable')
         if phase == 'unreadable': actions.append('unreadable')
         elif phase == 'running':
             worker = row.get('worker_id')
@@ -194,7 +193,7 @@ def read_rows(policy, root, home):
     if not (directory / 'journal.json').is_file(): raise ValueError('missing journal')
     # Status never creates the writer's lock or repairs a projection.
     with batch_service._regular(directory / 'lock') as lock:
-        fcntl.flock(lock, fcntl.LOCK_SH)
+        fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
         state = batch_service._load(directory, record, policy['batch']['manifest_sha256'])
         jobs = set(record['jobs']) | {r['child_job'] for r in state['derivations'].values()}
         rows = []
