@@ -84,7 +84,10 @@ if [ "$status" -eq 0 ] && [ -f "$root/results/ttl-retirements/$id.json" ]; then
   python3 "$here/ttl_continuation.py" collect --root "$root" --worker "$id" >/dev/null ||
     echo "$id: TTL continuation blocked; collected work retained" >&2
 fi
+# Publication is reported apart from collection integrity. Its verified bytes stay
+# in the launch state for replay, so a refusal never retains the worker.
 if [ "$status" -eq 0 ] && [ -n "${UNBUG_BATCH_OPERATION:-}" ]; then
-  python3 -B "$here/batch_holder.py" collect --operation "$UNBUG_BATCH_OPERATION" || status=1
+  python3 -B "$here/batch_holder.py" collect --operation "$UNBUG_BATCH_OPERATION" ||
+    echo "$id: collected; holder publication refused, verified bytes retained for replay" >&2
 fi
 exit "$status"

@@ -8,6 +8,9 @@ from copy import deepcopy
 import fcntl
 import io
 import json
+import os
+import subprocess
+import shutil
 from pathlib import Path
 import shlex
 import sys
@@ -327,5 +330,341 @@ class HolderTests(unittest.TestCase):
         op = self.reserve(); self.assertEqual(op['authority'], authority)
         self.assertEqual(self.reserve()['operation_id'], op['operation_id'])
 
+
+    # Diff review 1: holder robustness, wiring and the remaining matrix rows.
+
+    def concurrency(self, value=2):
+        self.record['max_concurrency'] = self.policy['batch']['max_concurrency'] = value; self.freeze()
+
+    def preflight(self, op, *, inventory=None, run_error=None):
+        """Real dispatch preflight; only identity, credential labels, Boat and the creator are doubles."""
+        import key_holder
+        import account_handoff
+        self.policy.update(code_sha256='fingerprint', path='/usr/bin:/bin', recipient='founder-public')
+        calls = []
+        def run(argv, **kwargs):
+            if run_error is not None: raise run_error
+            data = (self.record['restore_recipient'].encode() if argv[0] == 'age-keygen' else
+                    json.dumps(inventory or dict(sandboxes=[], pageInfo=dict(hasMore=False))).encode())
+            return SimpleNamespace(stdout=data)
+        def popen(argv, **kwargs):
+            calls.append(argv); return SimpleNamespace(stdin=io.BytesIO(), wait=lambda: 0)
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(key_holder, 'fingerprint', return_value='fingerprint'))
+            stack.enter_context(patch.object(key_holder, 'secret_labels', return_value={'claude-token'}))
+            stack.enter_context(patch.object(account_handoff, 'launch_accounts', return_value=(None, 1, {})))
+            stack.enter_context(patch.object(holder.subprocess, 'run', side_effect=run))
+            stack.enter_context(patch.object(holder.subprocess, 'Popen', side_effect=popen))
+            try: result = holder.dispatch(self.policy, self.root, self.home, op['operation_id'], b'authored identity')
+            except (OSError, ValueError) as error: result = error
+        return result, calls
+
+    def test_batch_tick_never_stops_and_records_only_dispatch_exits(self):
+        import key_holder
+        exits, spawned = [], []
+        def done(code): return SimpleNamespace(poll=lambda: code)
+        children = {'a': ('dispatch', done(1)), 'b': ('resume', done(0)), 'c': ('dispatch', done(holder.TEMPFAIL)),
+                    'd': ('dispatch', done(1)), 'e': ('dispatch', done(None))}
+        def record(policy, root, home, operation, code):
+            if operation == 'd': raise ValueError('authored corrupt reservations')
+            exits.append((operation, code))
+        waits = {}
+        with patch.object(holder, 'record_exit', side_effect=record), \
+             patch.object(holder, 'reconcile', side_effect=OSError('authored corrupt money')), \
+             patch.object(holder, 'orphaned', return_value=['c', 'e', 'f']):
+            key_holder.batch_tick(self.policy, children, waits, lambda op, action: spawned.append((op, action)) or op)
+        self.assertEqual(exits, [('a', 1), ('c', holder.TEMPFAIL)])
+        # A refused exit record keeps its child for the next tick; a live child is never duplicated.
+        self.assertEqual(set(children), {'d', 'e', 'f'})
+        # A transient dispatch exit waits before the next preflight.
+        self.assertEqual(spawned, [('f', 'resume')])
+        with patch.object(holder, 'HOLDER_ENABLED', False), patch.object(holder, 'reconcile') as scan:
+            key_holder.batch_tick(self.policy, {}, {}, None); scan.assert_not_called()
+
+    def test_reconcile_isolates_a_refused_operation(self):
+        self.concurrency()
+        bad, good = self.started(self.reserve('j')), self.started(self.reserve('k'))
+        path = self.home / 'launches' / bad['launch_id']
+        (path / 'new.1').write_text(json.dumps(dict(event='created', id='authored-other')) + '\n')
+        (path / 'ids').write_text('authored-other\n')
+        self.retirement(bad); self.retirement(good)
+        before = self.ops()[bad['operation_id']]
+        self.assertEqual(self.reconcile(), [])
+        self.assertEqual(self.ops()[bad['operation_id']], before)
+        self.assertIsNotNone(self.ops()[good['operation_id']]['retirement'])
+
+    def test_socket_routes_reply_refuse_and_fall_through(self):
+        import key_holder
+        with patch.multiple(key_holder, ROOT=self.root, CONTROL_HOME=self.home):
+            launch = dict(op='launch', batch='practice', job='j', checkpoint=None)
+            reply = key_holder.batch_request(self.policy, launch)
+            self.assertEqual(set(reply), {'operation_id', 'launch_id', 'state', 'worker_id'})
+            self.assertEqual(reply['state'], 'pending')
+            self.assertEqual(key_holder.batch_request(self.policy, launch), reply)
+            self.assertEqual(key_holder.batch_request(self.policy, dict(op='operation', batch='practice',
+                             operation_id=reply['operation_id'])), reply)
+            for request in (dict(launch, batch='other'), dict(launch, case='case-x'),
+                            dict(op='operation', batch='practice', operation_id='not-a-uuid')):
+                with self.assertRaises(ValueError): key_holder.batch_request(self.policy, request)
+            with patch.object(holder, 'HOLDER_ENABLED', False):
+                self.assertIsNone(key_holder.batch_request(self.policy, launch))
+            self.assertIsNone(key_holder.batch_request({'jobs': {}}, launch))
+            self.assertIsNone(key_holder.batch_request(self.policy, dict(op='status')))
+
+    def test_serve_refuses_a_policy_the_shell_commands_would_not_load(self):
+        import key_holder
+        with patch.multiple(key_holder, CONTROL_HOME=self.home, policy_load=lambda path: self.policy), \
+             patch.object(key_holder.resource, 'setrlimit'), patch.object(key_holder.os, 'umask'):
+            with self.assertRaisesRegex(ValueError, 'control home policy'):
+                key_holder.serve(self.root / 'elsewhere.json', .01)
+
+    def test_enabled_bind_restores_only_the_frozen_source(self):
+        import batch
+        op = self.started(self.reserve()); card = self.output(op); self.publish(op)
+        self.retirement(op); self.reconcile()
+        successor = self.reserve(source=card['sha256'])
+        job = batch.bind(self.policy, 'j', card['sha256'], self.root, home=self.home, operation=successor['operation_id'])
+        self.assertEqual(job['args'][-4:], ['--restore', op['case'], '--checkpoint-sha256', card['sha256']])
+        with self.assertRaises(ValueError):  # The retired predecessor grants no source.
+            batch.bind(self.policy, 'j', card['sha256'], self.root, home=self.home, operation=op['operation_id'])
+
+    def test_transient_preflight_stays_pending(self):
+        import subprocess
+        self.concurrency(); op = self.reserve()
+        result, calls = self.preflight(op, run_error=subprocess.TimeoutExpired('age-keygen', 10))
+        self.assertEqual((result, calls), (holder.TEMPFAIL, []))
+        holder.record_exit(self.policy, self.root, self.home, op['operation_id'], result)
+        self.assertEqual(self.ops()[op['operation_id']]['state'], 'pending')
+        self.assertIsNone(self.ops()[op['operation_id']]['dispatch_exit'])
+        self.assertEqual(self.reconcile(), [op['operation_id']])
+        # A peer's accounting incident freezes the batch; it is not a refusal of this operation.
+        peer = self.started(self.reserve('k')); self.output(peer, total=0)
+        with self.assertRaises(ValueError): self.publish(peer)
+        result, calls = self.preflight(op)
+        self.assertEqual((result, calls), (holder.TEMPFAIL, []))
+        self.assertEqual(self.ops()[op['operation_id']]['state'], 'pending')
+
+    def test_positive_preflight_refusal_fails_once_and_never_retries(self):
+        for inventory in (dict(sandboxes=[], pageInfo=dict(hasMore=True)),
+                          dict(sandboxes=[dict(id='w'), dict(id='w')], pageInfo=dict(hasMore=False))):
+            with self.subTest(inventory=inventory):
+                self.setUp()
+                op = self.reserve()
+                result, calls = self.preflight(op, inventory=inventory)
+                self.assertIsInstance(result, ValueError); self.assertEqual(calls, [])
+                self.assertEqual(self.ops()[op['operation_id']]['state'], 'failed')
+                self.assertEqual(self.ops()[op['operation_id']]['incident'], 'preflight_refused')
+                self.assertEqual(status.read_rows(self.policy, self.root, self.home)[1][0]['phase'], 'failed')
+                self.assertEqual(self.reconcile(), [])
+                self.assertEqual(self.preflight(op), (None, []))
+                self.assertEqual(self.reserve()['state'], 'failed')
+
+    def test_overlapping_dispatch_children_invoke_one_creator(self):
+        op = self.reserve()
+        with holder.operation_lock(self.directory, op['operation_id']):
+            # The losing child cannot take the operation lock, and its exit is ignored.
+            result, calls = self.preflight(op)
+            self.assertIsInstance(result, BlockingIOError); self.assertEqual(calls, [])
+            holder.record_exit(self.policy, self.root, self.home, op['operation_id'], 1)
+            self.assertEqual(self.ops()[op['operation_id']]['state'], 'pending')
+        self.assertEqual(len(self.preflight(op)[1]), 1)
+        self.assertEqual(self.preflight(op)[1], [])
+
+    def test_ambiguous_creation_records_stay_pending(self):
+        event = json.loads((ROOT / 'tests/factory/fixtures/isolation-timeouts/created.json').read_text())
+        for events, ids in (([event, event], [event['id']]), ([event, event], [event['id']] * 2),
+                            ([event], [event['id']] * 2), ([event, dict(event, id='authored-other')], [event['id']])):
+            with self.subTest(events=len(events), ids=ids):
+                self.setUp()
+                op = self.started(self.reserve(), created=False); path = self.home / 'launches' / op['launch_id']
+                (path / 'new.1').write_text(''.join(json.dumps(e) + '\n' for e in events))
+                (path / 'ids').write_text(''.join(i + '\n' for i in ids))
+                self.reconcile()
+                self.assertEqual(self.ops()[op['operation_id']]['state'], 'pending')
+                self.assertEqual(self.ops()[op['operation_id']]['incident'], 'creation_unknown')
+
+    def test_malformed_reservation_and_identity_refuse(self):
+        op = self.reserve()
+        with self.assertRaises(ValueError): holder.operation_lock(self.directory, str(__import__('uuid').uuid4())).__enter__()
+        raw = json.loads((self.directory / 'reservations.json').read_text())
+        del raw['operations'][op['operation_id']]['incident']
+        (self.directory / 'reservations.json').write_text(json.dumps(raw))
+        with self.assertRaisesRegex(ValueError, 'invalid batch operations'): self.reserve()
+        with self.assertRaisesRegex(ValueError, 'invalid batch operations'): self.reconcile()
+
+    def test_repeat_refusal_keeps_original_incident(self):
+        op = self.started(self.reserve()); self.output(op)
+        # Authored D answers: the same generation is refused for two different reasons.
+        with patch.object(holder, 'collection_facts', side_effect=[ValueError('uncovered_total'),
+                                                                   ValueError('accounting_api_refused')]):
+            with self.assertRaises(ValueError): self.publish(op)
+            first = deepcopy(self.money()['incidents'])
+            with self.assertRaises(ValueError): self.publish(op)
+        self.assertEqual([i['reason'] for i in first.values()], ['uncovered_total'])
+        self.assertEqual(self.money()['incidents'], first)
+        self.assertEqual(status.read_rows(self.policy, self.root, self.home)[1][0]['phase'], 'unreadable')
+
+    def test_publication_crash_before_and_during_put_replays(self):
+        for failing in (0, 1):
+            with self.subTest(failing_object=failing):
+                self.setUp()
+                op = self.started(self.reserve()); self.output(op); sent = []
+                def transport(key, path):
+                    if len(sent) == failing: raise ValueError('publication_failed')
+                    sent.append(key)
+                with self.assertRaisesRegex(ValueError, 'publication_failed'):
+                    holder.collect(self.policy, self.root, self.home, op['operation_id'], transport)
+                self.assertEqual(self.money()['jobs']['j']['acks'], {})
+                self.assertFalse((self.directory / 'current').exists())
+                ack = self.publish(op)
+                self.assertEqual(sorted(k.rsplit('/', 1)[1] for k in self.objects),
+                                 sorted([*json.loads((self.directory / 'generations' / op['case'] / ack['generation']
+                                                     / 'manifest.json').read_text())['files'], 'manifest.json']))
+
+    def test_retirement_crash_between_money_and_reservations_repairs(self):
+        op = self.started(self.reserve()); self.output(op); self.publish(op); self.retirement(op)
+        with patch.object(holder, '_save', side_effect=OSError('authored crash')), self.assertRaises(OSError):
+            self.reconcile()
+        proof = self.money()['jobs']['j']['acks'][self.ops()[op['operation_id']]['output_generation']]['retirement']
+        self.assertIsNotNone(proof); self.assertIsNone(self.ops()[op['operation_id']]['retirement'])
+        self.reconcile()
+        self.assertEqual(self.ops()[op['operation_id']]['retirement'], proof)
+
+    def test_source_lookup_waits_for_the_holder_scan(self):
+        import threading, time
+        op = self.reserve(); result = []
+        with money.locked(self.home, 'practice'):
+            worker = threading.Thread(target=lambda: result.append(holder.source_directory(
+                self.policy, self.root, self.home, op['operation_id'])))
+            worker.start(); time.sleep(.2)
+            self.assertTrue(worker.is_alive())
+        worker.join(5)
+        self.assertEqual(result, [None])
+
+    def test_r2_interrupted_put_is_a_publication_failure(self):
+        path = self.root / 'cipher'; path.write_bytes(fixtures.CIPHER)
+        with patch.object(holder.subprocess, 'check_output', return_value='https://example.invalid/object'), \
+             patch.object(holder.urllib.request, 'urlopen', side_effect=ConnectionResetError('authored reset')):
+            with self.assertRaisesRegex(ValueError, '^publication_failed$'):
+                holder.r2_publish(self.root, 'key', path)
+
+class ShellWiringTests(unittest.TestCase):
+    """Real collect.sh, launch.sh snippets, transfer, collection and r2-presign over subprocess.
+
+    Only the process boundary is a double: factory/batch_holder.py in the copied root runs the
+    real batch_holder.main() with the gate constant, root, control home and verify patched, and
+    an in-memory object store behind urlopen. The worker is a local directory behind boat-call.
+    """
+    locals().update({k: v for k, v in vars(HolderTests).items() if not k.startswith(('test_', '__'))})
+
+    def setUp(self):
+        HolderTests.setUp(self)
+        for name in ('collect.sh', 'transfer.py', 'collection.py'):
+            shutil.copy2(ROOT / 'factory' / name, self.root / 'factory' / name)
+        (self.root / 'bin').mkdir(exist_ok=True)
+        shutil.copy2(ROOT / 'bin/r2-presign', self.root / 'bin/r2-presign')
+        self.remote = self.root / 'worker'; (self.remote / 'sealed').mkdir(parents=True)
+        (self.root / 'bin/boat-call').write_text('#!/bin/sh\n[ "$1" = ssh ] || exit 1\n'
+                                                 'HOME=' + shlex.quote(str(self.remote)) + ' exec /bin/sh -c "$3"\n')
+        (self.root / 'bin/boat-call').chmod(0o755)
+        self.home.mkdir(exist_ok=True); (self.home / 'policy.json').write_text(json.dumps(self.policy))
+        (self.root / 'factory/batch_holder.py').write_text(
+            'import io, json, os, sys, urllib.parse, urllib.request\nfrom pathlib import Path\n'
+            'from unittest.mock import patch\n'
+            'sys.path[:0] = [' + repr(str(ROOT / 'factory')) + ', ' + repr(str(ROOT / 'bin')) + ']\n'
+            'import batch, batch_holder, key_holder\n'
+            'root, home = Path(' + repr(str(self.root)) + '), Path(os.environ["UNBUG_CONTROL_HOME"])\n'
+            'log = root / "object-store.jsonl"\n'
+            'def urlopen(request, timeout):\n'
+            '    url = request.full_url if isinstance(request, urllib.request.Request) else request\n'
+            '    parts = urllib.parse.urlsplit(url); store = root / "objects" / parts.path.lstrip("/")\n'
+            '    with log.open("a") as out: out.write(json.dumps([parts.hostname, parts.path]) + "\\n")\n'
+            '    if isinstance(request, urllib.request.Request):\n'
+            '        store.parent.mkdir(parents=True, exist_ok=True); store.write_bytes(request.data.read())\n'
+            '        return io.BytesIO(b"")\n'
+            '    return io.BytesIO(store.read_bytes())\n'
+            'with patch.object(batch_holder, "HOLDER_ENABLED", True), patch.object(batch, "verify"), \\\n'
+            '     patch.multiple(key_holder, ROOT=root, CONTROL_HOME=home, policy_load=lambda p: json.loads(p.read_text())), \\\n'
+            '     patch.object(urllib.request, "urlopen", urlopen):\n'
+            '    raise SystemExit(batch_holder.main())\n')
+        self.r2 = dict(R2_ACCOUNT_ID='authored-account', R2_ACCESS_KEY_ID='authored-access',
+                       R2_SECRET_ACCESS_KEY='authored-secret', R2_BUCKET='authored-bucket')
+
+    def env(self, **values):
+        clean = {k: v for k, v in os.environ.items() if not k.startswith(('R2_', 'UNBUG_'))}
+        return {**clean, 'UNBUG_CONTROL_HOME': str(self.home), **values}
+
+    def worker_output(self, op):
+        self.output(op)
+        collected = self.home / 'launches' / op['launch_id'] / 'collected'
+        for path in collected.iterdir(): path.rename(self.remote / 'sealed' / path.name)
+        collected.rmdir(); (self.remote / 'sealed/DONE').write_text(op['case'] + '\n')
+
+    def collect_vm(self, op, *, state=None):
+        """launch.sh's own collect_vm with its R2 environment, as guard_retire calls it."""
+        launch = (ROOT / 'factory/launch.sh').read_text()
+        function = launch[launch.index('collect_vm() {'):launch.index('factory_ttl_retire() {')]
+        r2_env = ''.join(k + '=' + shlex.quote(v) + '\n' for k, v in self.r2.items())
+        script = ('set -eu\nhere=' + shlex.quote(str(self.root / 'factory')) + '\nr2_env=' + shlex.quote(r2_env)
+                  + '\n' + function + '\ncollect_vm ' + shlex.quote(op['worker_id']) + '\n')
+        state = state or self.home / 'launches' / op['launch_id']
+        return subprocess.run(['/bin/sh', '-c', script], capture_output=True, text=True, timeout=120,
+                              env=self.env(UNBUG_BATCH_OPERATION=op['operation_id'], UNBUG_LAUNCH_STATE=str(state)))
+
+    def test_collect_sh_publishes_through_holder_and_r2_presign(self):
+        op = self.started(self.reserve()); self.worker_output(op)
+        result = self.collect_vm(op)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('publication refused', result.stderr)
+        ack = self.money()['jobs']['j']['acks'][self.ops()[op['operation_id']]['output_generation']]
+        self.assertEqual(json.loads((self.directory / 'current' / (op['case'] + '.json')).read_text())['generation'],
+                         ack['generation'])
+        calls = [json.loads(line) for line in (self.root / 'object-store.jsonl').read_text().splitlines()]
+        # The launcher's R2 environment reached bin/r2-presign: real signed URLs name its account and bucket.
+        self.assertEqual({host for host, _ in calls}, {'authored-account.r2.cloudflarestorage.com'})
+        prefix = '/authored-bucket/generations/' + op['case'] + '/' + ack['generation'] + '/'
+        self.assertTrue(calls and all(path.startswith(prefix) for _, path in calls))
+        self.assertNotIn(b'authored-secret', b''.join(p.read_bytes() for p in self.home.rglob('*') if p.is_file()))
+
+    def test_collect_sh_refused_publication_keeps_collection_status(self):
+        op = self.started(self.reserve()); self.worker_output(op)
+        elsewhere = self.root / 'other-state'; elsewhere.mkdir()
+        result = self.collect_vm(op, state=elsewhere)
+        # Collection integrity passed, so guard_retire may delete; publication is reported apart.
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('holder publication refused', result.stderr)
+        self.assertEqual(self.money()['jobs']['j']['acks'], {})
+        self.assertTrue((elsewhere / 'collected' / (op['case'] + '.scorecard.json')).exists())
+
+    def test_launch_sh_batch_restore_reads_only_the_frozen_source(self):
+        op = self.started(self.reserve()); card = self.output(op); self.publish(op)
+        self.retirement(op); self.reconcile()
+        successor = self.reserve(source=card['sha256'])
+        identity = subprocess.run(['age-keygen'], capture_output=True, text=True, check=True).stdout
+        identity = next(line for line in identity.splitlines() if line.startswith('AGE-SECRET-KEY-'))
+        public = subprocess.run(['age-keygen', '-y'], input=identity + '\n', capture_output=True, text=True,
+                                check=True).stdout.strip()
+        self.policy['recipient'] = public; (self.home / 'policy.json').write_text(json.dumps(self.policy))
+        launch = (ROOT / 'factory/launch.sh').read_text()
+        start = launch.index('  founder_recipient=$(sed')
+        end = launch.index('    casekey=$root/sealed/$restore.casekey.age\n  fi\n') + len('    casekey=$root/sealed/$restore.casekey.age\n  fi\n')
+        def run(operation, key):
+            script = ('set -eu\nhere=' + shlex.quote(str(self.root / 'factory')) + '\nroot=' + shlex.quote(str(self.root))
+                      + '\nn=1\ncontinue_review=no\nrestore=' + op['case'] + '\nidentity=' + shlex.quote(key) + '\n'
+                      + launch[start:end] + 'printf "%s\\n" "$card" "$ckpt" "$casekey"\n')
+            (self.root / 'factory/run.py').write_text('FOUNDER_RECIPIENT = "age1unused"\n')
+            return subprocess.run(['/bin/sh', '-c', script], capture_output=True, text=True, timeout=60,
+                                  env=self.env(UNBUG_BATCH_OPERATION=operation))
+        result = run(successor['operation_id'], identity)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        source = self.directory / 'generations' / op['case'] / card['sha256']
+        self.assertEqual(result.stdout.split(), [str(source / (op['case'] + '.scorecard.json')),
+                         str(source / card['archive']), str(source / (op['case'] + '.casekey.age'))])
+        self.assertTrue(all(Path(path).is_file() for path in result.stdout.split()))
+        # A key that is neither the founder's nor the scoped restore key, and an operation without a source, refuse.
+        other = subprocess.run(['age-keygen'], capture_output=True, text=True, check=True).stdout
+        other = next(line for line in other.splitlines() if line.startswith('AGE-SECRET-KEY-'))
+        self.assertNotEqual(run(successor['operation_id'], other).returncode, 0)
+        self.assertNotEqual(run(op['operation_id'], identity).returncode, 0)
 
 if __name__ == '__main__': unittest.main()

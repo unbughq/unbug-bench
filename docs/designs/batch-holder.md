@@ -491,3 +491,35 @@ once it owns both locks, but changes state only for pending/unstarted. The scan
 probes the operation lock before spawning and skips busy operations. Activation
 also needs recovery for a started orphan whose precreation exit was lost across
 holder restart; this increment correctly retains pending ownership in that case.
+
+## Diff review 1 resolutions
+
+All diff-1 blockers and majors are accepted. These decisions are added:
+
+- **Holder scan never stops the holder.** `key_holder.batch_tick` is one
+  module function. A raise in exit recording, either scan or a spawn is logged
+  by a fixed label and retried on the next tick. `reconcile` handles each
+  operation alone: a raising operation keeps its reservation and money state
+  as they were before that operation, and every other operation still
+  completes and is saved. Failed operations are final and skipped.
+- **One policy file.** With the gate on, `serve` refuses unless its `--policy`
+  is `$UNBUG_CONTROL_HOME/policy.json`, the default every shell command loads.
+- **One collected directory.** `batch_holder.py collect` refuses unless
+  `UNBUG_LAUNCH_STATE` resolves to `$UNBUG_CONTROL_HOME/launches/<launch_id>`
+  of that operation.
+- **Blocking shared lock.** `lookup` and `source_directory` take a blocking
+  shared batch lock. Only status stays nonblocking.
+- **Transient preflight waits.** `MoneyWait` (any batch freeze), timeouts,
+  failed helper commands and `OSError` exit dispatch with `TEMPFAIL` (75).
+  `record_exit` ignores that code for an unstarted operation, so it stays
+  pending, and the holder waits 60 seconds before the next preflight. Only a
+  positive refusal fails an operation.
+- **Incident evidence is immutable.** A repeat refusal never replaces an
+  existing incident key.
+- **Publication never retains the worker.** `collect.sh` reports a holder
+  publication refusal on its own line and keeps its own collection status.
+  The verified bytes stay in the launch state and the frozen snapshot for
+  replay with the same `collect` command. Driving that replay from the holder
+  scan is an activation prerequisite.
+- **Exit records.** Only a dispatch child's exit reaches `record_exit`.
+  Resume children inherit the legacy minimal environment.

@@ -24,6 +24,7 @@ from registry import atomic_json
 from transfer import digest
 
 HOLDER_ENABLED = False
+TEMPFAIL = 75  # Dispatch exit: transient wait, the operation stays pending.
 FIELDS = {'operation_id', 'launch_id', 'job', 'case', 'source_generation',
           'release_sha256', 'config_sha256', 'authority', 'state', 'pending_since',
           'worker_id', 'dispatch_started', 'dispatch_exit', 'output_generation',
@@ -219,7 +220,7 @@ def lookup(policy, root, home, identity):
     enabled(); record = money.manifest(policy, root)
     directory = home / 'batches' / record['id']
     with service._regular(directory / 'lock') as lock:
-        fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        fcntl.flock(lock, fcntl.LOCK_SH)
         ops = _operations(directory, record, policy)
         if identity not in ops: raise ValueError('operation_unknown')
         return reply(ops[identity])
@@ -242,6 +243,7 @@ def record_exit(policy, root, home, identity, code):
     try:
         with operation_lock(directory, identity), money.locked(home, record['id']):
             ops = _operations(directory, record, policy); op = ops[identity]
+            if code == TEMPFAIL and not op['dispatch_started']: return
             op['dispatch_exit'] = code
             if op['state'] == 'pending' and not op['dispatch_started']:
                 op.update(state='failed', incident='preflight_refused')
@@ -276,6 +278,7 @@ def _retirement(root, path, worker):
         raise ValueError('request_refused')
     directory = spend.with_suffix('.deletions') / worker
     request, done = (service._json(directory / name) for name in ('deletion-request.json', 'deletion-completion.json'))
+    # The real deletion guard saves all six keys on both receipts; keep the full check.
     keys = {'id', 'targetId', 'kind', 'status', 'stage', 'completedAt'}
     if (set(request) != keys or set(done) != keys or not isinstance(done['id'], str) or not done['id'] or
             request['id'] != done['id'] or request['targetId'] != worker or done['targetId'] != worker or
@@ -287,40 +290,48 @@ def _retirement(root, path, worker):
                 completion_sha256=digest(directory / 'deletion-completion.json'))
 
 
+def _reconcile_one(directory, root, home, op, state):
+    path = home / 'launches' / op['launch_id']
+    try: worker = _created(path, op)
+    except (OSError, ValueError, KeyError, TypeError):
+        if op['worker_id'] is not None: return  # Never forget ownership.
+        op['incident'] = 'creation_unknown'
+        if op['dispatch_exit'] is not None:
+            try:
+                if service._json(path / 'launch.json') != op['launch']: return
+                with service._regular(path / 'controller.lock') as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    with service._regular(path / 'ids') as stream: ids = stream.read().strip()
+                    if not list(path.glob('new.*')) and not ids:
+                        op.update(state='failed', incident='preflight_refused')
+            except (OSError, ValueError, KeyError): pass
+        return
+    if op['worker_id'] not in (None, worker): raise ValueError('request_refused')
+    op.update(worker_id=worker, state='launched')
+    if op['incident'] == 'creation_unknown': op['incident'] = None
+    try: proof = _retirement(root, path, worker)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError): return
+    if op['retirement'] not in (None, proof): raise ValueError('request_refused')
+    for ack in state['jobs'][op['job']]['acks'].values():
+        if ack['operation_id'] != op['operation_id']: continue
+        if ack['retirement'] not in (None, proof): raise ValueError('request_refused')
+        ack['retirement'] = proof
+    atomic_json(directory / 'money.json', state)
+    op['retirement'] = proof
+
+
 def reconcile(policy, root, home):
     enabled(); record = money.manifest(policy, root)
     with money.locked(home, record['id']) as directory:
         ops = _operations(directory, record, policy)
         state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
-        for op in ops.values():
-            if not op['dispatch_started']: continue
-            path = home / 'launches' / op['launch_id']
-            try: worker = _created(path, op)
-            except (OSError, ValueError, KeyError, TypeError):
-                if op['worker_id'] is not None: continue  # Never forget ownership.
-                op['incident'] = 'creation_unknown'
-                if op['dispatch_exit'] is not None:
-                    try:
-                        if service._json(path / 'launch.json') != op['launch']: continue
-                        with service._regular(path / 'controller.lock') as lock:
-                            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                            with service._regular(path / 'ids') as stream: ids = stream.read().strip()
-                            if not list(path.glob('new.*')) and not ids:
-                                op.update(state='failed', incident='preflight_refused')
-                    except (OSError, ValueError, KeyError): pass
-                continue
-            if op['worker_id'] not in (None, worker): raise ValueError('request_refused')
-            op.update(worker_id=worker, state='launched')
-            if op['incident'] == 'creation_unknown': op['incident'] = None
-            try: proof = _retirement(root, path, worker)
-            except (OSError, ValueError, KeyError, TypeError, AttributeError): continue
-            if op['retirement'] not in (None, proof): raise ValueError('request_refused')
-            for ack in state['jobs'][op['job']]['acks'].values():
-                if ack['operation_id'] != op['operation_id']: continue
-                if ack['retirement'] not in (None, proof): raise ValueError('request_refused')
-                ack['retirement'] = proof
-            atomic_json(directory / 'money.json', state)
-            op['retirement'] = proof
+        for identity in list(ops):
+            if not ops[identity]['dispatch_started'] or ops[identity]['state'] == 'failed': continue
+            # One refused operation never stops the scan or keeps its partial writes.
+            before, saved = deepcopy(ops[identity]), deepcopy(state)
+            try: _reconcile_one(directory, root, home, ops[identity], state)
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                ops[identity], state = before, saved
         _save(directory, record, policy, ops)
     ready = []
     for op in ops.values():
@@ -345,7 +356,7 @@ def orphaned(policy, root, home):
                 with operation_lock(directory, identity), service._regular(path / 'controller.lock') as lock:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     if service._json(path / 'launch.json') == op['launch']: ready.append(identity)
-            except (OSError, ValueError): pass
+            except (OSError, ValueError, KeyError, TypeError): pass
     return ready
 
 
@@ -362,7 +373,8 @@ def resume_controller(policy, root, home, identity, identity_bytes):
             with service._regular(path / 'controller.lock') as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         child = subprocess.Popen(['/bin/sh', str(root / 'factory/launch.sh'), '--resume-launch', op['launch_id']],
-                                 cwd=root, env={**os.environ, 'PATH': policy['path'], 'UNBUG_CONTROL_HOME': str(home)},
+                                 cwd=root, env={'PATH': policy['path'], 'HOME': str(Path.home()),
+                                                'USER': os.environ.get('USER', ''), 'UNBUG_CONTROL_HOME': str(home)},
                                  stdin=subprocess.PIPE)
         try: child.stdin.write(identity_bytes); child.stdin.close()
         except BrokenPipeError: pass
@@ -374,7 +386,7 @@ def source_directory(policy, root, home, identity):
     enabled(); record = money.manifest(policy, root)
     directory = home / 'batches' / record['id']
     with service._regular(directory / 'lock') as lock:
-        fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        fcntl.flock(lock, fcntl.LOCK_SH)
         ops = _operations(directory, record, policy)
         state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
         op = _post(directory, record, policy, home, ops, state, identity)
@@ -491,8 +503,8 @@ def collect(policy, root, home, identity, transport=None):
                     clear.append(key)
             except (ValueError, KeyError, TypeError) as error:
                 reason = str(error) if str(error) in money.ACCOUNTING_ERRORS else 'invalid_accounting_input'
-                state['incidents'][identity + '/' + generation] = dict(operation_id=identity,
-                    generation=generation, manifest_sha256=entry['manifest_sha256'], reason=reason)
+                state['incidents'].setdefault(identity + '/' + generation, dict(operation_id=identity,
+                    generation=generation, manifest_sha256=entry['manifest_sha256'], reason=reason))
                 atomic_json(directory / 'money.json', state)
                 current['incident'] = 'accounting_refused'; _save(directory, record, policy, ops)
                 raise ValueError(reason) from None
@@ -573,6 +585,8 @@ def dispatch(policy, root, home, identity, identity_bytes):
             try: child.stdin.write(identity_bytes); child.stdin.close()
             except BrokenPipeError: pass
             return child.wait()
+        except (money.MoneyWait, subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError):
+            return TEMPFAIL  # A batch freeze or transient I/O is not a refusal of this operation.
         except Exception:
             with money.locked(home, record['id']):
                 ops = _operations(directory, record, policy); op = ops[identity]
@@ -601,6 +615,10 @@ def main():
                 return action(policy, ROOT, CONTROL_HOME, a.operation, key) or 0
             finally: key[:] = b'\0' * len(key)
         if a.command == 'collect':
+            # collect.sh wrote into its controller's state; it must be this operation's launch directory.
+            state = Path(os.environ.get('UNBUG_LAUNCH_STATE', '')).resolve()
+            if state != (CONTROL_HOME / 'launches' / lookup(policy, ROOT, CONTROL_HOME, a.operation)['launch_id']).resolve():
+                raise ValueError('request_refused')
             reconcile(policy, ROOT, CONTROL_HOME)
             collect(policy, ROOT, CONTROL_HOME, a.operation)
         else:
