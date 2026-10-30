@@ -132,9 +132,11 @@ class RenderTests(unittest.TestCase):
         text = self.render([running], None)
         self.assertIn('boat unreadable', text); self.assertNotIn('worker gone', text)
         self.assertIn('unreadable', self.render([running], {'w1'}))
-        for phase in ('pending', 'failed'):
-            text = self.render([row(REJECTED, phase=phase, pending_since='2026-10-30T11:00:00Z')])
-            self.assertIn('launch stuck', text); self.assertNotIn('needs ruling', text)
+        text = self.render([row(REJECTED, phase='pending', pending_since='2026-10-30T11:00:00Z')])
+        self.assertIn('launch stuck', text); self.assertNotIn('needs ruling', text)
+        # A failed launch is terminal, flagged at once rather than after the 30-minute stuck window.
+        text = self.render([row(REJECTED, phase='failed', pending_since='2026-10-30T11:00:00Z')])
+        self.assertIn('launch failed', text); self.assertNotIn('launch stuck', text)
         self.assertNotIn('launch stuck', self.render([row(None, phase='pending')]))
         text = self.render([row(None, phase='not collected')])
         self.assertIn('1 not collected', text); self.assertIn('nothing needs you', text)

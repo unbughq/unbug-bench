@@ -71,7 +71,7 @@ class HolderTests(unittest.TestCase):
             event = json.loads((ROOT / 'tests/factory/fixtures/isolation-timeouts/created.json').read_text())
             (path / 'new.1').write_text(json.dumps(event) + '\n')
             (path / 'ids').write_text(event['id'] + '\n')
-        self.reconcile()
+            self.reconcile()  # Without a creation record yet, the caller reconciles after staging one.
         return self.ops()[identity]
 
     def output(self, op, *, ledger=None, payload=fixtures.CIPHER, total='auto'):
@@ -370,8 +370,10 @@ class HolderTests(unittest.TestCase):
             exits.append((operation, code))
         waits = {}
         with patch.object(holder, 'record_exit', side_effect=record), \
+             patch.object(holder, 'record_child', return_value=0), \
              patch.object(holder, 'reconcile', side_effect=OSError('authored corrupt money')), \
-             patch.object(holder, 'orphaned', return_value=['c', 'e', 'f']):
+             patch.object(holder, 'orphaned', return_value=['c', 'e', 'f']), \
+             patch.object(holder, 'unpublished', return_value=[]):
             key_holder.batch_tick(self.policy, children, waits, lambda op, action: spawned.append((op, action)) or op)
         self.assertEqual(exits, [('a', 1), ('c', holder.TEMPFAIL)])
         # A refused exit record keeps its child for the next tick; a live child is never duplicated.
@@ -547,6 +549,114 @@ class HolderTests(unittest.TestCase):
              patch.object(holder.urllib.request, 'urlopen', side_effect=ConnectionResetError('authored reset')):
             with self.assertRaisesRegex(ValueError, '^publication_failed$'):
                 holder.r2_publish(self.root, 'key', path)
+
+    # Activation readiness: bounded retries, lost-exit, publication replay, terminal status.
+
+    def test_resume_respawn_is_bounded_and_turns_terminal(self):
+        import key_holder
+        op = self.started(self.reserve()); identity = op['operation_id']
+        (self.home / 'launches' / op['launch_id'] / 'monitor.sh').write_text('poll=1\n')
+        self.assertEqual(holder.orphaned(self.policy, self.root, self.home), [identity])
+        children, waits, spawned = {}, {}, []
+        spawn = lambda operation, action: spawned.append((operation, action)) or SimpleNamespace(poll=lambda: 1)
+        with patch.multiple(key_holder, ROOT=self.root, CONTROL_HOME=self.home):
+            for _ in range(40):
+                waits.clear()  # each pass stands in for its backoff window elapsing
+                key_holder.batch_tick(self.policy, children, waits, spawn)
+                if self.ops()[identity]['incident'] == 'resume_failed': break
+        # A failing resume is respawned at most RETRY_LIMIT times, then becomes terminal.
+        self.assertEqual(spawned.count((identity, 'resume')), holder.RETRY_LIMIT)
+        self.assertEqual(self.ops()[identity]['failures'], holder.RETRY_LIMIT)
+        self.assertEqual(holder.orphaned(self.policy, self.root, self.home), [])
+        target, rows = status.read_rows(self.policy, self.root, self.home)
+        self.assertIn('resume failed', status.render(target, rows, None, {}))
+        # A holder restart (fresh children/waits) does not reset the durable count or respawn.
+        before = spawned.count((identity, 'resume'))
+        key_holder.batch_tick(self.policy, {}, {}, spawn)
+        self.assertEqual(spawned.count((identity, 'resume')), before)
+        self.assertEqual(self.ops()[identity]['failures'], holder.RETRY_LIMIT)
+
+    def test_resume_that_completes_is_not_counted(self):
+        op = self.started(self.reserve()); identity = op['operation_id']
+        (self.home / 'launches' / op['launch_id'] / 'complete').touch()
+        # complete means the controller finished its job, so a nonzero exit is not a failure.
+        self.assertEqual(holder.record_child(self.policy, self.root, self.home, identity, 'resume', 1), 0)
+        self.assertEqual(self.ops()[identity]['failures'], 0)
+        self.assertIsNone(self.ops()[identity]['incident'])
+
+    def test_lost_dispatch_exit_fails_without_a_recorded_exit(self):
+        self.concurrency()
+        op = self.started(self.reserve(), created=False); identity = op['operation_id']
+        self.assertIsNone(self.ops()[identity]['dispatch_exit'])
+        # A live owner still holding the operation lock keeps it pending.
+        with holder.operation_lock(self.directory, identity):
+            self.reconcile()
+        self.assertEqual(self.ops()[identity]['state'], 'pending')
+        # Free locks, no creation records, no recorded exit: the dispatch child is gone, so fail it.
+        self.reconcile()
+        self.assertEqual(self.ops()[identity]['state'], 'failed')
+        self.assertEqual(self.ops()[identity]['incident'], 'preflight_refused')
+        # Missing launch directory: reconcile creates the fence, fails the op, and a late start refuses.
+        k = self.reserve('k'); kid = k['operation_id']
+        with money.locked(self.home, self.record['id']):
+            ops = self.ops(); ops[kid].update(dispatch_started=True,
+                launch=dict(argv=['1'], environment={'UNBUG_BATCH_OPERATION': kid}))
+            holder._save(self.directory, self.record, self.policy, ops)
+        path = self.home / 'launches' / k['launch_id']
+        self.assertFalse(path.exists())
+        self.reconcile()
+        self.assertTrue(path.is_dir())
+        self.assertEqual(self.ops()[kid]['state'], 'failed')
+        start = subprocess.run([sys.executable, '-B', str(ROOT / 'factory/control_resume.py'), 'noop'],
+                               capture_output=True, env={'PATH': os.environ['PATH'],
+                               'UNBUG_CONTROL_HOME': str(self.home), 'UNBUG_LAUNCH_ID': k['launch_id']})
+        self.assertNotEqual(start.returncode, 0)
+
+    def test_publication_replay_and_terminal(self):
+        self.concurrency()
+        op = self.started(self.reserve()); self.output(op); identity = op['operation_id']
+        (self.home / 'launches' / op['launch_id'] / 'complete').touch()
+        # A complete launch whose output is collected but never ACKed is listed for replay.
+        self.assertEqual(holder.unpublished(self.policy, self.root, self.home), [identity])
+        with patch.object(holder, '_r2_env', return_value={}), patch.object(holder, 'r2_publish',
+                side_effect=lambda root, key, path: self.objects.update({key: path.read_bytes()})):
+            holder.publish_replay(self.policy, self.root, self.home, identity, b'authored identity')
+        generation = self.ops()[identity]['output_generation']
+        self.assertIn(generation, self.money()['jobs']['j']['acks'])
+        self.assertEqual(holder.unpublished(self.policy, self.root, self.home), [])
+        # Five failed publish children make it terminal and stop the scan.
+        peer = self.started(self.reserve('k')); self.output(peer); pid = peer['operation_id']
+        (self.home / 'launches' / peer['launch_id'] / 'complete').touch()
+        self.assertEqual(holder.unpublished(self.policy, self.root, self.home), [pid])
+        for attempt in range(1, holder.RETRY_LIMIT + 1):
+            expected = 0 if attempt == holder.RETRY_LIMIT else attempt
+            self.assertEqual(holder.record_child(self.policy, self.root, self.home, pid, 'publish', 1), expected)
+        self.assertEqual(self.ops()[pid]['incident'], 'publication_failed')
+        self.assertEqual(holder.unpublished(self.policy, self.root, self.home), [])
+
+    def test_status_flags_terminal_successors(self):
+        for disposition in ('failed', 'retired'):
+            with self.subTest(successor=disposition):
+                self.setUp()
+                op = self.started(self.reserve()); card = self.output(op); self.publish(op)
+                self.retirement(op); self.reconcile()
+                successor = self.reserve(source=card['sha256']); sid = successor['operation_id']
+                if disposition == 'failed':
+                    with money.locked(self.home, self.record['id']):
+                        ops = self.ops(); ops[sid].update(dispatch_started=True,
+                            launch=dict(argv=['1'], environment={'UNBUG_BATCH_OPERATION': sid}))
+                        holder._save(self.directory, self.record, self.policy, ops)
+                    self.reconcile()  # missing dir -> fenced and failed
+                    phase, flag = 'failed', 'launch failed'
+                else:
+                    successor = self.started(successor); self.retirement(successor); self.reconcile()
+                    phase, flag = 'stopped', 'retired without output'
+                target, rows = status.read_rows(self.policy, self.root, self.home)
+                row = next(r for r in rows if r['case'] == op['case'])
+                # The terminal successor is the chain head; the predecessor's collected card is still shown.
+                self.assertEqual(row['phase'], phase)
+                self.assertEqual(row['card']['sha256'], card['sha256'])
+                self.assertIn(op['case'] + ': ' + flag, status.render(target, rows, None, {}))
 
 class ShellWiringTests(unittest.TestCase):
     """Real collect.sh, launch.sh snippets, transfer, collection and r2-presign over subprocess.
