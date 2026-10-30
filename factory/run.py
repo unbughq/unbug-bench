@@ -320,6 +320,33 @@ def provider_continuation(c, receipt, role):
             and receipt.get('lease_id') is None)
 
 
+def writer_intent_valid(receipt):
+    """Durable writer intent: written before admission, required on every resume."""
+    return (type(receipt.get('repair_requested')) is bool and isinstance(receipt.get('before_repair_sha256'), str)
+            and re.fullmatch(r'[0-9a-f]{64}', receipt['before_repair_sha256']) is not None
+            and 'findings_report' in receipt and 'input_problems' in receipt)
+
+
+def complete_writer(c, receipt, path):
+    from registry import atomic_json
+    receipt.update(phase='completed', repair_pending=False, output_sha256=case_hash(c),
+                   binding=attack_binding(c), next_phase='G1')
+    receipt['binding_sha256'] = hashlib.sha256(json.dumps(receipt['binding'], sort_keys=True).encode()).hexdigest()
+    c.card['builder_rounds'] = receipt['round']
+    atomic_json(path, receipt)
+
+
+def writer_call_done(c, receipt):
+    """The CLI exited 0 for this operation, but the kill came before on_complete."""
+    lease = receipt.get('lease_id')
+    if not isinstance(lease, str) or not re.fullmatch(r'[a-f0-9]{32}', lease): return False
+    usage = jload(c.work / 'usage-receipts' / (lease + '.json'), {})
+    row = jload(c.ledger, {}).get('invocation_reservations', {}).get(lease)
+    return (isinstance(usage, dict) and isinstance(row, dict) and usage.get('lease_id') == lease
+            and usage.get('invocation') == f"builder-{receipt['round']}" and usage.get('outcome') == 'done'
+            and row.get('operation_id') == receipt['operation_id'] and row.get('invocation_id') == receipt.get('invocation_id'))
+
+
 def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_admitted=None, deadline=None,
                  extension_proposal=None):
     """One logical writer/stress unit, including all admitted fallback attempts."""
@@ -330,6 +357,8 @@ def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_a
     with model_runtime.dispatch(c, name):
         resume_provider_wait(c)
         authority = job_authority.for_case(c)
+        if role == 'writer' and not (isinstance(receipt, dict) and writer_intent_valid(receipt)):
+            raise BudgetError('writer_intent_missing')
         if extension_proposal is not None:
             import copy
             import extensions
@@ -1174,11 +1203,14 @@ def write_and_attack(c, prev):
             skip_writer = resume_writer_validation
             if resume_writer_validation and receipt.get('output_sha256') != case_hash(c):
                 attack_unresolved(c, 'writer_output_changed')
+            if receipt['phase'] in ('pending', 'completed') and not writer_intent_valid(receipt):
+                attack_unresolved(c, 'invalid_recovery_receipt')
+            if receipt['phase'] == 'pending' and writer_call_done(c, receipt):
+                # The retained final bytes and done receipt share one generation.
+                complete_writer(c, receipt, receipt_path)
+                resume_unit, resume_writer_validation, skip_writer = copy.deepcopy(receipt), True, True
+                c.card.pop('resume_operation', None)
             if resume_writer_validation:
-                if (type(receipt.get('repair_requested')) is not bool or
-                        not isinstance(receipt.get('before_repair_sha256'), str) or
-                        not re.fullmatch(r'[0-9a-f]{64}', receipt['before_repair_sha256'])):
-                    attack_unresolved(c, 'invalid_recovery_receipt')
                 # Completion checkpoints precede validation, including this refusal.
                 # Check before retained findings can trigger freshness/model work.
                 if receipt['repair_requested'] and receipt['before_repair_sha256'] == receipt['output_sha256']:
@@ -1262,7 +1294,8 @@ def write_and_attack(c, prev):
         elif not modern_writer_unit:
             # Historical findings/passes cannot authorize a verdict about changed files.
             report = None
-    if report and problems:
+    # A modern writer receipt carries the exact, already freshness-checked inputs.
+    if report and problems and not modern_writer_unit:
         saved = attack_report(report)
         if saved is not None:
             if saved["unfinished_validation"] and not any(
@@ -1310,20 +1343,14 @@ def write_and_attack(c, prev):
             if modern:
                 if resume_unit and modern_writer_unit and resume_unit['round'] == n and resume_unit['phase'] == 'pending':
                     writer_receipt = {**resume_unit, **writer_receipt}
-                    before_repair = resume_unit.get('before_repair_sha256', before_repair)
-                    repair_requested = resume_unit.get('repair_requested', repair_requested)
+                    before_repair = resume_unit['before_repair_sha256']
+                    repair_requested = resume_unit['repair_requested']
                 writer_receipt.update(actor='writer', before_repair_sha256=before_repair, repair_requested=repair_requested,
                     findings_report=report.name if report else None, input_problems=problems,
                     next_phase='G1', output_sha256=None)
-                def writer_completed():
-                    writer_receipt.update(phase='completed', repair_pending=False, output_sha256=case_hash(c),
-                        binding=attack_binding(c), next_phase='G1')
-                    writer_receipt['binding_sha256'] = hashlib.sha256(json.dumps(writer_receipt['binding'], sort_keys=True).encode()).hexdigest()
-                    c.card['builder_rounds'] = n
-                    atomic_json(receipt_path, writer_receipt)
                 pending_call(c, c.models['builder'], prompt('builder', run_context(c, round=n,
                     attack_report=str(report) if report else None, precheck_problems=problems)), c.case,
-                    f'builder-{n}', writer_receipt, role='writer', on_complete=writer_completed)
+                    f'builder-{n}', writer_receipt, role='writer', on_complete=lambda: complete_writer(c, writer_receipt, receipt_path))
             else:
                 atomic_json(receipt_path, writer_receipt)
                 opencode(c, c.models["builder"], prompt("builder", run_context(c, round=n, attack_report=str(report) if report else None,
