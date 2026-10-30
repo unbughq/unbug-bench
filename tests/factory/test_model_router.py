@@ -25,6 +25,8 @@ import model_router as router
 import model_runtime
 import budget
 import run
+import model_call_gate
+from router_test_support import synthetic_maximum, synthetic_enforcement
 
 FIXTURES = Path(__file__).with_name('fixtures')
 LIMITS = json.loads(gzip.decompress((FIXTURES / 'router-provider-limits.json.gz').read_bytes()))
@@ -33,6 +35,10 @@ PAID = json.loads(gzip.decompress((FIXTURES / 'router-paid-deepseek.json.gz').re
 
 class RouterTests(unittest.TestCase):
     def setUp(self):
+        policy = patch.object(router, 'route_maximum', synthetic_maximum)
+        policy.start(); self.addCleanup(policy.stop)
+        enforcement = patch.object(model_call_gate, 'enforce', synthetic_enforcement)
+        enforcement.start(); self.addCleanup(enforcement.stop)
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.now = [1792510000.0]
@@ -311,7 +317,8 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
     def test_rollout_flag_off_keeps_waiting_past_sixty_seconds(self):
         clock = [1000.0]
         c = SimpleNamespace(work=self.root, card={}, router_model=router.CHAINS[0][0])
-        lease = router.Lease('a'*32, router.CHAINS[0][0], None, 2000, 'free','deepseek','opencode-free')
+        lease = router.Lease('a'*32, router.CHAINS[0][0], None, 2000, 'free','deepseek','opencode-free',
+                             **synthetic_maximum(router.CHAINS[0][0]))
         attempts = [0]
         def admit(*args):
             attempts[0] += 1

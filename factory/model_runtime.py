@@ -22,6 +22,7 @@ import tempfile
 import time
 from budget import BudgetError, run_budgeted, case_spending, require_case_budget, invocation_role
 import model_router
+import model_call_gate
 from model_router import family
 from registry import atomic_json
 
@@ -325,14 +326,23 @@ class ModelRuntime:
                         'retry_after': error.wait.retry_after, 'route': error.wait.route,
                         'account': error.wait.account} for row in prior_waits]
                     raise
-            if family(lease.route) != family(requested):
-                try:
-                    if factory_job(c):
-                        from budget import release_uninvoked
-                        release_uninvoked(c.ledger, lease.lease_id)
-                finally: model_router.finish(lease.lease_id, 'denied', None)
-                raise ValueError('router changed family')
+            if not model_router.valid_lease(lease, requested, getattr(context, 'router_accounts', model_router.ACCOUNTS)):
+                identity = getattr(lease, 'lease_id', None)
+                if isinstance(identity, str) and re.fullmatch(r'[a-f0-9]{32}', identity):
+                    try:
+                        if factory_job(c):
+                            from budget import release_uninvoked
+                            release_uninvoked(c.ledger, identity)
+                    finally:
+                        try: model_router.finish(identity, 'denied', None)
+                        except model_router.RouterUnavailable: pass
+                context.router_unbounded = True
+                context.router_wait = model_router.Wait('unbounded_route', model_router.retry_at('unbounded_route'),
+                    route=requested, lease_id=identity if isinstance(identity, str) and re.fullmatch(r'[a-f0-9]{32}', identity) else None)
+                lease = None
+                continue
             c.model_lease = context.model_lease = lease
+            context.model_cap_used = model_call_gate.empty_usage()
             receipt_row = {'invocation': name, 'requested_model': requested, 'call_group_id': call_group,
                            **asdict(lease), 'outcome': 'admitted'}
             c.card.setdefault('route_receipts', []).append(receipt_row)
@@ -348,6 +358,8 @@ class ModelRuntime:
                         operation_id=operation_id, call_name=name, parent_call_name=getattr(c, 'parent_call_name', None))
                     c.invocation_reservation = context.invocation_reservation = reservation
                 with model_router.running(lease, context.role_cancel) as lost:
+                    model_router._start(lease)
+                    context._model_launch_permit = lease.lease_id
                     if lease.account and not (model_router.SECRETS / lease.account).is_file():
                         raise BudgetError('codex_login_expired' if lease.account == 'codex-auth.json' else 'credential_expiring',
                             provider_failure={'reason': 'credential_expiring', 'scope': 'account', 'model': lease.route})
@@ -404,12 +416,17 @@ class ModelRuntime:
                         receipt = 'usage-receipts/' + lease.lease_id + '.json'
                         (c.work / 'usage-receipts').mkdir(exist_ok=True)
                         atomic_json(c.work / receipt, {'lease_id': lease.lease_id, 'invocation': name,
+                            **{k: getattr(lease, k) for k in model_router.MAXIMUM_FIELDS},
+                            'cap_used': dict(context.model_cap_used),
                             'booked_event_ids': [e['id'] for e in events],
                             'usage_delta': {k: sum(e.get(k, 0) for e in events) for k in ('cost', 'list_cost_usd', 'estimated_subscription_cost_usd')},
                             'events': events, 'unidentified_events': unidentified,
                             'final_usage_known': not invoked or (outcome == 'done' and not unidentified
                                 and case_spending(after)['spent_usd'] is not None
-                                and len(c.card.get('cleanup_errors', [])) == cleanup_before),
+                                and len(c.card.get('cleanup_errors', [])) == cleanup_before
+                                and context.model_cap_used['closed']
+                                and not context.model_cap_used['unknown_requests']
+                                and not context.model_cap_used['in_flight_requests']),
                             'outcome': outcome})
                         if factory_job(c) and lease.lease_id in after.get('invocation_reservations', {}):
                             from budget import complete_invocation
@@ -479,6 +496,11 @@ class ModelRuntime:
         """One isolated CLI per role call (opencode-go/…, codex/…, claude/…), observed ceilings, no silent fallback."""
         if len(models) != 1: raise ValueError("Only one model per role is permitted")
         model = models[0]
+        lease = getattr(c, 'model_lease', None)
+        if (not model_router.valid_lease(lease, model)
+                or c.__dict__.pop('_model_launch_permit', None) != lease.lease_id):
+            raise model_router.ProviderWait(invocation_role(name), model_router.Wait(
+                'unbounded_route', model_router.retry_at('unbounded_route'), route=model))
         case_budget_boundary(c, model, lease_id=getattr(c, 'invocation_reservation', {}).get('lease_id'))
         driver, _, model_id = model.partition("/")
         driver = driver if driver in ("codex", "claude") else "opencode"
@@ -545,7 +567,7 @@ class ModelRuntime:
                    "Bash,Edit,Read,Write" + (",WebSearch,WebFetch" if role in ("writer", "stress_tester") else "")]
             if user:
                 scratch = self._hand_to(c, user, scratch); env["CLAUDE_CONFIG_DIR"] = str(scratch)
-                cmd = ["sudo", "--preserve-env=CLAUDE_CODE_OAUTH_TOKEN,CLAUDE_CONFIG_DIR,DISABLE_AUTOUPDATER,PATH", "-H", "-u", user] + cmd
+                cmd = ["sudo", "--preserve-env=" + ','.join(model_call_gate.ENV_KEYS), "-H", "-u", user] + cmd
         if user:  # the isolated user's dir is private (700): it changes into it itself; the runner never does
             i = cmd.index(user) + 1
             cmd = cmd[:i] + ["sh", "-c", 'cd "$1" && shift && exec "$@"', "sh", str(cwd)] + cmd[i:]
@@ -567,13 +589,14 @@ class ModelRuntime:
                 factory_kwargs = dict(job_authority=job_authority.for_case(c), invocation_id=reservation['invocation_id'],
                                       lease_id=reservation['lease_id'],
                                       on_started=lambda: c.model_process_state.update(started=True))
-            result = run_budgeted(cmd, None if user else cwd, env, transcript, c.ledger, limit,
-                                  max_cost=None if factory_job(c) else c.args.max_cost,
+            with model_call_gate.enforce(lease, env, c.model_cap_used, limit, getattr(c, 'role_cancel', None)) as gate:
+                result = run_budgeted(cmd, None if user else cwd, env, transcript, c.ledger, limit,
+                                      max_cost=None if factory_job(c) else c.args.max_cost,
                                   max_calls=c.args.max_role_calls, max_total_calls=c.args.max_total_calls, driver=driver,
                                   progress_timeout=c.args.no_progress_minutes * 60, max_zero_tokens=c.args.max_zero_tokens,
                                   configured_model=model, resume=(bool(getattr(c.args, "resume", None)) and not getattr(c, "budget_resumed", False))
                                   or getattr(c, "force_budget_resume", False),
-                                  concurrent=factory_job(c) or getattr(c.args, "concurrent_roles", False), cancel=getattr(c, "role_cancel", None),
+                                  concurrent=factory_job(c) or getattr(c.args, "concurrent_roles", False), cancel=gate,
                                   case_budget=getattr(c.args, 'case_budget', 50.0), role=role, invocation_name=name, **factory_kwargs)
             update_case_budget(c)
             c.budget_resumed = True; c.force_budget_resume = False

@@ -1,12 +1,25 @@
 """Offline router and synthetic RAM credentials for legacy execution contracts."""
 import atexit
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import json
 from pathlib import Path
 import tempfile
 import time
 from unittest.mock import patch
 import model_router
+import model_call_gate
+
+
+def synthetic_maximum(route):
+    """Scheduler/argv tests only: never evidence that a real driver is bounded."""
+    return dict(max_usd=50.0, max_input_tokens=1000000, max_output_tokens=32768,
+                price_source='synthetic-test-only')
+
+
+@contextmanager
+def synthetic_enforcement(lease, env, cap_used, timeout, cancel=None):
+    # Every caller of this helper mocks the CLI or runs a synthetic event emitter.
+    yield cancel
 
 
 def offline_router():
@@ -20,6 +33,8 @@ def offline_router():
                    'refresh_token': 'synthetic', 'account_id': 'synthetic'},
         'last_refresh': '2026-10-29T00:00:00Z'}))
     store = model_router.Store(root / 'router.sqlite')
+    stack.enter_context(patch.object(model_router, 'route_maximum', synthetic_maximum))
+    stack.enter_context(patch.object(model_call_gate, 'enforce', synthetic_enforcement))
     stack.enter_context(patch.object(model_router, '_rpc', store.rpc))
     stack.enter_context(patch.object(model_router, 'SECRETS', secrets))
     stack.enter_context(patch.object(model_router, 'WAIT_SECONDS', 0))

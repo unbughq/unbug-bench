@@ -62,7 +62,9 @@ class ModelRuntimeTests(unittest.TestCase):
             with mock.patch.object(model_runtime, 'pinned_cli', lambda kind: kind), \
                  mock.patch.object(model_runtime, 'run_budgeted', budgeted):
                 runtime.call(c, ["claude/claude-opus-5-5"], "hi", c.work, "strong-calibrator-1", user="pilot")
-            assert seen[-1][0][:2] == ['sudo', '--preserve-env=CLAUDE_CODE_OAUTH_TOKEN,CLAUDE_CONFIG_DIR,DISABLE_AUTOUPDATER,PATH']
+            assert seen[-1][0][0] == 'sudo'
+            assert {'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_BASE_URL',
+                    'CLAUDE_CODE_MAX_OUTPUT_TOKENS', 'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS'} <= set(seen[-1][0][1].split('=', 1)[1].split(','))
             assert '-u' in seen[-1][0] and 'pilot' in seen[-1][0], 'Claude tester uses the isolated Unix user'
             u = seen[-1][0].index('pilot')  # the isolated user enters its own private dir; the runner never chdirs there
             assert seen[-1][0][u + 1:u + 4] == ['sh', '-c', 'cd "$1" && shift && exec "$@"'], seen[-1][0][:12]
