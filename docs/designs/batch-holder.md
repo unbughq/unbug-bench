@@ -523,3 +523,142 @@ All diff-1 blockers and majors are accepted. These decisions are added:
   scan is an activation prerequisite.
 - **Exit records.** Only a dispatch child's exit reaches `record_exit`.
   Resume children inherit the legacy minimal environment.
+
+## Activation readiness addendum (2026-10-30)
+
+Baseline 200641d. This increment makes the holder safe to switch on for the
+live practice run. It does not switch it on: `HOLDER_ENABLED` stays `False`
+and no money is spent. The practice run is a separate, parent-approved step.
+
+### Problem
+
+The diff-2 review accepted one major (M1): a resume child that keeps failing
+is respawned about once a second, forever. The activation prerequisites above
+also leave three gaps that can strand or loop a live practice operation:
+
+1. A dispatch child whose exit is lost across a holder restart, or whose
+   `Popen` failed after `dispatch_started=true`, stays `pending` forever and
+   holds the only concurrency slot (passing-review clarification).
+2. A refused publication is never replayed. `collect.sh` keeps the verified
+   bytes, but nothing calls `collect` again (diff-1 resolution).
+3. A terminal operation (preflight refused, retired with no output) is not
+   flagged in `unbug status`, so nobody is told the case is dead.
+
+The holder also imports `factory/budget.py` and `factory/diagnosis.py` during
+publication (`collection_facts` calls `budget.case_spending`/`usage_coverage`),
+but neither file is in `TRUSTED_FILES`. A changed accountant would run under
+an approved policy. Batch-service section 8 asks for that closure before
+activation.
+
+### Change
+
+**Bounded holder retries (M1, N1).** Add one operation field
+`failures` (int >= 0, starts 0). `key_holder.batch_tick` calls a new
+`batch_holder.record_child(policy, root, home, identity, action, code)` for
+every reaped `resume` or `publish` child. Under the nonblocking operation lock
+and the batch lock it decides whether the child finished its job:
+
+- resume: done when `launches/<id>/complete` exists;
+- publish: done when the child exited 0.
+
+If not done, `failures += 1`. At `RETRY_LIMIT = 5` it sets the terminal
+incident `resume_failed` or `publication_failed`. The count is durable, so a
+holder restart does not reset it. `batch_tick` waits `60 * 2**(failures-1)`
+seconds (60, 120, 240, 480 s) before the next spawn, and pops the wait when it
+respawns. A busy operation lock means a live owner; the exit is not counted and
+the holder waits 60 s. `orphaned()` and the new publication scan skip both
+terminal labels. `_reconcile_one` keeps retirement detection running for them,
+so a manually finished launch still frees its slot, and it no longer overwrites
+a terminal label with `creation_unknown`. Dispatch exits keep using
+`record_exit` and the existing 60 s `TEMPFAIL` wait.
+
+**Lost dispatch exit (prerequisite: started orphan, N2).** The dispatch child
+holds `operations/<id>.lock` from preflight until `launch.sh` exits. So a free
+operation lock proves the dispatch child is gone. `_reconcile_one` replaces
+its `dispatch_exit is not None` test with a nonblocking probe of that lock.
+The rest of the no-worker predicate is unchanged (matching `launch.json`, free
+`controller.lock`, no `new.*`, empty `ids`). If the launch directory does not
+exist and the lock is free, reconcile creates it (`mkdir`, mode 0700) before
+marking the operation `failed`/`preflight_refused`. `control_resume.py` creates
+that directory with a plain `mkdir`, so a late `launch.sh` can no longer start
+a worker for this launch ID. `dispatch_exit` stays as a recorded fact only.
+Known ceiling: a dispatch child killed in the microseconds between
+`control_resume`'s `mkdir` and its `launch.json` write stays `pending`.
+
+**Publication replay (prerequisite: holder-driven replay).** Add
+`unpublished(policy, root, home)`: operations with `state=launched`,
+`output_generation=null`, no incident in {`accounting_refused`,
+`legacy_retire`, `publication_failed`}, `launches/<id>/complete` present and
+`collected/<case>.scorecard.json` present. `complete` means the controller
+finished and its workers are deleted, so collection is no longer racing.
+`batch_tick` spawns `batch_holder.py publish --operation <id>` for each, with
+the identity on stdin as for the other children. The child decrypts
+`$UNBUG_SECRETS_FILE` in memory, reads only the four `R2_*` lines of `r2-env`
+into its own environment (the same values `launch.sh` exports for
+`collect.sh`), then runs the existing `reconcile` and `collect`. No new
+publication logic: it is the same idempotent command collect.sh runs.
+
+**Terminal dispositions are visible (prerequisites: retired with no output,
+incidents on retired operations).** These stay terminal and money-safe: the
+full hold stays committed, no retry identity is issued, and the operation ID
+stays consumed. A retry could spend the same hold twice, because the restored
+ledger cannot include the lost attempt's spend. `batch_status` adds the row's
+operation incident and a `failures` count, and `render` flags:
+`resume failed`, `publication failed`, `launch failed` (any `failed`
+operation, immediately, replacing the 30-minute `launch stuck` for failed
+rows) and `retired without output`. `active` ignores failed operations (N3).
+
+**Trusted closure.** Add `factory/budget.py` and `factory/diagnosis.py` to
+`TRUSTED_FILES`. Their local imports (`token_prices`, `recovery`, `registry`)
+are already pinned. This changes the holder fingerprint; the practice batch
+needs a new policy anyway.
+
+### Not in this increment, and why
+
+- **Per-reason retry identities for positive precreation refusals.** Positive
+  refusals are deterministic (fingerprint, recipient, inventory ownership,
+  account labels). The fix for one is a new release, and the release hash is
+  in the operation ID, so the fixed release already gets a fresh identity. In
+  the practice run a refusal stops the case at zero spend and status says
+  `launch failed`. This stays an activation prerequisite for the 24-case batch.
+- **new-batch-service-3** (malformed diagnosis state). Only reachable with
+  `DIAGNOSIS_ENABLED`, which stays `False` for the practice run.
+- **The practice manifest, policy, secrets and VM deployment.** These are the
+  live test's own steps, listed in the report to the parent.
+- **Automatic successor dispatch.** The successor launch from the collected
+  generation is the existing CLI request
+  `key_holder.py launch --batch <id> --job <job> --checkpoint <generation>`.
+
+### Deletes
+
+The `dispatch_exit` gate in `_reconcile_one`. The unbounded resume respawn.
+
+### Tests (tests/factory/test_batch_holder.py)
+
+1. A resume whose `launch.sh` exits 1 at once is spawned once per wait window
+   (real `batch_tick`, real `orphaned`, real `record_child`; the child process
+   is the only double). After five failures the operation carries
+   `resume_failed`, `orphaned()` is empty, and status flags `resume failed`.
+   A holder restart (fresh `waits`) does not reset the count.
+2. A resume that leaves `complete` is not counted.
+3. Lost dispatch exit: started operation, no exit recorded, free locks, no
+   creation records: reconcile fails it. The same state with the operation
+   lock held stays `pending`. Missing launch directory: reconcile creates it,
+   fails the operation, and a real `control_resume.py` start for that launch
+   ID then refuses.
+4. Publication replay: a refused first publication (transport raises), launch
+   `complete`, then the real `unpublished` lists it and the real `publish`
+   command path (secrets decryption is a double at the age boundary) publishes
+   and ACKs it; it is then not listed. Five failed publishes give
+   `publication_failed` and stop the scan.
+5. Status flags for failed, retired-without-output and both terminal labels.
+6. N4: `serve` with gate on accepts `$UNBUG_CONTROL_HOME/policy.json`.
+   N5: `batch_tick` with the real `reconcile` and a corrupt `money.json` keeps
+   running and still runs the other scans.
+7. `TRUSTED_FILES` contains budget.py and diagnosis.py (existing pin tests).
+
+### Murphy rows
+
+None closed. Rows 6, 27, 28, 35, 51 and new-batch-service-3 need the live
+practice run. This increment narrows 6 (publication replay) and 51 (holder
+restart recovery) but proves neither on a real VM.
