@@ -775,9 +775,13 @@ resumes, extensions and ordinary work, FIFO within each class. Blocked requests
 retain their place without blocking later eligible requests. Capacity, deadline
 and money admission still apply. Rebind starts at the current persisted source
 and advances along acknowledged collection lineage; stale A→B→A refuses.
+The extension priority class comes only from a verified same-owner section8
+money_wait.priority request. It is money scheduling metadata, not extension
+eligibility. Without such a request, use ordinary continuation priority; never
+infer the class from close_to_passing or another public outcome.
 
 Diagnosis adds no launch mode, flags or frozen-config fields. B uses D's pure
-exhaustion/actual-work eligibility function and content-free pending-diagnosis
+diagnostic predicates (consistency checks only) and content-free pending-diagnosis
 projection, not a predicate re-derived from public stop labels/spend/counters.
 B relaunches the exhausted original through the ordinary same-owner launch;
 the worker reads its authenticated restored card, settles, requires a known
@@ -920,18 +924,30 @@ and unchanged input. Exceptions refuse this entry. D's host module and local
 dependencies must enter the trusted import closure in the activation review;
 this increment never loads that draft module in production.
 
+Activation prerequisite from reviewed D section8: before using any D facts for
+projection-based scheduling, the collected card must have a top-level
+diagnosis_state object, or an authenticated explicit import/migration record.
+No such import-record format is accepted by this increment. Missing/non-object
+diagnosis_state therefore refuses planning with legacy_projection_unbound,
+leaving facts and queue unchanged, including for entries collected while the
+adapter was off. This is provenance checking, not a copied stop predicate;
+D still owns validation of the object's contents. It creates no legacy resume
+as a way around import. Existing independently authorized work is unaffected.
+Implement and test this gate before adapter activation; 2b.1's authored API
+tests alone are not evidence that this later prerequisite is implemented.
+
 Use a pure projection wrapper and queue transition for authored contract tests;
 they cannot issue money or launch. Persist D's returned facts bound to the entry
 key. Parent ruling 2026-10-30: first derivation requires a present pending
 projection with replacement_eligible:true, with both predicates true as the
 contract consistency check. A None projection never creates a child, whatever
 the predicates say; B does not copy D's stop predicates. Queue an ordinary
-same-owner resume when pending_projection is present or the exhausted total is
+same-owner resume, after the provenance gate above, when pending_projection is present or the exhausted total is
 unknown as below. This combines D's API
 answers; B never inspects events/tokens/receipts to recreate eligibility. Preserve
 the original API projection verbatim in the journal. replacement_eligible:true
 with either predicate false refuses as a D contract violation. An exhausted
-parent whose case_budget.total_spent_usd is null or absent always gets the
+parent that passes that provenance gate and whose case_budget.total_spent_usd is null or absent always gets the
 same-owner settlement resume, even when pending_projection is None. This is the
 only total field B reads; missing case_budget or total is unknown, never zero.
 Stored facts win on
@@ -1121,6 +1137,14 @@ must not continue admitting other owners from a stale lower total. Persist that
 incident before releasing the batch lock; restart preserves the freeze. This
 batch-wide fail-closed state and its reconciliation transition are explicit
 holder-schema prerequisites, not implemented by this pure function.
+The holder addendum must clear the freeze automatically after later authentic
+same-owner evidence covering each refused collection is successfully ACKed and
+every implicated accounting incident is reconciled. Recompute the full batch
+aggregate under the lock before permitting admission; known overruns still
+count in full and keep the overrun owner's authority blocked. Repeated refused
+evidence, missing lineage or unresolved incidents never clear the freeze. No
+routine founder approval is required for evidence-backed reconciliation; without
+proof the batch remains operationally blocked, never scored as a case failure.
 
 This proof only permits the eventual same-owner, same-revision settlement path
 after durability and retirement. It grants no increase, new revision,
@@ -1201,11 +1225,12 @@ These production state-machine/file formats still require the holder review;
 this proof-only draft does not relax current fresh-only refusal.
 
 Projection handling follows the explicit parent ruling and diff12:
+apply the diagnosis_state/import provenance gate above before acting on D facts.
 first derivation requires present replacement_eligible:true, with the two bool
 predicates as consistency checks. None never derives. Preserve an existing
 valid child and its original eligible generation across later None projections.
 B copies no stop predicates or actual-work eligibility rules. Unknown exhausted
-owners retain settlement priority even with None. An eligible child can be
+owners passing that provenance gate retain settlement priority even with None. An eligible child can be
 queued immediately, but admission waits for known settlement collection/ACK,
 not for the diagnosis outcome. J-to-J-r1-to-J-r2 has distinct owners and no
 call-count/ordinal cap; money/deadline and simultaneous capacity remain bounds.
@@ -1247,13 +1272,22 @@ D interface review18 adds three explicit B obligations to the final 2b.2 review:
 the old predicate-fallback sentence above is deleted; extensions defer to D's
 eligibility and section8 money; and an actual D projection integration test must
 show infrastructure exhaustion with actual work derives no child both while
-pending and after completion. Use D's retained 5813be-based projection fixture
-and public diagnosis API (8b8ece6 supplies the completed-state regression as
+pending and after completion. Name tests/factory/test_stream_d_projection.py
+at D's reviewed merged implementation SHA in the final review. Its infrastructure
+states are authored D states layered on the real paused5813be card, not saved
+infrastructure-exhaustion artifacts. Use that fixture and public diagnosis API
+(8b8ece6 supplies the completed-state regression as
 supporting evidence, not merged-code authority). Feed those returned facts to
 B's journal with clearly authored collection bindings. Pending must yield
 replacement_eligible:false and no child; completed must yield None and no child
 even if both predicates remain true. Preserve existing deterministic two-child,
 same-parent replay and changed-projection tests. No B stop predicates are added.
+Also pass an authored legacy exhausted state with actual work but no
+diagnosis_state through D's real pending_projection. Even when that projection
+is present and eligible, B must refuse with legacy_projection_unbound, create
+neither child nor resume request, and leave journal bytes/facts unchanged. Cover
+known and unknown totals and a pre-existing facts:null entry collected with the
+adapter off. No import fixture may bypass the absent reviewed import format.
 
 The later integration exam additionally proves durable ACK replay, rollback at
 every pointer/money/config boundary, source A-to-B-to-A refusal, retired-old-worker
