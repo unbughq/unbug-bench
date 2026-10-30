@@ -978,3 +978,222 @@ Delete nothing from legacy live controllers yet; this replaces no launch path.
 Full suite, fresh diff review and parent merge precede further integration.
 The outbox, pointer activation, monetary collection proofs, source transitions,
 capacity dispatch and holder/scoped-restore addendum remain next work.
+
+## Increment2b.2 draft: D collection accounting proofs
+
+Status: D contract read from commits 09b4471 and 1cc880a on
+t3/stream-d-implementation, specifically interfaces.md section 8, "D coverage,
+reconciliation, and diagnosis APIs (increment 3)". These are concrete but
+UNREVIEWED sources. This draft imports neither commit and enables nothing.
+The parent must supply D's passing interface review and reviewed implementation
+SHA before implementation depends on these APIs. Reconcile this draft against
+that exact SHA, run a fresh B design review, then implement and diff-review.
+DIAGNOSIS_ENABLED stays False until the later activation review and practice
+qualification. The separately reviewed present-projection correction implements
+the parent's 2026-10-30 ruling now; it grants no launch authority.
+
+Problem: increment2b.1 authenticates local snapshot bytes and schedules opaque D
+answers, but cannot justify a null total or a lower cumulative total. The
+fresh-only money channel correctly refuses source changes. D now defines the
+missing accountant evidence, so B can specify its consumer without duplicating
+D's event attribution or inferring eligibility from stop labels.
+
+This increment is an offline proof consumer, not the holder/outbox activation.
+Add factory/batch_accounting.py with one pure function:
+collection_facts(card, previous, held, accountant). It returns the next public
+accounting checkpoint described below or raises ValueError with a fixed refusal
+label. accountant is the reviewed budget module in production and an explicitly
+authored API double only in contract tests. No file, network, clock, environment,
+model, crypto or money mutation occurs in this function. Existing
+batch_money.amount supplies exact integer nanodollar validation. Reuse D's
+case_spending and usage_coverage; do not add a tariff, event join, receipt reader,
+spend ledger or new caller-supplied proof endpoint.
+
+The future locked ACK path, not an external requester, supplies card from
+batch_service._snapshot and supplies previous and held from durable host money
+state. These are internal verified inputs; the pure function cannot authenticate
+their provenance or authorize a launch. The next subsection fixes this boundary,
+so a passing pure test cannot be misreported as authenticated resume support.
+
+### Verified inputs and host composition
+
+The card is exactly the immutable public scorecard pinned by the selected
+(case, output generation) journal entry. Its continuation_budget is D's public
+ledger, including invocation_reservations, unpriced_invocations, events,
+wait_settlements and reconciled_decreases. There is no separate public
+usage_coverage field to trust or persist. The output generation is the enclosing
+snapshot digest, never a field injected into D's ledger or records.
+
+For eventual ACK, B must additionally bind this output to its own frozen launch
+operation: batch/job/case/reservation/revision/deadline and that worker's input
+source_generation come from the holder's authenticated configuration and durable
+operation record. Compare the configuration's full nine-field job_money with the
+held authority used for that operation. Never infer the input generation from
+the output digest, a file timestamp, a worker's proposed grant or D's projection.
+The holder operation/output binding and retirement evidence formats are still
+part of the required holder addendum, not invented D card fields. No ACK
+entrypoint or source-changing authorize branch is added in this offline increment.
+
+held is the full unreleased committed_total_usd string for this owner. The future
+money row must retain that value separately if it delivers a lower operating
+commitment. previous is exactly {total_usd, estimated}, where total_usd is null
+or a canonical nine-place string, and estimated maps canonical UUID4 invocation
+IDs to canonical nonnegative nine-place estimated_gap_usd strings. Initial
+fresh authority has previous={total_usd:"0.000000000",estimated:{}}. A missing
+historical ACK is not that initial state and refuses outside an explicit reviewed
+import. This consumer does not make legacy cases executable.
+
+Known totals are read from case_budget.total_spent_usd; missing case_budget,
+null case_budget, missing total or null total means unknown. Any other non-object
+case_budget refuses. Normalize finite, nonnegative JSON numbers/decimal strings
+through Decimal(str(value)), rounding upward once to nine places; bool,
+nonfinite or negative values refuse. Call accountant.case_spending on an
+unchanged copy of continuation_budget, require its total to agree after the same
+normalization with the card total (including null), and reject malformed ledgers.
+Do not sum the reported ordinary and waste subtotals in B. A missing/non-object
+continuation_budget refuses accounting even if the scheduler can display it.
+
+Only the consumed D record shapes and API result shapes have exact field sets;
+do not impose a new closed schema on the entire historical ledger or card.
+For invocation_reservations, use the existing lease-keyed map: each relevant
+row's lease_id must equal its key, invocation_id must be a canonical UUID4,
+state must be pending/estimated/settled, and IDs must be unique. Use the reviewed
+producer validator if it exposes one; do not accept conflicting duplicate IDs.
+The next estimated map contains precisely current state=estimated rows and their
+validated estimated_gap_usd, including zero gaps. It replaces previous.estimated
+on EVERY successful accounting checkpoint, even with a null total or no receipt.
+No consumed-ID set or search of older ledgers is added.
+
+### Null-total coverage
+
+Call accountant.usage_coverage(card.continuation_budget), with no extra argument.
+Its exact result is {schema_version:1, booked_total_usd, covered_total_usd,
+invocations:[{invocation_id,lease_id,wait_ids,maximum_usd,booked_usd,remaining_usd}]}.
+Validate strict schema version, exact keys, canonical money strings/UUID4 IDs,
+nonempty opaque lease strings, sorted unique invocation rows and sorted unique
+wait_ids, and unchanged input. None, malformed output, exceptions or mutation
+refuse the unknown-total checkpoint. A historical stored usage_coverage field
+never substitutes for the API result.
+
+Compare the API's covered_total_usd directly to held. Do not sum its rounded row
+booked/remaining amounts: D sums raw Decimal event charges and remaining maxima
+before rounding upward once. D owns unknown-marker coverage, admitted maxima,
+event deduplication, legacy remainders, waste and lease/invocation joins. B
+does not reproduce them. Missing/unbounded legacy usage therefore refuses through
+the API. Known totals must also be <= held; an accounting overrun refuses new
+authority and remains an operational incident, never a zero or a refund.
+
+This proof only permits the eventual same-owner, same-revision settlement path
+after durability and retirement. It grants no increase, new revision,
+replacement admission, diagnosis or extension while total is unknown. A lower
+operating commitment cannot lower the full held amount in batch conservation.
+Calls remain telemetry; neither calls nor max_total_calls enters this consumer.
+
+### Decrease receipts and ACK values
+
+Read continuation_budget.reconciled_decreases as a list (absent means empty;
+null/non-list refuses). Each record has EXACTLY the D keys:
+schema_version, kind, invocation_id, wait_id, receipt_sha256,
+booked_before_usd, previous_estimate_usd, actual_charge_usd, released_usd.
+Require integer schema_version=1, kind="reconciled_decrease", canonical UUID4
+invocation_id, null or canonical UUID4 wait_id, lowercase 64-hex digest, and the
+four canonical nonnegative nine-place money strings. Check exactly in
+nanodollars:
+released_usd = booked_before_usd + previous_estimate_usd - actual_charge_usd,
+with released_usd > 0. Identity is invocation_id alone. Identical repeated
+records count once; conflicting duplicates refuse. Hash equality alone never
+identifies a release, and different hashes cannot multiply one invocation.
+
+D owns final-private-receipt retention, final-known state, hash/lease validation,
+event valuation and settlement transition. B does not decrypt or claim to
+verify those private invariants. The current public reservation for a record
+must be settled. Qualification requires its ID in previous.estimated and
+0 < released_usd <= that immediately previous estimated gap. Valid records for
+estimates created and released entirely within this worker run contribute zero;
+absence from the previous map is not itself a refusal. Historical records
+remain harmless after their invocation leaves that map.
+
+Let P=previous.total_usd, T=the new normalized total, R=sum of qualifying releases,
+and k=number of distinct qualifying invocation IDs. Evaluate qualification even
+if P or T is null. epsilon is k+1 nanodollars if k>0, otherwise zero.
+When P and T are known, accept only T >= P-R-epsilon. With no qualifying record,
+any decrease refuses. Null T must instead pass the coverage/held checks above.
+Null P with known T permits T<=held after the same owner/collection checks.
+The tolerance never reduces held authority or creates new batch headroom.
+
+Return exactly {total_usd, estimated, reconciled_decreases}. The last field is
+the sorted list of qualifying original D records, once per invocation. The
+future ACK binds these records to old/new totals and the enclosing collected
+generation plus snapshot manifest digest. It records an accounting replacement,
+never a negative spend event. It persists the new estimated map and total in
+one money-state write; no journal-only "ACK" may advance authority.
+Replay of the already-ACKed generation returns its saved ACK before re-evaluating
+against the now-replaced map. A different snapshot at the same generation
+refuses under existing immutable collection rules. This is why generation-keyed
+replay belongs around the pure consumer, not inside D's receipt identity.
+
+### Source transition and scheduler integration gates
+
+The next holder/outbox addendum must compose this proof with the existing
+publication order: immutable local collection, R2 PUT plus GET/hash proof for
+all bound members, one verified current pointer switch, then durable money ACK.
+Pointer-before-ACK recovery completes that same candidate; dispatch requires
+pointer and ACK agreement. A bare local snapshot or pointer alone never admits
+a successor. Missing/unreachable worker retains ownership and its full hold;
+retirement must be positively proved before launch. Collection may ACK a
+quiescent live worker, but ACK alone cannot retire it.
+
+For known totals, an admitted ordinary resume advances revision exactly by one
+and binds source to the new ACKed generation. For unknown totals, preserve
+reservation/revision/deadline and full host hold, deliver the same or lower
+operating amount, and advance source only along that owner's acknowledged
+lineage. Persist the old/new source transition before producing a new immutable
+config; repair its money projection on replay. The installer must advance its
+authenticated checkpointed job-money copy and history before D compares it to
+RAM configuration. Old source replay, including A-to-B-to-A, refuses. No live
+worker authority update, alternate launch mode or counter reset is allowed.
+These production state-machine/file formats still require the holder review;
+this proof-only draft does not relax current fresh-only refusal.
+
+Projection handling follows the explicit parent ruling and diff12:
+first derivation requires present replacement_eligible:true, with the two bool
+predicates as consistency checks. None never derives. Preserve an existing
+valid child and its original eligible generation across later None projections.
+B copies no stop predicates or actual-work eligibility rules. Unknown exhausted
+owners retain settlement priority even with None. An eligible child can be
+queued immediately, but admission waits for known settlement collection/ACK,
+not for the diagnosis outcome. J-to-J-r1-to-J-r2 has distinct owners and no
+call-count/ordinal cap; money/deadline and simultaneous capacity remain bounds.
+
+### Tests, deletion and delivery
+
+Planned tests: tests/factory/test_batch_accounting.py. Run the reviewed D APIs
+on unmodified saved 5813be/e15450 ledgers for legacy/unbound behavior; clearly
+label authored owner/ACK bindings and receipt transitions separately. The API
+double only proves wrapper shape/purity, not real accounting. Required cases:
+known increases; unsupported decrease; receipt-backed 10-to-8; duplicate and
+conflicting records; leaf-order permutations; an in-run estimate absent from
+the previous map; estimated-to-settled once then growing final receipts;
+null-P/null-T ACK sequences updating the map each time; exact P-R-epsilon
+boundary and one nanodollar below; null total covered once at full held amount;
+booked 3 under maximum 10 covers 10, never 13; sub-nanodollar valuations;
+unbound legacy events; missing maximum/unknown waste; and malformed metadata.
+Assert adding/replaying reconciliation metadata changes no D case_spending
+total. A fake API that mutates input or returns an extra field must refuse.
+
+The later integration exam additionally proves durable ACK replay, rollback at
+every pointer/money/config boundary, source A-to-B-to-A refusal, retired-old-worker
+requirement, distinct replacement owners and exact two-child chain, plus
+tester/reviewer capacity before G10. Only the authorized practice case may spend,
+under $3 model and $1 infra, one worker at a time with verified deletion. Record
+IDs and receipts. This draft performs none of those live actions.
+
+Delete no live path in this increment. It replaces the speculative accounting
+proof language in the increment2 addendum with the concrete 1cc880a contract,
+subject to D review changes; it creates no second money ledger. Target cost is
+one offline implementation/review increment after the reviewed D code lands.
+Risks are a changing draft producer contract and mistakes at ACK/state boundaries;
+the gates above keep them away from launch authority. Full suite and a fresh
+diff review remain mandatory. Builds toward rows6,27,28,35,51; closes none
+without the required real lifecycle artifacts. Migration command/qualification
+and holder/scoped-restore work remain separately gated as specified above.
