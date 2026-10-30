@@ -433,6 +433,11 @@ unwired boundary with no blockers or majors. Its four nits are incorporated.
 The first-admission seam is implemented and awaits its full suite and fresh
 diff review; the remaining extension obligations below are still open.
 
+`stream-d-active-extension-state.md` proposes the next recovery prerequisite:
+preserving the diagnosis that admitted an active extension and checking its
+private exhaustion binding. It is awaiting design review, and does not yet
+resolve the writer-intent or continuation obligations below.
+
 For B1, replace the implicit `active_extension_id` budget-bypass test with an
 explicit `pending_call(..., extension_proposal=...)` path. Under the existing
 dispatch lock, immediately before reservation, require exact equality with a
