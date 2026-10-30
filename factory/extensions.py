@@ -4,6 +4,7 @@ Admission consumes an already reserved writer lease, never a model's permission
 or a round allowance. All private state lives outside current gate results.
 """
 import copy
+import errno
 import hashlib
 import json
 import os
@@ -258,6 +259,34 @@ def propose(c, snapshot):
             raise BudgetError('extension_comparison_pending')
     return {'extension_id': len(history) + 1, 'round': c.card.get('builder_rounds', 0) + 1,
             'entry': copy.deepcopy(snapshot), 'exhaustion_id': state['exhaustion_id']}
+
+
+def verify_proposal(c, proposal):
+    """Verify a fresh proposal and current bytes without publishing admission."""
+    import job_authority
+    from diagnosis import _input_bytes
+    if (not isinstance(proposal, dict) or set(proposal) != {
+            'extension_id', 'round', 'entry', 'exhaustion_id'} or
+            type(proposal['extension_id']) is not int or type(proposal['round']) is not int or
+            proposal['extension_id'] < 1 or proposal['round'] < 1):
+        raise BudgetError('extension_reservation_mismatch')
+    if propose(c, proposal['entry']) != proposal:
+        raise BudgetError('extension_reservation_mismatch')
+    entry = proposal['entry']
+    if (entry['source_generation'] != job_authority.for_case(c).source_generation or
+            entry['case_sha256'] != digest(tree(c.case))):
+        raise BudgetError('extension_snapshot_changed')
+    for name, expected in entry['evidence'].items():
+        try:
+            data = _input_bytes(c.work / name, c.work)
+        except (FileNotFoundError, ValueError):
+            raise BudgetError('extension_snapshot_changed') from None
+        except OSError as error:
+            if error.errno in (errno.ELOOP, errno.ENOTDIR, errno.ENXIO, errno.EISDIR):
+                raise BudgetError('extension_snapshot_changed') from None
+            raise
+        if hashlib.sha256(data).hexdigest() != expected:
+            raise BudgetError('extension_snapshot_changed')
 
 
 def admit(c, proposal, lease, operation_id):

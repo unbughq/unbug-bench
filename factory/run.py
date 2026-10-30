@@ -320,7 +320,8 @@ def provider_continuation(c, receipt, role):
             and receipt.get('lease_id') is None)
 
 
-def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_admitted=None, deadline=None):
+def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_admitted=None, deadline=None,
+                 extension_proposal=None):
     """One logical writer/stress unit, including all admitted fallback attempts."""
     from budget import reserve_invocation, release_uninvoked
     import job_authority
@@ -329,19 +330,37 @@ def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_a
     with model_runtime.dispatch(c, name):
         resume_provider_wait(c)
         authority = job_authority.for_case(c)
+        if extension_proposal is not None:
+            import copy
+            import extensions
+            if (role != 'writer' or not isinstance(receipt, dict) or receipt.get('actor') != 'writer' or
+                    type(receipt.get('round')) is not int or receipt['round'] < 1 or
+                    set(receipt) & {'schema_version', 'operation_id', 'phase', 'lease_id',
+                                    'invocation_id', 'resumed_from_wait', 'extension_id'}):
+                raise BudgetError('extension_reservation_mismatch')
+            extension_proposal = copy.deepcopy(extension_proposal)
+            extensions.verify_proposal(c, extension_proposal)
+            if receipt['round'] != extension_proposal['round'] or name != 'builder-' + str(receipt['round']):
+                raise BudgetError('extension_reservation_mismatch')
         lease = model_router.await_lease(role, c, deadline)
-        operation = receipt.get('operation_id') or str(uuid.uuid4())
+        operation = (str(uuid.uuid4()) if extension_proposal is not None else
+                     receipt.get('operation_id') or str(uuid.uuid4()))
         prior_operation = getattr(c, 'model_operation_id', None)
         c.model_operation_id = operation
         try:
             maximum = model_runtime.invocation_maximum(c, lease)
-            if role == 'writer' and not getattr(c, 'active_extension_id', None):
+            if extension_proposal is not None:
+                extensions.verify_proposal(c, extension_proposal)
+            elif role == 'writer':
                 _, summary = update_case_budget(c)
                 if summary['spent_usd'] is None or summary['spent_usd'] + float(maximum) > summary['ordinary_limit_usd']:
                     raise BudgetError('budget_exhausted')
             reservation = reserve_invocation(c.ledger, lease, maximum, job_authority.for_case(c),
                 operation_id=operation, call_name=name)
-            if on_admitted is not None: on_admitted()
+            if extension_proposal is not None:
+                extension = extensions.admit(c, extension_proposal, lease, operation)
+                receipt['extension_id'] = extension['extension_id']
+            elif on_admitted is not None: on_admitted()
             def admitted():
                 row = c.invocation_reservation
                 receipt.update(schema_version=2, operation_id=operation, phase='pending', lease_id=c.model_lease.lease_id,
@@ -350,6 +369,7 @@ def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_a
                 if role == 'writer': c.card['builder_rounds'] = receipt['round']
             c.model_lease, c.invocation_reservation = lease, reservation
             admitted()
+            if extension_proposal is not None and on_admitted is not None: on_admitted()
             return opencode(c, models, text, cwd, name, lease=lease, before_attempt=admitted,
                             on_complete=on_complete, deadline=deadline)
         except BaseException:

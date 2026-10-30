@@ -69,9 +69,12 @@ an invalid entry snapshot retains the existing `extension_snapshot_invalid` labe
 changed case/evidence bytes become `extension_snapshot_changed`. Existing
 eligibility and authority errors retain their labels. For evidence reads,
 `FileNotFoundError`, the `_input_bytes` unsafe-path/nonregular `ValueError`
-cases and `OSError` with `errno.ELOOP`, `errno.ENOTDIR` or `errno.ENXIO` all become
+cases and `OSError` with `errno.ELOOP`, `errno.ENOTDIR`, `errno.ENXIO` or
+`errno.EISDIR` all become
 `extension_snapshot_changed`. ENOTDIR covers an evidence parent replaced by a
-file; ENXIO covers a socket/nonregular object rejected by open.
+file; ENXIO covers a socket/nonregular object rejected by open. EISDIR covers a
+directory rejected by `fdopen` before the reader reaches its regular-file check,
+as observed in the real-directory refusal control on Python 3.14/macOS.
 ELOOP covers a leaf symlink appearing between the ancestor check and no-follow
 open. Other filesystem failures, including permission denial and EIO, propagate
 as infrastructure, as in the passed diagnosis correction; they are not converted
@@ -205,3 +208,19 @@ admission, plus the existing immutable copy after reservation. Each `propose`
 and `admit` also verifies retained history snapshots: at most five prior rows,
 plus their retained comparison pairs. These are existing verification reads,
 not a new history cache or trust shortcut.
+
+## Implementation boundary
+
+The first-admission seam is implemented in `extensions.verify_proposal` and the
+optional `run.pending_call(..., extension_proposal=...)` branch. There is still
+no production caller. The old context-attribute bypass is removed; ordinary
+writer calls always enforce the ordinary limit. The existing stress callback
+order, reservation wrapper and continuation paths are unchanged.
+
+`tests/factory/test_stream_d_admission.py` adds 18 offline controls using the
+fixtures and substitutions described above. The combined admission, extension,
+runtime and diagnosis-dispatch run passed 100 tests. The first focused run
+exposed the directory EISDIR behavior documented above; its real-reader control
+now passes without changing the shared reader. Full-suite and fresh diff-review
+results belong in the review record. No Murphy row closes and no live extension
+or money activation is claimed.
