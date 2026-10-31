@@ -263,3 +263,27 @@ hold, three-resume retirement; extension limits/progress and all outcomes throug
 B checkpoint/money adapters. Real artifact proofs are required before any row
 closure. Run full required suite to unique committed log, wait for result, then
 fresh independent diff review. Never self-verify a blocking fix.
+
+## Pre-implementation clarification (review 9 MIN-1–MIN-3)
+
+factory_waste._attempt is ContextVar('factory_waste_attempt', default=None).
+attempt(c, stage, case_sha256) is a contextmanager, yielding the private Attempt
+object and resetting its ContextVar token in finally. It captures resume_scope's
+validated link on entry; on exit, successful complete replay attempts and escaping
+InvalidInfra attempts publish according to the rules above. record_reservation(c,
+row) is called by ModelRuntime immediately after admission. current_attempt()
+returns the current private object or None for owner-server integration.
+Attempt.unpublishable is a locked boolean; mark_unpublishable(reason) sets it and
+retains a private cleanup diagnostic. classify(c, finding, admission=None) has
+the accountant behavior above. eligible(evidence_root,case,finding_id) and
+resume_scope(c,stage,case_sha256) have the signatures specified above.
+
+The exact phase-3 BudgetError wrap vocabulary is money_wait,
+invalid_provider_wait, usage_reconciliation_while_active,
+usage_reconciliation_pending, invalid_waste_attribution and
+waste_attribution_mismatch. FactoryBugHeldWait.reason and the card's
+factory_bug_wait_reason preserve that exact label. Post-admission filesystem
+failure adds factory_bug_resume_io_wait. Pre-admission validation, expired-chain
+retired_batch_bound and B retirement semantics stay outside this mapping.
+Unexpected BudgetErrors retain their existing semantics; do not silently expand
+the vocabulary.
