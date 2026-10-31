@@ -17,6 +17,8 @@ import budget
 import durable_checkpoint
 import extensions
 import model_runtime
+import model_router
+from run_validity import InfrastructureExhausted
 import registry
 import run
 import test_stream_d_extensions as states
@@ -49,11 +51,17 @@ class ExecutionTests(unittest.TestCase):
                      'models_used': {'attacker-8': 'old'}}
         self.calls = []
         self.kill = None
+        self.failure = None
         self.findings = []
         def invoke(rt, c, models, text, cwd, name, **kwargs):
             c.model_process_state['started'] = True
             self.calls.append(name)
             if name == self.kill: raise runtime.Killed()
+            if self.failure == ('writer', name):
+                raise budget.BudgetError('provider_limit:' + c.model_lease.route,
+                    provider_failure={'reason': 'quota', 'scope': 'account', 'model': c.model_lease.route})
+            if self.failure == ('stress', name):
+                raise InfrastructureExhausted('authored stress transport exhaustion')
             if name == 'builder-9': (self.case / 'draft.txt').write_text('authored changed draft')
             elif name == 'attacker-9':
                 (self.work / 'attacks/round-9.json').write_text(json.dumps({
@@ -151,6 +159,55 @@ class ExecutionTests(unittest.TestCase):
         self.kill = None
         self.execute()
         self.assertEqual(self.calls, ['builder-9', 'builder-9', 'attacker-9'])
+
+    def test_writer_provider_wait_resumes_same_intent_through_loop(self):
+        original = self.saved()
+        frozen = lambda r: {k: v for k, v in r.items() if k not in extensions._WRITER_MUTABLE}
+        history = (self.work / 'extension-history.json').read_bytes()
+        self.failure = ('writer', 'builder-9')
+        with self.assertRaises(model_router.ProviderWait) as caught: self.execute()
+        self.assertEqual(str(caught.exception), 'provider_wait')
+        run.write_provider_wait(self.c, caught.exception)
+        self.assertEqual(self.c.card['terminal_stop'], 'provider_wait')
+        self.assertEqual(self.calls, ['builder-9'])
+        self.c.provider_resume_done = False
+        self.c.model_resume_state['done'] = False
+        run.resume_provider_wait(self.c)
+        resumed = self.saved()
+        self.assertIsNone(resumed['lease_id'])
+        self.assertIsNone(resumed['invocation_id'])
+        self.assertTrue(run.provider_continuation(self.c, resumed, 'writer'))
+        self.assertEqual(frozen(resumed), frozen(original))
+        self.failure = None
+        categories = run.stress_categories
+        def before_stress(*args):
+            completed = self.saved()
+            self.assertEqual(frozen(completed), frozen(original))
+            self.assertEqual(completed['operation_id'], self.row['writer_operation_id'])
+            self.assertNotEqual(completed['lease_id'], original['lease_id'])
+            return categories(*args)
+        with patch.object(run, 'stress_categories', side_effect=before_stress): self.execute()
+        self.assertEqual(self.calls, ['builder-9', 'builder-9', 'attacker-9'])
+        self.assertEqual((self.work / 'extension-history.json').read_bytes(), history)
+        self.assertEqual(self.saved()['next_phase'], 'extension_comparison')
+        self.terminal_replays('extension_comparison_pending')
+
+    def test_stress_infrastructure_exhaustion_resumes_only_stress(self):
+        self.failure = ('stress', 'attacker-9')
+        with self.assertRaises(InfrastructureExhausted) as caught: self.execute()
+        # main maps this exact exception type to infrastructure_exhausted; it is
+        # not a BudgetError or a scientific stress finding.
+        self.assertNotIsInstance(caught.exception, budget.BudgetError)
+        interrupted = self.saved()
+        self.assertEqual((interrupted['actor'], interrupted['phase']), ('stress_tester', 'pending'))
+        self.assertNotIn('exhausted', interrupted)
+        self.assertNotEqual(self.c.card.get('stress_review', {}).get('status'), 'completed')
+        self.failure = None
+        self.execute()
+        self.assertEqual(self.calls, ['builder-9', 'attacker-9', 'attacker-9'])
+        self.assertEqual(self.saved()['operation_id'], interrupted['operation_id'])
+        self.assertEqual(self.saved()['next_phase'], 'extension_comparison')
+        self.terminal_replays('extension_comparison_pending')
 
     def test_invalid_round_limit_refuses_before_execution(self):
         receipt = self.saved(); receipt['round_limit'] = 8

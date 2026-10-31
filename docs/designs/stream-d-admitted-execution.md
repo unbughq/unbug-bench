@@ -150,3 +150,20 @@ and tests/factory/test_stream_d_execution.py.
 
 Existing ordinary freshness/category suites cover these semantics unchanged;
 new execution tests check retry admission cannot cross the one-writer ceiling.
+
+
+## Diff-review clarification: freshness recovery and audit setup
+
+This increment preserves binding-keyed freshness-verdict.json recovery. It does
+not preserve the secondary scorecard-only loop_freshness.verdict_path through
+apply, because that key is not in CARRY. A kill after reviewer completion but
+before the binding receipt write can therefore cost one extra reviewer call,
+charged under the same batch bound. The next full-package increment must carry
+that fallback as part of freshness integration. This is a narrower recovery
+guarantee, not permission to reroll a completed admitted round.
+
+Audit prepare may copy an audit workspace before dispatch refuses the mode; the
+refusal precedes Compose, model selection and model work, not that earlier local
+copy. The required provider-wait and infrastructure-interruption loop tests are
+now explicit in test_stream_d_execution.py. The exception-type assertion for
+InfrastructureExhausted checks the exact type main maps to infrastructure_exhausted.
