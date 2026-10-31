@@ -635,8 +635,7 @@ FACTORY_DEFER_WIPE=1 FACTORY_OPENCODE_BIN=/usr/local/bin/opencode FACTORY_RUNNER
 }
 batch_status=0
 if [ "${UNBUG_RESUME_LAUNCH:-}" = 1 ]; then
-  guard_ids > "$state/all-ids"
-  cp "$state/all-ids" "$state/ids"
+  guard_ids persist || exit 1
   guard_wait || batch_status=1
   exit "$batch_status"
 fi

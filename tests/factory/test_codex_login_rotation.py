@@ -160,7 +160,7 @@ class CleanupTests(unittest.TestCase):
         script = '''
 root=$1; state=$2; primary=$3; cleanup_fail=$4
 . "$root/bin/boat-launch-guards.sh"
-guard_ids() { echo synthetic; }
+guard_ids() { echo synthetic > "$state/ids"; }
 guard_retire() { [ "$cleanup_fail" = no ] || return 1; touch "$state/$1.deleted"; }
 boat() { printf '{"sandboxes":[]}'; }
 UNBUG_LAUNCH_STATE=$state; spend_file=""; bundle=""
