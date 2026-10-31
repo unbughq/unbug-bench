@@ -219,3 +219,11 @@ synthetic control home; otherwise unknown liability from the first scenario woul
 prevent all later scenarios from exercising their intended paths. This is test
 isolation, not a production reset mechanism. Cross-launch refusal stays tested
 in test_isolation_timeouts.py.
+
+
+Full-suite compatibility: test_gate_smoke.py now asserts same-home second-launch
+refusal, then uses an independent synthetic home for its remote-failure scenario.
+The public batch integration test now proves first-worker interruption/collection/
+deletion, retained model ledger, duplicate/restart replay and refusal of subsequent
+job and restore creation. Successful multi-worker relaunch cannot be asserted
+under this increment; it remains deferred to attributed settlement and practice.

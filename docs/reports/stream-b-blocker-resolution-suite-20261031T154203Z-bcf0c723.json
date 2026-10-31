@@ -1,0 +1,13 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "started_at": "2026-10-31T15:42:03.936736+00:00",
+  "source_commit": "eab2daa65408ee3ce66975e2ad8589694a951867",
+  "source_tree": "1a6428c44d97aa062a4a7d427f0d21f43fe26b82",
+  "finished_at": "2026-10-31T16:05:29.454819+00:00",
+  "exit_code": 1,
+  "script_count": 162,
+  "failed": 3,
+  "log_sha256": "52db890a199467ba4a70e8e78c08dd5f930ba1f59175eb65a77a3840db928c69",
+  "log": "docs/reports/stream-b-blocker-resolution-suite-20261031T154203Z-bcf0c723.log.gz",
+  "compressed_log_sha256": "6de0a99888bef8194b9fbf12d4460b967539fa5dc47b84f6adc97e60c73cb980"
+}

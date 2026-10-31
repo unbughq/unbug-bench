@@ -66,3 +66,14 @@ all findings accepted) and -design-2.md (PASS, precision findings accepted).
 Rows closed: none. Rows 6,17,27,28,29,35,49,51 and the open batch-service and
 single-path rows retain their existing statuses; the wider lifecycle proof is
 not present. No new observed live failure was claimed.
+
+
+First full suite: 162 scripts, 3 failed, exit 1; retained in
+stream-b-blocker-resolution-suite-20261031T154203Z-bcf0c723.json and .log.gz.
+The failures were stale expectations: launch-guard diagnostic text, gate-smoke
+second admission, and the integration test's second job/restore launches after
+unknown liability. Updated tests require refusal without a second provider
+creation and retain first-worker collection/deletion and model-ledger checks.
+Gate-smoke's independent remote-failure scenario uses a separate synthetic home.
+The removed successful multi-worker integration expectation is now a deferred
+settlement/practice exam, not a claimed pass under the new safety rule.
