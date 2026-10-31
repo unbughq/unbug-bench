@@ -15,3 +15,13 @@ implemented. Its review attempts failed before producing findings:
 These are unavailable reviews, not passing reviews or rejected findings. No
 alternative model/provider was substituted beyond the user's explicit fallback.
 Implementation remains unapproved for merge until a fresh diff review passes.
+
+## Fresh diff review after passing suite
+
+Reviewed head requested: 6bf086448a7351fee2f0281851353ae2b907041e; diff base 54344fc.
+
+Claude task ac185943-aa36-4f6d-ac4c-bdc103a02e11 failed: `Claude API rate limit reached. Try again later.`
+
+The explicitly authorized DeepSeek fallback task 24e0dbf5-763a-4dc6-8ddc-4dce11242b1e failed: `This request requires more credits, or fewer max_tokens. You requested up to 256000 tokens, but can only afford 172300.`
+
+Neither attempt produced a review verdict. The full suite passed 160 scripts with zero failures, but fresh diff review remains outstanding. No blocker is self-verified, no Murphy row closes, and package increment 2 remains unchecked. Terminal outcomes design review and the remaining package implementation also remain outstanding.
