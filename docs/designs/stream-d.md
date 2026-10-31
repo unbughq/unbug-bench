@@ -2145,3 +2145,90 @@ is protected only by `launch.sh:494`'s early return. Item 8's search exam
 must keep it unreachable. N2: accepted. Add `--continue-g11-review` to
 `batch.bind`'s forbidden set. N3: noted. The `gate_state` literal stays 5,
 because it is the non-factory default.
+
+
+## Item 5 implementation: scientific receipts and per-gate versions (2026-10-31)
+
+Lane 2, based on b500db9. This increment implements only item 5. It leaves
+extension comparison isolation, continuation routing and diagnosis enablement
+to their ordered increments. No real cases launch here.
+
+### Problem and change
+
+The existing gate cache follows transitive runner functions but also pins whole
+runtime/accounting modules and its own source file. A router, ledger, logger or
+publication edit can therefore erase scientific passes. Calibration has the same
+problem. G10 records stop reasons, but a capped failed submission can still reach
+the wrong-fix reviewer and an easy no-submission currently satisfies difficulty.
+
+Keep automatic, content-derived per-gate versions rather than hand-maintained
+release numbers. Split scientific inventories from receipt schema versions:
+`gate_state.scientific_version(c, gate, bench)` returns a digest of the gate's
+runner evaluator/transitive scientific helpers, explicit external evaluator and
+scenario dependencies, prompts, effective model/effort settings and judge
+configuration. It excludes case bytes, seed, slot and plumbing implementation.
+Full receipt inputs still bind case bytes, execution settings and evidence bytes.
+The inventory covers every pipeline gate and stress for later extension snapshots;
+this increment does not implement snapshot comparison or route extensions.
+
+Use one declared boundary for runner transport helpers (model dispatch, shell,
+logging, budget admission, publication and cleanup), and remove external router,
+ledger, price, registry and runtime implementation hashes from scientific inputs.
+Retain calibration/delivery, validity classifiers, judge/checker, strategy,
+scenario, case-contract and fairness logic. Shared scientific helpers invalidate
+all gates that actually depend on them; changing G4 alone never invalidates G5.
+Keep G7's independent fresh execution and G11's fresh-seed execution contracts;
+G2 must still enforce retrieval freshness, G3 must prepare the live environment.
+These mandatory executions do not revoke any other gate's retained pass.
+
+Delete the whole-cache-file digest from gate identity. Keep the receipt schema
+version unchanged unless its reader format changes; include an explicit per-gate
+scientific digest in newly written receipts. No permissive historical migration:
+old opaque/mismatched identities cannot prove the new dependency partition and
+are retained as historical evidence, not relabeled as a new scientific pass.
+Existing byte-identical identities remain reusable. Missing, changed or invalid
+evidence never authorizes reuse. G10 attempts use the same scientific dependency
+boundary, preserving their strict prefix and pending-submission checks.
+
+### G10 evidence semantics
+
+Add content-free scientific evidence counts alongside the existing stop/outcome
+counts: solved, demonstrated failed execution, capped, no submission and unknown.
+Capped failed submissions remain capped even if their saved execution failed;
+a capped solve remains a demonstrated solve. A no-submission is never a wrong
+fix. Keep existing diagnostic stop/outcome fields for compatibility and retain
+original private attempts and execution bytes. New attempt receipts record their
+scientific outcome; readers recompute it, rejecting conflicting labels.
+
+G10's easy criterion requires at least one uncapped, submitted, valid executed
+failure, not merely tries minus solves. G16/G17's code validator refuses a
+wrong_fix label for a capped/no-submission/unknown attempt, independently of the
+reviewer's prose. Such evidence stays inconclusive and cannot earn a hard label.
+Existing missing-submission recovery remains bounded and keeps its old receipt;
+this change does not add a retry allowance. Invalid execution still raises the
+existing infrastructure classification before any scientific count.
+
+### Tests, deletions and row closure
+
+Replay the saved public practice case and raw plain/reference/cheat/invalid
+execution artifacts in tests/factory/fixtures/invalid-runs-*.json.gz. Reuse their
+bytes through the receipt writer/reader, change router/accounting/publication
+and unrelated runner source, and prove retained passes and calibration identity.
+Mutate a single evaluator and prove only its dependent gate invalidates; mutate
+judge/scenario/prompt/model settings and prove the affected versions change.
+Test missing and tampered evidence, old schemas, and independent gate inventories.
+
+Replay saved public calibration diagnostics for real cap/no-submission facts,
+and raw saved valid/invalid executions for demonstrated failures. Authored stop
+variations on those artifacts are explicitly labeled as perturbations. Exercise
+G10 acceptance and G16/G17 review validation, including a reviewer incorrectly
+calling a capped attempt wrong_fix. Existing item-3 real-ledger settlement tests
+supply row 39's usage half. Close row 39 only if these real-artifact tests and the
+full suite pass; cite the exact test paths in the register. No other row closes.
+
+Deletes: plumbing byte dependencies and the global cache-source invalidator;
+G10's tries-minus-solves evidence shortcut. Minimal run.py changes are confined
+to the G10 acceptance predicate; no A/B/E interface or lane-1 retry/routing
+contract changes. Full validation is the prescribed tests/run.py suite, with a
+unique retained suite log and committed result record, followed by a fresh diff
+review.
