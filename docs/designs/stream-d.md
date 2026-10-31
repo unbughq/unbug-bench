@@ -3720,7 +3720,7 @@ admission/recovery is done. Each line is one intended reviewable increment.
   authenticated active extensions into the existing writer/stress loop; enforce
   one admitted round across pending/completed/validated replay, preserve receipt
   authority, and stop before gate/package completion.
-- [ ] **Package increment 1: retained freshness recovery — small.** Preserve the
+- [x] **Package increment 1: retained freshness recovery — small.** Preserve the
   completed-review fallback through diagnosis publication; test valid reuse and
   stale/partial refusal. Design: `stream-d-package-freshness.md`.
 - [ ] **Package increment 2: stress/gate/outcome completion — large.** Join unfinished
@@ -3742,3 +3742,15 @@ The admitted-execution implementation, full offline suite and fresh diff review
 are complete. Reviews: stream-d-admitted-execution-design-1.md, design-2.md,
 diff-1.md and diff-2.md under docs/reviews (all with the same topic prefix). No Murphy row closes. The next
 increment is the complete writer/stress/gate package above; activation stays off.
+
+
+Package increment 1 is complete at c68b819: diagnosis replay preserves the
+completed freshness-review pointer, with existing validation still required for
+reuse. Full suite: 160 scripts, zero failures; record and unique log at
+`docs/reports/stream-d-package-freshness-suite-20261031T141323Z-eb25473b.json`
+and the adjacent `.log`. Fresh reviews passed without blockers:
+`docs/reviews/stream-d-package-freshness-design-1.md` and
+`docs/reviews/stream-d-package-freshness-diff-1.md`. No Murphy rows close.
+Next lane-2 increment is stress/gate/outcome completion (large), followed by all
+diagnosis outcomes (large). Qualified-path legacy deletion remains lane 1's work.
+Activation remains off; item 8 remains separate.
