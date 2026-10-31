@@ -58,4 +58,3 @@ The phasing, the test list (lines 61â€“68) and the cost and timeline (lines 74â€
 ## Elephant response
 
 Accepted all findings. Before implementation, committed the updated design at 34e008d: exclude unbounded_route, add the skip-only card filter, specify reserve keyword/check order and exceptions, use UUID4 and UTC parsing, explain credential_expiring reload/admission, correct the operation ID signature, and name rows advanced but not closed. No findings rejected. Existing successors are skipped; partial money-before-reservation recovery remains allowed because no operation exists yet. No activation work is included.
-
