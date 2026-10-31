@@ -531,7 +531,7 @@ class MaximaTests(unittest.TestCase):
 
 class ProtocolTests(unittest.TestCase):
     def setUp(self):
-        self.seen=[];self.failure=False;self.malformed=False
+        self.seen=[];self.failure=False;self.malformed=False;self.stalled=None
         owner=self
         class Upstream(BaseHTTPRequestHandler):
             def log_message(self,*a):pass
@@ -543,8 +543,20 @@ class ProtocolTests(unittest.TestCase):
                 self.send_response(503 if owner.failure else 200)
                 self.send_header('Content-Type','text/event-stream')
                 self.send_header('Content-Length',str(len(data)))
+                if owner.stalled is not None and owner.stalled.close_header:
+                    self.send_header('Connection','close')
                 self.send_header('anthropic-ratelimit-requests-reset','2030-01-01T00:00:00Z')
-                self.send_header('Retry-After','17');self.end_headers();self.wfile.write(data)
+                self.send_header('Retry-After','17');self.end_headers()
+                if owner.stalled is None:
+                    self.wfile.write(data)
+                else:
+                    stall=owner.stalled
+                    self.wfile.write(stall.prefix);self.wfile.flush()
+                    if not stall.release.wait(30):return
+                    try:
+                        self.wfile.write(data[len(stall.prefix):]);self.wfile.flush()
+                    except OSError:pass  # The real gate has already shut down this socket.
+                    finally:stall.attempted.set()
         self.upstream=ThreadingHTTPServer(('127.0.0.1',0),Upstream)
         threading.Thread(target=self.upstream.serve_forever,daemon=True).start()
         self.addCleanup(self.upstream.server_close);self.addCleanup(self.upstream.shutdown)
@@ -629,6 +641,110 @@ class ProtocolTests(unittest.TestCase):
                 self.assertEqual(active.state.snapshot(),before)
         self.assertEqual(self.seen,[])
         self.assertEqual((cap['unknown_requests'],cap['in_flight_requests']),(1,0))
+
+    def test_runtime_close_mid_response_retains_hold_once(self):
+        for protocol,close_header in (('HTTP/1.1',False),('HTTP/1.1',True),('HTTP/1.0',False)):
+            with self.subTest(protocol=protocol,close_header=close_header):
+                self.upstream.RequestHandlerClass.protocol_version=protocol
+                self._runtime_close_mid_response_retains_hold_once(close_header)
+
+    def _runtime_close_mid_response_retains_hold_once(self,close_header):
+        # Synthetic transport fault through the real gate, runtime receipt writer
+        # and accountant. No CLI, provider, credential or live-worker evidence.
+        prefix=sse(dict(input_tokens=1,cache_read_input_tokens=0,
+                        cache_creation_input_tokens=0,output_tokens=1)).split(b'\n\n')[0]+b'\n\n'
+        self.stalled=SimpleNamespace(prefix=prefix,release=threading.Event(),attempted=threading.Event(),
+                                     close_header=close_header)
+        received,handler_done=threading.Event(),threading.Event()
+        observed={}
+        original=gate.Handler.do_POST
+        def handle(handler):
+            try:return original(handler)
+            finally:handler_done.set()
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);(root/'transcripts').mkdir();ram=root/'ram';ram.mkdir()
+            (ram/'claude-factory-token-2').write_text('synthetic-only')
+            deadline=float(int(time.time())+3600)
+            channel=dict(schema=1,batch='synthetic',job='interrupt',case='case-interrupt',
+                reservation_id=str(uuid.uuid4()),revision=1,source_generation=None,
+                committed_total_usd='50.000000000',batch_deadline=router.utc(deadline))
+            c=SimpleNamespace(work=root,case=root,ledger=root/'ledger.json',
+                args=run.argument_parser().parse_args(['--source','hunt']),
+                card={'roles':{'writer':{'model':GATED_CLAUDE}}},
+                case_id=channel['case'],batch_id=channel['batch'],job_id=channel['job'],
+                batch_deadline=deadline,source_generation=None,
+                job_money=copy.deepcopy(channel),authenticated_job_config={'job_money':copy.deepcopy(channel)},
+                router_accounts=('claude-factory-token-2',))
+            c.ledger.write_text(json.dumps({'cost':0,'calls':0,'events':[]}))
+            store=router.Store(root/'router.sqlite')
+            runtime=model_runtime.ModelRuntime(root,Mock(),Mock(),lambda p,**kw:shutil.rmtree(p),Mock())
+            def client(env):
+                from urllib.parse import urlsplit
+                url=urlsplit(env['ANTHROPIC_BASE_URL'])
+                connection=http.client.HTTPConnection(url.hostname,url.port,timeout=30)
+                try:
+                    connection.request('POST','/v1/messages',json.dumps(body()),
+                        {'Authorization':'Bearer synthetic-only','Content-Type':'application/json'})
+                    response=connection.getresponse();self.assertEqual(response.status,200)
+                    first=response.read(len(prefix));self.assertEqual(first,prefix)
+                    received.set()
+                    return first+response.read()  # Must reach EOF before upstream release.
+                finally:connection.close()
+            def execute(cmd,cwd,env,*args,**kw):
+                kw['on_started']()
+                observed['gate']=kw['cancel']
+                observed['client']=pool.submit(client,env.copy())
+                self.assertTrue(received.wait(10),'client never received the relayed prefix')
+                observed['cancelled_at']=time.monotonic()
+                raise budget.BudgetError('cancelled')
+            pool=ThreadPoolExecutor(max_workers=2)
+            try:
+                with patch.object(router,'_rpc',store.rpc),patch.object(router,'SECRETS',ram), \
+                     patch.object(model_runtime,'pinned_cli',return_value='synthetic-no-cli'), \
+                     patch.object(model_runtime,'run_budgeted',side_effect=execute), \
+                     patch.object(gate.Handler,'do_POST',handle):
+                    future=pool.submit(runtime.call,c,[GATED_CLAUDE],'synthetic',root,'builder-1',timeout=30)
+                    self.assertTrue(received.wait(10),'request did not reach the relay')
+                    with self.assertRaisesRegex(budget.BudgetError,'^cancelled$'):
+                        future.result(timeout=5)
+                    end=observed['cancelled_at']+5
+                    self.assertTrue(handler_done.wait(max(0,end-time.monotonic())))
+                    self.assertEqual(observed['client'].result(timeout=max(0,end-time.monotonic())),prefix)
+                    self.assertLess(time.monotonic(),end)
+                    self.assertFalse(self.stalled.release.is_set())
+                    active=observed['gate']
+                    snapshot=json.dumps(active.state.snapshot(),sort_keys=True)
+                    route,=c.card['route_receipts'];receipt_path=root/route['call_id']
+                    receipt_bytes=receipt_path.read_bytes();receipt=json.loads(receipt_bytes)
+                    cap=receipt['cap_used']
+                    self.assertEqual(receipt['outcome'],'interrupted');self.assertFalse(receipt['final_usage_known'])
+                    self.assertEqual([cap[k] for k in ('forwarded_requests','validated_requests',
+                        'unknown_requests','in_flight_requests')],[1,0,1,0])
+                    self.assertEqual(Decimal(cap['settled_usd']),0)
+                    self.assertEqual(Decimal(cap['held_usd']),Decimal('8.655360'))
+                    self.assertTrue(cap['closed']);self.assertFalse(cap['exhausted'])
+                    ledger=json.loads(c.ledger.read_text());row,=ledger['invocation_reservations'].values()
+                    self.assertEqual(row['maximum_usd'],'50.000000000')
+                    self.assertEqual(row['state'],'estimated')
+                    self.assertEqual(row['estimated_gap_usd'],'8.655360000')
+                    self.assertEqual(Decimal(str(budget.case_spending(ledger)['total_spent_usd'])),Decimal('8.655360'))
+                    self.assertEqual(ledger['events'],[])
+                    self.stalled.release.set();self.assertTrue(self.stalled.attempted.wait(5))
+                    self.assertEqual(json.dumps(active.state.snapshot(),sort_keys=True),snapshot)
+                    self.assertEqual(receipt_path.read_bytes(),receipt_bytes)
+                    self.assertIsNone(active.state.reserve(32768))
+                    before=c.ledger.read_bytes()
+                    for _ in range(2):
+                        budget.reconcile_reservations(root,c.ledger)
+                        self.assertEqual(c.ledger.read_bytes(),before)
+                    self.assertEqual(store.rpc('status',{})['leases'],[])
+                    interrupted,=c.router_interrupted_calls
+                    self.assertEqual(interrupted['lease_id'],row['lease_id'])
+                    self.assertEqual(interrupted['call_id'],route['call_id'])
+            finally:
+                self.stalled.release.set()
+                if 'gate' in observed:observed['gate'].state.close()
+                pool.shutdown(wait=True)
 
     def test_successful_cli_cannot_hide_gate_unknown_usage_in_real_runtime_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:

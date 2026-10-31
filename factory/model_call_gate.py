@@ -145,7 +145,7 @@ class Allowance:
         self.condition = threading.Condition(self.lock)
         self.deadline = deadline
         self.closed = False
-        self.active, self.connections = {}, set()
+        self.active, self.connections = {}, {}
         self.forwarded = self.validated = self.unknown = self.unsupported = 0
         self.settled = [Decimal(0), 0, 0]
         self.retained = [Decimal(0), 0, 0]
@@ -224,10 +224,10 @@ class Allowance:
                 self.unknown += 1
             self.active.clear()
             self.condition.notify_all()
-            connections = list(self.connections)
-        for connection in connections:
+            connections = list(self.connections.items())
+        for connection, connected_socket in connections:
             try:
-                if connection.sock: connection.sock.shutdown(socket.SHUT_RDWR)
+                if connected_socket: connected_socket.shutdown(socket.SHUT_RDWR)
             except OSError: pass
             connection.close()
 
@@ -534,13 +534,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with gate.state.lock:
                 if gate.state.closed: return
-                gate.state.connections.add(connection)
+                gate.state.connections[connection] = None
             # Explicit one-time connect: close must not let request() silently
             # reconnect after the immutable receipt snapshot. No lock spans I/O.
             connection.connect()
             connection.auto_open = 0
             with gate.state.lock:
                 if gate.state.closed: return
+                # getresponse() detaches connection.sock for Connection: close.
+                # Keep its socket until the response reader finishes so close()
+                # can interrupt that reader as well as persistent connections.
+                gate.state.connections[connection] = connection.sock
             connection.request('POST', self.path, encoded, headers)
             response = connection.getresponse()
             streaming = 'text/event-stream' in response.getheader('Content-Type', '')
@@ -560,7 +564,7 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self.close_connection = True
             connection.close()
-            with gate.state.lock: gate.state.connections.discard(connection)
+            with gate.state.lock: gate.state.connections.pop(connection, None)
             gate.state.finish(identity, usage)
 
     def do_GET(self): self.error(400, 'invalid_request_error', 'route_feature_unsupported')
