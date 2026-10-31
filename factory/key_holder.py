@@ -674,7 +674,8 @@ def serve(policy_path, hours, identity_file=None):
                                 raise ValueError('approved Claude account unavailable')
                             if any(p.poll() is None and job_case.get(n) == job['case'] for n, p in jobs.items()): raise ValueError('case recovery already active')
                             if fingerprint(ROOT) != policy['code_sha256']: raise ValueError('trusted launcher code changed')
-                            inventory = subprocess.run([str(ROOT/'bin/boat-call'), 'list', '--json'], capture_output=True, text=True, timeout=25)
+                            inventory = subprocess.run([str(ROOT/'bin/boat-call'), 'list', '--json'], capture_output=True, text=True,
+                                                       env={**os.environ, 'BOAT_CAPTURE_OUTPUT': '1', 'BOAT_COMMAND_TIMEOUT_SECONDS': '25'})
                             if inventory.returncode: raise ValueError('cannot verify current workers')
                             fleet = json.loads(inventory.stdout)
                             if (not isinstance(fleet.get('sandboxes'), list) or

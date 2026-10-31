@@ -27,6 +27,8 @@ def record(c):
     c.card['freshness_archive_ruling'] = dict(authority='founder-2026-10-28',
         decision='G2 archive check', unreachable='clear only after confirmed dead live URL and no Wayback snapshot',
         archived='review same bug and pinned version as live', unresolved='fail closed; resumable review')
+    from model_runtime import factory_job
+    if factory_job(c): return
     if not 0 < c.args.max_total_calls <= CALL_CAP:
         raise ValueError('D1 caps --max-total-calls at 5000 before any model/calibration attempt')
     c.card['call_cap_ruling'] = dict(authority=AUTHORITY, decision='D1',

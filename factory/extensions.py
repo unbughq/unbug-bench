@@ -301,6 +301,8 @@ def retain_writer(c, receipt):
     import model_runtime
     with model_runtime.dispatch(c, 'extension-writer-intent'):
         _writer_shape(receipt)
+        if type(receipt.get('round_limit')) is not int or receipt['round_limit'] != receipt['round']:
+            raise BudgetError('extension_reservation_mismatch')
         operation = receipt.get('operation_id')
         if not _uuid4(operation): raise BudgetError('extension_reservation_mismatch')
         previous = _writer_json(c.work / 'attack-state.json', c.work, optional=True)
@@ -331,6 +333,8 @@ def writer_receipt(c):
         if set(envelope) != {'receipt', 'previous'}: raise BudgetError('extension_reservation_mismatch')
         intent, previous = envelope['receipt'], envelope['previous']
         _writer_shape(intent)
+        if type(intent.get('round_limit')) is not int or intent['round_limit'] != row['round']:
+            raise BudgetError('extension_reservation_mismatch')
         _writer_previous(previous, intent)
         name = 'builder-' + str(row['round'])
         writer_continuation(c, intent, name)

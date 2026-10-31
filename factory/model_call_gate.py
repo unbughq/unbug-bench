@@ -21,14 +21,14 @@ import threading
 import time
 
 from budget import BudgetError
-from token_prices import (GATED_CLAUDE, CLAUDE_CONTEXT, CLAUDE_OUTPUT,
+from token_prices import (GATED_CLAUDE, CLAUDE_PROFILES, CLAUDE_CONTEXT, CLAUDE_OUTPUT, claude_profile,
                           CLAUDE_GATE_FIELDS, CLAUDE_PRICES, claude_gate_cost, claude_standard_usage,
                           GATED_OPENROUTER, OPENROUTER_OUTPUT, openrouter_gate_cost, runtime_prices)
 
 ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CLAUDE_CODE_OAUTH_TOKEN',
     'CLAUDE_CONFIG_DIR', 'DISABLE_AUTOUPDATER', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
     'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS', 'CLAUDE_CODE_MAX_OUTPUT_TOKENS',
-    'CLAUDE_CODE_MAX_RETRIES', 'CLAUDE_CODE_GZIP_REQUEST_BODIES', 'ANTHROPIC_BASE_URL',
+    'MAX_THINKING_TOKENS', 'CLAUDE_CODE_MAX_RETRIES', 'CLAUDE_CODE_GZIP_REQUEST_BODIES', 'ANTHROPIC_BASE_URL',
     'ANTHROPIC_SMALL_FAST_MODEL', 'FACTORY_STRATEGY_DIAGNOSTIC',
     'FACTORY_STRATEGY_SECONDS', 'FACTORY_STRATEGY_WORKERS')
 BETAS = 'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,effort-2025-11-24'
@@ -86,19 +86,30 @@ def _content(value):
                 raise ValueError('unsupported media source')
 
 
-def request_body(raw):
+def request_body(raw, route=GATED_CLAUDE):
+    profile = claude_profile(route)
+    if profile is None: raise ValueError('unsupported route')
     body = _json(raw)
-    if not isinstance(body, dict) or set(body) - BODY_FIELDS or body.get('model') != GATED_CLAUDE.partition('/')[2]:
+    if not isinstance(body, dict) or set(body) - BODY_FIELDS or body.get('model') != profile['model'].partition('/')[2]:
         raise ValueError('unsupported request')
     output = body.get('max_tokens')
     if type(output) is not int or not 0 <= output: raise ValueError('invalid output bound')
-    body['max_tokens'] = min(output, CLAUDE_OUTPUT)
-    body['inference_geo'] = 'global'  # Override workspace defaults; forbidden geo must error.
+    body['max_tokens'] = min(output, profile['output'])
+    if profile['thinking'] is None: body['inference_geo'] = 'global'  # Override workspace defaults; forbidden geo must error.
     body.pop('context_management', None)  # No server-side sampling/compaction.
     if 'thinking' in body:
-        if not isinstance(body['thinking'], dict) or body['thinking'].get('type') != 'adaptive':
+        thinking = body['thinking']
+        if not isinstance(thinking, dict): raise ValueError('unsupported thinking')
+        if profile['thinking'] is None:
+            if thinking.get('type') != 'adaptive': raise ValueError('unsupported thinking')
+            body['thinking'] = {'type': 'adaptive'}
+        elif thinking.get('type') == 'disabled' and set(thinking) == {'type'}:
+            pass
+        elif (set(thinking) != {'type', 'budget_tokens'} or thinking.get('type') != 'enabled'
+                or type(thinking.get('budget_tokens')) is not int
+                or not 1024 <= thinking['budget_tokens'] <= profile['thinking']
+                or thinking['budget_tokens'] >= body['max_tokens']):
             raise ValueError('unsupported thinking')
-        body['thinking'] = {'type': 'adaptive'}
     if body.get('service_tier', 'standard_only') not in ('auto', 'standard_only'):
         raise ValueError('unsupported tier')
     body['service_tier'] = 'standard_only'
@@ -106,7 +117,8 @@ def request_body(raw):
     if 'cache_control' in body: _cache(body['cache_control'])
     config = body.get('output_config', {})
     if (not isinstance(config, dict) or set(config) - {'effort', 'format'}
-            or config.get('effort', 'high') not in ('low', 'medium', 'high', 'xhigh', 'max')):
+            or config.get('effort', 'high') not in (('low', 'medium', 'high') if profile['thinking'] is not None
+                                                 else ('low', 'medium', 'high', 'xhigh', 'max'))):
         raise ValueError('unsupported output config')
     if 'format' in config and (not isinstance(config['format'], dict)
             or set(config['format']) != {'type', 'schema'} or config['format']['type'] != 'json_schema'):
@@ -135,7 +147,7 @@ def empty_usage(route=GATED_CLAUDE):
     return dict(version=1, forwarded_requests=0, validated_requests=0, unknown_requests=0,
         in_flight_requests=0, unsupported_requests=0, settled_usd='0', held_usd='0',
         settled_input_tokens=0, held_input_tokens=0, settled_output_tokens=0,
-        held_output_tokens=0, max_request_output_tokens=GATED_OPENROUTER[route]['output'] if route in GATED_OPENROUTER else CLAUDE_OUTPUT, exhausted=False, closed=True)
+        held_output_tokens=0, max_request_output_tokens=GATED_OPENROUTER[route]['output'] if route in GATED_OPENROUTER else (claude_profile(route) or {'output': CLAUDE_OUTPUT})['output'], exhausted=False, closed=True)
 
 
 class Allowance:
@@ -145,7 +157,7 @@ class Allowance:
         self.condition = threading.Condition(self.lock)
         self.deadline = deadline
         self.closed = False
-        self.active, self.connections = {}, set()
+        self.active, self.connections = {}, {}
         self.forwarded = self.validated = self.unknown = self.unsupported = 0
         self.settled = [Decimal(0), 0, 0]
         self.retained = [Decimal(0), 0, 0]
@@ -157,18 +169,19 @@ class Allowance:
         return [self.retained[i] + sum(v[i] for v in self.active.values()) for i in range(3)]
 
     def amount(self, usage):
-        if self.lease.route == GATED_CLAUDE:
-            cost = claude_gate_cost(usage)
+        if self.lease.route in CLAUDE_PROFILES:
+            cost = claude_gate_cost(usage, self.lease.route)
             if cost is None: return None
             return cost, sum(usage[k] for k in CLAUDE_GATE_FIELDS[:3]), usage['output_tokens']
         cost = openrouter_gate_cost(self.lease.route, usage)
         return None if cost is None else (cost, usage['prompt_tokens'], usage['completion_tokens'])
 
     def reserve(self, output):
-        if self.lease.route == GATED_CLAUDE:
+        if self.lease.route in CLAUDE_PROFILES:
             worst = dict.fromkeys(CLAUDE_GATE_FIELDS, 0)
-            incoming = max(range(3), key=lambda i: CLAUDE_PRICES[GATED_CLAUDE][i])
-            worst[CLAUDE_GATE_FIELDS[incoming]], worst['output_tokens'] = CLAUDE_CONTEXT, output
+            profile = claude_profile(self.lease.route)
+            incoming = max(range(3), key=lambda i: CLAUDE_PRICES[profile['model']][i])
+            worst[CLAUDE_GATE_FIELDS[incoming]], worst['output_tokens'] = profile['context'], output
         else:
             profile = GATED_OPENROUTER[self.lease.route]
             worst = dict(prompt_tokens=profile['context'], completion_tokens=profile['output'])
@@ -224,17 +237,18 @@ class Allowance:
                 self.unknown += 1
             self.active.clear()
             self.condition.notify_all()
-            connections = list(self.connections)
-        for connection in connections:
+            connections = list(self.connections.items())
+        for connection, connected_socket in connections:
             try:
-                if connection.sock: connection.sock.shutdown(socket.SHUT_RDWR)
+                if connected_socket: connected_socket.shutdown(socket.SHUT_RDWR)
             except OSError: pass
             connection.close()
 
 
 class Usage:
     """Read trusted response controls only; settle after HTTP EOF, never on partial SSE."""
-    def __init__(self, output, streaming):
+    def __init__(self, output, streaming, route=GATED_CLAUDE):
+        self.profile = claude_profile(route)
         self.output, self.streaming = output, streaming
         self.buffer, self.body = b'', bytearray()
         self.counts, self.seen = {}, set()
@@ -247,7 +261,7 @@ class Usage:
         for key in CLAUDE_GATE_FIELDS:
             if key not in usage: continue
             value = usage[key]
-            maximum = self.output if key == 'output_tokens' else CLAUDE_CONTEXT
+            maximum = self.output if key == 'output_tokens' else self.profile['context']
             if type(value) is not int or not 0 <= value <= maximum or value < self.counts.get(key, 0):
                 self.invalid = True
             else: self.counts[key] = value
@@ -268,7 +282,7 @@ class Usage:
         if kind == 'message_start':
             self.started += 1
             message = event.get('message', {})
-            if self.started != 1 or message.get('model') != GATED_CLAUDE.partition('/')[2]: self.invalid = True
+            if self.started != 1 or message.get('model') != self.profile['model'].partition('/')[2]: self.invalid = True
             self.merge(message.get('usage'))
         elif kind == 'message_delta':
             if self.started != 1: self.invalid = True
@@ -302,7 +316,7 @@ class Usage:
         if not self.streaming and not self.invalid:
             try:
                 body = _json(self.body)
-                if (body.get('type') != 'message' or body.get('model') != GATED_CLAUDE.partition('/')[2]
+                if (body.get('type') != 'message' or body.get('model') != self.profile['model'].partition('/')[2]
                         or body.get('stop_reason') not in STOP_REASONS): self.invalid = True
                 self.merge(body.get('usage'))
                 self.started = self.stopped = 1
@@ -310,7 +324,7 @@ class Usage:
             except (ValueError, TypeError, AttributeError, RecursionError): self.invalid = True
         if (self.invalid or self.started != 1 or self.stopped != 1 or not self.terminal or self.buffer.strip()
                 or set(self.counts) != set(CLAUDE_GATE_FIELDS)
-                or sum(self.counts.get(k, 0) for k in CLAUDE_GATE_FIELDS[:3]) > CLAUDE_CONTEXT):
+                or sum(self.counts.get(k, 0) for k in CLAUDE_GATE_FIELDS[:3]) > self.profile['context']):
             return None
         return self.counts
 
@@ -515,7 +529,7 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < size <= 16 * 1024 * 1024: raise ValueError()
             raw = self.rfile.read(size)
             if len(raw) != size: raise ValueError()
-            body = openrouter_body(raw, gate.route) if paid else request_body(raw)
+            body = openrouter_body(raw, gate.route) if paid else request_body(raw, gate.route)
         except (ValueError, TypeError, RecursionError):
             with gate.state.lock:
                 if not gate.state.closed: gate.state.unsupported += 1
@@ -534,17 +548,21 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with gate.state.lock:
                 if gate.state.closed: return
-                gate.state.connections.add(connection)
+                gate.state.connections[connection] = None
             # Explicit one-time connect: close must not let request() silently
             # reconnect after the immutable receipt snapshot. No lock spans I/O.
             connection.connect()
             connection.auto_open = 0
             with gate.state.lock:
                 if gate.state.closed: return
+                # getresponse() detaches connection.sock for Connection: close.
+                # Keep its socket until the response reader finishes so close()
+                # can interrupt that reader as well as persistent connections.
+                gate.state.connections[connection] = connection.sock
             connection.request('POST', self.path, encoded, headers)
             response = connection.getresponse()
             streaming = 'text/event-stream' in response.getheader('Content-Type', '')
-            parser = OpenRouterUsage(gate.route, streaming) if paid else Usage(body['max_tokens'], streaming)
+            parser = OpenRouterUsage(gate.route, streaming) if paid else Usage(body['max_tokens'], streaming, gate.route)
             self.send_response(response.status)
             for key, value in response.getheaders():
                 if key.lower() not in HOP_HEADERS and not key.lower().startswith('proxy-'): self.send_header(key, value)
@@ -560,7 +578,7 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self.close_connection = True
             connection.close()
-            with gate.state.lock: gate.state.connections.discard(connection)
+            with gate.state.lock: gate.state.connections.pop(connection, None)
             gate.state.finish(identity, usage)
 
     def do_GET(self): self.error(400, 'invalid_request_error', 'route_feature_unsupported')
@@ -638,7 +656,7 @@ def openrouter_environment(lease, env, gate):
 @contextmanager
 def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
     import model_router
-    if (lease.route != GATED_CLAUDE and lease.route not in GATED_OPENROUTER) or not model_router.valid_maximum(lease):
+    if (lease.route not in CLAUDE_PROFILES and lease.route not in GATED_OPENROUTER) or not model_router.valid_maximum(lease):
         raise BudgetError('unbounded_route')
     paid = lease.route in GATED_OPENROUTER
     if paid and (sys.platform != 'linux' or Path('/etc/opencode').exists()
@@ -649,10 +667,12 @@ def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
     gate = Gate(lease, token, timeout, cancel)
     if paid: clean = openrouter_environment(lease, env, gate)
     else:
-        clean = {k: env[k] for k in ENV_KEYS if k in env}
+        profile = claude_profile(lease.route)
+        clean = {k: env[k] for k in ENV_KEYS if k in env and k != 'MAX_THINKING_TOKENS'}
+        if profile['thinking'] is not None: clean['MAX_THINKING_TOKENS'] = str(profile['thinking'])
         clean.update(ANTHROPIC_BASE_URL='http://127.0.0.1:' + str(gate.server.server_port),
-            ANTHROPIC_SMALL_FAST_MODEL=GATED_CLAUDE.partition('/')[2],
-            CLAUDE_CODE_MAX_OUTPUT_TOKENS=str(CLAUDE_OUTPUT), CLAUDE_CODE_MAX_RETRIES='0',
+            ANTHROPIC_SMALL_FAST_MODEL=profile['model'].partition('/')[2],
+            CLAUDE_CODE_MAX_OUTPUT_TOKENS=str(profile['output']), CLAUDE_CODE_MAX_RETRIES='0',
             CLAUDE_CODE_GZIP_REQUEST_BODIES='0', CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='1',
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1', DISABLE_AUTOUPDATER='1')
     env.clear(); env.update(clean)

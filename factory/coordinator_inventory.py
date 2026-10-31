@@ -11,6 +11,7 @@ No command installs a recurring job, unlocks credentials, or changes holder poli
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import re
 import shlex
@@ -140,7 +141,8 @@ print(json.dumps({'case':case,'statement_sha256':c.get('statement_sha256'),'ciph
 """.replace("CASE_ID", repr(case))
     command = "test -f /home/user/sealed/DONE && ! pgrep -f '^python3 .*factory/run.py' >/dev/null && python3 -c " + shlex.quote(probe)
     done = run([str(key_holder.ROOT / "bin/boat-call"), "ssh", worker, command], capture_output=True,
-               text=True, timeout=25, stdin=subprocess.DEVNULL)
+               text=True, stdin=subprocess.DEVNULL,
+               env={**os.environ, 'BOAT_CAPTURE_OUTPUT': '1', 'BOAT_COMMAND_TIMEOUT_SECONDS': '25'})
     if done.returncode: raise ValueError("candidate_stop_unverified")
     observed = json.loads(done.stdout)
     card = coordinator.read_public(key_holder.ROOT / "sealed" / (case + ".scorecard.json"))
@@ -165,7 +167,8 @@ def tick(policy, config, states, snapshot_path, journal, job, *, operation="plan
     if status.get("policy_sha256") != key_holder.policy_digest(policy) or status.get("unlocked") is not True:
         raise ValueError("holder_locked_or_policy_mismatch")
     done = run([str(key_holder.ROOT / "bin/boat-call"), "list", "--json"], capture_output=True,
-               text=True, timeout=25, stdin=subprocess.DEVNULL)
+               text=True, stdin=subprocess.DEVNULL,
+               env={**os.environ, 'BOAT_CAPTURE_OUTPUT': '1', 'BOAT_COMMAND_TIMEOUT_SECONDS': '25'})
     if done.returncode: raise ValueError("provider_inventory_unavailable")
     observed = time.time() if now is None else now
     snapshot = build_snapshot(policy, json.loads(done.stdout), states, config, status, now=observed)

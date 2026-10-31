@@ -1,0 +1,650 @@
+{
+  "activation_authorized": false,
+  "cli": {
+    "exit_label": "ok",
+    "format": "elf",
+    "sha256": "663483ab622abcf10ff8d079785f96b33596f41e91484e4198e16ed8a1d94cda",
+    "version": "1.0.87"
+  },
+  "errors": [
+    "command-failed"
+  ],
+  "fleet": {
+    "exit_label": "ok",
+    "page_complete": true,
+    "readable": true,
+    "worker_ids": []
+  },
+  "legacy": {
+    "git": {
+      "exit_label": "command-failed",
+      "head": null,
+      "reflog": []
+    },
+    "launch": {
+      "argv": "launch",
+      "cloud": "boat",
+      "environment_present": {
+        "BOAT_CMD": false,
+        "CLAUDE_SECRET_NAME": true,
+        "FACTORY_ACCOUNT_POLICY": false,
+        "FACTORY_ACCOUNT_STATE": false,
+        "FACTORY_SECRETS": false,
+        "FACTORY_TTL_CONTINUATION": false,
+        "HCLOUD_PLACES": false,
+        "OPENCODE_SECRET_NAME": true,
+        "UNBUG_BATCH_OPERATION": false,
+        "UNBUG_SECRETS_FILE": true
+      },
+      "type": "default",
+      "unknown_environment_keys": false
+    },
+    "metadata": {
+      "bin/boat-launch-guards.sh": {
+        "btime_ns": null,
+        "ctime_ns": 1792841591221115255,
+        "mtime_ns": 1792840504000000000
+      },
+      "bin/boat-spend": {
+        "btime_ns": null,
+        "ctime_ns": 1792841591221115255,
+        "mtime_ns": 1792840504000000000
+      },
+      "controller.lock": {
+        "btime_ns": null,
+        "ctime_ns": 1792793168360988189,
+        "mtime_ns": 1792793168360988189
+      },
+      "directory": {
+        "btime_ns": null,
+        "ctime_ns": 1792793168363988192,
+        "mtime_ns": 1792793168363988192
+      },
+      "factory/control_resume.py": {
+        "btime_ns": null,
+        "ctime_ns": 1792841591448114524,
+        "mtime_ns": 1792840504000000000
+      },
+      "factory/launch.sh": {
+        "btime_ns": null,
+        "ctime_ns": 1792841591477114431,
+        "mtime_ns": 1792840504000000000
+      },
+      "launch.json": {
+        "btime_ns": null,
+        "ctime_ns": 1792793168363988192,
+        "mtime_ns": 1792793168363988192
+      }
+    }
+  },
+  "locks": {
+    "07b0db79786348b7b42afba489d8c873": "free",
+    "53f0527ed35b434ca179dc86b314047f": "free",
+    "568aef719dd1459393982101b73a799c": "free",
+    "aa37c0b6fb9e47ac9548255d2477873a": "free",
+    "b275ffccd6134a33833853ad1d31ed16": "free",
+    "fe29a93fb7f84c7abd2a39eae552c333": "free"
+  },
+  "observed_at": "2026-10-31T14:48:43.252620+00:00",
+  "policy_sha256": "fd0a861da1ef5f315ebf99345e410962437902004308539c9e02cd3d89beadf5",
+  "scanner": {
+    "activation_authorized": false,
+    "errors": [],
+    "launches": {
+      "invalid_entries": 0,
+      "items": [
+        {
+          "creation_counts": {
+            "intent-only": 0,
+            "response-and-intent": 0,
+            "response-without-marker": 1
+          },
+          "creations": [
+            {
+              "intent": {
+                "state": "missing"
+              },
+              "label": "response-without-marker",
+              "response": {
+                "mtime_ns": 1792793924703893516,
+                "size": 569,
+                "state": "present",
+                "type": "file"
+              },
+              "serial": "1"
+            }
+          ],
+          "deleted_markers": {
+            "directory": 0,
+            "file": 1,
+            "other": 0,
+            "symlink": 0
+          },
+          "files": {
+            "cleanup-status.json": {
+              "state": "missing"
+            },
+            "complete": {
+              "mtime_ns": 1792793934354905139,
+              "size": 0,
+              "state": "present",
+              "type": "file"
+            },
+            "controller.lock": {
+              "mtime_ns": 1792793917678885053,
+              "size": 53,
+              "state": "present",
+              "type": "file"
+            },
+            "ids": {
+              "mtime_ns": 1792793925317894253,
+              "size": 12,
+              "state": "present",
+              "type": "file"
+            },
+            "launch.json": {
+              "mtime_ns": 1792793917680885055,
+              "size": 1266,
+              "state": "present",
+              "type": "file"
+            },
+            "monitor.sh": {
+              "mtime_ns": 1792793919459887198,
+              "size": 207,
+              "state": "present",
+              "type": "file"
+            },
+            "spend-finished": {
+              "mtime_ns": 1792793934353905137,
+              "size": 0,
+              "state": "present",
+              "type": "file"
+            }
+          },
+          "id": "07b0db79786348b7b42afba489d8c873",
+          "keep_markers": {
+            "directory": 0,
+            "file": 0,
+            "other": 0,
+            "symlink": 0
+          },
+          "parked_markers": {
+            "directory": 0,
+            "file": 0,
+            "other": 0,
+            "symlink": 0
+          },
+          "state": "ok",
+          "unknown_entries": 6
+        },
+        {
+          "creation_counts": {
+            "intent-only": 0,
+            "response-and-intent": 0,
+            "response-without-marker": 1
+          },
+          "creations": [
+            {
+              "intent": {
+                "state": "missing"
+              },
+              "label": "response-without-marker",
+              "response": {
+                "mtime_ns": 1792794591533697226,
+                "size": 571,
+                "state": "present",
+                "type": "file"
+              },
+              "serial": "1"
+            }
+          ],
+          "deleted_markers": {
+            "directory": 0,
+            "file": 1,
+            "other": 0,
+            "symlink": 0
+          },
+          "files": {
+            "cleanup-status.json": {
+              "state": "missing"
+            },
+            "complete": {
+              "mtime_ns": 1792806296922685309,
+              "size": 0,
+              "state": "present",
+              "type": "file"
+            },
+            "controller.lock": {
+              "mtime_ns": 1792794888713000000,
+              "size": 51,
+              "state": "present",
+              "type": "file"
+            },
+            "ids": {
+              "mtime_ns": 1792806296204686903,
+              "size": 12,
+              "state": "present",
+              "type": "file"
+            },
+            "launch.json": {
+              "mtime_ns": 1792794581915685629,
+              "size": 1266,
+              "state": "present",
+              "type": "file"
+            },
+            "monitor.sh": {
+              "mtime_ns": 1792794582555686401,
+              "size": 207,
+              "state": "present",
+              "type": "file"
+            },
+            "spend-finished": {
+              "mtime_ns": 1792806296922685309,
+              "size": 0,
+              "state": "present",
+              "type": "file"
+            }
+          },
+          "id": "53f0527ed35b434ca179dc86b314047f",
+          "keep_markers": {
+            "directory": 0,
+            "file": 0,
+            "other": 0,
+            "symlink": 0
+          },
+          "parked_markers": {
+            "directory": 0,
+            "file": 0,
+            "other": 0,
+            "symlink": 0
+          },
+          "state": "ok",
+          "unknown_entries": 20
+        },
+        {
+          "creation_counts": {
+            "intent-only": 0,
+            "response-and-intent": 0,
+            "response-without-marker": 1
+          },
+          "creations": [
+            {
+              "intent": {
+                "state": "missing"
+              },
+              "label": "response-without-marker",
+              "response": {
+                "mtime_ns": 1792831849187708450,
+                "size": 567,
+                "state": "present",
+                "type": "file"
+              },
+              "serial": "1"
+            }
+          ],
+          "deleted_markers": {
+            "directory": 0,
+            "file": 1,
+            "other": 0,
+            "symlink": 0
+          },
+          "files": {
+            "cleanup-status.json": {
+              "state": "missing"
+            },
+            "complete": {
+              "mtime_ns": 1792851231207792871,
+              "size": 0,
+              "state": "present",
+              "type": "file"
+            },
+            "controller.lock": {
+              "mtime_ns": 1792831842501721058,
+              "size": 53,
+              "state": "present",
+              "type": "file"
+            },
+            "ids": {
+              "mtime_ns": 1792851230490793850,
+              "size": 12,
+              "state": "present",
+              "type": "file"
+            },
+            "launch.json": {
+              "mtime_ns": 1792831842502721056,
+              "size": 1289,
+              "state": "present",
+              "type": "file"
+            },
+            "monitor.sh": {
+              "mtime_ns": 1792831843265719619,
+              "size": 207,
+              "state": "present",
+              "type": "file"
+            },
+            "spend-finished": {
+              "mtime_ns": 1792851231206792873,
+              "size": 0,
+              "state": "present",
+              "type": "file"
+            }
+          },
+          "id": "568aef719dd1459393982101b73a799c",
+          "keep_markers": {
+            "directory": 0,
+            "file": 0,
+            "other": 0,
+            "symlink": 0
+          },
+          "parked_markers": {
+            "directory": 0,
+            "file": 0,
+            "other": 0,
+            "symlink": 0
+          },
+          "state": "ok",
+          "unknown_entries": 20
+        },
+        {
+          "creation_counts": {
+            "intent-only": 0,
+            "response-and-intent": 0,
+            "response-without-marker": 1
+          },
+          "creations": [
+            {
+              "intent": {
+                "state": "missing"
+              },
+              "label": "response-without-marker",
+              "response": {
+                "mtime_ns": 1792816344595637119,
+                "size": 567,
+                "state": "present",
+                "type": "file"
+              },
+              "serial": "1"
+            }
+          ],
+          "deleted_markers": {
+            "directory": 0,
+            "file": 1,
+            "other": 0,
+            "symlink": 0
+          },
+          "files": {
+            "cleanup-status.json": {
+              "state": "missing"
+            },
+            "complete": {
+              "mtime_ns": 1792828456404304785,
+              "size": 0,
+              "state": "present",
+              "type": "file"
+            },
+            "controller.lock": {
+              "mtime_ns": 1792828455310306665,
+              "size": 53,
+              "state": "present",
+              "type": "file"
+            },
+            "ids": {
+              "mtime_ns": 1792828455493306350,
+              "size": 12,
+              "state": "present",
+              "type": "file"
+            },
+            "launch.json": {
+              "mtime_ns": 1792816332250685085,
+              "size": 1266,
+              "state": "present",
+              "type": "file"
+            },
+            "monitor.sh": {
+              "mtime_ns": 1792816333617679760,
+              "size": 207,
+              "state": "present",
+              "type": "file"
+            },
+            "spend-finished": {
+              "mtime_ns": 1792828456403304787,
+              "size": 0,
+              "state": "present",
+              "type": "file"
+            }
+          },
+          "id": "aa37c0b6fb9e47ac9548255d2477873a",
+          "keep_markers": {
+            "directory": 0,
+            "file": 0,
+            "other": 0,
+            "symlink": 0
+          },
+          "parked_markers": {
+            "directory": 0,
+            "file": 0,
+            "other": 0,
+            "symlink": 0
+          },
+          "state": "ok",
+          "unknown_entries": 19
+        },
+        {
+          "creation_counts": {
+            "intent-only": 0,
+            "response-and-intent": 0,
+            "response-without-marker": 0
+          },
+          "creations": [],
+          "deleted_markers": {
+            "directory": 0,
+            "file": 0,
+            "other": 0,
+            "symlink": 0
+          },
+          "files": {
+            "cleanup-status.json": {
+              "state": "missing"
+            },
+            "complete": {
+              "state": "missing"
+            },
+            "controller.lock": {
+              "mtime_ns": 1792793168360988189,
+              "size": 53,
+              "state": "present",
+              "type": "file"
+            },
+            "ids": {
+              "state": "missing"
+            },
+            "launch.json": {
+              "mtime_ns": 1792793168363988192,
+              "size": 1266,
+              "state": "present",
+              "type": "file"
+            },
+            "monitor.sh": {
+              "state": "missing"
+            },
+            "spend-finished": {
+              "state": "missing"
+            }
+          },
+          "id": "b275ffccd6134a33833853ad1d31ed16",
+          "keep_markers": {
+            "directory": 0,
+            "file": 0,
+            "other": 0,
+            "symlink": 0
+          },
+          "parked_markers": {
+            "directory": 0,
+            "file": 0,
+            "other": 0,
+            "symlink": 0
+          },
+          "state": "ok",
+          "unknown_entries": 0
+        },
+        {
+          "creation_counts": {
+            "intent-only": 0,
+            "response-and-intent": 0,
+            "response-without-marker": 1
+          },
+          "creations": [
+            {
+              "intent": {
+                "state": "missing"
+              },
+              "label": "response-without-marker",
+              "response": {
+                "mtime_ns": 1792794391722456311,
+                "size": 514,
+                "state": "present",
+                "type": "file"
+              },
+              "serial": "1"
+            }
+          ],
+          "deleted_markers": {
+            "directory": 0,
+            "file": 1,
+            "other": 0,
+            "symlink": 0
+          },
+          "files": {
+            "cleanup-status.json": {
+              "state": "missing"
+            },
+            "complete": {
+              "mtime_ns": 1792794404014471128,
+              "size": 0,
+              "state": "present",
+              "type": "file"
+            },
+            "controller.lock": {
+              "mtime_ns": 1792794385650448992,
+              "size": 53,
+              "state": "present",
+              "type": "file"
+            },
+            "ids": {
+              "mtime_ns": 1792794392082456745,
+              "size": 12,
+              "state": "present",
+              "type": "file"
+            },
+            "launch.json": {
+              "mtime_ns": 1792794385652448995,
+              "size": 1266,
+              "state": "present",
+              "type": "file"
+            },
+            "monitor.sh": {
+              "mtime_ns": 1792794386401449897,
+              "size": 207,
+              "state": "present",
+              "type": "file"
+            },
+            "spend-finished": {
+              "mtime_ns": 1792794404012471126,
+              "size": 0,
+              "state": "present",
+              "type": "file"
+            }
+          },
+          "id": "fe29a93fb7f84c7abd2a39eae552c333",
+          "keep_markers": {
+            "directory": 0,
+            "file": 0,
+            "other": 0,
+            "symlink": 0
+          },
+          "parked_markers": {
+            "directory": 0,
+            "file": 0,
+            "other": 0,
+            "symlink": 0
+          },
+          "state": "ok",
+          "unknown_entries": 6
+        }
+      ],
+      "state": "ok"
+    },
+    "ledger": {
+      "counts": {
+        "finished": 0,
+        "reconciled_expired": 0,
+        "reserved": 0
+      },
+      "expired_reserved": 0,
+      "malformed_records": 0,
+      "reserved_usd": null,
+      "state": "missing",
+      "unknown_statuses": 0
+    },
+    "observed_at": "2026-10-31T14:48:43.049037+00:00",
+    "outstanding_proofs": [
+      "historical-provenance",
+      "controller-ownership",
+      "provider-creation-deletion",
+      "cumulative-cost"
+    ],
+    "schema": 1,
+    "snapshot_atomic": false,
+    "sources": {
+      "bin/boat-launch-guards.sh": {
+        "sha256": "3001e90436fa701afa7550ec8e24bee3482fefdce0fd192257550ea3d32c74cc",
+        "state": "ok"
+      },
+      "bin/boat-spend": {
+        "sha256": "f50e0caca24a36204d6053a298718eaaac7364c85ba0af3dfd0220436845c349",
+        "state": "ok"
+      },
+      "factory/control_resume.py": {
+        "sha256": "5fc31eb072d372c89dba95bf192678a49c093d7e1c1a99ef3fc66886c63f2bb3",
+        "state": "ok"
+      },
+      "factory/launch.sh": {
+        "sha256": "5a9d03ba49cbb445fcb0dfefbdbb928bd7ed9a43155b07a3373cf676036c911d",
+        "state": "ok"
+      }
+    }
+  },
+  "scanner_sha256": "cdfc92fc705906de6b58d010857eda067b254caef4b06e0ec10e9d731cbd3f48",
+  "schema": 1,
+  "snapshot_atomic": false,
+  "staged_release_sha256": "0781679022b81b4c3beff3c0e0595fbe19128c568e22f5737da61b8e0cbfb1ab",
+  "unit_file_sha256": {
+    "unbug-batch.service": null,
+    "unbug-key-holder.service": "26bec9419d6b7338f9cad77a0d607f2d3de7862982048abf6a5b471c2844c80a",
+    "unbug-model-router.service": null,
+    "unbug-resume-launches.service": "871bc8a620d0079b5781a60314794c79408ad9ea3a0af7f57aa26c3d1cb4d14c",
+    "unbug-resume-launches.timer": "e0d6ca8cd58c68f011fc5bd96114bab01f9c47767b8ad3512d3fb12e8159dd6c"
+  },
+  "units": {
+    "unbug-batch.service": {
+      "active": "inactive",
+      "enabled": "not-found"
+    },
+    "unbug-key-holder.service": {
+      "active": "inactive",
+      "enabled": "disabled"
+    },
+    "unbug-model-router.service": {
+      "active": "inactive",
+      "enabled": "not-found"
+    },
+    "unbug-resume-launches.service": {
+      "active": "inactive",
+      "enabled": "disabled"
+    },
+    "unbug-resume-launches.timer": {
+      "active": "inactive",
+      "enabled": "disabled"
+    }
+  }
+}

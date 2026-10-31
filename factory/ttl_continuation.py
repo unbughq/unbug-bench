@@ -8,6 +8,7 @@ inventory/concurrency checks; this module does not grant that authorization.
 import argparse
 import hashlib
 import json
+import os
 import math
 import pathlib
 import re
@@ -84,7 +85,8 @@ def request_retirement(root, worker, job, *, remote=None, now=None):
         raise ValueError('invalid TTL retirement target or deadline')
     if remote is None:
         def remote(command):
-            return subprocess.check_output([str(root / 'bin/boat-call'), 'ssh', worker, command], text=True, timeout=120).strip()
+            return subprocess.check_output([str(root / 'bin/boat-call'), 'ssh', worker, command], text=True,
+                env={**os.environ, 'BOAT_CAPTURE_OUTPUT': '1', 'BOAT_COMMAND_TIMEOUT_SECONDS': '120'}).strip()
     pid = int(remote("pgrep -f '^python3 .*factory/run.py'"))  # exactly one process; ambiguous output fails closed
     if pid <= 0: raise ValueError('no live runner')
     request = dict(version=1, reason='ttl', case=identifier(job['case']), worker=worker,

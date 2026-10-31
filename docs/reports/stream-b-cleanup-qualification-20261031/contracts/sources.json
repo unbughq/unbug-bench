@@ -1,0 +1,83 @@
+[
+  {
+    "url": "https://docs.boat.dev/api/reference/sandboxes/create-sandbox.md",
+    "old_file": "docs/reports/stream-b-provider-contract-20261031/create.md",
+    "old_sha256": "27a103e0832040be66c450adec636b1aec0935e79e36af5deda97cedf9f3e53d",
+    "new_sha256": "27a103e0832040be66c450adec636b1aec0935e79e36af5deda97cedf9f3e53d",
+    "fetched_at": "2026-10-31T14:48:40.990704+00:00",
+    "status": "unchanged",
+    "file": "docs/reports/stream-b-provider-contract-20261031/create.md"
+  },
+  {
+    "url": "https://docs.boat.dev/billing.md",
+    "old_file": "docs/reports/stream-b-provider-contract-20261031/billing.md",
+    "old_sha256": "ebfdf29702f22db170024067c8ee7a9aeea40ac100649374e0d2fd26b26aeb9b",
+    "new_sha256": "ebfdf29702f22db170024067c8ee7a9aeea40ac100649374e0d2fd26b26aeb9b",
+    "fetched_at": "2026-10-31T14:48:42.137629+00:00",
+    "status": "unchanged",
+    "file": "docs/reports/stream-b-provider-contract-20261031/billing.md"
+  },
+  {
+    "url": "https://docs.boat.dev/long-running-tasks/auto-stop.md",
+    "old_file": "docs/reports/stream-b-provider-contract-20261031/auto-stop.md",
+    "old_sha256": "6ef4b66fd15cdfaa292c280ca6bceb97ba107ca45cf401621ff615c9ebaad157",
+    "new_sha256": "6ef4b66fd15cdfaa292c280ca6bceb97ba107ca45cf401621ff615c9ebaad157",
+    "fetched_at": "2026-10-31T14:48:42.773059+00:00",
+    "status": "unchanged",
+    "file": "docs/reports/stream-b-provider-contract-20261031/auto-stop.md"
+  },
+  {
+    "url": "https://docs.boat.dev/snapshots/stop.md",
+    "old_file": "docs/reports/stream-b-cost-contract-20261031/stop.md",
+    "old_sha256": "14fcf02297270dfc85f2acc91c29f293dde896ae46155728d55b1fff53ffb502",
+    "new_sha256": "14fcf02297270dfc85f2acc91c29f293dde896ae46155728d55b1fff53ffb502",
+    "fetched_at": "2026-10-31T14:48:43.320439+00:00",
+    "status": "unchanged",
+    "file": "docs/reports/stream-b-cost-contract-20261031/stop.md"
+  },
+  {
+    "url": "https://docs.boat.dev/pricing.md",
+    "old_file": "docs/reports/stream-b-cost-contract-20261031/pricing.md",
+    "old_sha256": "b2203efdd360f109f516c728dd294730499c54b2e5a457d8346d241b7936b31b",
+    "new_sha256": "b2203efdd360f109f516c728dd294730499c54b2e5a457d8346d241b7936b31b",
+    "fetched_at": "2026-10-31T14:48:43.924855+00:00",
+    "status": "unchanged",
+    "file": "docs/reports/stream-b-cost-contract-20261031/pricing.md"
+  },
+  {
+    "url": "https://docs.boat.dev/limits.md",
+    "old_file": "docs/reports/stream-b-cost-contract-20261031/limits.md",
+    "old_sha256": "644a292de716fe566b69d4f8f881c5c18527d4a73d6bcfbff89a3d0e114d7a7b",
+    "new_sha256": "644a292de716fe566b69d4f8f881c5c18527d4a73d6bcfbff89a3d0e114d7a7b",
+    "fetched_at": "2026-10-31T14:48:44.531526+00:00",
+    "status": "unchanged",
+    "file": "docs/reports/stream-b-cost-contract-20261031/limits.md"
+  },
+  {
+    "url": "https://docs.boat.dev/organizations.md",
+    "old_file": "docs/reports/stream-b-cost-contract-20261031/organizations.md",
+    "old_sha256": "53f414a59122ba4a79002a4035cc113495dcc919294fed0325c8f44ba2058f9c",
+    "new_sha256": "53f414a59122ba4a79002a4035cc113495dcc919294fed0325c8f44ba2058f9c",
+    "fetched_at": "2026-10-31T14:48:45.144320+00:00",
+    "status": "unchanged",
+    "file": "docs/reports/stream-b-cost-contract-20261031/organizations.md"
+  },
+  {
+    "url": "https://docs.boat.dev/ai-credentials.md",
+    "old_file": "docs/reports/stream-b-cost-contract-20261031/ai-credentials.md",
+    "old_sha256": "fc68551cbe3f30c2bad982d3e888f5d3dc6f457594cb3beb3a02f3b6b7943be1",
+    "new_sha256": "fc68551cbe3f30c2bad982d3e888f5d3dc6f457594cb3beb3a02f3b6b7943be1",
+    "fetched_at": "2026-10-31T14:48:45.706557+00:00",
+    "status": "unchanged",
+    "file": "docs/reports/stream-b-cost-contract-20261031/ai-credentials.md"
+  },
+  {
+    "url": "https://docs.boat.dev/organizations/seats-and-limits.md",
+    "old_file": "docs/reports/stream-b-cost-contract-20261031/member-caps.md",
+    "old_sha256": "984c08b110e93f72f23dba2bc9858ed23e32e151c998042fda83bb1abd8f7606",
+    "new_sha256": "984c08b110e93f72f23dba2bc9858ed23e32e151c998042fda83bb1abd8f7606",
+    "fetched_at": "2026-10-31T14:48:46.265103+00:00",
+    "status": "unchanged",
+    "file": "docs/reports/stream-b-cost-contract-20261031/member-caps.md"
+  }
+]

@@ -6,7 +6,8 @@ CODEX_PRICES = {"codex/gpt-6.1-sol": (2.0, 0.10, 10.0)}  # input, cached input, 
 
 # https://platform.claude.com/docs/en/about-claude/pricing (2026-10-30).
 # Missing cache TTL uses the dearer one-hour write rate. Results use the CLI receipt.
-CLAUDE_PRICES = {"claude/claude-opus-5-5": (4.0, 0.20, 8.0, 20.0)}
+CLAUDE_PRICES = {"claude/claude-opus-5-5": (4.0, 0.20, 8.0, 20.0),
+                 "claude/claude-opus-4-5-20251101": (5.0, 0.5, 10.0, 25.0)}
 
 # These are the existing runtime's pinned overrides, not new provider quotes.
 PAID_PRICES = {'openrouter/meta/muse-spark-1.3-contributor': (.10, .20, .002, .10)}
@@ -18,6 +19,10 @@ PAID_PRICES['opencode-go/muse-spark-1.3-contributor'] = PAID_PRICES['openrouter/
 # Output holds deliberately exceed the requested cap; reasoning mapping is not assumed.
 OPENROUTER_OUTPUT = 32768
 GATED_OPENROUTER = {
+    # Public endpoint contract: router-item8-minimax-availability.json.gz.
+    'openrouter/minimax/minimax-m3.1-flash': dict(endpoint='tenstorrent/fp8',
+        prices=('0.05', '0.005', '0.2'), context=1000000, output=900000, windows=3,
+        cache_write='0', source_date='2026-10-31'),
     'openrouter/xiaomi/mimo-v2.6-pro': dict(endpoint='xiaomi/fp8',
         prices=('0.435', '0.0036', '0.87'), context=1048576, output=131072, windows=3, cache_write='0'),
     'openrouter/deepseek/deepseek-v4.1-flash': dict(endpoint='deepinfra/fp8',
@@ -33,7 +38,7 @@ def openrouter_gate_maximum(route):
     maximum = (profile['windows'] * worst + Decimal('.000001')).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
     return dict(max_usd=float(maximum), max_input_tokens=int(maximum * 1_000_000 / incoming),
                 max_output_tokens=int(maximum * 1_000_000 / outgoing),
-                price_source='token_prices:2026-10-30:' + route.replace('/', ':', 1) + ':' + profile['endpoint'] + ':'
+                price_source='token_prices:' + profile.get('source_date', '2026-10-30') + ':' + route.replace('/', ':', 1) + ':' + profile['endpoint'] + ':'
                              + ','.join(profile['prices']) + ':joint-gate-v1')
 
 
@@ -91,8 +96,23 @@ def invocation_maximum(model, bounds):
 # Provider-enforced context/output, plus the worker gate's joint allowance.
 # https://platform.claude.com/docs/en/models/opus-5-5/overview (2026-10-30).
 GATED_CLAUDE = 'claude/claude-opus-5-5'
+GATED_CLAUDE45 = 'claude/claude-opus-4-5-20251101'
 CLAUDE_CONTEXT, CLAUDE_OUTPUT = 1_000_000, 32768
 CLAUDE_CALL_USD = Decimal('50')
+CLAUDE_PROFILES = {GATED_CLAUDE: CLAUDE_CALL_USD,
+    GATED_CLAUDE + ':small': Decimal('10'),
+    GATED_CLAUDE + ':medium': Decimal('15'),
+    GATED_CLAUDE45 + ':compact': Decimal('3'),
+    GATED_CLAUDE45 + ':small': Decimal('5')}
+
+
+def claude_profile(route):
+    if route not in CLAUDE_PROFILES: return None
+    model = route.partition(':')[0]
+    return dict(model=model, context=200000 if model == GATED_CLAUDE45 else CLAUDE_CONTEXT,
+                output=16384 if model == GATED_CLAUDE45 else CLAUDE_OUTPUT,
+                thinking=8192 if model == GATED_CLAUDE45 else None)
+
 CLAUDE_GATE_FIELDS = ('input_tokens', 'cache_read_input_tokens',
                       'cache_creation_input_tokens', 'output_tokens')
 
@@ -111,21 +131,32 @@ def _claude_list_cost(model, usage):
     return sum(Decimal(str(v)) * Decimal(str(rate)) for v, rate in zip(values, rates)) / 1_000_000
 
 
-def claude_gate_cost(usage):
+def claude_gate_cost(usage, route=GATED_CLAUDE):
     """Same standard/global list tariff as partial CLI estimates; book nothing."""
-    return _claude_list_cost(GATED_CLAUDE, usage)
+    profile = claude_profile(route)
+    return None if profile is None else _claude_list_cost(profile['model'], usage)
 
 
-def claude_gate_maximum():
-    rates = [Decimal(str(v)) for v in CLAUDE_PRICES[GATED_CLAUDE]]
-    return dict(max_usd=float(CLAUDE_CALL_USD),
-                max_input_tokens=int(CLAUDE_CALL_USD * 1_000_000 / min(rates[:3])),
-                max_output_tokens=int(CLAUDE_CALL_USD * 1_000_000 / rates[3]),
-                price_source='token_prices:2026-10-30:claude-opus-5-5:' + ','.join(map(str, rates)) + ':1.0:standard-global:joint-gate-v1')
+def claude_gate_maximum(route=GATED_CLAUDE):
+    maximum = CLAUDE_PROFILES.get(route)
+    if maximum is None: return None
+    suffix = ('' if route == GATED_CLAUDE else
+              f':profile={route.rsplit(":", 1)[1]}:usd={maximum}')
+    profile = claude_profile(route)
+    rates = [Decimal(str(v)) for v in CLAUDE_PRICES[profile['model']]]
+    source = ('token_prices:2026-10-31:claude-opus-4-5-20251101:' + ','.join(map(str, rates))
+              + ':context=200000:output=16384:standard-global:joint-gate-v1'
+              if profile['model'] == GATED_CLAUDE45 else
+              'token_prices:2026-10-30:claude-opus-5-5:' + ','.join(map(str, rates)) + ':1.0:standard-global:joint-gate-v1')
+    return dict(max_usd=float(maximum),
+                max_input_tokens=int(maximum * 1_000_000 / min(rates[:3])),
+                max_output_tokens=int(maximum * 1_000_000 / rates[3]),
+                price_source=source + suffix)
 
 
 def claude_cost(model, usage):
-    amount = _claude_list_cost(model, usage)
+    profile = claude_profile(model)
+    amount = _claude_list_cost(profile['model'] if profile else model, usage)
     return None if amount is None else float(amount)
 
 

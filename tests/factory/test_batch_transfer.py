@@ -330,6 +330,15 @@ class TransferTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'template-only'):
             holder.reserve(policy, self.root, self.home, 'j', None)
         self.assertEqual(self.target_state(record, policy)['carried_debit_usd'], '1000.000000000')
+        # B2's dry qualification calls shared admission directly, bypassing reserve.
+        directory = self.home / 'batches' / record['id']
+        with money.locked(self.home, record['id']):
+            ops = holder._operations(directory, record, policy)
+            state = self.target_state(record, policy)
+            before = deepcopy(state)
+            with self.assertRaisesRegex(ValueError, 'template-only'):
+                holder._admit(directory, record, policy, self.root, ops, state, 'j', None)
+            self.assertEqual(state, before)
 
     def test_queued_child_with_any_operation_refuses(self):
         card = self.stopped(); self.derive(card)
