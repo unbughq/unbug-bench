@@ -149,7 +149,7 @@ Authored timing is fault injection. Tests must:
    finish reached and temporary state removed. Without an ID assert no finish and
    retained pending evidence. The bare shell is for signal/guard behavior only;
    lock inheritance is tested through the real controller in tests 1/2.
-4. In test_isolation_timeouts, replay the saved event with return status 0 and 9.
+4. In test_control_resume, replay the saved event with return status 0 and 9.
    Both persist ID and clear pending. Then force serial 2 begin failure with a
    directory at new.2.pending; assert id is empty immediately after guard_new
    (testing the actual value consumed by launch.sh, not a copied loop). Run
@@ -187,3 +187,27 @@ not a counter of billing requests. Bare guard tests premark collected to isolate
 creation/retirement, then use authored deletion responses with the real verifier.
 Resume recovery asserts the existing missing-start error route to guard_exit;
 it does not reset the TTL by assigning a fresh start time.
+
+## Diff-review settlement clarification
+
+The new unfinished condition applies only to guard_ids computation/persistence
+failure. Keep the baseline finish semantics for orphan-list errors and TTL-hook
+errors once every known worker is marked deleted and no creation is pending.
+Those errors still set cleanup_failed and a nonzero exit. A transient list error
+must not introduce a permanent reservation leak for a nonpersistent caller.
+
+An isolated regression retires the saved created ID with the real receipt
+verifier, leaves no pending marker, then makes new.9 unreadable. Only the merge
+failure can block finish/complete. A non-object JSON line is tested independently;
+such evidence corruption blocks finish indefinitely until reconciled, including
+late output from the already-declared detached-provider residual. Another test
+uses the actual Boat ownership check to refuse a reported ID absent from ids.
+Direct success, dangling marker, unrelated-list-failure compatibility and real
+resume failure propagation are now covered in test_control_resume as well.
+
+Unknown empty-ID resumes currently exit 0 through guard_exit without complete;
+assert that route and pass the real exit code to holder.record_child, which counts
+resume failure by the missing complete marker rather than exit status. No new
+resume exit semantics are introduced. The fsync order is reviewed in code;
+the process-crash tests do not simulate storage power loss. Subsequent suite
+records identify both the tested HEAD and its git tree.

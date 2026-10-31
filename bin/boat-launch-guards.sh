@@ -280,7 +280,8 @@ guard_exit() {
     kill -TERM "$probe_pid" 2>/dev/null
     wait "$probe_pid" 2>/dev/null
   done
-  guard_ids resolve || guard_cleanup_error
+  guard_ids_failed=0
+  guard_ids resolve || { guard_ids_failed=1; guard_cleanup_error; }
   for exit_id in $(cat "$state/ids"); do guard_retire "$exit_id" || guard_cleanup_error; done
   if [ -s "$state/ids" ]; then
     if boat list --json > "$state/list.json"; then
@@ -305,8 +306,7 @@ PY
       guard_cleanup_error
     fi
   fi
-  unfinished=0
-  [ "$guard_cleanup_failed" = false ] || unfinished=1
+  unfinished=$guard_ids_failed
   for creation in "$state"/new.*.pending; do
     if [ -e "$creation" ] || [ -L "$creation" ]; then unfinished=1; fi
   done

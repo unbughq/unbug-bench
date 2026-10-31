@@ -349,7 +349,9 @@ if a[0]=='new':
  if os.environ.get('CREATE_UNKNOWN')!='1': print(json.dumps(event),flush=True)
  sys.exit(int(os.environ.get('CREATE_EXIT','0')))
 elif a[0]=='billing': print((fixtures/'billing.json').read_text())
-elif a[0]=='list': print((fixtures/'list.json').read_text())
+elif a[0]=='list':
+ if os.environ.get('LIST_FAIL')=='1': sys.exit(9)
+ print((fixtures/'list.json').read_text())
 elif a[0]=='delete':
  print(json.dumps({'operation':dict(id='op-owned',targetId=worker,kind='sandbox',status='pending',stage='queued',completedAt=None)}))
 elif a[0]=='deletion':
@@ -361,6 +363,11 @@ else: sys.exit(9)
         shutil.copyfile(root / 'bin/boat-call', self.f.root / 'bin/boat-call')
         self.env.update(BOAT_CMD=str(self.provider_path), CREATION_FIXTURES=str(fixtures),
                         BOAT_TYPE='default', TEST_STATE=str(self.state))
+        # control_resume deliberately clears ambient transport overrides. Bind the
+        # existing resume fixture to this fake just as fresh launch.json does.
+        launch=json.loads((self.state/'launch.json').read_text())
+        launch['environment']['BOAT_CMD']=str(self.provider_path)
+        (self.state/'launch.json').write_text(json.dumps(launch))
         # Copy public release inputs missing from the older resume-only fixture.
         from launch_manifest import worker_files
         for name in worker_files(root):
@@ -422,7 +429,11 @@ else: sys.exit(9)
         os.killpg(p.pid,signal.SIGKILL); self.kill_provider()
         p.communicate(timeout=10)
         for _ in range(2):
-            self.resume(); self.assert_unfinished(before)
+            resumed=self.resume()
+            self.assertEqual(resumed.returncode,0,resumed.stderr)
+            self.assertEqual(json.loads((self.state/'cleanup-status.json').read_text()),
+                             dict(primary_exit_code=0,cleanup_failed=False))
+            self.assert_unfinished(before)
         # Same crash artifacts, bound to the existing holder fixture's operation.
         import test_batch_holder as hf
         h=hf.HolderTests(); h.setUp(); self.addCleanup(h.doCleanups)
@@ -432,7 +443,7 @@ else: sys.exit(9)
             shutil.copyfile(self.state/name,destination/name)
         h.reconcile(); current=h.ops()[op['operation_id']]
         self.assertEqual((current['state'],current['incident']),('pending','creation_unknown'))
-        self.assertEqual(hf.holder.record_child(h.policy,h.root,h.home,op['operation_id'],'resume',1),1)
+        self.assertEqual(hf.holder.record_child(h.policy,h.root,h.home,op['operation_id'],'resume',resumed.returncode),1)
         self.assertEqual(h.ops()[op['operation_id']]['failures'],1)
 
     def test_surviving_creator_holds_lock_then_resume_finishes(self):
@@ -521,9 +532,66 @@ collect_vm() { return 0; }
         self.assertEqual(out,'1:'+self.created['id'],err)
         self.assertTrue((self.state/'new.1.pending').exists())
         self.assertEqual((self.state/'ids').read_text(),'existing-reuse-worker\n')
-        p=self.bare('guard_retire() { return 1; }; guard_exit 1',UNBUG_LAUNCH_STATE=str(self.state))
-        _,err=p.communicate(timeout=10)
+        # Real receipt verifier refuses the reported ID missing from durable ids.
+        p=self.bare('guard_retire '+shlex.quote(self.created['id'])+'; printf "%s" "$?"')
+        out,err=p.communicate(timeout=10)
+        self.assertEqual(out,'1',err)
+        self.assertIn('deletion receipt verification FAILED',err)
+        self.assertFalse(any(a[0]=='delete' for a in self.calls()))
         self.assertEqual((self.state/'ids').read_text(),'existing-reuse-worker\n')
+        self.assertNotIn('finished_at',json.loads(self.spend.read_text()))
+        self.assertFalse((self.state/'complete').exists())
+
+    def test_merge_failure_alone_blocks_finish_after_verified_retirement(self):
+        self.provider(); (self.state/'ids').write_text('')
+        p=self.bare('guard_new || exit 91; guard_retire "$id" || exit 92; mkdir "$state/new.9"; guard_exit 0',
+                    UNBUG_LAUNCH_STATE=str(self.state))
+        _,err=p.communicate(timeout=10)
+        self.assertEqual(p.returncode,1,err)
+        self.assertEqual((self.state/'ids').read_text().split(),[self.created['id']])
+        self.assertTrue((self.state/(self.created['id']+'.deleted')).exists())
+        self.assertEqual(list(self.state.glob('new.*.pending')),[])
+        self.assertNotIn('finished_at',json.loads(self.spend.read_text()))
+        self.assertFalse((self.state/'complete').exists())
+        self.assertTrue(json.loads((self.state/'cleanup-status.json').read_text())['cleanup_failed'])
+        # Non-object JSON is also an evidence error, even with no uncertainty marker.
+        (self.state/'new.9').rmdir(); (self.state/'new.9').write_text('42\n')
+        p=self.bare('guard_exit 0',UNBUG_LAUNCH_STATE=str(self.state))
+        _,err=p.communicate(timeout=10)
+        self.assertEqual(p.returncode,1,err)
+        self.assertNotIn('finished_at',json.loads(self.spend.read_text()))
+        self.assertFalse((self.state/'complete').exists())
+
+    def test_unrelated_inventory_error_keeps_prior_finish_semantics(self):
+        self.provider(); (self.state/'ids').write_text('')
+        p=self.bare('guard_new || exit 91; guard_retire "$id" || exit 92; guard_exit 0',
+                    UNBUG_LAUNCH_STATE=str(self.state),LIST_FAIL='1')
+        _,err=p.communicate(timeout=10)
+        self.assertEqual(p.returncode,1,err)
+        self.assertTrue(json.loads((self.state/'cleanup-status.json').read_text())['cleanup_failed'])
+        self.assertIn('finished_at',json.loads(self.spend.read_text()))
+        self.assertTrue((self.state/'complete').exists())
+
+    def test_dangling_marker_refuses_submission_and_finish(self):
+        self.provider(); (self.state/'ids').write_text('')
+        (self.state/'new.1.pending').symlink_to(self.state/'absent')
+        p=self.bare('id=stale; guard_new; printf "%s:%s" "$?" "$id"; guard_exit 1',
+                    UNBUG_LAUNCH_STATE=str(self.state))
+        out,err=p.communicate(timeout=10)
+        self.assertEqual(out,'1:',err)
+        self.assertTrue((self.state/'new.1.pending').is_symlink())
+        self.assertNotIn('finished_at',json.loads(self.spend.read_text()))
+        self.assertFalse((self.state/'complete').exists())
+        self.assertFalse((self.f.base/'creation-calls').exists())
+
+    def test_resume_propagates_evidence_merge_failure_before_monitor(self):
+        self.provider()
+        (self.state/'new.9').mkdir()
+        result=self.resume()
+        self.assertEqual(result.returncode,1,result.stderr)
+        self.assertIn('creation evidence could not be persisted',result.stderr)
+        self.assertEqual(json.loads((self.state/'cleanup-status.json').read_text())['primary_exit_code'],1)
+        self.assertFalse(any(a[0]=='ssh' for a in self.calls()))
         self.assertNotIn('finished_at',json.loads(self.spend.read_text()))
         self.assertFalse((self.state/'complete').exists())
 
