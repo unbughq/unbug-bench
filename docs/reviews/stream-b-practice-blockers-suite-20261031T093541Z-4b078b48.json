@@ -1,0 +1,21 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "--with",
+    "numpy",
+    "--with",
+    "scipy",
+    "python",
+    "-B",
+    "tests/run.py"
+  ],
+  "head": "274084a76bce75426e5f3d3fb57a5bec5b438ce9",
+  "integrated_base": "c32e884",
+  "started_at": "2026-10-31T09:35:41.387388+00:00",
+  "finished_at": "2026-10-31T09:58:53.246592+00:00",
+  "exit_code": 0,
+  "log": "docs/reviews/stream-b-practice-blockers-suite-20261031T093541Z-4b078b48.log",
+  "sha256": "b61f32ee089a5ca145e0682da4ebd6cef9f9fa910767a014959387cc02a84a3e",
+  "summary": "156 test scripts run; 0 failed."
+}
