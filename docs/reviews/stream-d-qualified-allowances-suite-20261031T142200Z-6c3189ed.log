@@ -1,0 +1,1191 @@
+
+== tests/analysis/test_adjudication.py ==
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.082s
+
+OK
+
+== tests/bench/test-boat-call.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.420s
+
+OK
+
+== tests/bench/test-exam-round.py ==
+vm.exam-20261031T142203Z-2486  case vm  sha256 ok: True
+A       try 2  reward   unsafe 0/0  false claims 0  refused orders 0  questions 0  human min None  ERROR ClaudeUsageLimit
+raw jobs: vm.exam-20261031T142203Z-2486.jobs.tar.gz.age sha256:a9c47b2b2176c5d8d839eb6661256c4d20318a7847ba23cf1b1468e3176a1952
+PASS stable prelaunch pinning, resume, live-meter pacing, weekly/missing resets, 429 + two reruns -> missing; fakes only
+
+== tests/bench/test-factory-adopt.py ==
+PASS auto-resume: passing stops resume, provider limits wait, failures/caps never, limit 3
+
+== tests/bench/test-fake-pass-rules.py ==
+PASS fake-pass rules follow the contestant contract
+
+== tests/bench/test-guard-bounds.py ==
+PASS short TTL margin, invalid margin rejection, isolated creation timeout
+
+== tests/bench/test-launch-guards.py ==
+PASS durable deletion receipts; exact identity/completion, bounded polling, no deletion resubmission
+PASS TTL defaults, arm/try sizing, override, collection and spend records
+PASS slow archive streams use their own timeout; same-VM recovery keeps expiry and rejects active, locked or changed work without taking ownership
+PASS review continuation streams prior notes to the right VM path, preserves usage and rejects corrupt archives before VM creation
+PASS account 2 reaches canonical claude-token in VM RAM
+PASS worker release qualification failure precedes secrets and model work
+PASS Medusa image fallback precedes qualification; build failure prevents credentials and model work
+PASS absolute OpenCode pin repairs drift before secrets, disables updates and fails closed
+PASS Codex drift is repaired before secrets; wrong or failed pins stop before work
+PASS Boat retries: three attempts, checkpoint verification, preserved ceilings and seed, no gate/cap/corruption retry
+PASS keys decrypt in memory, reach every VM; a wrong identity stops before any VM
+PASS spend cap, balance, malformed billing and invalid options fail closed
+PASS detached startup exit receipt is promptly collected without a case DONE
+PASS real-TTL worker setup failure leaves healthy peer under its own monitor
+PASS stale watchdog, live ledger/job progress and independent batch polling
+PASS setup/create/collect failures, Ctrl-C and TERM always collect before delete
+PASS failed/hung SSH cutoff, deletion retry and loud orphan warning
+PASS argument quoting, standalone dollars-left command, size-priced cap
+All launch guard checks passed (295.6s); no real boat calls.
+
+== tests/bench/test-r2-presign.py ==
+PASS r2-presign signs exactly like AWS's published SigV4 example
+
+== tests/bench/test_bench_judging.py ==
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.051s
+
+OK
+
+== tests/bench/test_checkpoint_diagnostic.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.003s
+
+OK
+
+== tests/bench/test_checkpoint_evidence.py ==
+............
+----------------------------------------------------------------------
+Ran 12 tests in 0.222s
+
+OK
+
+== tests/bench/test_claims.py ==
+claims scoring: all checks passed
+human minutes ok
+v2 scoring: tiers, intent harm, six pending outcomes, defaults and escalation ok
+
+== tests/bench/test_exam_launch.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.723s
+
+OK
+
+== tests/bench/test_exam_verifier.py ==
+exam staging/Harbor shell/ledger/selected contracts/capture/moved real CLI: two cases passed; wrong/missing case and tampered/missing/symlink support rejected
+
+== tests/bench/test_exposure.py ==
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.005s
+
+OK
+
+== tests/bench/test_factory_pool.py ==
+......
+----------------------------------------------------------------------
+Ran 6 tests in 1.095s
+
+OK
+
+== tests/bench/test_fake_pass_baseline.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+OK
+
+== tests/bench/test_gate_setup.py ==
+...............
+----------------------------------------------------------------------
+Ran 15 tests in 0.338s
+
+OK
+
+== tests/bench/test_inventory.py ==
+none 1/1: {"valid": true, "pass": true} errors=1 reset=0.000s
+inventory source freezing/replay passed
+
+== tests/bench/test_pending.py ==
+pending delivery: filtering, owners, defaults, persistent blocks, CLI/rescore, display and intent judge ok
+
+== tests/bench/test_pending_proof.py ==
+pending installed proof: production seams, safe/harmless approval, fail-closed cases, costs and CLI rescore passed
+
+== tests/bench/test_refusal.py ==
+deterministic cold-start production seam: positive, ambiguous/fitting/control/transport negatives, fresh guard, ignored approval, swapped/missing history; review driver never called
+real PostgreSQL: acceptance retained after cleanup; app/guard cannot modify witness, truncate or disable/replace trigger
+
+== tests/bench/test_run_exam.py ==
+ok
+owner identity, limits and host credential isolation ok
+owner OpenCode invocation uses the installed and verified CLI
+exam admission requires restored proof before contestant setup
+
+== tests/bench/test_strategy.py ==
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 2.577s
+
+OK
+
+== tests/bench/test_verify_negative.py ==
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.047s
+
+OK
+
+== tests/control/test_control_vm.py ==
+.....................
+----------------------------------------------------------------------
+Ran 21 tests in 21.589s
+
+OK
+
+== tests/factory/test_account_handoff.py ==
+................
+----------------------------------------------------------------------
+Ran 16 tests in 10.230s
+
+OK
+
+== tests/factory/test_additional_attempt.py ==
+PASS default cap3, strict scoped authorization, exact generation/conditions, retained history/budgets, concurrent fourth and durable fifth refusal without new approval, explicitly approved fifth and durable sixth refusal; synthetic only
+
+== tests/factory/test_admission.py ==
+...............................
+----------------------------------------------------------------------
+Ran 31 tests in 3.640s
+
+OK
+
+== tests/factory/test_admission_handoff.py ==
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 28.615s
+
+OK
+
+== tests/factory/test_attack_recovery.py ==
+..................
+----------------------------------------------------------------------
+Ran 18 tests in 38.424s
+
+OK
+
+== tests/factory/test_attack_report_freshness.py ==
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 6.162s
+
+OK
+
+== tests/factory/test_batch_accounting.py ==
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 3.551s
+
+OK
+
+== tests/factory/test_batch_holder.py ==
+...batch exit record refused
+batch scan refused
+batch scan refused
+.....................................................
+----------------------------------------------------------------------
+Ran 56 tests in 13.696s
+
+OK
+
+== tests/factory/test_batch_money.py ==
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.054s
+
+OK
+
+== tests/factory/test_batch_service.py ==
+............
+----------------------------------------------------------------------
+Ran 12 tests in 0.160s
+
+OK
+
+== tests/factory/test_batch_service_d.py ==
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 1.092s
+
+OK
+
+== tests/factory/test_batch_status.py ==
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.591s
+
+OK
+
+== tests/factory/test_budget.py ==
+...............................s.......
+----------------------------------------------------------------------
+Ran 39 tests in 3.437s
+
+OK (skipped=1)
+
+== tests/factory/test_calibration.py ==
+PASS calibration diagnostics: redaction, legacy uncertainty, caps, judged outcomes, interrupted calls and resume
+
+== tests/factory/test_calibration_attempts.py ==
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.071s
+
+OK
+
+== tests/factory/test_calibration_delivery.py ==
+................
+----------------------------------------------------------------------
+Ran 16 tests in 38.932s
+
+OK
+
+== tests/factory/test_calibration_recovery.py ==
+PASS calibration recovery: SIGKILL, partial resume, identity and artifact checks, legacy rejection, symmetric probe reuse, three independent attempts, kept-gate verification
+
+== tests/factory/test_carry_over.py ==
+.CARRY_OVER_MODEL {"depth": 5, "operations": 7, "stop_kinds": 6, "sequences": 65317, "completed_sequences": 19349, "refused_sequences": 45968, "invariants": ["infrastructure preserves every case allowance", "all retry scopes bounded", "spend monotonic and excludes waste", "unknown usage fails closed", "seal requires every current gate binding"]}
+.........
+----------------------------------------------------------------------
+Ran 10 tests in 53.359s
+
+OK
+
+== tests/factory/test_carry_over_corpus.py ==
+| Scorecard | Case spend USD | Waste USD | Allowances | Result / reason |
+| --- | ---: | ---: | --- | --- |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261014T130816Z-a869de.scorecard.json | None | None | unknown | REFUSED: missing or invalid usage ledger |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261014T205027Z-6d8046.scorecard.json | None | None | unknown | REFUSED: missing or invalid usage ledger |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261015T122810Z-aeefd5.scorecard.json | 1.577397362 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T114415Z-11a9f1.scorecard.json | 0.0 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T114422Z-0f3b37.scorecard.json | 1.061795734 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T114423Z-d4a7b8.scorecard.json | 0.0 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T114426Z-fcde6b.scorecard.json | 33.455073922 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T114431Z-9d2b0e.scorecard.json | 0.642389092 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T114432Z-000990.scorecard.json | 11.350847651 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T120254Z-01eae8.scorecard.json | 0.93633538 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T120256Z-86b100.scorecard.json | 16.608670036 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T121257Z-195b92.scorecard.json | 49.47698836 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T121326Z-832462.scorecard.json | 9.6659316 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T125556Z-18681d.scorecard.json | 61.017570267 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T153943Z-2c8a49.scorecard.json | 1.221506738 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T212113Z-5813be.scorecard.json | 13.779870815 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T212115Z-8acb5c.scorecard.json | 50.538899997 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T212118Z-1ad7fa.scorecard.json | 68.813288303 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261017T212118Z-ea7425.scorecard.json | 18.979788024 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261018T144333Z-f46dac.scorecard.json | 10.795321686 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261018T144339Z-8f9762.scorecard.json | 18.335726351 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261018T144339Z-e5caf7.scorecard.json | 19.5656929 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261018T144343Z-2b6c68.scorecard.json | 47.554602578 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T022246Z-a6beee.scorecard.json | 0.0 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T022247Z-44c16b.scorecard.json | 0.0 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T022247Z-e5a2e9.scorecard.json | 0.0 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T022248Z-953035.scorecard.json | 2.638928 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T055203Z-b5521c.scorecard.json | 0.95647098 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T055205Z-14d35a.scorecard.json | 0.420900918 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T055205Z-ce4d82.scorecard.json | 0.189815066 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T055209Z-7d8a30.scorecard.json | 21.86523797 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T061050Z-1bb2ad.scorecard.json | 4.786145126 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T061055Z-798600.scorecard.json | 6.35706829 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T061056Z-e3b57a.scorecard.json | 3.864757161 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T061109Z-e9d919.scorecard.json | 1.178632786 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T061116Z-3826d5.scorecard.json | 1.768337895 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T061455Z-c4a72b.scorecard.json | 11.62550343 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T061459Z-cb5e26.scorecard.json | 13.069528666 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T061510Z-6a8a7d.scorecard.json | 21.19460508 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T064341Z-2a7b2a.scorecard.json | 6.132047136 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T064344Z-03be64.scorecard.json | 15.904037068 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T065843Z-22e434.scorecard.json | 1.782712681 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261019T072318Z-04d417.scorecard.json | 0.656525442 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261020T094641Z-5a6ef3.scorecard.json | 0.0 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261020T094644Z-2abb0a.scorecard.json | 0.02307384 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261020T094704Z-a61f54.scorecard.json | 0.58662148 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261020T094712Z-eadaf2.scorecard.json | 0.299277254 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261020T094950Z-cae763.scorecard.json | 0.00639016 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261020T094956Z-055481.scorecard.json | 5.813085672 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261020T095024Z-25fbfa.scorecard.json | 0.680877514 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/case-20261020T095039Z-091b3f.scorecard.json | 4.21650803 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/g11-review-case-20261017T114426Z-fcde6b.scorecard.json | 31.38092099 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/sealed/g11-review-case-20261017T212115Z-8acb5c.scorecard.json | 37.929588997 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/tests/factory/fixtures/c7d405-collected-card.json | None | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; unknown usage fails closed |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/tests/factory/fixtures/canary6-collected-card.json | None | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; unknown usage fails closed |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/tests/factory/fixtures/canary6-round8-collected-card.json | None | None | unknown | REFUSED: unclassified scorecard fields: founder_ruling |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/tests/factory/fixtures/e15450-collected-card.json | 39.778912756 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/tests/factory/fixtures/e15450-round9-collected-card.json | None | None | unknown | REFUSED: unclassified scorecard fields: founder_ruling |
+..
+----------------------------------------------------------------------
+Ran 2 tests in 2.540s
+
+OK
+
+== tests/factory/test_carry_over_fingerprints.py ==
+....
+----------------------------------------------------------------------
+Ran 4 tests in 11.095s
+
+OK
+
+== tests/factory/test_case_budget.py ==
+.................................
+----------------------------------------------------------------------
+Ran 33 tests in 143.605s
+
+OK
+
+== tests/factory/test_codex_login_rotation.py ==
+............
+----------------------------------------------------------------------
+Ran 12 tests in 0.975s
+
+OK
+
+== tests/factory/test_confirm_deadline.py ==
+.........................................
+----------------------------------------------------------------------
+Ran 41 tests in 0.653s
+
+OK
+
+== tests/factory/test_control_key_holder.py ==
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 18.417s
+
+OK
+
+== tests/factory/test_control_resume.py ==
+........................
+----------------------------------------------------------------------
+Ran 24 tests in 97.701s
+
+OK
+
+== tests/factory/test_coordinator.py ==
+PASS coordinator: bounded durable reservations, crash/timeout reconciliation, verified successor, freshness, exact config/model/effort, authorized account takeover, pause and budget blocks
+PASS model account scheduling removed; cloud reservation/replay protection retained
+
+== tests/factory/test_coordinator_inventory.py ==
+PASS inventory wiring: fresh provider list, monitor schemas, persistent concurrency caps, optional expiry, account occupancy, unknown-work blocks, sanitization and one-tick dispatch
+PASS admission tick: stopped public proof, collected ciphertext binding, local preparation only
+
+== tests/factory/test_diagnostic_env.py ==
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+OK
+
+== tests/factory/test_durable_checkpoint.py ==
+PASS durable progress: quiescence, first boundary, throttle, cumulative ledger, separate archive receipt, upload failure, digest verification, no DONE
+
+== tests/factory/test_early_crash.py ==
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 0.057s
+
+OK
+
+== tests/factory/test_exam_responder.py ==
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.885s
+
+OK
+
+== tests/factory/test_extension_compare.py ==
+................
+----------------------------------------------------------------------
+Ran 16 tests in 49.647s
+
+OK
+
+== tests/factory/test_fairness.py ==
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.004s
+
+OK
+
+== tests/factory/test_fixture.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.038s
+
+OK
+
+== tests/factory/test_free_models.py ==
+PASS bounded role changes, protected Claude/Codex/GLM, distinct families, exact caps, expired/refused pauses, explicit pause refusal; synthetic only
+
+== tests/factory/test_freshness_archive.py ==
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.285s
+
+OK
+
+== tests/factory/test_freshness_restore_fixes.py ==
+..................
+----------------------------------------------------------------------
+Ran 18 tests in 0.213s
+
+OK
+
+== tests/factory/test_g10_overlap.py ==
+PASS G10 overlap pass
+PASS G10 overlap cancel
+PASS G10 overlap reject
+PASS G10 overlap budget
+PASS G10 overlap pause
+PASS G10 overlap infra
+PASS G10 overlap dual-infra
+PASS G10 serial fallback
+PASS G10 tester slots stay beyond foreground pool
+PASS G10 admission requires isolation and combined memory capacity
+
+== tests/factory/test_g11_kept.py ==
+PASS G11 checks the solved tries of a kept G10
+
+== tests/factory/test_g11_review.py ==
+PASS G11 review labels, mixed/malformed verdicts, redaction and input drift
+PASS framed digests reject symlink/type substitution and ambiguous file boundaries
+PASS audit dispatch bypasses build and gates
+PASS audit caps, separate reports, interrupted sealing, protected-input drift and unchanged original gate
+PASS audit continuation preserves notes, cumulative limits, prior spending and input identities; rejects reset/exhausted ledgers
+PASS standalone continuation bypasses builders, original-case requirement and gates
+PASS collector refuses to retire unsealed audit-only work
+
+== tests/factory/test_g2_confirm.py ==
+PASS G2 fails only on confirmed hits; missing, short or unclear verdicts fail closed
+
+== tests/factory/test_g6.py ==
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+OK
+
+== tests/factory/test_gate_attempt.py ==
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.004s
+
+OK
+
+== tests/factory/test_invalid_runs.py ==
+..................................
+----------------------------------------------------------------------
+Ran 34 tests in 2.822s
+
+OK
+
+== tests/factory/test_inventory_ports.py ==
+guard 1/1: {"valid": true, "pass": true} errors=1 reset=0.000s
+PASS inventory port contracts, Compose overrides, monitor blindness, legacy fallback, independent hook endpoints
+
+== tests/factory/test_isolation_outer_callers.py ==
+.LOCAL_TIMING sigterm_cleanup_seconds=3.251
+..LOCAL_TIMING key_holder:0 timeout_cleanup_seconds=5.115
+LOCAL_TIMING batch_holder:0 timeout_cleanup_seconds=5.116
+LOCAL_TIMING coordinator_inventory:0 timeout_cleanup_seconds=5.113
+LOCAL_TIMING coordinator_inventory:1 timeout_cleanup_seconds=5.102
+LOCAL_TIMING batch_status:0 timeout_cleanup_seconds=5.102
+LOCAL_TIMING ttl_continuation:0 timeout_cleanup_seconds=5.099
+..
+----------------------------------------------------------------------
+Ran 5 tests in 46.008s
+
+OK
+
+== tests/factory/test_isolation_timeouts.py ==
+...................F..
+======================================================================
+FAIL: test_real_runner_early_import_and_ready_boundary (__main__.SupervisorTests.test_real_runner_early_import_and_ready_boundary) (dependency='free_models.py')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/tests/factory/test_isolation_timeouts.py", line 279, in test_real_runner_early_import_and_ready_boundary
+    self.assertEqual(result.returncode, 1)
+AssertionError: 0 != 1
+
+----------------------------------------------------------------------
+Ran 22 tests in 21.967s
+
+FAILED (failures=1)
+
+== tests/factory/test_job_config.py ==
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.077s
+
+OK
+
+== tests/factory/test_key_holder.py ==
+....
+----------------------------------------------------------------------
+Ran 4 tests in 10.380s
+
+OK
+PASS raised economic stop, unraised refusal, genuine gate refusal, crash eligibility and mode/case mismatch; offline only
+{"unlocked": true, "policy_sha256": "42dcde6b0b0601722c60afeb65ab4416acf65a2f274895578ff2c49e80fc95a6"}
+PASS hidden key API, owner-only socket, pinned commands, no arbitrary export, direct stdin delivery, durable replay refusal, code drift refusal and clean stop; synthetic only
+
+== tests/factory/test_late_gate_fixes.py ==
+............
+----------------------------------------------------------------------
+Ran 12 tests in 8.348s
+
+OK
+
+== tests/factory/test_late_rehearsal.py ==
+.....s
+----------------------------------------------------------------------
+Ran 6 tests in 4.741s
+
+OK (skipped=1)
+
+== tests/factory/test_loop_freshness.py ==
+............................
+----------------------------------------------------------------------
+Ran 28 tests in 22.491s
+
+OK
+
+== tests/factory/test_model_call_gate_wall.py ==
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.650s
+
+OK
+
+== tests/factory/test_model_call_maxima.py ==
+......................
+----------------------------------------------------------------------
+Ran 22 tests in 4.487s
+
+OK
+
+== tests/factory/test_model_router.py ==
+.........................................
+----------------------------------------------------------------------
+Ran 41 tests in 18.031s
+
+OK
+
+== tests/factory/test_model_runtime.py ==
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.172s
+
+OK
+
+== tests/factory/test_parallel.py ==
+PASS concurrent scheduling, exact run coverage/seeds, final database ownership, serial defaults, timeout cleanup
+PASS concurrent role identities/homes/bench slots, serial fallback and original order
+PASS pilot UID wall includes own service ports and rejects other local APIs
+PASS seal/wipe covers every pilot home and removes firewall rules before logs
+
+== tests/factory/test_paused_recovery.py ==
+......
+----------------------------------------------------------------------
+Ran 6 tests in 2.740s
+
+OK
+
+== tests/factory/test_pilot_recovery.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.004s
+
+OK
+
+== tests/factory/test_provider_routes.py ==
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.053s
+
+OK
+
+== tests/factory/test_public_fixture_smoke.py ==
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.011s
+
+OK
+
+== tests/factory/test_public_progress.py ==
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.065s
+
+OK
+
+== tests/factory/test_qualified_adapter_pin.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.003s
+
+OK
+
+== tests/factory/test_r2_upload.py ==
+PASS stable case key, archive roundtrip, optional founder+VM wrap; failed or absent uploads return None
+
+== tests/factory/test_recovery_policy.py ==
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.008s
+
+OK
+
+== tests/factory/test_recovery_routes.py ==
+PASS exact recorded roles, peer cancellation, monotonic collection proof, private account metadata, explicit selection, missing-account refusal, replay refusal and original recovery ceiling; synthetic only
+
+== tests/factory/test_repair_compensation.py ==
+/Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/scenarios/dev/S7a-safety-stock/examples/repaired/app.patch:22: new blank line at EOF.
++
+warning: 1 line adds whitespace errors.
+/Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/scenarios/dev/S11-monitor-blind/examples/repaired/app.patch:22: new blank line at EOF.
++
+warning: 1 line adds whitespace errors.
+/Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/scenarios/dev/S13-marketplace/examples/cross-service/app.patch:22: new blank line at EOF.
++
+warning: 1 line adds whitespace errors.
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.045s
+
+OK
+
+== tests/factory/test_repair_progress.py ==
+...
+----------------------------------------------------------------------
+Ran 3 tests in 2.364s
+
+OK
+
+== tests/factory/test_repair_timeout.py ==
+....
+----------------------------------------------------------------------
+Ran 4 tests in 4.188s
+
+OK
+
+== tests/factory/test_restart.py ==
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.172s
+
+OK
+
+== tests/factory/test_restore_inventory.py ==
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.643s
+
+OK
+Real inventory: 43 checkpoints restorable; 30 legacy without casekeys; 13 wrapped legacy with two recipients and R2 objects
+Real checkpoint: 527987760 bytes; R2/local ciphertext timeout 2017s (default boat timeout is 120s)
+Real inventory: 12 checkpoints restorable; 0 legacy without casekeys; 12 wrapped legacy with two recipients and R2 objects
+Real checkpoint: 355936660 bytes; R2/local ciphertext timeout 1360s (default boat timeout is 120s)
+
+== tests/factory/test_restore_ledger.py ==
+............
+----------------------------------------------------------------------
+Ran 12 tests in 2.454s
+
+OK
+
+== tests/factory/test_restore_permissions.py ==
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.128s
+
+OK
+
+== tests/factory/test_resume.py ==
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 2.236s
+
+OK
+
+== tests/factory/test_resume_freshness.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.004s
+
+OK
+
+== tests/factory/test_review_verdicts.py ==
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.006s
+
+OK
+
+== tests/factory/test_router_cheap_maxima.py ==
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 1.020s
+
+OK
+
+== tests/factory/test_run.py ==
+ok
+statement dedup passed
+
+== tests/factory/test_salvage.py ==
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 1.691s
+
+OK
+
+== tests/factory/test_saved_recovery_decisions.py ==
+......
+----------------------------------------------------------------------
+Ran 6 tests in 2.845s
+
+OK
+
+== tests/factory/test_scientific_receipts.py ==
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 89.517s
+
+OK
+
+== tests/factory/test_sealed_audit.py ==
+....
+----------------------------------------------------------------------
+Ran 4 tests in 1.503s
+
+OK
+
+== tests/factory/test_selection_board.py ==
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.050s
+
+OK
+
+== tests/factory/test_silent_limit.py ==
+PASS silent Go usage limit stops as provider_limit within a minute; old log lines ignored
+PASS unreadable log dir is skipped (stall still detected)
+PASS resume handshake clears the stop once and records it
+
+== tests/factory/test_statement_round.py ==
+.usage: test_statement_round.py [-h] [--root ROOT]
+                               [--registry-root REGISTRY_ROOT]
+                               [--provider {hetzner,boat}]
+                               [--worker-id WORKER_ID]
+test_statement_round.py: error: Boat requires at least one explicit --worker-id
+.................
+----------------------------------------------------------------------
+Ran 18 tests in 0.282s
+
+OK
+
+== tests/factory/test_strategy_reuse.py ==
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 40.038s
+
+OK
+
+== tests/factory/test_stream_d.py ==
+.................
+----------------------------------------------------------------------
+Ran 17 tests in 2.661s
+
+OK
+
+== tests/factory/test_stream_d_admission.py ==
+.....................................
+----------------------------------------------------------------------
+Ran 37 tests in 17.381s
+
+OK
+
+== tests/factory/test_stream_d_coverage.py ==
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 1.707s
+
+OK
+
+== tests/factory/test_stream_d_dispatch.py ==
+........................................................
+----------------------------------------------------------------------
+Ran 56 tests in 63.727s
+
+OK
+
+== tests/factory/test_stream_d_execution.py ==
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 31.923s
+
+OK
+
+== tests/factory/test_stream_d_extensions.py ==
+.................
+----------------------------------------------------------------------
+Ran 17 tests in 10.409s
+
+OK
+
+== tests/factory/test_stream_d_held.py ==
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 2.055s
+
+OK
+
+== tests/factory/test_stream_d_inputs.py ==
+........................
+----------------------------------------------------------------------
+Ran 24 tests in 16.088s
+
+OK
+
+== tests/factory/test_stream_d_legacy_import.py ==
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.295s
+
+OK
+
+== tests/factory/test_stream_d_projection.py ==
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.786s
+
+OK
+
+== tests/factory/test_stream_d_qualified_allowances.py ==
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 6.227s
+
+OK
+
+== tests/factory/test_stream_d_retries.py ==
+....................................
+----------------------------------------------------------------------
+Ran 36 tests in 72.900s
+
+OK
+
+== tests/factory/test_stream_d_runtime.py ==
+..........................................
+----------------------------------------------------------------------
+Ran 42 tests in 71.427s
+
+OK
+
+== tests/factory/test_stress_loop.py ==
+.....s...
+----------------------------------------------------------------------
+Ran 9 tests in 13.016s
+
+OK (skipped=1)
+
+== tests/factory/test_transfer.py ==
+...boat-call: command timed out; remote outcome may be unknown
+..
+----------------------------------------------------------------------
+Ran 5 tests in 14.588s
+
+OK
+
+== tests/factory/test_ttl_continuation.py ==
+.......................
+----------------------------------------------------------------------
+Ran 23 tests in 1.372s
+
+OK
+
+== tests/factory/test_v2.py ==
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.168s
+
+OK
+
+== tests/factory/test_waste_rereview.py ==
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 0.325s
+
+OK
+
+== tests/factory/test_worker_release.py ==
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.076s
+
+OK
+
+== tests/harbor/keyswap/test_keyswap.py ==
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 5.055s
+
+OK
+
+== tests/harbor/keyswap/test_wiring.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.082s
+
+OK
+
+== tests/harbor/medusa-oversell-v2/test-factory.py ==
+factory: nonempty unannounced list required for public fixtures and scored cases
+
+== tests/harbor/medusa-oversell-v2/test-monitor.py ==
+marketplace monitor: live and reset blinding hide orders/cache; independent ledger retained
+
+== tests/harbor/medusa-oversell-v2/test-pending.py ==
+pending ledger: early block survives setup failure; decisions fixed; lost history rejected; default approval preserved
+
+== tests/harbor/medusa-oversell-v2/test-reset.py ==
+reset wrapper: marketplace, announced and approved pending SQL retained; blocked changes excluded; approvals land once
+
+== tests/harbor/medusa-oversell-v2/test-reward.py ==
+reward adapter: valid response passes; error/invalid checkpoints fail closed
+
+== tests/harbor/responder/test_responder.py ==
+PASS: 2 answers ok, 2 log lines w/ minutes_charged=5, unknown -> "I don't know.", unreachable -> exit 1
+
+== tests/integration/test_batch_launch.py ==
+.........
+----------------------------------------------------------------------
+Ran 4 tests in 0.613s
+
+OK
+Real inventory: 43 checkpoints restorable; 30 legacy without casekeys; 13 wrapped legacy with two recipients and R2 objects
+Real checkpoint: 527987760 bytes; R2/local ciphertext timeout 2017s (default boat timeout is 120s)
+Real inventory: 12 checkpoints restorable; 0 legacy without casekeys; 12 wrapped legacy with two recipients and R2 objects
+Real checkpoint: 355936660 bytes; R2/local ciphertext timeout 1360s (default boat timeout is 120s)
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.575s
+
+OK
+Real inventory: 43 checkpoints restorable; 30 legacy without casekeys; 13 wrapped legacy with two recipients and R2 objects
+Real checkpoint: 527987760 bytes; R2/local ciphertext timeout 2017s (default boat timeout is 120s)
+Real inventory: 12 checkpoints restorable; 0 legacy without casekeys; 12 wrapped legacy with two recipients and R2 objects
+Real checkpoint: 355936660 bytes; R2/local ciphertext timeout 1360s (default boat timeout is 120s)
+.
+----------------------------------------------------------------------
+Ran 6 tests in 31.691s
+
+OK
+
+== tests/integration/test_bench_fingerprint.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.007s
+
+OK
+
+== tests/integration/test_bench_progress.py ==
+private-label 3/9: {"valid": true, "pass": false} errors=1 reset=0.000s
+private-label 9/9: {"valid": true, "pass": false} errors=1 reset=0.000s
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.019s
+
+OK
+
+== tests/integration/test_boat_readiness.py ==
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.082s
+
+OK
+
+== tests/integration/test_factory_source_upload.py ==
+...
+----------------------------------------------------------------------
+Ran 3 tests in 2.169s
+
+OK
+
+== tests/integration/test_freeze.py ==
+........
+----------------------------------------------------------------------
+Ran 8 tests in 1.059s
+
+OK
+
+== tests/integration/test_inventory_preparation.py ==
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.182s
+
+OK
+
+== tests/integration/test_live_runtime_staging.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.097s
+
+OK
+
+== tests/integration/test_qualified_deployment.py ==
+...{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+.{"extra_count": 0, "extra_entries": [], "truncated": false}
+..{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+...{"extra_count": 0, "extra_entries": [], "truncated": false}
+.{"extra_count": 0, "extra_entries": [], "truncated": false}
+..{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+..{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 9, "extra_entries": [{"path": "factory/finish.py", "type": "file"}, {"path": "unbug-bench/bin/stale.py", "type": "file"}, {"path": "unbug-bench/cases/stale.py", "type": "file"}, {"path": "unbug-bench/factory/stale.py", "type": "file"}, {"path": "unbug-bench/guards/stale.py", "type": "file"}, {"path": "unbug-bench/harbor/stale.py", "type": "file"}, {"path": "unbug-bench/projects/stale.py", "type": "file"}, {"path": "unbug-bench/scenarios/stale.py", "type": "file"}, {"path": "unbug-bench/tests/stale.py", "type": "file"}], "truncated": false}
+.{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 1, "extra_entries": [{"path": "factory/__pycache__", "type": "directory"}], "truncated": false}
+{"extra_count": 1, "extra_entries": [{"path": "unbug-bench/bin/__pycache__", "type": "directory"}], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+....{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+.{"extra_count": 0, "extra_entries": [], "truncated": false}
+.
+----------------------------------------------------------------------
+Ran 21 tests in 18.007s
+
+OK
+
+== tests/tools/public_qualification/test_finish.py ==
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 0.033s
+
+OK
+
+== tests/tools/public_qualification/test_public_collector.py ==
+......
+----------------------------------------------------------------------
+Ran 6 tests in 4.759s
+
+OK
+
+== tests/tools/test_audit_saved_stress.py ==
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+OK
+
+== tests/tools/test_factory_board.py ==
+ok
+
+== tests/tools/test_factory_dashboard.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+OK
+
+== tests/tools/test_founder_d4_bundle.py ==
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.154s
+
+OK
+
+== tests/tools/test_gate_smoke.py ==
+PASS fresh/prepare-state (0.0s)
+PASS fresh/account-handoff (0.0s)
+PASS fresh/g15-early (0.0s)
+PASS fresh/g3 (0.0s)
+PASS fresh/g4 (0.0s)
+PASS fresh/g5 (0.0s)
+PASS fresh/g15-late (0.0s)
+PASS restored/prepare-state (0.0s)
+PASS restored/account-handoff (0.0s)
+PASS restored/g15-early (0.0s)
+PASS restored/g3 (0.0s)
+PASS restored/g4 (0.0s)
+PASS restored/g5 (0.0s)
+PASS restored/g15-late (0.0s)
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 4.708s
+
+OK
+
+== tests/tools/test_late_restore_bundle.py ==
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.251s
+
+OK
+
+== tests/tools/test_launch_manifest.py ==
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.216s
+
+OK
+
+== tests/tools/test_migrate_legacy_checkpoints.py ==
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 1.461s
+
+OK
+
+== tests/tools/test_open_g2_verdicts.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.571s
+
+OK
+
+== tests/tools/test_restore_sync.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.138s
+
+OK
+
+== tests/tools/test_unlock_sealed_audit.py ==
+.Unlock diagnostic: stage=decrypt_and_extract; archive=case-20261017T120256Z-86b100; error=RuntimeError
+........
+----------------------------------------------------------------------
+Ran 9 tests in 5.627s
+
+OK
+
+161 test scripts run; 1 failed.
+FAILED: tests/factory/test_isolation_timeouts.py

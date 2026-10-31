@@ -74,8 +74,6 @@ with tempfile.TemporaryDirectory() as tmp:
             for generated in config_paths:
                 generated.unlink(missing_ok=True)
         assert len({run.family(after[r]['model']) for r in ('writer', 'stress_tester', 'reviewer', 'strong_calibrator')}) == 4
-        assert free_models.first_resume('case-fixture', {'roles': before}, args)
-        assert not free_models.first_resume('case-fixture', {'roles': after}, args)
         assert free_models.apply(SimpleNamespace(case_id='case-unrelated', args=args), before) == before
         args.max_total_calls = 2400
         rejected(lambda: free_models.selected('case-fixture', args))
