@@ -22,7 +22,7 @@ from registry import atomic_json
 
 CARRY = ('source', 'seed', 'rotation_slot', 'roles', 'models', 'models_used', 'gates',
     'gate_results', 'gate_minutes', 'early_gates', 'failed_gate', 'failed_detail',
-    'infrastructure_gate', 'late_defect', 'stress_review', 'statement_sha256',
+    'infrastructure_gate', 'late_defect', 'stress_review', 'loop_freshness', 'statement_sha256',
     'admission', 'dedup', 'dedup_skipped', 'idea_realism', 'candidate_attempts',
     'rejected_candidates', 'builder_rounds', 'recovery_config', 'factory_slots_prepared',
     'diagnosis_state', 'extension_history', 'factory_bug', 'factory_bug_resume_count')
@@ -233,10 +233,18 @@ def apply(c, parent, manifest, result, *, resume=False):
         if result['outcome'] == 'close_to_passing':
             import extensions
             row = extensions.active(c)
+            if row is None:
+                history = extensions.read(c)
+                row = (history[-1] if history and
+                       history[-1]['exhaustion_id'] == manifest['exhaustion_id'] else None)
             if row is not None:
                 if row['exhaustion_id'] != manifest['exhaustion_id']:
                     raise InputVerificationError('extension differs from diagnosis')
-                extensions.writer_receipt(c)
+                if row['outcome'] is None:
+                    extensions.writer_receipt(c)
+                else:
+                    from extension_package import completed_route
+                    completed_route(c, row)
                 if resume and batch_service.DIAGNOSIS_ENABLED is True:
                     atomic_json(c.work / 'scorecard.json', c.card)
                     return row['extension_id']

@@ -205,11 +205,13 @@ if fault == 'execute':
  run.sh=lambda *a,**k: None
  run.pick_models=lambda c: {'builder':['claude/claude-opus-5-5']}
  worker_release.verify_selected_drivers=lambda *a,**k: {}
- def execute(c,prev,*,extension_id):
+ def execute(c,r,prev,extension_id):
   assert extension_id == 1
   assert prev['diagnosis_state']['outcome'] == 'close_to_passing'
   c.card['execution_test_entered']=True
- run.write_and_attack=execute
+  raise run.BudgetError('extension_comparison_pending')
+ import extension_package
+ extension_package.run=execute
  import restart
  restart.raised_limits=run.restore_gate_crash=forbidden
 if fault == 'qualification':
@@ -297,6 +299,15 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.pilots.reset_mock(); self.qualify.reset_mock(); self.helper_calls.clear()
         return row
 
+    def test_freshness_context_is_deep_copied(self):
+        self.prepare_active_launch()
+        previous = {'verdict_path': 'g2-confirm-123/verdict.json', 'detail': {'rows': [1]}}
+        self.c.checkpoint_card['loop_freshness'] = previous
+        self.assertTrue(dispatch.carry_context(self.c))
+        self.assertEqual(self.c.card['loop_freshness'], previous)
+        self.c.card['loop_freshness']['detail']['rows'].append(2)
+        self.assertEqual(previous['detail']['rows'], [1])
+
     def test_enabled_replay_returns_verified_extension_identity(self):
         row = self.prepare_active_launch()
         with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
@@ -324,12 +335,17 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.prepare_active_launch()
         path = self.work / 'attack-state.json'
         self.assertFalse(path.exists())
+        freshness = {'outcome': 'unresolved', 'verdict_path': 'g2-confirm-123/verdict.json',
+                     'diagnostic': {'reason': 'review_interrupted'}}
+        self.c.checkpoint_card['loop_freshness'] = copy.deepcopy(freshness)
         retained = {name: extensions.tree(self.work / name) for name in
                     ('extension-writers', 'extension-snapshots', 'diagnosis')}
         history = (self.work / 'extension-history.json').read_bytes()
         reservations = json.loads(self.ledger.read_text())['invocation_reservations']
         for _ in range(2):
             published = self.main_resume('active')
+            self.assertEqual(published['loop_freshness'], freshness)
+            self.assertEqual(json.loads((self.work / 'scorecard.json').read_text())['loop_freshness'], freshness)
             self.assertEqual(json.loads(path.read_text()), self.admitted_receipt)
             self.assertEqual((self.work / 'extension-history.json').read_bytes(), history)
             self.assertEqual({name: extensions.tree(self.work / name) for name in retained}, retained)
