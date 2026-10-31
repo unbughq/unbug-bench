@@ -47,7 +47,8 @@ def envelope(timeout=None, end=None, env=None):
 
 
 def _killpg(group):
-    # macOS answers EPERM for a group whose members are all zombies.
+    # Ignore group EPERM to tolerate macOS zombie-only groups. Cross-user model
+    # processes still require the caller's privileged per-user pkill cleanup.
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(group, signal.SIGKILL)
 
