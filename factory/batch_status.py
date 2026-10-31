@@ -22,11 +22,12 @@ THRESHOLDS = dict(stage_seconds=5 * 3600, pending_seconds=30 * 60,
 STOPS = {None: 'stopped', 'complete': 'complete', 'paused': 'paused',
          'provider_wait': 'waiting for provider', 'provider_wait_unrecoverable': 'provider unavailable',
          'provider_wait_deadline': 'provider wait deadline', 'money_wait': 'waiting for money',
+         'retired_factory_bug_limit': 'factory bug resume limit reached',
          'retired_batch_bound': 'batch bound reached', 'ttl_retired': 'worker lifetime reached',
          'total_call_limit': 'historical call limit', 'call_limit': 'call limit',
          'stalled': 'stalled', 'budget_exhausted': 'budget exhausted',
          'factory_bug_held': 'factory bug held'}
-COUNTS = ('running', 'waiting', 'rejected', 'stopped', 'not collected', 'unreadable')
+COUNTS = ('running', 'waiting', 'rejected', 'retired', 'stopped', 'not collected', 'unreadable')
 
 
 def _stamp(value):
@@ -138,7 +139,9 @@ def render(target, rows, workers, progress, *, now=None):
                     actions.append('launch stuck')
         elif phase == 'stopped':
             failed, stop = card.get('failed_gate'), card.get('terminal_stop')
-            if stop == 'factory_bug_held':
+            if stop == 'retired_factory_bug_limit':
+                bucket, reason = 'retired', STOPS[stop]
+            elif stop == 'factory_bug_held':
                 reason = STOPS[stop]
                 finding = _block(card, 'factory_bug').get('finding_id')
                 actions.append('factory bug: see finding ' + finding if isinstance(finding, str)
@@ -171,7 +174,7 @@ def render(target, rows, workers, progress, *, now=None):
         if incident == 'resume_failed': actions.append('resume failed')
         elif incident == 'publication_failed': actions.append('publication failed')
         elif row.get('failures'): actions.append(f"retrying ({row['failures']})")
-        if bucket not in ('rejected', 'not collected', 'unreadable') and (
+        if bucket not in ('rejected', 'retired', 'not collected', 'unreadable') and (
                 _near(budget.get('spent_usd'), budget.get('limit_usd')) or
                 _near(card.get('builder_rounds'), recovery.get('rounds'))):
             actions.append('near limit')
@@ -209,7 +212,7 @@ def read_rows(policy, root, home):
     with batch_service._regular(directory / 'lock') as lock:
         fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
         state = batch_service._load(directory, record, policy['batch']['manifest_sha256'])
-        jobs = set(record['jobs']) | {r['child_job'] for r in state['derivations'].values()}
+        jobs = set(record['jobs']) | {r['child_job'] for r in batch_service.derivations(state).values()}
         rows = []
         for name in sorted(jobs):
             case = batch_service.resolve_job(record, name)['case']

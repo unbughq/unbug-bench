@@ -421,3 +421,9 @@ a derived name requires target replacement_policy.enabled=true. The imported
 queue row remains ordering metadata after launch; repeat reserve returns the
 same operation. Every reserve intentionally rechecks prepare/export/import
 under both locks; no unchecked fast path.
+
+Implementation clarification: when only a derived child is imported, its root
+entry exists solely as the immutable template. Holder admission refuses a fresh
+launch of that template-only root. It cannot mint another allocation by omitting
+the original from carry_from.jobs. Other unrelated explicitly authorized fresh
+roots still use ordinary cumulative admission.

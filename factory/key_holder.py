@@ -115,6 +115,18 @@ def fingerprint(root):
     return h.hexdigest()
 
 
+def job_template(policy, name):
+    if 'batch' not in policy: return policy['jobs'][name]
+    from batch_money import manifest
+    from batch_service import resolve_job
+    return resolve_job(manifest(policy, ROOT), name)['template']
+
+
+def policy_job_exists(policy, name):
+    try: job_template(policy, name); return True
+    except (KeyError, TypeError, ValueError): return False
+
+
 def policy_load(path):
     policy = json.loads(path.read_text())
     if policy['root'] != str(ROOT) or policy['code_sha256'] != fingerprint(ROOT):
@@ -123,7 +135,7 @@ def policy_load(path):
         batch = policy['batch']
         if (not re.fullmatch('[a-z0-9-]+', batch['id']) or
                 type(batch['max_concurrency']) is not int or
-                not 1 <= batch['max_concurrency'] <= len(policy['jobs']) or
+                batch['max_concurrency'] < 1 or
                 policy.get('resolved_before') or policy.get('retry_failed_launches') or
                 any(j['mode'] != 'batch' for j in policy['jobs'].values())):
             raise ValueError('invalid bounded batch policy')
@@ -603,7 +615,7 @@ def serve(policy_path, hours, identity_file=None):
                                     # Orphans fail closed individually so other reservations can resume.
                                     try:
                                         unchanged = (row.get('policy_sha256') == policy_digest(policy) and
-                                                     row.get('policy_job') in policy['jobs'] and
+                                                     policy_job_exists(policy, row.get('policy_job')) and
                                                      json.loads((state/'launch.json').read_text()) == row['launch'])
                                     except (OSError, ValueError, KeyError, TypeError):
                                         unchanged = False
@@ -624,7 +636,7 @@ def serve(policy_path, hours, identity_file=None):
                                 p.stdin.write(memoryview(key)[:length]); p.stdin.close()
                             result = {'resumed': len(pending), 'refused': refused}
                         elif set(req) - {'batch', 'checkpoint', 'opencode_account', 'claude_account', 'case', 'machine', 'expected_generation', 'expected_recovery_config_sha256', 'additional_attempt_generation'} == {'op', 'job'} and req['op'] == 'launch':
-                            name = req['job']; job = policy['jobs'][name]
+                            name = req['job']; job = job_template(policy, name)
                             batch_job = job['mode'] == 'batch'
                             if batch_job:
                                 if req.get('batch') != policy['batch']['id']:
