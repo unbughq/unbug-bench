@@ -7,7 +7,9 @@ supersedes the checkpoint-only bootstrap and Claude-only practice assumptions in
 stream-b-practice-preparation.md and stream-b-activation-practice-plan-20261031.md.
 Parent authorizes design and offline implementation, not launch, deployment, paid
 model probes, pushing or merging. Design against A's reviewed account-2 branch at
-1fff453; do not claim it is integrated here. Claude reservation rules stay intact.
+1fff453. Parent subsequently directed integration of factory-simplify c32e884;
+that merge brings A, D lane 2 and E loaded cleanup into this branch. Claude
+reservation rules stay intact.
 
 Practice uses one fresh case from an empty checkpoint if no eligible authenticated
 same-batch checkpoint exists. Use the existing public marketplace practice target (projects/marketplace and
