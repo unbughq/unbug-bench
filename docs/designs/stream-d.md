@@ -3393,6 +3393,11 @@ item 7 and item 8 qualification obligations above remain open; no row closes.
 
 ## Item 8: live qualification and switch-on
 
+Stream E local hardening in `docs/designs/isolation-item8-prereqs.md` is only a
+first increment. Open `new-isolation-outer-wall-2` (escaped capture-pipe holder)
+blocks Item 8 activation alongside cancellation/settlement and verified cloud
+cleanup exposure; local process cleanup is not a provider deletion receipt.
+
 Design only, 2026-10-31. No code, model call, worker creation or spend is
 authorized by this plan. Request **USD 100 all-in additional approval**, separate
 from the founder's USD 25 stream-B plumbing practice. The USD 100 is a ceiling,
@@ -3409,18 +3414,24 @@ preparation claims. Item 7 must be merged and pass its fresh diff/full suite;
 item 8 cannot invent missing continuation adapters. In particular, require the
 'Item 7 first increment: admitted extension writer continuation' section's
 remaining routing work, including stress/gates/factory-bug/retire joins. A/E must qualify invocation
-bounds, process cancellation and settlement on the selected routes.
+bounds, process cancellation and settlement on the selected routes. E must resolve
+`new-isolation-outer-wall-1` with evidence that outer callers cannot stop cleanup
+early. B must qualify the post-migration store under `new-single-path-1`; historical
+inventory shapes do not establish current restore eligibility.
 
-Use one throwaway worker, concurrency one, on the control VM and R2; no Mac
-service participates. The user requires one throwaway worker, not a succession of newly created
-workers. The current holder deletes the worker on retirement; it cannot run this
-plan. **B owns a separate prerequisite design and implementation for reuse of
-one worker across ordinary checkpoint launches, batches and immutable releases (including verified release installation)**, preserving operation ownership,
-cleanup, authenticated restore and the single launch path. This is required work,
-not a manifest choice and not authorization to implement it here. If B declines
-that lifecycle change, return to the founder to revise the one-worker constraint;
-this plan does not silently interpret it as one worker at a time. Until that
-reviewed support lands, the entire qualification plan is NOT RUNNABLE.
+Use sequential throwaway workers, concurrency one, on the control VM and R2;
+no Mac service participates. One throwaway worker described B's plumbing practice,
+not a founder restriction on the number of workers in this qualification.
+Every worker is created through the normal single launch path, including resumes
+from authenticated checkpoints. Collect and publish its durable checkpoint,
+settle or conservatively retain its outstanding usage, delete it, and verify its
+provider deletion receipt and complete inventory absence before creating the next.
+Uncertain creation or deletion blocks the next creation; controller restart must
+reconcile the same operation rather than duplicate it. Independent pre-armed
+control-VM cleanup covers delayed creation and survives controller failure.
+B owes this ordinary launch/retirement evidence, not support for reusing a worker
+across launches, batches or releases. Losing the VM must not lose operation IDs,
+account routing, ownership, receipts, counters or cumulative money authority.
 
 Use immutable release/batch pairs in this fixed order: alpha (scenarios 1–4,
 diagnosis/replacement off), beta-fault (scenario 5 fault and diagnosis), beta-fixed
@@ -3433,8 +3444,14 @@ is carried to beta-fixed alongside the original via B's reviewed carry-over,
 including its own $7.50 allocation and prior spend/reservations; it is not launched
 under the fault or given fresh authority. B's carry-over scope must cover both. Each release change needs its
 own batch because holder bindings are immutable. All beta batches together share
-one $50 NEW-spend envelope, not $50 each; alpha has $40 NEW spend. The single
-worker must survive the reviewed transitions, with ownership and cleanup intact.
+one $50 NEW-spend envelope, not $50 each; alpha has $40 NEW spend. Each transition uses authenticated checkpoint carry-over after verified deletion;
+worker identity changes while ownership and cumulative accounting remain intact.
+Run scenario 7 to terminal collection before admitting scenario 6 at all.
+Its worker deletion is verified and usage settled or conservatively retained first.
+Scenario 6 then completes fixed-release work and its plumbing/science replays
+without an intervening scenario. Finish its replacement on beta-fixed (terminal
+collection under its bound, not necessarily sealing); only the original carries
+forward through B's reviewed carry-over to the two replay releases.
 
 For each admitted candidate let S be its authenticated carried-in settled lifetime
 spend, and E be its incremental scenario allocation. A root's commitment is S+E,
@@ -3526,9 +3543,9 @@ ledger and authenticated artifacts, not editing an old card into eligibility.
 
 | Scenarios | Candidate and required role families | Prerequisites still blocking launch |
 | --- | --- | --- |
-| 1–3 | separate copies of (a), slot 1: Anthropic writer, MiniMax stress, DeepSeek reviewer | A small Claude writer profile; approved free-route maxima; B bootstrap, one-worker lifecycle and cumulative admission |
+| 1–3 | separate copies of (a), slot 1: Anthropic writer, MiniMax stress, DeepSeek reviewer | A small Claude writer profile; approved free-route maxima; B bootstrap, sequential launch/deletion evidence and cumulative admission |
 | 4 | (b), slot 4: Anthropic strong calibrator; OpenAI reviewer for G16/G17 | A small Claude G10 profile AND an enforced OpenAI maximum for G16/G17; B eligible G10 input/lifecycle/admission |
-| 5 | infrastructure-fault copy of (a), slot 1: DeepSeek diagnosis, Anthropic writer | completed item-7 joins; A profile/maxima; B bootstrap, cross-release carry-over, worker reuse and practice admission clamp |
+| 5 | infrastructure-fault copy of (a), slot 1: DeepSeek diagnosis, Anthropic writer | completed item-7 joins; A profile/maxima; B bootstrap, cross-release carry-over, verified deletion and practice admission clamp |
 | 6 | (c), slot 6: MiniMax writer, DeepSeek stress, Anthropic diagnosis, OpenAI strong calibrator | A small Claude diagnosis profile AND enforced OpenAI maximum for gate traversal; B near-pass input, cross-release carry-over and all lifecycle/admission prerequisites; item 7 |
 | 7 | (d), slot 1: DeepSeek diagnosis | A small Claude writer profile for the slot-1 replacement; B nonconverging input and all lifecycle/admission prerequisites; item 7; approved equivalent-review route maxima |
 
@@ -3544,11 +3561,39 @@ Each figure is an incremental NEW model-money cap for that scenario, including r
 settlement and any replacement/diagnosis it launches. There is no retry top-up.
 All jobs also share the absolute deadline and USD 90 incremental model envelope;
 lifetime commitments include the authenticated baselines as specified above. Reserve
-USD 10 total for the one worker, storage, egress and cleanup exposure. Verify
-current provider prices and a conservative pre-armed creation-through-deletion
-bound before launch; refuse if that cannot fit USD 10. Set a maximum two-hour
-worker lifetime, shorten it if pricing requires, and retain independent control-VM
-cleanup that covers delayed creation as B requires. Total: **90 + 10 = USD 100**.
+USD 10 total for N sequential worker lifecycles and shared storage/egress.
+The planning allocation allows at most N=20 creations, including recovery,
+replacement and release-replay workers, at USD 0.40 per lifecycle plus USD 2
+shared storage/egress/control-VM incremental exposure: I(N) = 0.40*N + 2,
+so I(20) = USD 10 and total = **90 + 10 = USD 100**. These are admission
+ceilings, not verified provider quotes. Each lifecycle allocation includes creation,
+boot, release installation, execution and conservative delayed-deletion exposure,
+including billing minimums and per-worker storage. The static USD 0.036/hour
+estimate in B's preparation is not a current price or sufficient billing proof.
+Before approval, B/E must verify current prices and reserve the full conservative
+cost for every planned lifecycle plus shared costs; refuse launch if it exceeds
+these ceilings. Do not divide one worker's cost by N or reset infrastructure spend
+at a release change. Unattributed/unknown charges stay reserved.
+
+The manifest assigns worker slots by scenario: 1=3 (initial plus two restores),
+2=2 (timeout and restore), 3=1 (in-process retrieval/repair), 4=2 (two guard
+attempts), 5=4 (fault, fixed original, replacement, replay), 6=6 (diagnosis,
+extension continuation, replacement, idempotence replay, plumbing replay,
+scientific replay), 7=2 (retire/boundary replay and replacement). Slots are ceilings,
+not a claim these paths finish in that many launches; every additional launch,
+including provider handoff or retry, consumes a slot. If the manifest needs more
+than its assigned slots, revise the plan before approval; runtime exhaustion
+leaves the scenario unproved and stops admissions, never bypasses deletion.
+Per-scenario model plus worker ceilings are respectively USD 11.20, 10.80, 5.40,
+15.80, 16.60, 27.40 and 10.80 (USD 98 total); the shared USD 2 makes USD 100.
+No unused slot buys extra model authority.
+Scenario 6 normally continues diagnosis into extension in the same worker; its
+extension-continuation slot is spare unless an ordinary checkpoint restore is
+needed. Scenario 2 injects both call timeouts on its first worker, retaining each
+attempt's partial/pending evidence, then restores unfinished coverage on the
+second. Scenario 4 runs G16/G17 against each retained attempt in that attempt's
+worker before deletion. If the reviewed implementation cannot run that packing,
+revise slots and costs before approval rather than omit an observation.
 
 | Scenario | Model cap | Required live observation and retained evidence |
 | --- | ---: | --- |
@@ -3568,23 +3613,28 @@ to reach a desired diagnosis or submitted capped guard is a failed qualification
 not authority to coerce the agent or buy more attempts. Account-2 evidence rides
 on the already-needed Claude writer call in scenario 1 and strong-calibrator call in scenario 4, using separate correlated windows, never an extra paid probe.
 
-Timeline: budget at most 10 minutes each for scenarios 1, 2 and 4; 5 minutes
-each for scenarios 3 and 7; and 15 minutes each for scenarios 5 and 6:
-70 minutes of execution, 20 for creation/boot/release installation,
-20 for checkpoint/cleanup and 10 minutes explicit slack. At any checkpoint,
-remaining lifetime below the conservative cleanup bound stops scenario work and
-starts collection/deletion. Installation timing is unqualified until B measures it.
-Scenario 6's version replays run only if its extension completes with enough time
-left in the same 15-minute window; otherwise the scenario is unproved.
-These are abort deadlines, not demonstrated completion times. Set absolute UTC
-batch deadlines within the same two-hour creation-to-deletion window, using
-remaining time at beta admission; never grant another two hours on restart.
-B cleanup must start early enough to meet deletion exposure. Existing long
-G10 caps or real writer durations may exceed a scenario window: that scenario
-then remains unproved; do not shorten a scientific cap to force the observation.
-A/B feasibility evidence must show the selected inputs/routes fit before approval.
-Replacement 'immediate' means queued immediately at higher admission priority;
-with a single worker it cannot run concurrently with the original.
+Timeline: retain execution budgets of at most 10 minutes each for scenarios
+1, 2 and 4; 5 minutes each for scenarios 3 and 7; and 15 minutes each for
+scenarios 5 and 6 (70 minutes total). Reserve up to 15 minutes per worker for
+creation/boot/release installation and verified cleanup (300 minutes for N=20),
+plus 110 minutes shared slack: at most eight hours wall time for the entire run.
+These are abort deadlines, not demonstrated completion times. Each worker has
+a maximum two-hour creation-through-deletion lifetime, shortened if pricing or
+the remaining global deadline requires. All batches share the same absolute UTC
+end; restart, new worker and release changes never extend it. B/E must measure
+installation and cleanup bounds and arm deletion early enough to finish within
+both lifetime and cost reservations. A failure to bound cleanup blocks launch.
+If measured creation/boot/installation/verified-cleanup overhead exceeds 15 minutes
+for any planned worker, revise the timeline before approval; shared slack does
+not waive this admission check. Execution time is budgeted separately above.
+Scenario 6's replays share its 15-minute execution allowance; installation and
+cleanup use the separate lifecycle allowance. Existing G10 caps or writer
+runtimes may exceed the execution windows: leave the scenario unproved rather
+than shorten a scientific cap. A/B feasibility evidence must show the selected
+inputs/routes fit before approval. Replacement 'immediate' means queued
+immediately at higher admission priority; concurrency one means it cannot run
+alongside the original. Its worker starts only after predecessor deletion is
+verified, and its allocated money and carried receipts survive that handoff.
 
 The exact release-specific CLI commands, authenticated input generation hashes,
 route profiles, job reservations, absolute deadline, fault injection points and
@@ -3596,6 +3646,20 @@ cannot be called a live observation. Search the final release for leftover old
 caps/allowances and validate intended exceptions against item 3 before launch.
 
 ### Closure and switch-on
+
+Sequential workers change the transport of evidence, not any closure criterion.
+Scenario 1 must compare the same writer operation across different worker IDs;
+scenario 2 must recover the published partial stress generation on its successor;
+scenario 3 must retain the real invocation/retrieval chain; scenario 4 must retain
+both distinct capped attempts and real G16/G17 results. Scenarios 5–7 must prove
+replacement admission before diagnosis, preserve lifetime counters and settled
+plus reserved spend across every deletion/relaunch, and retain original and
+replacement lineage independently. Scenario 6 must compare gate receipts across
+the fixed/plumbing/science releases even though their workers differ. A restart
+on the same worker can qualify controller idempotence, but cannot substitute for
+the required checkpoint restores. Row 9 still needs all integrated outcomes and
+row 39 still needs natural capped-submission evidence; none closes merely from
+using sequential workers.
 
 Rows 9 and 39 stay open now. Row 9 closes only after scenarios 5–7 prove the
 integrated outcomes, replacement priority, money/counter bounds and ordinary
@@ -3635,3 +3699,43 @@ rolled on through B's checkpoint path; stop new admissions while deploying it.
 Then plan() returns diagnosis_unavailable and dispatch stops diagnosis_pending,
 preserving queued entries, operations and receipts for collection; never erase paid work or kill ownership
 by toggling a flag. This plan flips no flag and spends nothing.
+### Item 7 launcher recovery increment
+
+`stream-d-launch-recovery.md` wires the retained writer selector into verified
+close-to-passing diagnosis replay at ordinary launcher entry. It recovers the
+admitted writer receipt before publishing the stopped card and before ordinary
+author/gate work. Execution still stops comparison-pending; no new extension
+is admitted and diagnosis remains disabled. The full package, launcher execution
+and round-limit routing, all diagnosis outcome execution, and qualified-path
+legacy allowance removal remain before item 8. Lane 1 item 4 is integrated by
+merging 6f30f8d. No Murphy row closes.
+
+
+### Item 7 remaining-increment checklist (lane 2, 2026-10-31)
+
+Sizes include implementation, tests and fresh design/diff review. Receipt
+admission/recovery is done. Each line is one intended reviewable increment.
+
+- [x] **Admitted launcher execution and round routing — large.** Route
+  authenticated active extensions into the existing writer/stress loop; enforce
+  one admitted round across pending/completed/validated replay, preserve receipt
+  authority, and stop before gate/package completion.
+- [ ] **Complete writer/stress/gate package — large.** Join freshness and unfinished
+  stress recovery to one gate traversal; retain entry/outcome receipts, complete
+  history, and compare current versions without rerolling or extra author work.
+- [ ] **All diagnosis outcomes — large.** Admit proposed extensions after comparison;
+  execute factory-bug hold/fix/resume (three maximum), extension progress/limit
+  decisions (five maximum), and retirement through ordinary launch/checkpoints.
+- [ ] **Qualified-path legacy allowance deletion — medium.** Remove remaining
+  recovery/final-fix/diagnostic allowance branches from the qualified path; prove
+  only cumulative batch money/deadline and scientific round rules govern it.
+
+Item 8 remains separate: integrated retained-artifact and authorized live A/B/E
+qualification, crash/wait/money coverage, and activation. No row closes by a
+checklist entry alone. The current design is `stream-d-admitted-execution.md`.
+
+
+The admitted-execution implementation, full offline suite and fresh diff review
+are complete. Reviews: stream-d-admitted-execution-design-1.md, design-2.md,
+diff-1.md and diff-2.md under docs/reviews (all with the same topic prefix). No Murphy row closes. The next
+increment is the complete writer/stress/gate package above; activation stays off.

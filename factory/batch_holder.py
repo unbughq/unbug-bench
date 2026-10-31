@@ -715,7 +715,8 @@ def dispatch(policy, root, home, identity, identity_bytes):
             if ((account is not None and OPENCODE_ACCOUNTS[account] not in labels) or
                     CLAUDE_ACCOUNTS[claude] not in labels): raise ValueError('request_refused')
             fleet = subprocess.run([str(root / 'bin/boat-call'), 'list', '--json'],
-                                   capture_output=True, check=True, timeout=25)
+                                   capture_output=True, check=True,
+                                   env={**os.environ, 'BOAT_COMMAND_TIMEOUT_SECONDS': '25'})
             inventory = json.loads(fleet.stdout)
             ids = [r['id'] for r in inventory['sandboxes']]
             if (inventory['pageInfo']['hasMore'] is not False or len(ids) != len(set(ids)) or

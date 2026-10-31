@@ -44,6 +44,7 @@ class AdmissionTests(unittest.TestCase):
         self.entry = self.snapshot(1)
         self.proposal = extensions.propose(self.c, self.entry)
         self.receipt = runtime.RuntimeTests.receipt(self)
+        self.receipt['round_limit'] = self.proposal['round']
         self.calls, self.callbacks = [], []
 
     def call(self, proposal=True, **kwargs):

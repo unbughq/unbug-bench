@@ -221,7 +221,7 @@ def decision(c, parent, manifest, result):
     return result
 
 
-def apply(c, parent, manifest, result):
+def apply(c, parent, manifest, result, *, resume=False):
     root = parent / 'inputs'
     if result['outcome'] == 'factory_bug':
         d.persist_factory_bug(c, result, generation=manifest['generation'], evidence_root=root)
@@ -230,6 +230,16 @@ def apply(c, parent, manifest, result):
         if state['status'] == 'completed' and state['outcome'] != result['outcome']: raise InputVerificationError('changed outcome')
         state.update(status='completed', outcome=result['outcome'])
         c.card.update(status='stopped', terminal_stop=STOPS[result['outcome']])
+        if result['outcome'] == 'close_to_passing':
+            import extensions
+            row = extensions.active(c)
+            if row is not None:
+                if row['exhaustion_id'] != manifest['exhaustion_id']:
+                    raise InputVerificationError('extension differs from diagnosis')
+                extensions.writer_receipt(c)
+                if resume and batch_service.DIAGNOSIS_ENABLED is True:
+                    atomic_json(c.work / 'scorecard.json', c.card)
+                    return row['extension_id']
         atomic_json(c.work / 'scorecard.json', c.card)
     stop(c, STOPS[result['outcome']])
 
@@ -259,7 +269,7 @@ def replay(c, parent, manifest, journal_value=None):
                 raise InputVerificationError('conflicting finding')
         d.restore_factory_bug(c, generation=manifest['generation'], evidence_root=parent / 'inputs')
         stop(c, 'factory_bug_held')
-    if result is not None: apply(c, parent, manifest, result)
+    if result is not None: return apply(c, parent, manifest, result, resume=True)
 
 
 def closed_routes(value):
@@ -303,7 +313,8 @@ def _dispatch(c, r):
             templates, schema_sha = contract(parent / 'inputs')
             model, family = verify(reviewer, c)
             value = verify(journal, c, parent, manifest, schema_sha, family)
-        replay(c, parent, manifest, value)
+        extension_id = replay(c, parent, manifest, value)
+        if type(extension_id) is int: return extension_id
         if value is None:
             templates, schema_sha = contract(parent / 'inputs')
             model, family = verify(reviewer, c)
