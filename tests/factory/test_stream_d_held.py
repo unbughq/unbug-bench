@@ -333,12 +333,17 @@ class ResumeTests(unittest.TestCase):
         diagnosis.require_model_work(self.c.card)
 
     def test_append_ahead_collected_checkpoint_repairs_through_money_transition(self):
+        import diagnosis_dispatch
+        import run
         real = diagnosis.atomic_json
         def fail(path, value):
             if path.name == 'scorecard.json': raise OSError('authored death before cleared card')
             real(path, value)
-        with patch.object(diagnosis, 'atomic_json', fail), self.assertRaises(budget.BudgetError):
-            diagnosis.resume_factory_bug(self.c)
+        with patch.object(diagnosis, 'atomic_json', fail), self.assertRaisesRegex(
+                budget.BudgetError, 'factory_bug_resume_io_wait'):
+            diagnosis_dispatch.dispatch(self.c, run)
+        self.assertEqual(self.c.card['diagnosis_state'], self.held_card['diagnosis_state'])
+        self.assertNotEqual(self.c.card.get('terminal_stop'), 'diagnosis_input_invalid')
         self.c.card = copy.deepcopy(self.held_card)
         self.transition('fixed', 'b'*64, same_batch=True)
         self.assertTrue(diagnosis.resume_factory_bug(self.c))

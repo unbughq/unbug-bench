@@ -188,7 +188,7 @@ def reserve(policy, root, home, name, source_generation, *, provider_wait=False)
     record = money.manifest(policy, root)
     service.resolve_job(record, name)
     carried = record.get('carry_from', {}).get('jobs', {})
-    if name not in carried and any(child.startswith(name + '-r') for child in carried):
+    if name not in carried and any(re.fullmatch(re.escape(name) + r'-r[1-9][0-9]*', child) for child in carried):
         raise ValueError('template-only imported root')
     if (source_generation is not None and not money._sha(source_generation)):
         raise ValueError('request_refused')

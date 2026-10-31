@@ -99,11 +99,14 @@ def snapshot(directory, record, policy):
     journal = service._load(directory, record, policy['batch']['manifest_sha256'])
     entries = {row['parent_case'] + '/' + row['eligible_generation']: journal['entries'][
         row['parent_case'] + '/' + row['eligible_generation']] for row in journal['derivations'].values()}
+    prior_import = service._json(directory / 'import.json') if (directory / 'import.json').exists() else None
+    if prior_import is not None:
+        require(journal.get('imported_derivations') == latches(prior_import))
     return dict(schema=1, batch=record['id'], manifest_sha256=policy['batch']['manifest_sha256'],
                 release_sha256=policy['batch']['sha256'], money=state, operations=operations,
                 derivations=journal['derivations'], entries=entries,
                 imported_derivations=journal.get('imported_derivations', {}),
-                prior_import=service._json(directory / 'import.json') if (directory / 'import.json').exists() else None)
+                prior_import=prior_import)
 
 
 def read_import(directory, record):
@@ -182,7 +185,8 @@ def prepare(policy, root, home):
                        for key in sorted((old['id'], record['id']))}
         src, dst = directories[old['id']], directories[record['id']]
         require(not (dst / 'export.json').exists())
-        require(money.deadline(record['batch_deadline']) > __import__('time').time())
+        if money.deadline(record['batch_deadline']) <= __import__('time').time():
+            raise money.MoneyWait('retired_batch_bound')
         snap = snapshot(src, old, old_policy)
         require(digest(snap) == record['carry_from']['snapshot_sha256'])
         require(money.aggregate(snap['money']) <= money.amount(record['money_limit_usd']) <= money.amount(old['money_limit_usd']))
@@ -204,6 +208,8 @@ def prepare(policy, root, home):
             require({k:v for k,v in previous['template'].items() if k not in ignore} ==
                     {k:v for k,v in target['template'].items() if k not in ignore})
             require(target['template']['requested_total_usd'] == row['held_usd'] == spec['committed_total_usd'])
+            if name in record['jobs']:
+                require(record['jobs'][name]['requested_total_usd'] == row['held_usd'])
             generation = spec['generation']
             if generation is None:
                 require(previous['ordinal'] > 0 and not any(op['job'] == name for op in snap['operations'].values()) and

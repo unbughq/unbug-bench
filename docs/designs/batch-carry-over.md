@@ -298,11 +298,10 @@ by resume_factory_bug after finding/config verification; persist/restore callers
 retain strict count equality. Permit count len(history)-1 only if the LAST row
 matches finding_id, case and held_batch_id, and its batch/job/reservation/release
 match the authenticated admission binding. Its source_generation must equal
-current source for an in-process append replay OR old.source_generation of the
-latest verified same-reservation job-money transition for a newly collected
-append-ahead checkpoint. For a later batch, walk the verified transitions back
-to that admission binding with exact old/new equality; an absent or branching
-chain refuses. In all cases only ONE append may be ahead. Repair count after
+the source_generation of that exact admission binding, found by walking the
+verified transitions back with exact old/new equality (including intermediate
+releases and repeated append-ahead checkpoints). An absent or branching chain
+refuses. In all cases only ONE append may be ahead. Repair count after
 validation; all other mismatches stop factory_bug_history_invalid. History missing after a finding never initializes.
 Retained work/gates/extension history and ordinary budget exhaustion stay intact.
 
@@ -427,3 +426,29 @@ entry exists solely as the immutable template. Holder admission refuses a fresh
 launch of that template-only root. It cannot mint another allocation by omitting
 the original from carry_from.jobs. Other unrelated explicitly authorized fresh
 roots still use ordinary cumulative admission.
+
+
+### Diff-review integration clarifications
+
+Ordinary stopped checkpoints may also transfer (for example a provider wait or
+exhausted case); transfer does not reset their gates, exhaustion or budget.
+Sealed cards and scientific retirement, factory-bug-limit retirement and invalid
+input/history stops refuse. Deadline stops and factory-bug holds are the primary
+use cases, not an exclusive allow-list.
+
+Admission replay may match the last durable admission to any binding in the
+verified, unbranched money transition chain, including an intermediate release.
+This preserves one admission across repeated checkpoint failures before the
+cleared card is collected. The finding, case, held batch, admission batch/job,
+reservation, source generation and release must all match that binding; the
+history may run only one ahead of the public count and the admission must be the
+last history row. It never creates a new admission for a replayed finding.
+
+An I/O failure writing admission history or its cleared scorecard after input
+validation is `factory_bug_resume_io_wait`, not invalid diagnosis input. The
+in-memory held markers remain until the cleared card is durably written, so the
+ordinary checkpoint/relaunch path can repair the append-ahead state.
+
+Every carried-target reservation revalidates the frozen predecessor release and
+snapshot. The old release directory must remain on the control VM while the
+target admits work, including unrelated fresh roots.

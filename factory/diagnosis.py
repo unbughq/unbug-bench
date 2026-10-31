@@ -445,6 +445,7 @@ def resume_factory_bug(c):
     from job_authority import for_case, read
     authority = for_case(c)
     path = _finding_path(c, state['exhaustion_id'])
+    admission_validated = False
     try:
         finding = json.loads(_input_bytes(path, c.work))
         # Same-batch holds keep the existing strict replay path and never admit.
@@ -476,6 +477,7 @@ def resume_factory_bug(c):
                     admission.get('held_batch_id') == finding['held_batch_id'] for value, release in bindings):
                 raise ValueError('unbound admission replay')
         history = _factory_bug_history(c, admitted_replay=admission)
+        admission_validated = True
         if admission is None:
             if len(history) == 3:
                 c.card.pop('failed_gate', None)
@@ -490,13 +492,19 @@ def resume_factory_bug(c):
                 batch_release_sha256=c.authenticated_job_config['batch_release_sha256'])
             history.append(admission)
             atomic_json(Path(c.work) / 'factory-bug-resumes.json', history)
+        admitted_card = dict(c.card)
         for key in ('factory_bug', 'diagnosis_state', 'infrastructure_gate', 'terminal_stop', 'failed_gate'):
-            c.card.pop(key, None)
-        c.card.update(status='running', factory_bug_resume_count=len(history))
+            admitted_card.pop(key, None)
+        admitted_card.update(status='running', factory_bug_resume_count=len(history))
+        atomic_json(Path(c.work) / 'scorecard.json', admitted_card)
+        c.card.clear(); c.card.update(admitted_card)
         c.stopped = False
-        atomic_json(Path(c.work) / 'scorecard.json', c.card)
         return True
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+    except OSError:
+        if admission_validated:
+            raise BudgetError('factory_bug_resume_io_wait') from None
+        raise BudgetError('diagnosis_finding_invalid') from None
+    except (ValueError, KeyError, TypeError, AttributeError):
         raise BudgetError('diagnosis_finding_invalid') from None
 
 
