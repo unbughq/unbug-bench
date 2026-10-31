@@ -27,7 +27,7 @@ STOPS = {None: 'stopped', 'complete': 'complete', 'paused': 'paused',
          'total_call_limit': 'historical call limit', 'call_limit': 'call limit',
          'stalled': 'stalled', 'budget_exhausted': 'budget exhausted',
          'factory_bug_held': 'factory bug held'}
-COUNTS = ('running', 'waiting', 'rejected', 'retired', 'stopped', 'not collected', 'unreadable')
+COUNTS = ('running', 'waiting', 'rejected', 'stopped', 'not collected', 'unreadable')
 
 
 def _stamp(value):
@@ -183,6 +183,7 @@ def render(target, rows, workers, progress, *, now=None):
         lines.append(f'{case} | {stage} | {duration} | {spent} | rounds {rounds} | calls {calls} | {reason}')
     heading = f"Sealed {counts['sealed']} / {target}"
     summary = ', '.join(f'{counts[name]} {name}' for name in COUNTS)
+    if counts['retired']: summary += f", {counts['retired']} retired"
     attention = '; '.join(flags) if flags else 'nothing needs you'
     return '\n'.join([heading, summary, 'Needs attention: ' + attention,
                       'Spend, rounds and calls are as of the last collected card.', *lines])
