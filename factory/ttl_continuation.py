@@ -86,7 +86,7 @@ def request_retirement(root, worker, job, *, remote=None, now=None):
     if remote is None:
         def remote(command):
             return subprocess.check_output([str(root / 'bin/boat-call'), 'ssh', worker, command], text=True,
-                env={**os.environ, 'BOAT_COMMAND_TIMEOUT_SECONDS': '120'}).strip()
+                env={**os.environ, 'BOAT_CAPTURE_OUTPUT': '1', 'BOAT_COMMAND_TIMEOUT_SECONDS': '120'}).strip()
     pid = int(remote("pgrep -f '^python3 .*factory/run.py'"))  # exactly one process; ambiguous output fails closed
     if pid <= 0: raise ValueError('no live runner')
     request = dict(version=1, reason='ttl', case=identifier(job['case']), worker=worker,

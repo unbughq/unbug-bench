@@ -31,7 +31,7 @@ import model_call_gate as gate
 import model_router as router
 import model_runtime
 import run
-from token_prices import GATED_CLAUDE, CLAUDE_GATE_FIELDS, claude_gate_cost, claude_cost
+from token_prices import GATED_CLAUDE, CLAUDE_PROFILES, CLAUDE_GATE_FIELDS, claude_gate_cost, claude_cost
 
 FIXTURES = Path(__file__).with_name('fixtures')
 PAID = json.loads(gzip.decompress((FIXTURES/'router-paid-deepseek.json.gz').read_bytes()))
@@ -52,9 +52,9 @@ def real_iterations():
     return rows
 
 
-def lease():
-    return router.Lease(uuid.uuid4().hex, GATED_CLAUDE, 'claude-token', time.time()+180,
-                        'subscription', 'anthropic', 'claude-token', **router.route_maximum(GATED_CLAUDE))
+def lease(route=GATED_CLAUDE):
+    return router.Lease(uuid.uuid4().hex, route, 'claude-token', time.time()+180,
+                        'subscription', 'anthropic', 'claude-token', **router.route_maximum(route))
 
 
 def body(**extra):
@@ -78,9 +78,10 @@ class MaximaTests(unittest.TestCase):
     def test_real_routes_fail_closed_except_exact_qualified_profiles(self):
         store = router.Store(self.root/'router.sqlite')
         from token_prices import GATED_OPENROUTER
-        qualified = {GATED_CLAUDE, *GATED_OPENROUTER,
+        qualified = {*CLAUDE_PROFILES, *GATED_OPENROUTER,
                      'opencode/deepseek-v4.1-flash-free', 'opencode-go/mimo-v2.6-pro'}
         models = {r for c in router.CHAINS for r in c} | {'codex/gpt-6.1-sol', 'claude/unknown', 'unknown/model'}
+        models |= {*CLAUDE_PROFILES, GATED_CLAUDE + ':large'}
         models |= {c['terminal_stop'].partition(':')[2] for c in LIMITS}
         for model in models:
             result = store.rpc('acquire', dict(id=uuid.uuid4().hex, model=model, accounts=list(router.ACCOUNTS),
@@ -91,8 +92,10 @@ class MaximaTests(unittest.TestCase):
             else:
                 actual = router.Lease(**{k:v for k,v in result.items() if k != 'kind'})
                 self.assertTrue(router.valid_lease(actual, model))
-                if actual.route == GATED_CLAUDE:
-                    self.assertEqual((actual.max_usd, actual.max_input_tokens, actual.max_output_tokens), (50.0,250000000,2500000))
+                if actual.route in CLAUDE_PROFILES:
+                    cap = CLAUDE_PROFILES[actual.route]
+                    self.assertEqual((actual.max_usd, actual.max_input_tokens, actual.max_output_tokens),
+                                     (float(cap), int(cap * 5000000), int(cap * 50000)))
                 else:
                     self.assertIn(actual.route, GATED_OPENROUTER)
                 store.rpc('finish',dict(lease_id=actual.lease_id,outcome='denied',receipt=None))
@@ -103,6 +106,60 @@ class MaximaTests(unittest.TestCase):
             self.assertGreater(sum(e['cost'] for e in events), 0)
             self.assertIsNotNone(router.route_maximum(events[0]['configured_model']))
             self.assertEqual(json.dumps(card['continuation_budget'],sort_keys=True),raw)
+
+    def test_small_profiles_fit_real_writer_envelopes_and_retain_unknowns(self):
+        cases = [('small','252e6df1-f899-427e-aa07-7b98ba7eb156:result',35),
+                 ('medium','0d4adf8f-0ef4-4cef-aeb0-c974454eaee8:result',62)]
+        events = {e['id']:e for card in PAID for e in card['continuation_budget']['events']}
+        worst = Decimal('8.655360')
+        for name,identity,calls in cases:
+            model = GATED_CLAUDE + ':' + name
+            event = events[identity]; usage = event['tokens']
+            self.assertEqual((event['role'],event['calls']),('writer',calls))
+            cost = max(Decimal(str(event['list_cost_usd'])),claude_gate_cost(usage))
+            self.assertLess(cost + worst + gate.HEADROOM, CLAUDE_PROFILES[model])
+            self.assertEqual(claude_cost(model,usage),claude_cost(GATED_CLAUDE,usage))
+            for unknowns in (0,1):
+                state = gate.Allowance(lease(model))
+                state.settled = [cost,sum(usage[k] for k in CLAUDE_GATE_FIELDS[:3]),usage['output_tokens']]
+                token = state.reserve(32768); self.assertIsNotNone(token)
+                if unknowns:
+                    state.finish(token,None)
+                    self.assertIsNone(state.reserve(0))
+                    self.assertTrue(state.exhaustion.is_set())
+                    self.assertEqual(Decimal(state.snapshot()['held_usd']),worst)
+                state.close()
+            state = gate.Allowance(lease(model))
+            state.settled[0] = CLAUDE_PROFILES[model] - worst
+            self.assertIsNone(state.reserve(32768))
+            self.assertTrue(state.exhaustion.is_set())
+            original = lease(model)
+            forged = replace(original,**router.route_maximum(GATED_CLAUDE))
+            self.assertFalse(router.valid_lease(forged,model))
+            with self.assertRaisesRegex(budget.BudgetError,'unbounded_route'):
+                with gate.enforce(forged,{'CLAUDE_CODE_OAUTH_TOKEN':'synthetic'}, {},1):
+                    self.fail('forged maximum entered gate')
+            store = router.Store(self.root/(name+'.sqlite'))
+            record = store.rpc('acquire',dict(id=uuid.uuid4().hex,model=model,
+                accounts=['claude-token','claude-factory-token-2'],role='writer',deadline=time.time()+60))
+            self.assertEqual((record['route'],record['account']),(model,'claude-factory-token-2'))
+            self.assertTrue(record['price_source'].endswith(f':profile={name}:usd={CLAUDE_PROFILES[model]}'))
+            store.rpc('finish',dict(lease_id=record['lease_id'],outcome='denied',receipt=None))
+
+    def test_small_profiles_serialize_even_zero_output_requests(self):
+        for model in CLAUDE_PROFILES.keys() - {GATED_CLAUDE}:
+            state = gate.Allowance(lease(model),deadline=time.monotonic()+5)
+            first = state.reserve(0); self.assertIsNotNone(first)
+            waited = threading.Event(); original = state.condition.wait
+            def wait(timeout): waited.set(); return original(timeout)
+            with patch.object(state.condition,'wait',side_effect=wait), ThreadPoolExecutor() as pool:
+                next_request = pool.submit(state.reserve,0)
+                try:
+                    self.assertTrue(waited.wait(2))
+                    self.assertFalse(next_request.done())
+                    state.finish(first,dict.fromkeys(CLAUDE_GATE_FIELDS,0))
+                    self.assertIsNotNone(next_request.result(timeout=2))
+                finally: state.close()
 
     def test_real_aggregate_exam_and_more_than_eight_validated_requests(self):
         events = real_iterations(); self.assertEqual(len(events),153)
@@ -174,38 +231,39 @@ class MaximaTests(unittest.TestCase):
         parser.feed(payload);self.assertIsNone(parser.final())
 
     def test_real_writer_partial_estimator_uses_captured_cli_mode_surface(self):
-        capture=json.loads(gzip.decompress((FIXTURES/'router-claude-mode-cli.json.gz').read_bytes()))
-        wanted={'b741739e-bdec-4272-8b41-4a7703b02d52:result','013eaa17-daa9-49f9-9ad5-c88288cd5d11:result'}
-        writers=[e for c in PAID for e in c['continuation_budget']['events'] if e['id'] in wanted]
-        for record in capture['records']:
-            shape=record['capture']['assistant_usage'][0]
-            for writer in writers:
-                for complete in (False,True):
-                    with self.subTest(mode=record['upstream_mode_fields'],writer=writer['id'],complete=complete):
-                        # Transport-only envelope: real counters in the actual captured CLI shape.
-                        usage=shape|{k:writer['tokens'][k] for k in CLAUDE_GATE_FIELDS}
-                        plain={k:usage[k] for k in CLAUDE_GATE_FIELDS}
-                        events=[{'type':'system','subtype':'init','session_id':'captured-shape'},
-                                {'type':'assistant','message':{'id':'m','usage':usage,'content':[]}},
-                                {'type':'assistant','message':{'id':'m','usage':plain,'content':[]}}]
-                        if complete:events.append(dict(type='result',session_id='captured-shape',is_error=False,
-                            total_cost_usd=writer['list_cost_usd'],usage=usage))
-                        ledger=self.root/(uuid.uuid4().hex+'.json')
-                        command=[sys.executable,'-c','import json,sys; [print(json.dumps(e),flush=True) for e in json.loads(sys.argv[1])]',json.dumps(events)]
-                        invoke=lambda:budget.run_budgeted(command,self.root,dict(os.environ),self.root/'mode-transcript',ledger,5,
-                            driver='claude',configured_model=GATED_CLAUDE,role='writer',invocation_name='builder-mode',
-                            max_cost=100,max_calls=1000,max_total_calls=1000,case_budget=1000)
-                        if complete:invoke()
-                        else:
-                            with self.assertRaises(budget.BudgetError):invoke()
-                        saved=json.loads(ledger.read_text())
-                        if complete:self.assertEqual(saved['list_cost_usd'],writer['list_cost_usd'])
-                        elif record['upstream_mode_fields'].get('speed')=='fast':
-                            self.assertTrue(saved.get('unpriced_invocations'))
-                            self.assertEqual(saved.get('estimated_subscription_cost_usd',0),0)
-                        else:
-                            self.assertEqual(saved['estimated_subscription_cost_usd'],claude_cost(GATED_CLAUDE,usage))
-                            self.assertLessEqual(saved['estimated_subscription_cost_usd'],50)
+        for model in CLAUDE_PROFILES:
+            capture=json.loads(gzip.decompress((FIXTURES/'router-claude-mode-cli.json.gz').read_bytes()))
+            wanted={'b741739e-bdec-4272-8b41-4a7703b02d52:result','013eaa17-daa9-49f9-9ad5-c88288cd5d11:result'}
+            writers=[e for c in PAID for e in c['continuation_budget']['events'] if e['id'] in wanted]
+            for record in capture['records']:
+                shape=record['capture']['assistant_usage'][0]
+                for writer in writers:
+                    for complete in (False,True):
+                        with self.subTest(mode=record['upstream_mode_fields'],writer=writer['id'],complete=complete):
+                            # Transport-only envelope: real counters in the actual captured CLI shape.
+                            usage=shape|{k:writer['tokens'][k] for k in CLAUDE_GATE_FIELDS}
+                            plain={k:usage[k] for k in CLAUDE_GATE_FIELDS}
+                            events=[{'type':'system','subtype':'init','session_id':'captured-shape'},
+                                    {'type':'assistant','message':{'id':'m','usage':usage,'content':[]}},
+                                    {'type':'assistant','message':{'id':'m','usage':plain,'content':[]}}]
+                            if complete:events.append(dict(type='result',session_id='captured-shape',is_error=False,
+                                total_cost_usd=writer['list_cost_usd'],usage=usage))
+                            ledger=self.root/(uuid.uuid4().hex+'.json')
+                            command=[sys.executable,'-c','import json,sys; [print(json.dumps(e),flush=True) for e in json.loads(sys.argv[1])]',json.dumps(events)]
+                            invoke=lambda:budget.run_budgeted(command,self.root,dict(os.environ),self.root/'mode-transcript',ledger,5,
+                                driver='claude',configured_model=model,role='writer',invocation_name='builder-mode',
+                                max_cost=100,max_calls=1000,max_total_calls=1000,case_budget=1000)
+                            if complete:invoke()
+                            else:
+                                with self.assertRaises(budget.BudgetError):invoke()
+                            saved=json.loads(ledger.read_text())
+                            if complete:self.assertEqual(saved['list_cost_usd'],writer['list_cost_usd'])
+                            elif record['upstream_mode_fields'].get('speed')=='fast':
+                                self.assertTrue(saved.get('unpriced_invocations'))
+                                self.assertEqual(saved.get('estimated_subscription_cost_usd',0),0)
+                            else:
+                                self.assertEqual(saved['estimated_subscription_cost_usd'],claude_cost(GATED_CLAUDE,usage))
+                                self.assertLessEqual(saved['estimated_subscription_cost_usd'],50)
 
     def test_concurrent_reservations_and_close_never_refund_unknown(self):
         allowance = gate.Allowance(lease())
@@ -643,12 +701,13 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual((cap['unknown_requests'],cap['in_flight_requests']),(1,0))
 
     def test_runtime_close_mid_response_retains_hold_once(self):
-        for protocol,close_header in (('HTTP/1.1',False),('HTTP/1.1',True),('HTTP/1.0',False)):
-            with self.subTest(protocol=protocol,close_header=close_header):
-                self.upstream.RequestHandlerClass.protocol_version=protocol
-                self._runtime_close_mid_response_retains_hold_once(close_header)
+        for route in CLAUDE_PROFILES:
+            for protocol,close_header in (('HTTP/1.1',False),('HTTP/1.1',True),('HTTP/1.0',False)):
+                with self.subTest(route=route,protocol=protocol,close_header=close_header):
+                    self.upstream.RequestHandlerClass.protocol_version=protocol
+                    self._runtime_close_mid_response_retains_hold_once(close_header,route)
 
-    def _runtime_close_mid_response_retains_hold_once(self,close_header):
+    def _runtime_close_mid_response_retains_hold_once(self,close_header,model):
         # Synthetic transport fault through the real gate, runtime receipt writer
         # and accountant. No CLI, provider, credential or live-worker evidence.
         prefix=sse(dict(input_tokens=1,cache_read_input_tokens=0,
@@ -667,10 +726,10 @@ class ProtocolTests(unittest.TestCase):
             deadline=float(int(time.time())+3600)
             channel=dict(schema=1,batch='synthetic',job='interrupt',case='case-interrupt',
                 reservation_id=str(uuid.uuid4()),revision=1,source_generation=None,
-                committed_total_usd='50.000000000',batch_deadline=router.utc(deadline))
+                committed_total_usd=f'{CLAUDE_PROFILES[model]:.9f}',batch_deadline=router.utc(deadline))
             c=SimpleNamespace(work=root,case=root,ledger=root/'ledger.json',
                 args=run.argument_parser().parse_args(['--source','hunt']),
-                card={'roles':{'writer':{'model':GATED_CLAUDE}}},
+                card={'roles':{'writer':{'model':model}}},
                 case_id=channel['case'],batch_id=channel['batch'],job_id=channel['job'],
                 batch_deadline=deadline,source_generation=None,
                 job_money=copy.deepcopy(channel),authenticated_job_config={'job_money':copy.deepcopy(channel)},
@@ -691,6 +750,9 @@ class ProtocolTests(unittest.TestCase):
                     return first+response.read()  # Must reach EOF before upstream release.
                 finally:connection.close()
             def execute(cmd,cwd,env,*args,**kw):
+                self.assertEqual(cmd[cmd.index('--model')+1],GATED_CLAUDE.partition('/')[2])
+                self.assertEqual(env['CLAUDE_CODE_OAUTH_TOKEN'],'synthetic-only')
+                self.assertEqual(c.model_lease.route,model)
                 kw['on_started']()
                 observed['gate']=kw['cancel']
                 observed['client']=pool.submit(client,env.copy())
@@ -703,7 +765,7 @@ class ProtocolTests(unittest.TestCase):
                      patch.object(model_runtime,'pinned_cli',return_value='synthetic-no-cli'), \
                      patch.object(model_runtime,'run_budgeted',side_effect=execute), \
                      patch.object(gate.Handler,'do_POST',handle):
-                    future=pool.submit(runtime.call,c,[GATED_CLAUDE],'synthetic',root,'builder-1',timeout=30)
+                    future=pool.submit(runtime.call,c,[model],'synthetic',root,'builder-1',timeout=30)
                     self.assertTrue(received.wait(10),'request did not reach the relay')
                     with self.assertRaisesRegex(budget.BudgetError,'^cancelled$'):
                         future.result(timeout=5)
@@ -717,6 +779,8 @@ class ProtocolTests(unittest.TestCase):
                     route,=c.card['route_receipts'];receipt_path=root/route['call_id']
                     receipt_bytes=receipt_path.read_bytes();receipt=json.loads(receipt_bytes)
                     cap=receipt['cap_used']
+                    self.assertEqual(route['route'],model)
+                    self.assertEqual(c.card['models_used']['builder-1'],model)
                     self.assertEqual(receipt['outcome'],'interrupted');self.assertFalse(receipt['final_usage_known'])
                     self.assertEqual([cap[k] for k in ('forwarded_requests','validated_requests',
                         'unknown_requests','in_flight_requests')],[1,0,1,0])
@@ -724,7 +788,7 @@ class ProtocolTests(unittest.TestCase):
                     self.assertEqual(Decimal(cap['held_usd']),Decimal('8.655360'))
                     self.assertTrue(cap['closed']);self.assertFalse(cap['exhausted'])
                     ledger=json.loads(c.ledger.read_text());row,=ledger['invocation_reservations'].values()
-                    self.assertEqual(row['maximum_usd'],'50.000000000')
+                    self.assertEqual(row['maximum_usd'],f'{CLAUDE_PROFILES[model]:.9f}')
                     self.assertEqual(row['state'],'estimated')
                     self.assertEqual(row['estimated_gap_usd'],'8.655360000')
                     self.assertEqual(Decimal(str(budget.case_spending(ledger)['total_spent_usd'])),Decimal('8.655360'))
@@ -747,35 +811,37 @@ class ProtocolTests(unittest.TestCase):
                 pool.shutdown(wait=True)
 
     def test_successful_cli_cannot_hide_gate_unknown_usage_in_real_runtime_receipt(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root=Path(temporary);(root/'transcripts').mkdir();ram=root/'ram';ram.mkdir()
-            (ram/'claude-factory-token-2').write_text('synthetic-oauth-only')
-            c=SimpleNamespace(work=root,case=root,case_id='synthetic',
-                card={'roles':{'writer':{'model':GATED_CLAUDE}}},ledger=root/'ledger.json',
-                batch_id='b',job_id='j',batch_deadline=time.time()+3600,
-                args=argparse.Namespace(agent_timeout=5,max_cost=100,max_role_calls=1000,
-                    max_total_calls=10000,no_progress_minutes=1,max_zero_tokens=3,case_budget=1000,resume=None))
-            c.ledger.write_text(json.dumps({'cost':0,'calls':0,'events':[]}));before=c.ledger.read_bytes()
-            store=router.Store(root/'router.sqlite');self.malformed=True
-            def execute(cmd,cwd,env,*args,**kwargs):
-                url=__import__('urllib.parse',fromlist=['urlsplit']).urlsplit(env['ANTHROPIC_BASE_URL'])
-                connection=http.client.HTTPConnection(url.hostname,url.port,timeout=3)
-                connection.request('POST','/v1/messages',json.dumps(body()),
-                    {'Authorization':'Bearer synthetic-oauth-only','Content-Type':'application/json'})
-                response=connection.getresponse();self.assertEqual(response.status,200);response.read();connection.close()
-                return SimpleNamespace(returncode=0)
-            runtime=model_runtime.ModelRuntime(root,Mock(),Mock(),lambda p,**kw:shutil.rmtree(p),Mock())
-            with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',store.rpc), \
-                 patch.object(router,'SECRETS',ram),patch.object(model_runtime,'pinned_cli',return_value='synthetic'), \
-                 patch.object(model_runtime,'run_budgeted',side_effect=execute):
-                self.assertEqual(runtime.call(c,[GATED_CLAUDE],'',root,'builder-1'),0)
-            receipt=json.loads((root/c.card['route_receipts'][0]['call_id']).read_text())
-            self.assertFalse(receipt['final_usage_known'])
-            self.assertEqual(receipt['cap_used']['unknown_requests'],1)
-            self.assertTrue(receipt['cap_used']['closed'])
-            self.assertEqual({k:receipt[k] for k in router.MAXIMUM_FIELDS},router.route_maximum(GATED_CLAUDE))
-            self.assertNotIn('synthetic-oauth-only',json.dumps(receipt));self.assertEqual(c.ledger.read_bytes(),before)
-            self.assertEqual(store.rpc('status',{})['leases'],[])
+        for model in CLAUDE_PROFILES:
+            with tempfile.TemporaryDirectory() as temporary:
+                root=Path(temporary);(root/'transcripts').mkdir();ram=root/'ram';ram.mkdir()
+                (ram/'claude-factory-token-2').write_text('synthetic-oauth-only')
+                c=SimpleNamespace(work=root,case=root,case_id='synthetic',
+                    card={'roles':{'writer':{'model':model}}},ledger=root/'ledger.json',
+                    batch_id='b',job_id='j',batch_deadline=time.time()+3600,
+                    args=argparse.Namespace(agent_timeout=5,max_cost=100,max_role_calls=1000,
+                        max_total_calls=10000,no_progress_minutes=1,max_zero_tokens=3,case_budget=1000,resume=None))
+                c.ledger.write_text(json.dumps({'cost':0,'calls':0,'events':[]}));before=c.ledger.read_bytes()
+                store=router.Store(root/'router.sqlite');self.malformed=True
+                def execute(cmd,cwd,env,*args,**kwargs):
+                    self.assertEqual(cmd[cmd.index('--model')+1],GATED_CLAUDE.partition('/')[2])
+                    url=__import__('urllib.parse',fromlist=['urlsplit']).urlsplit(env['ANTHROPIC_BASE_URL'])
+                    connection=http.client.HTTPConnection(url.hostname,url.port,timeout=3)
+                    connection.request('POST','/v1/messages',json.dumps(body()),
+                        {'Authorization':'Bearer synthetic-oauth-only','Content-Type':'application/json'})
+                    response=connection.getresponse();self.assertEqual(response.status,200);response.read();connection.close()
+                    return SimpleNamespace(returncode=0)
+                runtime=model_runtime.ModelRuntime(root,Mock(),Mock(),lambda p,**kw:shutil.rmtree(p),Mock())
+                with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',store.rpc), \
+                     patch.object(router,'SECRETS',ram),patch.object(model_runtime,'pinned_cli',return_value='synthetic'), \
+                     patch.object(model_runtime,'run_budgeted',side_effect=execute):
+                    self.assertEqual(runtime.call(c,[model],'',root,'builder-1'),0)
+                receipt=json.loads((root/c.card['route_receipts'][0]['call_id']).read_text())
+                self.assertFalse(receipt['final_usage_known'])
+                self.assertEqual(receipt['cap_used']['unknown_requests'],1)
+                self.assertTrue(receipt['cap_used']['closed'])
+                self.assertEqual({k:receipt[k] for k in router.MAXIMUM_FIELDS},router.route_maximum(model))
+                self.assertNotIn('synthetic-oauth-only',json.dumps(receipt));self.assertEqual(c.ledger.read_bytes(),before)
+                self.assertEqual(store.rpc('status',{})['leases'],[])
 
 
 if __name__=='__main__':unittest.main()
