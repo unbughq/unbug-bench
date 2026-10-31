@@ -368,9 +368,10 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
                         self.assertEqual(attempts, ['reviewer-1', 'builder-1'])
                     else:
                         unknown.clear(); unknown.add((writer, 0))
-                        streams['builder-retry'] = [claude({'type': 'result', 'is_error': True}), None]
+                        streams['builder-retry'] = [claude({'type': 'rate_limit_event',
+                            'rate_limit_info': {'status': 'rejected'}}), None]
                         streams['builder-retry'][1] = done
-                        # Flag off: the runtime retries inline on the second account; with
+                        # Explicit provider rate evidence permits inline account fallback; with
                         # provider waits on, unknown usage defers to a settled wait instead.
                         with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '0'}):
                             run.model_call(self.c, [writer], 'authored writer', self.case, 'builder-retry')

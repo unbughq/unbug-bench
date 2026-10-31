@@ -170,7 +170,7 @@ def _verify_case(c, number, phase, snapshot):
     if tree(retained) != snapshot['evidence']: raise BudgetError('extension_snapshot_changed')
 
 
-def _save_case(c, number, phase, snapshot):
+def _save_case(c, number, phase, snapshot, *, evidence_root=None):
     if digest(tree(c.case)) != snapshot['case_sha256']: raise BudgetError('extension_snapshot_changed')
     parent = c.work / 'extension-snapshots' / str(number)
     parent.mkdir(parents=True, exist_ok=True)
@@ -182,7 +182,7 @@ def _save_case(c, number, phase, snapshot):
     try:
         shutil.copytree(c.case, staged / 'case')
         if digest(tree(staged / 'case')) != snapshot['case_sha256']: raise BudgetError('extension_snapshot_changed')
-        _save_evidence(c, staged / 'evidence', snapshot)
+        _save_evidence(evidence_root if evidence_root is not None else c.work, staged / 'evidence', snapshot)
         _sync_tree(staged)
         os.replace(staged, target)
         _sync_directory(parent)
@@ -209,10 +209,11 @@ def _sync_tree(root):
     _sync_directory(root.parent.parent.parent)
 
 
-def _save_evidence(c, destination, snapshot):
+def _save_evidence(root, destination, snapshot):
+    root = Path(root)
     for name, expected in snapshot['evidence'].items():
-        source = c.work / name
-        if any(p.is_symlink() for p in (source, *source.parents) if p.is_relative_to(c.work)):
+        source = root / name
+        if any(p.is_symlink() for p in (source, *source.parents) if p.is_relative_to(root)):
             raise BudgetError('extension_snapshot_changed')
         data = source.read_bytes()
         if hashlib.sha256(data).hexdigest() != expected: raise BudgetError('extension_snapshot_changed')
@@ -232,8 +233,26 @@ def active(c):
     return history[-1] if history and history[-1]['outcome'] is None else None
 
 
+def comparison_pair(row, versions):
+    """One selection rule for comparison and admission; never reroll a score."""
+    def matches(pair):
+        return pair['outcome'] is not None and all(
+            [r['version'] for r in pair[phase]['stages']] == versions
+            for phase in ('entry', 'outcome'))
+    matching = [pair for pair in row['comparisons'] if matches(pair)]
+    original = {'entry': row['entry'], 'outcome': row['outcome']}
+    if not matching and matches(original):
+        matching = [original]
+    return next((pair for pair in matching if progress(pair['entry'], pair['outcome']) != 'pending'),
+                matching[-1] if matching else None)
+
+
 def propose(c, snapshot):
-    """Check eligibility before admission without consuming an extension ID."""
+    """Check eligibility before admission without consuming an extension ID.
+
+    The owning runner must compare completed history first. This state helper
+    verifies retained bytes, not the scientific validity of opaque old receipts.
+    """
     import job_authority
     job_authority.for_case(c)
     validate_snapshot(snapshot)
@@ -251,10 +270,7 @@ def propose(c, snapshot):
     if history:
         prior = history[-1]
         versions = [r['version'] for r in snapshot['stages']]
-        candidates = [{'entry': prior['entry'], 'outcome': prior['outcome']}, *prior['comparisons']]
-        pair = next((p for p in reversed(candidates) if
-                     [r['version'] for r in p['entry']['stages']] == versions and
-                     [r['version'] for r in p['outcome']['stages']] == versions), None)
+        pair = comparison_pair(prior, versions)
         result = progress(pair['entry'], pair['outcome']) if pair else 'pending'
         if result == 'pending': raise BudgetError('extension_comparison_pending')
         if result != 'progress': raise BudgetError('retired_no_progress')
@@ -264,6 +280,22 @@ def propose(c, snapshot):
             raise BudgetError('extension_comparison_pending')
     return {'extension_id': len(history) + 1, 'round': c.card.get('builder_rounds', 0) + 1,
             'entry': copy.deepcopy(snapshot), 'exhaustion_id': state['exhaustion_id']}
+
+
+def _entry_evidence_root(c, history, snapshot):
+    """Resolve only verified retained outcomes, never a path from a proposal."""
+    if history and history[-1]['outcome'] is not None:
+        row = history[-1]
+        parent = c.work / 'extension-snapshots' / str(row['extension_id'])
+        # This locates byte-identical evidence for the already-selected outcome;
+        # reverse location order cannot select a different scientific verdict.
+        candidates = [(pair['outcome'], parent / ('comparison-' + digest(pair)) / 'outcome')
+                      for pair in reversed(row['comparisons'])]
+        candidates.append((row['outcome'], parent / 'outcome' / 'evidence'))
+        for outcome, root in candidates:
+            if all(snapshot[key] == outcome[key] for key in ('case_sha256', 'stages', 'frontier', 'evidence')):
+                return root
+    return c.work
 
 
 def verify_proposal(c, proposal):
@@ -281,9 +313,10 @@ def verify_proposal(c, proposal):
     if (entry['source_generation'] != job_authority.for_case(c).source_generation or
             entry['case_sha256'] != digest(tree(c.case))):
         raise BudgetError('extension_snapshot_changed')
+    root = _entry_evidence_root(c, read(c), entry)
     for name, expected in entry['evidence'].items():
         try:
-            data = _input_bytes(c.work / name, c.work)
+            data = _input_bytes(root / name, root)
         except (FileNotFoundError, ValueError):
             raise BudgetError('extension_snapshot_changed') from None
         except OSError as error:
@@ -314,7 +347,8 @@ def admit(c, proposal, lease, operation_id):
             reserved.get('operation_id') != operation_id or
             reserved.get('call_name') != 'builder-' + str(proposal['round'])):
         raise BudgetError('extension_reservation_missing')
-    _save_case(c, proposal['extension_id'], 'entry', proposal['entry'])
+    _save_case(c, proposal['extension_id'], 'entry', proposal['entry'],
+               evidence_root=_entry_evidence_root(c, history, proposal['entry']))
     row = dict(schema_version=1, extension_id=proposal['extension_id'], writer_operation_id=operation_id,
                exhaustion_id=proposal['exhaustion_id'], round=proposal['round'],
                entry=proposal['entry'], outcome=None, comparisons=[])
@@ -337,8 +371,9 @@ def complete(c, snapshot):
     _write(c, history)
 
 
-def retain_comparison(c, number, entry, outcome):
-    """Runner supplies re-evaluations on both saved revisions at one version."""
+def retain_comparison(c, number, entry, outcome, *, roots=None):
+    """Retain proofs from isolated roots without staging them in live gate work."""
+    roots = roots if roots is not None else {phase: c.work for phase in ("entry", "outcome")}
     validate_snapshot(entry); validate_snapshot(outcome)
     history = read(c)
     if type(number) is not int or not 1 <= number <= len(history): raise BudgetError('extension_history_invalid')
@@ -354,7 +389,7 @@ def retain_comparison(c, number, entry, outcome):
         if not target.exists():
             staged = Path(tempfile.mkdtemp(prefix='.comparison-', dir=parent))
             try:
-                for phase in ('entry', 'outcome'): _save_evidence(c, staged / phase, pair[phase])
+                for phase in ('entry', 'outcome'): _save_evidence(roots[phase], staged / phase, pair[phase])
                 _sync_tree(staged)
                 os.replace(staged, target)
                 _sync_directory(parent)

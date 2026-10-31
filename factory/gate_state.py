@@ -24,8 +24,8 @@ RUNNER = pathlib.Path(__file__).with_name("run.py")
 MEASURE = ("factory/case_permissions.py", "bin/bench.py", "bin/bench_judging.py", "bin/checkpoint", "bin/checkpoint_evidence.py", "bin/claims.py", "bin/refusal.py", "bin/factory_pool.py", "bin/diagnostic_budget.py",
            "cases/medusa-oversell/checker/**", "cases/medusa-oversell/traffic/**", "projects/**", "guards/**")
 STRATEGY = ("bin/strategy", "bin/strategy_resume.py", "bin/silent_window.py", "bin/exposure.py", "bin/live_shop.py",
-            "bin/live_traffic.py", "bin/shoppers", "factory/calibration.py", "factory/registry.py")
-MODEL = ("factory/model_runtime.py", "factory/model_call_gate.py", "factory/budget.py", "factory/token_prices.py", "factory/calibration.py", "factory/free_models.py", "factory/registry.py")
+            "bin/live_traffic.py", "bin/shoppers", "factory/calibration.py")
+MODEL = ("factory/calibration.py",)
 DEPENDENCIES = {"G4": MEASURE + ("bin/run_validity.py",), "G5": MEASURE + ("bin/run_validity.py",), "G6": MEASURE + ("bin/run_validity.py",) + ("bin/verify-negative",),
                 "G8": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),
                 "G9": MEASURE + STRATEGY + MODEL + ("*.md", "harbor/**"),
@@ -35,20 +35,33 @@ DEPENDENCIES = {"G4": MEASURE + ("bin/run_validity.py",), "G5": MEASURE + ("bin/
                 "G16": MEASURE + MODEL + ("bin/run_validity.py", "factory/independent_review.py", "factory/fairness.py", "factory/exam_responder.py",
                     "harbor/responder/**", "bin/run-exam", "bin/score-claims", "bin/land")}
 # fairness.py invokes these through its runner argument, rather than direct names.
-EXTRA_ROOTS = {"G16": ("make_pilots", "calibrate", "family", "model_call", "jload")}
+EXTRA_ROOTS = {gate: ("make_pilots", "calibrate", "family", "jload", "calibration_identity")
+               for gate in ("G10", "G16", "G17")}
+# Inventories for stages without a generic pass cache. Their execution/freshness
+# contracts remain in the runner; extension comparison consumes versions only.
+STAGE_DEPENDENCIES = {**DEPENDENCIES,
+    "G1": ("factory/calibration.py", "bin/claims.py", "bin/exposure.py", "projects/**"),
+    "G2": ("factory/admission.py", "factory/freshness_retrieval.py", "factory/independent_review.py"),
+    "G3": MEASURE + ("bin/setup", "compose*.y*ml", "Dockerfile*"),
+    "G7": MEASURE + ("bin/run_validity.py",),
+    "G10": MEASURE + STRATEGY + MODEL + ("bin/run_validity.py", "factory/exam_responder.py", "harbor/**"),
+    "G11": MEASURE + ("bin/run_validity.py", "bin/fake-pass-check", "factory/independent_review.py"),
+    "G17": DEPENDENCIES["G16"]}
+MODEL_STAGES = {"G2", "G8", "G9", "G10", "G11", "G16", "G17"}
 # Execution/checkpoint side effects cannot determine a scientific verdict.
 # External model/checker code remains conservatively pinned as whole modules.
 SIDE_EFFECTS = {"checked_gate", "_gate_pipeline", "_gate_completed", "seal", "wipe", "_run_artifacts",
-                "log", "public_progress", "update_case_budget", "case_budget_boundary", "bench_manifest"}
+                "log", "public_progress", "update_case_budget", "case_budget_boundary", "bench_manifest",
+                "sh", "opencode", "_opencode", "model_call", "resume_provider_wait", "shred_tree"}
 
 
-def source_inputs(*roots):
+def source_inputs(*roots, path=None):
     """Hash the gate's source and its transitive same-module names, including constants.
 
     Follow references rather than line ranges: inserting an unrelated function does
     not change the binding. External code/data is explicitly listed above.
     """
-    source = RUNNER.read_text()
+    source = (path or RUNNER).read_text()
     nodes = {}
     for node in ast.parse(source).body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -114,11 +127,12 @@ def dependency_files(c, patterns, bench, *, include_pool=False):
 
 def judge_dependencies(c, bench, *, calibration=False):
     """Exact portable stress/calibration dependency inventory; no whole manifest."""
-    patterns = MEASURE + STRATEGY + MODEL + ("bin/run_validity.py", "*.md", "harbor/**", "factory/case_contract.py", "factory/gate_state.py", "factory/attack_findings.py")
+    patterns = MEASURE + STRATEGY + MODEL + ("bin/run_validity.py", "*.md", "harbor/**", "factory/case_contract.py", "factory/attack_findings.py")
     roots = ("calibrate", "make_pilots", "calibration_identity") if calibration else (
-        "attack_report", "stress_request", "opencode", "g1")
+        "attack_report", "stress_request", "g1")
     result = {"version": VERSION, "runner": source_inputs(*roots),
-              "files": dependency_files(c, patterns, bench, include_pool=True)}
+              "files": dependency_files(c, patterns, bench, include_pool=True),
+              "model_science": model_science()}
     if not calibration:
         result.update(settings={key: getattr(c.args, key, default) for key, default in (
                 ("runs", 10), ("scenario_runs", 3), ("bench_workers", 1), ("source", None),
@@ -136,34 +150,72 @@ def inputs(c, gate, bench):
         if gate not in {"G8", "G9"} and rel in {"BUILD-NOTES.md", "freshness.jsonl"}: continue
         if gate == "G4" and not (rel.startswith("base/") or rel in {"case.json", "promise.md"}): continue
         files.append((rel, digest(p)))
-    dependencies = dependency_files(c, (*DEPENDENCIES[gate], "factory/case_contract.py"), bench)
+    dependencies = dependency_files(c, (*STAGE_DEPENDENCIES[gate], "factory/case_contract.py"), bench)
     settings = {"runs": 10, "scenario_runs": 3, "bench_workers": 1, "dry_run": False, "rehearse_only": False}
-    if gate in {"G8", "G9", "G16"}:
+    if gate == "G1": settings["source"] = None
+    if gate in MODEL_STAGES:
         settings.update(pilot_runs=5, pilot_tries=3, calibrator_minutes=30, max_role_calls=400,
             max_total_calls=1000, max_cost=5, no_progress_minutes=45, max_zero_tokens=3,
             agent_timeout=14400, concurrent_roles=True, source=None)
     identity = {
         "version": VERSION, "gate": gate, "case": files, "bench": dependencies,
-        "runner": runner_inputs(gate), "cache": digest(pathlib.Path(__file__)),
+        "runner": runner_inputs(gate),
         "seed": c.seed, "slot": getattr(c, "factory_slot", 0),
         "args": {key: getattr(c.args, key, default) for key, default in settings.items()},
         "environment": {key: os.environ.get(key) for key in ("UNBUG_JUDGE", "UNBUG_FACTORY_SLOT", "MEDUSA_DEPS_IMAGE")},
     }
-    if gate in {"G8", "G9", "G16"}:
+    if gate in MODEL_STAGES:
         import run
-        role = "pilot" if gate == "G16" else "reviewer"
-        identity["prompt"] = hashlib.sha256(run.prompt(role, "").encode()).hexdigest()
-        names = ("strong_calibrator", "reviewers") if gate == "G16" else ("reviewers",)
+        prompt_roles = ("pilot", "reviewer") if gate in {"G10", "G16", "G17"} else ("reviewer",)
+        identity["prompts"] = {role: hashlib.sha256(run.prompt(role, "").encode()).hexdigest() for role in prompt_roles}
+        names = (("builder", "strong_calibrator", "easy_calibrator", "reviewers") if gate == "G10" else
+                 ("builder", "strong_calibrator", "reviewers") if gate in {"G16", "G17", "G11"} else
+                 ("builder", "attacker", "reviewers") if gate == "G2" else ("reviewers",))
         identity["models"] = {key: getattr(c, "models", {}).get(key) for key in names}
-        names = ("strong_calibrator", "reviewer", "reviewer2") if gate == "G16" else ("reviewer", "reviewer2")
-        identity["roles"] = {key: c.card.get("roles", {}).get(key) for key in names}
+        role_names = {"builder": ("writer",), "attacker": ("stress_tester",),
+                      "reviewers": ("reviewer", "reviewer2")}
+        identity["roles"] = {key: c.card.get("roles", {}).get(key)
+                             for name in names for key in role_names.get(name, (name,))}
+        identity["model_science"] = model_science()
     return identity
 
 
-def calibration_binding(c):
+def model_science():
+    """Family independence/default effort are science; router execution is not."""
+    result = {}
+    for module, name in (("model_router.py", "family"), ("model_runtime.py", "model_effort")):
+        path = RUNNER.with_name(module)
+        result[module] = source_inputs(name, path=path) if path.is_file() else None
+    return result
+
+
+def scientific_version(c, gate, bench):
+    """Content-derived stage version, separate from case/execution binding.
+
+    Mixed scientific executors stay conservatively bound. No source release,
+    receipt-writer hash or pure transport implementation is a gate version.
+    """
+    if gate == "stress":
+        import run
+        identity = {"gate": gate, "bench": judge_dependencies(c, bench),
+                    "prompt": hashlib.sha256(run.prompt("attacker", "").encode()).hexdigest(),
+                    "model": c.models.get("attacker"), "role": c.card.get("roles", {}).get("stress_tester"),
+                    "environment": {key: os.environ.get(key) for key in ("UNBUG_JUDGE", "MEDUSA_DEPS_IMAGE")}}
+        identity["bench"].pop("seed", None)
+        settings = identity["bench"].get("settings", {})
+    else:
+        identity = inputs(c, gate, bench)
+        for key in ("case", "seed", "slot", "version"): identity.pop(key, None)
+        identity["environment"].pop("UNBUG_FACTORY_SLOT", None)
+        settings = identity["args"]
+    for key in ("bench_workers", "concurrent_roles"): settings.pop(key, None)
+    return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+
+
+def calibration_binding(c, bench=None):
     # G16 also feeds portable delivery receipts; sealing still checks this identity.
     import run
-    return run.calibration_identity(c, "strong_calibrator", "statement", runs=c.args.runs)
+    return run.calibration_identity(c, "strong_calibrator", "statement", runs=c.args.runs, bench=bench)
 
 
 def fingerprint(c, gate, bench):
@@ -197,7 +249,8 @@ def save(c, gate, info, signature, before, bench):
     directory = c.work / "gate-cache"
     directory.mkdir(exist_ok=True)
     record = {"fingerprint_version": VERSION, "inputs": inputs(c, gate, bench),
-              "signature": signature, "info": info, "evidence": evidence}
+              "signature": signature, "info": info, "evidence": evidence,
+              "scientific_version": scientific_version(c, gate, bench)}
     if gate == "G16": record["calibration_identity"] = calibration_binding(c)
     atomic_json(directory / f"{gate}.json", record)
 
@@ -211,6 +264,8 @@ def load(c, gate, bench):
         # It cannot prove scoped equivalence after a source change.
         if not isinstance(record, dict) or record.get("fingerprint_version") != VERSION:
             return None
+        if ("scientific_version" in record and
+                record["scientific_version"] != scientific_version(c, gate, bench)): return None
         if gate == "G16" and record.get("calibration_identity") != calibration_binding(c):
             return None
         current = inputs(c, gate, bench)

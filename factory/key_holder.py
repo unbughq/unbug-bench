@@ -434,18 +434,24 @@ def batch_tick(policy, children, waits, spawn):
         if code is None: continue
         try:
             # Only a dispatch child's own exit says anything about its preflight.
-            if action == 'dispatch': batch_holder.record_exit(policy, ROOT, CONTROL_HOME, operation, code)
+            if action == 'dispatch':
+                batch_holder.record_exit(policy, ROOT, CONTROL_HOME, operation, code)
+                if code == batch_holder.TEMPFAIL: waits[operation] = time.monotonic() + 60
+            else:
+                # resume/publish: bounded exponential backoff until a terminal incident.
+                failures = batch_holder.record_child(policy, ROOT, CONTROL_HOME, operation, action, code)
+                if failures: waits[operation] = time.monotonic() + 60 * 2 ** (failures - 1)
         except Exception:
             print('batch exit record refused', file=sys.stderr); continue
         del children[operation]
-        if code == batch_holder.TEMPFAIL: waits[operation] = time.monotonic() + 60
     pending = []
-    for action, scan in (('dispatch', batch_holder.reconcile), ('resume', batch_holder.orphaned)):
+    for action, scan in (('dispatch', batch_holder.reconcile), ('resume', batch_holder.orphaned),
+                         ('publish', batch_holder.unpublished)):
         try: pending += [(operation, action) for operation in scan(policy, ROOT, CONTROL_HOME)]
         except Exception: print('batch scan refused', file=sys.stderr)
     for operation, action in pending:
         if operation in children or waits.get(operation, 0) > time.monotonic(): continue
-        try: children[operation] = (action, spawn(operation, action))
+        try: children[operation] = (action, spawn(operation, action)); waits.pop(operation, None)
         except Exception: print('batch child refused', file=sys.stderr)
 
 

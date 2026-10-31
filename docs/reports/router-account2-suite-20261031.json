@@ -1,0 +1,21 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "tested_commit": "59c20310e843528417e2424d049b0f314a1c9512",
+  "log": "/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/unbug-router-account2-suite-final-5lva16a7.log",
+  "exit_code": 0,
+  "seconds": 944.15,
+  "sha256": "5e46f70b912b441732d456213f974933517458f8abda24439b18620938ef309c",
+  "tail": [
+    ".Unlock diagnostic: stage=decrypt_and_extract; archive=case-20261017T120256Z-86b100; error=RuntimeError",
+    "........",
+    "----------------------------------------------------------------------",
+    "Ran 9 tests in 5.088s",
+    "",
+    "OK",
+    "",
+    "155 test scripts run; 0 failed."
+  ],
+  "scripts_run": 155,
+  "scripts_failed": 0,
+  "notes": "Uninterrupted full run, exit 0. During this run commit 1414937 added the final diff review and corrected only a test comment; executable source and assertions were unchanged from tested_commit. No deployment or model-provider inference calls."
+}

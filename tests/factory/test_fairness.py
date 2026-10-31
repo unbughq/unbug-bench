@@ -43,7 +43,9 @@ class FairnessTests(unittest.TestCase):
                     self.assertEqual(info["review_inconclusive"], counts is None)
 
     def test_diagnosis_requires_every_try_and_concrete_evidence(self):
-        attempts = [{"try": 1}, {"try": 2}]
+        attempts = [{"try": i, "solved": False, "guard_submitted": True,
+                     "stop_reason": "completed", "checked_runs": 1, "solved_runs": 0, "errors": 0}
+                    for i in (1, 2)]
         rows = [{"try": i, "label": "wrong_fix", "finding": "incorrect update",
                  "evidence": "guard/db.sql"} for i in (1, 2)]
         counts = fairness.verdict({"tries": rows}, attempts)

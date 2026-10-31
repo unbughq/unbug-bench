@@ -152,7 +152,7 @@ class AccountHandoffTests(unittest.TestCase):
         self.assertEqual(state['history'], card['account_handoffs'])
         self.assertIsNone(handoff.choose(card, state, self.policy, self.held))
 
-    def test_fresh_launch_keeps_collected_accounts_unless_explicitly_overridden(self):
+    def test_checkpoint_accounts_override_initial_defaults_but_not_request(self):
         state = handoff.initial_state(self.card, self.policy, {'opencode': 2, 'claude': 2})
         card = {**self.card, 'provider_accounts': state['accounts'], 'account_handoffs': state['history']}
         opencode, claude, retained = handoff.launch_accounts(card, self.policy, {}, self.held)
@@ -162,7 +162,50 @@ class AccountHandoffTests(unittest.TestCase):
         self.assertEqual(overridden[:2], (1, 2))
         paused = {**self.card, 'terminal_stop': 'paused', 'provider_accounts': {'opencode': 1, 'claude': 2}}
         explicit_start = handoff.launch_accounts(paused, {**self.policy, 'initial_accounts': {'opencode': 2}}, {}, self.held)
-        self.assertEqual(explicit_start[:2], (2, 2))
+        self.assertEqual(explicit_start[:2], (1, 2))
+
+    def test_bootstrap_and_missing_metadata_use_initial_account_defaults(self):
+        policy = {**self.policy, 'initial_accounts': {'claude': 2}, 'claude_accounts': [2, 1]}
+        self.assertEqual(handoff.launch_accounts({}, policy, {}, self.held)[1], 2)
+        # Retained legacy card lacks account metadata; wait envelope is authored.
+        card = {**self.card, 'provider_wait': {**self.card['provider_wait'], 'account': 'claude-token'}}
+        card.pop('provider_accounts', None)
+        self.assertEqual(handoff.launch_accounts(card, policy, {}, self.held)[1], 1)
+
+    def test_checkpoint_router_selection_round_trip_is_repeatable_and_preserves_inputs(self):
+        policy = {**self.policy, 'initial_accounts': {'claude': 2}, 'claude_accounts': [2, 1]}
+        for old, target in ((2, 1), (1, 2)):
+            with self.subTest(old=old, target=target):
+                # Public saved ledger, authored account and wait transport envelope.
+                card = {**self.card, 'provider_accounts': {'claude': old, 'opencode': 1},
+                        'account_handoffs': [{'provider': 'claude', 'from': 1, 'to': 2}],
+                        'provider_wait': {**self.card['provider_wait'],
+                                          'account': handoff.ACCOUNTS['claude'][target]}}
+                before = copy.deepcopy((card, policy))
+                result = handoff.launch_accounts(card, policy, {}, self.held)
+                self.assertEqual(result[1], target)
+                self.assertEqual(result[2]['accounts']['claude'], target)
+                self.assertEqual(result[2]['history'], card['account_handoffs'])
+                self.assertEqual(result[2]['limited'], {})
+                self.assertEqual(handoff.launch_accounts(card, policy, {}, self.held), result)
+                self.assertEqual((card, policy), before)
+                result[2]['history'].append({'authored': 'new'})
+                self.assertEqual((card, policy), before)
+                # Non-batch founder requests retain their explicit precedence.
+                self.assertEqual(handoff.launch_accounts(card, policy, {'claude_account': old}, self.held)[1], old)
+
+    def test_checkpoint_selection_does_not_switch_to_unheld_or_unauthorized_label(self):
+        for old, target in ((2, 1), (1, 2)):
+            policy = {**self.policy, 'initial_accounts': {'claude': 2}, 'claude_accounts': [2, 1]}
+            label = handoff.ACCOUNTS['claude'][target]
+            card = {**self.card, 'provider_accounts': {'claude': old},
+                    'provider_wait': {**self.card['provider_wait'], 'account': label}}
+            for allowed, held in (([2, 1], self.held - {label}), ([old], self.held)):
+                with self.subTest(old=old, target=target, allowed=allowed):
+                    result = handoff.launch_accounts(card, {**policy, 'claude_accounts': allowed}, {}, held)
+                    self.assertEqual(result[1], old)
+            paused = {**card, 'terminal_stop': 'paused'}
+            self.assertEqual(handoff.launch_accounts(paused, policy, {}, self.held)[1], old)
 
     def test_planner_cli_distinguishes_retry_refusal_from_bad_checkpoint(self):
         self.card['terminal_stop'] = self.stop; self.path.write_text(json.dumps(self.card))

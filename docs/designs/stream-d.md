@@ -2756,3 +2756,544 @@ failures. They execute real G2 hold orchestration, live recovery, category rebin
 last-category diagnostic timeout, the publication crash window, cancellation during
 backoff and v1 migration. Row 11 now also names executed batch launch/holder boundary
 tests and five stress interruptions, instead of citing an entire test file.
+
+#### Item 4 handoff after merging item 5/6
+
+Parent reassigned item 7 to lane 2. Lane 1 owns only item 4.
+The publication callback is installed by Ctx construction and before resume
+dispatch; crash tests rebuild launch inputs and the saved card without retaining
+runtime attributes. Review and suite evidence are in stream-d-retries-diff-2.md
+and stream-d-retries-suite-4.md under docs/reviews/.
+
+Small interface for lane 2's per-gate versions: item 4 introduces scientific
+validation in ordinary_retry.decode/projection (G2, G8/G9, idea/dedup and stress
+retained-answer decisions), plus stress_progress.CATEGORIES/valid and category
+completion/aggregation in stress_progress.run. These inputs must be covered when
+that scientific contract changes. Retrieval waits, publication and transport
+backoff remain plumbing. The initial item-4 change also changes the existing
+runner evaluators and attacker prompt, but a later edit isolated to these new
+modules needs version coverage too. Lane 1 does not change gate_state's item-5
+implementation here; this is the explicit integration interface for its owner.
+
+## Item 5 implementation: scientific receipts and per-gate versions (2026-10-31)
+
+Lane 2, based on b500db9. This increment implements only item 5. It leaves
+extension comparison isolation, continuation routing and diagnosis enablement
+to their ordered increments. No real cases launch here.
+
+### Problem and change
+
+The existing gate cache follows transitive runner functions but also pins whole
+runtime/accounting modules and its own source file. A router, ledger, logger or
+publication edit can therefore erase scientific passes. Calibration has the same
+problem. G10 records stop reasons, but a capped failed submission can still reach
+the wrong-fix reviewer. The existing easy-calibrator difficulty threshold is
+intentionally unchanged; this increment separates the scientific evidence.
+
+Keep automatic, content-derived per-gate versions rather than hand-maintained
+release numbers. Split scientific inventories from receipt schema versions:
+`gate_state.scientific_version(c, gate, bench)` returns a digest of the gate's
+runner evaluator/transitive scientific helpers, explicit external evaluator and
+scenario dependencies, prompts, effective model/effort settings and judge
+configuration. It excludes case bytes, seed, slot and plumbing implementation.
+Full receipt inputs still bind case bytes, execution settings and evidence bytes.
+The inventory covers every pipeline gate and stress for later extension snapshots;
+this increment does not implement snapshot comparison or route extensions.
+
+Use one declared boundary for runner transport helpers (model dispatch, shell,
+logging, budget admission, publication and cleanup), and remove external router,
+ledger, price, registry and runtime implementation hashes from scientific inputs.
+Retain calibration/delivery, validity classifiers, judge/checker, strategy,
+scenario, case-contract and fairness logic. Shared scientific helpers invalidate
+all gates that actually depend on them; changing G4 alone never invalidates G5.
+Keep G7's independent fresh execution and G11's fresh-seed execution contracts;
+G2 must still enforce retrieval freshness, G3 must prepare the live environment.
+These mandatory executions do not revoke any other gate's retained pass.
+
+Delete the whole-cache-file digest from gate identity. Keep the receipt schema
+version unchanged unless its reader format changes; include an explicit per-gate
+scientific digest in newly written receipts. No permissive historical migration:
+old opaque/mismatched identities cannot prove the new dependency partition and
+are retained as historical evidence, not relabeled as a new scientific pass.
+Only identities created under this new partition remain reusable across later plumbing edits. Missing, changed or invalid
+evidence never authorizes reuse. G10 attempts use the same scientific dependency
+boundary, preserving their strict prefix and pending-submission checks.
+
+### G10 evidence semantics
+
+Add content-free scientific evidence counts alongside the existing stop/outcome
+counts: solved, demonstrated failed execution, capped, no submission and unknown.
+Capped failed submissions remain capped even if their saved execution failed;
+a capped solve remains a demonstrated solve. A no-submission is never a wrong
+fix. Keep existing diagnostic stop/outcome fields for compatibility and retain
+original private attempts and execution bytes. New attempt receipts record their
+scientific outcome; readers recompute it, rejecting conflicting labels.
+
+G10 retains its existing easy-calibrator admission criterion. This increment
+changes evidence classification, not the difficulty threshold. G16/G17 check the scientific eligibility of retained attempts before invoking
+the independent reviewer. A capped/unknown failed submission returns None
+directly from review_attempts: breadth/diagnose return a scientific gate fail
+with verdict_valid:false, review_inconclusive:true and no hard label. This
+does not enter independent_review.review and consumes no reviewer family or
+infrastructure retry. Missing submissions retain their existing bounded
+replacement path; a capped or unknown replacement is likewise inconclusive.
+The pure verdict validator also refuses wrong_fix for ineligible rows as a
+defense in depth. Malformed model answers retain the existing operational path.
+Existing missing-submission recovery remains bounded and keeps its old receipt;
+this change does not add a retry allowance. Invalid execution still raises the
+existing infrastructure classification before any scientific count.
+
+### Tests, deletions and row closure
+
+Replay the saved public practice case and raw plain/reference/cheat/invalid
+execution artifacts in tests/factory/fixtures/invalid-runs-*.json.gz. Reuse their
+bytes through the receipt writer/reader, change router/accounting/publication
+and unrelated runner source, and prove retained passes and calibration identity.
+Mutate a single evaluator and prove only its dependent gate invalidates; mutate
+judge/scenario/prompt/model settings and prove the affected versions change.
+Test missing and tampered evidence, old schemas, and independent gate inventories.
+
+Replay saved public calibration diagnostics for real cap/no-submission facts,
+and raw saved valid/invalid executions for demonstrated failures. Authored stop
+variations on those artifacts are explicitly labeled as perturbations. Exercise
+G10 acceptance and G16/G17 review validation, including a reviewer incorrectly
+calling a capped attempt wrong_fix. Existing item-3 real-ledger settlement tests
+supply row 39's usage half. Close row 39 only if these real-artifact tests and the
+full suite pass; cite the exact test paths in the register. No other row closes.
+
+Deletes: plumbing byte dependencies and the global cache-source invalidator.
+run.py changes also replace strategy_run's whole-manifest and whole-source
+signature with scoped scientific dependencies. No A/B/E interface or lane-1
+retry/routing contract changes. Full validation is the prescribed tests/run.py suite, with a
+unique retained suite log and committed result record, followed by a fresh diff
+review.
+
+
+### Review-1 implementation details and limits
+
+The boundary is conservative, not a semantic Python analyzer. Pure plumbing
+modules (model_runtime, model_call_gate, model_router, budget, token_prices,
+free_models, registry, launcher, collection and publication) and runner helpers
+`sh`, `opencode`, `_opencode`, `model_call`, `resume_provider_wait`, `log`,
+`public_progress`, `shred_tree`, `update_case_budget`, `case_budget_boundary`,
+`bench_manifest`, `seal` and `wipe` do not enter scientific digests. Remove
+model_call from G16's explicit source roots and opencode from stress roots.
+Mixed evaluator functions `calibrate`, `checkpoint`, `strategy_run`, `g3`, and
+mixed bench executables remain conservatively scientific: edits inside those
+functions/modules still invalidate their dependent gates. Plumbing changes
+must stay behind the named boundary to preserve passes. Extracting every mixed
+executor is not part of this increment; do not silently ignore its code.
+
+Keep the current execution bindings (seed, slot, worker count, concurrent roles,
+role/total call limits, time limits, paid limit and UNBUG_FACTORY_SLOT) in full
+receipts. Moving slots changes delivered endpoint bytes and is deliberately not
+asserted equivalent here. The per-gate *version* removes case, seed, slot,
+UNBUG_FACTORY_SLOT, worker count and concurrency, but keeps scientific run
+counts, exposure/time/call limits, source mode, model/effort and judge image
+configuration. Changing money settings remains a conservative receipt change;
+this work does not migrate item 3's paid-cap contracts. Code-only ledger/router
+changes preserve every new-partition reusable receipt.
+
+The inventory keys are the exact run.GATES strings (G12 is sealing, not a gate)
+and `stress`. All gate inventories include case_contract. Existing MEASURE
+means case_permissions, bench, bench_judging, checkpoint/checkpoint_evidence,
+claims/refusal, factory_pool, diagnostic_budget, public checker/traffic,
+projects and guards. Existing STRATEGY means strategy, strategy_resume,
+silent_window, exposure, live_shop/live_traffic, shoppers and calibration;
+registry is removed. MODEL becomes calibration only. These mixed scientific
+modules stay whole-file bound; pure execution modules above are removed.
+
+| Gate | Additional scientific dependencies and roots |
+| --- | --- |
+| G1 | case_contract, contract tool dependencies; g1 |
+| G2 | admission, freshness_retrieval, independent_review, reviewer prompt; g2 |
+| G3 | MEASURE, bin/setup, compose files, project image configuration; g3 |
+| G4/G5 | MEASURE, run_validity; own gate root |
+| G6 | MEASURE, run_validity, verify-negative; g6 |
+| G7 | MEASURE, run_validity; g7 |
+| G8/G9 | MEASURE, STRATEGY, calibration, root markdown and harbor, reviewer prompt/models; own gate |
+| G10 | MEASURE, STRATEGY, calibration, run_validity, exam_responder and harbor; g10, calibrate, calibration_identity; both calibrator and owner roles |
+| G11 | MEASURE, run_validity, fake-pass-check, independent_review; g11, reviewer roles |
+| G13/G14/G15 | MEASURE, STRATEGY, run_validity; own gate |
+| G16/G17 | G16's existing fairness/owner/exam inventory; own gate, calibrate, make_pilots, family, jload, calibration_identity; strong solver, builder and reviewer roles |
+| stress | judge_dependencies plus attack_report/stress_request/g1, attacker prompt/model/effort |
+
+`scientific_version` returns a SHA256 over sorted JSON for this inventory.
+New gate receipts store `scientific_version` beside existing inputs/signature;
+load checks it when present, and always checks full inputs plus evidence.
+The existing pinned compatible_panel fallback and G16 calibration_binding check
+remain. No new global schema bump is used to invalidate an unrelated gate.
+Strategy receipts use the corresponding G13/G14/G15 inputs plus strategy name
+instead of bench_manifest or whole run.py/registry hashes.
+
+`scientific_outcome` on new attempts is one of solved, demonstrated_failure,
+capped, no_submission, unknown. Order: a valid solved row is solved; absent
+submission is no_submission; time_limit/call_limit is capped; only explicit
+completed + submitted + checked_runs>solved_runs>=0 + errors==0 demonstrates
+failure; everything else is unknown. Unrecorded never means uncapped. Aggregate
+`scientific` is exactly {version:1,outcomes:{<all five keys>:<integer counts>}}.
+Old diagnostic fields remain unchanged. Public old-card counts cannot prove an
+uncapped failure because marginal stop/outcome counts have no per-row join.
+
+Deployment is a one-time scientific partition migration. All pre-partition gate
+cache receipts, strategy signatures, stress bindings and calibration identities
+that differ are not reusable, even if their old science was valid. Originals
+remain retained; no history is relabeled. In-flight work may need up to all
+previously passed gates, stress and all calibrator tries again, paid only under
+existing authority. Exact dollar cost is unknown and may exceed a case's current
+commitment; no budget increase or run is authorized here. Sealed delivery proofs
+also become stale through sealed_audit.delivery_contract/verify_exam and require
+ordinary requalification; there is no legacy admission exception. Subsequent
+boundary-only plumbing edits preserve all nine reusable gates and calibration
+attempt identities. That preservation count is the payoff test. Scope estimate:
+one implementation/review increment plus the offline suite; no paid validation.
+
+Row 39's real cap evidence is case-20261017T125556Z-18681d in
+invalid-runs-public-cards.json.gz, easy diagnostic counts time_limit=3 and
+no_fix_submitted=3. Raw `plain`, `reference`, `cheat` (the saved refuse-all
+execution) and `reset-invalid` entries in invalid-runs-real.json.gz prove
+execution classification, not actual capped submissions. Authored cap/reviewer
+perturbations on these executions do not prove a historical capped-submission
+lifecycle. If no such saved attempt can be found, leave row 39 open for item 8
+and report the limitation instead of fabricating proof. Usage tests are
+`test_stream_d_runtime.py::test_unknown_usage_settles_at_gate_bound_and_next_admission_proceeds`
+and `test_stream_accountant_links_unknown_usage_and_settles_once_above_five_dollars`.
+
+
+Review-2 resolution: a completed replacement with no submitted fix returns
+scientific inconclusive too, after attempt_summary validates its row. It has no
+execution.json because there is no guard to execute; explicit invalid-infra rows
+are still rejected. A missing/malformed replacement row remains operational.
+G16/G17 inconclusive retains the ordinary existing writer-repair route, with
+review_inconclusive recorded; no new allowance or factory-bug label is added.
+The easy threshold is intentionally unchanged. Bind the underlying model_router.family and model_runtime.model_effort with
+their same-module constants as narrow scientific source, excluding the rest of
+that runtime module, since family independence is a scientific constraint.
+
+
+Implementation note: serial measurement omits factory_pool as before; switching
+from serial to pooled measurement selects additional scientific executor code
+and may therefore change the version even though the numeric worker count is
+excluded. Endpoint/worker receipt bindings remain conservative. The retained
+artifact search found no capped-submission per-attempt receipt, so row 39 remains
+open for item 8. The new offline test is tests/factory/test_scientific_receipts.py;
+its module docstring explicitly distinguishes saved artifacts from authored stop
+metadata. No row closure is claimed by this increment.
+
+
+## Item 6 implementation: isolated extension comparison (2026-10-31)
+
+### Problem, scope and deletion
+
+Item 5 provides scientific versions and gate receipt bindings. `extensions`
+retains immutable revisions, but `retain_comparison` currently assumes both
+re-evaluations wrote evidence into the live work directory. There is no producer
+that prepares isolated inputs, checks a common version vector, or prevents an
+invalid execution from becoming a regression. Item 6 supplies that boundary.
+It supports row 9 and closes no Murphy row. Item 7 owns runner dispatch,
+continuation routing and money/checkpoint integration; diagnosis stays off.
+
+Add `factory/extension_compare.py`, a worker-owned comparison service. Its
+`compare(c, number, bench, evaluate)` reads verified completed extension history,
+pins the current ordered scientific version vector once, and processes entry
+and outcome from their retained case/evidence copies. It never evaluates the
+live candidate or hands the live context to `evaluate`. Delete the assumption
+that comparison evidence must be staged in live `c.work`: extend
+`retain_comparison` with explicit per-phase evidence roots (defaulting to the
+existing root for compatibility). The durable append remains its existing
+fsync-before-history transaction and leaves original snapshots unchanged.
+
+### Isolated execution and receipts
+
+The evaluator contract is explicit: `(workspace, stage) -> (passed, detail,
+evidence_paths)`. Workspace contains only independent case/work paths and copied
+scientific configuration (args, models, roles, seed, slot, case ID), plus the
+read-only bench source path. Its card is a new dictionary containing only copied roles, never the live card.
+It contains no ledger, job authority,
+model runtime, publisher or live work path. The evaluator must use workspace
+paths and execute under the ordinary admitted job when item 7 wires dispatch.
+There is deliberately no default adapter calling `run.gN`: those functions use
+global BENCH/results and would violate isolation. Item 7 must supply an isolated
+worker/process adapter with separate bench results and existing shared money
+admission. This API grants neither money nor a writer call. No live run here.
+
+Use temporary working copies of each saved revision. The immutable originals
+are never passed to the evaluator. Copy retained evidence into each workspace;
+never hardlink or follow symlinks. Verify the case digest before and after each
+evaluation and before publication. A gate that changes case bytes is rejected
+as pending, not accepted as an updated comparison. Mutable evaluator detail
+and configuration are independent of the live context. Cleanup temporary work
+on success and failure; persisted pair evidence is copied before cleanup.
+
+A new stage receipt binds schema, stage, scientific version, full input digest,
+case digest, status, detail and content hashes of supporting local evidence.
+Its digest is the snapshot stage evidence digest. Gate binding is item 5's
+`gate_state.fingerprint`; stress binds case/seed/slot plus its scientific
+version. The snapshot producer records all ordered stages; pending/unreached
+rows have no passing receipt. Pass/fail requires nonempty retained support,
+a strict bool verdict and no operational detail. Scientific inconclusive results are gate failures as specified below. `InvalidInfra`
+and malformed/missing evidence become pending; other exceptions propagate
+without publishing a scored comparison. The receipt reader verifies both the
+receipt and every supporting byte, current version and full binding. Historical
+snapshot rows with authored/opaque evidence remain historical and must be
+re-evaluated rather than relabeled.
+
+Only current, fully bound receipts can be reused. Reuse unaffected pass receipts only for the explicit reusable set below,
+when their scientific version is equal; no second dependency analysis. Execute in pipeline order until the
+first fail/pending; mark the remaining suffix unreached. A later formerly
+passed stage that is now unreachable cannot prove no regression and progress
+therefore remains pending. Both sides must have the same current version vector;
+recompute it after evaluation to detect code/settings changes during the pair.
+Version drift leaves the comparison pending, never relabels completed work.
+
+A pending pair is retained with pending stage rows when versions stayed pinned;
+`extensions.progress` already refuses to score it. Retry may reuse earlier
+passing receipts from the newest retained comparison, while pending work is
+re-executed. An incomplete original extension has no outcome and stays pending.
+A completed pair is append-only and replay-safe by its digest. No extension ID,
+writer round, public projection, or live gate result is advanced by comparison.
+
+### Tests and qualification limits
+
+Add `tests/factory/test_extension_compare.py`. Replay the saved public practice
+case, saved plain/reference/invalid executions and real item-5 receipt code.
+Authored evaluator orchestration controls are labeled, not called live proof.
+Test common-version progress/regression/no-progress, a one-gate version change,
+plumbing preservation, full evidence binding, tampered/missing evidence,
+invalid-infra pending and retry, version drift, mutation of scratch case/config,
+original snapshots and live candidate/card/cache byte preservation, crash before
+history append and duplicate replay. Run the full prescribed suite to a unique
+retained log and commit its result before fresh diff review.
+
+Row 39 remains open: the saved public card proves time-limit/no-submission
+counts, but no retained per-attempt capped-submission artifact was found in
+item 5. Item 8 needs an authorized ordinary G10 calibrator run that submits a
+guard before reaching its existing time/call cap, retaining the original
+results.json attempt receipt, guard, execution.json, stop metadata and bound
+usage/reservation settlement; replay it through G16/G17 to prove the capped
+failed attempt cannot become wrong_fix. This increment launches no such run.
+
+
+### Exact contracts and design-review-1 resolutions
+
+`Workspace` is a dataclass with fields `case: Path`, `work: Path`, `bench: Path`,
+`args: argparse.Namespace`, `models: dict`, `card: dict` (only roles), `seed: int`,
+`factory_slot: int`, `case_id: str`. Configuration comes from the current live
+context once at compare entry, deep-copied independently for each side. Versions
+and fingerprints use `workspace.bench`, the current read-only source bench,
+not a scratch results directory. The callback is trusted worker code, not a
+sandbox against malicious Python. No live mutable paths are exposed except the
+read-only source bench. Scratch directories use tempfile outside c.work; the
+callback must never write the source bench or use global runner paths. The
+item-7 process adapter must materialize a separate results/VM execution layout.
+
+The shared original-snapshot producer is `snapshot(workspace,
+source_generation, evaluate, previous=None, versions=None)`. `compare` calls it
+for each phase, and item 7 calls the same API to produce original entry/outcome
+snapshots. It returns the existing validated extension snapshot shape, never a
+new history shape. `previous` is a snapshot whose evidence is already copied to
+workspace.work; absence means fresh evaluation. `versions` is the pinned ordered
+stage-to-SHA map, or computed at entry when omitted. Its stage receipt writer
+and reader are private helpers of this API.
+
+Every terminal stage receipt lives at `comparison-receipts/<stage>.json`, with
+exact fields `schema_version` (1), `stage`, `scientific_version`,
+`binding_sha256`, `case_sha256`, `status` (pass/fail), `detail` (JSON object),
+`support` (relative filename-to-SHA map), `calibration_identity` (G16 identity,
+otherwise null). Supporting evidence paths returned by the evaluator are a
+nonempty list of canonical relative filenames under workspace.work. Reject
+absolute paths, dot/parent components, symlinks and names starting `case/`,
+`extension-snapshots/` or `comparison-receipts/`. Copy evidence into a private
+stage namespace `comparison-support/<stage>/<original-relative-name>` before
+writing the receipt. The snapshot evidence map contains the receipt plus these
+copied supporting files. This prevents later stages overwriting earlier proof.
+Missing/invalid JSON, support, or digest bindings refuse reuse. Detail and
+support are JSON-normalized copies, not evaluator-owned references.
+
+Reuse set is exactly gate_state.REUSABLE (G4/G5/G6/G8/G9/G13/G14/G15/G16), and
+only pass receipts reuse. G1/G2/G3/G7/G10/G11/G17/stress execute fresh when a new comparison is needed. Fail reuse is not
+introduced. The source is the newest retained comparison for each phase if any,
+otherwise the original entry/outcome; old opaque receipts cannot reuse. Require
+exact fingerprint, scientific version, case digest and every evidence byte.
+G8/G9 deliberately require exact identity, with no compatible_panel fallback;
+this is conservative extra work, not weaker validation. G16 additionally checks
+`gate_state.calibration_binding`; add optional `bench` to that helper and
+`run.calibration_identity` so this read-only calculation uses the explicit
+source bench without mutating run.BENCH. The supporting evidence must include
+all calibration attempt/guard/execution files used by that verdict; the adapter
+owns this complete dependency enumeration just as gate_state.save's producer
+does. Tampering any retained dependency refuses reuse.
+
+Pending classification is: InvalidInfra (including InfrastructureExhausted),
+non-bool verdict, non-dict/non-JSON detail, absent/malformed support, or detail
+containing top-level `error`, `classification:"invalid-infra"`,
+`invalid_infra:true`, or `execution_valid:false`. These
+produce a pending stage, never a scored fail. `review_inconclusive:true` and
+`verdict_valid:false` alone preserve the item-5 scientific gate failure when
+passed is false and supporting evidence is complete; they must never accompany
+a pass. They do not create a wrong_fix verdict. BudgetError (including provider
+wait) and other exceptions propagate without publishing a scored pair. No
+retry loop exists here: one call attempts each needed stage at most once per
+side. Item 4 supplies bounded operational retries inside evaluators; item 7
+must admit each new comparison under the batch money/deadline authority and
+terminate holds at that bound. Pending pairs and their disk use are bounded by
+those admitted attempts, not a new local scientific cap. No deployment until
+item 8 verifies those integration bounds.
+
+G2's comparison adapter re-verifies the saved search history by retrieval only:
+no author search top-up, freshness repair, or writes to case/freshness.jsonl.
+New retrieval responses are work evidence, bound to the saved case history.
+Insufficient/malformed history and unavailable retrieval are invalid-infra,
+therefore pending under item 4/7 bounds, matching GatePipeline.check. The full case
+digest remains immutable, including freshness.jsonl. If an adapter mistakenly
+runs the mutating normal path, its mutation is detected and comparison returns
+pending with no published pair; it is an adapter error, not endless allowed
+normal operation. Test both read-only G2 evaluation and mutation refusal.
+
+For admission, add an internal evidence-root resolver in extensions. Given a
+verified history and proposed snapshot, match case/stages/frontier/evidence
+against the latest extension's original outcome or retained compared outcomes
+(excluding source_generation as propose already does). Resolve to the matching
+retained outcome evidence root, preferring the newest comparison. Otherwise use
+c.work for ordinary first admission. Both verify_proposal and _save_case(entry)
+use that resolver, checking root-relative symlinks and every digest. No arbitrary
+root from a proposal is accepted. This copies the retained comparison outcome
+into the next immutable entry without polluting live gate evidence. Keep live
+case equality and authenticated current source_generation checks unchanged.
+Test compare → propose → verify_proposal → admit, including replay, a changed
+live case, and changed retained proof. _save_evidence takes an explicit root,
+and its symlink checks are relative to that root, including the root itself.
+
+compare and retain_comparison run only on the case's single owning worker,
+never concurrently with admit/complete. read() operates on a copied context/card
+inside compare, so public-projection recovery cannot mutate the live card.
+Persistence adds only comparison history/evidence, never live gate results.
+On code/configuration drift or scratch mutation return `pending` without an
+append. Otherwise return extensions.progress for the retained pair. A completed same-version pair is sticky: return its result without evaluation.
+Only absent/pending pairs may execute. Identical pending pair bytes deduplicate.
+
+Size/cost/risk: one implementation/review increment plus the offline full suite.
+Worst case is 17 stages per side; paid-stage families include stress, G2, G8/G9,
+G10/G16/G17 and G11, with their existing internal invocation bounds. Exact cash
+cannot be predicted from saved receipts. All re-evaluation, including version
+drift, consumes the existing batch commitment; item 7 enforces admission and
+records infrastructure waste where applicable, without granting extra money.
+The main risk is an adapter leaking writes via runner globals: no default
+adapter is supplied. This adds a roots API while removing the live-work staging
+assumption; it does not claim a net line-count deletion.
+
+Additional required tests from review 1: G16 inconclusive is fail, G16 changed
+calibration binding refuses reuse, G2 read-only/mutation paths, comparison-based
+next admission, and cross-stage support overwrite isolation. All blockers were
+accepted; docs/reviews/stream-d-compare-design-1.md preserves the final report.
+
+
+### Design-review-2 resolutions (all accepted)
+
+Re-judge the before and after copies with today's rules, so an extension is
+counted only when the case got further. Before allocating scratch or invoking
+an evaluator, compare examines the original pair then retained pairs in append
+order for a non-pending progress() result at the pinned versions. The first
+such pair is authoritative and returned unchanged. Original and retained bytes
+are verified through extensions.read first. This forbids stochastic rerolls;
+propose likewise selects the first non-pending matching pair, falling back to
+the latest pending pair only if no scored pair exists. An old opaque same-version
+pair is authoritative only if its terminal stage receipts verify under this
+module's reader; otherwise it needs reconstruction. Tests cover repeated compare
+and prior pending → scored → subsequent compare with zero evaluator calls.
+
+Stress's comparison adapter is a read-only review of the saved candidate:
+attacker searches are directed to workspace.work, retained as support, never
+appended to case/freshness.jsonl. G2 counts the saved case's builder/attacker
+history, not newly authored comparison searches. No original stress writer or
+repair loop is called. BudgetError('freshness_unresolved') is recognized only
+for stress and becomes pending invalid evidence; other BudgetError propagates.
+This does not grant a retry; item 7 bounds any retry/retirement at batch authority.
+Test read-only stress evidence, attempted case mutation and freshness_unresolved.
+
+Like GatePipeline.check, CaseProblem becomes a scientific fail with
+{'problems': [str(error)]}. Save that exception observation as a local supporting
+JSON file before producing its fail receipt. classification:'invalid-infra'
+always means pending, even when a bool verdict is supplied. The existing
+review_inconclusive failure does count as a gate regression after a baseline
+pass in this comparison API: it cannot establish the required retention of a
+pass. It still never labels a submitted fix wrong, changes writer feedback or
+creates a factory-bug claim. Item 7 uses the ordinary independent-review rule
+for substantive disagreement before retirement.
+
+The stress binding is digest({'stage':'stress', 'scientific_version':version,
+'case_sha256':case_digest, 'seed':workspace.seed,
+'slot':workspace.factory_slot}); digest is extensions.digest's canonical JSON.
+retain_comparison(c, number, entry, outcome, *, roots=None) takes optional
+{'entry': Path, 'outcome': Path}; omitted roots use c.work as before. Root input
+is worker-local, never supplied by public proposal/model output. All retained
+proofs are verified before append.
+
+Item 7 produces original snapshots by calling snapshot with a Workspace whose
+case/work are the ordinary owning worker's current case/work after admitted
+execution, or by copying the returned snapshot's named evidence from scratch
+into c.work before admit/complete. The former allows the shared writer to emit
+receipts directly at the paths current admission expects; it remains item 7's
+responsibility to use a non-mutating evaluator. compare itself always creates
+independent scratch workspaces outside the live work tree.
+
+
+Implementation clarification: propose prefers the first scored retained
+comparison before the original pair. If any retained comparison matches the
+vector, even pending, the original cannot be used as a fallback. This matters when an opaque original had
+current version labels but could not prove them: compare reconstructs it, and
+admission must consume that verified reconstruction. compare never produces a
+replacement for a valid already-scored original. Scratch card output fields
+(such as plain_app_broke) may be written by evaluators; only args, models and
+roles are scientific configuration and must remain unchanged. No scratch card
+field is copied into the live card.
+
+
+### Diff-review-1 resolution: portable scientific receipts and shared selection
+
+Blocker 1 and all nits accepted. This paragraph supersedes the earlier use of
+full gate_state.fingerprint in comparison receipts. It also explicitly supersedes
+all earlier item-6 schema-1 field lists, "Require exact fingerprint" rules and
+stress-binding formulas containing seed/slot, including those in the isolated
+execution, exact-contracts and design-review-2 sections. The schema-2 field list
+and binding in this final resolution are authoritative. Full live-run cache inputs
+still bind worker count and slot conservatively; comparison uses the scientific
+partition from item 5. Its binding is now exactly
+`extensions.digest({stage, scientific_version, case_sha256})` for every stage.
+The complete receipt and all supporting bytes remain hashed into the snapshot.
+Schema 2 adds `execution: {seed, slot, bench_workers, concurrent_roles,
+slot_environment}` for immutable provenance. Those recorded values do not need
+to match today's worker. Changing a seed cannot reroll an already-scored sample.
+No production item-6 receipts exist yet; schema-1 prototype originals are opaque
+and reconstruct through the same guarded path, never relabeled in place.
+
+G16's additional calibration identity remains checked after removing only seed
+and slot; these stay in receipt execution provenance. All other identity fields,
+including model/effort, scientific code and limits, remain exact. A change of
+scientific version still requires comparison at the new common version. As in
+item 5, selecting pooled rather than serial execution may add scientific executor
+code to the inventory and therefore change versions; numeric worker/concurrency
+or slot changes that keep the scientific vector equal cannot revoke the pair.
+
+`extensions.comparison_pair(row, versions)` is the single selector used by both
+compare and propose: matching retained reconstructions take precedence over the
+original, the first scored matching pair wins, otherwise the latest pending
+pair is returned. No matching vector returns None. compare validates that one
+selected pair's receipts/support before returning its score. A scored retained
+reconstruction that cannot be verified returns pending without rerolling or
+appending a rival score. An opaque original may still be reconstructed. Item 7
+must call compare before propose; propose's docstring now states that it checks
+state and retained bytes, not the scientific truth of opaque originals.
+Item 7 must bound even an unverifiable retained score under the existing batch
+money/deadline authority: recover infrastructure evidence where possible and
+account its waste normally, otherwise retire at the bound. It must never retry
+this pending state indefinitely or discard a score to obtain a new verdict.
+
+Only malformed returned results/evidence are caught as pending. ValueError,
+TypeError and FileNotFoundError raised by evaluator code itself propagate with
+no comparison append. Tests now cover changed workers, concurrency, slot, slot
+environment and seed after a scored pair, asserting zero evaluator calls,
+byte-identical history and the same admission outcome. G16 receipt validation
+also survives moved execution provenance, and support-copy assertions include
+G5 as well as stress. The final diff report and responses are retained in
+`docs/reviews/stream-d-compare-diff-1.md`.

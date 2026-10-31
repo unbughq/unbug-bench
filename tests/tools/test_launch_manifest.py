@@ -80,7 +80,7 @@ class ManifestTests(unittest.TestCase):
         expected_worker |= {'factory/launch_manifest.py', 'factory/restore_sync.py',
                             'factory/runner_supervisor.py', 'factory/batch.py',
                             'factory/model_router.py', 'factory/model_call_gate.py', 'factory/job_authority.py', 'factory/diagnosis.py', 'factory/extensions.py',
-                            'factory/diagnosis_dispatch.py', 'factory/diagnosis_task.py',
+                            'factory/diagnosis_dispatch.py', 'factory/diagnosis_task.py', 'factory/extension_compare.py',
                             'factory/prompts/diagnosis.md', 'factory/prompts/diagnosis-repair.md',
                             'factory/batch_money.py', 'factory/job_config.py', 'factory/batch_service.py',
                             'factory/batch_status.py', 'factory/batch_accounting.py', 'factory/batch_holder.py',
