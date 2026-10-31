@@ -31,8 +31,12 @@ Focused command: uv run --with numpy --with scipy python -B tests/factory/test_m
 Result: 25 tests, OK, exit 0, 15.492 seconds.
 Full-suite evidence is the uniquely named isolation-profile-merge-suite log and
 JSON; the JSON records the pre-run commit/hash and verifies unchanged module bytes.
-Fresh review of this resolution is saved as
-`docs/reviews/isolation-profile-merge-diff-1.md` after completion.
+Fresh review attempts are recorded in
+`docs/reviews/isolation-profile-merge-diff-{1,2,3}.md`. None delivered findings: two
+Claude attempts hit API rate limits, and the authorized DeepSeek fallback was
+rejected because its requested output-token limit exceeded available credit.
+The required independent conflict-resolution review remains outstanding.
+This report does not claim a review pass or merge readiness.
 
 
 Full suite completed with exit 0: 161 scripts, zero failures, 1757.787 seconds.
