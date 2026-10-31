@@ -3,8 +3,10 @@
 Read-only copies from the 2026-10-29 restore, captured for this increment on
 2026-10-31. provenance.json records absolute sources, SHA256 and transformations.
 Only sandbox/operation identity is included; no human/account identity, secrets,
-case bytes, commands or URLs. The readiness copy omits arbitrary observed and
-provider_error fields, retaining only listed timing/lifecycle fields.
+case bytes, commands or URLs. The readiness copy retains top-level attempts, requested_at, finished_at,
+outcome, worker_id and observed. Within observed it retains only id, type,
+state, ttlSeconds and hydratedAt. All other source keys are omitted; the exact
+allowlist is also recorded in provenance.json.
 
 The spend file is preserved verbatim despite its misleading actual_spend_usd
 name. USD 0.09361 is the account balance delta 4.26532 - 4.17171, not attributable

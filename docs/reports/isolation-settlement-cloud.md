@@ -91,7 +91,8 @@ request or claim of completion is implied by this handoff.
 Full-suite command, exit, counts and log hash are recorded separately in
 `isolation-settlement-cloud-suite-<UTC>-<nonce>.json` and its matching full log.
 Fresh design reviews are isolation-settlement-cloud-design-1.md and -design-2.md.
-The fresh diff review is saved under the same topic after suite completion.
+The fresh diff review passed with no blockers and is saved verbatim in
+`docs/reviews/isolation-settlement-cloud-diff-1.md`.
 
 
 ## Negative control
@@ -115,3 +116,13 @@ The final source for test_model_call_maxima.py (23 tests, all passing) is hashed
 in the metadata. That file's last two test-only adjustments were committed
 before the full runner reached it; no production source changed during the run.
 Existing suite skips are listed in the JSON; none apply to the new TLS test.
+
+
+Final diff-review response: the negative control selects only the HTTP/1.1
+Connection: close variant; no mutation-sensitivity claim is made for the other
+three variants. The reviewer independently reran all 23 module tests and all
+7 ProtocolTests successfully, reproduced that negative control failure, verified
+archive/log/module hashes, and found no leftover client or heartbeat processes.
+The final Murphy-table and evidence-metadata corrections change no executable
+source. No new row closes; cloud exposure and broader item-8 acceptance remain
+incomplete. Total incremental spend remains USD 0.

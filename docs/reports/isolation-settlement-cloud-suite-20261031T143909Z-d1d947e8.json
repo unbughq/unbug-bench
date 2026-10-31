@@ -15,7 +15,7 @@
   "log": "docs/reports/isolation-settlement-cloud-suite-20261031T143909Z-d1d947e8.log",
   "sha256": "6e22df4786b539bb70d9a29fcc7eb35e34ea7bece14f6422b40d9c0b2e01eea5",
   "head": "a4e4a21d34e71e69e58a71764547ae4d67ef3bba",
-  "uncommitted_implementation": false,
+  "uncommitted_implementation": true,
   "spend_usd": 0,
   "summary": [
     "",
@@ -38,5 +38,6 @@
     "OK (skipped=1)",
     "OK (skipped=1)",
     "OK (skipped=1)"
-  ]
+  ],
+  "uncommitted_implementation_scope": "Test-only edits at run start; see source_timing. No production source changes."
 }

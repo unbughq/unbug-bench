@@ -11,7 +11,22 @@
     "destination": "20261029T095210Z-99393-factory-bx_d6dzvjbc.readiness.json",
     "source_sha256": "64e58adc8885ded73aa485e59fe7e945edcb280a3bdb341b7988eec6e824a8d3",
     "retained_sha256": "6ccb0752696626e5554fd18b019b1a703f55b36fe39b9be4c5d30524d20582cf",
-    "transformation": "public field allowlist"
+    "transformation": "public field allowlist",
+    "retained_top_level_fields": [
+      "attempts",
+      "requested_at",
+      "finished_at",
+      "outcome",
+      "worker_id",
+      "observed"
+    ],
+    "retained_observed_fields": [
+      "id",
+      "type",
+      "state",
+      "ttlSeconds",
+      "hydratedAt"
+    ]
   },
   {
     "source": "/Users/bugsincode/Developer/unbug-bench-e15450-restore-14-20261029/results/spend/20261029T095210Z-99393-factory.deletions/bx_d6dzvjbc/deletion-request.json",
