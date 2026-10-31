@@ -287,3 +287,16 @@ failure adds factory_bug_resume_io_wait. Pre-admission validation, expired-chain
 retired_batch_bound and B retirement semantics stay outside this mapping.
 Unexpected BudgetErrors retain their existing semantics; do not silently expand
 the vocabulary.
+
+## Scope-exit estimate correction (obvious exception-masking fix)
+
+A completed replay proof with non-final usage is retained, but scope-exit
+publication suppresses only classify's money_wait after its settled-subset write.
+It must preserve an escaping InvalidInfra and allow the next hold to persist.
+Other attribution errors still refuse. At phase 3, after current-finding classify,
+refresh_replays(c) authenticates B's complete durable admission history and calls
+classify for each original finding against live settlement. Pending old replay
+cost therefore blocks a new resume through FactoryBugHeldWait(money_wait), using
+the existing admission, and later final usage grows its original record. There
+is no new eligibility or counter authority. The narrow exception-masking fix has an observed offline reproducer; include
+its pending-proof refresh and regression test in the fresh diff review.

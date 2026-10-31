@@ -281,6 +281,22 @@ class ReplayLifecycleTests(unittest.TestCase):
             self.assertEqual(len(json.loads(retained)), 1)
             self.assertEqual(json.loads(self.c.ledger.read_text()).get('infrastructure_waste', []), [])
 
+    def test_nonfinal_replay_preserves_infra_then_refreshes_original_record(self):
+        self.assertTrue(diagnosis.resume_factory_bug(self.c))
+        lease = self.paid_failure(final=False)  # must still escape as InvalidInfra
+        self.assertEqual(len(list((self.work/'factory-replays').glob('*.json'))), 1)
+        history = (self.work/'factory-bug-resumes.json').read_bytes()
+        with self.assertRaisesRegex(budget.BudgetError, '^money_wait$'): waste.refresh_replays(self.c)
+        self.assertEqual((self.work/'factory-bug-resumes.json').read_bytes(), history)
+        receipt = self.work/'usage-receipts'/(lease.lease_id+'.json')
+        value = json.loads(receipt.read_text()); value['final_usage_known'] = True
+        receipt.write_text(json.dumps(value))
+        budget.reconcile_reservations(self.work, self.c.ledger)
+        waste.refresh_replays(self.c)
+        records = json.loads(self.c.ledger.read_text())['infrastructure_waste']
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]['infrastructure_waste_usd'], '0.500000000')
+
     def test_cross_batch_replay_failure_grows_original_waste_and_second_hold_is_empty(self):
         self.assertTrue(diagnosis.resume_factory_bug(self.c))
         self.paid_failure()

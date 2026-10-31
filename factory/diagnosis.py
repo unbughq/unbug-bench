@@ -518,7 +518,7 @@ def resume_factory_bug(c, r=None):
                 import run as r
             import model_runtime
             from budget import reconcile_reservations
-            from factory_waste import classify
+            from factory_waste import classify, refresh_replays
             model_runtime.prepare_dispatch(c)
             with c.model_dispatch_lock:
                 if c.active_model_calls: raise BudgetError('usage_reconciliation_while_active')
@@ -530,6 +530,7 @@ def resume_factory_bug(c, r=None):
                 if ledger.get('active') or any(row['state'] == 'pending' for row in ledger.get('invocation_reservations', {}).values()):
                     raise BudgetError('usage_reconciliation_pending')
                 classify(c, finding, admission)
+                refresh_replays(c)
         except BudgetError as error:
             if str(error) in {'money_wait', 'invalid_provider_wait', 'usage_reconciliation_while_active',
                     'usage_reconciliation_pending', 'invalid_waste_attribution', 'waste_attribution_mismatch'}:

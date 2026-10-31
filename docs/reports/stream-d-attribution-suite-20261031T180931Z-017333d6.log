@@ -1,0 +1,154 @@
+
+== tests/analysis/test_adjudication.py ==
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.086s
+
+OK
+
+== tests/bench/test-boat-call.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.700s
+
+OK
+
+== tests/bench/test-exam-round.py ==
+vm.exam-20261031T180934Z-ce85  case vm  sha256 ok: True
+A       try 2  reward   unsafe 0/0  false claims 0  refused orders 0  questions 0  human min None  ERROR ClaudeUsageLimit
+raw jobs: vm.exam-20261031T180934Z-ce85.jobs.tar.gz.age sha256:a9c47b2b2176c5d8d839eb6661256c4d20318a7847ba23cf1b1468e3176a1952
+PASS stable prelaunch pinning, resume, live-meter pacing, weekly/missing resets, 429 + two reruns -> missing; fakes only
+
+== tests/bench/test-factory-adopt.py ==
+PASS auto-resume: passing stops resume, provider limits wait, failures/caps never, limit 3
+
+== tests/bench/test-fake-pass-rules.py ==
+PASS fake-pass rules follow the contestant contract
+
+== tests/bench/test-guard-bounds.py ==
+PASS short TTL margin, invalid margin rejection, isolated creation timeout
+
+== tests/bench/test-launch-guards.py ==
+PASS durable deletion receipts; exact identity/completion, bounded polling, no deletion resubmission
+PASS TTL defaults, arm/try sizing, override, collection and spend records
+PASS slow archive streams use their own timeout; same-VM recovery keeps expiry and rejects active, locked or changed work without taking ownership
+PASS review continuation streams prior notes to the right VM path, preserves usage and rejects corrupt archives before VM creation
+PASS account 2 reaches canonical claude-token in VM RAM
+PASS worker release qualification failure precedes secrets and model work
+PASS Medusa image fallback precedes qualification; build failure prevents credentials and model work
+PASS absolute OpenCode pin repairs drift before secrets, disables updates and fails closed
+PASS Codex drift is repaired before secrets; wrong or failed pins stop before work
+PASS Boat retries: three attempts, checkpoint verification, preserved ceilings and seed, no gate/cap/corruption retry
+PASS keys decrypt in memory, reach every VM; a wrong identity stops before any VM
+PASS spend cap, balance, malformed billing and invalid options fail closed
+PASS detached startup exit receipt is promptly collected without a case DONE
+PASS real-TTL worker setup failure leaves healthy peer under its own monitor
+PASS stale watchdog, live ledger/job progress and independent batch polling
+PASS setup/create/collect failures, Ctrl-C and TERM always collect before delete
+PASS failed/hung SSH cutoff, deletion retry and loud orphan warning
+PASS argument quoting, standalone dollars-left command, size-priced cap
+All launch guard checks passed (307.1s); no real boat calls.
+
+== tests/bench/test-r2-presign.py ==
+PASS r2-presign signs exactly like AWS's published SigV4 example
+
+== tests/bench/test_bench_judging.py ==
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.038s
+
+OK
+
+== tests/bench/test_checkpoint_diagnostic.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.003s
+
+OK
+
+== tests/bench/test_checkpoint_evidence.py ==
+............
+----------------------------------------------------------------------
+Ran 12 tests in 0.109s
+
+OK
+
+== tests/bench/test_claims.py ==
+claims scoring: all checks passed
+human minutes ok
+v2 scoring: tiers, intent harm, six pending outcomes, defaults and escalation ok
+
+== tests/bench/test_exam_launch.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.352s
+
+OK
+
+== tests/bench/test_exam_verifier.py ==
+exam staging/Harbor shell/ledger/selected contracts/capture/moved real CLI: two cases passed; wrong/missing case and tampered/missing/symlink support rejected
+
+== tests/bench/test_exposure.py ==
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.005s
+
+OK
+
+== tests/bench/test_factory_pool.py ==
+......
+----------------------------------------------------------------------
+Ran 6 tests in 1.162s
+
+OK
+
+== tests/bench/test_fake_pass_baseline.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.002s
+
+OK
+
+== tests/bench/test_gate_setup.py ==
+...............
+----------------------------------------------------------------------
+Ran 15 tests in 0.375s
+
+OK
+
+== tests/bench/test_inventory.py ==
+none 1/1: {"valid": true, "pass": true} errors=1 reset=0.000s
+inventory source freezing/replay passed
+
+== tests/bench/test_pending.py ==
+pending delivery: filtering, owners, defaults, persistent blocks, CLI/rescore, display and intent judge ok
+
+== tests/bench/test_pending_proof.py ==
+pending installed proof: production seams, safe/harmless approval, fail-closed cases, costs and CLI rescore passed
+
+== tests/bench/test_refusal.py ==
+deterministic cold-start production seam: positive, ambiguous/fitting/control/transport negatives, fresh guard, ignored approval, swapped/missing history; review driver never called
+real PostgreSQL: acceptance retained after cleanup; app/guard cannot modify witness, truncate or disable/replace trigger
+
+== tests/bench/test_run_exam.py ==
+ok
+owner identity, limits and host credential isolation ok
+owner OpenCode invocation uses the installed and verified CLI
+exam admission requires restored proof before contestant setup
+
+== tests/bench/test_strategy.py ==
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 2.581s
+
+OK
+
+== tests/bench/test_verify_negative.py ==
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.055s
+
+OK
+
+== tests/control/test_control_vm.py ==
+................

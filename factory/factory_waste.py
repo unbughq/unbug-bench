@@ -74,7 +74,11 @@ class Attempt:
         descriptor = os.open(self.c.work, os.O_RDONLY)
         try: os.fsync(descriptor)
         finally: os.close(descriptor)
-        if self.link: classify(self.c, self.link['finding'], self.link['admission'])
+        if self.link:
+            try: classify(self.c, self.link['finding'], self.link['admission'])
+            except budget.BudgetError as pending:
+                if str(pending) != 'money_wait': raise
+
 
 
 @contextlib.contextmanager
@@ -293,3 +297,27 @@ def _classify(c, finding, admission=None):
             infrastructure_waste_usd=format(budget.usd(budget._waste_amount(events, ids)), '.9f'))
         budget.reclassify_factory_bug(c.ledger, record)
     if admission is not None and len(settled) != len(operations): raise budget.BudgetError('money_wait')
+
+
+def refresh_replays(c):
+    try:
+        return _refresh_replays(c)
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise budget.BudgetError('invalid_waste_attribution') from None
+
+
+def _refresh_replays(c):
+    """Before B clears a hold, settle replay proof belonging to prior admissions."""
+    import diagnosis as d
+    directory = Path(c.work) / 'factory-replays'
+    if not directory.exists(): return
+    if directory.is_symlink(): raise budget.BudgetError('invalid_waste_attribution')
+    resumes = {read(proof, c.work)['resume_id'] for proof in directory.glob('*.json')}
+    path = Path(c.work) / 'factory-bug-resumes.json'
+    history = read(path, c.work)
+    history = d._factory_bug_history(c, admitted_replay=history[-1] if history else None)
+    if not resumes <= {row['resume_id'] for row in history}: raise budget.BudgetError('invalid_waste_attribution')
+    for admission in history:
+        if admission['resume_id'] not in resumes: continue
+        finding, _, _ = _finding(c, admission)
+        classify(c, finding, admission)
