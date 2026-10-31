@@ -108,3 +108,5 @@ Neither leaves the behaviour wrong.
 *(For the author to fill in.)*
 
 Author disposition: PASS accepted; no blocking findings were rejected. Finding 1 fixed with an Inexact trap and an invalid-ledger regression for the reported 20,000-record case. Finding 3 fixed with explicit complete metadata and allowlisted lstat-failure assertions. Finding 4 clarified in the design and failed-run record; the original failed run has no captured file hashes and none are retroactively claimed. Optional finding 2 deferred: decimal string syntax remains compatible with Decimal; numeric finiteness/range validation and secret-safe invalidation are unchanged. The final code receives another full-suite run. These are non-blocking follow-ups, not author verification of a blocker.
+
+Final validation of the non-blocking follow-ups: full-suite-20261031T141304Z-a5a7aad6.json records commit ad117206ff82fb26a32b2387eb5ac57942a16fc4, 159 scripts, zero failures, exit 0. Tested file hashes and both log hashes verified before committing this record. No blocking fix was self-verified.
