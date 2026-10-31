@@ -69,7 +69,13 @@ def dispatch(c, name):
             raise BudgetError('owner_parent_not_active')
         yield
     else:
-        with c.model_dispatch_lock: yield
+        with c.model_dispatch_lock:
+            marker = c.work / 'stress-publication.json'
+            if _read_json(marker, {}).get('pending') is True:
+                barrier = getattr(c, 'model_publication_barrier', None)
+                if barrier is None: raise BudgetError('stress_publication_configuration_missing')
+                barrier()
+            yield
 
 
 def invocation_maximum(c, lease):

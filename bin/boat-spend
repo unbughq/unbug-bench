@@ -109,19 +109,8 @@ def accounting(ledger_path):
         estimate = count * hours * rate
         key = str(pathlib.Path(path).resolve())
         holds = ledger['reservations']
-        expired = [v for v in holds.values() if v['status'] == 'reserved' and time.time() >= v['expires_at']]
-        if expired:
-            # A later worker may have been created after the original batch check.
-            # TTL alone is not proof of deletion. Reconcile only a complete idle fleet.
-            fleet = json.loads(processes.run([str(CALL), 'list', '--all', '--json'],
-                capture_output=True, text=True, check=True).stdout)
-            inactive = {'deleted', 'stopped', 'destroyed', 'terminated', 'archived'}
-            if (isinstance(fleet.get('sandboxes'), list) and
-                    (fleet.get('pageInfo') or {}).get('hasMore') is False and
-                    all(isinstance(v, dict) and v.get('state', v.get('status')) in inactive
-                        for v in fleet['sandboxes'])):
-                for hold in expired:
-                    hold.update(status='reconciled_expired', reconciled_at=now())
+        # Expiry and an empty fleet cannot resolve a lost creation response.
+        # Retain the full hold until the controller's ordinary finish protocol.
         reserved = sum(D(str(v['usd'])) for k, v in holds.items()
                        if k != key and v['status'] == 'reserved')
         allowed = (HETZNER or estimate + reserved <= before) and estimate <= cap

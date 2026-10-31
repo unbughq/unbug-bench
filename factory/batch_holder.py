@@ -174,19 +174,21 @@ def _post(directory, record, policy, home, operations, state, identity):
     return op
 
 
-def reserve(policy, root, home, name, source_generation):
+def reserve(policy, root, home, name, source_generation, *, provider_wait=False):
     enabled()
     record = money.manifest(policy, root)
     if name not in record['jobs'] or (source_generation is not None and not money._sha(source_generation)):
         raise ValueError('request_refused')
     if money.deadline(record['batch_deadline']) <= datetime.now(timezone.utc).timestamp():
         raise money.MoneyWait('retired_batch_bound')
+    if provider_wait and source_generation is None: raise ValueError('request_refused')
     identity = operation_id(policy, name, source_generation)
     with money.locked(home, record['id']) as directory:
         ops = _operations(directory, record, policy)
         state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
         row = state['jobs'].get(name)
         if identity in ops:
+            if provider_wait: raise ValueError('request_refused')
             if row is None or row['authority']['source_generation'] != source_generation:
                 raise ValueError('request_refused')
             _save(directory, record, policy, ops)  # repair journal after lost reply
@@ -196,7 +198,10 @@ def reserve(policy, root, home, name, source_generation):
                 any(o['job'] == name and o['state'] in ('pending', 'launched') and o['retirement'] is None
                     for o in ops.values())): raise money.MoneyWait('money_wait')
         if source_generation is not None:
-            ack, _, _ = _source(directory, record, policy, ops, state, name, source_generation)
+            ack, _, card = _source(directory, record, policy, ops, state, name, source_generation)
+            if provider_wait:
+                if ops[ack['operation_id']]['incident'] is not None: raise ValueError('request_refused')
+                _wait_due(card, record)
             if row['authority']['source_generation'] != source_generation:
                 money.advance_locked(state, record, name, source_generation, ack)
             elif row['sources'][-2] != ack['authority']['source_generation']:
@@ -385,6 +390,44 @@ def reconcile(policy, root, home):
             with operation_lock(directory, op['operation_id']): ready.append(op['operation_id'])
         except BlockingIOError: pass
     return ready
+
+
+def _wait_due(card, record):
+    """Scheduling predicate only; caller must authenticate the card before reserving."""
+    from model_router import REASONS
+    wait = card.get('provider_wait')
+    if card.get('terminal_stop') != 'provider_wait' or not isinstance(wait, dict):
+        raise ValueError('request_refused')
+    identity = uuid.UUID(wait['wait_id'])
+    end = money.deadline(record['batch_deadline'])
+    retry = money.deadline(wait['retry_after'])
+    if (identity.version != 4 or str(identity) != wait['wait_id'] or
+            wait['reason'] not in REASONS - {'unbounded_route'} or
+            wait['evidence'] not in ('denied_before_work', 'interrupted') or
+            money.deadline(wait['batch_deadline']) != end or
+            not retry <= datetime.now(timezone.utc).timestamp() < end or retry >= end):
+        raise ValueError('request_refused')
+
+
+def schedule_waits(policy, root, home):
+    """Reserve due, published, retired waits; ordinary reconcile dispatches next tick."""
+    enabled(); record = money.manifest(policy, root)
+    with money.locked(home, record['id']) as directory:
+        ops = _operations(directory, record, policy)
+    for op in ops.values():
+        source = op['output_generation']
+        if (op['state'] != 'launched' or op['incident'] is not None or
+                op['retirement'] is None or source is None or
+                operation_id(policy, op['job'], source) in ops): continue
+        try:
+            # Cheap skip-only filter: never hash a future wait's archives each tick.
+            card = service._json(directory / 'generations' / op['case'] / source /
+                                 (op['case'] + '.scorecard.json'))
+            _wait_due(card, record)
+            # Re-read and authenticate all evidence under reserve's lock.
+            reserve(policy, root, home, op['job'], source, provider_wait=True)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError): continue
+    return []  # This scan reserves work; it does not return children to spawn.
 
 
 def orphaned(policy, root, home):
