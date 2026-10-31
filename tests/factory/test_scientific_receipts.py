@@ -115,6 +115,14 @@ class ScientificReceiptsTests(unittest.TestCase):
         router.write_text(router.read_text().replace("return 'anthropic'", "return 'changed-family'", 1))
         self.assertNotEqual(before['G17'], self.versions()['G17'])
 
+    def test_source_mode_and_stress_judge_environment_are_versioned(self):
+        before = self.versions()
+        self.c.args.source = 'hunt' if self.c.args.source != 'hunt' else 'port'
+        after = self.versions()
+        self.assertNotEqual(before['G1'], after['G1'])
+        with patch.dict(run.os.environ, {'UNBUG_JUDGE': 'authored-change'}):
+            self.assertNotEqual(after['stress'], self.versions()['stress'])
+
     def attempt(self, *, stop='completed', label='cheat', submitted=True):
         path = self.work / 'strong_calibrator/results.json'
         identity = run.calibration_identity(self.c, 'strong_calibrator', 'exam')

@@ -63,11 +63,14 @@ class StrategyReuseTests(unittest.TestCase):
 
     def test_inputs_and_result_and_evidence_invalidate(self):
         self.invoke()
+        (self.root / 'bin').mkdir()
+        self.implementation = 'plumbing-release-v2'
+        self.invoke(); self.assertEqual(self.calls, 1)
         for change in (lambda: (self.c.case / 'judge.py').write_text('changed'),
                        lambda: setattr(self.c, 'seed', 8),
                        lambda: setattr(self.c.args, 'scenario_runs', 4),
                        lambda: setattr(self.c.args, 'bench_workers', 3),
-                       lambda: setattr(self, 'implementation', 'v2'),
+                       lambda: (self.root / 'bin/bench_judging.py').write_text('# changed scientific evaluator'),
                        lambda: (self.c.work / 'strategy-honest-reference.json').write_text('{}'),
                        lambda: (self.root / 'results' / 'runs' / str(self.calls) / 'checkpoint.json').unlink(),
                        lambda: (self.c.work / 'strategy-honest-reference.receipt.json').write_text('{')):
@@ -247,9 +250,12 @@ class StrategyPrefixRecoveryTests(unittest.TestCase):
         (evidence / '2/checkpoint.json').unlink()
         self.invoke()
         self.assertEqual(len(self.calls), 6)
+        (self.root / 'bin').mkdir()
+        self.implementation = 'plumbing-release-v2'
+        self.invoke(); self.assertEqual(len(self.calls), 6)
         for change in (lambda: (self.c.case / 'guards/reference/db.sql').write_text('-- changed synthetic input'),
                        lambda: setattr(self.c, 'seed', 8),
-                       lambda: setattr(self, 'implementation', 'synthetic-v2')):
+                       lambda: (self.root / 'bin/bench_judging.py').write_text('# changed scientific evaluator')):
             before = len(self.calls)
             change(); self.invoke()
             self.assertEqual(len(self.calls), before + 4)

@@ -152,6 +152,7 @@ def inputs(c, gate, bench):
         files.append((rel, digest(p)))
     dependencies = dependency_files(c, (*STAGE_DEPENDENCIES[gate], "factory/case_contract.py"), bench)
     settings = {"runs": 10, "scenario_runs": 3, "bench_workers": 1, "dry_run": False, "rehearse_only": False}
+    if gate == "G1": settings["source"] = None
     if gate in MODEL_STAGES:
         settings.update(pilot_runs=5, pilot_tries=3, calibrator_minutes=30, max_role_calls=400,
             max_total_calls=1000, max_cost=5, no_progress_minutes=45, max_zero_tokens=3,
@@ -198,7 +199,8 @@ def scientific_version(c, gate, bench):
         import run
         identity = {"gate": gate, "bench": judge_dependencies(c, bench),
                     "prompt": hashlib.sha256(run.prompt("attacker", "").encode()).hexdigest(),
-                    "model": c.models.get("attacker"), "role": c.card.get("roles", {}).get("stress_tester")}
+                    "model": c.models.get("attacker"), "role": c.card.get("roles", {}).get("stress_tester"),
+                    "environment": {key: os.environ.get(key) for key in ("UNBUG_JUDGE", "MEDUSA_DEPS_IMAGE")}}
         identity["bench"].pop("seed", None)
         settings = identity["bench"].get("settings", {})
     else:
