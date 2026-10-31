@@ -25,10 +25,13 @@ from transfer import digest
 
 HOLDER_ENABLED = False
 TEMPFAIL = 75  # Dispatch exit: transient wait, the operation stays pending.
+RETRY_LIMIT = 5  # Resume/publish respawns before a terminal incident.
 FIELDS = {'operation_id', 'launch_id', 'job', 'case', 'source_generation',
           'release_sha256', 'config_sha256', 'authority', 'state', 'pending_since',
           'worker_id', 'dispatch_started', 'dispatch_exit', 'output_generation',
-          'retirement', 'launch', 'incident'}
+          'retirement', 'launch', 'incident', 'failures'}
+INCIDENTS = (None, 'creation_unknown', 'accounting_refused', 'legacy_retire',
+             'preflight_refused', 'resume_failed', 'publication_failed')
 
 
 def enabled():
@@ -62,8 +65,9 @@ def validate_operations(operations, record):
             money.deadline(op['pending_since'])
             if (type(op['dispatch_started']) is not bool or
                     (op['dispatch_exit'] is not None and type(op['dispatch_exit']) is not int) or
+                    type(op['failures']) is not int or op['failures'] < 0 or
                     op['state'] not in ('pending', 'launched', 'failed') or
-                    op['incident'] not in (None, 'creation_unknown', 'accounting_refused', 'legacy_retire', 'preflight_refused')):
+                    op['incident'] not in INCIDENTS):
                 raise ValueError()
             worker = op['worker_id']
             if worker is not None and (not isinstance(worker, str) or not re.fullmatch('[A-Za-z0-9_-]+', worker)):
@@ -206,7 +210,7 @@ def reserve(policy, root, home, name, source_generation):
                   config_sha256=config_sha, authority=authority, state='pending',
                   pending_since=datetime.now(timezone.utc).isoformat(), worker_id=None,
                   dispatch_started=False, dispatch_exit=None, output_generation=None,
-                  retirement=None, launch=None, incident=None)
+                  retirement=None, launch=None, incident=None, failures=0)
         ops[identity] = op
         _save(directory, record, policy, ops)
         return deepcopy(op)
@@ -252,6 +256,33 @@ def record_exit(policy, root, home, identity, code):
         pass  # Another preflight owner is alive; this child's exit says nothing.
 
 
+def record_child(policy, root, home, identity, action, code):
+    """Count a reaped resume/publish child. Returns the wait multiplier (0 = none).
+
+    Bounds the respawn: a child that did not finish its job increments a durable
+    `failures`, and the holder waits 60 * 2**(failures-1) seconds before the next
+    spawn. At RETRY_LIMIT it becomes a terminal incident that the scans skip.
+    """
+    enabled(); record = money.manifest(policy, root)
+    directory = home / 'batches' / record['id']
+    try:
+        with operation_lock(directory, identity), money.locked(home, record['id']):
+            ops = _operations(directory, record, policy); op = ops[identity]
+            done = (home / 'launches' / op['launch_id'] / 'complete').exists() if action == 'resume' else code == 0
+            if done:
+                op['failures'] = 0; result = 0
+            else:
+                op['failures'] += 1
+                if op['failures'] >= RETRY_LIMIT:
+                    op['incident'] = 'resume_failed' if action == 'resume' else 'publication_failed'
+                    result = 0
+                else: result = op['failures']
+            _save(directory, record, policy, ops)
+            return result
+    except BlockingIOError:
+        return 1  # A live owner holds the operation; retry after the base wait, do not count this exit.
+
+
 def _created(path, op):
     if service._json(path / 'launch.json') != op['launch']: raise ValueError('request_refused')
     workers = []
@@ -295,16 +326,29 @@ def _reconcile_one(directory, root, home, op, state):
     try: worker = _created(path, op)
     except (OSError, ValueError, KeyError, TypeError):
         if op['worker_id'] is not None: return  # Never forget ownership.
-        op['incident'] = 'creation_unknown'
-        if op['dispatch_exit'] is not None:
-            try:
+        if op['incident'] not in ('resume_failed', 'publication_failed'):
+            op['incident'] = 'creation_unknown'
+        # A free operation lock proves the dispatch child (which holds it until
+        # launch.sh exits) is gone; no recorded exit is needed after a restart.
+        # A busy operation or controller lock means a live owner: stay pending.
+        try:
+            with operation_lock(directory, op['operation_id']):
+                if not path.exists():
+                    path.mkdir(mode=0o700)  # Fence any late control_resume for this launch id.
+                    op.update(state='failed', incident='preflight_refused'); return
                 if service._json(path / 'launch.json') != op['launch']: return
                 with service._regular(path / 'controller.lock') as lock:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    with service._regular(path / 'ids') as stream: ids = stream.read().strip()
-                    if not list(path.glob('new.*')) and not ids:
+                    # guard_new opens new.$serial before the creator. With both
+                    # locks free and no creation record, guard_init may never have
+                    # run, so a missing ids file is as safe as an empty one.
+                    if list(path.glob('new.*')): return
+                    try:
+                        with service._regular(path / 'ids') as stream: ids = stream.read().strip()
+                    except FileNotFoundError: ids = b''
+                    if not ids:
                         op.update(state='failed', incident='preflight_refused')
-            except (OSError, ValueError, KeyError): pass
+        except (OSError, ValueError, KeyError): pass
         return
     if op['worker_id'] not in (None, worker): raise ValueError('request_refused')
     op.update(worker_id=worker, state='launched')
@@ -349,7 +393,8 @@ def orphaned(policy, root, home):
     ready = []
     with money.locked(home, record['id']) as directory:
         for identity, op in _operations(directory, record, policy).items():
-            if not op['dispatch_started'] or op['retirement'] is not None or op['state'] == 'failed': continue
+            if (not op['dispatch_started'] or op['retirement'] is not None or op['state'] == 'failed' or
+                    op['incident'] in ('resume_failed', 'publication_failed')): continue
             path = home / 'launches' / op['launch_id']
             if (path / 'complete').exists() or not (path / 'monitor.sh').is_file(): continue
             try:
@@ -360,6 +405,64 @@ def orphaned(policy, root, home):
     return ready
 
 
+def unpublished(policy, root, home):
+    """Launches whose output is collected and complete but never published/ACKed."""
+    enabled(); record = money.manifest(policy, root)
+    ready = []
+    with money.locked(home, record['id']) as directory:
+        for identity, op in _operations(directory, record, policy).items():
+            if (op['state'] != 'launched' or op['output_generation'] is not None or
+                    op['incident'] in ('accounting_refused', 'legacy_retire', 'publication_failed')): continue
+            path = home / 'launches' / op['launch_id']
+            # complete means the controller finished and deleted its workers, so collection is not racing.
+            if not (path / 'complete').exists(): continue
+            if not (path / 'collected' / (op['case'] + '.scorecard.json')).exists(): continue
+            try:
+                with operation_lock(directory, identity): ready.append(identity)
+            except BlockingIOError: pass
+    return ready
+
+
+def _r2_env(identity_bytes, secrets):
+    """Decrypt only the four R2_* publication credentials from the r2-env bundle member."""
+    keys = {'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'}
+    age = subprocess.Popen(['age', '-d', '-i', '/dev/stdin', str(secrets)], stdin=subprocess.PIPE,
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    tar = subprocess.Popen(['tar', '-xOf', '-', 'r2-env'], stdin=age.stdout,
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    age.stdout.close()
+    try:
+        age.stdin.write(identity_bytes); age.stdin.close()
+        out, _ = tar.communicate(timeout=10)
+        if age.wait(timeout=5) != 0 or tar.returncode != 0: raise ValueError('request_refused')
+    except BaseException:
+        for child in (age, tar):
+            if child.poll() is None: child.kill()
+            child.wait()
+        raise
+    env = {}
+    for line in out.decode('utf-8').splitlines():
+        tokens = shlex.split(line)  # r2-env is set -a shell assignments; shlex honours its quoting.
+        key, _, value = (tokens[-1] if tokens else '').partition('=')
+        if key in keys: env[key] = value
+    if set(env) != keys: raise ValueError('request_refused')
+    return env
+
+
+def publish_replay(policy, root, home, identity, identity_bytes):
+    """Holder-driven publication replay: the same idempotent collect command, with R2 in memory."""
+    enabled(); record = money.manifest(policy, root)
+    directory = home / 'batches' / record['id']
+    with operation_lock(directory, identity):  # Held for the whole run; a second child refuses.
+        with money.locked(home, record['id']):
+            op = _operations(directory, record, policy)[identity]
+        secrets = Path(os.environ.get('UNBUG_SECRETS_FILE', str(Path.home() / '.config/unbug-bench/secrets.age')))
+        os.environ.update(_r2_env(identity_bytes, secrets))
+        os.environ['UNBUG_LAUNCH_STATE'] = str(home / 'launches' / op['launch_id'])
+        reconcile(policy, root, home)
+        collect(policy, root, home, identity)
+
+
 def resume_controller(policy, root, home, identity, identity_bytes):
     enabled(); record = money.manifest(policy, root)
     directory = home / 'batches' / record['id']
@@ -368,6 +471,7 @@ def resume_controller(policy, root, home, identity, identity_bytes):
             op = _operations(directory, record, policy)[identity]
             path = home / 'launches' / op['launch_id']
             if (not op['dispatch_started'] or op['retirement'] is not None or op['state'] == 'failed' or
+                    op['incident'] in ('resume_failed', 'publication_failed') or
                     (path / 'complete').exists() or not (path / 'monitor.sh').is_file() or
                     service._json(path / 'launch.json') != op['launch']): raise ValueError('request_refused')
             with service._regular(path / 'controller.lock') as lock:
@@ -611,7 +715,7 @@ def dispatch(policy, root, home, identity, identity_bytes):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('dispatch', 'resume', 'collect', 'source', 'restore-check'))
+    parser.add_argument('command', choices=('dispatch', 'resume', 'publish', 'collect', 'source', 'restore-check'))
     parser.add_argument('--operation', required=True)
     parser.add_argument('--policy', type=Path, default=Path(os.environ.get('UNBUG_CONTROL_HOME',
                         str(Path.home() / '.unbug-control'))) / 'policy.json')
@@ -621,10 +725,10 @@ def main():
         enabled()
         from key_holder import policy_load, ROOT, CONTROL_HOME
         policy = policy_load(a.policy)
-        if a.command in ('dispatch', 'resume'):
+        if a.command in ('dispatch', 'resume', 'publish'):
             key = bytearray(sys.stdin.buffer.read(4097))
             try:
-                action = dispatch if a.command == 'dispatch' else resume_controller
+                action = {'dispatch': dispatch, 'resume': resume_controller, 'publish': publish_replay}[a.command]
                 return action(policy, ROOT, CONTROL_HOME, a.operation, key) or 0
             finally: key[:] = b'\0' * len(key)
         if a.command == 'collect':

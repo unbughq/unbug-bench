@@ -131,9 +131,11 @@ def render(target, rows, workers, progress, *, now=None):
                         duration = f'{int(age // 3600)}h {int(age % 3600 // 60)}m'
                         if age > THRESHOLDS['stage_seconds']: actions.append('check case')
         elif phase in ('pending', 'failed'):
-            since = _stamp(row.get('pending_since'))
-            if since is not None and now - since > THRESHOLDS['pending_seconds']:
-                actions.append('launch stuck')
+            if phase == 'failed': actions.append('launch failed')  # terminal, flagged at once
+            else:
+                since = _stamp(row.get('pending_since'))
+                if since is not None and now - since > THRESHOLDS['pending_seconds']:
+                    actions.append('launch stuck')
         elif phase == 'stopped':
             failed, stop = card.get('failed_gate'), card.get('terminal_stop')
             if stop == 'factory_bug_held':
@@ -164,6 +166,11 @@ def render(target, rows, workers, progress, *, now=None):
                 else:
                     reason = 'unknown stop'; actions.append('check case')
                 if stop == 'provider_wait_unrecoverable': actions.append('top up / re-login')
+        if row.get('retired_without_output'): actions.append('retired without output')
+        incident = row.get('incident')
+        if incident == 'resume_failed': actions.append('resume failed')
+        elif incident == 'publication_failed': actions.append('publication failed')
+        elif row.get('failures'): actions.append(f"retrying ({row['failures']})")
         if bucket not in ('rejected', 'not collected', 'unreadable') and (
                 _near(budget.get('spent_usd'), budget.get('limit_usd')) or
                 _near(card.get('builder_rounds'), recovery.get('rounds'))):
@@ -224,24 +231,28 @@ def read_rows(policy, root, home):
                 if entry is not None:
                     row.update(phase='stopped', card=_card(directory, entry, record, policy['batch']['sha256']))
                 if operations:
-                    active = [o for o in operations if o['retirement'] is None]
-                    if len(active) > 1: raise ValueError()
-                    selected = active[0] if active else next((o for o in operations if entry is not None
-                               and o['output_generation'] == entry['generation']), None)
-                    if selected is None:
-                        # Retired with no output: never render the deleted worker as running.
-                        if any(o['output_generation'] is not None for o in operations): raise ValueError()
-                    else:
-                        if selected['incident'] in ('accounting_refused', 'legacy_retire'): raise ValueError()
-                        # Pointer publication without its journal ACK projection is unreadable.
-                        if entry is not None and pointer.exists() and not any(
-                                o['output_generation'] == entry['generation'] for o in operations): raise ValueError()
-                        if selected['state'] in ('pending', 'failed'):
-                            row.update(phase=selected['state'], pending_since=selected['pending_since'])
-                        elif selected['output_generation'] is None and selected['retirement'] is None:
-                            row.update(phase='running', worker_id=selected['worker_id'])
-                        elif entry is None or selected['output_generation'] != entry['generation']:
-                            raise ValueError()
+                    # The chain is linear (one operation per deterministic source); its head is the
+                    # one operation whose output is null or is not another operation's source.
+                    sources = {o['source_generation'] for o in operations if o['source_generation'] is not None}
+                    heads = [o for o in operations if o['output_generation'] is None
+                             or o['output_generation'] not in sources]
+                    if len(heads) != 1: raise ValueError()
+                    head = heads[0]
+                    if head['incident'] in ('accounting_refused', 'legacy_retire'): raise ValueError()
+                    # Pointer publication without its journal ACK projection is unreadable.
+                    if entry is not None and pointer.exists() and not any(
+                            o['output_generation'] == entry['generation'] for o in operations): raise ValueError()
+                    row['incident'], row['failures'] = head['incident'], head['failures']
+                    if head['state'] in ('pending', 'failed'):
+                        row.update(phase=head['state'], pending_since=head['pending_since'])
+                    elif head['output_generation'] is None:
+                        if head['retirement'] is None:
+                            row.update(phase='running', worker_id=head['worker_id'])
+                        else:
+                            # Retired with no output: keep the collected card if any, never running.
+                            row['retired_without_output'] = True
+                    elif entry is None or head['output_generation'] != entry['generation']:
+                        raise ValueError()
             except (OSError, ValueError, KeyError, TypeError):
                 row.update(phase='unreadable')
             rows.append(row)
