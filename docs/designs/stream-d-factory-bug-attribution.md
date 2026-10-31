@@ -317,3 +317,86 @@ explicit context propagation beyond G10 submit; it does not change owner pricing
 model selection, gates or exam policy. Standalone exam responders without an
 active factory attempt remain unaffected. Test two concurrent tester/owner pairs
 and unrelated foreground calls with distinct operations and expected sets.
+
+## Review 5 corrections (binding; supersede conflicting prose above)
+
+### One proof and immutable findings (M1)
+
+An InvalidInfra on a replay-linked attempt publishes only its schema-2 replay
+receipt, never a schema-1 failure record for that attempt. Its reservations grow
+the original finding's v2 waste record keyed by finding_id, never the immutable
+finding itself. Scope-exit classification finishes before any subsequent hold's
+persist_factory_bug call. That later hold legitimately has an empty eligible set
+for the replay attempt; it cannot claim those operations again. Test replay →
+InvalidInfra → exactly one proof, one waste record, no overlap, empty second
+finding, unchanged total spending and no immutable finding rewrite.
+
+### Never-final usage is an explicit held terminal (M2)
+
+Choose the conservative held terminal, not synthetic final usage. Reconciliation
+of a missing receipt does not make an estimate final and must not be described as
+a future automatic recovery guarantee. After B's append-or-reuse admission,
+classify settled operations as specified, then raise money_wait once for that
+dispatch if any selected operation remains non-final. Preserve factory_bug_held,
+the immutable finding and durable admission; do not clear the card or start paid
+work. The dispatcher returns its ordinary checkpoint refusal and does not loop
+internally. B's scheduler must not resubmit the same unchanged wait automatically:
+the checkpoint remains held until a final receipt or an explicit operator/new-batch
+action changes the inputs. A new batch alone does not finalize usage or bypass
+the pending-proof check. This is an open lifecycle limitation, not row closure or
+a claim to complete automatic recovery. The existing open attribution row remains
+open until the integrated exam also covers that terminal.
+
+Test a permanently absent receipt with repeated reconciliation: one money_wait
+per explicit dispatch, no automatic retry loop, one durable admission/resume debit,
+no new scientific calls, held markers unchanged, no unsettled waste operations.
+A subsequent final receipt may allow the same admission to complete normally.
+
+### Owner-call drain and active-call guard (M3)
+
+For factory attempt scopes only, owner_server tracks admitted request threads
+under a lock. On scope teardown, first stop accepting new requests and set its
+existing cancellation event; then wait for admitted requests to finish, using one
+30-second monotonic deadline for the whole drain. Register a request before its
+thread starts and remove it in finally. Drain must cover both normal and exception
+exits. Existing standalone exam behavior remains unchanged.
+
+A successful drain precedes freezing any attempt proof. If the deadline expires,
+mark the attempt unpublishable permanently and raise InvalidInfra for incomplete
+owner cleanup. Publish neither schema-1 nor schema-2 partial proof. Late
+reservations cannot enter another attempt: request context retains the original
+closed attempt, which refuses additions without altering any frozen record.
+They remain ordinary unless a later independent complete proof establishes
+eligibility; never fabricate such a proof from a before/after ledger diff.
+This limitation is conservative and does not close the attribution row.
+No active call is forcibly finalized. Existing runtime cleanup/reconciliation
+must handle it through its normal infrastructure path.
+
+Replace the phase-3 bare assert with the existing explicit guard:
+if active_model_calls is nonempty, raise BudgetError(
+'usage_reconciliation_while_active') before reconciliation or ledger mutation.
+
+Tests: owner invocation finishes after gate evaluation but within drain → receipt
+contains it once; owner invocation exceeds drain → InvalidInfra, no partial proof,
+late completion cannot mutate receipts or leak into another attempt, active-call
+guard refuses reconciliation, no ordinary/waste double count. Use an injected
+clock/deadline in offline controls rather than waiting 30 seconds per test.
+
+### Concrete compatibility sites and B preconditions (N1–N3)
+
+budget._spending's factory-bug branch must accept schema 2 under the same exact
+identity, event-union and nine-decimal string validation as the reclassifier.
+Unknown versions refuse. Updating _settle_leaf alone is insufficient.
+
+B's resume_factory_bug returns True; _dispatch consumes it and returns False.
+run.main then continues ordinary work because only integer extension IDs select
+the extension route. Preserve this existing return contract exactly.
+
+job_authority.read(value, value) enforces a live batch deadline, including for
+historical owners. Cross-batch eligibility therefore requires all predecessor
+owners used by B's _resume_bindings chain to remain within their deadlines.
+An expired predecessor raises the existing retired_batch_bound refusal; it grants
+neither attribution nor resume authority. Historical encrypted receipts remain
+private evidence but do not override that precondition. Removing that inherited
+limit requires a separate B-owned design; this producer does not duplicate or
+relax B's chain validator.
