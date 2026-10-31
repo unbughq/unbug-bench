@@ -70,3 +70,14 @@ per worktree concurrently. For the fixed proof, join all three and repeat five
 times. The unmodified foreground countercase omits the SIG_IGN assignment.
 The ordinary shell equivalent of that inherited state is `command & wait`.
 
+
+The committed `.log.gz` files and their JSON hashes are the durable evidence;
+the original temporary paths record provenance only. All fixed-copy source
+SHAs are explicit in `proof.json`. Production background shells retain their
+normal inherited signal dispositions; this test-only reset does not change
+that behavior or production cancellation policy.
+
+Fresh Claude Opus diff review: `docs/reviews/isolation-concurrent-diff-1.md`.
+Its sole blocker (a blank line splitting the Murphy table) was accepted and
+fixed. The verbatim final report and implementation response are saved there.
+No blocking finding remains open. Post-review changes are documentation only.
