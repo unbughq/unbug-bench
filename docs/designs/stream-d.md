@@ -3427,6 +3427,7 @@ qualification, crash/wait/money coverage, and activation. No row closes by a
 checklist entry alone. The current design is `stream-d-admitted-execution.md`.
 
 
-The admitted-execution implementation and full offline suite are complete; fresh
-diff review remains the merge prerequisite. No Murphy row closes. The next
+The admitted-execution implementation, full offline suite and fresh diff review
+are complete. Reviews: stream-d-admitted-execution-design-1.md, design-2.md,
+diff-1.md and diff-2.md under docs/reviews (all with the same topic prefix). No Murphy row closes. The next
 increment is the complete writer/stress/gate package above; activation stays off.

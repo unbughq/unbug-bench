@@ -166,4 +166,4 @@ Audit prepare may copy an audit workspace before dispatch refuses the mode; the
 refusal precedes Compose, model selection and model work, not that earlier local
 copy. The required provider-wait and infrastructure-interruption loop tests are
 now explicit in test_stream_d_execution.py. The exception-type assertion for
-InfrastructureExhausted checks the exact type main maps to infrastructure_exhausted.
+InfrastructureExhausted checks the type main maps to infrastructure_exhausted.
