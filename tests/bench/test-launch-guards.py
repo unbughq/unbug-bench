@@ -438,7 +438,9 @@ exit "$status"
             counter += 1
             state = base / f"state-{counter}"
             state.mkdir()
-            env = dict(os.environ, BOAT_CMD=str(fake), FAKE_STATE=str(state), FAKE_MODE=mode, FAKE_STATEMENT_SHA=statement_sha, UNBUG_CONTROL_HOME=str(base / "control"),
+            # Independent synthetic scenarios have independent accounting homes.
+            # Cross-launch liability/replay is exercised in test_isolation_timeouts.
+            env = dict(os.environ, BOAT_CMD=str(fake), FAKE_STATE=str(state), FAKE_MODE=mode, FAKE_STATEMENT_SHA=statement_sha, UNBUG_CONTROL_HOME=str(base / f"control-{counter}"),
                        BOAT_POLL_SECONDS="0.1", BOAT_STALL_MINUTES="0.02",
                        BOAT_UNREACHABLE_SECONDS="1", BOAT_COMMAND_TIMEOUT_SECONDS="2", BOAT_COLLECT_RETRY_SECONDS="0", UNBUG_SECRETS_FILE=str(bundle_file), FAKE_IDENTITY=str(identity), FAKE_PERMISSION_HELPER=str(bench / "factory/case_permissions.py"))
             env.update(overrides)

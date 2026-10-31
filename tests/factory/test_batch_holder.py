@@ -120,6 +120,47 @@ class HolderTests(unittest.TestCase):
                          self.directory / 'generations' / op['case'] / card['sha256'])
         self.assertEqual(status.read_rows(self.policy, self.root, self.home)[1][0]['phase'], 'pending')
 
+    def legacy_output(self, op):
+        card = self.output(op)
+        incoming = self.home / 'launches' / op['launch_id'] / 'collected' / (op['case'] + '.scorecard.json')
+        card.pop('diagnosis_state')
+        incoming.write_text(json.dumps(card))
+        self.publish(op); self.retirement(op); self.reconcile()
+        return card
+
+    def test_legacy_source_retires_before_money_advance(self):
+        op = self.started(self.reserve()); card = self.legacy_output(op)
+        before = (self.directory / 'money.json').read_bytes()
+        reservations = (self.directory / 'reservations.json').read_bytes()
+        for _ in range(2):
+            with self.assertRaisesRegex(ValueError, 'legacy_retire'):
+                self.reserve(source=card['sha256'])
+        record = self.directory / 'retirements' / op['case'] / (card['sha256'] + '.json')
+        self.assertEqual(json.loads(record.read_text())['status'], 'retired')
+        self.assertEqual((self.directory / 'money.json').read_bytes(), before)
+        self.assertEqual((self.directory / 'reservations.json').read_bytes(), reservations)
+
+    def test_preexisting_legacy_successor_never_reaches_dispatch_transport(self):
+        import key_holder
+        op = self.started(self.reserve()); card = self.legacy_output(op)
+        # Authored old-version reservation: previously _source had no retirement check.
+        with patch.object(service, 'retire_legacy', return_value=False):
+            successor = self.reserve(source=card['sha256'])
+        before = (self.directory / 'money.json').read_bytes()
+        self.policy['code_sha256'] = 'a' * 64
+        with patch.object(key_holder, 'fingerprint', return_value=self.policy['code_sha256']), \
+                patch.object(holder.subprocess, 'run', side_effect=AssertionError('no transport')) as transport, \
+                patch.object(holder.subprocess, 'Popen', side_effect=AssertionError('no worker')) as worker:
+            with self.assertRaisesRegex(ValueError, 'request_refused'):
+                holder.dispatch(self.policy, self.root, self.home, successor['operation_id'], b'')
+            transport.assert_not_called(); worker.assert_not_called()
+        current = self.ops()[successor['operation_id']]
+        self.assertEqual(current['state'], 'failed')
+        self.assertFalse(current['dispatch_started'])
+        self.assertEqual((self.directory / 'money.json').read_bytes(), before)
+        record = self.directory / 'retirements' / op['case'] / (card['sha256'] + '.json')
+        self.assertEqual(json.loads(record.read_text())['reason'], 'legacy_retire')
+
     def test_dispatch_creator_intent_is_durable_and_never_repeated(self):
         import key_holder
         import account_handoff

@@ -433,9 +433,10 @@ guard_exit 1
         self.assertEqual(data['ids'], [CREATED['id']])
         retry = subprocess.run([str(ROOT / 'bin/boat-spend'), '--check', '1', str(hours),
             str(balance * 2), str(refused)], env=self.env, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
-        self.assertEqual(retry.returncode, 0, retry.stderr)
+        self.assertNotEqual(retry.returncode, 0, retry.stderr)
+        self.assertIn('infrastructure liability unsettled', retry.stderr)
 
-    def test_historical_expired_release_remains_compatible(self):
+    def test_historical_expired_release_blocks_next_admission_but_allows_finish(self):
         balance = float(LOAD('billing.json')['limits']['creditBalanceSeconds']) / 100000
         hours = max(1, balance * .75 / .036)
         record = self.home / 'historical.json'
@@ -452,7 +453,7 @@ guard_exit 1
         refused = check(record)
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn('completed reservation cannot be reused', refused.stderr)
-        self.assertEqual(check(self.home / 'next.json').returncode, 0)
+        self.assertNotEqual(check(self.home / 'next.json').returncode, 0)
         self.assertEqual(json.loads(ledger_path.read_text())['reservations'][str(record.resolve())], old)
         ids = self.home / 'ids'; ids.write_text(CREATED['id'] + '\n')
         result = subprocess.run([str(ROOT / 'bin/boat-spend'), '--finish', str(record), '0', str(ids)],
@@ -461,6 +462,109 @@ guard_exit 1
         final = json.loads(ledger_path.read_text())['reservations'][str(record.resolve())]
         self.assertEqual(final['status'], 'finished')
         self.assertEqual(final['reconciled_at'], old['reconciled_at'])
+
+    def spend(self, *args):
+        return subprocess.run([str(ROOT / 'bin/boat-spend'), *map(str, args)], env=self.env,
+                              capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
+
+    def check(self, path, hours='1', cap='5'):
+        return self.spend('--check', '1', hours, cap, path)
+
+    def ledger_path(self): return self.home / 'control/boat-reservations.json'
+
+    def test_same_key_replay_and_refusals_preserve_lifecycle_and_skip_billing(self):
+        record = self.home / 'spend.json'
+        self.assertEqual(self.check(record).returncode, 0)
+        original = record.read_bytes()
+        ledger = self.ledger_path().read_bytes()
+        self.assertEqual(self.check(record).returncode, 0)
+        self.assertEqual(record.read_bytes(), original)
+        calls = (self.home / 'boat-calls.jsonl').read_bytes()
+        result = self.check(record, hours='2')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('reservation envelope changed', result.stderr)
+        self.assertEqual(record.read_bytes(), original)
+        # The other estimate fits both budget and wallet, but liability is unknown.
+        other = self.home / 'other.json'
+        result = self.check(other)
+        self.assertIn('infrastructure liability unsettled', result.stderr)
+        refused = other.read_bytes(); data = json.loads(refused)
+        self.assertIs(data['allowed'], False)
+        self.assertIsNone(data['balance_before_usd']); self.assertIsNone(data['balance_after_usd'])
+        self.assertIsNone(data['actual_spend_usd'])
+        self.assertEqual(data['refusal'], 'infrastructure liability unsettled')
+        self.assertNotEqual(self.check(other).returncode, 0)
+        self.assertEqual(other.read_bytes(), refused)
+        self.assertEqual(self.ledger_path().read_bytes(), ledger)
+        self.assertEqual((self.home / 'boat-calls.jsonl').read_bytes(), calls)
+        # Recover only the missing spend record after a ledger-first crash.
+        record.unlink()
+        self.assertEqual(self.check(record).returncode, 0)
+        self.assertIs(json.loads(record.read_text())['allowed'], True)
+        self.assertEqual(self.ledger_path().read_bytes(), ledger)
+
+    def test_finish_and_replay_never_release_even_with_injected_charge(self):
+        record = self.home / 'spend.json'
+        self.assertEqual(self.check(record).returncode, 0)
+        ids = self.home / 'ids'; ids.write_text(CREATED['id'] + '\n')
+        self.assertEqual(self.spend('--finish', record, '0', ids).returncode, 0)
+        original = record.read_bytes()
+        row = json.loads(self.ledger_path().read_text())['reservations'][str(record.resolve())]
+        self.assertEqual(row['status'], 'finished'); self.assertIsNone(row['actual_spend_usd'])
+        self.assertEqual(self.spend('--finish', record, '0', ids).returncode, 0)
+        self.assertEqual(record.read_bytes(), original)
+        # No numeric field supplied by a caller grants settlement authority.
+        ledger = json.loads(self.ledger_path().read_text())
+        ledger['reservations'][str(record.resolve())]['actual_spend_usd'] = 0
+        self.ledger_path().write_text(json.dumps(ledger))
+        calls = (self.home / 'boat-calls.jsonl').read_bytes()
+        result = self.check(record)
+        self.assertIn('completed reservation cannot be reused', result.stderr)
+        self.assertEqual(record.read_bytes(), original)
+        result = self.check(self.home / 'next.json')
+        self.assertIn('infrastructure liability unsettled', result.stderr)
+        self.assertEqual((self.home / 'boat-calls.jsonl').read_bytes(), calls)
+
+    def test_malformed_ledgers_refuse_check_and_finish_without_mutation(self):
+        record = self.home / 'spend.json'
+        self.assertEqual(self.check(record).returncode, 0)
+        original = record.read_bytes(); calls = (self.home / 'boat-calls.jsonl').read_bytes()
+        ids = self.home / 'ids'; ids.write_text(CREATED['id'] + '\n')
+        base = dict(version=1, reservations={'old': dict(status='reserved', usd='0.036')})
+        invalid = ['not json', '[]', json.dumps(dict(version=True, reservations={}))]
+        for value in ('-1', 'NaN', 'Infinity', True, {}, None):
+            row = json.loads(json.dumps(base)); row['reservations']['old']['usd'] = value
+            invalid.append(json.dumps(row))
+        for value in ('unknown', {}, None):
+            row = json.loads(json.dumps(base)); row['reservations']['old']['status'] = value
+            invalid.append(json.dumps(row))
+        for raw in invalid:
+            with self.subTest(raw=raw):
+                self.ledger_path().write_text(raw)
+                for args in (('--check', '1', '1', '5', record), ('--finish', record, '0', ids)):
+                    result = self.spend(*args)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stderr.strip(), 'boat-spend: invalid reservation ledger')
+                    self.assertEqual(self.ledger_path().read_text(), raw)
+                    self.assertEqual(record.read_bytes(), original)
+        self.assertEqual((self.home / 'boat-calls.jsonl').read_bytes(), calls)
+
+    def test_balance_failure_stores_only_fixed_label(self):
+        record = self.home / 'spend.json'
+        self.assertEqual(self.check(record).returncode, 0)
+        # A subprocess diagnostic is untrusted even on the failure path.
+        self.cli.write_text('#!/bin/sh\necho synthetic-private-provider-output >&2\nexit 1\n')
+        ids = self.home / 'ids'; ids.write_text(CREATED['id'] + '\n')
+        result = self.spend('--finish', record, '0', ids)
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(record.read_text())
+        self.assertEqual(data['balance_after_error'], 'balance_unavailable')
+        self.assertIsNone(data['actual_spend_usd'])
+        self.assertNotIn('synthetic-private-provider-output', record.read_text() + result.stdout + result.stderr)
+        # Standalone provider errors also use a fixed diagnostic.
+        result = self.spend()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stderr.strip(), 'boat-spend: accounting unavailable')
 
 
 class OwnerTests(unittest.TestCase):

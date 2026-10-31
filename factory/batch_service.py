@@ -289,6 +289,31 @@ def ordered_queue(state):
         0 if r['reason'] == 'settlement' else 1 if r['kind'] == 'replacement' else 2, r['sequence']))
 
 
+def retire_legacy(directory, entry, card):
+    """Terminal case disposition after snapshot verification, never cloud deletion."""
+    if isinstance(card.get('diagnosis_state'), dict): return False
+    value = dict(schema=1, status='retired', reason='legacy_retire', decision_date='2026-10-30',
+                 case=entry['case'], generation=entry['generation'], manifest_sha256=entry['manifest_sha256'])
+    parent = directory
+    for name in ('retirements', entry['case']):
+        child = parent / name
+        if child.is_symlink() or (child.exists() and not child.is_dir()):
+            raise ValueError('retirement conflict')
+        if not child.exists():
+            child.mkdir(mode=0o700)
+            _fsync(parent)
+        parent = child
+    path = parent / (entry['generation'] + '.json')
+    if path.exists() or path.is_symlink():
+        try:
+            if _json(path) != value: raise ValueError()
+        except (OSError, ValueError, TypeError):
+            raise ValueError('retirement conflict') from None
+    else:
+        atomic_json(path, value)
+    return True
+
+
 def plan(policy, root, home, case, generation, now=None):
     record = batch_money.manifest(policy, root)
     with batch_money.locked(home, record['id']) as directory:
@@ -296,9 +321,9 @@ def plan(policy, root, home, case, generation, now=None):
         entry = state['entries'].get(case + '/' + generation)
         if entry is None: raise ValueError('uncollected generation')
         card = _snapshot(directory, entry, record, policy['batch']['sha256'])
+        if retire_legacy(directory, entry, card):
+            return dict(status='retired', reason='legacy_retire', facts=None, queue=[])
         if not DIAGNOSIS_ENABLED: return dict(status='diagnosis_unavailable', facts=None, queue=[])
-        if not isinstance(card.get('diagnosis_state'), dict):
-            raise ValueError('legacy_projection_unbound')
         if entry['facts'] is None:
             if batch_money.deadline(record['batch_deadline']) <= (time.time() if now is None else now):
                 raise ValueError('retired_batch_bound')
