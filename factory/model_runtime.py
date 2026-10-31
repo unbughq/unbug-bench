@@ -545,7 +545,7 @@ class ModelRuntime:
         case_budget_boundary(c, model, lease_id=getattr(c, 'invocation_reservation', {}).get('lease_id'))
         driver, _, model_id = model.partition("/")
         if model in model_call_gate.CLAUDE_PROFILES:
-            model_id = model_call_gate.GATED_CLAUDE.partition("/")[2]
+            model_id = model_call_gate.claude_profile(model)['model'].partition('/')[2]
         driver = driver if driver in ("codex", "claude") else "opencode"
         role = invocation_role(name)
         if role == 'stress_tester':
