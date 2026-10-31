@@ -1,0 +1,10 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "code_commit": "99007fb784f4f5ada86ae5f5befdea6b88e9ba3b",
+  "started_at": "2026-10-31T14:33:30.371257+00:00",
+  "log": "docs/reports/batch-carry-over-suite-20261031T143330Z-19188390.log",
+  "status": "passed",
+  "exit_code": 0,
+  "finished_at": "2026-10-31T14:54:29.414643+00:00",
+  "log_sha256": "4dee55a91b0818d49b0953029c83b2b0711177c853cc2c9a14a96648bce4d73a"
+}

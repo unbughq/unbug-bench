@@ -83,6 +83,7 @@ class ManifestTests(unittest.TestCase):
                             'factory/diagnosis_dispatch.py', 'factory/diagnosis_task.py', 'factory/extension_compare.py', 'factory/extension_package.py',
                             'factory/prompts/diagnosis.md', 'factory/prompts/diagnosis-repair.md',
                             'factory/batch_money.py', 'factory/job_config.py', 'factory/batch_service.py',
+                            'factory/batch_transfer.py',
                             'factory/batch_status.py', 'factory/batch_accounting.py', 'factory/batch_holder.py',
                             'factory/deployment_inventory.py',
                             'factory/control-recipient.txt',

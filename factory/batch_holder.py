@@ -51,8 +51,7 @@ def validate_operations(operations, record):
         for identity, op in operations.items():
             parsed = uuid.UUID(identity)
             if parsed.version != 5 or str(parsed) != identity or set(op) != FIELDS: raise ValueError()
-            if (op['operation_id'] != identity or op['job'] not in record['jobs'] or
-                    op['case'] != record['jobs'][op['job']]['case'] or
+            if (op['operation_id'] != identity or op['case'] != service.resolve_job(record, op['job'])['case'] or
                     not re.fullmatch('[0-9a-f]{32}', op['launch_id']) or
                     not money._sha(op['release_sha256']) or not money._sha(op['config_sha256'])): raise ValueError()
             source = op['source_generation']
@@ -140,6 +139,10 @@ def _entry(directory, record, policy, case, generation):
 def _source(directory, record, policy, operations, state, name, generation):
     """Read-only predecessor proof common to pre- and post-advance checks."""
     row = state['jobs'][name]
+    if row.get('imported', {}).get('generation') == generation:
+        from batch_transfer import source
+        ack, entry, card, _ = source(directory.parent.parent, record, name, generation)
+        return ack, entry, card
     ack = row['acks'][generation]
     predecessor = operations[ack['operation_id']]
     if (predecessor['job'] != name or predecessor['output_generation'] != generation or
@@ -159,6 +162,8 @@ def _source(directory, record, policy, operations, state, name, generation):
 
 
 def _post(directory, record, policy, home, operations, state, identity):
+    if (directory / 'export.json').exists() or (directory / 'export.json').is_symlink():
+        raise ValueError('batch_exported')
     op = operations[identity]
     if (state['incidents'] or money.aggregate(state) > money.amount(record['money_limit_usd']) or
             money.deadline(record['batch_deadline']) <= datetime.now(timezone.utc).timestamp()):
@@ -169,15 +174,23 @@ def _post(directory, record, policy, home, operations, state, identity):
     _config(policy, home, op)
     if op['source_generation'] is not None:
         ack, _, _ = _source(directory, record, policy, operations, state, op['job'], op['source_generation'])
-        if ack['authority']['source_generation'] != row['sources'][-2]: raise ValueError('request_refused')
+        if row.get('imported', {}).get('generation') == op['source_generation']:
+            if row['authority'] != row['imported']['authority'] or len(row['sources']) != 1: raise ValueError('request_refused')
+        elif ack['authority']['source_generation'] != row['sources'][-2]: raise ValueError('request_refused')
     elif row['sources'] != [None]: raise ValueError('request_refused')
     return op
 
 
 def reserve(policy, root, home, name, source_generation, *, provider_wait=False):
     enabled()
+    from batch_transfer import prepare
+    prepare(policy, root, home)
     record = money.manifest(policy, root)
-    if name not in record['jobs'] or (source_generation is not None and not money._sha(source_generation)):
+    service.resolve_job(record, name)
+    carried = record.get('carry_from', {}).get('jobs', {})
+    if name not in carried and any(re.fullmatch(re.escape(name) + r'-r[1-9][0-9]*', child) for child in carried):
+        raise ValueError('template-only imported root')
+    if (source_generation is not None and not money._sha(source_generation)):
         raise ValueError('request_refused')
     if money.deadline(record['batch_deadline']) <= datetime.now(timezone.utc).timestamp():
         raise money.MoneyWait('retired_batch_bound')
@@ -185,6 +198,7 @@ def reserve(policy, root, home, name, source_generation, *, provider_wait=False)
     identity = operation_id(policy, name, source_generation)
     with money.locked(home, record['id']) as directory:
         ops = _operations(directory, record, policy)
+        service._lineage(service._load(directory, record, policy['batch']['manifest_sha256']), record, name)
         state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
         row = state['jobs'].get(name)
         if identity in ops:
@@ -204,6 +218,9 @@ def reserve(policy, root, home, name, source_generation, *, provider_wait=False)
                 _wait_due(card, record)
             if row['authority']['source_generation'] != source_generation:
                 money.advance_locked(state, record, name, source_generation, ack)
+            elif row.get('imported', {}).get('generation') == source_generation:
+                if row['authority'] != row['imported']['authority'] or len(row['sources']) != 1:
+                    raise ValueError('request_refused')
             elif row['sources'][-2] != ack['authority']['source_generation']:
                 raise ValueError('request_refused')
         authority = money.authorize_locked(state, record, name, source_generation)
@@ -538,6 +555,10 @@ def source_directory(policy, root, home, identity):
         state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
         op = _post(directory, record, policy, home, ops, state, identity)
         if op['source_generation'] is None: return None
+        row = state['jobs'][op['job']]
+        if row.get('imported', {}).get('generation') == op['source_generation']:
+            from batch_transfer import source
+            return source(home, record, op['job'], op['source_generation'])[3]
         return directory / 'generations' / op['case'] / op['source_generation']
 
 

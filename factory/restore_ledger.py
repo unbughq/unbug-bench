@@ -120,7 +120,7 @@ def validate_legacy_import(work, case, generation, public_card, record, record_s
     return migrate_legacy_import(public_card, record)
 
 
-def install(work, sealed, case, generation, public_card, *, ruling_path=None, ruling_sha256=None, release_sha256=None):
+def install(work, sealed, case, generation, public_card, *, ruling_path=None, ruling_sha256=None, release_sha256=None, job_config_path=None, job_config_sha256=None):
     """Publish only after all checks; never replace a newer worker-owned ledger.
 
     A retry after a kill before/after the atomic ledger rename is idempotent. A
@@ -128,10 +128,18 @@ def install(work, sealed, case, generation, public_card, *, ruling_path=None, ru
     This is an import boundary, not model-return/operation-commit recovery.
     """
     require((ruling_path is None) == (ruling_sha256 is None), 'founder ruling requires pinned hash and file')
+    expected_release = release_sha256
+    require((job_config_path is None) == (job_config_sha256 is None), 'job config requires hash and file')
+    if job_config_path is not None:
+        from job_config import verified_config
+        current, record = verified_config(job_config_path, job_config_sha256, case, release_sha256, generation=generation)
+        spec = record.get('carry_from', {}).get('jobs', {}).get(current['job_id'])
+        if spec and spec['generation'] == generation:
+            expected_release = record['carry_from']['policy']['batch']['sha256']
     if release_sha256 is not None:
         require(re.fullmatch('[0-9a-f]{64}', release_sha256) and
-                public_card.get('batch_release_sha256') == release_sha256 and
-                read_object(Path(work) / 'scorecard.json').get('batch_release_sha256') == release_sha256,
+                public_card.get('batch_release_sha256') == expected_release and
+                read_object(Path(work) / 'scorecard.json').get('batch_release_sha256') == expected_release,
                 'checkpoint release differs from batch; explicit migration required')
     accepted = None
     if ruling_path is not None:
@@ -184,11 +192,14 @@ def main():
     parser.add_argument("--founder-ruling", type=Path)
     parser.add_argument("--founder-ruling-sha256")
     parser.add_argument("--release-sha256")
+    parser.add_argument("--job-config", type=Path)
+    parser.add_argument("--job-config-sha256")
     args = parser.parse_args()
     try:
         receipt = install(args.home / "work" / args.case, args.home / "sealed", args.case,
                           args.generation, json.load(sys.stdin), ruling_path=args.founder_ruling,
-                          ruling_sha256=args.founder_ruling_sha256, release_sha256=args.release_sha256)
+                          ruling_sha256=args.founder_ruling_sha256, release_sha256=args.release_sha256,
+                          job_config_path=args.job_config, job_config_sha256=args.job_config_sha256)
     except (Refused, OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError) as error:
         # Never print parser values, filesystem paths or unexpected exception text.
         reason = str(error) if isinstance(error, Refused) else "invalid restore accounting input"
