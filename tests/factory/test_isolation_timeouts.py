@@ -142,9 +142,15 @@ class ProcessesTests(unittest.TestCase):
         self.stopped()
         # An exited, unreaped session leader: macOS refuses killpg on a zombie-only group.
         zombie = subprocess.Popen(['true'], start_new_session=True)
-        os.waitid(os.P_PID, zombie.pid, os.WEXITED | os.WNOWAIT)  # exited, still unreaped
-        processes.kill_tree(zombie.pid, alive=True)
-        zombie.wait()
+        try:
+            end = time.monotonic() + HANG_GUARD_SECONDS
+            while subprocess.run(['ps', '-o', 'stat=', '-p', str(zombie.pid)],
+                                 capture_output=True, text=True, timeout=HANG_GUARD_SECONDS).stdout.strip()[:1] != 'Z':
+                self.assertLess(time.monotonic(), end, 'child never became a zombie')
+                time.sleep(.01)
+            processes.kill_tree(zombie.pid, alive=True)
+        finally:
+            zombie.wait(timeout=HANG_GUARD_SECONDS)
 
     def test_context_deadline_is_nested_and_finalization_independent(self):
         with processes.deadline(.15):
