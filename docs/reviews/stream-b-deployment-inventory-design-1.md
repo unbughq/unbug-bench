@@ -89,4 +89,3 @@ Add three plain sentences. For example: "On the control VM, list every past laun
 ## Author disposition
 
 All four blockers accepted. Design revised with cleanup observations, per-serial truth table, strict launch-ID grammar and an explicit output/exit contract. Majors 5–7 addressed; source hashes retained, tracker moved to a separate report, and open rows named. No blocker rejected. Fresh review requested; author does not certify these fixes.
-

@@ -184,3 +184,13 @@ from parsed records; envelope/read errors leave all counts zero. CLI argument
 errors go to stdout, with stderr empty. Operators pass canonical paths (realpath);
 tests resolve their temporary roots. Saved created.json supplies new.N bytes in
 the guard layout only. Parked and keep markers are covered in that layout.
+
+## Full-suite integration finding
+
+The existing worker manifest includes all factory/*.py, including this standalone
+scanner. Add deployment_inventory.py to tests/tools/test_launch_manifest.py's
+independent inventory; do not change bundling rules or factory/batch.py. Shipping
+the inert scanner adds no invocation or state. The first full suite found this
+missing expected-inventory entry (158/159 scripts passed); retain its failed
+record, update the inventory, and rerun the complete suite before diff review.
+This is an offline test integration failure, not a new observed live incident.

@@ -95,4 +95,3 @@ Five small decisions are still left to the implementer:
 *(For the author to fill in.)*
 
 Author disposition: PASS accepted. Findings 1–4 and 6–7 incorporated before implementation; defensive checks remain bounded as requested by finding 5. No blocking findings or rejections.
-
