@@ -8,7 +8,7 @@ seals everything and prints ONLY the scorecard on stdout. Python standard librar
 Everything else (model transcripts, bench output, gate evidence) goes to ~/work/<case>/ and is
 sealed into ~/sealed/<case>.tar.gz.age, then shredded. See factory/README.md.
 """
-import copy, threading, contextlib, hashlib, uuid
+import copy, threading, contextlib, contextvars, hashlib, uuid
 from gate_pipeline import GatePipeline
 from case_contract import CaseContract, ingredient_problems as case_ingredients
 from run_artifacts import RunArtifacts, shred_tree
@@ -1589,7 +1589,9 @@ def write_and_attack(c, prev, *, extension_id=None):
                     review_receipt.pop(key, None)
             if not continuing_review and review_receipt.get('category_mode') != 1:
                 review_admitted()
-            stress_categories(c, n, report, review_receipt, review_completed)
+            from factory_waste import attempt
+            with attempt(c, 'stress', case_hash(c)):
+                stress_categories(c, n, report, review_receipt, review_completed)
         else:
             atomic_json(receipt_path, review_receipt)
             atomic_json(report, {"complete": False, "blocking": ["review incomplete"]})
@@ -2847,7 +2849,7 @@ def g10(c):
             contexts.append(child)
         with ThreadPoolExecutor(max_workers=2) as pool:
             try:
-                futures = [pool.submit(calibrate, child, role) for child, role in zip(contexts, ('strong_calibrator', 'easy_calibrator'))]
+                futures = [pool.submit(contextvars.copy_context().run, calibrate, child, role) for child, role in zip(contexts, ('strong_calibrator', 'easy_calibrator'))]
                 for future in as_completed(futures): future.result()
                 strong, easy = [future.result() for future in futures]
             except BaseException as error:
@@ -3396,7 +3398,10 @@ def main():
             validate_and_repair(c)
     except (BudgetError, PauseRequested) as error:
         c.stopped = True
-        if str(error) == 'provider_wait' or (str(error) == 'cancelled' and getattr(c, 'router_waits', [])):
+        from diagnosis import FactoryBugHeldWait
+        if isinstance(error, FactoryBugHeldWait):
+            c.card.update(status='stopped', terminal_stop='factory_bug_held', factory_bug_wait_reason=error.reason)
+        elif str(error) == 'provider_wait' or (str(error) == 'cancelled' and getattr(c, 'router_waits', [])):
             write_provider_wait(c, error)
         else:
             c.card['terminal_stop'] = 'paused' if isinstance(error, PauseRequested) else str(error)

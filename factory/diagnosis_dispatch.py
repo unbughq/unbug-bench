@@ -302,7 +302,7 @@ def _dispatch(c, r):
     if previous.get('terminal_stop') in INVALID: stop(c, previous['terminal_stop'])
     job_authority.for_case(c)
     if d._state(c.card, d.extension_history(c.card)) is None: invalid(c)
-    if d.resume_factory_bug(c): return False
+    if d.resume_factory_bug(c, r): return False
     model_runtime.prepare_dispatch(c)
     with c.model_dispatch_lock:
         if c.active_model_calls: raise BudgetError('usage_reconciliation_while_active')

@@ -15,6 +15,12 @@ from budget import BudgetError
 from registry import atomic_json
 
 
+class FactoryBugHeldWait(BudgetError):
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
+
+
 def _uuid4(value):
     try:
         parsed = uuid.UUID(value)
@@ -216,7 +222,13 @@ def validate_result(value, *, case, generation, evidence_root):
         raise BudgetError('diagnosis_result_invalid') from None
     result = copy.deepcopy(value)
     if result['outcome'] == 'factory_bug':
-        result['factory_bug']['affected_operations'] = []
+        from factory_waste import eligible
+        root = Path(evidence_root)
+        identity = None
+        if (root / 'work/factory-failures').exists():
+            identity = json.loads(_input_bytes(root / 'card.json', root))['diagnosis_state']['exhaustion_id']
+        operations, _ = eligible(root, case, identity)
+        result['factory_bug']['affected_operations'] = sorted(set(result['factory_bug']['affected_operations']) & set(operations))
     return result
 
 
@@ -328,10 +340,13 @@ def _read_factory_bug_finding(c, path, authority, release, state, generation, ev
                 'held_batch_id', 'held_release_sha256', 'diagnosis', 'eligible_operation_ids', 'failure_receipts'} or
                 type(finding['schema_version']) is not int or finding['schema_version'] != 1 or
                 finding['finding_id'] != state['exhaustion_id'] or finding['held_batch_id'] != authority.batch or
-                finding['held_release_sha256'] != release or finding['eligible_operation_ids'] != [] or
-                finding['failure_receipts'] != []): raise ValueError()
+                finding['held_release_sha256'] != release): raise ValueError()
     except (FileNotFoundError, ValueError, KeyError, TypeError):
         raise BudgetError('diagnosis_finding_invalid') from None
+    from factory_waste import eligible
+    operations, proofs = eligible(evidence_root, c.case_id, finding['finding_id'])
+    if (finding['eligible_operation_ids'], finding['failure_receipts']) != (operations, proofs):
+        raise BudgetError('diagnosis_finding_invalid')
     result = validate_result(finding['diagnosis'], case=c.case_id, generation=generation,
                              evidence_root=evidence_root)
     if result != finding['diagnosis'] or result['outcome'] != 'factory_bug':
@@ -345,8 +360,10 @@ def persist_factory_bug(c, result, *, generation, evidence_root):
     result = validate_result(result, case=c.case_id, generation=generation,
                              evidence_root=evidence_root)
     if result['outcome'] != 'factory_bug': raise BudgetError('diagnosis_outcome_not_factory_bug')
+    from factory_waste import eligible, classify
+    operations, proofs = eligible(evidence_root, c.case_id, state['exhaustion_id'])
     finding = dict(schema_version=1, finding_id=state['exhaustion_id'], held_batch_id=authority.batch,
-                   held_release_sha256=release, diagnosis=result, eligible_operation_ids=[], failure_receipts=[])
+                   held_release_sha256=release, diagnosis=result, eligible_operation_ids=operations, failure_receipts=proofs)
     path = _finding_path(c, state['exhaustion_id'])
     if state['status'] == 'completed' and not path.exists():
         raise BudgetError('diagnosis_finding_invalid')
@@ -368,6 +385,8 @@ def persist_factory_bug(c, result, *, generation, evidence_root):
             fd = os.open(directory, os.O_RDONLY)
             try: os.fsync(fd)
             finally: os.close(fd)
+    from factory_waste import classify
+    classify(c, finding)
     _complete_factory_bug(c, finding, history, state)
 
 
@@ -380,6 +399,8 @@ def restore_factory_bug(c, *, generation, evidence_root):
         return False
     finding = _read_factory_bug_finding(c, path, authority, release, state, generation, evidence_root)
     history = _factory_bug_history(c)
+    from factory_waste import classify
+    classify(c, finding)
     _complete_factory_bug(c, finding, history, state)
     return True
 
@@ -438,7 +459,7 @@ def _resume_bindings(c):
     return bindings
 
 
-def resume_factory_bug(c):
+def resume_factory_bug(c, r=None):
     """One lifetime admission after verified installation, before diagnosis replay."""
     state = c.card.get('diagnosis_state')
     if not isinstance(state, dict) or state.get('outcome') != 'factory_bug': return False
@@ -492,8 +513,30 @@ def resume_factory_bug(c):
                 batch_release_sha256=c.authenticated_job_config['batch_release_sha256'])
             history.append(admission)
             atomic_json(Path(c.work) / 'factory-bug-resumes.json', history)
+        try:
+            if r is None:
+                import run as r
+            import model_runtime
+            from budget import reconcile_reservations
+            from factory_waste import classify
+            model_runtime.prepare_dispatch(c)
+            with c.model_dispatch_lock:
+                if c.active_model_calls: raise BudgetError('usage_reconciliation_while_active')
+                ledger = json.loads(_input_bytes(c.ledger, c.ledger.parent))
+                if ledger.get('active'): raise BudgetError('usage_reconciliation_pending')
+                r.resume_provider_wait(c)
+                reconcile_reservations(c.work, c.ledger)
+                ledger = json.loads(_input_bytes(c.ledger, c.ledger.parent))
+                if ledger.get('active') or any(row['state'] == 'pending' for row in ledger.get('invocation_reservations', {}).values()):
+                    raise BudgetError('usage_reconciliation_pending')
+                classify(c, finding, admission)
+        except BudgetError as error:
+            if str(error) in {'money_wait', 'invalid_provider_wait', 'usage_reconciliation_while_active',
+                    'usage_reconciliation_pending', 'invalid_waste_attribution', 'waste_attribution_mismatch'}:
+                raise FactoryBugHeldWait(str(error)) from error
+            raise
         admitted_card = dict(c.card)
-        for key in ('factory_bug', 'diagnosis_state', 'infrastructure_gate', 'terminal_stop', 'failed_gate'):
+        for key in ('factory_bug', 'diagnosis_state', 'infrastructure_gate', 'terminal_stop', 'failed_gate', 'factory_bug_wait_reason'):
             admitted_card.pop(key, None)
         admitted_card.update(status='running', factory_bug_resume_count=len(history))
         atomic_json(Path(c.work) / 'scorecard.json', admitted_card)
@@ -502,7 +545,7 @@ def resume_factory_bug(c):
         return True
     except OSError:
         if admission_validated:
-            raise BudgetError('factory_bug_resume_io_wait') from None
+            raise FactoryBugHeldWait('factory_bug_resume_io_wait') from None
         raise BudgetError('diagnosis_finding_invalid') from None
     except (ValueError, KeyError, TypeError, AttributeError):
         raise BudgetError('diagnosis_finding_invalid') from None
@@ -648,7 +691,7 @@ def _write_input_tree(c, bench, root, card, state):
         add(prefix + name, _input_bytes(path, base))
     names = ('bench-results', 'attack-state.json', 'attacks', 'gate-continuation.json',
              'late-defect.json', 'extension-history.json', 'extension-snapshots', 'transcripts',
-             'usage-receipts', 'infra-attempts.json', 'strong_calibrator', 'easy_calibrator',
+             'usage-receipts', 'factory-failures', 'factory-replays', 'job-money.json', 'job-money-history.json', 'infra-attempts.json', 'strong_calibrator', 'easy_calibrator',
              'early_probe', 'fixes', 'evidence', 'history', 'verdict.json', 'prototype.json',
              'public-search.json', 'idea-realism.json', 'audit-baseline.json', 'delivery-provenance.json')
     paths = [c.work / name for name in names] + list(c.work.glob('independent-*'))

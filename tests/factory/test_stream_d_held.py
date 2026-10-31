@@ -310,6 +310,18 @@ class ResumeTests(unittest.TestCase):
         self.c.args.batch_release_sha256 = release
         self.c.checkpoint_card = copy.deepcopy(self.c.card)
 
+    def test_phase_three_wait_keeps_one_durable_admission_and_held_state(self):
+        import factory_waste
+        for reason in ('money_wait', 'invalid_waste_attribution', 'waste_attribution_mismatch'):
+            with patch.object(factory_waste, 'classify', side_effect=budget.BudgetError(reason)):
+                with self.assertRaises(diagnosis.FactoryBugHeldWait) as error:
+                    diagnosis.resume_factory_bug(self.c)
+            self.assertEqual(error.exception.reason, reason)
+            self.assertEqual(self.c.card['terminal_stop'], 'factory_bug_held')
+            self.assertEqual(len(json.loads((self.work/'factory-bug-resumes.json').read_text())), 1)
+        self.assertTrue(diagnosis.resume_factory_bug(self.c))
+        self.assertEqual(self.c.card['factory_bug_resume_count'], 1)
+
     def test_admission_keeps_real_ledger_and_replay_debits_once(self):
         before = self.ledger.read_bytes()
         self.assertTrue(diagnosis.resume_factory_bug(self.c))
@@ -327,7 +339,7 @@ class ResumeTests(unittest.TestCase):
         import diagnosis_dispatch
         import model_runtime
         import run
-        with patch.object(model_runtime, 'prepare_dispatch', side_effect=AssertionError('no diagnosis model')):
+        with patch.object(run, 'opencode', side_effect=AssertionError('no diagnosis model')):
             self.assertFalse(diagnosis_dispatch.dispatch(self.c, run))
         self.assertEqual(self.c.card['factory_bug_resume_count'], 1)
         diagnosis.require_model_work(self.c.card)

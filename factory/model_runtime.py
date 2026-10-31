@@ -396,6 +396,8 @@ class ModelRuntime:
                     reservation = budget.reserve_invocation(c.ledger, lease, invocation_maximum(c, lease), job_authority.for_case(c),
                         operation_id=operation_id, call_name=name, parent_call_name=getattr(c, 'parent_call_name', None))
                     c.invocation_reservation = context.invocation_reservation = reservation
+                    from factory_waste import record_reservation
+                    record_reservation(c, reservation)
                 with model_router.running(lease, context.role_cancel) as lost:
                     model_router._start(lease)
                     context._model_launch_permit = lease.lease_id

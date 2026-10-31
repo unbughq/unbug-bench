@@ -231,6 +231,13 @@ if fault in ('execute', 'admit', 'admit-money'):
   run.pick_models=models
  import restart
  restart.raised_limits=run.restore_gate_crash=forbidden
+if fault.startswith('held:'):
+ import diagnosis, diagnosis_dispatch
+ def held(c,r):
+  c.card['diagnosis_state'].update(status='completed', outcome='factory_bug')
+  c.card['factory_bug']={'finding_id':c.card['diagnosis_state']['exhaustion_id']}
+  raise diagnosis.FactoryBugHeldWait(fault.split(':',1)[1])
+ diagnosis_dispatch.dispatch=held
 if fault == 'qualification':
  batch_service.DIAGNOSIS_ENABLED=True
  def unavailable(*a,**k): raise ValueError('authored CLI version mismatch')
@@ -246,6 +253,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         expected = {'qualification': 'runner_error:ValueError', 'active': 'extension_comparison_pending',
                     'execute': 'extension_comparison_pending', 'admit': 'extension_comparison_pending',
                     'admit-money': 'money_wait'}
+        if fault.startswith('held:'): expected[fault] = 'factory_bug_held'
         if fault.startswith('mode:'): expected[fault] = 'extension_execution_mode_invalid'
         self.assertEqual(published['terminal_stop'], expected.get(fault, 'diagnosis_pending'))
         self.assertEqual(published['diagnosis_state']['exhaustion_id'], self.parent.name)
@@ -363,6 +371,16 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.c.checkpoint_card = copy.deepcopy(self.c.card)
         self.main_resume('admit')
         self.main_resume('admit-money')
+
+    def test_main_held_attribution_refusals_checkpoint_without_new_exhaustion(self):
+        for reason in ('money_wait', 'invalid_provider_wait', 'usage_reconciliation_while_active',
+                       'usage_reconciliation_pending', 'invalid_waste_attribution',
+                       'waste_attribution_mismatch', 'factory_bug_resume_io_wait'):
+            published = self.main_resume('held:' + reason)
+            self.assertEqual(published['factory_bug_wait_reason'], reason)
+            self.assertEqual(published['diagnosis_state']['outcome'], 'factory_bug')
+            self.assertEqual(published['factory_bug']['finding_id'], self.parent.name)
+            self.assertEqual(published['test_seals'], [True])
 
     def test_main_routes_execution_and_stops_before_gates(self):
         self.prepare_active_launch()
