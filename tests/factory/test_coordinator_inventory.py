@@ -105,7 +105,7 @@ with tempfile.TemporaryDirectory() as temp:
     root = pathlib.Path(temp); snapshot_path = root / "snapshot.json"
     queried, requests = [], []
     def provider(argv, **kwargs):
-        assert argv[-2:] == ["list", "--json"] and kwargs["timeout"] == 25
+        assert argv[-2:] == ["list", "--json"] and "timeout" not in kwargs and kwargs["env"]["BOAT_COMMAND_TIMEOUT_SECONDS"] == "25"
         queried.append(argv); return subprocess.CompletedProcess(argv, 0, json.dumps(empty), "")
     def holder(payload):
         requests.append(payload); assert payload == {"op": "status"}; return status

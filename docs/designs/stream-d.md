@@ -3393,6 +3393,11 @@ item 7 and item 8 qualification obligations above remain open; no row closes.
 
 ## Item 8: live qualification and switch-on
 
+Stream E local hardening in `docs/designs/isolation-item8-prereqs.md` is only a
+first increment. Open `new-isolation-outer-wall-2` (escaped capture-pipe holder)
+blocks Item 8 activation alongside cancellation/settlement and verified cloud
+cleanup exposure; local process cleanup is not a provider deletion receipt.
+
 Design only, 2026-10-31. No code, model call, worker creation or spend is
 authorized by this plan. Request **USD 100 all-in additional approval**, separate
 from the founder's USD 25 stream-B plumbing practice. The USD 100 is a ceiling,
