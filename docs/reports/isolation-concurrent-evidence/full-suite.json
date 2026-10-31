@@ -1,0 +1,8 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "source": "03914ce",
+  "returncode": 0,
+  "seconds": 1163.42,
+  "log": "/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/stream-e-concurrency-p_ft6fes/full-suite-03914ce.log",
+  "sha256": "1c6cc2245e34c37a3a12fff5f4b011098c41ff3e00f498d0be0d59fd7b6233c5"
+}

@@ -1,0 +1,26 @@
+[
+  {
+    "pid": 10641,
+    "path": "/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/launch-guards-test-g7r73th7/state-1",
+    "signal_sent": true,
+    "polled": true,
+    "calls": 118,
+    "deletes": 0
+  },
+  {
+    "pid": 10631,
+    "path": "/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/launch-guards-test-0s365izq/state-1",
+    "signal_sent": true,
+    "polled": true,
+    "calls": 118,
+    "deletes": 0
+  },
+  {
+    "pid": 10634,
+    "path": "/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/launch-guards-test-k0g0d4rx/state-1",
+    "signal_sent": true,
+    "polled": true,
+    "calls": 119,
+    "deletes": 0
+  }
+]
