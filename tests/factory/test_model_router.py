@@ -60,10 +60,10 @@ class RouterTests(unittest.TestCase):
         reset = cards[0]['continuation_budget']['claude_resets_at']
         self.assertEqual({c['continuation_budget']['claude_resets_at'] for c in cards}, {reset})
         first = self.acquire(cards[0]['terminal_stop'].split(':', 1)[1])
-        self.assertEqual(first['account'], 'claude-token')
+        self.assertEqual(first['account'], 'claude-factory-token-2')
         self.observe(first, 'quota', reset_at=reset); self.finish(first, 'interrupted')
         second = self.acquire(first['route'])
-        self.assertEqual(second['account'], 'claude-factory-token-2')
+        self.assertEqual(second['account'], 'claude-token')
         self.observe(second, 'quota', reset_at=reset); self.finish(second, 'interrupted')
         waiting = self.acquire(first['route'])
         self.assertEqual((waiting['kind'], waiting['retry_after']), ('wait', reset))
@@ -71,9 +71,83 @@ class RouterTests(unittest.TestCase):
         self.store = router.Store(self.root / 'router.sqlite', clock=lambda: self.now[0])
         self.assertEqual(self.store.rpc('capacity', {'route': first['route']})['slots'], 0)
         self.now[0] = reset + 1
-        self.assertEqual(self.store.rpc('capacity', {'route': first['route']})['slots'], 2)
+        self.assertEqual(self.store.rpc('capacity', {'route': first['route']})['slots'], 1)
         self.assertTrue(all(not v['blocked_until'] for v in self.store.rpc('status', {})['health'].values()))
         self.assertEqual(router.retry_at('quota', now=0, reset_at=7 * 3600), 7 * 3600)
+        self.assertEqual(self.acquire(first['route'], accounts=('claude-token',))['kind'], 'wait')
+        self.assertEqual(self.acquire(first['route'])['account'], 'claude-factory-token-2')
+
+    def test_account2_policy_replays_real_limit_card(self):
+        # Historical card supplies real model/reset semantics, not account identity.
+        card = next(c for c in LIMITS if c['terminal_stop'].startswith('provider_limit:claude/'))
+        model = card['terminal_stop'].split(':', 1)[1]
+        reset = card['continuation_budget']['claude_resets_at']
+        first = self.acquire(model, accounts=('claude-token', 'claude-factory-token-2'))
+        self.assertEqual(first['account'], 'claude-factory-token-2')
+        self.assertEqual(self.store.rpc('capacity', {'route': model})['slots'], 0)
+        busy = self.acquire(model)
+        self.assertEqual(busy['kind'], 'wait')  # synthetic rate wait is not evidence
+        self.assertEqual(self.store.rpc('status', {})['health'], {})
+        self.observe(first, 'rate', reset_at=reset); self.finish(first, 'interrupted')
+        self.assertEqual(self.store.rpc('capacity', {'route': model})['slots'], 1)
+        # The older busy request retains FIFO priority once fallback is eligible.
+        self.now[0] += router.LEASE_SECONDS + 1
+        fallback_id = uuid.uuid4().hex
+        fallback = self.acquire(model, identity=fallback_id)
+        self.assertEqual(fallback['account'], 'claude-token')
+        self.store.rpc('observe', dict(pool='claude-factory-token-2', healthy=True,
+                                      observation_id='verified-account2-recovery'))
+        self.assertEqual(self.acquire(model, identity=fallback_id), fallback)
+        self.assertEqual(self.store.rpc('renew', {'lease_id': fallback_id})['account'], 'claude-token')
+        self.assertEqual(self.acquire(model)['account'], 'claude-factory-token-2')
+
+    def test_account2_non_rate_failures_and_allowlists_never_unlock_account1(self):
+        model = next(c['terminal_stop'].split(':', 1)[1] for c in LIMITS
+                     if c['terminal_stop'].startswith('provider_limit:claude/'))
+        for reason in ('credit', 'outage', 'credential_expiring', 'router_unavailable'):
+            with self.subTest(reason=reason):
+                self.store = router.Store(self.root / (reason + '.sqlite'), clock=lambda: self.now[0])
+                lease = self.acquire(model)
+                self.observe(lease, reason); self.finish(lease, 'denied')
+                self.assertEqual(self.acquire(model)['kind'], 'wait')
+                self.assertEqual(self.store.rpc('capacity', {'route': model})['slots'], 0)
+        for accounts in (('claude-token',), ()):
+            with self.subTest(accounts=accounts):
+                self.store = router.Store(self.root / ('missing-' + str(len(accounts)) + '.sqlite'),
+                                          accounts=accounts, clock=lambda: self.now[0])
+                wait = self.acquire(model)
+                self.assertEqual((wait['kind'], wait['reason']), ('wait', 'credential_expiring'))
+                self.assertEqual(self.store.rpc('capacity', {'route': model})['slots'], 0)
+
+    def test_account1_only_waiter_does_not_block_eligible_account2(self):
+        model = next(c['terminal_stop'].split(':', 1)[1] for c in LIMITS
+                     if c['terminal_stop'].startswith('provider_limit:claude/'))
+        self.assertEqual(self.acquire(model, accounts=('claude-token',))['kind'], 'wait')
+        self.assertEqual(self.acquire(model)['account'], 'claude-factory-token-2')
+
+    def test_excluded_second_account_is_not_rate_evidence(self):
+        model = next(c['terminal_stop'].split(':', 1)[1] for c in LIMITS
+                     if c['terminal_stop'].startswith('provider_limit:claude/'))
+        wait = self.store.rpc('acquire', dict(id=uuid.uuid4().hex, model=model,
+            accounts=list(router.ACCOUNTS), role='writer', deadline=self.now[0] + 86400,
+            excluded_lanes=['claude-factory-token-2/' + model]))
+        self.assertEqual(wait['kind'], 'wait')
+        self.assertEqual(self.store.rpc('status', {})['health'], {})
+
+    def test_saved_account1_preference_and_only_local_key_cannot_run_account1(self):
+        c, secrets, _ = self.context()
+        c.card['provider_accounts'] = {'claude': 1}
+        c.card['roles']['writer']['model'] = 'claude/claude-opus-5-5'
+        (secrets / 'claude-factory-token-2').unlink()
+        with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '1'}), \
+             patch.object(router, '_rpc', self.store.rpc), patch.object(router, 'SECRETS', secrets), \
+             patch.object(router, 'WAIT_SECONDS', 0):
+            with self.assertRaises(router.ProviderWait) as caught:
+                router.await_lease('writer', c)
+        self.assertEqual(caught.exception.wait.account, 'claude-factory-token-2')
+        self.assertEqual(caught.exception.wait.reason, 'credential_expiring')
+        self.assertEqual(self.store.rpc('status', {})['leases'], [])
+        self.assertEqual(self.store.rpc('status', {})['health'], {})
 
     def test_real_paid_deepseek_ledger_is_explicit_and_not_rebooked(self):
         source, target = router.CHAINS[0]
@@ -554,7 +628,7 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
     def test_label_only_budget_errors_leave_peer_capacity_healthy(self):
         from test_budget import emit
         c,secrets,_=self.context();runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
-        baseline=c.ledger.read_bytes();c.router_accounts=('claude-token','codex-auth.json')
+        baseline=c.ledger.read_bytes();c.router_accounts=('claude-factory-token-2','codex-auth.json')
         cases=[('codex/gpt-6.1-sol','codex',{'type':'turn.failed','error':{'message':'context window exceeded'}}),
                ('claude/claude-opus-5-5','claude',{'type':'result','is_error':True,'result':'prompt too long'})]
         for model,driver,event in cases:
@@ -603,8 +677,8 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
         with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
              patch.object(router,'SECRETS',secrets),patch.object(model_runtime.ModelRuntime,'_invoke',side_effect=execute):
             runtime.call(c,[model],'',c.case,'builder-retry')
-        self.assertEqual(seen,['claude-token','claude-factory-token-2'])
-        self.assertEqual(self.store.rpc('status',{})['health']['claude-token']['reason'],'rate')
+        self.assertEqual(seen,['claude-factory-token-2','claude-token'])
+        self.assertEqual(self.store.rpc('status',{})['health']['claude-factory-token-2']['reason'],'rate')
 
     def test_plain_codex_expiry_preserves_renewal_reason(self):
         c,secrets,_=self.context();model='codex/gpt-6.1-sol';c.card['roles']['writer']['model']=model

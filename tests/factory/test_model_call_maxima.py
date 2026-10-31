@@ -404,7 +404,7 @@ class MaximaTests(unittest.TestCase):
         # Neither a CLI nor an upstream connection is launched.
         store = router.Store(self.root / 'router.sqlite')
         secrets = self.root / 'secrets'; secrets.mkdir()
-        (secrets / 'claude-token').write_text('synthetic-only')
+        (secrets / 'claude-factory-token-2').write_text('synthetic-only')
         runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(),
             lambda path, **kw: shutil.rmtree(path), Mock())
         for outcome in ('done', 'interrupted', 'denied'):
@@ -422,7 +422,7 @@ class MaximaTests(unittest.TestCase):
                     case_id=channel['case'], batch_id=channel['batch'], job_id=outcome,
                     batch_deadline=deadline, source_generation=None,
                     job_money=copy.deepcopy(channel), authenticated_job_config={'job_money': copy.deepcopy(channel)},
-                    router_accounts=('claude-token',))
+                    router_accounts=('claude-factory-token-2',))
                 def process(cmd, cwd, env, transcript, ledger, timeout, **kw):
                     row = json.loads(path.read_text())['invocation_reservations'][kw['lease_id']]
                     self.assertEqual(row['maximum_usd'], '50.000000000')
@@ -460,7 +460,7 @@ class MaximaTests(unittest.TestCase):
                 self.assertEqual(path.read_bytes(), before)
                 self.assertEqual(store.rpc('status', {})['leases'], [])
         for changed in ({'max_usd': 1.0}, {'max_input_tokens': 1}, {'max_output_tokens': 1},
-                        {'price_source': 'caller'}, {'expires_at': 1}, {'account': 'claude-token-2'}):
+                        {'price_source': 'caller'}, {'expires_at': 1}, {'account': 'claude-factory-token-2-2'}):
             with self.subTest(changed=changed), self.assertRaisesRegex(budget.BudgetError, '^route_maximum_unknown$'):
                 model_runtime.invocation_maximum(c, replace(lease(), **changed))
 
