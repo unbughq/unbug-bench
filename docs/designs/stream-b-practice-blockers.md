@@ -148,3 +148,14 @@ stop counts; sealing is not promised), with the Mac disconnected and one holder
 restart. Record complete deletion/charge evidence including delayed creation.
 Natural Claude fallback is separate from the cheap-route practice; do not forge
 provider-rate evidence or spend more merely to force a live 2 -> 1 -> 2 sequence.
+
+## Controller scheduling increment (2026-10-31)
+
+The next controller increment is specified in stream-b-controller-waits.md. It
+adds automatic reservation of due provider-wait successors after authenticated
+publication and retirement, using the existing source chain and money hold.
+It does not enable either gate, prove a cumulative infrastructure bound or
+resolve the other launch blockers. The founder's $25 all-in practice allowance
+is for later execution; this increment launches no workers and makes no paid
+model calls. Final offline validation and review records use the
+stream-b-controller-waits prefix in docs/reviews.
