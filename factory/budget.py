@@ -232,6 +232,22 @@ def _retain_final_receipts(work, leaves):
                 if os.path.exists(temporary): os.unlink(temporary)
 
 
+def _gate_bound(receipt):
+    """The closed call gate's ceiling: validated spend plus each unvalidated request's hold.
+
+    A closed gate refuses further requests, so this bounds the call even if its
+    process outlived the stop. Receipts without a closed gate snapshot get None.
+    """
+    cap = receipt.get('cap_used')
+    # No forwarded request: an unstarted gate's default snapshot, so keep the maximum.
+    if (not isinstance(cap, dict) or cap.get('closed') is not True or type(cap.get('forwarded_requests')) is not int
+            or cap['forwarded_requests'] < 1): return None
+    try: values = [Decimal(str(cap[k])) for k in ('settled_usd', 'held_usd')]
+    except (KeyError, InvalidOperation, TypeError): return None
+    if not all(v.is_finite() and v >= 0 for v in values): return None
+    return sum(values, Decimal(0)).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
+
+
 def _settle_leaf(ledger, receipt, wait_id=None):
     lease_id = receipt['lease_id']
     row = ledger.get('invocation_reservations', {}).get(lease_id)
@@ -249,7 +265,8 @@ def _settle_leaf(ledger, receipt, wait_id=None):
     events = {e['id']: e for e in ledger.get('events', []) if e.get('id')}
     before_ids = set(row['event_ids']) | {i for i, e in events.items()
         if e.get('invocation_id') == row['invocation_id'] and e.get('lease_id') == lease_id}
-    booked_before = sum((event_charge(events[i]) for i in row['event_ids'] if i in events), Decimal(0))
+    # Late-booked events already bound to this row are part of its current charge.
+    booked_before = sum((event_charge(events[i]) for i in before_ids if i in events), Decimal(0))
     ids = before_ids | set(receipt['booked_event_ids'])
     for event in receipt['events']:
         if not isinstance(event, dict): raise BudgetError('invalid_usage_event')
@@ -276,8 +293,16 @@ def _settle_leaf(ledger, receipt, wait_id=None):
                 (event.get('lease_id'), event.get('invocation_id')) != (lease_id, row['invocation_id'])):
             raise BudgetError('invalid_usage_binding')
     booked = sum((event_charge(events[i]) for i in ids), Decimal(0))
-    estimate = (max(Decimal(0), usd(row['maximum_usd']) - booked).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
+    bound, gate = usd(row['maximum_usd']), _gate_bound(receipt)
+    if gate is not None: bound = min(bound, gate)
+    estimate = (max(Decimal(0), bound - booked).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
                 if not receipt['final_usage_known'] else Decimal(0))
+    if row['state'] == 'estimated' and not receipt['final_usage_known']:
+        # An estimate is already a ceiling (closed gate or maximum). Non-final
+        # evidence never moves it, so it cannot grow between collections; only
+        # booked usage above it, or a final receipt with its decrease record, does.
+        estimate = max(Decimal(0), booked_before + previous_gap - booked).quantize(
+            Decimal('.000000001'), rounding=ROUND_CEILING)
     row.update(event_ids=sorted(ids), estimated_gap_usd=format(estimate, '.9f'),
                state='settled' if receipt['final_usage_known'] else 'estimated')
     if previous_gap > 0 and receipt['final_usage_known']:
@@ -355,20 +380,14 @@ def settle(record, *, work, ledger_path):
 
 
 def complete_invocation(work, ledger_path, lease_id):
-    """Release known-complete or never-started work; interruptions stay for settle."""
+    """Settle the finished call now; missing final usage charges its remaining maximum."""
     relative = 'usage-receipts/' + lease_id + '.json'
     leaves = _usage_leaves(Path(work), relative)
     _retain_final_receipts(work, leaves)
     with ledger_transaction(ledger_path) as ledger:
         for receipt in leaves:
             if receipt['lease_id'] != lease_id: raise BudgetError('wait_receipt_mismatch')
-            if receipt['final_usage_known']: _settle_leaf(ledger, receipt)
-            else:
-                row = ledger['invocation_reservations'][lease_id]
-                unknown = ledger.setdefault('unpriced_invocations', [])
-                if not any(e.get('invocation_id') == row['invocation_id'] for e in unknown):
-                    unknown.append({'role': invocation_role(row['call_name']), 'model': row['route'],
-                                    'invocation_id': row['invocation_id'], 'lease_id': lease_id})
+            _settle_leaf(ledger, receipt)
 
 
 def release_uninvoked(ledger_path, lease_id):
@@ -1159,8 +1178,8 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 stop_process()
             except BaseException as cleanup_error:
                 # Cancellation is part of the accounting boundary. A failed stop
-                # cannot bypass the durable unknown-usage record below, even if
-                # this invocation already recorded an earlier complete turn.
+                # cannot make this invocation's usage known, even if it already
+                # recorded an earlier complete turn (factory: reservation estimate).
                 starts.add('cancellation-failed:' + invocation)
                 with transaction():
                     ledger.setdefault('cleanup_errors', []).append({
@@ -1230,9 +1249,11 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 pass  # Unknown model or invalid partial usage remains fail-closed below.
             finally:
                 collecting_usage = False
-            if driver in ('codex', 'claude') and (starts - finishes or (process is not None and not usages)):
-                ledger.setdefault('unpriced_invocations', []).append({'role': role, 'model': configured_model,
-                    **({'invocation_id': invocation, 'lease_id': lease_id} if factory else {})})
+            # A factory call's reservation bounds its unknown usage, and its closed
+            # call gate refuses requests from a process that outlived the stop; a
+            # marker would only make the whole case total unknown.
+            if not factory and driver in ('codex', 'claude') and (starts - finishes or (process is not None and not usages)):
+                ledger.setdefault('unpriced_invocations', []).append({'role': role, 'model': configured_model})
             if invocation in ledger.get('active', []): ledger['active'].remove(invocation)
             if not ledger.get('active'): ledger.pop('active', None)
             if ledger.get('terminal_stop') in (None, 'running', 'complete'):

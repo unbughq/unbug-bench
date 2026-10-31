@@ -494,6 +494,17 @@ def source_directory(policy, root, home, identity):
         return directory / 'generations' / op['case'] / op['source_generation']
 
 
+def _charge(ledger, row):
+    """A reservation's current charge: every event bound to it plus its open estimate."""
+    import budget
+    ids = set(row['event_ids']) | {e['id'] for e in ledger['events'] if e.get('id')
+        and (e.get('lease_id'), e.get('invocation_id')) == (row['lease_id'], row['invocation_id'])}
+    events = {e['id']: e for e in ledger['events'] if e.get('id') in ids}
+    if ids - events.keys(): raise ValueError('invalid_accounting_input')
+    try: return sum((budget.event_charge(e) for e in events.values()), budget.usd(row.get('estimated_gap_usd', 0)))
+    except budget.BudgetError: raise ValueError('invalid_accounting_input') from None
+
+
 def _extends(old, new):
     """Conservative cumulative evidence retention; ambiguous old markers freeze."""
     before, after = old['continuation_budget'], new['continuation_budget']
@@ -508,7 +519,9 @@ def _extends(old, new):
         if any(row.get(k) != target.get(k) for k in immutable): return False
         if row['state'] == 'settled' and target.get('state') != 'settled': return False
         if row['state'] == 'estimated' and target.get('state') != 'estimated':
-            if target.get('state') != 'settled' or row['invocation_id'] not in records: return False
+            # A final receipt lowers a charge only with its reconciled-decrease record.
+            if target.get('state') != 'settled': return False
+            if row['invocation_id'] not in records and _charge(after, target) < _charge(before, row): return False
     for marker in before.get('unpriced_invocations', []):
         if not isinstance(marker, dict) or not marker.get('invocation_id') or not marker.get('lease_id'): return False
         target = later.get(marker['lease_id'], {})

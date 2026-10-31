@@ -243,6 +243,58 @@ class HolderTests(unittest.TestCase):
         self.assertEqual(self.publish(op), second)
         self.assertEqual(self.money()['jobs']['j']['previous']['estimated'], {})
 
+    def test_equal_or_higher_final_receipt_clears_incident(self):
+        # Stream D money row 21: no reconciled-decrease record exists when the
+        # final charge is not lower, so the refused estimate must still extend.
+        for final in (7, 9):
+            with self.subTest(final=final):
+                self.setUp()
+                helper = self.accountant(); lease, row, wait, _ = helper.estimate()
+                op = self.started(self.reserve()); self.output(op, ledger=helper.ledger(), total=0)
+                with self.assertRaises(ValueError): self.publish(op)
+                self.assertTrue(self.money()['incidents'])
+                helper.receipt(lease, [('part', 3), ('final', final)], final=True)
+                budget.settle(wait, work=helper.work, ledger_path=helper.path)
+                self.assertNotIn('reconciled_decreases', helper.ledger())
+                self.output(op, ledger=helper.ledger(), payload=fixtures.KEY)
+                self.publish(op)
+                self.assertEqual(self.money()['incidents'], {})
+        lowered = helper.ledger(); lowered['invocation_reservations'][lease.lease_id]['event_ids'].remove('final')
+        refused = dict(continuation_budget=helper.ledger()); refused['continuation_budget']['invocation_reservations'][
+            lease.lease_id].update(state='estimated', estimated_gap_usd='7.000000000', event_ids=['part'])
+        self.assertFalse(holder._extends(refused, dict(continuation_budget=lowered)))
+
+    def test_estimate_frozen_across_resume_then_final_decrease_collects(self):
+        # Stream D money row 21: the first ACK sees the closed gate's $4 estimate.
+        # A resume without the receipt file keeps it (no growth to the $8
+        # remaining maximum), so the final release is exactly the drop from that ACK.
+        helper = self.accountant(); lease, row = helper.reserve()
+        relative = helper.receipt(lease, [('part', 2)]); path = helper.work / relative
+        value = json.loads(path.read_text())
+        value['cap_used'] = dict(closed=True, forwarded_requests=1, settled_usd='2', held_usd='4')
+        path.write_text(json.dumps(value))
+        wait = helper.wait(lease, relative); budget.settle(wait, work=helper.work, ledger_path=helper.path)
+        other, other_row = helper.reserve(); budget.reconcile_reservations(helper.work, helper.path)
+        op = self.started(self.reserve()); self.output(op, ledger=helper.ledger())
+        first = self.publish(op)
+        self.assertEqual(first['facts']['estimated'], {row['invocation_id']: '4.000000000',
+                                                       other_row['invocation_id']: '10.000000000'})
+        path.unlink(); budget.reconcile_reservations(helper.work, helper.path)
+        self.assertEqual(helper.ledger()['invocation_reservations'][lease.lease_id]['estimated_gap_usd'], '4.000000000')
+        helper.receipt(lease, [('part', 2)], final=True); budget.settle(wait, work=helper.work, ledger_path=helper.path)
+        # Negative control: the other call's estimate lowered without a final
+        # receipt is not covered by this call's release.
+        lowered = helper.ledger(); lowered['invocation_reservations'][other.lease_id]['estimated_gap_usd'] = '7.000000000'
+        previous = {k: first['facts'][k] for k in ('total_usd', 'estimated')}
+        with self.assertRaisesRegex(ValueError, '^unsupported_decrease$'):
+            helper.facts(helper.snapshot_card(lowered), previous)
+        self.output(op, ledger=helper.ledger(), payload=fixtures.KEY)
+        second = self.publish(op)
+        self.assertEqual(money.amount(first['facts']['total_usd']) - money.amount(second['facts']['total_usd']),
+                         money.amount('4.000000000'))
+        self.assertEqual([r['released_usd'] for r in second['facts']['reconciled_decreases']], ['4.000000000'])
+        self.assertEqual(self.money()['incidents'], {})
+
     def test_real_d_known_overrun_then_null_keeps_floor(self):
         helper = self.accountant(); ledger = helper.ledger()
         # Authored overrun event on saved D ledger. The later unknown ledger

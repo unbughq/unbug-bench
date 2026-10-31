@@ -368,11 +368,15 @@ class MaximaTests(unittest.TestCase):
                     **{k:getattr(actual,k) for k in router.MAXIMUM_FIELDS},cap_used=held.snapshot(),
                     events=[],booked_event_ids=[],usage_delta={},final_usage_known=False)))
                 wait=dict(wait_id=str(uuid.uuid4()),lease_id=actual.lease_id,call_id=relative,settled=False)
-                self.assertEqual(budget.settle(wait,work=work,ledger_path=path),50)
+                # Stream D money: unknown usage is charged at the closed gate's bound
+                # (one request's hold), below the $50 route maximum.
+                snap=held.snapshot();bound=Decimal(str(snap['settled_usd']))+Decimal(str(snap['held_usd']))
+                self.assertTrue(0<bound<50)
+                self.assertEqual(Decimal(str(budget.settle(wait,work=work,ledger_path=path))),bound)
                 self.assertEqual(budget.settle(wait,work=work,ledger_path=path),0)
                 ledger=json.loads(path.read_text())
-                self.assertEqual(budget.case_spending(ledger)['total_spent_usd'],50)
-                self.assertEqual(ledger['invocation_reservations'][actual.lease_id]['estimated_gap_usd'],'50.000000000')
+                self.assertEqual(Decimal(str(budget.case_spending(ledger)['total_spent_usd'])),bound)
+                self.assertEqual(Decimal(ledger['invocation_reservations'][actual.lease_id]['estimated_gap_usd']),bound)
                 self.assertEqual(ledger['events'],[])  # Settlement never invents billed events.
                 c.job_money['revision']=2
                 with self.assertRaisesRegex(budget.BudgetError,'^money_wait$'):job_authority.for_case(c)
@@ -443,7 +447,8 @@ class MaximaTests(unittest.TestCase):
                     called.assert_called_once()
                 ledger = json.loads(path.read_text())
                 row, = ledger['invocation_reservations'].values()
-                self.assertEqual(row['state'], 'pending' if outcome == 'interrupted' else 'settled')
+                # Stream D money: an interrupted call is estimated when it ends, not left pending.
+                self.assertEqual(row['state'], 'estimated' if outcome == 'interrupted' else 'settled')
                 receipt = json.loads((work / 'usage-receipts' / (row['lease_id']+'.json')).read_text())
                 self.assertEqual(receipt['outcome'], outcome)
                 self.assertEqual(receipt['max_usd'], 50.0)

@@ -33,7 +33,7 @@ class TransferTests(unittest.TestCase):
         (self.vm / 'sealed' / self.name).write_bytes(self.data)
         self.fake = self.root / 'fake-transport'
         self.fake.write_text('''#!/usr/bin/env python3
-import os,pathlib,subprocess,sys,time
+import os,pathlib,signal,subprocess,sys
 assert sys.argv[1:3]==['ssh','synthetic']
 command=sys.argv[3]; home=pathlib.Path(os.environ['MOCK_HOME'])
 if 'f.seek(' in command:
@@ -43,7 +43,11 @@ if 'f.seek(' in command:
   mode=flag.read_text()
   if mode=='once': flag.unlink()
   if mode in ('once','always'):
-   sys.stdout.buffer.write(b'partial');sys.stdout.flush();time.sleep(10)
+   sys.stdout.buffer.write(b'partial');sys.stdout.flush()
+   # Only this event moves boat-call's deadline clock; the real owner must kill us.
+   clock=pathlib.Path(os.environ['FAKE_COMMAND_CLOCK']);pending=clock.with_suffix('.tmp')
+   pending.write_text(str(float(os.environ['BOAT_COMMAND_TIMEOUT_SECONDS'])+1));pending.replace(clock)
+   signal.pause()
   if mode=='corrupt': sys.stdout.buffer.write(b'X'*8);sys.exit(0)
   if mode=='mutate':
    flag.unlink();p=home/'sealed'/'case-synthetic.tar.gz.age';p.write_bytes(b'Z'*p.stat().st_size)
@@ -51,8 +55,22 @@ env={**os.environ,'HOME':str(home)}
 sys.exit(subprocess.run(['/bin/sh','-c',command],env=env).returncode)
 ''')
         self.fake.chmod(0o755)
+        # Freeze the copied boat-call's deadline clock (as in test-launch-guards), so a
+        # loaded host's slow interpreter start-up never times out a call; real owner otherwise.
+        repo = Path(__file__).resolve().parents[2]
+        (self.root / 'bin').mkdir()
+        for source in (repo / 'bin/boat-call', repo / 'bin/processes.py', repo / 'tests/bench/launch_guard_clock.py'):
+            shutil.copy2(source, self.root / 'bin' / source.name)
+        call = self.root / 'bin/boat-call'
+        text = call.read_text()
+        self.assertEqual(text.count('import processes\n'), 1, 'boat-call clock seam moved')
+        call.write_text(text.replace('import processes\n',
+            'import processes\nimport launch_guard_clock\nlaunch_guard_clock.install(processes)\n'))
+        call_patch = patch.object(transfer, 'CALL', call)
+        call_patch.start()
+        self.addCleanup(call_patch.stop)
         self.env = patch.dict(os.environ, {'BOAT_CMD': str(self.fake), 'MOCK_HOME': str(self.vm),
-                                           'BOAT_COMMAND_TIMEOUT_SECONDS': '2'})
+                                           'BOAT_COMMAND_TIMEOUT_SECONDS': '2', 'FAKE_STATE': str(self.root)})
         self.env.start()
         self.addCleanup(self.env.stop)
 
@@ -113,7 +131,7 @@ sys.exit(subprocess.run(['/bin/sh','-c',command],env=env).returncode)
                         "sys.exit(subprocess.run(['/bin/sh','-c',command],env={**os.environ,'HOME':os.environ['MOCK_HOME']}).returncode)\n")
         boat.chmod(0o755)
         result = subprocess.run(['/bin/sh', str(host / 'factory/collect.sh'), 'synthetic'],
-                                capture_output=True, timeout=10)
+                                capture_output=True, timeout=60)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual((host / 'sealed' / self.name).read_bytes(), self.data)
         self.assertEqual((host / 'sealed' / progress.name).read_bytes(), progress.read_bytes())
@@ -122,7 +140,7 @@ sys.exit(subprocess.run(['/bin/sh','-c',command],env=env).returncode)
         case.mkdir(parents=True)
         (case / 'new-work').write_text('synthetic state after the old checkpoint')
         result = subprocess.run(['/bin/sh', str(host / 'factory/collect.sh'), 'synthetic'],
-                                capture_output=True, timeout=10,
+                                capture_output=True, timeout=60,
                                 env={**os.environ, 'MOCK_PAUSE_STATUS': '0'})
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn(b'without a completed seal', result.stderr)

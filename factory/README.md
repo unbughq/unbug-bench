@@ -412,7 +412,9 @@ if stdout/stderr is silent, even if the CLI closed its output pipe. The existing
 responses (deduplicated; nonzero usage resets the streak, which spans role invocations).
 Contributor requires allowing paid model training in the OpenRouter account privacy settings.
 
-`--max-cost 5` limits observed continuation cost of priced (OpenCode) events only, `--max-role-calls 250`
+`--max-cost 5` limits observed continuation cost of priced (OpenCode) events only, for non-factory
+runs, audits and the exam owner. A batch job (`--batch-release-sha256`) has no paid cap: its job money
+channel's cumulative commitment bounds every call, and `--max-cost` is ignored. `--max-role-calls 250`
 limits observed main model responses per role invocation, and `--max-total-calls 700` limits them
 across the run. Founder-approved 2026-10-16 defaults budget roughly 200 builder/attacker
 responses plus 100 for fixes/review/pilot (the prior three-round case used ~490 calls).
