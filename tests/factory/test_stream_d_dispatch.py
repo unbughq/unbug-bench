@@ -461,6 +461,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             self.admit_active_control(1)
             extensions.complete(self.c, extension_tests.ExtensionTests.snapshot(self, 2))
             self.c.card['terminal_stop'] = origin
+            self.c.stopped = True  # main marks the package's substantive failure before finalization
             self.c.exhaustion_occurred = True
             run.finalize_accounting(self.c)
             self.parent = self.work / 'diagnosis' / self.c.card['diagnosis_state']['exhaustion_id']
