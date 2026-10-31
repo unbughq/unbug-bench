@@ -107,7 +107,8 @@ retirement for known and unknown totals, before disabled adapter and before stor
 facts, unchanged inputs and replay. Holder tests use real record_exhaustion output
 with no diagnosis_state to prove provider-wait, pause and TTL source reservation
 and dispatch preflight remain valid; the provider-wait scan must schedule normally
-and write no retirement record. Planning must also preserve those cases. Verify retirement disposition exactly covers the saved real
+and write no retirement record. Planning must also preserve those cases.
+Verify retirement disposition exactly covers the saved real
 inventory and preserves all digests. These tests prove exclusion and bookkeeping,
 not a real worker lifecycle. Close no existing Murphy row: 6,17,27,28,29,35,49,51 and
 open batch-service/single-path rows require wider real artifact lifecycle proof.

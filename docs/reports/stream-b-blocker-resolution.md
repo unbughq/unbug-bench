@@ -120,3 +120,16 @@ Uncompressed log SHA256:
 13613b1fd98b7fb20561ca914db354ca69cfbaa299b5c9d4d0fe1cee9b0489b7.
 The focused suites also passed (15 service tests and 59 holder tests).
 No source/tests changed during the full run. Fresh diff re-review follows.
+
+
+Final independent re-review: **PASS, 0 blockers, 0 majors**, Claude
+claudeAgent/claude-opus-5-5. Verbatim record:
+../reviews/stream-b-blocker-resolution-diff-2.md. It confirms B1 is fixed, the
+regressions discriminate, and the full suite record matches d38499a. This
+supersedes the earlier blocked-review status. Final changes after validation
+are review/report records and cosmetic design wrapping only; no source/tests.
+No Murphy rows closed. The four dispositions remain unchanged: saved legacy
+inventory retired; cleanup guarantees, cumulative attributed settlement and
+deployment qualification deferred to live practice with their stated entry
+prerequisites. Review pass does not authorize deployment or clear those exams.
+No merge, push or change to main was performed.

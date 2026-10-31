@@ -37,3 +37,12 @@ The subsequent Claude retry ran and produced FAIL with one blocker, retained
 verbatim in stream-b-blocker-resolution-diff-1.md. The earlier statement above
 that no verdict existed describes only the initial attempts. B1 requires a fix
 and fresh review; no findings are self-verified or rejected.
+
+
+## Completion
+
+Claude subsequently completed the fresh re-review after B1 was fixed:
+stream-b-blocker-resolution-diff-2.md, PASS with zero blockers/majors. No fallback
+was needed for that successful review. Earlier failures remain historical;
+the pending independent-review requirement is now satisfied. Paid OpenRouter
+remains forbidden by the parent's superseding rule.
