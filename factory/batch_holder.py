@@ -174,39 +174,64 @@ def _post(directory, record, policy, home, operations, state, identity):
     return op
 
 
-def reserve(policy, root, home, name, source_generation, *, provider_wait=False):
-    enabled()
-    record = money.manifest(policy, root)
+def empty_input(root, directory, case):
+    """Empty progress must not reuse any saved case evidence."""
+    from batch import sealed_directories
+    from launch_manifest import collection_files
+    paths = [directory / 'generations' / case, directory / 'current' / (case + '.json')]
+    for sealed in sealed_directories(root):
+        paths.extend(sealed / name for name in collection_files(case))
+        paths.append(sealed / 'generations' / case)
+    for path in paths:
+        try: path.lstat()
+        except FileNotFoundError: continue
+        except OSError: raise ValueError('request_refused') from None
+        raise ValueError('request_refused')
+
+
+def _admit(directory, record, policy, root, ops, state, name, source_generation, provider_wait=False):
+    """Shared decision; only supplied in-memory state changes. Caller owns lock."""
     if name not in record['jobs'] or (source_generation is not None and not money._sha(source_generation)):
         raise ValueError('request_refused')
     if money.deadline(record['batch_deadline']) <= datetime.now(timezone.utc).timestamp():
         raise money.MoneyWait('retired_batch_bound')
     if provider_wait and source_generation is None: raise ValueError('request_refused')
     identity = operation_id(policy, name, source_generation)
+    row = state['jobs'].get(name)
+    if identity in ops:
+        if provider_wait: raise ValueError('request_refused')
+        if row is None or row['authority']['source_generation'] != source_generation:
+            raise ValueError('request_refused')
+        return deepcopy(ops[identity]['authority'])
+    if (state['incidents'] or sum(o['state'] in ('pending', 'launched') and o['retirement'] is None
+            for o in ops.values()) >= record['max_concurrency'] or
+            any(o['job'] == name and o['state'] in ('pending', 'launched') and o['retirement'] is None
+                for o in ops.values())): raise money.MoneyWait('money_wait')
+    if source_generation is not None:
+        ack, _, card = _source(directory, record, policy, ops, state, name, source_generation)
+        if provider_wait:
+            if ops[ack['operation_id']]['incident'] is not None: raise ValueError('request_refused')
+            _wait_due(card, record)
+        if row['authority']['source_generation'] != source_generation:
+            money.advance_locked(state, record, name, source_generation, ack)
+        elif row['sources'][-2] != ack['authority']['source_generation']:
+            raise ValueError('request_refused')
+    else:
+        empty_input(root, directory, record['jobs'][name]['case'])
+    return money.authorize_locked(state, record, name, source_generation)
+
+
+def reserve(policy, root, home, name, source_generation, *, provider_wait=False):
+    enabled()
+    record = money.manifest(policy, root)
+    identity = operation_id(policy, name, source_generation)
     with money.locked(home, record['id']) as directory:
         ops = _operations(directory, record, policy)
         state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
-        row = state['jobs'].get(name)
+        authority = _admit(directory, record, policy, root, ops, state, name, source_generation, provider_wait)
         if identity in ops:
-            if provider_wait: raise ValueError('request_refused')
-            if row is None or row['authority']['source_generation'] != source_generation:
-                raise ValueError('request_refused')
             _save(directory, record, policy, ops)  # repair journal after lost reply
             return deepcopy(ops[identity])
-        if (state['incidents'] or sum(o['state'] in ('pending', 'launched') and o['retirement'] is None
-                for o in ops.values()) >= record['max_concurrency'] or
-                any(o['job'] == name and o['state'] in ('pending', 'launched') and o['retirement'] is None
-                    for o in ops.values())): raise money.MoneyWait('money_wait')
-        if source_generation is not None:
-            ack, _, card = _source(directory, record, policy, ops, state, name, source_generation)
-            if provider_wait:
-                if ops[ack['operation_id']]['incident'] is not None: raise ValueError('request_refused')
-                _wait_due(card, record)
-            if row['authority']['source_generation'] != source_generation:
-                money.advance_locked(state, record, name, source_generation, ack)
-            elif row['sources'][-2] != ack['authority']['source_generation']:
-                raise ValueError('request_refused')
-        authority = money.authorize_locked(state, record, name, source_generation)
         atomic_json(directory / 'money.json', state)
         money.project(home, record, state)
         _, config_sha = money.configuration(policy, name, authority, home)
@@ -703,6 +728,7 @@ def dispatch(policy, root, home, identity, identity_bytes):
                 state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
                 op = deepcopy(_post(directory, record, policy, home, ops, state, identity))
                 if op['state'] != 'pending' or op['dispatch_started'] or op['incident'] is not None: return
+                if op['source_generation'] is None: empty_input(root, directory, op['case'])
             recipient = subprocess.run(['age-keygen', '-y'], input=identity_bytes,
                                        capture_output=True, check=True, timeout=10).stdout.decode().strip()
             if recipient not in (record['restore_recipient'], policy['recipient']): raise ValueError('request_refused')
@@ -737,6 +763,7 @@ def dispatch(policy, root, home, identity, identity_bytes):
                 state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
                 current = _post(directory, record, policy, home, ops, state, identity)
                 if current['state'] != 'pending' or current['dispatch_started'] or current['incident'] is not None: return
+                if current['source_generation'] is None: empty_input(root, directory, current['case'])
                 current['launch'] = dict(argv=argv, environment={k: env[k] for k in ENVIRONMENT if k in env})
                 current['dispatch_started'] = True
                 _save(directory, record, policy, ops)

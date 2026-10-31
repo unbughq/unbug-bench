@@ -32,9 +32,10 @@ def save(path, value):
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
 
 
-def restore_inventory(root):
-    """Find canonical ciphertext through Git's common directory, then this checkout."""
+def sealed_directories(root):
+    """Canonical ciphertext namespace and this checkout, without duplicates."""
     directories = [root / 'sealed']
+    if not (root / '.git').exists(): return directories  # Installed releases have no Git metadata.
     try:
         common = Path(subprocess.check_output(['git', '-C', str(root), 'rev-parse',
                                               '--git-common-dir'], text=True, stderr=subprocess.DEVNULL).strip())
@@ -42,7 +43,12 @@ def restore_inventory(root):
         directories.insert(0, common.parent / 'sealed')
     except (subprocess.CalledProcessError, OSError):
         pass
-    for directory in dict.fromkeys(directories):
+    return list(dict.fromkeys(directories))
+
+
+def restore_inventory(root):
+    """Find canonical ciphertext through Git's common directory, then this checkout."""
+    for directory in sealed_directories(root):
         archives = sorted(directory.glob('*.checkpoint.tar.gz.age'))
         if archives:
             return archives

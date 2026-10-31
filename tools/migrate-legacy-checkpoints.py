@@ -271,6 +271,8 @@ def complete(path, row, plan_sha):
     """Only a fully verified immutable output may be skipped or reused."""
     if not path.is_dir() or path.is_symlink():
         raise ValueError('invalid generation')
+    if any((path / name).is_symlink() for name in ('manifest.json', 'migration.json')):
+        raise ValueError('unsafe generation metadata')
     manifest = json.loads((path / 'manifest.json').read_text())
     expected = {'casekey.age', 'original-card.json', 'migration.json'}
     if row['kind'] != 'rewrap_key':
@@ -306,6 +308,8 @@ def existing(root, row, plan_sha):
     for path in sorted(case.iterdir()):
         if not re.fullmatch('[0-9a-f]{64}', path.name):
             continue
+        if path.is_symlink() or (path / 'migration.json').is_symlink():
+            raise ValueError('unsafe generation metadata')
         record = json.loads((path / 'migration.json').read_text())
         if record.get('source_sha256') == row['archive_sha256']:
             matches.append(complete(path, row, plan_sha))
@@ -443,6 +447,24 @@ def estimate(plan, root=None, plan_sha=None):
             math.ceil(2 * verification / (10 * CHUNK)))
 
 
+def qualify(plan, root, plan_sha):
+    """Local immutable-byte proof only; never imply VM or R2 qualification."""
+    rows, counts = [], {}
+    for row in plan['entries']:
+        counts[row['kind']] = counts.get(row['kind'], 0) + 1
+        result = dict(case=row['case'], kind=row['kind'],
+                      source_sha256=row.get('key_sha256', row['archive_sha256']))
+        try:
+            if root.is_symlink(): raise ValueError('unsafe output root')
+            result['local_integrity'] = 'passed' if existing(root, row, plan_sha) is not None else 'missing'
+        except (OSError, ValueError, KeyError, TypeError):
+            result['local_integrity'] = 'invalid'
+        rows.append(result)
+    return dict(schema=1, plan_sha256=plan_sha, counts=counts, entries=rows,
+                local_integrity_passed=bool(rows) and all(r['local_integrity'] == 'passed' for r in rows),
+                qualified=False, vm_unwrap_verified=False, r2_verified=False)
+
+
 def main(argv=None):
     if sys.version_info < (3, 11):
         print('Python 3.11 or later is required.', file=sys.stderr)
@@ -450,7 +472,9 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--plan', type=Path, required=True)
     p.add_argument('--plan-sha256', required=True)
-    p.add_argument('--dry-run', action='store_true')
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument('--dry-run', action='store_true')
+    mode.add_argument('--qualify', action='store_true')
     args = p.parse_args(argv)
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0)); os.umask(0o077)
     identity = None
@@ -461,6 +485,9 @@ def main(argv=None):
         restore = (ROOT / 'factory/control-recipient.txt').read_text().strip()
         plan = load_plan(args.plan, args.plan_sha256, founder, restore)
         root = Path(plan['output_root'])
+        if args.qualify:
+            print(json.dumps(qualify(plan, root, args.plan_sha256), sort_keys=True))
+            return 1  # VM unwrap and R2 binding have not been proved.
         with ExitStack() as stack:
             opened = preflight(plan, stack)
             needed, seconds, vm_seconds = estimate(plan, root, args.plan_sha256)
