@@ -12,6 +12,7 @@ import re
 import sys
 import subprocess
 import os
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -44,6 +45,18 @@ class RetryTests(unittest.TestCase):
         self.patch(model_router, 'route_maximum', lambda route: {**synthetic_maximum(route), 'max_usd': .1})
         self.c.stress_checkpoint = lambda: True
         self.calls = []
+        self.context_inputs = {key: copy.deepcopy(value) for key, value in vars(self.c).items()
+                               if key not in ('role_cancel', 'card', 'stress_checkpoint')}
+
+    def fresh_context(self):
+        # Reconstruct only launch inputs and saved card; no runtime attributes,
+        # locks, callback closures, exclusions or retrieval scratch survive.
+        card = copy.deepcopy(self.c.card)
+        self.c = SimpleNamespace(**copy.deepcopy(self.context_inputs), card=card,
+                                 role_cancel=threading.Event())
+        self.c.args.resume = self.c.case_id
+        self.c.stress_checkpoint = lambda: True
+        return self.c
 
     def cli(self, emit):
         calls = self.calls
@@ -116,6 +129,7 @@ class RetryTests(unittest.TestCase):
             else: self.answer_path(text).write_text('{"approve":true,"reason":"new judgment"}')
         self.cli(emit)
         with self.assertRaises(runtime_fixture.Killed): self.idea()
+        self.fresh_context()
         self.assertTrue(self.idea()['approve'])
         self.assertEqual(self.calls[1][1], self.calls[2][1])
         self.assertNotEqual(self.calls[0][1], self.calls[1][1])
@@ -221,7 +235,7 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(old['phase'], 'pending')
         self.assertEqual(self.c.card['builder_rounds'],1)
         before = {p: p.read_bytes() for p in self.work.glob('attacks/round-1-categories/*/*-0.json')}
-        self.c.args.resume = self.c.case_id
+        self.fresh_context()
         run.write_and_attack(self.c, copy.deepcopy(self.c.card))
         after = run.jload(self.work/'attack-state.json')
         self.assertEqual(old['operation_id'], after['operation_id'])
@@ -324,6 +338,7 @@ class RetryTests(unittest.TestCase):
         self.cli(emit)
         with self.assertRaises(runtime_fixture.Killed): run.g2(self.c)
         self.assertEqual(run.jload(self.work/'freshness-repair.json')['completed_defects'],0)
+        self.fresh_context()
         self.assertTrue(run.g2(self.c)[0])
         self.assertEqual([name for name,_,_ in self.calls],['builder-freshness','attacker-freshness','attacker-freshness'])
 
@@ -384,7 +399,7 @@ class RetryTests(unittest.TestCase):
         with self.assertRaises(runtime_fixture.Killed): run.write_and_attack(self.c,{})
         self.assertTrue(run.jload(self.work/'stress-publication.json')['pending'])
         self.assertEqual(len(self.calls),2)
-        self.c.args.resume=self.c.case_id
+        self.fresh_context()
         run.write_and_attack(self.c,copy.deepcopy(self.c.card))
         self.assertEqual(len(self.calls),5)
         self.assertFalse(run.jload(self.work/'stress-publication.json')['pending'])
@@ -489,7 +504,7 @@ class RetryTests(unittest.TestCase):
                 atomic_json(claimed.parent/'status.json',{'status':'timeout'})
         self.stress_setup(emit)
         for attempt in range(2):
-            if attempt: self.c.args.resume=self.c.case_id
+            if attempt: self.fresh_context()
             with self.assertRaisesRegex(budget.BudgetError,'^stress_validation_exhausted$'):
                 run.write_and_attack(self.c,copy.deepcopy(self.c.card) if attempt else {})
             self.assertEqual(len(self.calls),5)
@@ -508,8 +523,8 @@ class RetryTests(unittest.TestCase):
         self.stress_setup(lambda *a:None)
         with self.assertRaises(runtime_fixture.Killed): run.write_and_attack(self.c,{})
         uploads=[]
+        self.fresh_context()
         self.c.stress_checkpoint=lambda: uploads.append(len(self.calls)) or True
-        self.c.args.resume=self.c.case_id
         run.write_and_attack(self.c,copy.deepcopy(self.c.card))
         self.assertEqual(uploads[0],2)
         self.assertEqual(len(self.calls),5) # retained completed answer repairs the state without a paid call
@@ -545,7 +560,7 @@ class RetryTests(unittest.TestCase):
         old=run.jload(self.work/'attack-state.json')
         binding=run.attack_binding(self.c)
         self.patch(run,'attack_binding',return_value={**binding,'prompt':'f'*64})
-        self.c.args.resume=self.c.case_id
+        self.fresh_context()
         run.write_and_attack(self.c,copy.deepcopy(self.c.card))
         self.assertEqual(seen[3:],list(stress_progress.CATEGORIES))
         self.assertNotEqual(old['operation_id'],run.jload(self.work/'attack-state.json')['operation_id'])
@@ -598,10 +613,22 @@ class RetryTests(unittest.TestCase):
             receipt=run.jload(self.work/'attack-state.json')
             if operation is None: operation=receipt['operation_id']
             self.assertEqual(receipt['operation_id'],operation)
-            self.c.args.resume=self.c.case_id
+            self.fresh_context()
         run.write_and_attack(self.c,copy.deepcopy(self.c.card))
         self.assertEqual(self.c.card['builder_rounds'],1)
         self.assertEqual(run.jload(self.work/'attack-state.json')['operation_id'],operation)
+
+    def test_new_production_context_has_barrier_before_direct_dispatch(self):
+        fresh=run.Ctx()
+        vars(fresh).update(copy.deepcopy(self.context_inputs))
+        fresh.card=copy.deepcopy(self.c.card)
+        fresh.role_cancel=threading.Event()
+        calls=[]
+        fresh.stress_checkpoint=lambda: calls.append('published') or True
+        atomic_json(self.work/'stress-publication.json',{'pending':True,'identity':'authored-crash'})
+        with model_runtime.dispatch(fresh,'direct-runtime-entry'):
+            self.assertEqual(calls,['published'])
+            self.assertFalse(run.jload(self.work/'stress-publication.json')['pending'])
 
 
 if __name__ == '__main__': unittest.main()

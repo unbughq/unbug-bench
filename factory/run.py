@@ -122,6 +122,7 @@ class Ctx:  # one run's state
     def __init__(self):
         # Shared by shallow role contexts, never checkpointed on the public card.
         self.router_waits, self.router_interrupted_calls = [], []
+        install_publication_barrier(self)
 
 
 def log(c, *parts):
@@ -188,7 +189,6 @@ def pick_models(c):
 
 
 def install_publication_barrier(c):
-    if not model_runtime.factory_job(c): return
     def barrier():
         from stress_progress import publication
         def checkpoint():
@@ -1113,6 +1113,7 @@ def write_and_attack(c, prev):
     if modern:
         import job_authority
         job_authority.for_case(c)
+        install_publication_barrier(c)
         with model_runtime.dispatch(c, 'resume'): resume_provider_wait(c)
     ruling = None if modern else ruling_context(c)
     if prev.get("rejected_candidates"):
@@ -2240,7 +2241,7 @@ def confirm_hits(c, flagged, *, retained_path=None):
             text = text.replace('Timeouts, access errors, ambiguous archive responses,',
                                 'Ambiguous archive responses,')
             text = text.replace('"deleted" | null',
-                '"deleted" | "http_401" | "http_403" | "http_451" | "http_429" | "http_5xx" | "network_error" | null')
+                '"deleted" | "http_401" | "http_403" | "http_451" | "http_429" | "http_500" through "http_599" | "network_error" | null')
             text += (' Copy live_failure exactly from the runner receipt (including the actual three-digit HTTP status). '
                      ' Access failures http_401/http_403/http_451/http_429/http_5xx/network_error '
                      'are not dead pages. Their archived snapshots can confirm a match but cannot clear one. '
