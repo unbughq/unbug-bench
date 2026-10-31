@@ -515,6 +515,22 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.pilots.assert_not_called(); self.qualify.assert_not_called()
         self.assertEqual(self.helper_calls, [])
 
+    def test_valid_close_journal_publishes_decision_without_another_paid_call(self):
+        self.answer = 'close_to_passing'
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'decision', side_effect=Crash):
+            with self.assertRaises(Crash): dispatch.dispatch(self.c, run)
+        self.assertFalse((self.parent / 'decision.json').exists())
+        self.assertEqual(json.loads((self.parent / 'attempts.json').read_text())['attempts'][-1]['status'], 'valid')
+        calls = len(self.calls)
+        self.pilots.reset_mock(); self.qualify.reset_mock(); self.helper_calls.clear()
+        self.resume()
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+            self.assertEqual(dispatch.dispatch(self.c, run), 0)
+        self.assertTrue((self.parent / 'decision.json').is_file())
+        self.assertEqual(len(self.calls), calls)
+        self.pilots.assert_not_called(); self.qualify.assert_not_called()
+        self.assertEqual(self.helper_calls, [])
+
     def test_missing_valid_raw_is_input_invalid_before_gate(self):
         with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'decision', side_effect=Crash):
             with self.assertRaises(Crash): dispatch.dispatch(self.c, run)
