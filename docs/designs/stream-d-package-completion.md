@@ -334,3 +334,14 @@ restores recorded workers before returning None; around_gate then runs setup and
 returns the retained verdict without rewriting proof. A further reduction below
 the recorded worker count stops extension_comparison_pending without rewriting
 any record; comparison owns this drift case. Add the recorded-2/new-1 test.
+
+## Implementation boundary clarifications
+
+The pre-G3 stress handoff compares attack bindings with the same execution-only
+seed/bench_workers/concurrent_roles exclusions as scientific_version. Restoring a
+worker count cannot turn completed stress into a scientific version change.
+The capture hook also consults an existing record on an in-process retry: a
+filesystem error after atomic rename must not execute the scored gate again.
+Both have regression tests. G10 projection replay is exercised immediately before
+the existing retained-delivery/portable exam proof test, using its artifact-backed
+completed calibration receipts. These are offline mechanics, not live qualification.

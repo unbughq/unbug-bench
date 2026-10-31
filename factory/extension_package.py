@@ -197,7 +197,10 @@ class Records:
             if temporary.exists(): shutil.rmtree(temporary)
 
     def capture(self, c, stage, invoke):
-        old = self.load(stage) if stage == 'G3' else None
+        old = self.load(stage)
+        if old is not None and stage != 'G3':
+            self.restore(stage, old)
+            return old['ok'], old['info']
         before = {k: gate_state.digest(p) for k, p in gate_state.inventory(c, self.r.BENCH).items()}
         card, case = project(c.card), self.r.case_hash(c)
         ok, info = invoke()
@@ -232,7 +235,15 @@ def stress(c, r, records):
             completed.get('binding') != hashlib.sha256(json.dumps(receipt.get('binding'), sort_keys=True).encode()).hexdigest() or
             completed.get('report_sha256') != gate_state.digest(report)):
         refuse('extension_execution_pending')
-    if receipt.get('binding') != r.attack_binding(c): refuse('extension_comparison_pending')
+    def scientific(binding):
+        value = copy.deepcopy(binding)
+        value['bench'].pop('seed', None)
+        for key in ('bench_workers', 'concurrent_roles'):
+            value['bench']['settings'].pop(key, None)
+        return value
+    # Match scientific_version's execution-only exclusions at the pre-G3 seam.
+    if scientific(receipt['binding']) != scientific(r.attack_binding(c)):
+        refuse('extension_comparison_pending')
     result = r.attack_report(report)
     if result is None: refuse()
     if result.get('freshness_review') or result.get('freshness_review_malformed'):

@@ -335,6 +335,23 @@ class PackageRecordTests(unittest.TestCase):
                 records.capture(self.c, 'G3', lambda: run.g3(self.c))
             self.assertEqual(path.read_bytes(), original)
 
+    def test_retry_after_record_commit_does_not_repeat_evaluation(self):
+        records = self.records()
+        invoke = self.patch(run, 'g7', return_value=(True, {'authored': 'passed'}))
+        original = extensions._sync_directory
+        failed = False
+        def sync(path):
+            nonlocal failed
+            if (records.root / 'G7/record.json').exists() and not failed:
+                failed = True
+                raise OSError('authored directory sync failure after rename')
+            return original(path)
+        with patch.object(extensions, '_sync_directory', side_effect=sync):
+            with self.assertRaises(OSError): records.capture(self.c, 'G7', lambda: run.g7(self.c))
+        records.capture(self.c, 'G7', lambda: run.g7(self.c))
+        invoke.assert_called_once()
+
+
     def test_real_gate_pipeline_copies_saved_bench_and_detail_proofs(self):
         import test_scientific_receipts as artifacts
         import gate_state
@@ -448,6 +465,17 @@ class PackageTests(unittest.TestCase):
         run.finalize_accounting(self.c)
         self.assertEqual(self.c.card['diagnosis_state'], state)
         self.assertEqual(self.calls, calls); self.assertEqual(self.executed, gates)
+
+    def test_stress_handoff_before_first_record_ignores_restored_worker_count(self):
+        self.pipeline()
+        self.c.args.bench_workers = 1
+        self.execute()  # terminal stress checkpoint, before package record publication
+        calls = list(self.calls)
+        self.c.args.bench_workers = 2
+        self.package()
+        self.assertEqual(self.calls, calls)
+        self.assertIsNotNone(extensions.read(self.c)[-1]['outcome'])
+
 
     def test_stress_failure_completes_without_gates(self):
         self.pipeline(); self.findings = ['authored blocking defect']
