@@ -470,11 +470,18 @@ exit "$status"
             if sig:
                 # exec preserves the launcher PID; pressure stdout as well as
                 # the fake transport's stderr before any readiness event.
-                cmd = [sys.executable, '-c', "import os,sys; print('synthetic startup output\\n'*16384, end='', flush=True); os.execv(sys.argv[1], sys.argv[1:])", *cmd]
+                cmd = [sys.executable, '-c', "import os,sys,signal; signal.signal(signal.SIGINT, signal.SIG_DFL); print('synthetic startup output\\n'*16384, end='', flush=True); os.execv(sys.argv[1], sys.argv[1:])", *cmd]
             before = set((bench / "results/spend").glob("*.json"))
-            proc = subprocess.Popen(cmd + list(extra), env=env, stdin=subprocess.PIPE,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                    start_new_session=True)
+            # Shell background jobs inherit ignored SIGINT. Reproduce that entry
+            # state even in foreground runs; the exec wrapper must reset it before
+            # /bin/sh starts, since a shell cannot trap an inherited ignored INT.
+            previous_int = signal.signal(signal.SIGINT, signal.SIG_IGN) if sig else None
+            try:
+                proc = subprocess.Popen(cmd + list(extra), env=env, stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                        start_new_session=True)
+            finally:
+                if sig: signal.signal(signal.SIGINT, previous_int)
             # Publish before communicate releases stdin and the stdout prelude.
             (state / 'launcher.pid').write_text(str(proc.pid))
             try:
