@@ -52,44 +52,92 @@ PYCODE
   fi
 }
 
+# Print IDs, or durably merge them before resolving known creation markers.
 guard_ids() {
-  python3 - "$state" <<'PY'
-import json, pathlib, re, sys
-state = pathlib.Path(sys.argv[1])
-ids = set((state / "ids").read_text().split())
-for path in state.glob("new.*"):
-    for line in path.read_text().splitlines():
-        try: event = json.loads(line)
-        except ValueError: continue
-        if event.get("event") == "created" and re.fullmatch(r"[A-Za-z0-9_-]+", str(event.get("id", ""))):
-            ids.add(event["id"])
-if ids: print("\n".join(sorted(ids)))
-PY
+  python3 - "$state" "${1:-print}" <<'PYIDS'
+import json, os, pathlib, re, stat, sys, tempfile
+state, mode = pathlib.Path(sys.argv[1]), sys.argv[2]
+try:
+    ids = set((state / "ids").read_text().split())
+    known = []
+    for path in sorted(state.glob("new.*")):
+        if not re.fullmatch(r"new\.[0-9]+", path.name): continue
+        found = False
+        for line in path.read_text().splitlines():
+            try: event = json.loads(line)
+            except ValueError: continue
+            if not isinstance(event, dict): raise ValueError('invalid event')
+            worker = event.get("id")
+            if (event.get("event") == "created" and isinstance(worker, str) and
+                    re.fullmatch(r"[A-Za-z0-9_-]+", worker)):
+                ids.add(worker); found = True
+        if found: known.append(path)
+    text = "".join(worker + "\n" for worker in sorted(ids))
+    if mode == 'print':
+        print(text, end='')
+    else:
+        directory = os.open(state, os.O_RDONLY)
+        try:
+            # Identity must survive before its uncertainty marker can disappear.
+            for path in known:
+                with path.open('rb') as response: os.fsync(response.fileno())
+            with tempfile.NamedTemporaryFile(mode='w', dir=state, delete=False) as stream:
+                temporary = pathlib.Path(stream.name)
+                try:
+                    stream.write(text); stream.flush(); os.fsync(stream.fileno())
+                    temporary.replace(state / 'ids')
+                finally: temporary.unlink(missing_ok=True)
+            os.fsync(directory)
+            if mode == 'resolve':
+                for path in known:
+                    marker = path.with_name(path.name + '.pending')
+                    try: regular = stat.S_ISREG(marker.lstat().st_mode)
+                    except FileNotFoundError: continue
+                    if regular: marker.unlink()
+                os.fsync(directory)
+        finally: os.close(directory)
+except (OSError, ValueError):
+    print('creation evidence could not be persisted; ownership retained', file=sys.stderr)
+    sys.exit(1)
+PYIDS
 }
 
 guard_new() {
   serial=$((serial + 1))
-  new_status=0
+  id=""; new_status=0
+  # Write uncertainty before the provider can see a request. Never replay a serial.
+  python3 - "$state" "$serial" <<'PYINTENT' || return 1
+import os, pathlib, sys
+state = pathlib.Path(sys.argv[1]); response = state / ('new.' + sys.argv[2])
+try:
+    if os.path.lexists(response): raise FileExistsError()
+    with response.with_name(response.name + '.pending').open('x') as marker:
+        marker.flush(); os.fsync(marker.fileno())
+    directory = os.open(state, os.O_RDONLY)
+    try: os.fsync(directory)
+    finally: os.close(directory)
+except OSError:
+    sys.exit('creation intent unavailable; no request submitted')
+PYINTENT
   # BOAT_TYPE (small|default|large|xlarge) picks the boat size; boat-spend prices the cap with it.
   # A fresh VM can take minutes before SSH answers (cpx42 from the 2026-10-17 image: >110 s).
   ( BOAT_COMMAND_TIMEOUT_SECONDS=${BOAT_NEW_TIMEOUT_SECONDS:-300} boat new --from bench-env ${BOAT_TYPE:+--type "$BOAT_TYPE"} --no-env --no-monitoring --no-snapshots --ttl "$ttl_seconds" --json ) > "$state/new.$serial" || new_status=$?
-  guard_ids > "$state/all-ids"
-  cp "$state/all-ids" "$state/ids"
   id=$(python3 - "$state/new.$serial" <<'PY'
 import json, pathlib, re, sys
 for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
     try: event = json.loads(line)
     except ValueError: continue
-    if event.get("event") == "created" and re.fullmatch(r"[A-Za-z0-9_-]+", str(event.get("id", ""))):
+    if (isinstance(event, dict) and event.get("event") == "created" and
+            isinstance(event.get("id"), str) and re.fullmatch(r"[A-Za-z0-9_-]+", event["id"])):
         print(event["id"]); break
 PY
   )
   [ -z "${EXAM_STATUS_FILE:-}" ] || printf '%s\n' "$id" > "$EXAM_STATUS_FILE"
   if [ -z "$id" ]; then
-    touch "$state/new.$serial.pending"
     echo "boat creation outcome unknown; pending reconciliation (no duplicate launch)" >&2
     return 1
   fi
+  guard_ids resolve || return 1
   [ "$new_status" -eq 0 ] || { echo "boat new stopped; cleaning up the reported VM" >&2; return 1; }
   # BOAT_CMD replaces all boat activity, including the direct-API naming helper.
   if [ -z "${BOAT_CMD:-}" ]; then "$root/bin/boat-name" "$id" "$label: $purpose" || true; fi
@@ -232,8 +280,7 @@ guard_exit() {
     kill -TERM "$probe_pid" 2>/dev/null
     wait "$probe_pid" 2>/dev/null
   done
-  guard_ids > "$state/all-ids"
-  cp "$state/all-ids" "$state/ids"
+  guard_ids resolve || guard_cleanup_error
   for exit_id in $(cat "$state/ids"); do guard_retire "$exit_id" || guard_cleanup_error; done
   if [ -s "$state/ids" ]; then
     if boat list --json > "$state/list.json"; then
@@ -259,8 +306,9 @@ PY
     fi
   fi
   unfinished=0
+  [ "$guard_cleanup_failed" = false ] || unfinished=1
   for creation in "$state"/new.*.pending; do
-    [ ! -f "$creation" ] || unfinished=1
+    if [ -e "$creation" ] || [ -L "$creation" ]; then unfinished=1; fi
   done
   for exit_id in $(cat "$state/ids"); do
     [ -f "$state/$exit_id.deleted" ] || unfinished=1
@@ -276,8 +324,10 @@ PY
   if [ -n "${UNBUG_LAUNCH_STATE:-}" ]; then
     printf '{"primary_exit_code":%s,"cleanup_failed":%s}\n' "$guard_primary_exit_code" "$guard_cleanup_failed" > "$state/cleanup-status.json"
     if [ "$unfinished" -eq 0 ] && [ -f "$state/spend-finished" ]; then touch "$state/complete"; fi
-  else
+  elif [ "$unfinished" -eq 0 ] && [ "$guard_cleanup_failed" = false ]; then
     rm -rf "$state"
+  else
+    echo "unfinished launch evidence retained: $state" >&2
   fi
   exit "$exit_code"
 }

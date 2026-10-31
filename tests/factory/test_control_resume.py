@@ -320,5 +320,212 @@ sys.exit(result.returncode)
         self.assertTrue((state/'ids').exists())
         self.assertFalse((f.base/'deleted').exists())
 
+class CreationIntentTests(unittest.TestCase):
+    """Real exec/lock/Boat wrappers; saved provider data with authored crash timing."""
+    setUp = ControlResumeTests.setUp
+    stop = staticmethod(ControlResumeTests.stop)
+
+    def provider(self):
+        root = HERE.parent
+        fixtures = root / 'tests/factory/fixtures/isolation-timeouts'
+        self.created = json.loads((fixtures / 'created.json').read_text())
+        self.provider_path = self.f.base / 'creation-provider'
+        self.provider_path.write_text('''#!/usr/bin/env python3
+import json, os, pathlib, sys, time
+base=pathlib.Path(os.environ['TEST_BASE']); a=sys.argv[1:]
+fixtures=pathlib.Path(os.environ['CREATION_FIXTURES'])
+event=json.loads((fixtures/'created.json').read_text()); worker=event['id']
+with (base/'creation-calls').open('a') as f: f.write(json.dumps(a)+'\\n')
+if a[0]=='new':
+ state=pathlib.Path(os.environ['UNBUG_LAUNCH_STATE'] if 'UNBUG_LAUNCH_STATE' in os.environ else os.environ['TEST_STATE'])
+ assert (state/'new.1.pending').is_file()
+ (base/'provider-pid').write_text(str(os.getpid()))
+ (base/'create-entered').touch()
+ if os.environ.get('CREATE_BLOCK')=='1':
+  end=time.monotonic()+20
+  while not (base/'release').exists():
+   if time.monotonic()>end: sys.exit(90)
+   time.sleep(.01)
+ if os.environ.get('CREATE_UNKNOWN')!='1': print(json.dumps(event),flush=True)
+ sys.exit(int(os.environ.get('CREATE_EXIT','0')))
+elif a[0]=='billing': print((fixtures/'billing.json').read_text())
+elif a[0]=='list': print((fixtures/'list.json').read_text())
+elif a[0]=='delete':
+ print(json.dumps({'operation':dict(id='op-owned',targetId=worker,kind='sandbox',status='pending',stage='queued',completedAt=None)}))
+elif a[0]=='deletion':
+ print(json.dumps({'operation':dict(id='op-owned',targetId=worker,kind='sandbox',status='completed',stage='completed',completedAt='2026-10-23T19:30:00Z')}))
+else: sys.exit(9)
+''')
+        self.provider_path.chmod(0o755)
+        # The real wrapper owns the provider process session. No production transport.
+        shutil.copyfile(root / 'bin/boat-call', self.f.root / 'bin/boat-call')
+        self.env.update(BOAT_CMD=str(self.provider_path), CREATION_FIXTURES=str(fixtures),
+                        BOAT_TYPE='default', TEST_STATE=str(self.state))
+        # Copy public release inputs missing from the older resume-only fixture.
+        from launch_manifest import worker_files
+        for name in worker_files(root):
+            source=root/name; destination=self.f.root/name
+            if source.is_file() and not destination.exists():
+                destination.parent.mkdir(parents=True,exist_ok=True)
+                shutil.copyfile(source,destination)
+        shutil.copyfile(HERE/'worker_release.py',self.f.root/'factory/worker_release.py')
+        # Collection is outside these crash exams; deletion still uses the real verifier.
+        collector = self.f.root / 'factory/collect.sh'
+        collector.write_text('#!/bin/sh\nexit 0\n'); collector.chmod(0o755)
+        self.addCleanup(self.kill_provider)
+
+    def kill_provider(self):
+        path = self.f.base / 'provider-pid'
+        if path.exists():
+            try: os.killpg(int(path.read_text()), signal.SIGKILL)
+            except ProcessLookupError: pass
+
+    def wait_file(self, path, process):
+        deadline=time.monotonic()+15
+        while not path.exists() and process.poll() is None and time.monotonic()<deadline:
+            time.sleep(.01)
+        if not path.exists():
+            self.stop(process); _,err=process.communicate(timeout=5)
+            self.fail('creation did not reach the fault boundary: '+err)
+
+    def fresh(self):
+        self.provider()
+        p=subprocess.Popen(['sh', str(self.f.root/'factory/launch.sh'), '1', '--source', 'hunt', '--dry-run'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            env={**self.env,'CREATE_BLOCK':'1'}, start_new_session=True)
+        self.addCleanup(lambda: self.stop(p))
+        p.stdin.write('synthetic identity\n'); p.stdin.close(); p.stdin=None
+        self.wait_file(self.f.base/'create-entered', p)
+        self.state=next(path for path in (self.home/'launches').iterdir() if path.name!='abandoned')
+        self.spend=next(path for path in (self.f.root/'results/spend').glob('*.json') if path.name!='test.json')
+        return p
+
+    def resume(self):
+        return subprocess.run(['sh',str(self.f.root/'factory/launch.sh'),'--resume-launch',self.state.name],
+            input='synthetic identity\n',text=True,capture_output=True,env=self.env,timeout=20)
+
+    def ledger(self):
+        return json.loads((self.home/'boat-reservations.json').read_text())
+
+    def calls(self):
+        return [json.loads(line) for line in (self.f.base/'creation-calls').read_text().splitlines()]
+
+    def assert_unfinished(self, before):
+        self.assertTrue((self.state/'new.1.pending').exists())
+        self.assertFalse((self.state/'complete').exists())
+        self.assertNotIn('finished_at',json.loads(self.spend.read_text()))
+        self.assertEqual(self.ledger(),before)
+        self.assertEqual(sum(a[0]=='new' for a in self.calls()),1)
+
+    def test_killed_creator_retains_money_across_resume_and_holder(self):
+        p=self.fresh(); before=self.ledger()
+        os.killpg(p.pid,signal.SIGKILL); self.kill_provider()
+        p.communicate(timeout=10)
+        for _ in range(2):
+            self.resume(); self.assert_unfinished(before)
+        # Same crash artifacts, bound to the existing holder fixture's operation.
+        import test_batch_holder as hf
+        h=hf.HolderTests(); h.setUp(); self.addCleanup(h.doCleanups)
+        op=h.started(h.reserve(),created=False)
+        destination=h.home/'launches'/op['launch_id']
+        for name in ('ids','new.1','new.1.pending'):
+            shutil.copyfile(self.state/name,destination/name)
+        h.reconcile(); current=h.ops()[op['operation_id']]
+        self.assertEqual((current['state'],current['incident']),('pending','creation_unknown'))
+        self.assertEqual(hf.holder.record_child(h.policy,h.root,h.home,op['operation_id'],'resume',1),1)
+        self.assertEqual(h.ops()[op['operation_id']]['failures'],1)
+
+    def test_surviving_creator_holds_lock_then_resume_finishes(self):
+        p=self.fresh()
+        os.kill(p.pid,signal.SIGKILL); p.wait(timeout=5)
+        early=self.resume()
+        self.assertNotEqual(early.returncode,0)
+        self.assertIn('owned',early.stderr)
+        (self.f.base/'release').touch(); p.communicate(timeout=10)
+        result=self.resume()
+        # Existing monitor lacks started when creation outlives its controller;
+        # the missing-start path aborts monitoring into the real exit cleanup.
+        self.assertIn('.started',result.stderr)
+        self.assertFalse((self.state/'new.1.pending').exists(),result.stderr)
+        self.assertEqual((self.state/'ids').read_text().split(),[self.created['id']])
+        self.assertTrue((self.state/'complete').exists(),result.stderr)
+        self.assertIn('finished_at',json.loads(self.spend.read_text()))
+        self.assertEqual(self.ledger()['reservations'][str(self.spend.resolve())]['status'],'finished')
+        proof=self.spend.with_suffix('.deletions')/self.created['id']/'deletion-completion.json'
+        self.assertEqual(json.loads(proof.read_text())['status'],'completed')
+        calls=self.calls(); self.resume(); self.assertEqual(self.calls(),calls)
+
+    def bare(self, body, **environment):
+        script='''root=$1; state=$2; spend_file=$3; serial=0; bundle=''; label=factory
+id=''; ttl_seconds=3600; purpose=case
+. "$root/bin/boat-launch-guards.sh"
+collect_vm() { return 0; }
+''' + body
+        return subprocess.Popen(['sh','-c',script,'sh',str(self.f.root),str(self.state),str(self.spend)],
+            env={**self.env,**environment},stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+
+    def test_sigterm_live_exit_resolves_or_retains_without_saved_state(self):
+        self.provider()
+        (self.state/'ids').write_text('')
+        p=self.bare("trap 'guard_exit $?' 0\ntrap 'exit 143' TERM\nguard_new\n", CREATE_BLOCK='1')
+        self.addCleanup(lambda:self.stop(p))
+        self.wait_file(self.f.base/'create-entered',p)
+        os.kill(p.pid,signal.SIGTERM); (self.f.base/'release').touch()
+        _,err=p.communicate(timeout=15)
+        self.assertEqual(p.returncode,143,err)
+        self.assertFalse(self.state.exists(),err)
+        data=json.loads(self.spend.read_text())
+        self.assertEqual(data['ids'],[self.created['id']]); self.assertIn('finished_at',data)
+        proof=self.spend.with_suffix('.deletions')/self.created['id']/'deletion-completion.json'
+        self.assertEqual(json.loads(proof.read_text())['status'],'completed')
+        # Unknown create, same live SIGTERM path, must retain evidence and not finish.
+        self.state.mkdir(); (self.state/'ids').touch()
+        self.spend.write_text(json.dumps(dict(provider='boat',balance_before_usd=10)))
+        for name in ('release','create-entered'): (self.f.base/name).unlink()
+        p=self.bare("trap 'guard_exit $?' 0\ntrap 'exit 143' TERM\nguard_new\n", CREATE_BLOCK='1',CREATE_UNKNOWN='1')
+        self.addCleanup(lambda:self.stop(p))
+        self.wait_file(self.f.base/'create-entered',p)
+        os.kill(p.pid,signal.SIGTERM); (self.f.base/'release').touch()
+        _,err=p.communicate(timeout=15)
+        self.assertEqual(p.returncode,143,err)
+        self.assertTrue((self.state/'new.1.pending').exists())
+        self.assertNotIn('finished_at',json.loads(self.spend.read_text()))
+
+    def test_success_nonzero_and_early_failure_preserve_identity(self):
+        self.provider(); (self.state/'ids').write_text('')
+        # Nonzero provider status still has a known identity and durable ownership.
+        p=self.bare('guard_new; result=$?; printf "%s %s" "$result" "$id"',CREATE_EXIT='9')
+        out,err=p.communicate(timeout=10)
+        self.assertEqual(out,'1 '+self.created['id'],err)
+        self.assertFalse((self.state/'new.1.pending').exists())
+        self.assertEqual((self.state/'ids').read_text().split(),[self.created['id']])
+        old=(self.state/'new.1').read_bytes()
+        p=self.bare('id=stale; guard_new; result=$?; printf "%s:%s" "$result" "$id"')
+        out,err=p.communicate(timeout=10)
+        self.assertEqual(out,'1:',err); self.assertEqual((self.state/'new.1').read_bytes(),old)
+        (self.state/'new.2.pending').mkdir()
+        p=self.bare('serial=1; id=stale; guard_new; result=$?; printf "%s:%s\\n" "$result" "$id"; guard_exit 1',
+                    UNBUG_LAUNCH_STATE=str(self.state))
+        out,err=p.communicate(timeout=10)
+        self.assertEqual(out,'1:\n',err)
+        self.assertEqual((self.state/'ids').read_text().split(),[self.created['id']])
+        self.assertFalse((self.state/'complete').exists())
+        self.assertNotIn('finished_at',json.loads(self.spend.read_text()))
+        self.assertEqual(sum(a[0]=='new' for a in self.calls()),1)
+
+    def test_merge_failure_keeps_prior_ids_and_reported_id(self):
+        self.provider(); (self.state/'ids').write_text('existing-reuse-worker\n')
+        (self.state/'new.9').mkdir()  # Read failure after valid serial 1 event.
+        p=self.bare('guard_new; result=$?; printf "%s:%s" "$result" "$id"')
+        out,err=p.communicate(timeout=10)
+        self.assertEqual(out,'1:'+self.created['id'],err)
+        self.assertTrue((self.state/'new.1.pending').exists())
+        self.assertEqual((self.state/'ids').read_text(),'existing-reuse-worker\n')
+        p=self.bare('guard_retire() { return 1; }; guard_exit 1',UNBUG_LAUNCH_STATE=str(self.state))
+        _,err=p.communicate(timeout=10)
+        self.assertEqual((self.state/'ids').read_text(),'existing-reuse-worker\n')
+        self.assertNotIn('finished_at',json.loads(self.spend.read_text()))
+        self.assertFalse((self.state/'complete').exists())
+
 
 if __name__=='__main__': unittest.main()
