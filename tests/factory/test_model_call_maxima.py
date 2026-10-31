@@ -847,7 +847,7 @@ class ProtocolTests(unittest.TestCase):
                 self.stalled.release.set()
                 if 'gate' in observed:observed['gate'].state.close()
                 pool.shutdown(wait=True)
-                if real_cli and pids.exists():
+                if real_cli and pids.exists() and not observed.get('process_checked'):
                     parent,_=json.loads(pids.read_text())
                     try:os.killpg(parent,signal.SIGKILL)
                     except ProcessLookupError:pass
