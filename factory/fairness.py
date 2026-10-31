@@ -17,11 +17,15 @@ def verdict(payload, attempts):
     expected = {a["try"] for a in attempts}
     if len(expected) != len(attempts):
         return None
+    from calibration import scientific_outcome
+    by_try = {row["try"]: row for row in attempts}
     seen = set()
     for row in rows:
         if (not isinstance(row, dict) or type(row.get("try")) is not int or
                 row["try"] not in expected or row["try"] in seen or row.get("label") not in LABELS or
                 any(not isinstance(row.get(k), str) or not row[k].strip() for k in ("finding", "evidence"))):
+            return None
+        if row["label"] == "wrong_fix" and scientific_outcome(by_try[row["try"]]) != "demonstrated_failure":
             return None
         seen.add(row["try"])
     return {label: sum(row["label"] == label for row in rows) for label in LABELS}
@@ -37,7 +41,7 @@ def independent(c, r):
 
 def review_attempts(c, r, gate, folder):
     independent(c, r)
-    from calibration import atomic_results, attempt_summary, guard_submitted, tree_digest
+    from calibration import atomic_results, attempt_summary, guard_submitted, tree_digest, scientific_outcome
     from run_validity import InvalidInfra, require_valid
     from independent_review import review
     attempts = r.jload(c.work / folder / "results.json", [])
@@ -70,9 +74,14 @@ def review_attempts(c, r, gate, folder):
                         runs=c.args.runs if folder == 'judge_breadth' else c.args.pilot_runs,
                         collect_passes=False)
                 rows = r.jload(path, [])
-            if len(rows) != 1 or not guard_submitted(pathlib.Path(rows[0]['workspace']) / 'guard'):
+            if len(rows) != 1 or not isinstance(rows[0], dict):
                 from run_validity import InfrastructureExhausted
-                raise InfrastructureExhausted('replacement supplied no reviewable fix')
+                raise InfrastructureExhausted('replacement receipt missing or malformed')
+            attempt_summary(rows)
+            if not guard_submitted(pathlib.Path(rows[0]['workspace']) / 'guard'):
+                if rows[0].get('guard_submitted') is not False:
+                    raise InvalidInfra('replacement submission evidence missing')
+                return None  # A completed no-submission is scientific inconclusive.
             attempt = {**rows[0], 'try': original['try'], 'source': 'fairness_replacement'}
             workspace = pathlib.Path(attempt['workspace']).resolve()
             workspace.relative_to(c.work.resolve())
@@ -92,7 +101,13 @@ def review_attempts(c, r, gate, folder):
             attempt.update(errors=0, bench_crash=None, checked_runs=len(values),
                            solved_runs=sum(v['solved'] for v in values), solved=all(v['solved'] for v in values))
             attempt['artifacts'] = tree_digest(workspace)
+            if 'scientific_outcome' in attempt:
+                attempt['scientific_outcome'] = scientific_outcome(attempt)
         attempt_summary([attempt])
+        # Caps/unknown stops cannot prove wrong_fix, even if a model says so.
+        # Do not spend reviewer families or turn this into infrastructure failure.
+        if scientific_outcome(attempt) not in ('solved', 'demonstrated_failure'):
+            return None
         repaired.append(attempt if attempt.get('source') != 'fairness_replacement' else original)
         review_rows.append(attempt)
     atomic_results(c.work / folder / 'results.json', repaired)

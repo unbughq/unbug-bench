@@ -364,7 +364,8 @@ class AttemptSeries:
             raise ValueError("calibration attempts must commit in order")
         if pathlib.Path(workspace) != self.path.parent / f"try-{row['try']}":
             raise ValueError("calibration workspace does not match attempt")
-        completed = {**row, "identity": self.identity, "workspace": str(workspace),
+        completed = {**row, "scientific_outcome": scientific_outcome(row),
+                     "identity": self.identity, "workspace": str(workspace),
                      "artifacts": tree_digest(workspace)}
         pending = [*self.rows, completed]
         attempt_summary(pending)
@@ -422,6 +423,28 @@ NO_FIX = {"no guard written": "unrecorded", "no guard written (timeout)": "time_
           "no guard written (call_limit)": "call_limit"}
 
 
+SCIENTIFIC_OUTCOMES = ("solved", "demonstrated_failure", "capped", "no_submission", "unknown")
+
+
+def scientific_outcome(row):
+    """Classify observed evidence, never infer an uncapped fix from legacy counts."""
+    from run_validity import require_valid
+    require_valid({'runs': 1, 'error_runs': row.get('errors', 0),
+                   'invalid_runs': int(bool(row.get('bench_crash')))})
+    if row.get('solved') is True:
+        return "solved"
+    if row.get('guard_submitted') is False or (isinstance(row.get('why'), str) and row['why'] in NO_FIX):
+        return "no_submission"
+    if row.get('stop_reason') in ("time_limit", "call_limit"):
+        return "capped"
+    checked, solved = row.get('checked_runs'), row.get('solved_runs')
+    if (row.get('stop_reason') == 'completed' and row.get('guard_submitted') is True
+            and type(checked) is int and type(solved) is int and 0 <= solved < checked
+            and row.get('errors') == 0):
+        return "demonstrated_failure"
+    return "unknown"
+
+
 def require_summary_valid(summary):
     """Legacy public diagnostics can disprove validity; absent raw evidence cannot prove it."""
     from run_validity import require_valid
@@ -440,10 +463,15 @@ def attempt_summary(rows):
         raise ValueError("invalid calibration results")
     stops = dict.fromkeys(STOP_REASONS, 0)
     outcomes = dict.fromkeys(OUTCOMES, 0)
+    scientific = dict.fromkeys(SCIENTIFIC_OUTCOMES, 0)
     for row in rows:
         from run_validity import require_valid
         require_valid({'runs': 1, 'error_runs': row.get('errors', 0),
                        'invalid_runs': int(bool(row.get('bench_crash')))})
+        observed = scientific_outcome(row)
+        if "scientific_outcome" in row and row["scientific_outcome"] != observed:
+            raise ValueError("conflicting scientific outcome")
+        scientific[observed] += 1
         why = row.get("why")
         legacy_no_fix = isinstance(why, str) and why in NO_FIX
         stop = row.get("stop_reason")
@@ -466,7 +494,8 @@ def attempt_summary(rows):
             outcome = "unknown"
         outcomes[outcome] += 1
     return {"tries": len(rows), "solved": outcomes["solved"],
-            "diagnostics": {"version": 1, "stop_reasons": stops, "outcomes": outcomes}}
+            "diagnostics": {"version": 1, "stop_reasons": stops, "outcomes": outcomes},
+            "scientific": {"version": 1, "outcomes": scientific}}
 
 
 def interruption_label(error):
