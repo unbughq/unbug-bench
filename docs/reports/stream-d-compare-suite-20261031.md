@@ -30,3 +30,16 @@ Log: [stream-d-compare-suite-20261031-2.log.gz](stream-d-compare-suite-20261031-
 Original unique log: `/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/stream-d-compare-20261031-suite-2-v12pw8ia.log`.
 Uncompressed SHA256: `022c9c97ef7210332dd7aedacb165960da955d760ec1e7e8bc7702cc1afb7e9e`.
 The corrected manifest test also passed independently (2 tests).
+
+
+Run 3 tested `eff8114009cb54289afecd974d5442785451e7e2`: **157 scripts, 0 failed,
+exit 0**. This includes diff-review-1 fixes at `f5218fa` and the parent-authorized
+merge of `c32e884` (E loaded cleanup and A account-2 routing). Comparison focused
+coverage is now 16 tests; all passed, as did the 17 existing extension-state
+tests. The full command completed before this record and the fresh re-review.
+
+Log: [stream-d-compare-suite-20261031-3.log.gz](stream-d-compare-suite-20261031-3.log.gz).
+Original unique log: `/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/stream-d-compare-20261031-suite-3-gsgdvxr4.log`.
+Uncompressed SHA256: `57116de067b15263dc5fed70c1392cbad76b393fe94a744da28503bae571c404`.
+The item-6 change still closes no Murphy row; register changes inherited from
+`c32e884` belong to their original streams.
