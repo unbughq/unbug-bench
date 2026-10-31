@@ -79,11 +79,21 @@ def run(runner, c, number, report, receipt, completed):
                     if key == 'unfinished_validation' and category.get('complete'): continue
                     for entry in value.get(key, []):
                         if entry not in result[key] and entry != 'review incomplete': result[key].append(entry)
+        result.update(status='scored' if result['complete'] or result['blocking'] else 'pending',
+            round=number, operation_id=receipt.get('operation_id'),
+            category_state=str(path.relative_to(c.work)), stop_reason=state.get('stop_reason'),
+            coverage={key: {'complete': state['categories'].get(key, {}).get('complete', False),
+                'done': state['categories'].get(key, {}).get('done', []),
+                'pending': sorted(set(checks) - set(state['categories'].get(key, {}).get('done', [])))}
+                for key, checks in CATEGORIES.items()},
+            partial_reports=[{'file': str(p.relative_to(c.work)),
+                'sha256': hashlib.sha256(p.read_bytes()).hexdigest()}
+                for p in sorted(directory.glob('*-partial-*.json'))])
         atomic_json(report, result)
         return result
     save()
-    publish(c)
     result = aggregate()
+    publish(c)
     if result['blocking'] or result['complete']:
         finish(result); return
     for category, subchecks in CATEGORIES.items():
@@ -126,10 +136,19 @@ def run(runner, c, number, report, receipt, completed):
                 value = answer(context, c.models['attacker'],
                     {'binding': binding, 'round': number, 'category': category, 'continuation': sequence},
                     'stress', 'category-v1:' + json.dumps(subchecks), request, invoke, lambda v: valid(v, category))
+            except BudgetError as error:
+                # invoke's finally has retained raw bytes; they remain evidence,
+                # never scored findings. Leave publication to stop/seal or resume.
+                state['stop_reason'] = str(error)
+                atomic_json(c.work / 'stress-publication.json', {'pending': True, 'identity': digest(state)})
+                save()
+                aggregate()
+                raise
             finally:
                 for key in ('budget_resumed', 'force_budget_resume', 'router_excluded'):
                     if hasattr(context, key): setattr(c, key, getattr(context, key))
             if binding != runner.attack_binding(c): raise BudgetError('case_changed_during_review')
+            state.pop('stop_reason', None)
             atomic_json(output, value)
             row['results'].append({'file': output.name, 'sha256': hashlib.sha256(output.read_bytes()).hexdigest()})
             row['done'] = sorted(before | set(value['completed_subchecks']))

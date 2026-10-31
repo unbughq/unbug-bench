@@ -175,7 +175,8 @@ class HeldTests(unittest.TestCase):
         self.assertEqual(self.c.card['diagnosis_state'], state)
         self.assertIsNone(diagnosis.pending_projection(self.c.card))
         self.assertEqual(self.ledger.read_bytes(), before)
-        restored = type(self.c)(card={}, args=self.c.args, job_money=self.c.job_money)
+        restored = type(self.c)()
+        vars(restored).update(card={}, args=self.c.args, job_money=self.c.job_money)
         run.inherit_recovery_history(restored, self.c.card)
         self.assertEqual(restored.card['factory_bug'], self.c.card['factory_bug'])
         restored.card['factory_bug']['summary_class'] = 'changed copy'
