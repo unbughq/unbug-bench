@@ -38,9 +38,11 @@ the necessary historical-source ordering check fails. Directory timestamps
 match the latest retained child's timestamps, which is consistent but cannot
 prove intact history. Both read-only Git queries failed; no HEAD/reflog evidence
 was obtained. This does not assert a reason (for example, absent Git checkout).
-`provenance.json` records local Git-blob matching separately: guards/spend match the initial
-4936347 commit, control_resume matches cfe4ad8, and launch.sh matches no retained
-blob across the locally available branch history. No retained record
+`provenance.json` records local Git-blob matching separately: guards/spend match blobs represented
+by commit 4936347, control_resume matches a blob represented by cfe4ad8, and
+launch.sh matches no retained blob across the locally available branch history.
+The analysis keeps one representative commit per matching blob; it does not
+enumerate every commit containing that blob or identify the repository origin. No retained record
 binds the executing source to b275 or proves an unpruned directory, so
 execution_binding=false, intact_history=false and verdict=unresolved.
 Do not write a completion marker, remove the directory or release ownership.
@@ -70,7 +72,7 @@ from the all-in deployment proof.
 | start-charge | satisfied | Published maximum extra-start price is USD 0.07 per start. [limits.md](https://docs.boat.dev/limits.md) (`644a292de716fe566b69d4f8f881c5c18527d4a73d6bcfbff89a3d0e114d7a7b`). Scope: price per start only; creation multiplicity remains unresolved. |
 | storage-charge | unresolved | [pricing.md](https://docs.boat.dev/pricing.md) (`b2203efdd360f109f516c728dd294730499c54b2e5a457d8346d241b7936b31b`) includes automatic snapshots; paid saved snapshots are distinct. Need runtime/configuration evidence the pinned workload creates no paid saved snapshots; current no-snapshots flag alone is not all workload behavior proof. |
 | proxy-charge | unresolved | [ai-credentials.md](https://docs.boat.dev/ai-credentials.md) (`fc68551cbe3f30c2bad982d3e888f5d3dc6f457594cb3beb3a02f3b6b7943be1`) documents paid AI proxy behavior. Need runtime/account configuration evidence that this workload uses no paid Boat AI proxy, not merely --no-env or direct-model intent. No credential values should be collected. |
-| egress-charge | satisfied | [pricing.md](https://docs.boat.dev/pricing.md) (`b2203efdd360f109f516c728dd294730499c54b2e5a457d8346d241b7936b31b`) explicitly includes network egress. Scope: Boat provider network egress, not other providers or future pricing. |
+| egress-charge | satisfied | [pricing.md](https://docs.boat.dev/pricing.md) (`b2203efdd360f109f516c728dd294730499c54b2e5a457d8346d241b7936b31b`) states that Boat does not bill network egress. Scope: Boat provider network egress, not other providers or future pricing. |
 | cumulative-ledger | unresolved | Require settled conservative charges + unresolved full holds + next justified hold <= USD 5 across all successor workers. bin/boat-spend at base 839a096 checks a per-launch estimate and current reserved holds; finished holds leave that sum. No cumulative batch infrastructure ledger exists. [billing.md](https://docs.boat.dev/billing.md) (`ebfdf29702f22db170024067c8ee7a9aeea40ac100649374e0d2fd26b26aeb9b`) is not a per-batch cap. Need the reviewed hold formula first, then durable cumulative admission/settlement and crash tests. |
 | legacy-provenance | unresolved | observations.json + provenance.json: source ctime-before-launch fails, execution binding and intact history absent. Need retained deployment/execution provenance predating b275 and intact directory history, or authoritative provider resolution of its creation. A free lock, empty list and matching current Git blob cannot resolve it. |
 | deployment-readiness | unresolved | All cost/ownership rows plus B2 authenticated store/input proof and B3 reviewed exact policy/release pins must pass. Missing router/batch units and old staged release are observed facts, not permission to install. No activation or deployment took place. |
@@ -114,3 +116,30 @@ tested commit 97fedd1754840c153cce1bd75df522281933d33c. See
 [the result record](full-suite-20261031T145151Z-0a6616ef.json) and its compressed
 log for timestamps, tree/log hashes and reported skips. No source or test changed
 during the run. Fresh diff review follows this committed suite record.
+
+## Local probe invocation record
+
+The local invocation used the following Python subprocess arguments. This is a
+record of the command used for the retained observation, not a new probe run.
+Path.home() was expanded locally by Python; no identity contents were read by
+the probe or included in its payload. Raw SSH stderr was captured in memory,
+never printed or saved; nonzero exit or invalid JSON would fail the collection.
+
+```python
+args = [
+    'ssh', '-i', str(Path.home() / '.ssh/unbug-bench-hcloud'),
+    '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
+    '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=yes',
+    '-o', 'UserKnownHostsFile=' + str(
+        Path.home() / '.cache/unbug-bench/hcloud/172111861.known_hosts'),
+    'user@2.31.89.209', 'python3 -B -',
+]
+result = subprocess.run(
+    args, input=(base / 'probe.py').read_bytes(),
+    capture_output=True, timeout=150,
+)
+```
+
+Fresh diff review passed with no blockers:
+`docs/reviews/stream-b-cleanup-qualification-diff-1.md`. The post-review changes
+are documentation clarifications and the verbatim review record only.
