@@ -14,6 +14,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import shutil
+import signal
+import ssl
+import subprocess
 import sqlite3
 import tempfile
 import threading
@@ -532,6 +535,7 @@ class MaximaTests(unittest.TestCase):
 class ProtocolTests(unittest.TestCase):
     def setUp(self):
         self.seen=[];self.failure=False;self.malformed=False;self.stalled=None
+        self.https_connection=http.client.HTTPSConnection
         owner=self
         class Upstream(BaseHTTPRequestHandler):
             def log_message(self,*a):pass
@@ -542,7 +546,8 @@ class ProtocolTests(unittest.TestCase):
                 data=b'not valid usage' if owner.malformed else sse(usage)
                 self.send_response(503 if owner.failure else 200)
                 self.send_header('Content-Type','text/event-stream')
-                self.send_header('Content-Length',str(len(data)))
+                if owner.stalled is None or owner.stalled.content_length:
+                    self.send_header('Content-Length',str(len(data)))
                 if owner.stalled is not None and owner.stalled.close_header:
                     self.send_header('Connection','close')
                 self.send_header('anthropic-ratelimit-requests-reset','2030-01-01T00:00:00Z')
@@ -552,7 +557,7 @@ class ProtocolTests(unittest.TestCase):
                 else:
                     stall=owner.stalled
                     self.wfile.write(stall.prefix);self.wfile.flush()
-                    if not stall.release.wait(30):return
+                    if not stall.release.wait(stall.wait_seconds):return
                     try:
                         self.wfile.write(data[len(stall.prefix):]);self.wfile.flush()
                     except OSError:pass  # The real gate has already shut down this socket.
@@ -648,18 +653,49 @@ class ProtocolTests(unittest.TestCase):
                 self.upstream.RequestHandlerClass.protocol_version=protocol
                 self._runtime_close_mid_response_retains_hold_once(close_header)
 
-    def _runtime_close_mid_response_retains_hold_once(self,close_header):
+    def test_real_process_tls_cancellation_settles_unknown_once(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            cert,key=Path(temporary)/'cert.pem',Path(temporary)/'key.pem'
+            subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes',
+                '-keyout',str(key),'-out',str(cert),'-subj','/CN=localhost',
+                '-addext','subjectAltName=DNS:localhost','-days','1'],
+                check=True,capture_output=True,timeout=10)
+            context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.load_cert_chain(cert,key)
+            self.upstream.socket=context.wrap_socket(self.upstream.socket,server_side=True)
+            trust=ssl.create_default_context(cafile=str(cert))
+            def connect(host,**kwargs):
+                self.assertEqual(host,'api.anthropic.com')
+                return self.https_connection('localhost',self.upstream.server_port,context=trust,**kwargs)
+            # CPython HTTPSConnection uses super(HTTPSConnection, self): keep
+            # its module global a real class; redirect only the gate's namespace.
+            transport=SimpleNamespace(client=SimpleNamespace(HTTPSConnection=connect,
+                HTTPException=http.client.HTTPException))
+            with patch.object(http.client,'HTTPSConnection',self.https_connection), \
+                 patch.object(gate,'http',transport):
+                for protocol,close_header,length in (('HTTP/1.1',False,True),
+                        ('HTTP/1.1',True,True),('HTTP/1.0',False,True),('HTTP/1.0',False,False)):
+                    with self.subTest(protocol=protocol,close_header=close_header,content_length=length):
+                        self.upstream.RequestHandlerClass.protocol_version=protocol
+                        self._runtime_close_mid_response_retains_hold_once(close_header,
+                            real_cli=True,content_length=length)
+
+    def _runtime_close_mid_response_retains_hold_once(self,close_header,*,real_cli=False,content_length=True):
         # Synthetic transport fault through the real gate, runtime receipt writer
-        # and accountant. No CLI, provider, credential or live-worker evidence.
+        # and accountant. Optional real local client process, never a provider CLI
+        # or live worker. Protocol bytes and job authority are synthetic.
         prefix=sse(dict(input_tokens=1,cache_read_input_tokens=0,
                         cache_creation_input_tokens=0,output_tokens=1)).split(b'\n\n')[0]+b'\n\n'
         self.stalled=SimpleNamespace(prefix=prefix,release=threading.Event(),attempted=threading.Event(),
-                                     close_header=close_header)
+                                     close_header=close_header,content_length=content_length,
+                                     wait_seconds=60 if real_cli else 30)
         received,handler_done=threading.Event(),threading.Event()
-        observed={}
+        observed={};cancel_started=threading.Event()
         original=gate.Handler.do_POST
         def handle(handler):
             try:return original(handler)
+            except Exception as error:
+                observed['handler_error']=repr(error)
+                raise
             finally:handler_done.set()
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);(root/'transcripts').mkdir();ram=root/'ram';ram.mkdir()
@@ -675,6 +711,7 @@ class ProtocolTests(unittest.TestCase):
                 batch_deadline=deadline,source_generation=None,
                 job_money=copy.deepcopy(channel),authenticated_job_config={'job_money':copy.deepcopy(channel)},
                 router_accounts=('claude-factory-token-2',))
+            c.role_cancel=threading.Event()
             c.ledger.write_text(json.dumps({'cost':0,'calls':0,'events':[]}))
             store=router.Store(root/'router.sqlite')
             runtime=model_runtime.ModelRuntime(root,Mock(),Mock(),lambda p,**kw:shutil.rmtree(p),Mock())
@@ -690,26 +727,89 @@ class ProtocolTests(unittest.TestCase):
                     received.set()
                     return first+response.read()  # Must reach EOF before upstream release.
                 finally:connection.close()
+            ready,pids,heartbeat=root/'ready',root/'pids.json',root/'heartbeat'
+            executable=root/'local-client'
+            if real_cli:
+                child=("import pathlib,time; p=pathlib.Path("+repr(str(heartbeat))+")\n"
+                       "while True:\n p.write_text(str(time.monotonic_ns())); time.sleep(.02)")
+                executable.write_text(f"#!{sys.executable}\n"+
+                    "import http.client,json,os,pathlib,subprocess,sys,time\n"
+                    "from urllib.parse import urlsplit\n"+
+                    f"child=subprocess.Popen([sys.executable,'-c',{child!r}])\n"+
+                    f"pathlib.Path({str(pids)!r}).write_text(json.dumps([os.getpid(),child.pid]))\n"+
+                    "url=urlsplit(os.environ['ANTHROPIC_BASE_URL'])\n"
+                    "conn=http.client.HTTPConnection(url.hostname,url.port,timeout=60)\n"
+                    "try:\n"+
+                    f" conn.request('POST','/v1/messages',{json.dumps(body())!r},"+
+                    "{'Authorization':'Bearer '+os.environ['CLAUDE_CODE_OAUTH_TOKEN'],"+
+                    "'Content-Type':'application/json'})\n"
+                    " response=conn.getresponse()\n"+
+                    f" assert response.status==200 and response.read({len(prefix)})=={prefix!r}\n"+
+                    f" pathlib.Path({str(ready)!r}).touch()\n"
+                    " response.read()\n"
+                    f"except Exception as error: pathlib.Path({str(root/'client-error')!r}).write_text(repr(error))\n"
+                    "while True: time.sleep(.05)\n")
+                executable.chmod(0o755)
+            def state(pid):
+                result=subprocess.run(['ps','-o','stat=','-p',str(pid)],
+                    capture_output=True,text=True,timeout=5)
+                self.assertIn(result.returncode,(0,1),result.stderr)
+                return result.stdout.strip()
             def execute(cmd,cwd,env,*args,**kw):
-                kw['on_started']()
                 observed['gate']=kw['cancel']
+                if real_cli:
+                    try:return budget.run_budgeted(cmd,cwd,env,*args,**kw)
+                    except budget.BudgetError as error:
+                        self.assertEqual(str(error),'cancelled')
+                        parent,child=json.loads(pids.read_text())
+                        # run_budgeted must already have reaped its direct child.
+                        with self.assertRaises(ChildProcessError):os.waitpid(parent,os.WNOHANG)
+                        self.assertEqual(state(parent),'')
+                        child_state=state(child)
+                        self.assertTrue(not child_state or child_state.startswith('Z'),child_state)
+                        before=heartbeat.read_bytes();time.sleep(.15)
+                        self.assertEqual(heartbeat.read_bytes(),before)
+                        # Gate close and runtime reservation settlement happen later.
+                        self.assertFalse(kw['cancel'].state.snapshot()['closed'])
+                        reservation,=json.loads(c.ledger.read_text())['invocation_reservations'].values()
+                        self.assertEqual(reservation['state'],'pending')
+                        observed['process_checked']=True
+                        raise
+                kw['on_started']()
                 observed['client']=pool.submit(client,env.copy())
                 self.assertTrue(received.wait(10),'client never received the relayed prefix')
-                observed['cancelled_at']=time.monotonic()
+                observed['cancelled_at']=time.monotonic();cancel_started.set()
                 raise budget.BudgetError('cancelled')
             pool=ThreadPoolExecutor(max_workers=2)
             try:
                 with patch.object(router,'_rpc',store.rpc),patch.object(router,'SECRETS',ram), \
-                     patch.object(model_runtime,'pinned_cli',return_value='synthetic-no-cli'), \
+                     patch.object(model_runtime,'pinned_cli',return_value=str(executable) if real_cli else 'synthetic-no-cli'), \
                      patch.object(model_runtime,'run_budgeted',side_effect=execute), \
                      patch.object(gate.Handler,'do_POST',handle):
-                    future=pool.submit(runtime.call,c,[GATED_CLAUDE],'synthetic',root,'builder-1',timeout=30)
-                    self.assertTrue(received.wait(10),'request did not reach the relay')
+                    future=pool.submit(runtime.call,c,[GATED_CLAUDE],'synthetic',root,'builder-1',
+                                       timeout=60 if real_cli else 30)
+                    if real_cli:
+                        until=time.monotonic()+20
+                        while not (ready.exists() and heartbeat.exists()):
+                            if future.done():future.result()  # expose admission/startup errors
+                            self.assertFalse((root/'client-error').exists(),
+                                ((root/'client-error').read_text(),observed.get('handler_error')) if (root/'client-error').exists() else '')
+                            self.assertLess(time.monotonic(),until,'local client never became ready')
+                            time.sleep(.02)
+                        parent,child=json.loads(pids.read_text())
+                        self.assertEqual(os.getpgid(parent),parent)
+                        self.assertEqual(os.getpgid(child),parent)
+                        observed['cancelled_at']=time.monotonic()
+                        c.role_cancel.set()
+                    else:
+                        self.assertTrue(received.wait(10),'request did not reach the relay')
+                        self.assertTrue(cancel_started.wait(5),'simulated cancellation never started')
+                    end=observed['cancelled_at']+(15 if real_cli else 5)
                     with self.assertRaisesRegex(budget.BudgetError,'^cancelled$'):
-                        future.result(timeout=5)
-                    end=observed['cancelled_at']+5
+                        future.result(timeout=max(0,end-time.monotonic()))
                     self.assertTrue(handler_done.wait(max(0,end-time.monotonic())))
-                    self.assertEqual(observed['client'].result(timeout=max(0,end-time.monotonic())),prefix)
+                    if real_cli:self.assertTrue(observed['process_checked'])
+                    else:self.assertEqual(observed['client'].result(timeout=max(0,end-time.monotonic())),prefix)
                     self.assertLess(time.monotonic(),end)
                     self.assertFalse(self.stalled.release.is_set())
                     active=observed['gate']
@@ -729,11 +829,12 @@ class ProtocolTests(unittest.TestCase):
                     self.assertEqual(row['estimated_gap_usd'],'8.655360000')
                     self.assertEqual(Decimal(str(budget.case_spending(ledger)['total_spent_usd'])),Decimal('8.655360'))
                     self.assertEqual(ledger['events'],[])
+                    before=c.ledger.read_bytes()
                     self.stalled.release.set();self.assertTrue(self.stalled.attempted.wait(5))
+                    self.assertEqual(c.ledger.read_bytes(),before)
                     self.assertEqual(json.dumps(active.state.snapshot(),sort_keys=True),snapshot)
                     self.assertEqual(receipt_path.read_bytes(),receipt_bytes)
                     self.assertIsNone(active.state.reserve(32768))
-                    before=c.ledger.read_bytes()
                     for _ in range(2):
                         budget.reconcile_reservations(root,c.ledger)
                         self.assertEqual(c.ledger.read_bytes(),before)
@@ -742,9 +843,14 @@ class ProtocolTests(unittest.TestCase):
                     self.assertEqual(interrupted['lease_id'],row['lease_id'])
                     self.assertEqual(interrupted['call_id'],route['call_id'])
             finally:
+                c.role_cancel.set()
                 self.stalled.release.set()
                 if 'gate' in observed:observed['gate'].state.close()
                 pool.shutdown(wait=True)
+                if real_cli and pids.exists():
+                    parent,_=json.loads(pids.read_text())
+                    try:os.killpg(parent,signal.SIGKILL)
+                    except ProcessLookupError:pass
 
     def test_successful_cli_cannot_hide_gate_unknown_usage_in_real_runtime_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -1,0 +1,37 @@
+[
+  {
+    "source": "/Users/bugsincode/Developer/unbug-bench-e15450-restore-14-20261029/results/spend/20261029T095210Z-99393-factory.json",
+    "destination": "20261029T095210Z-99393-factory.json",
+    "source_sha256": "dd2bef555128b93ccd23fc2127dca6ecfd2a9dbc2c9d110a9db436335ebbc138",
+    "retained_sha256": "dd2bef555128b93ccd23fc2127dca6ecfd2a9dbc2c9d110a9db436335ebbc138",
+    "transformation": "verbatim"
+  },
+  {
+    "source": "/Users/bugsincode/Developer/unbug-bench-e15450-restore-14-20261029/results/spend/20261029T095210Z-99393-factory-bx_d6dzvjbc.readiness.json",
+    "destination": "20261029T095210Z-99393-factory-bx_d6dzvjbc.readiness.json",
+    "source_sha256": "64e58adc8885ded73aa485e59fe7e945edcb280a3bdb341b7988eec6e824a8d3",
+    "retained_sha256": "6ccb0752696626e5554fd18b019b1a703f55b36fe39b9be4c5d30524d20582cf",
+    "transformation": "public field allowlist"
+  },
+  {
+    "source": "/Users/bugsincode/Developer/unbug-bench-e15450-restore-14-20261029/results/spend/20261029T095210Z-99393-factory.deletions/bx_d6dzvjbc/deletion-request.json",
+    "destination": "deletion-request.json",
+    "source_sha256": "e0f38a11d450523dcd749c8550631a97ca19786648db9416615086d17fdd4183",
+    "retained_sha256": "e0f38a11d450523dcd749c8550631a97ca19786648db9416615086d17fdd4183",
+    "transformation": "verbatim"
+  },
+  {
+    "source": "/Users/bugsincode/Developer/unbug-bench-e15450-restore-14-20261029/results/spend/20261029T095210Z-99393-factory.deletions/bx_d6dzvjbc/deletion-completion-query.json",
+    "destination": "deletion-completion-query.json",
+    "source_sha256": "ec6188408ceefb03a4c9bbed80170dcfc48fe9d502fc2b5f636e3e83805ba586",
+    "retained_sha256": "ec6188408ceefb03a4c9bbed80170dcfc48fe9d502fc2b5f636e3e83805ba586",
+    "transformation": "verbatim"
+  },
+  {
+    "source": "/Users/bugsincode/Developer/unbug-bench-e15450-restore-14-20261029/results/spend/20261029T095210Z-99393-factory.deletions/bx_d6dzvjbc/deletion-completion.json",
+    "destination": "deletion-completion.json",
+    "source_sha256": "ec6188408ceefb03a4c9bbed80170dcfc48fe9d502fc2b5f636e3e83805ba586",
+    "retained_sha256": "ec6188408ceefb03a4c9bbed80170dcfc48fe9d502fc2b5f636e3e83805ba586",
+    "transformation": "verbatim"
+  }
+]
