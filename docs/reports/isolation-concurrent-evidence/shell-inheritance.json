@@ -1,0 +1,4 @@
+{
+  "foreground_ignores_SIGINT": "False",
+  "shell_background_ignores_SIGINT": "True"
+}
