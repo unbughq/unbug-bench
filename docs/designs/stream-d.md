@@ -3720,7 +3720,10 @@ admission/recovery is done. Each line is one intended reviewable increment.
   authenticated active extensions into the existing writer/stress loop; enforce
   one admitted round across pending/completed/validated replay, preserve receipt
   authority, and stop before gate/package completion.
-- [ ] **Complete writer/stress/gate package — large.** Join freshness and unfinished
+- [ ] **Package increment 1: retained freshness recovery — small.** Preserve the
+  completed-review fallback through diagnosis publication; test valid reuse and
+  stale/partial refusal. Design: `stream-d-package-freshness.md`.
+- [ ] **Package increment 2: stress/gate/outcome completion — large.** Join unfinished
   stress recovery to one gate traversal; retain entry/outcome receipts, complete
   history, and compare current versions without rerolling or extra author work.
 - [ ] **All diagnosis outcomes — large.** Admit proposed extensions after comparison;

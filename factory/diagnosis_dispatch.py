@@ -22,7 +22,7 @@ from registry import atomic_json
 
 CARRY = ('source', 'seed', 'rotation_slot', 'roles', 'models', 'models_used', 'gates',
     'gate_results', 'gate_minutes', 'early_gates', 'failed_gate', 'failed_detail',
-    'infrastructure_gate', 'late_defect', 'stress_review', 'statement_sha256',
+    'infrastructure_gate', 'late_defect', 'stress_review', 'loop_freshness', 'statement_sha256',
     'admission', 'dedup', 'dedup_skipped', 'idea_realism', 'candidate_attempts',
     'rejected_candidates', 'builder_rounds', 'recovery_config', 'factory_slots_prepared',
     'diagnosis_state', 'extension_history', 'factory_bug', 'factory_bug_resume_count')
