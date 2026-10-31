@@ -4,6 +4,7 @@ Model/gate outputs are authored; admission, receipts, reservations and loop run
 for real. No live CLI, qualification, or Murphy closure is claimed.
 """
 import copy
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -21,6 +22,7 @@ import model_router
 from run_validity import InfrastructureExhausted
 import registry
 import run
+REAL_G1 = run.g1
 import test_stream_d_extensions as states
 import test_stream_d_runtime as runtime
 
@@ -259,6 +261,115 @@ class PackageRecordTests(unittest.TestCase):
         with self.assertRaisesRegex(budget.BudgetError, 'extension_snapshot_changed'):
             records.replay(self.c, 'G1')
 
+    def test_real_g1_retains_practice_contract_result(self):
+        # Run the actual contract and local git patch checks over saved practice
+        # files. The practice specimen can fail today's full contract; its real
+        # diagnostics, not an invented pass, must be retained and replayed.
+        self.c.manifest0 = run.bench_manifest()
+        records = self.records()
+        result = records.capture(self.c, 'G1', lambda: REAL_G1(self.c))
+        self.assertEqual(result[1]['content_checks'], 'on')
+        self.assertGreater(self.c.card['counts']['scenarios'], 0)
+        self.assertEqual(records.replay(self.c, 'G1'), result)
+        data = records.load('G1')
+        for name in ('case.json', 'base/app.patch', 'promise.md'):
+            retained = next(self.work / p for p in data['support'] if p.endswith('/case/' + name))
+            self.assertEqual(retained.read_bytes(), (self.case / name).read_bytes())
+
+    def test_real_g2_retains_freshness_confirmation_and_response_bytes(self):
+        import freshness_retrieval
+        import test_scientific_receipts as artifacts
+        http = artifacts.fixture('invalid-runs-http.json.gz')
+        self.assertEqual(hashlib.sha256(http['body'].encode()).hexdigest(), http['sha256'])
+        rows = [json.loads(line) for line in (self.case / 'freshness.jsonl').read_text().splitlines() if line]
+        for row in rows:
+            row.update(at=datetime.now(timezone.utc).isoformat(), hit=False, ambiguous=False)
+        rows[0].update(url=http['url'], hit=True)
+        (self.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+        # Saved HTTP bytes drive the real retrieval and confirmation validators.
+        # The model's exclusion answer is authored, as in the G2 fixture tests;
+        # it is not a claim of live review or live qualification.
+        answer = dict(url=rows[0]['url'], app_version=rows[0]['app_version'],
+                      resolved=True, retrieved=True, same_bug=False,
+                      version_scope='Different behavior in the pinned practice release',
+                      why='The retrieved page describes a different behavior')
+        def fetch(url, **kwargs):
+            return {'url': url, 'final_url': url, 'status': 200}, http['body'].encode()
+        def review(c, chain, text, directory, name, out, *args, **kwargs):
+            registry.atomic_json(out, {'hits': [answer]})
+        with patch.object(freshness_retrieval, 'fetch', side_effect=fetch), \
+                patch.object(run, 'retained_answer', side_effect=review) as reviewer:
+            records = self.records()
+            result = records.capture(self.c, 'G2', lambda: run.g2(self.c))
+        self.assertTrue(result[0], result)
+        self.assertEqual(result[1]['flagged_hits'], 1)
+        reviewer.assert_called_once()
+        data = records.load('G2')
+        names = list(data['support'])
+        for suffix in ('/public-search.json', '/freshness-verdict.json',
+                       '/verdict.json', '/review-completed.json', '/retrieval/receipts.json'):
+            self.assertTrue(any(name.endswith(suffix) for name in names), suffix)
+        bodies = [self.work / name for name in names if name.endswith('.body')]
+        self.assertTrue(bodies)
+        self.assertTrue(all(path.read_bytes() == http['body'].encode() for path in bodies))
+        self.assertTrue(any('/confirmation-retrieval-' in name for name in names))
+        with patch.object(run, 'retained_answer', side_effect=AssertionError('fresh confirmation')), \
+                patch.object(freshness_retrieval, 'fetch', side_effect=AssertionError('fresh fetch')):
+            self.assertEqual(records.replay(self.c, 'G2'), result)
+
+    def test_stage_support_roots_and_calibration_filter(self):
+        import gate_state
+        import test_scientific_receipts as artifacts
+        # Authored VM layout populated with saved execution/HTTP/practice bytes.
+        # Expected roots are independent of Records.sources, so deleting a root
+        # or broadening a calibration filter breaks this test.
+        calibrations = ('strong_calibrator', 'easy_calibrator', 'early_probe',
+                        'judge_breadth', 'fairness-replacement-saved')
+        files = {}
+        execution = json.dumps(artifacts.execution('reference')).encode()
+        for root in calibrations:
+            for tail in ('results.json', 'try-1/execution.json', 'try-1/guard/db.sql',
+                         'try-1/workspace/private.txt', 'try-1/prompt.txt'):
+                files[root + '/' + tail] = artifacts.REAL['suffix-case']['files']['guards/reference/db.sql'].encode() if tail.endswith('.sql') else execution
+        for name in ('g11-evidence/checked.json', 'fairness-g16-inputs/attempt.json',
+                     'fairness-g17-inputs/attempt.json', 'public-search.json',
+                     'freshness-verdict.json', 'g2-confirm-123/verdict.json',
+                     'confirmation-retrieval-saved/0-0.body', 'attacks/round-9.json',
+                     'stress-saved/report.json', 'pilot/secret.txt',
+                     'pilot-strong/secret.txt', 'pilot-easy/secret.txt'):
+            files[name] = execution
+        for name in ('strong-calibrator-strong_calibrator-1.jsonl',
+                     'easy-calibrator-easy_calibrator-1.jsonl', 'attacker-9.jsonl', 'unrelated.jsonl'):
+            files['transcripts/' + name] = execution
+        for name, content in files.items():
+            path = self.work / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(content)
+        expected_roots = {
+            'G10': ('strong_calibrator', 'easy_calibrator', 'early_probe'),
+            'G11': ('strong_calibrator', 'easy_calibrator', 'early_probe', 'g11-evidence'),
+            'G16': ('judge_breadth', 'fairness-g16-inputs', 'fairness-replacement-saved'),
+            'G17': ('strong_calibrator', 'fairness-g17-inputs', 'fairness-replacement-saved'),
+            'G2': ('public-search.json', 'freshness-verdict.json', 'g2-confirm-123', 'confirmation-retrieval-saved'),
+            'stress': ('attack-state.json', 'attacks', 'stress-saved', 'freshness-verdict.json',
+                       'g2-confirm-123', 'confirmation-retrieval-saved')}
+        records = self.records()
+        before = {key: gate_state.digest(path) for key, path in gate_state.inventory(self.c, run.BENCH).items()}
+        for stage, roots in expected_roots.items():
+            with self.subTest(stage=stage):
+                records.save(stage, True, {'authored': 'artifact-selection-only'}, before, {})
+                data = records.load(stage)
+                prefix = f'extension-package/{self.row["extension_id"]}/{stage}/support/work/'
+                actual = {name.removeprefix(prefix) for name in data['support'] if name.startswith(prefix)}
+                expected = {name for name in files if name.split('/')[0] in roots
+                            and (name.split('/')[0] not in calibrations or
+                                 Path(name).name in ('results.json', 'execution.json') or '/guard/' in name)}
+                if stage == 'stress': expected.add('attack-state.json')
+                if stage in ('G10', 'G11', 'G16', 'G17', 'stress'):
+                    expected.update(name for name in files if name.startswith('transcripts/') and not name.endswith('unrelated.jsonl'))
+                self.assertEqual(actual, expected)
+                for name in actual:
+                    self.assertEqual((self.work / (prefix + name)).read_bytes(), (self.work / name).read_bytes())
+                self.assertFalse(any('pilot' in name.split('/')[0] for name in actual))
+
     def test_early_projection_excludes_plumbing_and_preserves_owner(self):
         records = self.records()
         self.c.card.update(plain_app_broke=True, reference_fix=True, scenario_keys_match=True,
@@ -444,6 +555,28 @@ class PackageTests(unittest.TestCase):
         self.assertNotIn('failed_gate', self.c.card)
         self.assertEqual(self.calls, calls)
         self.assertEqual(self.executed, gates + ['G3', 'G17', 'G11'])
+
+    def test_dispatch_recovers_history_committed_before_card(self):
+        import batch_service
+        import diagnosis_dispatch
+        self.pipeline()
+        lagging = copy.deepcopy(self.c.card['extension_history'])
+        self.package()
+        self.assertIsNotNone(extensions.read(self.c)[-1]['outcome'])
+        self.c.card['extension_history'] = lagging
+        self.assertIsNone(self.c.card['extension_history'][-1]['outcome_sha256'])
+        manifest = {'exhaustion_id': self.row['exhaustion_id']}
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), \
+                patch.object(extensions, 'writer_receipt', side_effect=AssertionError('completed row is not writer work')):
+            result = diagnosis_dispatch.apply(self.c, self.work, manifest,
+                                             {'outcome': 'close_to_passing'}, resume=True)
+        self.assertEqual(result, self.row['extension_id'])
+        self.c.card['diagnosis_state']['exhaustion_id'] = 'different-exhaustion'
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), \
+                patch.object(extensions, 'writer_receipt', side_effect=AssertionError('old writer work')):
+            with self.assertRaisesRegex(budget.BudgetError, '^extension_comparison_pending$'):
+                diagnosis_dispatch.apply(self.c, self.work, {'exhaustion_id': 'different-exhaustion'},
+                                         {'outcome': 'close_to_passing'}, resume=True)
 
     def test_package_failure_completes_and_queues_one_diagnosis(self):
         self.pipeline(); self.reject = 'G10'
