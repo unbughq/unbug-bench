@@ -160,6 +160,68 @@ class FreshnessRestoreTests(unittest.TestCase):
         call.assert_not_called()
         self.assertEqual(self.c.card['loop_freshness']['outcome'], 'excluded')
 
+    def diagnosis_republish(self):
+        import diagnosis_dispatch
+        from registry import atomic_json
+        self.c.checkpoint_card = json.loads((self.c.work / 'scorecard.json').read_text())
+        # Only this test's routing marker is authored; full authenticated replay is
+        # exercised in test_stream_d_dispatch with the saved case and ledger.
+        self.c.checkpoint_card['diagnosis_state'] = {'status': 'completed'}
+        self.c.card = {}
+        self.assertTrue(diagnosis_dispatch.carry_context(self.c))
+        atomic_json(self.c.work / 'scorecard.json', self.c.card)
+
+    def completed_review_checkpoint(self, *, public_match=False):
+        from registry import atomic_json
+        answer = {**self.answer(), 'same_bug': public_match}
+        def reviewer(c, models, text, cwd, name, **kwargs):
+            (pathlib.Path(cwd) / 'verdict.json').write_text(json.dumps({'hits': [answer]}))
+            return 0
+        with patch.object(run, 'opencode', side_effect=reviewer) as call:
+            if public_match:
+                with self.assertRaisesRegex(run.BudgetError, '^freshness_public_match$'):
+                    run.loop_freshness(self.c, self.result, self.report)
+            else:
+                run.loop_freshness(self.c, self.result, self.report)
+        call.assert_called_once()
+        atomic_json(self.c.work / 'scorecard.json', self.c.card)
+        directory = (self.c.work / self.c.card['loop_freshness']['verdict_path']).parent
+        self.assertTrue((directory / 'review-completed.json').is_file())
+        self.assertTrue((directory / 'retrieval').is_dir())
+        # Model a restore missing only the binding receipt, retaining completed
+        # answer, current mtime, snapshot and independently retrieved HTTP bytes.
+        (self.c.work / 'freshness-verdict.json').unlink()
+        return directory
+
+    def test_diagnosis_republish_recovers_completed_freshness_without_reroll(self):
+        before = self.report.read_bytes()
+        self.completed_review_checkpoint()
+        self.diagnosis_republish()
+        with patch.object(run, 'opencode', side_effect=AssertionError('duplicate review')) as call:
+            result, _ = run.loop_freshness(self.c, self.result, self.report)
+        call.assert_not_called()
+        self.assertEqual(result['blocking'], [])
+        self.assertEqual(self.report.read_bytes(), before)
+        self.assertTrue((self.c.work / 'freshness-verdict.json').is_file())
+
+    def test_diagnosis_republish_cannot_reuse_without_completion_marker(self):
+        directory = self.completed_review_checkpoint()
+        (directory / 'review-completed.json').unlink()
+        self.diagnosis_republish()
+        with patch.object(run, 'opencode', side_effect=self.reviewer) as call:
+            run.loop_freshness(self.c, self.result, self.report)
+        call.assert_called_once()
+
+    def test_diagnosis_republish_preserves_public_match_failure(self):
+        self.completed_review_checkpoint(public_match=True)
+        self.diagnosis_republish()
+        with patch.object(run, 'opencode', side_effect=AssertionError('duplicate review')) as call:
+            with self.assertRaisesRegex(run.BudgetError, '^freshness_public_match$'):
+                run.loop_freshness(self.c, self.result, self.report)
+        call.assert_not_called()
+        self.assertEqual(self.c.card['gates']['G2'], 'fail')
+        self.assertEqual(self.c.card['loop_freshness']['outcome'], 'public_match')
+
     def test_restore_reasks_invalid_retained_version_or_changed_case(self):
         self.addCleanup(offline_router()[0].close)
         self.retain_verdict(self.answer('9.9.9'))

@@ -21,7 +21,7 @@ import threading
 import time
 
 from budget import BudgetError
-from token_prices import (GATED_CLAUDE, CLAUDE_CONTEXT, CLAUDE_OUTPUT,
+from token_prices import (GATED_CLAUDE, CLAUDE_PROFILES, CLAUDE_CONTEXT, CLAUDE_OUTPUT,
                           CLAUDE_GATE_FIELDS, CLAUDE_PRICES, claude_gate_cost, claude_standard_usage,
                           GATED_OPENROUTER, OPENROUTER_OUTPUT, openrouter_gate_cost, runtime_prices)
 
@@ -157,7 +157,7 @@ class Allowance:
         return [self.retained[i] + sum(v[i] for v in self.active.values()) for i in range(3)]
 
     def amount(self, usage):
-        if self.lease.route == GATED_CLAUDE:
+        if self.lease.route in CLAUDE_PROFILES:
             cost = claude_gate_cost(usage)
             if cost is None: return None
             return cost, sum(usage[k] for k in CLAUDE_GATE_FIELDS[:3]), usage['output_tokens']
@@ -165,7 +165,7 @@ class Allowance:
         return None if cost is None else (cost, usage['prompt_tokens'], usage['completion_tokens'])
 
     def reserve(self, output):
-        if self.lease.route == GATED_CLAUDE:
+        if self.lease.route in CLAUDE_PROFILES:
             worst = dict.fromkeys(CLAUDE_GATE_FIELDS, 0)
             incoming = max(range(3), key=lambda i: CLAUDE_PRICES[GATED_CLAUDE][i])
             worst[CLAUDE_GATE_FIELDS[incoming]], worst['output_tokens'] = CLAUDE_CONTEXT, output
@@ -642,7 +642,7 @@ def openrouter_environment(lease, env, gate):
 @contextmanager
 def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
     import model_router
-    if (lease.route != GATED_CLAUDE and lease.route not in GATED_OPENROUTER) or not model_router.valid_maximum(lease):
+    if (lease.route not in CLAUDE_PROFILES and lease.route not in GATED_OPENROUTER) or not model_router.valid_maximum(lease):
         raise BudgetError('unbounded_route')
     paid = lease.route in GATED_OPENROUTER
     if paid and (sys.platform != 'linux' or Path('/etc/opencode').exists()

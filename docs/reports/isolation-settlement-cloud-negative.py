@@ -18,9 +18,9 @@ exec(source.replace(needle, 'pass  # negative control: omit retained socket shut
 gate.Allowance.close = scope['close']
 original = module.ProtocolTests._runtime_close_mid_response_retains_hold_once
 
-def one_variant(self, close_header, **kwargs):
+def one_variant(self, close_header, model, **kwargs):
     if close_header:
-        return original(self, close_header, **kwargs)
+        return original(self, close_header, model, **kwargs)
 
 module.ProtocolTests._runtime_close_mid_response_retains_hold_once = one_variant
 suite = unittest.TestSuite([module.ProtocolTests('test_real_process_tls_cancellation_settles_unknown_once')])

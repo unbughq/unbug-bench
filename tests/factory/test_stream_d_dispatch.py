@@ -188,6 +188,11 @@ job_config.FACTORY=pathlib.Path(source); diagnosis_task.ROOT=run.HOME/'tasks'
 run.bench_manifest=lambda: 'authored-clean-bench'
 def install(c,a):
  for k,v in json.loads((c.work/'authored-control.json').read_text()).items(): setattr(c,k,v)
+ if fault.startswith('mode:'):
+  name=fault.split(':')[1]
+  if name == 'audit_source': c.audit_source='authored audit'
+  elif name == 'salvaged_from': c.card['salvaged_from']='authored salvage'
+  else: setattr(a,name,True)
 def forbidden(*a,**k): raise AssertionError('unexpected role/Compose work')
 run.sh=run.pick_models=run.build=run.validate_and_repair=run.make_pilots=forbidden
 run.stop_pilot=lambda *a: False
@@ -196,6 +201,18 @@ run.pilot_homes=lambda: []
 founder_ruling.context=lambda c: None
 free_models.first_resume=lambda *a: False
 job_config.install=install
+if fault == 'execute' or fault.startswith('mode:'): batch_service.DIAGNOSIS_ENABLED=True
+if fault == 'execute':
+ run.sh=lambda *a,**k: None
+ run.pick_models=lambda c: {'builder':['claude/claude-opus-5-5']}
+ worker_release.verify_selected_drivers=lambda *a,**k: {}
+ def execute(c,prev,*,extension_id):
+  assert extension_id == 1
+  assert prev['diagnosis_state']['outcome'] == 'close_to_passing'
+  c.card['execution_test_entered']=True
+ run.write_and_attack=execute
+ import restart
+ restart.raised_limits=run.restore_gate_crash=forbidden
 if fault == 'qualification':
  batch_service.DIAGNOSIS_ENABLED=True
  def unavailable(*a,**k): raise ValueError('authored CLI version mismatch')
@@ -208,15 +225,18 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             str(job_config.FACTORY), str(self.bench), fault], capture_output=True, text=True, timeout=30)
         self.assertEqual(process.returncode, 0, process.stderr)
         published = json.loads((self.ledger.parent / (self.c.case_id + '.scorecard.json')).read_text())
-        expected = {'qualification': 'runner_error:ValueError', 'active': 'extension_comparison_pending'}
+        expected = {'qualification': 'runner_error:ValueError', 'active': 'extension_comparison_pending',
+                    'execute': 'extension_comparison_pending'}
+        if fault.startswith('mode:'): expected[fault] = 'extension_execution_mode_invalid'
         self.assertEqual(published['terminal_stop'], expected.get(fault, 'diagnosis_pending'))
         self.assertEqual(published['diagnosis_state']['exhaustion_id'], self.parent.name)
-        if fault == 'active':
+        if fault in ('active', 'execute') or fault.startswith('mode:'):
             self.assertEqual(published['builder_rounds'], self.admitted_receipt['round'])
             self.assertEqual(published['continuation_budget']['invocation_reservations'],
                              json.loads(self.ledger.read_text())['invocation_reservations'])
         else:
             self.assertNotIn('invocation_reservations', published['continuation_budget'])
+        if fault == 'execute': self.assertTrue(published['execution_test_entered'])
         return published
 
     def test_all_outcomes_replay_after_unknown_total_and_preserve_id(self):
@@ -250,7 +270,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         entry = extension_tests.ExtensionTests.snapshot(self, frontier)
         proposal = extensions.propose(self.c, entry)
         receipt = runtime.RuntimeTests.receipt(self)
-        receipt.update(round=proposal['round'], report=f"round-{proposal['round']}.json")
+        receipt.update(round=proposal['round'], round_limit=proposal['round'], report=f"round-{proposal['round']}.json")
         atomic = registry.atomic_json
         def interrupt(path, value):
             if path == self.work / 'attack-state.json': raise Crash()
@@ -278,16 +298,53 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.pilots.reset_mock(); self.qualify.reset_mock(); self.helper_calls.clear()
         return row
 
+    def test_freshness_context_is_deep_copied(self):
+        self.prepare_active_launch()
+        previous = {'verdict_path': 'g2-confirm-123/verdict.json', 'detail': {'rows': [1]}}
+        self.c.checkpoint_card['loop_freshness'] = previous
+        self.assertTrue(dispatch.carry_context(self.c))
+        self.assertEqual(self.c.card['loop_freshness'], previous)
+        self.c.card['loop_freshness']['detail']['rows'].append(2)
+        self.assertEqual(previous['detail']['rows'], [1])
+
+    def test_enabled_replay_returns_verified_extension_identity(self):
+        row = self.prepare_active_launch()
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+            self.assertEqual(dispatch.dispatch(self.c, run), row['extension_id'])
+        self.assertEqual(json.loads((self.work / 'attack-state.json').read_text()), self.admitted_receipt)
+        self.pilots.assert_not_called()
+
+    def test_replay_rejects_active_row_from_other_decision(self):
+        row = self.prepare_active_launch()
+        with patch.object(extensions, 'active', return_value={**row, 'exhaustion_id': str(uuid.uuid4())}), \
+                patch.object(extensions, 'writer_receipt', side_effect=AssertionError('unverified intent')):
+            self.stopped('diagnosis_input_invalid')
+
+    def test_main_routes_execution_and_stops_before_gates(self):
+        self.prepare_active_launch()
+        self.main_resume('execute')
+
+    def test_main_refuses_nonordinary_modes_before_setup(self):
+        self.prepare_active_launch()
+        for name in ('dry_run', 'rehearse_only', 'audit_fairness', 'late_gate_rehearsal',
+                     'statement_only', 'skip_build', 'audit_source', 'salvaged_from'):
+            with self.subTest(mode=name): self.main_resume('mode:' + name)
+
     def test_main_recovers_admitted_writer_before_ordinary_launch_twice(self):
         self.prepare_active_launch()
         path = self.work / 'attack-state.json'
         self.assertFalse(path.exists())
+        freshness = {'outcome': 'unresolved', 'verdict_path': 'g2-confirm-123/verdict.json',
+                     'diagnostic': {'reason': 'review_interrupted'}}
+        self.c.checkpoint_card['loop_freshness'] = copy.deepcopy(freshness)
         retained = {name: extensions.tree(self.work / name) for name in
                     ('extension-writers', 'extension-snapshots', 'diagnosis')}
         history = (self.work / 'extension-history.json').read_bytes()
         reservations = json.loads(self.ledger.read_text())['invocation_reservations']
         for _ in range(2):
             published = self.main_resume('active')
+            self.assertEqual(published['loop_freshness'], freshness)
+            self.assertEqual(json.loads((self.work / 'scorecard.json').read_text())['loop_freshness'], freshness)
             self.assertEqual(json.loads(path.read_text()), self.admitted_receipt)
             self.assertEqual((self.work / 'extension-history.json').read_bytes(), history)
             self.assertEqual({name: extensions.tree(self.work / name) for name in retained}, retained)
