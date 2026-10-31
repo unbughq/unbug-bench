@@ -389,7 +389,7 @@ class HolderTests(unittest.TestCase):
     def concurrency(self, value=2):
         self.record['max_concurrency'] = self.policy['batch']['max_concurrency'] = value; self.freeze()
 
-    def preflight(self, op, *, inventory=None, run_error=None):
+    def preflight(self, op, *, inventory=None, run_error=None, popen_error=None):
         """Real dispatch preflight; only identity, credential labels, Boat and the creator are doubles."""
         import key_holder
         import account_handoff
@@ -401,7 +401,9 @@ class HolderTests(unittest.TestCase):
                     json.dumps(inventory or dict(sandboxes=[], pageInfo=dict(hasMore=False))).encode())
             return SimpleNamespace(stdout=data)
         def popen(argv, **kwargs):
-            calls.append(argv); return SimpleNamespace(stdin=io.BytesIO(), wait=lambda: 0)
+            calls.append(argv)
+            if popen_error is not None: raise popen_error
+            return SimpleNamespace(stdin=io.BytesIO(), wait=lambda: 0)
         with ExitStack() as stack:
             stack.enter_context(patch.object(key_holder, 'fingerprint', return_value='fingerprint'))
             stack.enter_context(patch.object(key_holder, 'secret_labels', return_value={'claude-token'}))
@@ -802,6 +804,209 @@ class HolderTests(unittest.TestCase):
                 self.assertEqual(row['phase'], phase)
                 self.assertEqual(row['card']['sha256'], card['sha256'])
                 self.assertIn(op['case'] + ': ' + flag, status.render(target, rows, None, {}))
+
+class WaitSchedulingTests(unittest.TestCase):
+    """Offline controller composition, not live provider/retirement closure proof."""
+    locals().update({k: v for k, v in vars(HolderTests).items() if not k.startswith(('test_', '__'))})
+
+    def waiting(self, job='j', *, changes=None, stop='provider_wait', publish=True, retire=True,
+                payload=fixtures.CIPHER):
+        op = self.started(self.reserve(job))
+        card = self.output(op, payload=payload)
+        card.update(terminal_stop=stop, provider_wait=dict(
+            wait_id='9cf3f991-b1d6-4e26-a3f5-92b54ac40a16', reason='rate',
+            retry_after='2027-01-01T00:00:00Z', role='writer', route='claude/opus',
+            account='claude-factory-token-2', evidence='denied_before_work',
+            batch_deadline=self.record['batch_deadline']))
+        card['provider_wait'].update(changes or {})
+        path = self.home / 'launches' / op['launch_id'] / 'collected' / (op['case'] + '.scorecard.json')
+        path.write_text(json.dumps(card))
+        if publish: self.publish(op)
+        if retire: self.retirement(op); self.reconcile()
+        return op, card
+
+    def clock(self, stamp):
+        from datetime import datetime
+        clock = patch.object(holder, 'datetime', wraps=datetime)
+        mocked = clock.start(); self.addCleanup(clock.stop)
+        mocked.now.return_value = datetime.fromisoformat(stamp.replace('Z', '+00:00'))
+        return mocked
+
+    def scan(self): return holder.schedule_waits(self.policy, self.root, self.home)
+
+    def test_tick_future_due_restart_and_single_successor(self):
+        import key_holder
+        op, card = self.waiting()
+        clock = self.clock('2026-12-31T23:59:59Z')
+        def tick():
+            with patch.multiple(key_holder, ROOT=self.root, CONTROL_HOME=self.home):
+                key_holder.batch_tick(self.policy, {}, {}, spawn)
+        spawned = []
+        def spawn(identity, action):
+            spawned.append((identity, action))
+            return SimpleNamespace(poll=lambda: None)
+        with patch.object(service, '_snapshot', wraps=service._snapshot) as snapshot:
+            tick(); tick(); snapshot.assert_not_called()
+        self.assertEqual(len(self.ops()), 1); self.assertEqual(spawned, [])
+        clock.now.return_value = holder.datetime.fromisoformat('2027-01-01T00:00:00+00:00')
+        before = self.money()['jobs']['j']
+        tick()  # reserves only; no creator in this scan
+        self.assertEqual(spawned, [])
+        successor = next(v for v in self.ops().values() if v['source_generation'])
+        after = self.money()['jobs']['j']
+        self.assertEqual(after['held_usd'], before['held_usd'])
+        self.assertEqual(successor['authority']['reservation_id'], op['authority']['reservation_id'])
+        self.assertEqual(after['sources'], [None, card['sha256']])
+        self.assertEqual(after['authority']['revision'], 2)
+        tick()  # empty process maps model a holder restart
+        self.assertEqual(spawned, [(successor['operation_id'], 'dispatch')])
+        self.scan(); self.assertEqual(len(self.ops()), 2)
+        # A failed successor still consumes the source; no fresh operation is minted.
+        holder.record_exit(self.policy, self.root, self.home, successor['operation_id'], 1)
+        tick(); self.assertEqual(len(self.ops()), 2)
+        self.assertEqual(len(spawned), 1)
+
+    def test_invalid_waits_never_reserve(self):
+        variants = [dict(wait_id='bad'), dict(wait_id='9cf3f991-b1d6-5e26-a3f5-92b54ac40a16'),
+                    dict(reason='unbounded_route'), dict(reason='unknown'), dict(reason=[]),
+                    dict(evidence='unknown'), dict(retry_after=None),
+                    dict(retry_after='2027-01-01T00:00:00'),
+                    dict(retry_after='2099-01-01T00:00:00Z'),
+                    dict(batch_deadline='2098-01-01T00:00:00Z')]
+        for changes in variants:
+            with self.subTest(changes=changes):
+                self.setUp(); self.waiting(changes=changes); self.clock('2027-01-01T00:00:00Z')
+                self.scan(); self.assertEqual(len(self.ops()), 1)
+        for stop in ('budget_exhausted', 'sealed'):
+            with self.subTest(stop=stop):
+                self.setUp(); self.waiting(stop=stop); self.clock('2027-01-01T00:00:00Z')
+                self.scan(); self.assertEqual(len(self.ops()), 1)
+
+    def test_each_publication_and_retirement_proof_is_required(self):
+        for missing in ('ack', 'pointer', 'outbox', 'retirement', 'snapshot'):
+            with self.subTest(missing=missing):
+                self.setUp(); op, card = self.waiting(); self.clock('2027-01-01T00:00:00Z')
+                if missing == 'ack':
+                    state = self.money(); state['jobs']['j']['acks'] = {}
+                    holder.atomic_json(self.directory / 'money.json', state)
+                elif missing == 'pointer':
+                    (self.directory / 'current' / (op['case'] + '.json')).unlink()
+                elif missing == 'outbox':
+                    (self.directory / 'outbox' / (op['operation_id'] + '.json')).unlink()
+                elif missing == 'retirement':
+                    ops = self.ops(); ops[op['operation_id']]['retirement'] = None
+                    holder._save(self.directory, self.record, self.policy, ops)
+                else:
+                    path = self.directory / 'generations' / op['case'] / card['sha256'] / card['archive']
+                    path.write_bytes(b'corrupt retained ciphertext')
+                self.scan(); self.assertEqual(len(self.ops()), 1)
+                self.assertEqual(service._json(self.directory / 'money.json')['jobs']['j']['sources'], [None])
+
+    def test_ack_and_retirement_arriving_later(self):
+        op, card = self.waiting(publish=False, retire=False)
+        self.clock('2027-01-01T00:00:00Z')
+        self.scan(); self.assertEqual(len(self.ops()), 1)
+        self.publish(op); self.scan(); self.assertEqual(len(self.ops()), 1)
+        self.retirement(op); self.reconcile(); self.scan()
+        self.assertEqual(len(self.ops()), 2)
+
+    def test_money_advance_reservation_journal_and_lost_reply_crashes(self):
+        for boundary in ('configuration', 'reservations.json', 'journal.json', 'reply'):
+            with self.subTest(boundary=boundary):
+                self.setUp(); op, card = self.waiting(); self.clock('2027-01-01T00:00:00Z')
+                real_write, real_reserve = holder.atomic_json, holder.reserve
+                def write(path, value):
+                    if path.name == boundary: raise OSError('authored crash')
+                    return real_write(path, value)
+                def lost_reply(*args, **kwargs):
+                    real_reserve(*args, **kwargs)
+                    raise OSError('authored lost reply')
+                with ExitStack() as stack:
+                    if boundary == 'configuration':
+                        stack.enter_context(patch.object(money, 'configuration', side_effect=OSError('authored crash')))
+                    elif boundary == 'reply': stack.enter_context(patch.object(holder, 'reserve', side_effect=lost_reply))
+                    else: stack.enter_context(patch.object(holder, 'atomic_json', side_effect=write))
+                    self.scan()
+                authority = self.money()['jobs']['j']['authority']
+                self.assertEqual(authority['source_generation'], card['sha256'])
+                self.scan(); self.reconcile(); self.scan()
+                self.assertEqual(len(self.ops()), 2)
+                self.assertEqual(self.money()['jobs']['j']['authority'], authority)
+                self.assertEqual(self.money()['jobs']['j']['sources'], [None, card['sha256']])
+                self.assertEqual(service._json(self.directory / 'journal.json')['operations'], self.ops())
+
+    def test_concurrency_deadline_and_money_freeze(self):
+        op, card = self.waiting(); self.clock('2027-01-01T00:00:00Z')
+        peer = self.reserve('k')
+        self.scan(); self.assertEqual(len(self.ops()), 2)  # peer consumes the only slot
+        holder.record_exit(self.policy, self.root, self.home, peer['operation_id'], 1)
+        state = self.money()
+        state['incidents'][op['operation_id'] + '/' + card['sha256']] = dict(
+            operation_id=op['operation_id'], generation=card['sha256'],
+            manifest_sha256=state['jobs']['j']['acks'][card['sha256']]['manifest_sha256'],
+            reason='invalid_accounting_input')
+        holder.atomic_json(self.directory / 'money.json', state)
+        self.scan(); self.assertEqual(len(self.ops()), 2)
+        state['incidents'] = {}; holder.atomic_json(self.directory / 'money.json', state)
+        self.clock('2099-01-01T00:00:00Z'); self.scan(); self.assertEqual(len(self.ops()), 2)
+
+    def test_refused_candidate_does_not_block_peer_and_credentials_retry(self):
+        self.concurrency()
+        first, _ = self.waiting('j')
+        second, _ = self.waiting('k', changes=dict(reason='credential_expiring', evidence='interrupted'))
+        self.clock('2027-01-01T00:00:00Z')
+        (self.directory / 'current' / (first['case'] + '.json')).unlink()
+        self.scan()
+        successors = [v for v in self.ops().values() if v['source_generation']]
+        self.assertEqual([v['job'] for v in successors], ['k'])
+
+    def test_filter_cannot_authorize_tampered_card_or_changed_predicate(self):
+        op, card = self.waiting(); self.clock('2027-01-01T00:00:00Z')
+        # A valid-looking public projection still requires the immutable manifest.
+        path = self.directory / 'generations' / op['case'] / card['sha256'] / (op['case'] + '.scorecard.json')
+        card['provider_wait']['reason'] = 'quota'; path.write_text(json.dumps(card))
+        self.scan(); self.assertEqual(len(self.ops()), 1)
+        self.setUp(); op, card = self.waiting(changes=dict(reason='unbounded_route'))
+        self.clock('2027-01-01T00:00:00Z')
+        real = holder._wait_due
+        calls = []
+        def only_skip_first(card, record):
+            calls.append(True)
+            if len(calls) > 1: return real(card, record)
+        with patch.object(holder, '_wait_due', side_effect=only_skip_first): self.scan()
+        self.assertEqual(len(calls), 2); self.assertEqual(len(self.ops()), 1)
+
+    def test_stale_generation_and_incident_never_schedule(self):
+        op, card = self.waiting(); self.clock('2027-01-01T00:00:00Z')
+        ops = self.ops(); ops[op['operation_id']]['incident'] = 'publication_failed'
+        holder._save(self.directory, self.record, self.policy, ops)
+        self.scan(); self.assertEqual(len(self.ops()), 1)
+        ops[op['operation_id']]['incident'] = None
+        holder._save(self.directory, self.record, self.policy, ops)
+        self.scan()
+        successor = next(v for v in self.ops().values() if v['source_generation'])
+        successor = self.started(successor)
+        self.output(successor, payload=fixtures.KEY); self.publish(successor)
+        self.retirement(successor); self.reconcile()
+        self.scan(); self.assertEqual(len(self.ops()), 2)  # new terminal output isn't a wait
+        with self.assertRaises(ValueError):
+            holder.reserve(self.policy, self.root, self.home, 'j', card['sha256'], provider_wait=True)
+        with self.assertRaises(ValueError):
+            holder.reserve(self.policy, self.root, self.home, 'j', None, provider_wait=True)
+
+    def test_scheduled_dispatch_uncertainty_never_creates_twice(self):
+        op, card = self.waiting(); self.clock('2027-01-01T00:00:00Z'); self.scan()
+        successor = next(v for v in self.ops().values() if v['source_generation'])
+        # Existing preflight helper simulates a lost creator reply after durable intent.
+        result, calls = self.preflight(successor, popen_error=OSError('authored transport uncertainty'))
+        self.assertEqual(result, holder.TEMPFAIL); self.assertEqual(len(calls), 1)
+        self.assertTrue(self.ops()[successor['operation_id']]['dispatch_started'])
+        _, repeated = self.preflight(successor)
+        self.assertEqual(repeated, [])
+        self.scan()
+        self.assertEqual(len(self.ops()), 2)
+        self.assertEqual(self.money()['jobs']['j']['sources'], [None, card['sha256']])
+
 
 class ShellWiringTests(unittest.TestCase):
     """Real collect.sh, launch.sh snippets, transfer, collection and r2-presign over subprocess.
