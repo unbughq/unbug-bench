@@ -108,3 +108,9 @@ an offline suite nor a review replaces the missing live lifecycle proof.
 - probe.py: `4d2017d8b369978f12eb1f81d3a4eba17a2e6c30bdab1eeb98b8ee9faa9b67e2`.
 - observations.json: `0c86a1967dfd02d996592e7a401cbb31acc3822a28ab54b1a17462bd94f898a1`.
 - contracts/sources.json: `d792fa5a72c27a84c8dc864cfc902e25686404809288a4ca183020189e51dad0`.
+
+Full suite completed at 2026-10-31T15:20:17Z: **162 scripts, 0 failed, exit 0**,
+tested commit 97fedd1754840c153cce1bd75df522281933d33c. See
+[the result record](full-suite-20261031T145151Z-0a6616ef.json) and its compressed
+log for timestamps, tree/log hashes and reported skips. No source or test changed
+during the run. Fresh diff review follows this committed suite record.
