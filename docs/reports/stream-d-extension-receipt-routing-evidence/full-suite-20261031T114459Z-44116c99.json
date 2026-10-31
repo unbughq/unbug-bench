@@ -1,0 +1,19 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "source_sha": "ec5620ab6e4c382b6454bdb4fc7ed9fd66e75669",
+  "started_utc": "20261031T114459Z-44116c99",
+  "exit_code": 0,
+  "elapsed_seconds": 1280.771,
+  "log": "docs/reports/stream-d-extension-receipt-routing-evidence/full-suite-20261031T114459Z-44116c99.log.gz",
+  "log_sha256": "10fad4104aa348b6cca0f91ee93145c6b17f7a9a6e910493fdfb8685cc4fc332",
+  "tail": [
+    ".Unlock diagnostic: stage=decrypt_and_extract; archive=case-20261017T120256Z-86b100; error=RuntimeError",
+    "........",
+    "----------------------------------------------------------------------",
+    "Ran 9 tests in 5.547s",
+    "",
+    "OK",
+    "",
+    "157 test scripts run; 0 failed."
+  ]
+}

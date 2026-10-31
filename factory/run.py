@@ -439,6 +439,10 @@ def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_a
             reservation = reserve_invocation(c.ledger, lease, maximum, job_authority.for_case(c),
                 operation_id=operation, call_name=name)
             if extension_proposal is not None:
+                extensions.retain_writer(c, {**receipt, 'schema_version': 2, 'operation_id': operation,
+                    'phase': 'pending', 'lease_id': lease.lease_id, 'invocation_id': reservation['invocation_id'],
+                    'extension_id': extension_proposal['extension_id'],
+                    'binding_sha256': hashlib.sha256(json.dumps(receipt['binding'], sort_keys=True).encode()).hexdigest()})
                 extension = extensions.admit(c, extension_proposal, lease, operation)
                 receipt['extension_id'] = extension['extension_id']
             elif on_admitted is not None: on_admitted()
