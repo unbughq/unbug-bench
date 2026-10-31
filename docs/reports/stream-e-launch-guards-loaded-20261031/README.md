@@ -41,8 +41,9 @@ isolation-5: exit 0, 20.343 seconds.
 
 Full suite command: `uv run --with numpy --with scipy python -B tests/run.py`.
 Full suite 1: **155 test scripts run; 0 failed**, exit 0, 1589.415 seconds.
-The second overlapping full suite is still running; its result will be appended
-before handoff. Compressed verbatim logs and SHA-256 hashes are committed here.
+Full suite 2: **155 test scripts run; 0 failed**, exit 0, 1341.209 seconds.
+Both full suites finished; all five pairs overlapped suite activity (the restart
+gap was under 0.01 seconds). All validation processes have exited. Compressed verbatim logs and SHA-256 hashes are committed here.
 Unique raw log directory: `/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/stream-e-b66ae96c-final-20261031-gij6nfyx`.
 
 The initial attempt exposed `os.waitid` missing from uv's macOS CPython 3.11.15,
@@ -53,6 +54,22 @@ pairs and the full suite at the fixed source above. The initial full suite
 finished 155/0 but is excluded because source changed while it ran. Its raw logs
 remain at `/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/stream-e-b66ae96c-20261031-9tfd2foa`.
 Three burners from that superseded attempt also overlapped the first final pair,
-then were explicitly stopped; only the final run's three remain.
+then were explicitly stopped. The final run's three burners were stopped after
+all five pairs passed, while the second full suite continued to completion;
+`results.json` records that stop time.
 
 No push, merge into factory-simplify, or main-branch change was performed.
+
+Fresh Claude `claude-opus-5-5` review is saved verbatim with the implementation
+response in `docs/reviews/stream-e-loaded-cleanup-diff-1.md`. Its two blocking
+documentation findings were accepted and fixed in `f270a87`: correct the EPERM
+closure wording/comment and keep the portability row inside the register table.
+No blocking finding was rejected. The original FAIL verdict remains verbatim
+in the report; the fixes are documented in the response. No additional review
+was requested for these small documentation corrections. A nonblocking outer-wall
+mismatch is tracked as open Murphy row `new-isolation-outer-wall-1`.
+
+After review, verified the Python AST and shell noncomment lines match tested
+source `8ff8606`; executable behavior is unchanged. The second suite spans only
+these comment/documentation changes. Final evidence additions are documentation
+and compressed logs only.

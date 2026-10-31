@@ -343,7 +343,41 @@
       ],
       "log_sha256": "ad4235e1d4891dc66c6d77fccad9cc05d6eefceb7a6d84c55b06cdcb70102024",
       "seconds": 20.343
+    },
+    {
+      "label": "full-suite-2",
+      "command": [
+        "uv",
+        "run",
+        "--with",
+        "numpy",
+        "--with",
+        "scipy",
+        "python",
+        "-B",
+        "tests/run.py"
+      ],
+      "pid": 3161,
+      "start": 1793433618.651594,
+      "load_start": [
+        16.1728515625,
+        17.8505859375,
+        23.92626953125
+      ],
+      "exit_code": 0,
+      "end": 1793434959.8605492,
+      "load_end": [
+        12.69384765625,
+        10.3994140625,
+        13.103515625
+      ],
+      "log_sha256": "bcc3c7619a8d207732ecc3f5a02507cdaa200c0cdaa6a3bfbebe65b556c79b03",
+      "seconds": 1341.209
     }
   ],
-  "raw_log_directory": "/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/stream-e-b66ae96c-final-20261031-gij6nfyx"
+  "raw_log_directory": "/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/stream-e-b66ae96c-final-20261031-gij6nfyx",
+  "burners_stopped": {
+    "time": 1793434227.9699671,
+    "reason": "Five focused pairs complete; second full suite continues to completion."
+  }
 }
