@@ -2732,3 +2732,27 @@ inputs explicitly. Full-suite result and fresh diff review will be recorded in
 docs/reviews/stream-d-retries-suite-1.md and stream-d-retries-diff-1.md.
 Rows 11/12/15 are batch-scope closures with the limitations stated in their table
 entries; row 13 remains open. No item-7 implementation or activation is included.
+
+
+#### Diff review 1 resolutions
+
+A shared URL receipt cache separates retrieval from confirmation snapshots. Each
+hold cycle marks URLs for refetch, but authenticated live successes remain reused
+until their normal expiry. A held URL is refreshed once per cycle; the second G2
+consumer copies the same bytes rather than fetching again. A batch confirmation
+therefore cannot buy a new judgment just because another successful page has
+volatile HTML. Changed snapshot content or case context still changes identity.
+HTTP access failures with no archive count toward the broad-outage predicate.
+
+Category completion checks unfinished diagnostic state before authenticating an
+aggregate without blockers, including a saved aggregate on resume. The existing
+recognized stress_validation_exhausted label handles this case. Definite completed
+blockers keep precedence. The pending-publication marker is written before category
+state, so a kill between the writes causes an extra publication rather than an
+unpublished next call. Partial attempt paths are explicit continuation inputs.
+
+Focused regressions use captured practice/5813be artifacts and authored HTTP/model
+failures. They execute real G2 hold orchestration, live recovery, category rebind,
+last-category diagnostic timeout, the publication crash window, cancellation during
+backoff and v1 migration. Row 11 now also names executed batch launch/holder boundary
+tests and five stress interruptions, instead of citing an entire test file.

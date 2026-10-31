@@ -2,7 +2,7 @@
 import copy
 import hashlib
 import json
-from pathlib import Path
+import time
 
 from attack_findings import classify
 from budget import BudgetError
@@ -60,6 +60,10 @@ def run(runner, c, number, report, receipt, completed):
     receipt.update(category_mode=1, category_state=str(path.relative_to(c.work)), phase='pending', review_pending=True)
     receipt.pop('review_completed', None)
     def save(): atomic_json(path, state)
+    def finish(result):
+        if not result['blocking'] and runner.attack_diagnostic_unfinished(c, number):
+            raise BudgetError('stress_validation_exhausted')
+        completed()
     def aggregate():
         result = {'complete': all(state['categories'].get(k, {}).get('complete') for k in CATEGORIES),
                   'blocking': [], 'unfinished_validation': [], 'non_blocking': [], 'freshness_review': [], 'cheats_tried': []}
@@ -81,7 +85,7 @@ def run(runner, c, number, report, receipt, completed):
     publish(c)
     result = aggregate()
     if result['blocking'] or result['complete']:
-        completed(); return
+        finish(result); return
     for category, subchecks in CATEGORIES.items():
         row = state['categories'].setdefault(category, {'complete': False, 'done': [], 'results': [], 'exhausted': False})
         if row['complete']: continue
@@ -98,6 +102,7 @@ def run(runner, c, number, report, receipt, completed):
                     '\nCATEGORY MODE (overrides whole-review completion instructions):\n' +
                     json.dumps({'category': category, 'required_subchecks': subchecks,
                                 'completed_subchecks': row['done'], 'retained_findings': result,
+                                'retained_partial_reports': [str(p) for p in sorted(directory.glob(f'{category}-*-partial-*.json'))],
                                 'category_output': str(target)}) +
                     '\nInspect only unfinished subchecks in this category. Retain prior findings. '
                     'Write category, category_complete boolean, completed_subchecks list and the normal '
@@ -114,24 +119,28 @@ def run(runner, c, number, report, receipt, completed):
                 finally:
                     if target.is_file():
                         # Preserve every completed or interrupted invocation separately.
-                        attempt = directory / (f'{category}-{sequence}-partial-' + str(__import__('time').time_ns()) + '.json')
+                        attempt = directory / (f'{category}-{sequence}-partial-' + str(time.time_ns()) + '.json')
                         attempt.parent.mkdir(parents=True, exist_ok=True)
                         attempt.write_bytes(target.read_bytes())
-            value = answer(context, c.models['attacker'],
-                {'binding': binding, 'round': number, 'category': category, 'continuation': sequence},
-                'stress', 'category-v1:' + json.dumps(subchecks), request, invoke, lambda v: valid(v, category))
-            if binding != runner.attack_binding(c): raise BudgetError('stress_case_changed')
+            try:
+                value = answer(context, c.models['attacker'],
+                    {'binding': binding, 'round': number, 'category': category, 'continuation': sequence},
+                    'stress', 'category-v1:' + json.dumps(subchecks), request, invoke, lambda v: valid(v, category))
+            finally:
+                for key in ('budget_resumed', 'force_budget_resume', 'router_excluded'):
+                    if hasattr(context, key): setattr(c, key, getattr(context, key))
+            if binding != runner.attack_binding(c): raise BudgetError('case_changed_during_review')
             atomic_json(output, value)
             row['results'].append({'file': output.name, 'sha256': hashlib.sha256(output.read_bytes()).hexdigest()})
             row['done'] = sorted(before | set(value['completed_subchecks']))
             row['complete'] = (value['category_complete'] and set(row['done']) == set(subchecks)
                                and not value['unfinished_validation'])
             row['exhausted'] = not row['complete'] and (set(row['done']) == before or set(row['done']) == set(subchecks))
+            atomic_json(c.work / 'stress-publication.json', {'pending': True, 'identity': digest(state)})
             save()
             result = aggregate()
-            atomic_json(c.work / 'stress-publication.json', {'pending': True, 'identity': digest(state)})
             publish(c)
             if result['blocking']:
-                completed(); return
+                finish(result); return
             if row['exhausted']: raise BudgetError('stress_validation_exhausted')
-    completed()
+    finish(result)

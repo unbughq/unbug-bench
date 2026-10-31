@@ -8,6 +8,7 @@ import time
 from budget import BudgetError
 import job_authority
 import model_router
+import model_runtime
 from registry import atomic_json
 from run_validity import InvalidInfra
 
@@ -45,6 +46,7 @@ def transport(c, identity, invoke, *, deadline=None):
     path = c.work / 'ordinary-retries' / digest({'transport': identity}) / 'state.json'
     path.parent.mkdir(parents=True, exist_ok=True)
     state = read(path, {'version': 1, 'transport_failures': 0})
+    failures = 0
     while True:
         check(c)
         if deadline is not None and time.monotonic() >= deadline:
@@ -54,7 +56,8 @@ def transport(c, identity, invoke, *, deadline=None):
             state['transport_failures'] += 1
             state['last_error'] = str(error)
             atomic_json(path, state)
-            backoff(c, state['transport_failures'], deadline=deadline)
+            failures += 1
+            backoff(c, failures, deadline=deadline)
 
 
 def decode(raw):
@@ -172,6 +175,7 @@ def answer(c, models, identity, kind, schema, request, invoke, validate):
         if output.exists():
             partial = directory / (row['output'] + '.partial-' + str(time.time_ns()))
             output.rename(partial)
+        model_runtime.prepare_dispatch(c)
         context = copy.copy(c)
         excluded = set(getattr(c, 'router_excluded', ()))
         excluded.update(r['pool'] + '/' + r['route'] for r in routes if r['route'] in state['spent_routes']
@@ -189,5 +193,13 @@ def answer(c, models, identity, kind, schema, request, invoke, validate):
             row.update(phase='completed', route=context.model_lease.route,
                        sha256=hashlib.sha256(raw).hexdigest())
             save()
-        invoke(context, text, output, completed)
+        try:
+            invoke(context, text, output, completed)
+        finally:
+            for key in ('budget_resumed', 'force_budget_resume'):
+                if hasattr(context, key): setattr(c, key, getattr(context, key))
+            # Keep newly observed outage exclusions, but discard this helper's
+            # temporary deterministic-output route exclusions.
+            c.router_excluded = tuple(set(getattr(c, 'router_excluded', ())) |
+                                      (set(getattr(context, 'router_excluded', ())) - excluded))
         if row['phase'] != 'completed': raise BudgetError('ordinary_retry_completion_missing')

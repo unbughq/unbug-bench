@@ -1350,6 +1350,7 @@ def write_and_attack(c, prev):
                 if saved.get('freshness_review') or saved.get('freshness_review_malformed'):
                     saved, report = loop_freshness(c, saved, report)
                 if attack_diagnostic_unfinished(c, n):
+                    if receipt.get("category_mode"): raise BudgetError("stress_validation_exhausted")
                     attack_unresolved(c, "unfinished_diagnostic")
                 problems = None if c.args.dry_run else early_review(c)
                 if not problems:
@@ -1522,6 +1523,7 @@ def write_and_attack(c, prev):
         problems = findings or None
         if not result["blocking"]:
             if attack_diagnostic_unfinished(c, n):
+                if review_receipt.get("category_mode"): raise BudgetError("stress_validation_exhausted")
                 attack_unresolved(c, "unfinished_diagnostic")
             # The stress tester is satisfied: review now, so complaints reach the writer in this run.
             problems = None if c.args.dry_run else early_review(c)
@@ -2025,7 +2027,7 @@ def _g2(c):
     if rejected is not None and rejected[0] == binding:
         return False, {**rejected[1], "reused_freshness_rejection": True}
     receipt = jload(c.work / "public-search.json", {})
-    from freshness_retrieval import retrieve, load as load_retrieval, digest as retrieval_digest
+    from freshness_retrieval import retrieve, load as load_retrieval, digest as retrieval_digest, access_failure
     from run_validity import InvalidInfra, retry
     from admission import search_evidence_error
     retrieval_sha256 = None
@@ -2059,6 +2061,8 @@ def _g2(c):
                     result = []
             if any(receipt['retrieved_from'] == 'none' for receipt in result):
                 c.freshness_unfetched.add(row['url'])
+                if model_runtime.factory_job(c) and any(access_failure(r) for r in result):
+                    transport_failures += 1
             fetched.extend(result)
         counted = freshness_counts(c)
         retrieval_sha256 = retrieval_digest(fetched)
@@ -2233,9 +2237,16 @@ def confirm_hits(c, flagged, *, retained_path=None):
         if model_runtime.factory_job(c):
             from ordinary_freshness import semantic_binding
             from freshness_retrieval import judgment_digest
-            text += (' Access failures http_401/http_403/http_451/http_429/http_5xx/network_error '
+            text = text.replace('Timeouts, access errors, ambiguous archive responses,',
+                                'Ambiguous archive responses,')
+            text = text.replace('"deleted" | null',
+                '"deleted" | "http_401" | "http_403" | "http_451" | "http_429" | "http_5xx" | "network_error" | null')
+            text += (' Copy live_failure exactly from the runner receipt (including the actual three-digit HTTP status). '
+                     ' Access failures http_401/http_403/http_451/http_429/http_5xx/network_error '
                      'are not dead pages. Their archived snapshots can confirm a match but cannot clear one. '
-                     'Keep a false or uncertain archived comparison unresolved while live access fails.')
+                     'Keep a false or uncertain archived comparison unresolved while live access fails. '
+                     'No snapshot clears only HTTP 404/410, DNS failure or confirmed deletion; '
+                     'an access failure with no snapshot stays unresolved.')
             retained_answer(c, c.models['reviewers'][0], text, d, 'reviewer-g2-confirm', out,
                 {'binding': semantic_binding(binding, flagged),
                  'judgment': judgment_digest(c.freshness_retrieval)}, 'freshness',
@@ -2248,7 +2259,7 @@ def confirm_hits(c, flagged, *, retained_path=None):
                             bool(a['why'].strip()) and
                             'same_bug' in a and (a['same_bug'] is None or type(a['same_bug']) is bool)
                             for a,r in zip(v['hits'], flagged)),
-                timeout=seconds, deadline=time.monotonic() + seconds)
+                timeout=seconds)
             code = 0
         else:
             code = opencode(c, c.models["reviewers"][0], text, d, "reviewer-g2-confirm",

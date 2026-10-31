@@ -10,6 +10,9 @@ import json
 from pathlib import Path
 import re
 import sys
+import subprocess
+import os
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -406,6 +409,199 @@ class RetryTests(unittest.TestCase):
         with self.assertRaises((KeyError, ValueError)):
             ordinary_retry.projection({'hits':[{'url':'https://github.com/medusajs',
                 'resolved':True,'retrieved':True,'same_bug':False}]},'freshness')
+
+    def held_http(self, *, archive=True, broad=False, recover=False):
+        rows = self.searches()
+        for index, row in enumerate(rows):
+            row['url'] = f'https://github.com/medusajs/medusa/issues/{index + 1}'
+            row['hit'] = not broad and index < 2
+        (self.case/'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+        held, live = rows[0]['url'], rows[1]['url']
+        clock, cycles, requests = [0.0], [0], []
+        self.patch(ordinary_freshness, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
+        def wait(c, failures=1, *, deadline=None):
+            if deadline is not None:
+                clock[0] = deadline
+            else:
+                cycles[0] += 1
+                if not recover and cycles[0] == 3: raise runtime_fixture.Killed()
+                if recover and cycles[0] > 3: self.fail('recovery did not leave hold')
+        self.patch(ordinary_freshness, 'backoff', wait)
+        def fetch(url, **kwargs):
+            requests.append(url)
+            if url.startswith('https://archive.org/'):
+                from urllib.parse import unquote
+                original = unquote(url.split('url=')[1])
+                closest = {'closest': {'url':'https://web.archive.org/web/20261001000000/'+original,
+                           'available':True,'status':'200'}} if archive else {}
+                status, body = 200, json.dumps({'archived_snapshots':closest}).encode()
+            elif 'web.archive.org' in url:
+                self.assertIn('id_/', url)
+                status, body = 200, HTTP['body'].encode()
+            elif (broad or url == held) and not (recover and cycles[0] >= 2):
+                status, body = 403, b'authored bot wall'
+            else:
+                status, body = 200, (HTTP['body'] + str(requests.count(url))).encode()
+            return {'url':url,'final_url':url,'status':status}, body
+        self.patch(retrieval,'fetch',fetch)
+        def emit(c,text,name):
+            self.assertEqual(name, 'reviewer-g2-confirm')
+            self.assertIn('Copy live_failure exactly',text)
+            hits=[]
+            for receipt in c.freshness_retrieval:
+                hits.append({**{k:receipt[k] for k in ('url','retrieved_from','archive_available',
+                    'archive_snapshot_url','live_failure')}, 'resolved':True,
+                    'same_bug':False if receipt['retrieved_from'] != 'none' else None,
+                    'retrieved':receipt['retrieved_from'] != 'none','archive_checked':True,
+                    'app_version':'2.19.0','version_scope':'authored comparison','why':'authored exclusion'})
+            self.answer_path(text).write_text(json.dumps({'hits':hits}))
+        self.cli(emit)
+        return held, live, cycles, requests
+
+    def test_mixed_held_and_changing_live_page_reuses_real_orchestration_judgment(self):
+        held, live, cycles, requests = self.held_http()
+        with self.assertRaises(runtime_fixture.Killed): run.g2(self.c)
+        self.assertEqual(cycles[0],3)
+        self.assertEqual(requests.count(live),1)
+        self.assertGreater(requests.count(held),3)
+        self.assertEqual(len(self.calls),1)
+        self.assertEqual(run.jload(self.work/'freshness-repair.json')['completed_defects'],0)
+
+    def test_403_without_archive_holds_until_live_recovery(self):
+        held, live, cycles, requests = self.held_http(archive=False,recover=True)
+        self.assertTrue(run.g2(self.c)[0])
+        self.assertEqual(cycles[0],2)
+        self.assertEqual(len(self.calls),2)  # no archive, then new live bytes
+        self.assertEqual(requests.count(live),1)
+        self.assertFalse(self.c.freshness_refetch_urls)
+
+    def test_broad_http_outage_never_buys_topup(self):
+        self.held_http(archive=False,broad=True,recover=True)
+        self.assertTrue(run.g2(self.c)[0])
+        self.assertEqual(self.calls,[])
+        self.assertEqual(run.jload(self.work/'freshness-repair.json')['completed_defects'],0)
+
+    def test_last_category_interrupted_diagnostic_is_recognized_exhaustion(self):
+        def emit(config,value):
+            if config['category'] == 'v2_strategies':
+                claimed = self.work/'diagnostic-budgets/attacker-1/claimed'
+                claimed.mkdir(parents=True)
+                atomic_json(claimed.parent/'status.json',{'status':'timeout'})
+        self.stress_setup(emit)
+        for attempt in range(2):
+            if attempt: self.c.args.resume=self.c.case_id
+            with self.assertRaisesRegex(budget.BudgetError,'^stress_validation_exhausted$'):
+                run.write_and_attack(self.c,copy.deepcopy(self.c.card) if attempt else {})
+            self.assertEqual(len(self.calls),5)
+
+    def test_publication_marker_precedes_category_state_commit(self):
+        real = stress_progress.atomic_json
+        killed=[False]
+        def write(path,value):
+            if (path.name=='state.json' and 'categories' in value and
+                    value['categories'].get('wrong_fixes',{}).get('complete') and not killed[0]):
+                killed[0]=True
+                self.assertTrue(run.jload(self.work/'stress-publication.json')['pending'])
+                raise runtime_fixture.Killed()
+            return real(path,value)
+        self.patch(stress_progress,'atomic_json',write)
+        self.stress_setup(lambda *a:None)
+        with self.assertRaises(runtime_fixture.Killed): run.write_and_attack(self.c,{})
+        uploads=[]
+        self.c.stress_checkpoint=lambda: uploads.append(len(self.calls)) or True
+        self.c.args.resume=self.c.case_id
+        run.write_and_attack(self.c,copy.deepcopy(self.c.card))
+        self.assertEqual(uploads[0],2)
+        self.assertEqual(len(self.calls),5) # retained completed answer repairs the state without a paid call
+
+    def test_cancellation_during_backoff(self):
+        event=self.c.role_cancel
+        self.patch(event,'wait',lambda seconds: event.set())
+        with self.assertRaisesRegex(budget.BudgetError,'cancelled'):
+            ordinary_retry.backoff(self.c)
+
+    def test_v1_freshness_state_migrates_and_rejects_missing_statement(self):
+        self.searches()
+        self.patch(retrieval,'fetch',lambda url,**kw:({'url':url,'final_url':url,'status':200},HTTP['body'].encode()))
+        path=self.work/'freshness-repair.json'
+        atomic_json(path,{'version':1,'attempts':1,
+                         'statement_sha256':hashlib.sha256((self.case/'statement.md').read_bytes()).hexdigest()})
+        self.assertTrue(run.g2(self.c)[0])
+        self.assertEqual(run.jload(path)['version'],2)
+        self.assertEqual(run.jload(path)['completed_defects'],1)
+        atomic_json(path,{'version':1,'attempts':1})
+        with self.assertRaisesRegex(budget.BudgetError,'freshness_repair_state_invalid'): run.g2(self.c)
+
+    def test_rebinding_restarts_real_category_coverage_without_new_writer(self):
+        killed=[False]
+        seen=[]
+        def emit(config,value):
+            seen.append(config['category'])
+            if config['category']=='fairness' and not killed[0]:
+                killed[0]=True
+                raise runtime_fixture.Killed()
+        self.stress_setup(emit)
+        with self.assertRaises(runtime_fixture.Killed): run.write_and_attack(self.c,{})
+        old=run.jload(self.work/'attack-state.json')
+        binding=run.attack_binding(self.c)
+        self.patch(run,'attack_binding',return_value={**binding,'prompt':'f'*64})
+        self.c.args.resume=self.c.case_id
+        run.write_and_attack(self.c,copy.deepcopy(self.c.card))
+        self.assertEqual(seen[3:],list(stress_progress.CATEGORIES))
+        self.assertNotEqual(old['operation_id'],run.jload(self.work/'attack-state.json')['operation_id'])
+        self.assertEqual([name for name,_,_ in self.calls].count('builder-1'),1)
+
+    def test_snapshot_and_case_context_changes_require_new_judgments(self):
+        held, live, cycles, requests=self.held_http()
+        flagged=[r for r in run.freshness_lines(self.c) if r['hit']]
+        run.confirm_hits(self.c,flagged)
+        self.assertEqual(len(self.calls),1)
+        original=retrieval.fetch
+        def changed(url,**kwargs):
+            response,body=original(url,**kwargs)
+            return response, body+b' authored changed snapshot' if 'id_/' in url else body
+        self.patch(retrieval,'fetch',changed)
+        self.c.freshness_refetch_urls={held}
+        run.confirm_hits(self.c,flagged)
+        self.assertEqual(len(self.calls),2)
+        (self.case/'statement.md').write_text((self.case/'statement.md').read_text()+'\nAuthored context change.\n')
+        run.confirm_hits(self.c,flagged)
+        self.assertEqual(len(self.calls),3)
+
+    def test_batch_boundaries_bypass_legacy_restart_and_holder_attempt_caps(self):
+        import key_holder
+        # Captured source generation, with four authored transport retries.
+        job={'case':self.source['case'],'mode':'case','_batch_job':True}
+        history=[{'case':self.source['case'],'generation':self.source['sha256']} for _ in range(4)]
+        self.assertIsNone(key_holder.admit_attempt(job,self.source['sha256'],{},history,4))
+        with self.assertRaisesRegex(ValueError,'attempt limit'):
+            key_holder.admit_attempt({**job,'_batch_job':False},self.source['sha256'],{},history,4)
+        launch=(ROOT/'factory/launch.sh').read_text()
+        function='factory_auto_resume() {'+launch.split('factory_auto_resume() {',1)[1].split('\n}\n',1)[0]+'\n}\n'
+        for operation,release in [('authored-operation',''),('','authored-release')]:
+            result=subprocess.run(['bash','-uc',function+'\nfactory_auto_resume captured-vm'],
+                cwd=self.work,env={**os.environ,'UNBUG_BATCH_OPERATION':operation,'batch_release':release},
+                capture_output=True,text=True)
+            self.assertEqual(result.returncode,1,result.stderr)
+            self.assertEqual(result.stderr,'') # exits before reading unset legacy VM/retry state
+
+    def test_five_stress_interruptions_keep_same_round_and_operation(self):
+        attempts=[0]
+        def emit(config,value):
+            if config['category']=='wrong_fixes' and attempts[0]<5:
+                attempts[0]+=1
+                raise runtime_fixture.Killed()
+        self.stress_setup(emit)
+        operation=None
+        for _ in range(5):
+            with self.assertRaises(runtime_fixture.Killed): run.write_and_attack(self.c,copy.deepcopy(self.c.card))
+            receipt=run.jload(self.work/'attack-state.json')
+            if operation is None: operation=receipt['operation_id']
+            self.assertEqual(receipt['operation_id'],operation)
+            self.c.args.resume=self.c.case_id
+        run.write_and_attack(self.c,copy.deepcopy(self.c.card))
+        self.assertEqual(self.c.card['builder_rounds'],1)
+        self.assertEqual(run.jload(self.work/'attack-state.json')['operation_id'],operation)
 
 
 if __name__ == '__main__': unittest.main()
