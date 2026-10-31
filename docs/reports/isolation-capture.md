@@ -25,7 +25,9 @@ Log: isolation-capture-suite-20261031T134911Z-de8c60b4.log; its sibling JSON
 records the command, branch, base, exit code, elapsed time and log SHA-256.
 Design review 1 blocked shared-file-offset reads. The fix specifies positional
 reads and active-write/offset tests; independent design review 2 passed.
-The fresh diff review is recorded in docs/reviews/isolation-capture-diff-*.md.
+Fresh diff review passed with no blockers and accepted the Murphy closure;
+verbatim record: docs/reviews/isolation-capture-diff-1.md. Code and tests remain
+exactly as tested and reviewed in 4c7658d; subsequent edits are records only.
 
 No cloud worker was created; no factory/model request was sent. Cloud/factory
 spend: USD 0. Reviewer delegation uses the requested Claude provider; no reviewer
@@ -37,3 +39,7 @@ Boat experiment kept below USD 1. Broader escaped-process termination, arbitrary
 streaming callers, and full Item 8 activation are not certified by this increment.
 Anonymous-file replay assumes trusted ordinary appending transport writers and
 caps memory per stream, not disk growth from an escaped writer.
+
+The 8 MiB cap includes any escaped-writer bytes appended before the snapshot.
+Exit 125 can therefore reflect a chatty escaped writer, not just a large provider
+response. This conservatively refuses the query rather than returning partial data.
