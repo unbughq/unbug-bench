@@ -36,6 +36,8 @@ def main():
     bounds, draft, pins = map(load, ('practice-bounds.json', 'item8-draft.json', 'release-pins.json'))
     for obj in (bounds, draft, pins):
         require(obj['schema'] == 1 and obj['launch_ready'] is False, 'not blocked schema 1 preparation')
+    require(bounds['blockers'] == draft['blockers'] == pins['blockers'] and bool(pins['blockers']), 'blocker lists disagree or are empty')
+    require([r['name'] for r in draft['releases']] == ['alpha', 'beta-fault', 'beta-fixed', 'beta-plumbing', 'beta-science'], 'release sequence changed')
     require(all(all(r[k] is None for k in ('commit', 'sha256', 'batch')) for r in draft['releases']), 'draft release unexpectedly populated')
     require(all(s['input'] is None for s in draft['scenarios']), 'draft input unexpectedly populated')
     files = {'batch-release.json', 'install-source.py', 'source-manifest.json', 'public-source.tar.gz', 'worker-release-manifest.json', 'deploy.py'}
@@ -52,6 +54,7 @@ def main():
     policy_path = here / 'practice-policy.json'
     policy = load('practice-policy.json')
     require(policy['root'] == '/BLOCKED/b3-not-approved-for-launch', 'policy lacks refusal sentinel')
+    require(policy['batch']['sha256'] == pins['batch_release_sha256'] and policy['code_sha256'] == pins['trusted_code_sha256'] and policy['batch']['manifest_sha256'] == pins['manifest_sha256'], 'policy differs from pins')
     try:
         key_holder.policy_load(policy_path)
     except ValueError:
@@ -69,6 +72,9 @@ def main():
         path = Path(tmp) / 'policy.json'
         path.write_text(json.dumps(translated))
         key_holder.policy_load(path)
+    require((D(bounds['case_incremental_usd']), D(bounds['probe_usd']), D(bounds['infrastructure_usd'])) == (D('19.99'), D('0.01'), D('5')), 'practice allocations changed')
+    require((bounds['concurrency'], bounds['cases'], bounds['worker_lifetime_minutes']) == (1, 1, 60) and bounds['diagnosis'] is False and bounds['replacement'] is False, 'practice limits changed')
+    require(bounds['live_manifest_requirements']['initial_accounts'] == {'claude': 2} and bounds['live_manifest_requirements']['claude_accounts'] == [2, 1], 'live account contract changed')
     require(D(bounds['case_incremental_usd']) + D(bounds['probe_usd']) == D(bounds['model_usd']) == D('20'), 'practice model allocation mismatch')
     require(D(bounds['model_usd']) + D(bounds['infrastructure_usd']) == D(bounds['total_usd']) == D('25'), 'practice total mismatch')
     scenarios = draft['scenarios']
