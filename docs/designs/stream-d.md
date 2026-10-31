@@ -3726,7 +3726,7 @@ admission/recovery is done. Each line is one intended reviewable increment.
 - [ ] **All diagnosis outcomes — large.** Admit proposed extensions after comparison;
   execute factory-bug hold/fix/resume (three maximum), extension progress/limit
   decisions (five maximum), and retirement through ordinary launch/checkpoints.
-- [ ] **Qualified-path legacy allowance deletion — medium.** Remove remaining
+- [x] **Qualified-path legacy allowance deletion — medium.** Remove remaining
   recovery/final-fix/diagnostic allowance branches from the qualified path; prove
   only cumulative batch money/deadline and scientific round rules govern it.
 
@@ -3739,3 +3739,18 @@ The admitted-execution implementation, full offline suite and fresh diff review
 are complete. Reviews: stream-d-admitted-execution-design-1.md, design-2.md,
 diff-1.md and diff-2.md under docs/reviews (all with the same topic prefix). No Murphy row closes. The next
 increment is the complete writer/stress/gate package above; activation stays off.
+
+
+### Qualified-path allowance deletion completion
+
+Implemented in `9ce1737` against merged lane 2 `4d7c63e`. Qualified ordinary
+launches no longer consult legacy call-cap/founder/cohort/raised-limit/crash-rescue
+policy; modern late repairs use the writer-round limit instead of max_repairs.
+No new launch or rescue route. Legacy batch inputs retain B's retire-only handling.
+Design: `stream-d-qualified-allowances.md`. Reviews in `docs/reviews/`:
+`stream-d-qualified-allowances-design-1.md`, `stream-d-qualified-allowances-design-2.md`
+and `stream-d-qualified-allowances-diff-1.md`. Fresh final design and diff reviews
+PASS with no blockers. Full suite: 161 scripts, 0 failures; retained logs and
+correction history in `docs/reviews/stream-d-qualified-allowances-suite.md`.
+No Murphy row closes. Rows 9, 13 and 39 retain their remaining integration/live
+qualification requirements; lane 2's package/outcome work and item 8 are separate.
