@@ -49,13 +49,16 @@ def encoded(event,streaming):
     return (('data: '+json.dumps(event)+'\n\ndata: [DONE]\n\n').encode() if streaming else json.dumps(event).encode())
 
 
+# Historical source/CLI captures cover these two routes, not later profiles.
+CAPTURED_ROUTES = ('openrouter/xiaomi/mimo-v2.6-pro', 'openrouter/deepseek/deepseek-v4.1-flash')
+
 class CheapTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
 
     def test_exact_profiles_match_raw_prices_and_reject_cache_write_and_free(self):
         expected=[('1.710490600',3932162,1966081),('1.174406120',8388615,2796205)]
-        for (route,profile),record,values in zip(GATED_OPENROUTER.items(),PRICES,expected):
+        for (route,profile),record,values in zip(((r,GATED_OPENROUTER[r]) for r in CAPTURED_ROUTES),PRICES,expected):
             self.assertEqual(hashlib.sha256(record['raw_text'].encode()).hexdigest(),record['sha256'])
             self.assertEqual(json.loads(record['raw_text']),record['response'])
             self.assertEqual(record['checked_on'],'2026-10-30')
@@ -87,7 +90,7 @@ class CheapTests(unittest.TestCase):
     def test_real_session_replay_and_three_dollar_job_fit(self):
         expected={'e15450':(17,Decimal('0.8515172860'),Decimal('2.4924907220')),
                   '873d7f':(14,Decimal('0.6516037902'),Decimal('2.2841285566'))}
-        longest={route:(0,0) for route in GATED_OPENROUTER}
+        longest={route:(0,0) for route in CAPTURED_ROUTES}
         for card in CARDS:
             sessions=OrderedDict()
             for event in card['continuation_budget']['events']:
@@ -239,7 +242,7 @@ class CheapTests(unittest.TestCase):
                 search,=proof['search_requests'];self.assertEqual(search['url'],'https://mcp.exa.ai/mcp')
                 self.assertFalse(search['authorization_present']);self.assertEqual(search['payload']['params']['name'],'web_search_exa')
         self.assertEqual({(p['route'],p['role']) for p in record['probes'] if p['mode']=='exa'},
-                         {(r,s) for r in GATED_OPENROUTER for s in ('writer','stress_tester')})
+                         {(r,s) for r in CAPTURED_ROUTES for s in ('writer','stress_tester')})
 
     def test_gateway_only_key_custody_environment_and_real_http(self):
         seen=[]
@@ -278,7 +281,7 @@ class CheapTests(unittest.TestCase):
             path,body,auth=seen[-1];self.assertEqual(path,'/api/v1/chat/completions')
             self.assertEqual(body['provider']['only'],[GATED_OPENROUTER[route]['endpoint']])
             self.assertEqual(auth,'Bearer synthetic-upstream-only')
-        self.assertEqual(len(seen),2)
+        self.assertEqual(len(seen),len(GATED_OPENROUTER))
 
 
 if __name__=='__main__':unittest.main()
