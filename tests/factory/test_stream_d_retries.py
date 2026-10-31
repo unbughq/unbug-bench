@@ -13,6 +13,8 @@ import sys
 import subprocess
 import os
 import threading
+import shutil
+import tarfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -46,14 +48,14 @@ class RetryTests(unittest.TestCase):
         self.c.stress_checkpoint = lambda: True
         self.calls = []
         self.context_inputs = {key: copy.deepcopy(value) for key, value in vars(self.c).items()
-                               if key not in ('role_cancel', 'card', 'stress_checkpoint')}
+                               if key not in ('role_cancel', 'card', 'stress_checkpoint', 'model_publication_barrier')}
 
     def fresh_context(self):
         # Reconstruct only launch inputs and saved card; no runtime attributes,
         # locks, callback closures, exclusions or retrieval scratch survive.
         card = copy.deepcopy(self.c.card)
-        self.c = SimpleNamespace(**copy.deepcopy(self.context_inputs), card=card,
-                                 role_cancel=threading.Event())
+        self.c = run.Ctx()
+        vars(self.c).update(copy.deepcopy(self.context_inputs), card=card, role_cancel=threading.Event())
         self.c.args.resume = self.c.case_id
         self.c.stress_checkpoint = lambda: True
         return self.c
@@ -221,6 +223,61 @@ class RetryTests(unittest.TestCase):
             emit(config, value)
             Path(config['category_output']).write_text(json.dumps(value))
         self.cli(output)
+
+    def timeout_report(self, category, raw):
+        timed_out = [False]
+        def emit(config, value):
+            value['non_blocking'] = ['retained observation: ' + config['category']]
+            if config['category'] == category and not timed_out[0]:
+                timed_out[0] = True
+                if raw is not None: Path(config['category_output']).write_bytes(raw)
+                raise budget.BudgetError('timeout')
+        self.stress_setup(emit)
+        with self.assertRaisesRegex(budget.BudgetError, '^timeout$'):
+            run.write_and_attack(self.c, {})
+        report = run.attack_report(self.work/'attacks/round-1.json')
+        receipt = run.jload(self.work/'attack-state.json')
+        self.assertEqual((report['status'], report['complete'], report['stop_reason']), ('pending', False, 'timeout'))
+        self.assertEqual(report['operation_id'], receipt['operation_id'])
+        self.assertEqual(report['round'], receipt['round'])
+        self.assertEqual(report['blocking'], [])
+        self.assertEqual((receipt['phase'], receipt['review_pending']), ('pending', True))
+        self.assertTrue(run.jload(self.work/'stress-publication.json')['pending'])
+        done = list(stress_progress.CATEGORIES)[:list(stress_progress.CATEGORIES).index(category)]
+        self.assertEqual([k for k,v in report['coverage'].items() if v['complete']], sorted(done))
+        self.assertEqual(report['non_blocking'], ['retained observation: ' + k for k in done])
+        self.assertEqual(report['coverage'][category]['pending'], sorted(stress_progress.CATEGORIES[category]))
+        partials = [(self.work/r['file']).read_bytes() for r in report['partial_reports']]
+        for row in report['partial_reports']:
+            self.assertEqual(hashlib.sha256((self.work/row['file']).read_bytes()).hexdigest(), row['sha256'])
+        if raw is not None: self.assertIn(raw, partials)
+        elif not done: self.assertEqual(partials, [])
+        before = {p.relative_to(self.work): p.read_bytes() for p in self.work.glob('attacks/round-1-categories/*/*-0.json')}
+        # Actual archive/restore of the captured case and ledger plus runtime evidence.
+        archive = self.work.with_suffix('.row13.tar')
+        self.addCleanup(archive.unlink, missing_ok=True)
+        with tarfile.open(archive, 'w') as tar: tar.add(self.work, arcname=self.work.name)
+        shutil.rmtree(self.work)
+        with tarfile.open(archive) as tar: tar.extractall(self.work.parent, filter='data')
+        self.assertEqual(run.attack_report(self.work/'attacks/round-1.json'), report)
+        self.fresh_context()
+        resumed = len(self.calls)
+        run.write_and_attack(self.c, copy.deepcopy(self.c.card))
+        final = run.attack_report(self.work/'attacks/round-1.json')
+        self.assertEqual((final['status'], final['complete'], final['stop_reason']), ('scored', True, None))
+        self.assertEqual(final['operation_id'], receipt['operation_id'])
+        self.assertEqual(self.c.card['builder_rounds'], 1)
+        self.assertEqual(len(self.calls)-resumed, len(stress_progress.CATEGORIES)-len(done))
+        for p, data in before.items(): self.assertEqual((self.work/p).read_bytes(), data)
+
+    def test_row13_real_artifacts_timeout_before_output(self):
+        self.timeout_report('wrong_fixes', None)
+
+    def test_row13_real_artifacts_timeout_malformed_partial(self):
+        self.timeout_report('wrong_fixes', b'{"blocking": ["untrusted partial"')
+
+    def test_row13_real_artifacts_timeout_after_categories(self):
+        self.timeout_report('fairness', b'{"category_complete":true,"blocking":["untrusted"]}')
 
     def test_category_kill_resumes_only_unfinished_and_preserves_operation(self):
         killed = [False]

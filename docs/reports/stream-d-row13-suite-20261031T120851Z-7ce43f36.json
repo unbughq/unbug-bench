@@ -1,0 +1,10 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "started_utc": "20261031T120851Z-7ce43f36",
+  "exit_code": 0,
+  "log": "docs/reports/stream-d-row13-suite-20261031T120851Z-7ce43f36.log",
+  "sha256": "f3e446083ae9bbb2fd550f11f8cacd293402680fc10b1bf2e28b41415b1cdd7e",
+  "tested_commit": "1836d185a0c6c281cb9e0162143995ef717e328d",
+  "completion_head": "1836d185a0c6c281cb9e0162143995ef717e328d",
+  "result": "158 test scripts run; 0 failed"
+}

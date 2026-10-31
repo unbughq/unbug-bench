@@ -439,6 +439,10 @@ def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_a
             reservation = reserve_invocation(c.ledger, lease, maximum, job_authority.for_case(c),
                 operation_id=operation, call_name=name)
             if extension_proposal is not None:
+                extensions.retain_writer(c, {**receipt, 'schema_version': 2, 'operation_id': operation,
+                    'phase': 'pending', 'lease_id': lease.lease_id, 'invocation_id': reservation['invocation_id'],
+                    'extension_id': extension_proposal['extension_id'],
+                    'binding_sha256': hashlib.sha256(json.dumps(receipt['binding'], sort_keys=True).encode()).hexdigest()})
                 extension = extensions.admit(c, extension_proposal, lease, operation)
                 receipt['extension_id'] = extension['extension_id']
             elif on_admitted is not None: on_admitted()
@@ -1120,7 +1124,6 @@ def write_and_attack(c, prev):
     if modern:
         import job_authority
         job_authority.for_case(c)
-        install_publication_barrier(c)
         with model_runtime.dispatch(c, 'resume'): resume_provider_wait(c)
     ruling = None if modern else ruling_context(c)
     if prev.get("rejected_candidates"):
@@ -2246,7 +2249,7 @@ def confirm_hits(c, flagged, *, retained_path=None):
             text = text.replace('"deleted" | null',
                 '"deleted" | "http_401" | "http_403" | "http_451" | "http_429" | "http_500" through "http_599" | "network_error" | null')
             text += (' Copy live_failure exactly from the runner receipt (including the actual three-digit HTTP status). '
-                     ' Access failures http_401/http_403/http_451/http_429/http_5xx/network_error '
+                     ' Access failures http_401/http_403/http_451/http_429/http_500–http_599/network_error '
                      'are not dead pages. Their archived snapshots can confirm a match but cannot clear one. '
                      'Keep a false or uncertain archived comparison unresolved while live access fails. '
                      'No snapshot clears only HTTP 404/410, DNS failure or confirmed deletion; '

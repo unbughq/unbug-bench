@@ -256,6 +256,106 @@ def writer_continuation(c, receipt, name):
     raise BudgetError('extension_reservation_mismatch')
 
 
+
+# Every other field belongs to the immutable request admitted for this operation.
+_WRITER_MUTABLE = {'phase', 'lease_id', 'invocation_id', 'resumed_from_wait',
+    'binding', 'binding_sha256', 'output_sha256', 'repair_pending', 'next_phase',
+    'validation_problems', 'awaiting_stress', 'stop_reason', 'exhausted'}
+
+
+def _writer_json(path, base, *, optional=False):
+    from diagnosis import _input_bytes
+    try:
+        value = json.loads(_input_bytes(path, base))
+    except FileNotFoundError:
+        if optional: return None
+        raise BudgetError('extension_reservation_mismatch') from None
+    except ValueError:
+        raise BudgetError('extension_reservation_mismatch') from None
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR, errno.ENXIO, errno.EISDIR):
+            raise BudgetError('extension_reservation_mismatch') from None
+        raise
+    if not isinstance(value, dict): raise BudgetError('extension_reservation_mismatch')
+    return value
+
+
+def _writer_shape(receipt):
+    from run import writer_intent_valid
+    if (not isinstance(receipt, dict) or not writer_intent_valid(receipt) or
+            type(receipt.get('round')) is not int or receipt['round'] < 1 or
+            receipt.get('report') != f"round-{receipt['round']}.json" or
+            not isinstance(receipt.get('binding'), dict) or receipt.get('binding_sha256') !=
+            hashlib.sha256(json.dumps(receipt['binding'], sort_keys=True).encode()).hexdigest()):
+        raise BudgetError('extension_reservation_mismatch')
+
+
+def _writer_previous(previous, receipt):
+    if previous is not None and (not isinstance(previous, dict) or
+            type(previous.get('round')) is not int or not 0 <= previous['round'] < receipt['round']):
+        raise BudgetError('extension_reservation_mismatch')
+
+
+def retain_writer(c, receipt):
+    """Persist the exact request before its extension history can become active."""
+    import model_runtime
+    with model_runtime.dispatch(c, 'extension-writer-intent'):
+        _writer_shape(receipt)
+        operation = receipt.get('operation_id')
+        if not _uuid4(operation): raise BudgetError('extension_reservation_mismatch')
+        previous = _writer_json(c.work / 'attack-state.json', c.work, optional=True)
+        _writer_previous(previous, receipt)
+        envelope = {'receipt': receipt, 'previous': previous}
+        path = c.work / 'extension-writers' / (operation + '.json')
+        retained = _writer_json(path, c.work, optional=True)
+        if retained is not None:
+            if retained != envelope: raise BudgetError('extension_reservation_mismatch')
+            return
+        path.parent.mkdir(exist_ok=True)
+        _sync_directory(c.work)
+        atomic_json(path, envelope)
+
+
+def writer_receipt(c):
+    """Select/recover writer work only; None grants no stress or gate authority."""
+    import model_runtime
+    with model_runtime.dispatch(c, 'extension-writer-receipt'):
+        row = active(c)
+        if row is None: return None
+        path = c.work / 'attack-state.json'
+        current = _writer_json(path, c.work, optional=True)
+        if (current is not None and current.get('actor') == 'stress_tester' and
+                type(current.get('round')) is int and current['round'] == row['round']):
+            return None
+        envelope = _writer_json(c.work / 'extension-writers' / (row['writer_operation_id'] + '.json'), c.work)
+        if set(envelope) != {'receipt', 'previous'}: raise BudgetError('extension_reservation_mismatch')
+        intent, previous = envelope['receipt'], envelope['previous']
+        _writer_shape(intent)
+        _writer_previous(previous, intent)
+        name = 'builder-' + str(row['round'])
+        writer_continuation(c, intent, name)
+        if current == previous:
+            atomic_json(path, intent)
+            current = copy.deepcopy(intent)
+        else:
+            _writer_shape(current)
+            if current.get('phase') not in ('pending', 'completed', 'validated'):
+                raise BudgetError('extension_reservation_mismatch')
+            frozen = lambda receipt: {k: v for k, v in receipt.items() if k not in _WRITER_MUTABLE}
+            if frozen(current) != frozen(intent): raise BudgetError('extension_reservation_mismatch')
+            if current['phase'] != 'pending' and not (
+                    isinstance(current.get('lease_id'), str) and isinstance(current.get('invocation_id'), str)):
+                raise BudgetError('extension_reservation_mismatch')
+            # The same reservation identity checks apply to finished writers;
+            # this does not turn their receipt back into pending or certify output.
+            writer_continuation(c, {**current, 'phase': 'pending'}, name)
+            if (current['phase'] == 'pending' and current.get('lease_id') == intent['lease_id'] and
+                    current.get('invocation_id') == intent['invocation_id'] and current['binding'] != intent['binding']):
+                raise BudgetError('extension_reservation_mismatch')
+        c.card['builder_rounds'] = row['round']
+        return current
+
+
 def comparison_pair(row, versions):
     """One selection rule for comparison and admission; never reroll a score."""
     def matches(pair):
