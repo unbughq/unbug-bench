@@ -714,3 +714,32 @@ The `dispatch_exit` gate in `_reconcile_one`. The unbounded resume respawn.
 None closed. Rows 6, 27, 28, 35, 51 and new-batch-service-3 need the live
 practice run. This increment narrows 6 (publication replay) and 51 (holder
 restart recovery) but proves neither on a real VM.
+
+
+### Activation diff-review clarifications (2026-10-31)
+
+An initialized controller may exit before `guard_init` creates `ids`. Under the
+free operation and controller locks, a matching launch record and no `new.*`,
+a missing `ids` is equivalent to empty. Other unreadable/nonregular `ids`
+remain ambiguous and pending. The regression must cover the actual initialized
+layout without `ids`, held locks, and creation evidence. The missing-directory
+fence test must identify `FileExistsError` and prove no launch record or
+controller lock was created, rather than accept an arbitrary subprocess error.
+
+The replay test must enter `main` with the publish command and stdin identity,
+exercise real tar extraction and R2 assignment parsing with only age decryption
+stubbed, and prove a transport failure leaves pending outbox/no ACK before a
+successful replay produces both ACK and pointer. Identity zeroing and test
+environment restoration are checked too. All credentials in this test are
+explicitly synthetic; no live credential is read.
+
+Accepted scope ceilings from activation diff-1: publication replay here covers
+only an operation with no published output. A failed later publication after an
+earlier generation was ACKed is not automatically replayed; the prior generation
+can remain visible and the full hold remains committed. Fixing that path needs a
+follow-up increment before a broad batch rollout. A manually completed controller
+can carry its resume failure count and wait into publication, so fewer than five
+publication failures may terminate it. This conservative ceiling is accepted for
+this increment. An old reservations file lacking `failures` is rejected; practice
+uses a fresh batch. A worker already deleted can briefly show as running until
+retirement is reconciled. No new Murphy closure is claimed.

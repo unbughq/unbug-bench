@@ -339,10 +339,14 @@ def _reconcile_one(directory, root, home, op, state):
                 if service._json(path / 'launch.json') != op['launch']: return
                 with service._regular(path / 'controller.lock') as lock:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    with service._regular(path / 'ids') as stream: ids = stream.read().strip()
-                    # guard_new opens new.$serial (and touches new.$serial.pending on an
-                    # unknown outcome) before the creator, so no new.* means no worker.
-                    if not list(path.glob('new.*')) and not ids:
+                    # guard_new opens new.$serial before the creator. With both
+                    # locks free and no creation record, guard_init may never have
+                    # run, so a missing ids file is as safe as an empty one.
+                    if list(path.glob('new.*')): return
+                    try:
+                        with service._regular(path / 'ids') as stream: ids = stream.read().strip()
+                    except FileNotFoundError: ids = b''
+                    if not ids:
                         op.update(state='failed', incident='preflight_refused')
         except (OSError, ValueError, KeyError): pass
         return

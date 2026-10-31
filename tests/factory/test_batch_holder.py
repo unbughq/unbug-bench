@@ -10,6 +10,7 @@ import io
 import json
 import os
 import subprocess
+import tarfile
 import shutil
 from pathlib import Path
 import shlex
@@ -435,6 +436,19 @@ class HolderTests(unittest.TestCase):
         with patch.object(holder, 'HOLDER_ENABLED', False), patch.object(holder, 'reconcile') as scan:
             key_holder.batch_tick(self.policy, {}, {}, None); scan.assert_not_called()
 
+    def test_batch_tick_survives_real_corrupt_money(self):
+        import key_holder
+        self.reserve()
+        (self.directory / 'money.json').write_text('{invalid')
+        with patch.multiple(key_holder, ROOT=self.root, CONTROL_HOME=self.home), \
+             patch.object(holder, 'orphaned', return_value=[]) as resume, \
+             patch.object(holder, 'unpublished', return_value=[]) as publish, \
+             patch.object(sys, 'stderr', io.StringIO()) as errors:
+            key_holder.batch_tick(self.policy, {}, {}, None)
+        self.assertIn('batch scan refused', errors.getvalue())
+        resume.assert_called_once()
+        publish.assert_called_once()
+
     def test_reconcile_isolates_a_refused_operation(self):
         self.concurrency()
         bad, good = self.started(self.reserve('j')), self.started(self.reserve('k'))
@@ -471,6 +485,11 @@ class HolderTests(unittest.TestCase):
              patch.object(key_holder.resource, 'setrlimit'), patch.object(key_holder.os, 'umask'):
             with self.assertRaisesRegex(ValueError, 'control home policy'):
                 key_holder.serve(self.root / 'elsewhere.json', .01)
+            # The canonical path passes the policy check and reaches runtime setup.
+            with patch.object(key_holder, 'secure_directory', side_effect=StopIteration) as setup:
+                with self.assertRaises(StopIteration):
+                    key_holder.serve((self.home / 'policy.json').resolve(), .01)
+                setup.assert_called_once_with(key_holder.RUNTIME)
 
     def test_enabled_bind_restores_only_the_frozen_source(self):
         import batch
@@ -611,22 +630,32 @@ class HolderTests(unittest.TestCase):
         self.assertEqual(holder.orphaned(self.policy, self.root, self.home), [identity])
         children, waits, spawned = {}, {}, []
         spawn = lambda operation, action: spawned.append((operation, action)) or SimpleNamespace(poll=lambda: 1)
-        with patch.multiple(key_holder, ROOT=self.root, CONTROL_HOME=self.home):
-            for _ in range(40):
-                waits.clear()  # each pass stands in for its backoff window elapsing
+        now = 1000.0
+        with patch.multiple(key_holder, ROOT=self.root, CONTROL_HOME=self.home), \
+             patch.object(key_holder.time, 'monotonic', side_effect=lambda: now):
+            key_holder.batch_tick(self.policy, children, waits, spawn)
+            for attempt in range(1, holder.RETRY_LIMIT + 1):
                 key_holder.batch_tick(self.policy, children, waits, spawn)
-                if self.ops()[identity]['incident'] == 'resume_failed': break
-        # A failing resume is respawned at most RETRY_LIMIT times, then becomes terminal.
-        self.assertEqual(spawned.count((identity, 'resume')), holder.RETRY_LIMIT)
-        self.assertEqual(self.ops()[identity]['failures'], holder.RETRY_LIMIT)
-        self.assertEqual(holder.orphaned(self.policy, self.root, self.home), [])
-        target, rows = status.read_rows(self.policy, self.root, self.home)
-        self.assertIn('resume failed', status.render(target, rows, None, {}))
-        # A holder restart (fresh children/waits) does not reset the durable count or respawn.
-        before = spawned.count((identity, 'resume'))
-        key_holder.batch_tick(self.policy, {}, {}, spawn)
-        self.assertEqual(spawned.count((identity, 'resume')), before)
-        self.assertEqual(self.ops()[identity]['failures'], holder.RETRY_LIMIT)
+                self.assertEqual(self.ops()[identity]['failures'], attempt)
+                if attempt == holder.RETRY_LIMIT: break
+                delay = 60 * 2 ** (attempt - 1)
+                self.assertEqual(waits[identity], now + delay)
+                now += delay - 1
+                key_holder.batch_tick(self.policy, children, waits, spawn)
+                self.assertEqual(len(spawned), attempt)
+                now += 1
+                if attempt == 2:
+                    # A fresh holder must continue the durable count mid-retry.
+                    children, waits = {}, {}
+                key_holder.batch_tick(self.policy, children, waits, spawn)
+                self.assertEqual(len(spawned), attempt + 1)
+            self.assertEqual(spawned.count((identity, 'resume')), holder.RETRY_LIMIT)
+            self.assertEqual(holder.orphaned(self.policy, self.root, self.home), [])
+            target, rows = status.read_rows(self.policy, self.root, self.home)
+            self.assertIn('resume failed', status.render(target, rows, None, {}))
+            key_holder.batch_tick(self.policy, {}, {}, spawn)
+            self.assertEqual(len(spawned), holder.RETRY_LIMIT)
+            self.assertEqual(self.ops()[identity]['failures'], holder.RETRY_LIMIT)
 
     def test_resume_that_completes_is_not_counted(self):
         op = self.started(self.reserve()); identity = op['operation_id']
@@ -659,22 +688,86 @@ class HolderTests(unittest.TestCase):
         self.reconcile()
         self.assertTrue(path.is_dir())
         self.assertEqual(self.ops()[kid]['state'], 'failed')
-        start = subprocess.run([sys.executable, '-B', str(ROOT / 'factory/control_resume.py'), 'noop'],
+        start = subprocess.run([sys.executable, '-B', str(ROOT / 'factory/control_resume.py'), '1'],
                                capture_output=True, env={'PATH': os.environ['PATH'],
                                'UNBUG_CONTROL_HOME': str(self.home), 'UNBUG_LAUNCH_ID': k['launch_id']})
         self.assertNotEqual(start.returncode, 0)
+        self.assertIn(b'FileExistsError', start.stderr)
+        self.assertFalse((path / 'launch.json').exists())
+        self.assertFalse((path / 'controller.lock').exists())
+
+    def test_early_exit_before_guard_init_has_no_ids(self):
+        op = self.started(self.reserve(), created=False); identity = op['operation_id']
+        path = self.home / 'launches' / op['launch_id']
+        (path / 'ids').unlink()  # control_resume initialized; launch.sh never reached guard_init.
+        with (path / 'controller.lock').open('rb') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.reconcile()
+            self.assertEqual(self.ops()[identity]['state'], 'pending')
+        # Creation evidence is still ambiguous even without ids.
+        (path / 'new.1.pending').touch()
+        self.reconcile()
+        self.assertEqual(self.ops()[identity]['state'], 'pending')
+        (path / 'new.1.pending').unlink()
+        # A nonregular ids entry must not be treated as missing.
+        (path / 'ids').symlink_to(path / 'absent')
+        self.reconcile()
+        self.assertEqual(self.ops()[identity]['state'], 'pending')
+        (path / 'ids').unlink()
+        self.reconcile()
+        self.assertEqual(self.ops()[identity]['state'], 'failed')
+        self.assertEqual(self.ops()[identity]['incident'], 'preflight_refused')
+        self.assertIsNone(self.ops()[identity]['dispatch_exit'])
 
     def test_publication_replay_and_terminal(self):
         self.concurrency()
         op = self.started(self.reserve()); self.output(op); identity = op['operation_id']
         (self.home / 'launches' / op['launch_id'] / 'complete').touch()
-        # A complete launch whose output is collected but never ACKed is listed for replay.
+        import key_holder
+        # First publication fails at transport, leaving durable pending evidence.
+        with self.assertRaisesRegex(ValueError, 'publication_failed'):
+            holder.collect(self.policy, self.root, self.home, identity,
+                           lambda *args: (_ for _ in ()).throw(ValueError('publication_failed')))
+        outbox = self.directory / 'outbox' / (identity + '.json')
+        self.assertEqual(json.loads(outbox.read_text())['state'], 'pending')
+        self.assertEqual(self.money()['jobs']['j']['acks'], {})
+        self.assertFalse((self.directory / 'current' / (op['case'] + '.json')).exists())
         self.assertEqual(holder.unpublished(self.policy, self.root, self.home), [identity])
-        with patch.object(holder, '_r2_env', return_value={}), patch.object(holder, 'r2_publish',
-                side_effect=lambda root, key, path: self.objects.update({key: path.read_bytes()})):
-            holder.publish_replay(self.policy, self.root, self.home, identity, b'authored identity')
+        # Synthetic assignments use bin/setup-secrets' exact four-line format.
+        values = dict(R2_ACCOUNT_ID='synthetic-account', R2_ACCESS_KEY_ID='synthetic-access',
+                      R2_SECRET_ACCESS_KEY='synthetic-key/+=', R2_BUCKET='synthetic-bucket')
+        data = ''.join(f'{key}={value}\n' for key, value in values.items()).encode()
+        archive = self.root / 'synthetic-r2.tar'
+        with tarfile.open(archive, 'w') as target:
+            member = tarfile.TarInfo('r2-env'); member.size = len(data)
+            target.addfile(member, io.BytesIO(data))
+        bindir = self.root / 'synthetic-bin'; bindir.mkdir()
+        age = bindir / 'age'
+        age.write_text('#!/bin/sh\ncat ' + shlex.quote(str(archive)) + '\n')
+        age.chmod(0o755)
+        keys = []
+        real_replay = holder.publish_replay
+        def replay(*args):
+            keys.append(args[-1])
+            return real_replay(*args)
+        def transport(root, key, path):
+            self.assertEqual({name: os.environ[name] for name in values}, values)
+            self.objects[key] = path.read_bytes()
+        with patch.dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ['PATH']), \
+             patch.multiple(key_holder, ROOT=self.root, CONTROL_HOME=self.home), \
+             patch.object(key_holder, 'policy_load', return_value=self.policy), \
+             patch.object(sys, 'argv', ['batch_holder.py', 'publish', '--operation', identity]), \
+             patch.object(sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b'synthetic identity'))), \
+             patch.object(holder, 'publish_replay', side_effect=replay), \
+             patch.object(holder, 'r2_publish', side_effect=transport):
+            self.assertEqual(holder.main(), 0)
+        self.assertEqual(keys, [bytearray(len(b'synthetic identity'))])
         generation = self.ops()[identity]['output_generation']
         self.assertIn(generation, self.money()['jobs']['j']['acks'])
+        pointer = json.loads((self.directory / 'current' / (op['case'] + '.json')).read_text())
+        self.assertEqual(pointer['generation'], generation)
+        self.assertEqual(json.loads(outbox.read_text())['state'], 'acknowledged')
+        self.assertTrue(self.objects)
         self.assertEqual(holder.unpublished(self.policy, self.root, self.home), [])
         # Five failed publish children make it terminal and stop the scan.
         peer = self.started(self.reserve('k')); self.output(peer); pid = peer['operation_id']
