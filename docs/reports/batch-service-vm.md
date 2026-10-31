@@ -18,3 +18,15 @@ record prior policy/unit hashes and exact rollback, and satisfy the reviewed
 holder/ACK/source/restore and router per-call-maxima prerequisites first.
 
 Workers created/deleted: none. Live model/infra spend:0/0. No exam case touched.
+
+
+2026-10-31 preparation: inspected complete Boat inventory (zero workers), the
+legacy controller journal (one unresolved launch with a free lock), credential
+labels, money-state absence and the missing unbug command. Public details are in
+stream-b-preparation-preflight-20261031.json. Stopped holder and resume timer/service
+under the preparation authorization; disabled holder and timer to keep them off
+across reboot; final service states inactive. Staged the
+6ac450e release in /home/user/.unbug-control/releases/practice-6ac450e and verified
+its SHA256 and all member pins. No source, active policy, identity or secret
+bundle changed. No worker or model call. Rollback and blockers are in the updated
+activation-practice plan. This is dormant staging, not completed installation.

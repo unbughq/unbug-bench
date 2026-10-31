@@ -19,6 +19,26 @@
     "worker_ids": []
   },
   "incremental_infrastructure_spend_usd": 0,
+  "infra_admission": {
+    "current_default_rate_verified": false,
+    "infra_reservation_ledger_present": false,
+    "provider_credit_covers_static_one_hour_estimate": true,
+    "provider_credit_covers_usd5": false,
+    "static_one_hour_default_estimate_usd": "0.036"
+  },
+  "model_admission": {
+    "approved_cumulative_usd": "20.000000000",
+    "basis": "model_runtime.invocation_maximum returns lease maximum; budget.reserve_invocation refuses total + pending + maximum > authority",
+    "fits_even_zero_spend": false,
+    "maximum": {
+      "max_input_tokens": 250000000,
+      "max_output_tokens": 2500000,
+      "max_usd": 50.0,
+      "price_source": "token_prices:2026-10-30:claude-opus-5-5:4.0,0.2,8.0,20.0:1.0:standard-global:joint-gate-v1"
+    },
+    "route": "claude/claude-opus-5-5",
+    "same_ceiling_in_a_commit": "1fff453"
+  },
   "model_spend_usd": 0,
   "money_files": [],
   "policy": {
@@ -36,15 +56,27 @@
     "dry_run": true,
     "sha256": "d93308338261cf32d468ec21ca5e619eea06b6585451a2cf51b644e2102ba9c8"
   },
+  "r2_env_label_present": true,
+  "router_config_present": false,
+  "router_env_present": false,
   "unbug_status": {
-    "available": false,
-    "reason": "bin/unbug absent on VM"
+    "exit": 127,
+    "stderr": "sh: 1: bin/unbug: not found\n",
+    "stdout": ""
   },
   "units": {
     "unbug-batch.service": "inactive",
     "unbug-key-holder.service": "active",
     "unbug-model-router.service": "inactive",
     "unbug-resume-launches.timer": "active"
+  },
+  "units_after": {
+    "unbug-key-holder.service": "inactive",
+    "unbug-resume-launches.timer": "inactive"
+  },
+  "units_enabled_after": {
+    "unbug-key-holder.service": false,
+    "unbug-resume-launches.timer": false
   },
   "unresolved_launch": {
     "complete": false,
@@ -55,7 +87,12 @@
     ],
     "id": "b275ffccd6134a33833853ad1d31ed16"
   },
-  "vm_mutation": false,
+  "vm_changes": [
+    "stopped holder and resume timer/service",
+    "staged release practice-6ac450e; hashes verified; source/policy not installed",
+    "disabled holder and resume timer to keep them off across reboot"
+  ],
+  "vm_mutation": true,
   "workers_created": 0,
   "workers_deleted": 0
 }
