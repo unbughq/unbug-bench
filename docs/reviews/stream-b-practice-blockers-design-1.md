@@ -46,4 +46,3 @@ Once B1 and B2 are answered in the design text, I see no further blockers for th
 ## Elephant response
 
 Accepted B1 and B2. The addendum now passes choose the resolved default/observed baseline, leaves initial_state/current/prepare/apply unchanged, and explicitly covers both callers and the reversed paused-card assertion. Added the missing-metadata regression to the test contract. Clarified held-bundle wording, cost and blocker tracking. No findings rejected. Fresh diff review must verify these resolutions.
-

@@ -10,14 +10,24 @@ model probes, pushing or merging. Design against A's reviewed account-2 branch a
 1fff453; do not claim it is integrated here. Claude reservation rules stay intact.
 
 Practice uses one fresh case from an empty checkpoint if no eligible authenticated
-same-batch checkpoint exists. Select the smallest port project in rotation slot 0
-that passes normal admission; inspect its pinned descriptor before activating.
+same-batch checkpoint exists. Use the existing public marketplace practice target (projects/marketplace and
+scenarios/dev/S13-marketplace), the small Python/SQLite overlay on the required
+Medusa stack. A fresh source-port case must enter through normal admission; this
+is not a restored/imported S13 checkpoint. Pin a valid rotation slot (1..8), never
+the preparation candidate's invalid 0, and inspect the project descriptor before
+activating.
 Do not import the legacy archive or manufacture authentication. If that project
 cannot exercise the lifecycle within the bound, stop qualification, not widen it.
 Use A's bounded OpenRouter DeepSeek v4.1 flash route (about USD 1.17 maximum per
 call), with MiMo (about USD 1.71) only as an explicitly pinned alternative. Pin all
 model roles, including reviewers, to the selected cheap profile; no accidental
-Claude default. Keep USD 20 cumulative model money, USD 5 infrastructure, one
+Claude default. This is a required future plumbing-only profile, not a presently
+valid production CLI combination: model_runtime.select_models requires four
+independent families and a Claude/Codex strong calibrator. The future policy
+increment must define and review how the cheap plumbing exercise stops before
+case-quality scoring, without relaxing production independence or calibration
+rules. Do not simply pass the same cheap model to every role and claim readiness.
+This incompatibility remains part of blocker 8. Keep USD 20 cumulative model money, USD 5 infrastructure, one
 concurrent job, no replacement/diagnosis and a 60-minute maximum worker lifetime.
 These are plumbing checks, not case-quality qualification. Reservations still
 limit how many calls fit. Validate actual maxima against the integrated release.
