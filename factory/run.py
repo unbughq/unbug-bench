@@ -1125,6 +1125,30 @@ def reject_legacy_final_repair(c):
         attack_unresolved(c, "invalid_recovery_receipt")
 
 
+def writer_feedback(c, previous):
+    """Use the checkpoint's gate findings, never diagnosis prose."""
+    problems = None
+    if previous.get("failed_gate"):  # resumed after a failed gate: tell the writer what to repair
+        problems = [f"previous run failed {previous['failed_gate']}: {json.dumps(previous.get('failed_detail'))}"]
+        details = c.work / "gate-details" / f"{previous['failed_gate']}.json"  # sealed-side specifics, e.g. which keys
+        if details.is_file(): problems.append(f"details: {details.read_text()[:8000]}")
+    return problems
+
+
+def writer_request(c, n, round_limit, findings, problems, release_rereviews,
+                   release_review_attempts, before_repair, repair_requested):
+    """One fresh intent and prompt for ordinary and extension writer admission."""
+    receipt = dict(round=n, binding=attack_binding(c), report=f'round-{n}.json',
+        round_limit=round_limit, repair_pending=True, release_rereviews=release_rereviews,
+        release_review_attempts=release_review_attempts, actor='writer',
+        before_repair_sha256=before_repair, repair_requested=repair_requested,
+        findings_report=findings.name if findings else None, input_problems=problems,
+        next_phase='G1', output_sha256=None)
+    text = prompt('builder', run_context(c, round=n,
+        attack_report=str(findings) if findings else None, precheck_problems=problems))
+    return receipt, text
+
+
 def write_and_attack(c, prev, *, extension_id=None):
     """Alternate within whole-case list-price budget and the safety round cap."""
     from founder_ruling import context as ruling_context, feedback_allowed
@@ -1220,10 +1244,7 @@ def write_and_attack(c, prev, *, extension_id=None):
     (c.work / "attacks").mkdir(exist_ok=True)
     report = problems = None
     authorized_feedback = False
-    if prev.get("failed_gate"):  # resumed after a failed gate: tell the writer what to repair
-        problems = [f"previous run failed {prev['failed_gate']}: {json.dumps(prev.get('failed_detail'))}"]
-        details = c.work / "gate-details" / f"{prev['failed_gate']}.json"  # sealed-side specifics, e.g. which keys
-        if details.is_file(): problems.append(f"details: {details.read_text()[:8000]}")
+    problems = writer_feedback(c, prev)
     # Resumed after a stop that came once the stress tester had started on a valid case: the writing is
     # done, so round 1 starts with the stress tester instead of rewriting.
     skip_writer = (extension is None and bool(getattr(c.args, 'resume', None)) and not prev.get("failed_gate")
@@ -1466,22 +1487,26 @@ def write_and_attack(c, prev, *, extension_id=None):
             invalidate(c)
             before_repair = case_hash(c)
             repair_requested = bool(report or problems)
-            writer_receipt = {"round": n, "binding": attack_binding(c),
-                                      "report": f"round-{n}.json", "round_limit": round_limit, "repair_pending": True,
-                                      "release_rereviews": release_rereviews, "release_review_attempts": release_review_attempts}
             if modern:
-                if resume_unit and modern_writer_unit and resume_unit['round'] == n and resume_unit['phase'] == 'pending':
-                    writer_receipt = (copy.deepcopy(resume_unit) if extension else
-                                      {**resume_unit, **writer_receipt})
+                continuing = bool(resume_unit and modern_writer_unit and resume_unit['round'] == n
+                                  and resume_unit['phase'] == 'pending')
+                if continuing:
                     before_repair = resume_unit['before_repair_sha256']
                     repair_requested = resume_unit['repair_requested']
+                writer_receipt, text = writer_request(c, n, round_limit, report, problems,
+                    release_rereviews, release_review_attempts, before_repair, repair_requested)
+                if continuing:
+                    writer_receipt = (copy.deepcopy(resume_unit) if extension else
+                                      {**resume_unit, **writer_receipt})
                 writer_receipt.update(actor='writer', before_repair_sha256=before_repair, repair_requested=repair_requested,
                     findings_report=report.name if report else None, input_problems=problems,
                     next_phase='G1', output_sha256=None)
-                pending_call(c, c.models['builder'], prompt('builder', run_context(c, round=n,
-                    attack_report=str(report) if report else None, precheck_problems=problems)), c.case,
+                pending_call(c, c.models['builder'], text, c.case,
                     f'builder-{n}', writer_receipt, role='writer', on_complete=lambda: complete_writer(c, writer_receipt, receipt_path))
             else:
+                writer_receipt = {"round": n, "binding": attack_binding(c),
+                    "report": f"round-{n}.json", "round_limit": round_limit, "repair_pending": True,
+                    "release_rereviews": release_rereviews, "release_review_attempts": release_review_attempts}
                 atomic_json(receipt_path, writer_receipt)
                 opencode(c, c.models["builder"], prompt("builder", run_context(c, round=n, attack_report=str(report) if report else None,
                          precheck_problems=problems)), c.case, f"builder-{n}")
@@ -3356,6 +3381,9 @@ def main():
             if a.statement_only:  # statements round: pick the bug, write statement.md, pause (the VM parks)
                 statement_precheck(c); raise BudgetError("statement-ready")
             if extension_id is not None:
+                if extension_id == 0:
+                    from diagnosis_dispatch import admit_extension
+                    extension_id = admit_extension(c, sys.modules[__name__], prev_card)
                 import extension_package
                 extension_package.run(c, sys.modules[__name__], prev_card, extension_id)
             elif not a.audit_fairness and not a.late_gate_rehearsal and not c.card.get("salvaged_from"):

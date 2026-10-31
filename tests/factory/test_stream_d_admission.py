@@ -660,11 +660,12 @@ class AdmissionTests(unittest.TestCase):
                 self.call(proposal=False)
         self.assertEqual(self.ledger.read_bytes(), before)
 
-    def test_extension_argument_has_no_production_caller(self):
+    def test_extension_argument_has_only_diagnosis_admission_caller(self):
         for path in (ROOT / 'factory').glob('*.py'):
             for node in ast.walk(ast.parse(path.read_text())):
                 if isinstance(node, ast.Call):
-                    self.assertNotIn('extension_proposal', {kw.arg for kw in node.keywords}, str(path))
+                    if 'extension_proposal' in {kw.arg for kw in node.keywords}:
+                        self.assertEqual(path.name, 'diagnosis_dispatch.py')
 
 
 if __name__ == '__main__': unittest.main()

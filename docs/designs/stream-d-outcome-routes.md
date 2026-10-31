@@ -2,7 +2,8 @@
 
 ## Objective, cost and sequence
 
-Connect validated diagnosis decisions to the existing hold/retire paths and the
+When a diagnosis says a case is close to passing, start one more paid writing
+round automatically; code enforces the limits. Connect decisions to the
 single writer/stress/gate extension package. Code, not the diagnosis model,
 enforces lifetime counts, scientific progress and B's cumulative money authority.
 Payoff: an exhausted case continues without a human allowance. Risk: duplicate
@@ -88,8 +89,11 @@ Extract run.writer_request(c, n, round_limit, report, problems,
 release_rereviews, release_review_attempts, before_repair, repair_requested).
 It returns (fresh receipt, prompt), using the current ordinary construction.
 Use it for ordinary modern fresh writer work and first extension admission.
-Pending writer continuation retains its existing frozen receipt and reconstructs
-its prompt from retained fields; do not regenerate immutable intent. Legacy
+Every modern writer iteration first substitutes before_repair and
+repair_requested from resume_unit when continuing, then calls writer_request.
+Ordinary continuation uses the existing {**resume_unit, **receipt} merge;
+extension continuation uses deepcopy(resume_unit). The prompt is always the
+helper output; the existing subsequent field updates are unchanged. Legacy
 (nonmodern) construction stays unchanged. No shared helper changes loop policy.
 
 | Field | First extension source |
@@ -124,10 +128,9 @@ pending_call(..., extension_proposal=proposal) with complete_writer callback.
 Use on_admitted=late_recovery.invalidate, after durable intent/history/receipt and
 reservation. Callback and loop invalidation are idempotent already.
 
-On positive-ID writer entry, after extensions.writer_receipt authenticates or
-restores the intent, call invalidate if actor=writer and phase=pending. This
-closes the history-before-callback window; invalidation occurs before any paid
-writer resume. Completed writer requires no rerun and proceeds to validation.
+On positive-ID pending writer entry, the existing writer loop calls invalidate
+before pending_call. No intervening code consumes gate-continuation, so no
+additional invalidation call is needed. Keep the kill-point test. Completed writer requires no rerun and proceeds to validation.
 After pending_call returns, require active row ID matches proposal and return it;
 main calls package.run, which consumes completed writer and executes stress/gates.
 The preexisting ordinary writer loop also invalidates before writer invocation.
@@ -193,3 +196,10 @@ Run uv run --with numpy --with scipy python -B tests/run.py to a unique committe
 log/record, wait for exit, then fresh diff review. Fresh goldfish verifies blocker
 fixes; no self-dismissal. Supports rows 9/13; closes none in this consumer slice.
 Deletes the fresh-decision unconditional stop and duplicate writer construction.
+
+Review 2 clarifications: invalid diagnosis uses extension_diagnosis_required;
+active admission uses extension_already_active; limit compares extensions.LIMIT.
+An orphan extension-writers envelope grants nothing; restart uses a new operation.
+Pre-reservation labels are provider_wait (with wait record) or money_wait.
+The writer_request path argument is named findings to distinguish receipt.report.
+Until lane 2 entry lands, fresh production close_to_passing still stops pending.
