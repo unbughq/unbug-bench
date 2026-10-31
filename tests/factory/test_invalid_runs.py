@@ -413,6 +413,7 @@ class InvalidRunsTests(unittest.TestCase):
         (workspace / 'execution.json').write_text(json.dumps({'summary':summary, 'records':records, 'seed':43, 'runs':1}))
         row = {'try':1, 'workspace':str(workspace), 'guard':str(workspace / 'guard'),
                'guard_submitted':True, 'solved':False, 'errors':0, 'checked_runs':1, 'solved_runs':0,
+               'stop_reason':'completed',  # authored completion metadata on the real saved execution
                'identity':{'seed':42, 'runs':1}, 'artifacts':calibration.tree_digest(workspace)}
         calibration.atomic_results(workspace.parent / 'results.json', [row])
         self.c.args.runs = self.c.args.pilot_runs = 1
@@ -506,12 +507,14 @@ class InvalidRunsTests(unittest.TestCase):
         workspace = self.attempt(); shutil.rmtree(workspace / 'guard')
         def no_fix(c, role, **kwargs):
             row = json.loads((workspace.parent / 'results.json').read_text())[0]
+            row.update(guard_submitted=False, stop_reason='time_limit')
             calibration.atomic_results(self.work / kwargs['name'] / 'results.json', [row])
             return {'solved':0, 'tries':1}
         with patch.object(run, 'calibrate', side_effect=no_fix) as obtain, \
              patch.object(run, 'make_pilots'), patch.object(run, 'model_call') as review:
             for _ in range(2):
-                with self.assertRaises(InfrastructureExhausted): fairness.diagnose(self.c, run)
+                ok, info = fairness.diagnose(self.c, run)
+                self.assertFalse(ok); self.assertTrue(info['review_inconclusive'])
         obtain.assert_called_once(); review.assert_not_called()
         self.assertNotIn('difficulty', self.c.card)
 

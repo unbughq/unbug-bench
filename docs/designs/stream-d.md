@@ -2329,3 +2329,24 @@ lifecycle. If no such saved attempt can be found, leave row 39 open for item 8
 and report the limitation instead of fabricating proof. Usage tests are
 `test_stream_d_runtime.py::test_unknown_usage_settles_at_gate_bound_and_next_admission_proceeds`
 and `test_stream_accountant_links_unknown_usage_and_settles_once_above_five_dollars`.
+
+
+Review-2 resolution: a completed replacement with no submitted fix returns
+scientific inconclusive too, after attempt_summary validates its row. It has no
+execution.json because there is no guard to execute; explicit invalid-infra rows
+are still rejected. A missing/malformed replacement row remains operational.
+G16/G17 inconclusive retains the ordinary existing writer-repair route, with
+review_inconclusive recorded; no new allowance or factory-bug label is added.
+The easy threshold is intentionally unchanged. Bind the underlying model_router.family and model_runtime.model_effort with
+their same-module constants as narrow scientific source, excluding the rest of
+that runtime module, since family independence is a scientific constraint.
+
+
+Implementation note: serial measurement omits factory_pool as before; switching
+from serial to pooled measurement selects additional scientific executor code
+and may therefore change the version even though the numeric worker count is
+excluded. Endpoint/worker receipt bindings remain conservative. The retained
+artifact search found no capped-submission per-attempt receipt, so row 39 remains
+open for item 8. The new offline test is tests/factory/test_scientific_receipts.py;
+its module docstring explicitly distinguishes saved artifacts from authored stop
+metadata. No row closure is claimed by this increment.
