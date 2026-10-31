@@ -337,6 +337,8 @@ class BoatTests(unittest.TestCase):
         self.cli.write_text("""#!/usr/bin/env python3
 import json,os,sys,pathlib
 assert os.environ['BOAT_NO_UPDATE']=='1'
+with pathlib.Path(os.environ['TEST_CALLS']).open('a') as log:
+ log.write(json.dumps(sys.argv[1:])+chr(10))
 if sys.argv[1:]==['--version']: print(os.environ['TEST_VERSION'])
 elif sys.argv[1:]==['billing','--json']: print(pathlib.Path(os.environ['TEST_BILLING']).read_text())
 elif sys.argv[1:] in (['list','--json'], ['list','--all','--json']): print(pathlib.Path(os.environ['TEST_LIST']).read_text())
@@ -344,6 +346,7 @@ else: raise SystemExit(9)
 """)
         self.cli.chmod(0o755)
         self.env = {**os.environ, 'BOAT_CMD': str(self.cli), 'BOAT_NO_UPDATE': '0',
+            'TEST_CALLS': str(self.home / 'boat-calls.jsonl'),
             'TEST_VERSION': LOAD('boat-version.json')['version'],
             'TEST_BILLING': str(FIXTURES / 'billing.json'), 'TEST_LIST': str(FIXTURES / 'list.json'),
             'UNBUG_CONTROL_HOME': str(self.home / 'control')}
@@ -411,11 +414,14 @@ guard_exit 1
         ledger['reservations'][str(record.resolve())]['expires_at'] = time.time() - 1
         ledger_path.write_text(json.dumps(ledger))  # fault injection: abandoned controller
         refused = next(path for path,p in jobs if p.returncode != 0)
-        retry = subprocess.run([str(ROOT / 'bin/boat-spend'), '--check', '1', str(hours),
-            str(balance * 2), str(refused)], env=self.env, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
-        self.assertEqual(retry.returncode, 0, retry.stderr)
-        self.assertEqual(json.loads(ledger_path.read_text())['reservations'][str(record.resolve())]['status'],
-                         'reconciled_expired')
+        for _ in range(2):  # A new admission process cannot forget the expired hold.
+            retry = subprocess.run([str(ROOT / 'bin/boat-spend'), '--check', '1', str(hours),
+                str(balance * 2), str(refused)], env=self.env, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
+            self.assertNotEqual(retry.returncode, 0, retry.stderr)
+            self.assertEqual(json.loads(ledger_path.read_text()), ledger)
+            self.assertFalse(json.loads(refused.read_text())['allowed'])
+        calls = [json.loads(line) for line in (self.home / 'boat-calls.jsonl').read_text().splitlines()]
+        self.assertFalse(any(call[0] == 'list' for call in calls))
         ids = self.home / 'ids'; ids.write_text(CREATED['id'] + '\n')
         result = subprocess.run([str(ROOT / 'bin/boat-spend'), '--finish', str(record), '0', str(ids)],
             env=self.env, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
@@ -424,6 +430,36 @@ guard_exit 1
         self.assertIsNone(data['actual_spend_usd'])
         self.assertEqual(data['attribution'], 'account_observation')
         self.assertEqual(data['ids'], [CREATED['id']])
+        retry = subprocess.run([str(ROOT / 'bin/boat-spend'), '--check', '1', str(hours),
+            str(balance * 2), str(refused)], env=self.env, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+
+    def test_historical_expired_release_remains_compatible(self):
+        balance = float(LOAD('billing.json')['limits']['creditBalanceSeconds']) / 100000
+        hours = max(1, balance * .75 / .036)
+        record = self.home / 'historical.json'
+        def check(path):
+            return subprocess.run([str(ROOT / 'bin/boat-spend'), '--check', '1', str(hours),
+                str(balance * 2), str(path)], env=self.env, capture_output=True, text=True,
+                timeout=HANG_GUARD_SECONDS)
+        self.assertEqual(check(record).returncode, 0)
+        ledger_path = self.home / 'control/boat-reservations.json'
+        ledger = json.loads(ledger_path.read_text())
+        old = ledger['reservations'][str(record.resolve())]
+        old.update(status='reconciled_expired', reconciled_at='2026-10-30T00:00:00+00:00')
+        ledger_path.write_text(json.dumps(ledger))  # Historical ledger, not a new release.
+        refused = check(record)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn('completed reservation cannot be reused', refused.stderr)
+        self.assertEqual(check(self.home / 'next.json').returncode, 0)
+        self.assertEqual(json.loads(ledger_path.read_text())['reservations'][str(record.resolve())], old)
+        ids = self.home / 'ids'; ids.write_text(CREATED['id'] + '\n')
+        result = subprocess.run([str(ROOT / 'bin/boat-spend'), '--finish', str(record), '0', str(ids)],
+            env=self.env, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        final = json.loads(ledger_path.read_text())['reservations'][str(record.resolve())]
+        self.assertEqual(final['status'], 'finished')
+        self.assertEqual(final['reconciled_at'], old['reconciled_at'])
 
 
 class OwnerTests(unittest.TestCase):

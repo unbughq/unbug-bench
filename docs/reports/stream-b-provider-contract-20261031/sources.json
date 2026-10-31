@@ -1,0 +1,23 @@
+{
+  "fetched_at": "2026-10-31T10:55:08.288031+00:00",
+  "sources": [
+    {
+      "file": "create.md",
+      "url": "https://docs.boat.dev/api/reference/sandboxes/create-sandbox.md",
+      "sha256": "27a103e0832040be66c450adec636b1aec0935e79e36af5deda97cedf9f3e53d",
+      "bytes": 44673
+    },
+    {
+      "file": "billing.md",
+      "url": "https://docs.boat.dev/billing.md",
+      "sha256": "ebfdf29702f22db170024067c8ee7a9aeea40ac100649374e0d2fd26b26aeb9b",
+      "bytes": 13709
+    },
+    {
+      "file": "auto-stop.md",
+      "url": "https://docs.boat.dev/long-running-tasks/auto-stop.md",
+      "sha256": "6ef4b66fd15cdfaa292c280ca6bceb97ba107ca45cf401621ff615c9ebaad157",
+      "bytes": 6380
+    }
+  ]
+}
