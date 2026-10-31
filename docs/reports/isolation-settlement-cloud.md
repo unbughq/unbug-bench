@@ -104,3 +104,14 @@ handler_done.wait after the 15-second observation deadline (15.674 s total).
 Its late upstream release in finally permits cleanup. The matching
 isolation-settlement-cloud-negative.log preserves the assertion. This proves the
 new regression detects omission of socket shutdown; it is not a product failure.
+
+
+## Full suite result
+
+`uv run --with numpy --with scipy python -B tests/run.py` finished with exit 0:
+159 test scripts, zero failures, 1669.718 seconds. Full log and result metadata:
+`isolation-settlement-cloud-suite-20261031T143909Z-d1d947e8.{log,json}`.
+The final source for test_model_call_maxima.py (23 tests, all passing) is hashed
+in the metadata. That file's last two test-only adjustments were committed
+before the full runner reached it; no production source changed during the run.
+Existing suite skips are listed in the JSON; none apply to the new TLS test.
