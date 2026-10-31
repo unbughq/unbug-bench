@@ -41,4 +41,8 @@ router regression. _account_order is retained for non-Claude compatibility.
 Clarification: these are two accounts belonging to the same founder, not two
 different people's accounts. Distinct account identity remains unverified.
 B's controller round-trip work and account policy remain activation prerequisites.
-Final full-suite result will be recorded below once the running suite completes.
+Final validation completed: the uninterrupted full suite ran 155 test scripts
+with 0 failures, exit 0. Record: docs/reports/router-account2-suite-20261031.json
+(includes unique log path and SHA-256). No executable changes followed the
+reviewed head; only this response, the suite record, and the test comment changed.
+No blocking finding remains.
