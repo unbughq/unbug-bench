@@ -93,6 +93,9 @@ def invocation_maximum(model, bounds):
 GATED_CLAUDE = 'claude/claude-opus-5-5'
 CLAUDE_CONTEXT, CLAUDE_OUTPUT = 1_000_000, 32768
 CLAUDE_CALL_USD = Decimal('50')
+CLAUDE_PROFILES = {GATED_CLAUDE: CLAUDE_CALL_USD,
+    GATED_CLAUDE + ':small': Decimal('10'),
+    GATED_CLAUDE + ':medium': Decimal('15')}
 CLAUDE_GATE_FIELDS = ('input_tokens', 'cache_read_input_tokens',
                       'cache_creation_input_tokens', 'output_tokens')
 
@@ -116,16 +119,20 @@ def claude_gate_cost(usage):
     return _claude_list_cost(GATED_CLAUDE, usage)
 
 
-def claude_gate_maximum():
+def claude_gate_maximum(route=GATED_CLAUDE):
+    maximum = CLAUDE_PROFILES.get(route)
+    if maximum is None: return None
+    suffix = ('' if route == GATED_CLAUDE else
+              f':profile={route.rsplit(":", 1)[1]}:usd={maximum}')
     rates = [Decimal(str(v)) for v in CLAUDE_PRICES[GATED_CLAUDE]]
-    return dict(max_usd=float(CLAUDE_CALL_USD),
-                max_input_tokens=int(CLAUDE_CALL_USD * 1_000_000 / min(rates[:3])),
-                max_output_tokens=int(CLAUDE_CALL_USD * 1_000_000 / rates[3]),
-                price_source='token_prices:2026-10-30:claude-opus-5-5:' + ','.join(map(str, rates)) + ':1.0:standard-global:joint-gate-v1')
+    return dict(max_usd=float(maximum),
+                max_input_tokens=int(maximum * 1_000_000 / min(rates[:3])),
+                max_output_tokens=int(maximum * 1_000_000 / rates[3]),
+                price_source='token_prices:2026-10-30:claude-opus-5-5:' + ','.join(map(str, rates)) + ':1.0:standard-global:joint-gate-v1' + suffix)
 
 
 def claude_cost(model, usage):
-    amount = _claude_list_cost(model, usage)
+    amount = _claude_list_cost(GATED_CLAUDE if model in CLAUDE_PROFILES else model, usage)
     return None if amount is None else float(amount)
 
 
