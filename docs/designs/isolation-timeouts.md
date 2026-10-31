@@ -109,10 +109,9 @@ bundles. No cloud launch or decryption is needed for validation.
    UNBUG_CONTROL_HOME (default ~/.unbug-control). An atomic JSON ledger reserves
    the whole batch estimate by absolute spend-record path. Admission subtracts
    every unfinished reservation from current available balance (conservative
-   about already accrued spend), records expired TTL holds as reconciled_expired after an explicit reconciliation
-   during admission, bounded by started_at + ttl + 1800 seconds (the provider
-   deletes expired no-snapshot workers), and
-   retries of one record are idempotent. Release only on verified completion
+   about already accrued spend). As superseded by stream-b-delayed-creation.md,
+   expired holds remain reserved; neither TTL nor idle inventory releases them.
+   Retries of one record are idempotent. Release only on verified completion
    via the existing finish call. Keep balance_before/after as observations;
    actual_spend_usd stays null unless authoritative per-worker usage is supplied.
    Record `account_balance_delta_usd` with attribution `account_observation`;
@@ -120,7 +119,8 @@ bundles. No cloud launch or decryption is needed for validation.
    usage retrieval remains open. No new credential stores or network APIs. Ledger path is
    $UNBUG_CONTROL_HOME/boat-reservations.json, schema {version:1,reservations:{
    absolute_record_path:{usd,expires_at,status}}}; status is reserved/finished/
-   reconciled_expired. Lock is boat-reservations.lock. Refused checks write
+   reconciled_expired (historical only; admission no longer produces it).
+   Lock is boat-reservations.lock. Refused checks write
    allowed=false but reserve nothing. Hetzner bypasses the ledger. This is a
    single-control-host guarantee only; cross-host admission remains open, so
    row 17 stays open. Rollback retains spend records, cannot refund provider
@@ -288,7 +288,8 @@ and cancelled. collect's matching TERM may hit both supervisor and runner;
 repeated TERM is safe under the runner's pause handler. A held/uncertain VM
 never releases its wallet reservation via finish: guard_exit checks all IDs
 are deleted/verified before --finish regardless of launch-state mode. Expired
-reservation reconciliation remains the provider TTL backstop.
+holds remain reserved until finish; provider TTL is not release evidence
+(stream-b-delayed-creation.md supersedes the prior expiry reconciliation).
 
 ## Implementation clarifications
 
@@ -306,11 +307,11 @@ it already refuses unknown spend. This remains safe but blocks financial
 finalization until authoritative per-lifecycle provider usage is supplied (49
 open). Parked Hetzner servers bypass the Boat-wallet ledger entirely.
 
-Expired wallet holds reconcile only after a complete --all inventory proves
-there are no compute-active workers. TTL alone cannot prove this, because the
-last worker may be created much later than batch admission. An incomplete
-inventory or any live worker retains the hold. This is deliberately conservative
-until B supplies paginated, per-operation lifecycle inventory.
+Expired wallet holds stay reserved even after complete idle inventory. A late
+creation may still become visible, so admission no longer queries inventory or
+produces reconciled_expired (superseded by stream-b-delayed-creation.md).
+Authoritative per-operation cleanup and cumulative infrastructure money remain
+future work; historical releases require deployment qualification.
 
 Nested helpers inherit UNBUG_PROCESS_GROUP_OWNED=1 and stay in the already
 owned outer group. Top-level foreground calls still create a session. This
