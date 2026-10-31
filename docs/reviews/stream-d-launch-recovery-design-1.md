@@ -16,4 +16,3 @@ I couldn't review the design because the file doesn't exist yet.
 ## Writer response
 
 The initial file-write command failed because python was unavailable. The design is now saved using python3. No implementation began; a new fresh review is requested.
-

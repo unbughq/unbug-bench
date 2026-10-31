@@ -45,4 +45,3 @@ No blocking finding remains, so the design may move to implementation. I made no
 ## Writer response
 
 Accepted all seven nits. The design addendum clarifies scope, dispatch publication, insertion, test producers and accounting. Implementation uses real pending_call interruption for active admission controls.
-
