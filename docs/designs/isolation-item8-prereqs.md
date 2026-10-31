@@ -24,8 +24,10 @@ entry is needed. Existing subprocess owners and cloud deletion policy are unchan
 The waiting caller intentionally has no second timer. This follows transfer.py
 and the shell callers: boat-call owns command termination and finalization. The
 command limit includes version discovery. Cleanup does not buy additional command
-time. A pinned executable may require two cleanup passes (version and command),
-each with a 60 s ps probe and 2 s reap. These are implementation allowances, not a
+time. Cleanup runs on success as well as failure. A pinned executable can require
+two cleanup passes (version and command), but the version cleanup consumes the
+shared command deadline. At most one cleanup pass overruns that deadline, with
+a 60 s ps probe and 2 s reap. These are implementation allowances, not a
 hard real-time guarantee: process scheduling and the probe-timeout drain are not
 strictly bounded. Caller death/SIGKILL, repeated cancellation during finalization,
 escaped/reparented descendants and remote processes are outside this increment.
@@ -59,3 +61,56 @@ the separately approved practice manifest. Diagnosis stays disabled.
 
 Fresh design review precedes implementation; a fresh diff review follows the
 full suite. Any blocking fix receives another fresh review. No push or merge.
+
+## Design-review-2 resolution and limits
+
+Objective/impact: stop a timed-out provider query from killing its own cleanup
+process and leaving local work running. Cost: local testing only, $0 cloud/model
+spend. Timeline: one reviewed increment, followed by separate live qualification.
+
+Accept B1 option (b) for this first increment, explicitly not as Item 8 readiness.
+A detached descendant retaining a capture pipe can now wedge a caller indefinitely
+because subprocess.run waits for EOF after boat-call exits. The single-threaded
+key_holder serve loop is most exposed: one wedged inventory blocks all requests
+and batch ticks. Track new-isolation-outer-wall-2 as OPEN; do not hide this under
+the generic escaped-descendant exclusion. This accepts the same transport risk
+already present in transfer.py and shell captures, while fixing premature owner
+termination for ordinary still-owned descendants. Before Item 8 activation,
+remove this risk (e.g. temporary-file capture at these bounded metadata queries)
+and qualify it separately. This increment is not sufficient to launch real cases.
+The test will demonstrate this limitation under a separate hang guard, terminate
+the caller and explicitly kill the escaped test process so tests leak nothing.
+
+The key_holder launch client still has a 60 s socket timeout. Slow cleanup may
+outlive it, so a late successful inventory can precede an authorized launch after
+the client observes uncertainty; preserve the existing no-retry/reconcile rule.
+The coordinator tick deadline governs its decision after inventory, not cleanup;
+retain its existing refusal at an expired decision deadline. TTL bounds are
+checked before remote commands and do not interrupt them; late retirement must
+remain uncertain and cannot establish deletion or a billing bound. These are
+accepted pre-existing surrounding-authority limitations; no new admission or
+remote-success inference is introduced. Batch status may return late, and the
+batch holder's durable pending operation remains authoritative. A blocking
+inventory must never be reported as a verified absent worker.
+
+Other outer timers in tools/public-qualification/finish.py and
+ tools/factory_dashboard.py (also used by factory_board.py) are excluded: these
+operator/display tools need separate cleanup-policy work, especially finish.py
+before live deletion qualification. This design covers the six factory call
+sites only; closing outer-wall-1 does not certify every caller in the repository.
+
+Per-site edits: key_holder and batch_holder drop timeout=25 and copy os.environ
+with BOAT_COMMAND_TIMEOUT_SECONDS='25'. Both coordinator_inventory calls do the
+same, adding import os. ttl_continuation drops timeout=120 and copies os.environ
+with BOAT_COMMAND_TIMEOUT_SECONDS='120', adding import os. batch_status already
+sets the owner variable and only drops its outer timeout keyword.
+
+New tests: tests/factory/test_isolation_outer_callers.py. Execute the actual
+subprocess call expressions for six-site contract coverage; additionally call
+batch_status._boat and ttl_continuation.request_retirement directly. Holder code
+extraction avoids private key/serve setup; coordinator's existing whole-function
+tests retain decision/refusal coverage. Update
+ tests/factory/test_coordinator_inventory.py's timeout assertion to check the
+owner environment limit and absence of an outer timeout. Log the full suite at
+ docs/reports/isolation-item8-prereqs-suite-<UTC timestamp>-<unique suffix>.log,
+and summarize timings/limitations in docs/reports/isolation-item8-prereqs.md.
