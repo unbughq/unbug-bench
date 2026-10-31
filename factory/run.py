@@ -1728,13 +1728,9 @@ def strategy_run(c, name):
         case_files = tree_digest(c.case)
         for metadata in ("freshness.jsonl", "BUILD-NOTES.md"):
             case_files.pop(metadata, None)
-        identity = {"version": 4, "case": case_files, "bench": bench_manifest(),
-                    "runner": {filename: gate_state.digest(pathlib.Path(__file__).with_name(filename))
-                               for filename in ("run.py", "gate_state.py", "calibration.py", "registry.py")},
-                    "strategy": name,
-                    "runs": c.args.scenario_runs, "seed": c.seed, "workers": workers,
-                    "environment": {k: os.environ.get(k) for k in
-                                    ("UNBUG_JUDGE", "UNBUG_FACTORY_SLOT", "MEDUSA_DEPS_IMAGE")}}
+        gate = "G13" if name == "frozen-first-fix" else "G15"
+        identity = {"version": 5, "case": case_files, "strategy": name,
+                    "inputs": gate_state.inputs(c, gate, BENCH)}
         return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     def evidence_directory(root, relative):
         relative = pathlib.PurePosixPath(relative)
