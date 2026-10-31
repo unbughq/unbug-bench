@@ -11,7 +11,7 @@ The newest local factory-simplify was merged at 9b9e5e0.
 |---|---|---|
 | Cleanup cost guarantees | Deferred to the live practice run, with entry prerequisites | A live worker is needed to bind creation, delayed visibility, completed deletion and actual charges. One successful run cannot prove a universal ceiling. Existing public Boat contracts do not bound exceptional billable seconds or the opaque CLI's creation multiplicity. Obtain that contract/bounded request path first, or explicit founder approval of changed financial risk. USD 5 is not relaxed here. |
 | Cumulative infrastructure accounting | Deferred to the live practice run after a reviewed Boat attributed settlement increment | Code no longer releases unknown liability at finish or admits another reservation alongside it. This is single-admission safety, not completed cumulative accounting. No saved attributed charges exist. A first finish blocks all further Boat admission on the same home, including non-batch callers. Relaunch, settlement and multi-worker exams require the named settlement increment first; this patch cannot run them. Practice must account for every start, billed lifetime, storage, proxy and egress charge and prove total preservation across restart/relaunch. |
-| Legacy provenance | Resolved for case eligibility by retirement | Founder decision 2026-10-30 is recorded. All saved pre-new-schema inventory cases are retire-only, without reconstructing provenance. Planning retires legacy generations even with diagnosis disabled; holder source verification records retirement and refuses before money advance or transport. Original artifacts remain unchanged. |
+| Legacy provenance | Resolved for case eligibility by retirement | Founder decision 2026-10-30 is recorded. All saved pre-new-schema inventory cases are retire-only, without reconstructing provenance. Planning retires missing-state exhausted projections only, even with diagnosis disabled. Ordinary authenticated holder resumes are unchanged; missing diagnosis_state alone does not identify legacy. Original artifacts remain unchanged. |
 | Deployment qualification | Deferred to the live practice run after the preceding prerequisites and B2/B3 | Qualify exact release/input/policy hashes, authenticated real VM/R2 bindings, router and account identity, Mac-off holder restart, delayed creation/deletion and terminal finish. The old practice-6ac450e staging is obsolete. Neither offline tests nor a retired case qualifies deployed infrastructure. |
 
 Legacy launch b275ffccd6134a33833853ad1d31ed16 is retire-only as case work.
@@ -35,16 +35,18 @@ All commits fsync the file and its directory. Provider error text is not emitted
 or persisted by boat-spend. There is no settlement-import or reset bypass.
 Hetzner's separate path is outside this Boat liability change.
 
-Legacy planning returns retired/legacy_retire and persists an idempotent public
-record under batches/<batch>/retirements/<case>/<generation>.json after snapshot
-verification. Conflicts, links and nonregular records refuse unchanged. Holder
-_source authenticates the predecessor then uses the same terminal case record.
-That record is distinct from worker-deletion proof and does not release money.
-It is a durable file only: batch_status UI remains unchanged. The planning
-function currently has no production caller; holder source rejection is the
-runtime enforcement for collected legacy sources with job_money but no
-new-schema diagnosis_state. Inventory-only historical cases have no journal/ACK;
-the frozen disposition records their exclusion, not a live catalog rewrite.
+Exhausted planning without diagnosis_state returns retired/legacy_retire and
+persists an idempotent public record under
+batches/<batch>/retirements/<case>/<generation>.json after snapshot verification.
+Conflicts, links and nonregular records refuse unchanged. The real pure
+ diagnosis.exhaustion predicate is required: provider waits, pauses, TTL stops
+and other non-exhausted cards may validly have no diagnosis_state. They must not
+retire. Holder _source remains its ordinary authenticated read-only proof with
+no diagnosis-state retirement guard. The planning function currently has no
+production caller. Its retirement record is distinct from worker deletion,
+releases no money and does not change batch_status UI. Inventory-only historical
+cases have no journal/ACK; the frozen disposition records their exclusion,
+not a live catalog rewrite.
 
 The frozen disposition is stream-b-legacy-retirements-20261031.json, derived from
 the retained 2026-10-30 inventory with its digest. It covers all 43 Mac and 46 VM
@@ -96,3 +98,15 @@ output-token maximum against remaining allowance. See
 ../reviews/stream-b-blocker-resolution-diff-attempts.md. No budget/configuration
 was changed and no unrequested model substituted. A fresh delegate review remains
 required; this branch is not merge-ready. The full suite passing is not a review.
+
+
+Fresh Claude diff review 1 subsequently ran and found B1: missing diagnosis_state
+was incorrectly treated as general legacy provenance. Accepted and corrected by
+deleting the holder guard and restricting planning to real exhaustion eligibility.
+Regression tests feed retained cards through the runner's real record_exhaustion
+producer and verify ordinary/provider-wait source resumption and planning without
+retirement. Previous suite results remain historical; the correction requires
+new validation and a fresh diff review. No row closed.
+
+Scanner reserved_usd is only reserved estimates. Finished/historical-release rows
+remain unknown liabilities even when that displayed sum is zero.

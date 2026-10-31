@@ -25,11 +25,15 @@ The advertised model options expose only variant (none/low/high/max), not a
 maximum-output-token setting. No budget, credential, provider configuration,
 model or runtime setting was changed, and no alternative model was substituted.
 
-## Required next action
+## Superseding reviewer rule and later attempts
 
-Run a NEW delegate_task fresh diff review with the user's primary model once its
-rate limit clears, or the exact fallback after its output-token configuration is
-corrected within existing credit. Do not increase spending authority implicitly.
-Use the same review personas/design/range and the retained passing suite record.
-Any blocking findings must be fixed and independently re-reviewed; tests do not
-replace review. This branch is NOT merge-ready until that review passes.
+The parent forbids paid OpenRouter goldfish reviews. Reviewer order is now
+claudeAgent/claude-opus-5-5, then opencode/deepseek-v4.1-flash-free, then a fresh
+T3 delegate using codex/gpt-6.1-sol (different from writer gpt-6-astra), with only
+the brief. This supersedes the earlier paid fallback instruction entirely.
+
+The free OpenCode attempt returned "Free usage limit reached" before review.
+The subsequent Claude retry ran and produced FAIL with one blocker, retained
+verbatim in stream-b-blocker-resolution-diff-1.md. The earlier statement above
+that no verdict existed describes only the initial attempts. B1 requires a fix
+and fresh review; no findings are self-verified or rejected.

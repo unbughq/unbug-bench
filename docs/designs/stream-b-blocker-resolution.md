@@ -44,18 +44,23 @@ receipt import is invented; known final charge attribution must be qualified in
 the live practice run before any later implementation releases these holds.
 The command/report wording must call TTL amounts estimates, not hard bounds.
 
-2. Retire legacy case generations at the B planning boundary. Once an immutable
-snapshot is verified, absence/non-dict diagnosis_state yields status retired,
-reason legacy_retire, facts null, queue empty. Persist an idempotent public
-retirement record under the batch_money.locked(home, id) state directory's retirements/<case>/<generation>.json
-binding case/generation/manifest digest and founder decision date. Do this even
-when diagnosis is disabled, before invoking D or reading stored projection facts.
-Do not change original cards/ciphertext or release model/cloud money. At holder
-_source (common to reserve and dispatch source verification), reject the same
-legacy condition as legacy_retire; no source mutation, account selection, router
-or provider call is reachable. Retirement is terminal for this case generation,
-not a successful case result. This deletes the legacy_projection_unbound hold
-outcome in planning; it does not enable a legacy import path.
+2. Retire unbound legacy exhaustion planning only. Once an immutable snapshot
+is verified, missing/non-dict diagnosis_state PLUS diagnosis.exhaustion(card)
+yields status retired, reason legacy_retire, facts null, queue empty. The real
+pure D predicate supplies eligibility; do not recreate stop rules in B. Persist
+an idempotent public record under the batch_money.locked(home, id) state directory's
+retirements/<case>/<generation>.json, binding case/generation/manifest digest and
+founder decision date. The eligibility check and retirement precede the diagnosis
+activation gate, stored projection facts and _project (not the pure predicate).
+Do not change original cards/ciphertext or release model/cloud money.
+
+Missing diagnosis_state alone is NOT a schema marker: the current runner leaves
+it absent for provider_wait, paused, ttl_retired and other non-exhausted stops.
+Those cards must never be retired on that basis. Delete the retirement call from
+holder _source entirely; independently authenticated source work retains ordinary
+reserve/dispatch checks. Frozen inventory disposition excludes the historical
+cases; they have no B journal/ACK. This deletes the legacy_projection_unbound
+planning hold only within exhausted projection planning, not general resumption.
 
 Produce a frozen public retirement disposition for every case in the saved
 2026-10-30 Mac/VM inventory, with inventory digest, case names and all retained
@@ -99,8 +104,10 @@ account balance observations remain unattributed. No fixture produced by the
 code under test is called real cloud proof.
 Use retained real legacy cards in test_batch_service_d.py to verify durable
 retirement for known and unknown totals, before disabled adapter and before stored
-facts, unchanged inputs and replay. Holder tests reject legacy source before money
-advance/dispatch. Verify retirement disposition exactly covers the saved real
+facts, unchanged inputs and replay. Holder tests use real record_exhaustion output
+with no diagnosis_state to prove provider-wait, pause and TTL source reservation
+and dispatch preflight remain valid; the provider-wait scan must schedule normally
+and write no retirement record. Planning must also preserve those cases. Verify retirement disposition exactly covers the saved real
 inventory and preserves all digests. These tests prove exclusion and bookkeeping,
 not a real worker lifecycle. Close no existing Murphy row: 6,17,27,28,29,35,49,51 and
 open batch-service/single-path rows require wider real artifact lifecycle proof.
@@ -121,7 +128,7 @@ four outstanding-proof labels. A deferred item is not completed or launch-ready.
 |---|---|---|
 | Cleanup cost guarantees | Deferred to live practice, with provider-contract prerequisite | Actual create request identity, delayed result, deletion operation completedAt and full charges require a worker. A run alone cannot prove a universal bound; obtain the exceptional billing ceiling and bounded creation contract first, or obtain explicit founder approval of a different risk policy. No such approval is inferred. b275 unledgered debt must be reconciled BEFORE first new admission: provider-bound non-creation evidence, or positively linked worker plus deletion completion and charges. Empty inventory is insufficient. This is an operator entry condition: the disabled holder gate prevents holder admission, but non-batch Boat launch paths on a missing ledger are not fenced by this patch. |
 | Cumulative infrastructure accounting | Deferred to live practice AFTER Boat attributed settlement increment | This increment deletes unsafe reuse of unknown money, but supplies neither missing historical charges nor a provider-certified ceiling. Practice must price every start/lifetime/storage/proxy/egress charge and replay across restart/relaunch without resetting total. The first finish blocks all further Boat launches on this home until the named reviewed settlement increment; relaunch/settlement/multi-worker practice is blocked on that code, not promised by this patch. |
-| Legacy provenance | Resolved for case eligibility by retirement | All saved pre-new-schema cases retire; provenance cannot revive them. Frozen inventory disposition excludes the saved cases (which have no journal/ACK); runtime source refusal catches later collected sources carrying job_money without diagnosis_state. Unknown b275 cloud debt is a cleanup/accounting prerequisite above, not a held case. |
+| Legacy provenance | Resolved for case eligibility by retirement | All saved pre-new-schema cases retire; provenance cannot revive them. Frozen inventory disposition excludes the saved cases (which have no journal/ACK); ordinary authenticated holder resumption is unchanged; missing diagnosis_state alone does not imply legacy. Unknown b275 cloud debt is a cleanup/accounting prerequisite above, not a held case. |
 | Deployment qualification | Deferred to live practice after preceding prerequisites and B2/B3 | Exact current release/input/policy hashes, real VM and R2 bindings, router/account identity, Mac-off holder restart, cleanup/deletion and terminal finish must be recorded. Old staged release is obsolete. Offline success cannot qualify deployed state. |
 
 This explicitly supersedes the finish-release and historical reconciled_expired
@@ -160,9 +167,9 @@ existing batch_money.locked lock; fsync newly created retirement directories.
 If a record already differs or is linked/nonregular, refuse `retirement conflict`
 without changing it. Same record replays idempotently. Return exactly
 {status:retired,reason:legacy_retire,facts:null,queue:[]} even with diagnosis off.
-The planning function currently has no production caller; _source is the real
-holder enforcement. Persist the same retirement record in _source before its
-legacy_retire refusal, so production rejection is a durable terminal disposition.
+The planning function currently has no production caller. Holder _source remains
+read-only and has no diagnosis-state retirement condition. The record above is
+only for exhausted unbound planning, never ordinary authenticated source admission.
 Do not mutate original journal or money or cloud ownership records.
 
 Static disposition path: docs/reports/stream-b-legacy-retirements-20261031.json.
@@ -189,9 +196,9 @@ conflicting persisted retirement refuses. Holder tests go in test_batch_holder.p
 
 Runtime case retirement is a durable file and a plan return, not a new status UI;
 batch_status remains unchanged. _source authenticates through _entry and checks
-ACK/card bindings before recording legacy retirement; its docstring must no
-longer say read-only. Comment that this is case disposition, distinct from worker
-deletion proof (op.retirement). No record is written for an unverified request.
+ACK/card bindings without recording case retirement. Planning disposition remains
+distinct from worker deletion proof (op.retirement); snapshot verification must
+precede any planning retirement record.
 
 boat-spend --finish replaces balance_after_error exception text with the fixed
 label balance_unavailable, prints only WARNING: account balance unavailable, and
@@ -227,3 +234,19 @@ The public batch integration test now proves first-worker interruption/collectio
 deletion, retained model ledger, duplicate/restart replay and refusal of subsequent
 job and restore creation. Successful multi-worker relaunch cannot be asserted
 under this increment; it remains deferred to attributed settlement and practice.
+
+
+## Diff-review B1 correction
+
+Diff review 1 found that the broad missing-diagnosis-state condition would retire
+valid non-exhausted current-runner cards. Accepted: remove the holder guard,
+restrict planning to the real exhaustion predicate, and exercise provider-wait,
+pause and TTL cases through the real record_exhaustion producer. The empty-dict
+field in contract-only ServiceTests remains a test double, not provenance proof;
+provider-wait holder fixtures now remove it and call the real producer.
+No row closes on this offline correction. A fresh diff review is mandatory.
+
+The deployment_inventory scanner's reserved_usd is ONLY the sum of reserved
+estimates, not total liability. Its finished/reconciled_expired counts still
+represent unknown cost even if reserved_usd is zero. No deployment qualification
+may interpret a zero reserved estimate as settled debt.

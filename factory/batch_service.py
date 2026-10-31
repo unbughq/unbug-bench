@@ -290,8 +290,10 @@ def ordered_queue(state):
 
 
 def retire_legacy(directory, entry, card):
-    """Terminal case disposition after snapshot verification, never cloud deletion."""
+    """Retire unbound exhaustion planning, never ordinary checkpoint resumes."""
     if isinstance(card.get('diagnosis_state'), dict): return False
+    import diagnosis
+    if not diagnosis.exhaustion(card): return False
     value = dict(schema=1, status='retired', reason='legacy_retire', decision_date='2026-10-30',
                  case=entry['case'], generation=entry['generation'], manifest_sha256=entry['manifest_sha256'])
     parent = directory

@@ -103,6 +103,32 @@ class RealDTests(unittest.TestCase):
         self.assertEqual(self.fixture.journal.read_bytes(), before)
         self.assertEqual(self.fixture.state()['queue'], {})
 
+    def check_unexhausted_plan(self, stop):
+        card = self.card(stop=stop, provenance=False)
+        diagnosis.record_exhaustion(card)
+        self.assertNotIn('diagnosis_state', card)
+        self.assertFalse(diagnosis.exhaustion(card))
+        before = self.fixture.journal.read_bytes()
+        result = service.plan(self.fixture.policy, self.fixture.root, self.fixture.home,
+                              card['case'], card['sha256'])
+        self.assertEqual(result['status'], 'diagnosis_unavailable')
+        self.assertEqual(self.fixture.journal.read_bytes(), before)
+        result = self.plan(card)
+        self.assertEqual(result['status'], 'planned')
+        self.assertFalse(result['facts']['exhaustion'])
+        self.assertEqual(result['queue'], [])
+        self.assertEqual(self.plan(card), result)
+        self.assertFalse((self.fixture.journal.parent / 'retirements').exists())
+
+    def test_provider_wait_without_diagnosis_state_never_retires(self):
+        self.check_unexhausted_plan('provider_wait')
+
+    def test_paused_without_diagnosis_state_never_retires(self):
+        self.check_unexhausted_plan('paused')
+
+    def test_ttl_without_diagnosis_state_never_retires(self):
+        self.check_unexhausted_plan('ttl_retired')
+
     def test_legacy_retirement_precedes_stored_facts(self):
         card = self.card(provenance=False)
         state = self.fixture.state()

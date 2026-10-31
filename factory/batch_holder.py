@@ -138,7 +138,7 @@ def _entry(directory, record, policy, case, generation):
 
 
 def _source(directory, record, policy, operations, state, name, generation):
-    """Verify predecessor; persist terminal legacy case disposition before refusal."""
+    """Read-only predecessor proof common to pre- and post-advance checks."""
     row = state['jobs'][name]
     ack = row['acks'][generation]
     predecessor = operations[ack['operation_id']]
@@ -155,8 +155,6 @@ def _source(directory, record, policy, operations, state, name, generation):
     entry, card = _entry(directory, record, policy, predecessor['case'], generation)
     if entry['manifest_sha256'] != ack['manifest_sha256'] or card.get('job_money') != ack['authority']:
         raise ValueError('request_refused')
-    # Case retirement is not the worker deletion proof in op['retirement'].
-    if service.retire_legacy(directory, entry, card): raise ValueError('legacy_retire')
     return ack, entry, card
 
 

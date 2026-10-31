@@ -120,46 +120,36 @@ class HolderTests(unittest.TestCase):
                          self.directory / 'generations' / op['case'] / card['sha256'])
         self.assertEqual(status.read_rows(self.policy, self.root, self.home)[1][0]['phase'], 'pending')
 
-    def legacy_output(self, op):
-        card = self.output(op)
-        incoming = self.home / 'launches' / op['launch_id'] / 'collected' / (op['case'] + '.scorecard.json')
+    def check_unexhausted_source(self, stop):
+        import diagnosis
+        op = self.started(self.reserve())
+        card = self.output(op)  # retained interrupted card + saved usage; authored batch bindings
         card.pop('diagnosis_state')
+        card['terminal_stop'] = stop
+        diagnosis.record_exhaustion(card)  # The real runner's final-accounting producer.
+        self.assertNotIn('diagnosis_state', card)
+        self.assertFalse(diagnosis.exhaustion(card))
+        incoming = self.home / 'launches' / op['launch_id'] / 'collected' / (op['case'] + '.scorecard.json')
         incoming.write_text(json.dumps(card))
         self.publish(op); self.retirement(op); self.reconcile()
-        return card
+        successor = self.reserve(source=card['sha256'])
+        self.assertEqual(successor['authority']['revision'], 2)
+        self.assertEqual(self.reserve(source=card['sha256']), successor)
+        # Dispatch preflight uses the same proof; no transport is needed here.
+        with money.locked(self.home, self.record['id']):
+            checked = holder._post(self.directory, self.record, self.policy, self.home,
+                                   self.ops(), self.money(), successor['operation_id'])
+        self.assertEqual(checked['operation_id'], successor['operation_id'])
+        self.assertFalse((self.directory / 'retirements').exists())
 
-    def test_legacy_source_retires_before_money_advance(self):
-        op = self.started(self.reserve()); card = self.legacy_output(op)
-        before = (self.directory / 'money.json').read_bytes()
-        reservations = (self.directory / 'reservations.json').read_bytes()
-        for _ in range(2):
-            with self.assertRaisesRegex(ValueError, 'legacy_retire'):
-                self.reserve(source=card['sha256'])
-        record = self.directory / 'retirements' / op['case'] / (card['sha256'] + '.json')
-        self.assertEqual(json.loads(record.read_text())['status'], 'retired')
-        self.assertEqual((self.directory / 'money.json').read_bytes(), before)
-        self.assertEqual((self.directory / 'reservations.json').read_bytes(), reservations)
+    def test_provider_wait_without_diagnosis_state_is_resumable(self):
+        self.check_unexhausted_source('provider_wait')
 
-    def test_preexisting_legacy_successor_never_reaches_dispatch_transport(self):
-        import key_holder
-        op = self.started(self.reserve()); card = self.legacy_output(op)
-        # Authored old-version reservation: previously _source had no retirement check.
-        with patch.object(service, 'retire_legacy', return_value=False):
-            successor = self.reserve(source=card['sha256'])
-        before = (self.directory / 'money.json').read_bytes()
-        self.policy['code_sha256'] = 'a' * 64
-        with patch.object(key_holder, 'fingerprint', return_value=self.policy['code_sha256']), \
-                patch.object(holder.subprocess, 'run', side_effect=AssertionError('no transport')) as transport, \
-                patch.object(holder.subprocess, 'Popen', side_effect=AssertionError('no worker')) as worker:
-            with self.assertRaisesRegex(ValueError, 'request_refused'):
-                holder.dispatch(self.policy, self.root, self.home, successor['operation_id'], b'')
-            transport.assert_not_called(); worker.assert_not_called()
-        current = self.ops()[successor['operation_id']]
-        self.assertEqual(current['state'], 'failed')
-        self.assertFalse(current['dispatch_started'])
-        self.assertEqual((self.directory / 'money.json').read_bytes(), before)
-        record = self.directory / 'retirements' / op['case'] / (card['sha256'] + '.json')
-        self.assertEqual(json.loads(record.read_text())['reason'], 'legacy_retire')
+    def test_pause_without_diagnosis_state_is_resumable(self):
+        self.check_unexhausted_source('paused')
+
+    def test_ttl_stop_without_diagnosis_state_is_resumable(self):
+        self.check_unexhausted_source('ttl_retired')
 
     def test_dispatch_creator_intent_is_durable_and_never_repeated(self):
         import key_holder
@@ -860,6 +850,10 @@ class WaitSchedulingTests(unittest.TestCase):
             account='claude-factory-token-2', evidence='denied_before_work',
             batch_deadline=self.record['batch_deadline']))
         card['provider_wait'].update(changes or {})
+        # Real runner leaves diagnosis_state absent for non-exhausted waits.
+        import diagnosis
+        card.pop('diagnosis_state', None)
+        diagnosis.record_exhaustion(card)
         path = self.home / 'launches' / op['launch_id'] / 'collected' / (op['case'] + '.scorecard.json')
         path.write_text(json.dumps(card))
         if publish: self.publish(op)
@@ -878,6 +872,7 @@ class WaitSchedulingTests(unittest.TestCase):
     def test_tick_future_due_restart_and_single_successor(self):
         import key_holder
         op, card = self.waiting()
+        self.assertNotIn('diagnosis_state', card)
         clock = self.clock('2026-12-31T23:59:59Z')
         def tick():
             with patch.multiple(key_holder, ROOT=self.root, CONTROL_HOME=self.home):
@@ -899,6 +894,7 @@ class WaitSchedulingTests(unittest.TestCase):
         self.assertEqual(successor['authority']['reservation_id'], op['authority']['reservation_id'])
         self.assertEqual(after['sources'], [None, card['sha256']])
         self.assertEqual(after['authority']['revision'], 2)
+        self.assertFalse((self.directory / 'retirements').exists())
         tick()  # empty process maps model a holder restart
         self.assertEqual(spawned, [(successor['operation_id'], 'dispatch')])
         self.scan(); self.assertEqual(len(self.ops()), 2)
