@@ -78,7 +78,9 @@ first/two slots to account 2 first/one slot. Update existing runtime tests that
 assume account-1 execution (test_model_call_maxima.py), and change the
 Stream D cross-lease test in test_stream_d_admission.py to explicit provider
 429 evidence in immediate-fallback mode; checkpoint mode still parks unknown
-usage. Add focused tests in test_model_router.py, retaining
+usage. test_stream_d_runtime.py likewise uses a rejected provider
+rate_limit_event instead of a generic error for its unknown-usage fallback
+exercise. Add focused tests in test_model_router.py, retaining
 real saved cards from tests/factory/fixtures/router-provider-limits.json.gz.
 These historical artifacts prove provider-limit/reset semantics, NOT historic
 account-2 identity; the replay deliberately attributes their failure to a new
