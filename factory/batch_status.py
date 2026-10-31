@@ -58,7 +58,7 @@ def _block(card, name):
 
 def _boat(args):
     result = subprocess.run([str(ROOT / 'bin/boat-call'), *args], capture_output=True,
-                            timeout=THRESHOLDS['read_seconds'], check=True,
+                            check=True,
                             env={**os.environ, 'BOAT_COMMAND_TIMEOUT_SECONDS': str(THRESHOLDS['read_seconds'])})
     return json.loads(result.stdout)
 
