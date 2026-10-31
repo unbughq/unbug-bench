@@ -25,3 +25,14 @@ Claude task ac185943-aa36-4f6d-ac4c-bdc103a02e11 failed: `Claude API rate limit 
 The explicitly authorized DeepSeek fallback task 24e0dbf5-763a-4dc6-8ddc-4dce11242b1e failed: `This request requires more credits, or fewer max_tokens. You requested up to 256000 tokens, but can only afford 172300.`
 
 Neither attempt produced a review verdict. The full suite passed 160 scripts with zero failures, but fresh diff review remains outstanding. No blocker is self-verified, no Murphy row closes, and package increment 2 remains unchecked. Terminal outcomes design review and the remaining package implementation also remain outstanding.
+
+
+## Review resumed and completed
+
+Under the parent's revised no-paid-OpenRouter rule, the free OpenCode model
+`opencode/deepseek-v4.1-flash-free` reported its free usage limit. A subsequent
+Claude retry completed diff review 1. The two test blockers were fixed in
+58b2625, the full suite passed, and a fresh Claude review passed at eae085f.
+The verbatim reviews are `stream-d-package-completion-diff-1.md` and
+`stream-d-package-completion-diff-2.md`. Reviewer availability no longer blocks
+this retained traversal slice. The deferred terminal-outcomes draft is unchanged.
