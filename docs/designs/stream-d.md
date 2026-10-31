@@ -2159,7 +2159,8 @@ The existing gate cache follows transitive runner functions but also pins whole
 runtime/accounting modules and its own source file. A router, ledger, logger or
 publication edit can therefore erase scientific passes. Calibration has the same
 problem. G10 records stop reasons, but a capped failed submission can still reach
-the wrong-fix reviewer and an easy no-submission currently satisfies difficulty.
+the wrong-fix reviewer. The existing easy-calibrator difficulty threshold is
+intentionally unchanged; this increment separates the scientific evidence.
 
 Keep automatic, content-derived per-gate versions rather than hand-maintained
 release numbers. Split scientific inventories from receipt schema versions:
