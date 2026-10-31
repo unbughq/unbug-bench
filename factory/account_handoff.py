@@ -74,15 +74,16 @@ def choose(card, state, policy, held):
 
 
 def launch_accounts(card, policy, request, held):
-    observed = card.get('provider_accounts') or {}
-    overrides = {**policy.get('initial_accounts', {}),
-                 **{p: request[p + '_account'] for p in ACCOUNTS if p + '_account' in request}}
-    selected = {'opencode': observed.get('opencode', policy.get('opencode_account',
-                    (policy.get('opencode_accounts') or [None])[0])),
-                'claude': observed.get('claude', 1), **overrides}
-    change = choose(card, initial_state(card, policy), policy, held)
-    if change and change['provider'] not in overrides:
+    # Bootstrap defaults never override checkpoint state or a router selection.
+    selected = {'opencode': policy.get('opencode_account',
+                    (policy.get('opencode_accounts') or [None])[0]),
+                'claude': 1, **policy.get('initial_accounts', {}),
+                **(card.get('provider_accounts') or {})}
+    baseline = initial_state(card, policy, {**selected, 'opencode': selected['opencode'] or 1})
+    change = choose(card, baseline, policy, held)
+    if change:
         selected[change['provider']] = change['to']
+    selected.update({p: request[p + '_account'] for p in ACCOUNTS if p + '_account' in request})
     state = initial_state(card, policy, {**selected, 'opencode': selected['opencode'] or 1})
     return selected['opencode'], selected['claude'], state
 
