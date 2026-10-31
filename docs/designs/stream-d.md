@@ -2186,7 +2186,7 @@ version unchanged unless its reader format changes; include an explicit per-gate
 scientific digest in newly written receipts. No permissive historical migration:
 old opaque/mismatched identities cannot prove the new dependency partition and
 are retained as historical evidence, not relabeled as a new scientific pass.
-Existing byte-identical identities remain reusable. Missing, changed or invalid
+Only identities created under this new partition remain reusable across later plumbing edits. Missing, changed or invalid
 evidence never authorizes reuse. G10 attempts use the same scientific dependency
 boundary, preserving their strict prefix and pending-submission checks.
 
@@ -2200,10 +2200,16 @@ fix. Keep existing diagnostic stop/outcome fields for compatibility and retain
 original private attempts and execution bytes. New attempt receipts record their
 scientific outcome; readers recompute it, rejecting conflicting labels.
 
-G10's easy criterion requires at least one uncapped, submitted, valid executed
-failure, not merely tries minus solves. G16/G17's code validator refuses a
-wrong_fix label for a capped/no-submission/unknown attempt, independently of the
-reviewer's prose. Such evidence stays inconclusive and cannot earn a hard label.
+G10 retains its existing easy-calibrator admission criterion. This increment
+changes evidence classification, not the difficulty threshold. G16/G17 check the scientific eligibility of retained attempts before invoking
+the independent reviewer. A capped/unknown failed submission returns None
+directly from review_attempts: breadth/diagnose return a scientific gate fail
+with verdict_valid:false, review_inconclusive:true and no hard label. This
+does not enter independent_review.review and consumes no reviewer family or
+infrastructure retry. Missing submissions retain their existing bounded
+replacement path; a capped or unknown replacement is likewise inconclusive.
+The pure verdict validator also refuses wrong_fix for ineligible rows as a
+defense in depth. Malformed model answers retain the existing operational path.
 Existing missing-submission recovery remains bounded and keeps its old receipt;
 this change does not add a retry allowance. Invalid execution still raises the
 existing infrastructure classification before any scientific count.
@@ -2226,9 +2232,100 @@ calling a capped attempt wrong_fix. Existing item-3 real-ledger settlement tests
 supply row 39's usage half. Close row 39 only if these real-artifact tests and the
 full suite pass; cite the exact test paths in the register. No other row closes.
 
-Deletes: plumbing byte dependencies and the global cache-source invalidator;
-G10's tries-minus-solves evidence shortcut. Minimal run.py changes are confined
-to the G10 acceptance predicate; no A/B/E interface or lane-1 retry/routing
-contract changes. Full validation is the prescribed tests/run.py suite, with a
+Deletes: plumbing byte dependencies and the global cache-source invalidator.
+run.py changes also replace strategy_run's whole-manifest and whole-source
+signature with scoped scientific dependencies. No A/B/E interface or lane-1
+retry/routing contract changes. Full validation is the prescribed tests/run.py suite, with a
 unique retained suite log and committed result record, followed by a fresh diff
 review.
+
+
+### Review-1 implementation details and limits
+
+The boundary is conservative, not a semantic Python analyzer. Pure plumbing
+modules (model_runtime, model_call_gate, model_router, budget, token_prices,
+free_models, registry, launcher, collection and publication) and runner helpers
+`sh`, `opencode`, `_opencode`, `model_call`, `resume_provider_wait`, `log`,
+`public_progress`, `shred_tree`, `update_case_budget`, `case_budget_boundary`,
+`bench_manifest`, `seal` and `wipe` do not enter scientific digests. Remove
+model_call from G16's explicit source roots and opencode from stress roots.
+Mixed evaluator functions `calibrate`, `checkpoint`, `strategy_run`, `g3`, and
+mixed bench executables remain conservatively scientific: edits inside those
+functions/modules still invalidate their dependent gates. Plumbing changes
+must stay behind the named boundary to preserve passes. Extracting every mixed
+executor is not part of this increment; do not silently ignore its code.
+
+Keep the current execution bindings (seed, slot, worker count, concurrent roles,
+role/total call limits, time limits, paid limit and UNBUG_FACTORY_SLOT) in full
+receipts. Moving slots changes delivered endpoint bytes and is deliberately not
+asserted equivalent here. The per-gate *version* removes case, seed, slot,
+UNBUG_FACTORY_SLOT, worker count and concurrency, but keeps scientific run
+counts, exposure/time/call limits, source mode, model/effort and judge image
+configuration. Changing money settings remains a conservative receipt change;
+this work does not migrate item 3's paid-cap contracts. Code-only ledger/router
+changes preserve every new-partition reusable receipt.
+
+The inventory keys are the exact run.GATES strings (G12 is sealing, not a gate)
+and `stress`. All gate inventories include case_contract. Existing MEASURE
+means case_permissions, bench, bench_judging, checkpoint/checkpoint_evidence,
+claims/refusal, factory_pool, diagnostic_budget, public checker/traffic,
+projects and guards. Existing STRATEGY means strategy, strategy_resume,
+silent_window, exposure, live_shop/live_traffic, shoppers and calibration;
+registry is removed. MODEL becomes calibration only. These mixed scientific
+modules stay whole-file bound; pure execution modules above are removed.
+
+| Gate | Additional scientific dependencies and roots |
+| --- | --- |
+| G1 | case_contract, contract tool dependencies; g1 |
+| G2 | admission, freshness_retrieval, independent_review, reviewer prompt; g2 |
+| G3 | MEASURE, bin/setup, compose files, project image configuration; g3 |
+| G4/G5 | MEASURE, run_validity; own gate root |
+| G6 | MEASURE, run_validity, verify-negative; g6 |
+| G7 | MEASURE, run_validity; g7 |
+| G8/G9 | MEASURE, STRATEGY, calibration, root markdown and harbor, reviewer prompt/models; own gate |
+| G10 | MEASURE, STRATEGY, calibration, run_validity, exam_responder and harbor; g10, calibrate, calibration_identity; both calibrator and owner roles |
+| G11 | MEASURE, run_validity, fake-pass-check, independent_review; g11, reviewer roles |
+| G13/G14/G15 | MEASURE, STRATEGY, run_validity; own gate |
+| G16/G17 | G16's existing fairness/owner/exam inventory; own gate, calibrate, make_pilots, family, jload, calibration_identity; strong solver, builder and reviewer roles |
+| stress | judge_dependencies plus attack_report/stress_request/g1, attacker prompt/model/effort |
+
+`scientific_version` returns a SHA256 over sorted JSON for this inventory.
+New gate receipts store `scientific_version` beside existing inputs/signature;
+load checks it when present, and always checks full inputs plus evidence.
+The existing pinned compatible_panel fallback and G16 calibration_binding check
+remain. No new global schema bump is used to invalidate an unrelated gate.
+Strategy receipts use the corresponding G13/G14/G15 inputs plus strategy name
+instead of bench_manifest or whole run.py/registry hashes.
+
+`scientific_outcome` on new attempts is one of solved, demonstrated_failure,
+capped, no_submission, unknown. Order: a valid solved row is solved; absent
+submission is no_submission; time_limit/call_limit is capped; only explicit
+completed + submitted + checked_runs>solved_runs>=0 + errors==0 demonstrates
+failure; everything else is unknown. Unrecorded never means uncapped. Aggregate
+`scientific` is exactly {version:1,outcomes:{<all five keys>:<integer counts>}}.
+Old diagnostic fields remain unchanged. Public old-card counts cannot prove an
+uncapped failure because marginal stop/outcome counts have no per-row join.
+
+Deployment is a one-time scientific partition migration. All pre-partition gate
+cache receipts, strategy signatures, stress bindings and calibration identities
+that differ are not reusable, even if their old science was valid. Originals
+remain retained; no history is relabeled. In-flight work may need up to all
+previously passed gates, stress and all calibrator tries again, paid only under
+existing authority. Exact dollar cost is unknown and may exceed a case's current
+commitment; no budget increase or run is authorized here. Sealed delivery proofs
+also become stale through sealed_audit.delivery_contract/verify_exam and require
+ordinary requalification; there is no legacy admission exception. Subsequent
+boundary-only plumbing edits preserve all nine reusable gates and calibration
+attempt identities. That preservation count is the payoff test. Scope estimate:
+one implementation/review increment plus the offline suite; no paid validation.
+
+Row 39's real cap evidence is case-20261017T125556Z-18681d in
+invalid-runs-public-cards.json.gz, easy diagnostic counts time_limit=3 and
+no_fix_submitted=3. Raw `plain`, `reference`, `cheat` (the saved refuse-all
+execution) and `reset-invalid` entries in invalid-runs-real.json.gz prove
+execution classification, not actual capped submissions. Authored cap/reviewer
+perturbations on these executions do not prove a historical capped-submission
+lifecycle. If no such saved attempt can be found, leave row 39 open for item 8
+and report the limitation instead of fabricating proof. Usage tests are
+`test_stream_d_runtime.py::test_unknown_usage_settles_at_gate_bound_and_next_admission_proceeds`
+and `test_stream_accountant_links_unknown_usage_and_settles_once_above_five_dollars`.
