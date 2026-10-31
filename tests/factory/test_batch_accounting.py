@@ -84,6 +84,31 @@ class AccountingTests(unittest.TestCase):
         self.assertEqual(Decimal(later['total_usd']) - Decimal(result['total_usd']), 1)
         self.assertEqual(later['reconciled_decreases'], [])
 
+    def test_late_booking_and_wait_replay_never_lower_until_final(self):
+        # Stream D money row 21, defensive: a late-booked event bound to an
+        # estimated row (D makes one only for an exam-owner child still running
+        # at finalize_accounting) stays charged through a stale wait replay;
+        # only a final receipt lowers it.
+        for final, released in ((3, 4), (7, 0), (9, 0)):
+            with self.subTest(final=final):
+                self.setUp()
+                lease, row, wait, first = self.estimate()
+                with budget.ledger_transaction(self.path) as ledger:
+                    ledger['events'].append(dict(id='late', cost=4, invocation_id=row['invocation_id'],
+                                                 lease_id=lease.lease_id))
+                    ledger['cost'] += 4
+                late = self.facts(previous=self.previous(first))
+                self.assertEqual(Decimal(late['total_usd']) - Decimal(first['total_usd']), 4)
+                budget.settle(wait, work=self.work, ledger_path=self.path)  # Stale non-final replay.
+                replay = self.facts(previous=self.previous(late))
+                self.assertEqual(replay['total_usd'], late['total_usd'])
+                self.receipt(lease, [('part', 3), ('final', final)], final=True)
+                budget.settle(wait, work=self.work, ledger_path=self.path)
+                result = self.facts(previous=self.previous(replay))
+                self.assertEqual(Decimal(result['total_usd']) - Decimal(first['total_usd']), final - 3)
+                self.assertEqual([Decimal(r['released_usd']) for r in result['reconciled_decreases']],
+                                 [released] if released else [])
+
     def test_in_run_estimate_has_no_previous_release_authority(self):
         lease, row, wait, old = self.estimate(); self.final(lease, wait)
         result = self.facts()  # Prior map empty; valid current-run record contributes nothing.

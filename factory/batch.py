@@ -142,7 +142,7 @@ def bind(policy, name, checkpoint, root, *, home=None, operation=None):
     args = job['args']
     forbidden = {'--restore', '--restore-review', '--qualified-release', '--batch-release',
                  '--batch-sha256', '--case-id', '--resume', '--reuse-review-worker', '--probe',
-                 '--audit-g11', '--audit-fairness', '--rehearse-only', '--late-gate-rehearsal',
+                 '--audit-g11', '--continue-g11-review', '--audit-fairness', '--rehearse-only', '--late-gate-rehearsal',
                  '--batch-release-sha256', '--checkpoint-sha256', '--skip-build', '--statement-only',
                  '--factory-job-config', '--factory-job-config-sha256'}
     if (job['mode'] != 'batch' or job['case'] != case or args[:1] != ['1'] or
