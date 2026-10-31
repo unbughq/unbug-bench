@@ -458,8 +458,14 @@ def resume_factory_bug(c):
         manifest = queued_inputs(c, c.work, quiescent=True)
         finding = _read_factory_bug_finding(c, path, read(old, old), old_release, state,
                                            manifest['generation'], path.parent / 'inputs')
-        raw = json.loads(_input_bytes(Path(c.work) / 'factory-bug-resumes.json', c.work))
-        if not isinstance(raw, list): raise ValueError('invalid history')
+        try:
+            raw = json.loads(_input_bytes(Path(c.work) / 'factory-bug-resumes.json', c.work))
+            if not isinstance(raw, list): raise ValueError('invalid history')
+        except (OSError, ValueError, TypeError):
+            # Preserve D's public history-invalid stop, including a missing file
+            # after a retained finding. Never initialize or relabel this as zero.
+            _factory_bug_history(c)
+            raise BudgetError('factory_bug_history_invalid') from None
         prior = [row for row in raw if isinstance(row, dict) and row.get('finding_id') == finding['finding_id']]
         admission = prior[0] if len(prior) == 1 else None
         if admission is not None:

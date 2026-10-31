@@ -355,8 +355,11 @@ class ResumeTests(unittest.TestCase):
     def test_missing_history_and_changed_release_chain_never_admit(self):
         path = self.work / 'factory-bug-resumes.json'
         path.unlink()
-        with self.assertRaises(budget.BudgetError): diagnosis.resume_factory_bug(self.c)
+        with self.assertRaisesRegex(budget.BudgetError, 'factory_bug_history_invalid'):
+            diagnosis.resume_factory_bug(self.c)
         self.assertFalse(path.exists())
+        self.assertNotIn('factory_bug_resume_count', self.c.card)
+        self.c.card = copy.deepcopy(self.held_card)
         path.write_text('[]')
         self.c.authenticated_batch_manifest['carry_from']['policy']['batch']['sha256'] = '0'*64
         with self.assertRaises(budget.BudgetError): diagnosis.resume_factory_bug(self.c)
