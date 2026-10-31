@@ -743,3 +743,6 @@ publication failures may terminate it. This conservative ceiling is accepted for
 this increment. An old reservations file lacking `failures` is rejected; practice
 uses a fresh batch. A worker already deleted can briefly show as running until
 retirement is reconciled. No new Murphy closure is claimed.
+
+Backoff timers are in memory: a holder restart may retry immediately, but the
+durable failure count still caps attempts. This timing ceiling is accepted.
