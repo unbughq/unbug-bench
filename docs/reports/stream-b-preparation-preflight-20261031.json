@@ -1,0 +1,98 @@
+{
+  "control_vm": {
+    "id": 172111861,
+    "name": "unbug-control",
+    "status": "running"
+  },
+  "credential_labels": [
+    "claude-factory-token-2",
+    "claude-token",
+    "opencode-go-key",
+    "opencode-go-key-2"
+  ],
+  "credential_validity_and_human_mapping": "not_verified",
+  "credential_values_printed_or_saved": false,
+  "date": "2026-10-31",
+  "fleet": {
+    "page_complete": true,
+    "readable": true,
+    "worker_ids": []
+  },
+  "incremental_infrastructure_spend_usd": 0,
+  "infra_admission": {
+    "current_default_rate_verified": false,
+    "infra_reservation_ledger_present": false,
+    "provider_credit_covers_static_one_hour_estimate": true,
+    "provider_credit_covers_usd5": false,
+    "static_one_hour_default_estimate_usd": "0.036"
+  },
+  "model_admission": {
+    "approved_cumulative_usd": "20.000000000",
+    "basis": "model_runtime.invocation_maximum returns lease maximum; budget.reserve_invocation refuses total + pending + maximum > authority",
+    "fits_even_zero_spend": false,
+    "maximum": {
+      "max_input_tokens": 250000000,
+      "max_output_tokens": 2500000,
+      "max_usd": 50.0,
+      "price_source": "token_prices:2026-10-30:claude-opus-5-5:4.0,0.2,8.0,20.0:1.0:standard-global:joint-gate-v1"
+    },
+    "route": "claude/claude-opus-5-5",
+    "same_ceiling_in_a_commit": "1fff453"
+  },
+  "model_spend_usd": 0,
+  "money_files": [],
+  "policy": {
+    "batch": null,
+    "job_count": 1,
+    "sha256": "fd0a861da1ef5f315ebf99345e410962437902004308539c9e02cd3d89beadf5"
+  },
+  "practice_candidate": {
+    "authenticated_checkpoint_eligible": false,
+    "batch_release_sha256": null,
+    "case": "case-20261014T130816Z-a869de",
+    "ciphertext_bytes": 2027790,
+    "ciphertext_hash_matches_card": true,
+    "control_key_decryption": false,
+    "dry_run": true,
+    "sha256": "d93308338261cf32d468ec21ca5e619eea06b6585451a2cf51b644e2102ba9c8"
+  },
+  "r2_env_label_present": true,
+  "router_config_present": false,
+  "router_env_present": false,
+  "unbug_status": {
+    "exit": 127,
+    "stderr": "sh: 1: bin/unbug: not found\n",
+    "stdout": ""
+  },
+  "units": {
+    "unbug-batch.service": "inactive",
+    "unbug-key-holder.service": "active",
+    "unbug-model-router.service": "inactive",
+    "unbug-resume-launches.timer": "active"
+  },
+  "units_after": {
+    "unbug-key-holder.service": "inactive",
+    "unbug-resume-launches.timer": "inactive"
+  },
+  "units_enabled_after": {
+    "unbug-key-holder.service": false,
+    "unbug-resume-launches.timer": false
+  },
+  "unresolved_launch": {
+    "complete": false,
+    "controller_lock": "free",
+    "files": [
+      "controller.lock",
+      "launch.json"
+    ],
+    "id": "b275ffccd6134a33833853ad1d31ed16"
+  },
+  "vm_changes": [
+    "stopped holder and resume timer/service",
+    "staged release practice-6ac450e; hashes verified; source/policy not installed",
+    "disabled holder and resume timer to keep them off across reboot"
+  ],
+  "vm_mutation": true,
+  "workers_created": 0,
+  "workers_deleted": 0
+}

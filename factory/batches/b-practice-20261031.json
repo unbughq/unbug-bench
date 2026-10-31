@@ -1,0 +1,42 @@
+{
+  "batch_deadline": "2026-11-07T00:00:00Z",
+  "id": "b-practice-20261031",
+  "jobs": {
+    "practice": {
+      "args": [
+        "1",
+        "--source",
+        "port",
+        "--rotation-slot",
+        "0",
+        "--dry-run",
+        "--ttl-hours",
+        "1",
+        "--max-spend",
+        "5"
+      ],
+      "case": "case-b-practice-20261031-practice",
+      "claude_accounts": [
+        2
+      ],
+      "initial_accounts": {
+        "claude": 2
+      },
+      "mode": "batch",
+      "opencode_accounts": [
+        1,
+        2
+      ],
+      "requested_total_usd": "20.000000000"
+    }
+  },
+  "max_concurrency": 1,
+  "money_limit_usd": "20.000000000",
+  "replacement_policy": {
+    "enabled": false,
+    "schema": 1
+  },
+  "restore_recipient": "age1ae6f86fkvfnlv525ne9n4rj49texw9r9sh5h5udj23da0ptnnuksuxm6ch",
+  "schema": 1,
+  "target_slots": 1
+}

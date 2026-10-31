@@ -1,0 +1,17 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "date": "2026-10-31",
+  "documentation_head": "7a8c2ba46be170ff07a10f20bf3b598d4f7938d2",
+  "exit_code": 0,
+  "failed": 0,
+  "log_path": "/tmp/stream-b-preparation-suite-20261031.log",
+  "log_sha256": "08f698d1686090433edd025952144a5380e77c57a3f99408d673c09183f81f7e",
+  "reported_skips": [
+    "OK (skipped=1)",
+    "OK (skipped=1)",
+    "OK (skipped=1)"
+  ],
+  "scope": "Offline preparation regression; no worker/model calls; production/test code unchanged during suite; no live acceptance or Murphy closure",
+  "scripts": 155,
+  "source_and_manifest_commit": "6ac450ee985e5a762eba4be2e7f0959377a8a1a2"
+}
