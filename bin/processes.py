@@ -46,6 +46,13 @@ def envelope(timeout=None, end=None, env=None):
     return limit, environment
 
 
+def _killpg(group):
+    # Ignore group EPERM to tolerate macOS zombie-only groups. Cross-user model
+    # processes still require the caller's privileged per-user pkill cleanup.
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(group, signal.SIGKILL)
+
+
 def kill_tree(pid, *, owned_group=True, alive=True):
     """Nested owners have distinct sessions. Snapshot numeric ancestry before killing.
 
@@ -58,7 +65,8 @@ def kill_tree(pid, *, owned_group=True, alive=True):
     probe = subprocess.Popen(['ps', '-axo', 'pid=,ppid=,pgid='], stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, start_new_session=True, text=True)
     try:
-        rows, _ = probe.communicate(timeout=2)
+        # On a loaded host ps is slow, not hung; a short bound would skip every descendant.
+        rows, _ = probe.communicate(timeout=60)
         entries = [tuple(map(int, row.split())) for row in rows.splitlines() if len(row.split()) == 3]
         group_present = any(group == pid for _, _, group in entries)
         pairs = [(child, parent) for child, parent, _ in entries]
@@ -68,7 +76,7 @@ def kill_tree(pid, *, owned_group=True, alive=True):
             if not found: break
             descendants.extend(found); owned.update(found)
     except subprocess.TimeoutExpired:
-        os.killpg(probe.pid, signal.SIGKILL); probe.communicate(timeout=2)
+        _killpg(probe.pid); probe.communicate()
     finally:
         probe.wait(timeout=2)
     for child in [*reversed(descendants), *([pid] if alive else [])]:
@@ -76,7 +84,7 @@ def kill_tree(pid, *, owned_group=True, alive=True):
             group = os.getpgid(child)
             if ((child != pid or owned_group) and group == child and
                     group != os.getpgrp() and group != os.getsid(0)):
-                os.killpg(group, signal.SIGKILL)
+                _killpg(group)
                 killed_groups.add(group)
             else:
                 os.kill(child, signal.SIGKILL)
@@ -84,8 +92,7 @@ def kill_tree(pid, *, owned_group=True, alive=True):
             pass
     # The leader may already have exited while its group still has descendants.
     if owned_group and group_present and pid not in killed_groups and pid not in (os.getpgrp(), os.getsid(0)):
-        try: os.killpg(pid, signal.SIGKILL)
-        except ProcessLookupError: pass
+        _killpg(pid)
 
 
 def run(args, *, timeout=None, deadline=None, cancel=None, input=None,
