@@ -22,3 +22,11 @@ and bound usage/reservation settlement, then replay through G16/G17. No real
 case or paid run was launched, and diagnosis remains disabled. The production
 isolated process/evaluator adapter and admission/continuation routing remain
 item 7 work.
+
+
+Run 2 tested `6492fa5`: **157 scripts, 0 failed, exit 0**. The full command
+finished before this record was committed and before the fresh diff review.
+Log: [stream-d-compare-suite-20261031-2.log.gz](stream-d-compare-suite-20261031-2.log.gz).
+Original unique log: `/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/stream-d-compare-20261031-suite-2-v12pw8ia.log`.
+Uncompressed SHA256: `022c9c97ef7210332dd7aedacb165960da955d760ec1e7e8bc7702cc1afb7e9e`.
+The corrected manifest test also passed independently (2 tests).
