@@ -424,15 +424,55 @@ class AdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
             extensions.writer_receipt(self.c)
 
+    def assert_selector_refuses_unchanged(self, receipt):
+        path = self.work / 'attack-state.json'
+        registry.atomic_json(path, receipt)
+        files = (path, self.intent_path(), self.work / 'extension-history.json', self.ledger)
+        before = [item.read_bytes() for item in files]
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
+            extensions.writer_receipt(self.c)
+        self.assertEqual([item.read_bytes() for item in files], before)
+
+    def test_writer_selector_checks_finished_reservations_binding_and_phase(self):
+        self.interrupted_extension()
+        pending = copy.deepcopy(self.receipt)
+        changed = {**pending, 'binding': {'case': 'changed with consistent hash'}}
+        changed['binding_sha256'] = hashlib.sha256(json.dumps(changed['binding'], sort_keys=True).encode()).hexdigest()
+        self.assert_selector_refuses_unchanged(changed)
+        self.assert_selector_refuses_unchanged({**pending, 'phase': 'abandoned'})
+        lease = model_router.await_lease('writer', self.c)
+        foreign = budget.reserve_invocation(self.ledger, lease, '1', job_authority.for_case(self.c),
+            operation_id=str(uuid.uuid4()), call_name='builder-1')
+        budget.release_uninvoked(self.ledger, lease.lease_id)
+        model_router.finish(lease.lease_id, 'denied', None)
+        run.complete_writer(self.c, self.receipt, self.work / 'attack-state.json')
+        for phase in ('completed', 'validated'):
+            self.assert_selector_refuses_unchanged({**self.receipt, 'phase': phase,
+                'lease_id': lease.lease_id, 'invocation_id': foreign['invocation_id']})
+            self.assert_selector_refuses_unchanged({**self.receipt, 'phase': phase,
+                'lease_id': None, 'invocation_id': None})
+
+    def test_finished_writer_cannot_borrow_pending_wait_archive_proof(self):
+        self.interrupted_extension(wait=True)
+        self.assertIsNone(self.receipt['lease_id'])
+        self.assertTrue(run.provider_continuation(self.c, self.receipt, 'writer'))
+        self.assertEqual(extensions.writer_receipt(self.c), self.receipt)
+        run.complete_writer(self.c, self.receipt, self.work / 'attack-state.json')
+        for phase in ('completed', 'validated'):
+            self.assert_selector_refuses_unchanged({**self.receipt, 'phase': phase})
+
     def test_writer_selector_leaves_same_round_stress_to_package(self):
         self.interrupted_extension()
-        self.intent_path().unlink()  # no writer recovery or authority is needed
+        intent_path = self.intent_path()
+        intent_bytes = intent_path.read_bytes()
+        intent_path.unlink()  # no writer recovery or authority is needed
         path = self.work / 'attack-state.json'
         for phase in ('pending', 'completed', 'validated'):
             registry.atomic_json(path, {'round': 1, 'actor': 'stress_tester', 'phase': phase})
             before = path.read_bytes()
             self.assertIsNone(extensions.writer_receipt(self.c))
             self.assertEqual(path.read_bytes(), before)
+        intent_path.write_bytes(intent_bytes)
         for number in (True, 2):
             registry.atomic_json(path, {'round': number, 'actor': 'stress_tester', 'phase': 'pending'})
             with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
@@ -451,6 +491,7 @@ class AdmissionTests(unittest.TestCase):
                 changed = json.loads(source)
                 receipt = changed['receipt'] if target == intent_path else changed
                 receipt[field] = value
+                if field == 'round': receipt['report'] = f'round-{value}.json'
                 registry.atomic_json(target, changed)
                 before = (path.read_bytes(), intent_path.read_bytes(), self.ledger.read_bytes())
                 with self.subTest(target=target.name, field=field):
