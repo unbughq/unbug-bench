@@ -110,3 +110,13 @@ new validation and a fresh diff review. No row closed.
 
 Scanner reserved_usd is only reserved estimates. Finished/historical-release rows
 remain unknown liabilities even when that displayed sum is zero.
+
+
+B1 correction validation: **162 scripts, 0 failed, exit 0**, source
+ d38499a0f1c577ac07266e130d5d0756376423f4. Full required command ran from
+2026-10-31T17:27:42Z to 2026-10-31T17:57:07Z. Record:
+stream-b-blocker-resolution-suite-20261031T172742Z-2a0a1b93.json and .log.gz.
+Uncompressed log SHA256:
+13613b1fd98b7fb20561ca914db354ca69cfbaa299b5c9d4d0fe1cee9b0489b7.
+The focused suites also passed (15 service tests and 59 holder tests).
+No source/tests changed during the full run. Fresh diff re-review follows.
