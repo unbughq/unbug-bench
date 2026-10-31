@@ -67,4 +67,3 @@ All interrupted-call resume tests in test_stream_d_retries.py now reconstruct th
 Nonblocking finding 1 is addressed by those fresh contexts. Finding 2 is fixed: the allowed statuses describe http_500 through http_599 rather than offering the impossible literal http_5xx. Finding 3 remains the documented per-invocation retrieval window; no throughput claim is added. Finding 4 is clarified in the register: the proof covers the batch launch boundary and batch holder, not legacy coordinator or standalone restart entry points. Finding 5 is safe abandoned coverage before the first paid category admission; no partial directory authorizes reuse, and no behavior change is needed for that storage-only nit.
 
 No blocking finding is rejected. The small callback initialization fix is verified directly without another delegate, following the review workflow's instruction to fix small findings locally. Full-suite results are recorded separately.
-

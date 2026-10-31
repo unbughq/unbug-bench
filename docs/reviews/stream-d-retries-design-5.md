@@ -50,4 +50,3 @@ The scope cut is fine. Diagnostic-exhaustion recovery is left to item 7/8 and do
 ## Author response
 
 All findings accepted. Enumerated fixed category subchecks, required all for completion, and made continuation depend only on new subchecks after each completed call. Completed blockers take precedence. Split archive access-failure handling from dead-page clearance in checked_freshness_verdict; access-failure snapshots can confirm but never clear. Named network_error, the retry cadence, single-route Claude limitation and added the requested tests with authored transport provenance. Row 13's original target wording is corrected. No implementation has started.
-

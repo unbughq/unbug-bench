@@ -53,4 +53,3 @@ I checked these seams in the code and they work as described:
 ## Author response
 
 All findings accepted. Added a finite fixed-subcheck progress rule for completed incomplete stress calls, recognized operational exhaustion, and explicit non-regrant of interrupted diagnostics. Row 13 remains open for item 7/8 automatic diagnostic recovery rather than overclaiming closure here. Unprojectable output now skips futile repair and tries a full original request on the next equivalent route; projectable answers still get guarded schema repair first. Persistent live HTTP denial attempts archive retrieval without treating archive absence as proof a bot-walled live page is gone. Addressed all six integration nits in the design. No implementation has started.
-

@@ -29,4 +29,3 @@ The review-6 blocker is resolved on paper. Projecting the evidence without `at`,
 ## Author response
 
 Accepted the blocker and all three nits. Specify raw id_ snapshot fetching and test the requested URL; retain selected snapshot identity, treat changed timestamps as new evidence. Defined live-only failure receipt shape and the precise G2 transport hold predicate. These small corrections are implemented without another design delegate, per orchestration instruction. No findings are rejected; fresh diff review remains required.
-

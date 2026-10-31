@@ -35,4 +35,3 @@ The two review-5 blockers are resolved:
 ## Author response
 
 All findings accepted. Added a stable normalized judgment projection separate from full receipt integrity, content-identical unresolved verdict reuse, and a two-cycle 403/snapshot no-extra-call test. Specified two-phase retrieval, unflagged archive behavior and the 23 completed-call stress bound. Kept category_complete as an explicit conservative assertion and documented shared diagnostic exhaustion. No implementation has started.
-

@@ -66,4 +66,3 @@ The four blockers from review 2 were each answered. Those answers hold for the n
 ## Author response
 
 All findings accepted. Added the category-mode attack-state state machine, a mechanical decision-projection equality check for schema repair, uniform unresolved handling, broad-outage accounting, and in-place publication retry. Also specified freshness v2 migration, caller identities, deadline labels, cost limits and fixture provenance. No implementation has started.
-
