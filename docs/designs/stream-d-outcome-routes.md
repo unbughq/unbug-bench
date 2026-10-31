@@ -1,130 +1,195 @@
 # Stream D lane 1: diagnosis outcome routes
 
-## Problem and scope
+## Objective, cost and sequence
 
-Item 7 currently dispatches diagnosis but stops a fresh close-to-passing decision
-at extension_comparison_pending. Only an already admitted writer can continue.
-Connect validated decisions to extension admission/execution, retain factory-bug
-hold and retire routes, and prove that each route preserves B's authenticated
-owner, cumulative money and ordinary checkpoint path. No activation flag changes,
-new launch path, new allowance, or changes to ENGINEERING section 4.
+Connect validated diagnosis decisions to the existing hold/retire paths and the
+single writer/stress/gate extension package. Code, not the diagnosis model,
+enforces lifetime counts, scientific progress and B's cumulative money authority.
+Payoff: an exhausted case continues without a human allowance. Risk: duplicate
+writer admission, stale scientific evidence, or a lost checkpoint debit.
 
-This lane owns diagnosis_dispatch and a small diagnosis_outcomes module. Lane 2
-owns extension_package and writer/stress/gate execution. This design is the
-coordination contract; neither lane edits the other's checkout. run.py changes
-only its existing extension dispatch/execute seam. Cross-batch resume remains
-owned by t3/batch-carry-over (new-batch-service-4), using its ordinary verified
-bind/install plus retained factory-bug-resumes.json. No duplicate resume counter
-or fix-message service is introduced.
+Offline tests cost $0 inference. Production calls reserve only against B's
+existing cumulative commitment and deadline; no new money or fixed extension
+allowance. This routing slice is one implementation/full-suite/fresh-review cycle.
+Midterm exam: interrupted first admission and authenticated decision replay.
+Final routing exam: main routing, checkpoint and full suite. Integrated item-7
+exam additionally requires lane 2 entry/comparison and B carry-over, then the
+factory-bug attribution design described below. No activation or §4 change.
 
-## Validated routing and restart
+## Baseline and ownership
 
-After immutable decision publication, apply persists completed diagnosis state.
-For close_to_passing, both fresh and replayed validated decisions return an integer
-when DIAGNOSIS_ENABLED is True: existing matching last extension ID (active or
-completed), or 0 meaning admission required. Zero is internal control flow, never
-persisted history or authority. Match exhaustion_id before routing any existing
-row; a prior completed row with a different exhaustion permits fresh admission,
-while a mismatched active row refuses. A completed same-exhaustion row requires
-lane 2's completed_route validation. Disabled mode keeps today's stop.
+Lane 2 commit 40822e7 is merged here by dc13368. It already supplies positive-ID
+routing (including completed_route), extension_package.run, main's build bypass
+and validate_and_repair bypass. These are dependencies, not lane-1 additions.
+The merge retained both lanes' design records. Later reviewed lane-2 fixes merge
+before the integrated exam. Lane 1 owns the additions below, not whole files.
 
-Propagate returns through replay, _dispatch and invoke; invoke's finally still
-removes the pilot and restores operation/exclusions before writer setup. Dispatch
-releases its reconciliation lock before any package work. main retains its
-nonordinary-mode refusals and ordinary Compose/model/driver preparation. Replace
-its admitted writer-only stop with diagnosis_outcomes.run(c, runner, prev, number).
-Skip build and validate_and_repair for this route. Successful package completion
-flows to existing final sealing; all errors use existing final accounting and
-checkpoint sealing. No route directly publishes to B or books a second ledger.
+Entry/comparison remains a lane-2 prerequisite: its current design explicitly
+leaves it unfinished. This is a proposed consumer contract, not a unilateral
+claim that lane 2 has delivered or accepted it:
+`extension_package.entry(c, runner) -> snapshot`. It must produce current-version
+scientific entry evidence over the current candidate. For later extensions it
+must verify/reconstruct the prior entry/outcome at the same current version in
+isolated roots and retain the pair through extensions.retain_comparison. Return
+that selected outcome with current authenticated source_generation. No model
+answer or public scorecard is a substitute for scientific proof. Incomplete
+proof raises extension_comparison_pending. Lane 2 may revise this seam in its
+reviewed entry design before integration; lane 1 then updates its consumer.
 
-## Small lane-2 seam
+If entry is absent, first admission raises extension_comparison_pending before
+lease/reservation/history/case mutation. Do not fabricate a snapshot or implement
+a second evaluator. This slice is reviewable and testable against a substituted
+package boundary, but not complete item 7. Tests say this explicitly.
 
-The proposed public package surface is:
+B's t3/batch-carry-over owns new-batch-service-4, later-batch bind/install and
+three lifetime factory-bug resume admissions. Merge its reviewed code before the
+integrated hold/resume/limit exam. No new counter, resume path or fix signal here.
 
-* extension_package.entry(c, runner) -> snapshot: code-produced current-version
-  scientific entry proof over the current candidate; no writer or mutation of
-  candidate bytes. For a first extension it captures the exhausted candidate's
-  scientific frontier. For further extensions it verifies or reconstructs the
-  preceding retained entry/outcome at a common current version in isolated roots,
-  retains the comparison via extensions.retain_comparison, and returns the
-  selected outcome with current authenticated source_generation. Invalid or
-  incomplete evidence raises extension_comparison_pending; no authored/model
-  verdict can serve as this snapshot. This function owns all scientific adapters.
-* extension_package.run(c, runner, previous, extension_id): execute or replay the
-  admitted single writer/stress/gate package, completing history before raising
-  extension_incomplete on substantive failure; all pass returns for ordinary seal.
-* extension_package.completed_route(c, row): authenticate committed outcome
-  routing when its public card lags, without rerunning work.
+## Validated decision routing
 
-Lane 1 never supplies a generic gate evaluator. Until lane 2 ships these entry
-points the route fails closed at extension_comparison_pending before admission.
-Tests may substitute the package boundary, explicitly not claiming scientific or
-integrated qualification. The parent merges lane 2 before integrated activation.
+apply retains its immutable-decision boundary and publishes completed diagnosis
+before returning. Enabled fresh and replayed close_to_passing follow this table:
 
-## Admission and one writer
+| Private history last row | Result |
+| --- | --- |
+| No row | Return integer 0: admission required. |
+| Active, same exhaustion | Existing positive-ID path and writer_receipt validation. |
+| Active, other exhaustion | diagnosis_input_invalid, no work. |
+| Completed, same exhaustion | Existing completed_route validation and positive ID. |
+| Completed, other exhaustion | Return 0: another admission must prove progress. |
 
-For number 0, authenticate job_authority.for_case, validate completed
-close_to_passing diagnosis, read immutable history and reject five prior entries
-before scientific work. Call package.entry then extensions.propose: the existing
-same-version comparison/progress check enforces no regressions and strict frontier
-advance for every further extension. No progress/regression retires; pending stays
-pending. Do not reset rounds or history. The proposal chooses builder_rounds+1.
+DIAGNOSIS_ENABLED false keeps the existing stop with no admission. Positive-ID
+proof validation remains lane 2's code; remove only the resume-only restriction
+on returning a valid route. Propagate apply's result at replay, _dispatch's
+valid-journal branch, and invoke's validated-result branch (return exits its
+while loop). invoke's finally removes the pilot and restores operation/exclusions
+before main performs extension setup. No writer executes under dispatch's
+reconciliation lock.
 
-Create the existing writer-intent shape, with round_limit exactly proposal.round,
-actor writer, current attack_binding, before_repair_sha256, input_problems from
-the code-recorded failed gate/stress evidence, report round-N.json and the existing
-release-rereview fields. No diagnosis prose grants execution or becomes feedback.
-Call runner.pending_call(..., extension_proposal=proposal) with the ordinary
-builder prompt and complete_writer callback. Use on_admitted to invalidate old
-gate state only AFTER durable intent/history/receipt and money reservation.
-The pending_call seam already obtains the lease, reserves against B's commitment,
-retains the exact intent before admission, and publishes the attack receipt.
-After completion call package.run on the admitted ID; it validates the completed
-writer instead of calling it again. Interruption after admission resumes through
-the existing positive-ID route; interruption before admission consumes no ID.
-No fixed extension dollars, extra attempt counters or args.rounds mutation.
+main's sole new routing branch is immediately before its existing package call:
+if extension_id == 0, call diagnosis_dispatch.admit_extension(c, runner, prev_card)
+and replace extension_id with its strictly positive returned ID. Existing mode
+refusals and Compose/model/driver setup still precede this. package.run never
+receives 0. No new diagnosis_outcomes module. Existing positive-ID paths,
+build/repair bypass and final seal remain as merged from lane 2.
 
-## Factory bug and retirement
+## Shared writer request and exact fresh intent
 
-Factory bug continues through diagnosis.persist_factory_bug: private immutable
-finding, validated lifetime history, completed diagnosis and factory_bug_held.
-Same-batch replay performs no model work. B's later-batch admission owns the
-three-resume limit and durable counter increment; this lane does not debit it.
-Retire continues to retired_not_converging; limit/progress refusal produces
-retired_extension_limit or retired_no_progress. Completed states project no new
-replacement or diagnosis. All stops preserve usage and enter the same finally
-checkpoint/collection adapter. A held case reaching three resumes must retire
-through B's carry-over refusal, not acquire a fourth invocation here.
+Extract run.writer_feedback(c, previous): the existing failed_gate block verbatim
+returns None when absent, otherwise the existing formatted failed_detail list
+plus up to 8000 bytes from gate-details/<gate>.json when present. Both ordinary
+write_and_attack and first-extension admission call it. The source is the
+verified checkpoint card, never diagnosis prose. Stress findings are not used
+for first admission: extensions.propose requires stress pass (stream-d.md's
+first-extension rule), so a substantive failed stress snapshot retires with
+retired_no_progress. Pending stress is pending, not failure.
 
-Waste attribution is an explicit outstanding prerequisite: interfaces section 8
-currently mandates empty eligible sets because no code-linked invalid-infra
-operation producer exists. This route must not charge all historical case spend
-or use model-supplied operation IDs. Existing operational waste stays in the
-infra-waste line and total remains cumulative. A separately reviewed producer
-and its B resume linkage are required to activate factory-bug reclassification;
-this change cannot honestly claim that portion of item 7 closed. The user request
-covers it, so completion reporting must identify it until supplied, rather than
-silently claim all three routes are fully qualified.
+Extract run.writer_request(c, n, round_limit, report, problems,
+release_rereviews, release_review_attempts, before_repair, repair_requested).
+It returns (fresh receipt, prompt), using the current ordinary construction.
+Use it for ordinary modern fresh writer work and first extension admission.
+Pending writer continuation retains its existing frozen receipt and reconstructs
+its prompt from retained fields; do not regenerate immutable intent. Legacy
+(nonmodern) construction stays unchanged. No shared helper changes loop policy.
 
-## Deletions, tests and Murphy rows
+| Field | First extension source |
+| --- | --- |
+| round, round_limit | proposal.round, exactly equal; no args.rounds mutation |
+| binding | attack_binding(c), after entry/propose and before pending_call |
+| report | round-<round>.json |
+| repair_pending | True |
+| release_rereviews, release_review_attempts | [] for this new logical writer; prior immutable receipt remains in history |
+| actor | writer |
+| before_repair_sha256 | case_hash(c), after entry/propose |
+| repair_requested | bool(report or problems), with report None |
+| findings_report | None; do not feed an old passed stress report as a defect |
+| input_problems | writer_feedback(c, previous), or None |
+| next_phase, output_sha256 | G1, None |
 
-Delete fresh diagnosis's unconditional close-to-passing stop and the main
-writer-only terminal stub. Reuse admission, retained history, package and final
-checkpoint. No new persistent schema or configuration.
+Ordinary helper callers pass their existing local n/round_limit/report/problems,
+release histories, before_repair and repair_requested, preserving all values.
+Prompt is exactly prompt('builder', run_context(c, round=n,
+attack_report=str(report) if report else None, precheck_problems=problems)).
+Admission-owned phase/schema/operation/lease/invocation/extension IDs are absent
+from the fresh receipt; pending_call alone adds them.
 
-Tests use saved practice case and 5813be ledger through real pending_call,
-reservations, history and checkpoint routing. Model and package output are
-substituted controls, not qualification. Prove fresh and replayed decisions route
-identically; false activation starts nothing; pilot cleanup precedes extension;
-first admission reserves once, restores interruption and never writes twice;
-five entries refuse before entry/model; no-progress and regression retire;
-version/pending comparison never admits; money/deadline/provider wait never
-consume an ID; retire/hold replay never invokes or requeues; held history is
-unchanged and all monetary totals survive. Include actual main routing and
-checkpoint refusal so model work cannot bypass B. Existing held/extension suites
-remain mandatory. Add missing-package refusal until lane 2 is merged.
+## Admission, progress and crash order
 
-Run full uv run --with numpy --with scipy python -B tests/run.py, log to a unique
-path, wait, commit record; fresh diff goldfish verifies fixes. Supports row 9,
-closes none until package + factory-bug attribution + B lifecycle real-artifact
-exams prove the full route. new-batch-service-4 stays B-owned.
+admit_extension first authenticates job_authority.for_case and validates completed
+close_to_passing state and private history. Active history refuses new admission.
+Five entries retire before entry or any model call. It then calls entry and
+extensions.propose; no_progress/regression retires, unknown/version mismatch
+stays pending. Entry and propose precede writer-request capture. Call the existing
+pending_call(..., extension_proposal=proposal) with complete_writer callback.
+Use on_admitted=late_recovery.invalidate, after durable intent/history/receipt and
+reservation. Callback and loop invalidation are idempotent already.
+
+On positive-ID writer entry, after extensions.writer_receipt authenticates or
+restores the intent, call invalidate if actor=writer and phase=pending. This
+closes the history-before-callback window; invalidation occurs before any paid
+writer resume. Completed writer requires no rerun and proceeds to validation.
+After pending_call returns, require active row ID matches proposal and return it;
+main calls package.run, which consumes completed writer and executes stress/gates.
+The preexisting ordinary writer loop also invalidates before writer invocation.
+Admission does not clear terminal_stop; lane 2's stress-pass path clears it.
+
+All BudgetError/provider/infrastructure stops flow through main's accounting and
+checkpoint seal. There is no direct B publisher or second ledger. A reservation
+without admission may be conservatively charged, but cannot consume an extension.
+No reset of counts, diagnosis origin or cumulative usage on wait/restart.
+
+## Hold, retirement and required attribution follow-up
+
+Factory bug persists the immutable private finding/history and completed state,
+then factory_bug_held; same-batch replay invokes nothing. not_converging yields
+retired_not_converging. Limit/progress refusal yields retired_extension_limit or
+retired_no_progress; completed diagnoses do not requeue. B's later-batch import
+owns the at-most-three counter and retired_factory_bug_limit refusal.
+
+This slice's factory-bug scope is hold + retire only, attribution open. Existing
+interfaces §8 requires empty eligible sets. Until a code-linked invalid-infra
+operation producer exists, factory-bug cost incorrectly remains ordinary spend
+and reduces the resumed case's ordinary headroom, even though cumulative batch
+spend is preserved. Track new-stream-d-outcome-routes-1, owner D lane 1, required
+next design stream-d-factory-bug-attribution.md. That producer must feed existing
+budget.reclassify_factory_bug, never a second accounting path, and bind B's durable
+resume record. Historical/model-supplied operation IDs cannot grant attribution.
+No claim of complete item 7 or row closure until this follow-up and integration.
+
+## Executable tests and exit criteria
+
+Add tests/factory/test_stream_d_outcomes.py; reuse the saved practice-case bytes
+and 5813be ledger harness from test_stream_d_execution/admission. Tests use real
+pending_call/reservations/history and substituted CLI/package entry evidence.
+They are consumer tests, not scientific qualification. Existing suites retain
+proof of ordinary behavior, immutable history, progress/version comparisons and
+held-state validation.
+
+| Kill/refusal point | Restart route and assertions |
+| --- | --- |
+| Before reservation (provider wait or money_wait) | 0 route; no new ID, intent, callback or writer; preserve label and ledger total. |
+| After reservation before admit, process death | 0 route; no ID; reconcile twice books full orphan maximum exactly once. No guessed zero refund. |
+| After admit before on_admitted, process death | Positive ID; writer_receipt repairs lagging attack-state, pending entry invalidates stale gate-continuation before writer; one ID and same operation. |
+| Mid-writer | Positive ID, same round/operation and immutable request; no ID increment; usage cumulative. |
+| After complete_writer before package.run | Positive ID; completed writer validates with no second writer; package receives positive ID once. |
+
+Additional tests: actual dispatch fresh/journal replay returns identically; invoke
+cleanup executes before returned route; disabled activation starts nothing; all
+three outcomes preserve totals and completed projection. Five entries refuse
+before entry; no progress and regression retire; pending/mismatched versions do
+not admit. Missing entry refuses specifically extension_comparison_pending.
+Tampered current RAM job-money/source binding refuses money_wait before entry or
+writer. Actual run.main with that refusal invokes existing checkpoint seal with
+checkpoint=True, sets money_wait and never candidate-seals or executes a package.
+Same main harness proves 0 conversion and completed writer handoff, and existing
+nonordinary mode refusal still occurs before setup or new model calls.
+
+After lane 2 and B merge, extend this test file's integrated exam to real entry /
+package and B's ordinary bind/install, asserting fourth resume refuses
+retired_factory_bug_limit and replay never debits twice. This integrated test is
+not promised against this slice's base.
+
+Run uv run --with numpy --with scipy python -B tests/run.py to a unique committed
+log/record, wait for exit, then fresh diff review. Fresh goldfish verifies blocker
+fixes; no self-dismissal. Supports rows 9/13; closes none in this consumer slice.
+Deletes the fresh-decision unconditional stop and duplicate writer construction.
