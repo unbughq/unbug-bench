@@ -71,4 +71,3 @@ This was a read-only review of the design text, B's practice plan, the Murphy re
 ## Elephant response
 
 Accept all blockers and majors. Revised plan below will name prerequisite owners, fixed batch layout and commitment split, candidate eligibility blockers, single-worker lifecycle prerequisite, rollback and bounded scenario time estimates. Fresh review required. No live authorization or spend.
-

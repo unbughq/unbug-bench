@@ -73,4 +73,3 @@ The earlier blockers B1–B4 and majors M1–M4 are fixed in the text, and the p
 ## Elephant response
 
 Accepted B5 and M5–M7 plus nits. Incremental budget is now distinct from lifetime commitments, with carried spend never erased; B must enforce per-scenario authority across releases and cap fresh replacements independently of root lifetime totals. Slot mapping, explicit release batches, admission-stop acceptance and time margin added. Fresh review required.
-

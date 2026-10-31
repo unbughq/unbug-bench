@@ -57,4 +57,3 @@ All earlier nits (N5–N9) are fixed. N5 now reads "Within scenario 6 alone" in 
 ## Elephant response
 
 Accepted PASS. Addressed M8: carry both original and queued replacement to beta-fixed, preserving each allocation. Addressed M9: explicitly name scenario-6 carry-over and scenario-7 replacement's small Claude writer profile. Nits: add 10-minute slack and cleanup cutoff; clarify incremental-spend formula; gate version replays on remaining scenario-6 time; correlate both scenario-1 and scenario-4 account-2 windows; remove duplicated account sentence. No flag, code or spend authorized by the plan.
-

@@ -87,4 +87,3 @@ Skipped / not checked: I did not run the suite, did not open the practice-case/5
 ## Elephant response
 
 Accepted. Catch surrounds answer(), outside invoke's finally; additive metadata survives classify and attack_report; identity echoes the pending receipt. The old aggregate already existed before calls, but lacked explanatory metadata (review's absent-aggregate wording is inaccurate). Claude failed ENOTFOUND; requested DeepSeek fallback passed. No blockers.
-

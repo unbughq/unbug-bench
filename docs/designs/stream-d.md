@@ -3558,9 +3558,9 @@ to reach a desired diagnosis or submitted capped guard is a failed qualification
 not authority to coerce the agent or buy more attempts. Account-2 evidence rides
 on the already-needed Claude writer call in scenario 1 and strong-calibrator call in scenario 4, using separate correlated windows, never an extra paid probe.
 
-Timeline: budget at most 10 minutes each for scenarios 1–4, 15 minutes each
-for scenarios 5–6 and 5 minutes for scenario 7 and 5 minutes for scenario 3 (overriding the 10-minute
-default above): 70 minutes of execution, 20 for creation/boot/release installation,
+Timeline: budget at most 10 minutes each for scenarios 1, 2 and 4; 5 minutes
+each for scenarios 3 and 7; and 15 minutes each for scenarios 5 and 6:
+70 minutes of execution, 20 for creation/boot/release installation,
 20 for checkpoint/cleanup and 10 minutes explicit slack. At any checkpoint,
 remaining lifetime below the conservative cleanup bound stops scenario work and
 starts collection/deletion. Installation timing is unqualified until B measures it.
