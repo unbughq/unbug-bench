@@ -3709,3 +3709,33 @@ is admitted and diagnosis remains disabled. The full package, launcher execution
 and round-limit routing, all diagnosis outcome execution, and qualified-path
 legacy allowance removal remain before item 8. Lane 1 item 4 is integrated by
 merging 6f30f8d. No Murphy row closes.
+
+
+### Item 7 remaining-increment checklist (lane 2, 2026-10-31)
+
+Sizes include implementation, tests and fresh design/diff review. Receipt
+admission/recovery is done. Each line is one intended reviewable increment.
+
+- [x] **Admitted launcher execution and round routing — large.** Route
+  authenticated active extensions into the existing writer/stress loop; enforce
+  one admitted round across pending/completed/validated replay, preserve receipt
+  authority, and stop before gate/package completion.
+- [ ] **Complete writer/stress/gate package — large.** Join freshness and unfinished
+  stress recovery to one gate traversal; retain entry/outcome receipts, complete
+  history, and compare current versions without rerolling or extra author work.
+- [ ] **All diagnosis outcomes — large.** Admit proposed extensions after comparison;
+  execute factory-bug hold/fix/resume (three maximum), extension progress/limit
+  decisions (five maximum), and retirement through ordinary launch/checkpoints.
+- [ ] **Qualified-path legacy allowance deletion — medium.** Remove remaining
+  recovery/final-fix/diagnostic allowance branches from the qualified path; prove
+  only cumulative batch money/deadline and scientific round rules govern it.
+
+Item 8 remains separate: integrated retained-artifact and authorized live A/B/E
+qualification, crash/wait/money coverage, and activation. No row closes by a
+checklist entry alone. The current design is `stream-d-admitted-execution.md`.
+
+
+The admitted-execution implementation, full offline suite and fresh diff review
+are complete. Reviews: stream-d-admitted-execution-design-1.md, design-2.md,
+diff-1.md and diff-2.md under docs/reviews (all with the same topic prefix). No Murphy row closes. The next
+increment is the complete writer/stress/gate package above; activation stays off.
