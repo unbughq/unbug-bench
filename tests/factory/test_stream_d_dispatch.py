@@ -206,11 +206,13 @@ if fault == 'execute':
  run.sh=lambda *a,**k: None
  run.pick_models=lambda c: {'builder':['claude/claude-opus-5-5']}
  worker_release.verify_selected_drivers=lambda *a,**k: {}
- def execute(c,prev,*,extension_id):
+ def execute(c,r,prev,extension_id):
   assert extension_id == 1
   assert prev['diagnosis_state']['outcome'] == 'close_to_passing'
   c.card['execution_test_entered']=True
- run.write_and_attack=execute
+  raise run.BudgetError('extension_comparison_pending')
+ import extension_package
+ extension_package.run=execute
  import restart
  restart.raised_limits=run.restore_gate_crash=forbidden
 if fault == 'qualification':

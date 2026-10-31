@@ -127,7 +127,7 @@ class GatePipeline:
         return problems or None
 
 
-    def run(self, c):
+    def run(self, c, *, replay_gate=None, around_gate=None):
         """Run gates, joining/cancelling the isolated G10 before returning to seal/checkpoint."""
         a = c.args
         def run_gate(gate):
@@ -136,8 +136,14 @@ class GatePipeline:
                     ok, info = c.early[gate]
                     return ok, {**info, "reused_from_early_check": True}
                 return self.check(c, gate)
+            retained = replay_gate(c, gate) if replay_gate else None
+            if retained is not None:
+                ok, info = retained
+                self.publish(c, gate, 'completed' if ok else 'failed', 0, True)
+                return gate_attempt.Outcome(ok, info, 0)
             outcome = gate_attempt.execute(
-                invoke, publish=lambda *args: self.publish(c, gate, *args),
+                (lambda: around_gate(c, gate, invoke)) if around_gate else invoke,
+                publish=lambda *args: self.publish(c, gate, *args),
                 record_crash=lambda error: self.record_crash(c, gate, error), interruption=BudgetError,
                 attempts=2, journal=c.work / "infra-attempts.json",
                 identity={"operation": "gate", "gate": gate, "case": self.case_hash(c),

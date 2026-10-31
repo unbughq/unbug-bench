@@ -233,10 +233,18 @@ def apply(c, parent, manifest, result, *, resume=False):
         if result['outcome'] == 'close_to_passing':
             import extensions
             row = extensions.active(c)
+            if row is None:
+                history = extensions.read(c)
+                row = (history[-1] if history and
+                       history[-1]['exhaustion_id'] == manifest['exhaustion_id'] else None)
             if row is not None:
                 if row['exhaustion_id'] != manifest['exhaustion_id']:
                     raise InputVerificationError('extension differs from diagnosis')
-                extensions.writer_receipt(c)
+                if row['outcome'] is None:
+                    extensions.writer_receipt(c)
+                else:
+                    from extension_package import completed_route
+                    completed_route(c, row)
                 if resume and batch_service.DIAGNOSIS_ENABLED is True:
                     atomic_json(c.work / 'scorecard.json', c.card)
                     return row['extension_id']

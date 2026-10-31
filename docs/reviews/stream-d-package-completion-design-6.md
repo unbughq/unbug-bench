@@ -115,3 +115,11 @@ The G3 exception is the minimum the code needs. No YAGNI or reinvention found.
 - the G3 restore happens before the version check in both modes;
 - the fresh G3 runtime fields are preserved;
 - both reduced-worker tests exist and use real G3.
+
+## Elephant disposition
+
+PASS accepted. Added conservative further-worker-reduction test and popped early
+G3 immediately before traversal. Implementation uses two hooks around the ordinary
+pipeline; completed routing checks proof identity before model selection and checks
+scientific versions at package execution after model selection. This prevents
+pre-setup access to c.models without weakening the execution-time version check.
