@@ -61,7 +61,13 @@ def decode(raw):
     text = raw.decode('utf-8')
     if text.startswith('```json\n') and text.rstrip().endswith('```'):
         text = text[8:text.rfind('```')]
-    return json.loads(text)
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result: raise ValueError('duplicate JSON key')
+            result[key] = value
+        return result
+    return json.loads(text, object_pairs_hook=unique)
 
 
 def projection(value, kind):
@@ -86,6 +92,8 @@ def projection(value, kind):
             if type(row['resolved']) is not bool or row['same_bug'] is not None and type(row['same_bug']) is not bool:
                 raise ValueError('freshness decision')
             if type(row['retrieved']) is not bool: raise ValueError('retrieved')
+            if any(not isinstance(row[k], str) for k in ('url', 'app_version', 'version_scope')):
+                raise ValueError('freshness decision strings')
             result.append({k: row.get(k, 'live' if k == 'retrieved_from' else None) for k in
                 ('url', 'resolved', 'same_bug', 'retrieved', 'retrieved_from', 'archive_checked',
                  'archive_available', 'archive_snapshot_url', 'live_failure', 'app_version', 'version_scope')})

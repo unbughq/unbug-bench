@@ -2244,6 +2244,8 @@ def confirm_hits(c, flagged, *, retained_path=None):
                 lambda v: isinstance(v, dict) and isinstance(v.get('hits'), list) and len(v['hits']) == len(flagged)
                     and all(isinstance(a, dict) and a.get('url') == r['url'] and
                             type(a.get('resolved')) is bool and type(a.get('retrieved')) is bool and
+                            all(isinstance(a.get(k), str) for k in ('app_version', 'version_scope', 'why')) and
+                            bool(a['why'].strip()) and
                             'same_bug' in a and (a['same_bug'] is None or type(a['same_bug']) is bool)
                             for a,r in zip(v['hits'], flagged)),
                 timeout=seconds, deadline=time.monotonic() + seconds)

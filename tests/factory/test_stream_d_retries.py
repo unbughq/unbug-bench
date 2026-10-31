@@ -240,6 +240,8 @@ class RetryTests(unittest.TestCase):
     def test_publication_retries_before_next_dispatch(self):
         uploaded, failures = [], [0]
         def checkpoint():
+            self.assertTrue(self.c.model_dispatch_lock._is_owned())
+            self.assertFalse(self.c.active_model_calls)
             uploaded.append(len(self.calls)); failures[0] += 1
             return failures[0] > 3
         self.c.stress_checkpoint = checkpoint
@@ -397,6 +399,13 @@ class RetryTests(unittest.TestCase):
         self.assertTrue(self.c.freshness_transport_pending)
         self.assertEqual(self.c.freshness_confirmed_hits,0)
         self.assertEqual(self.c.freshness_review_summary['unreachable_hits'],0)
+
+    def test_duplicate_decision_keys_are_not_repairable_projection(self):
+        with self.assertRaisesRegex(ValueError,'duplicate JSON key'):
+            ordinary_retry.decode(b'{"approve":false,"approve":true}')
+        with self.assertRaises((KeyError, ValueError)):
+            ordinary_retry.projection({'hits':[{'url':'https://github.com/medusajs',
+                'resolved':True,'retrieved':True,'same_bug':False}]},'freshness')
 
 
 if __name__ == '__main__': unittest.main()

@@ -86,6 +86,7 @@ class ManifestTests(unittest.TestCase):
                             'factory/batch_status.py', 'factory/batch_accounting.py', 'factory/batch_holder.py',
                             'factory/control-recipient.txt',
                             'factory/collection.py', 'factory/freshness_retrieval.py',
+                            'factory/ordinary_retry.py', 'factory/ordinary_freshness.py', 'factory/stress_progress.py',
                             'factory/independent_review.py', 'factory/invalid-runs-compat.json'}
         expected_worker.update(str(p.relative_to(ROOT)) for p in (ROOT/'factory/batches').glob('*.json'))
         self.assertEqual({n for n in manifest.worker_files(ROOT) if n.startswith('factory/')},

@@ -41,6 +41,14 @@ def publication(c, checkpoint):
     atomic_json(marker, {**state, 'pending': False})
 
 
+def publish(c):
+    # The same lock covers automatic dispatch checks and explicit category publication.
+    # Entering dispatch drains a pending publication before yielding.
+    from model_runtime import dispatch
+    with dispatch(c, 'stress-publication'):
+        pass
+
+
 def run(runner, c, number, report, receipt, completed):
     binding = runner.attack_binding(c)
     directory = c.work / 'attacks' / f'round-{number}-categories' / digest(binding)
@@ -70,7 +78,7 @@ def run(runner, c, number, report, receipt, completed):
         atomic_json(report, result)
         return result
     save()
-    c.model_publication_barrier()
+    publish(c)
     result = aggregate()
     if result['blocking'] or result['complete']:
         completed(); return
@@ -122,7 +130,7 @@ def run(runner, c, number, report, receipt, completed):
             save()
             result = aggregate()
             atomic_json(c.work / 'stress-publication.json', {'pending': True, 'identity': digest(state)})
-            c.model_publication_barrier()
+            publish(c)
             if result['blocking']:
                 completed(); return
             if row['exhausted']: raise BudgetError('stress_validation_exhausted')
