@@ -1,0 +1,18 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "--with",
+    "numpy",
+    "--with",
+    "scipy",
+    "python",
+    "-B",
+    "tests/run.py"
+  ],
+  "head": "86806dc8d224fca125c55fae8f6354a1900cc1fe",
+  "started": "2026-10-31T18:17:00.970649+00:00",
+  "finished": "2026-10-31T18:49:00.610316+00:00",
+  "exit_code": 0,
+  "log": "docs/reports/stream-d-attribution-suite-20261031T181700Z-febaf887.log"
+}
