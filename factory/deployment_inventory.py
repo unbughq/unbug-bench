@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Observe local deployment metadata. Never authorizes cleanup or activation."""
 import datetime
-from decimal import Decimal, InvalidOperation, localcontext
+from decimal import Decimal, Inexact, InvalidOperation, localcontext
 import hashlib
 import json
 import os
@@ -196,6 +196,7 @@ def scan_ledger(path, observed):
             return result
         with localcontext() as context:
             context.prec = 64 + len(str(LIMIT))
+            context.traps[Inexact] = True
             total = Decimal(0)
             for record in ledger['reservations'].values():
                 if not isinstance(record, dict):
@@ -218,7 +219,7 @@ def scan_ledger(path, observed):
                         result['expired_reserved'] += 1
             if not result['malformed_records'] and not result['unknown_statuses']:
                 result.update(state='ok', reserved_usd=format(total, 'f'))
-    except (ValueError, InvalidOperation, RecursionError):
+    except (ValueError, InvalidOperation, Inexact, RecursionError):
         pass
     return result
 

@@ -19,5 +19,6 @@
   "log": "full-suite-20261031T131910Z-b6fd72a1.log.gz",
   "suite_summary": "159 test scripts run; 1 failed.",
   "uncompressed_log_sha256": "4e4ff22847f3e5f25ee1dcdae573a94da08e53511c1487225074adcb1eb683c2",
-  "log_sha256": "a0d859896ca313b0d9a60cbf96f1d34bbd09637a265ac197a722818c0a4bf17c"
+  "log_sha256": "a0d859896ca313b0d9a60cbf96f1d34bbd09637a265ac197a722818c0a4bf17c",
+  "provenance_note": "Run started with uncommitted implementation and finished at the recorded HEAD. No file hashes were captured for this retained failed run; no byte-for-byte source attestation is claimed. Passing runs capture tested file hashes."
 }

@@ -127,7 +127,8 @@ Known status counts include malformed records whose status is recognized.
 All records require finite nonnegative usd and expires_at. Reject bools and
 non-string/non-number values. Parse decimal exactly (JSON floats as Decimal);
 allow at most 32 significant digits and decimal exponent between -18 and 18,
-and use sufficient local precision for the exact sum (64 plus ledger-size digits).
+and use local precision of 64 plus ledger-size digits with an Inexact trap;
+any rounded addition invalidates the ledger instead of returning a partial sum.
 This also bounds exponent expansion. Expired reserved means valid reserved record
 with expires_at strictly less than observation UTC epoch; equality is not expired.
 Reject duplicate JSON keys and nonstandard NaN/Infinity JSON tokens. Missing or
@@ -187,6 +188,8 @@ the guard layout only. Parked and keep markers are covered in that layout.
 
 ## Full-suite integration finding
 
+Added after design review 2; independently covered by diff review 1.
+
 The existing worker manifest includes all factory/*.py, including this standalone
 scanner. Add deployment_inventory.py to tests/tools/test_launch_manifest.py's
 independent inventory; do not change bundling rules or factory/batch.py. Shipping
@@ -194,3 +197,12 @@ the inert scanner adds no invocation or state. The first full suite found this
 missing expected-inventory entry (158/159 scripts passed); retain its failed
 record, update the inventory, and rerun the complete suite before diff review.
 This is an offline test integration failure, not a new observed live incident.
+
+## Non-blocking diff-review follow-ups
+
+Diff review 1 passed and found a representable-range precision edge: about 1e53
+USD spread over 20,000 records could round away a 1e-18 hold. Trap Inexact and
+return invalid/null, covered by a regression below the ledger size cap. Add the
+explicit complete-file assertion and metadata permission-error probe requested
+by the same review. Optional stricter decimal-string spelling is deferred; no
+secrecy or admission change. Rerun the full suite after these changes.

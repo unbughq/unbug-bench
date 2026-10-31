@@ -110,6 +110,8 @@ class InventoryTests(unittest.TestCase):
                          [('01', 'response-and-intent'), ('1', 'response-without-marker'), ('2', 'intent-only')])
         self.assertEqual(item['creation_counts'], dict.fromkeys(inv.LABELS, 1))
         self.assertEqual(item['unknown_entries'], 6)
+        self.assertEqual(item['files']['complete']['state'], 'present')
+        self.assertEqual(item['files']['complete']['type'], 'file')
         for suffix in ('deleted', 'parked', 'keep'):
             self.assertEqual(item[suffix + '_markers']['file'], 1)
 
@@ -202,6 +204,30 @@ class InventoryTests(unittest.TestCase):
             result = self.report()
             self.assertNotIn(POISON, json.dumps(result))
             self.assertIn('source-scan-error', result['errors'])
+
+    def test_inexact_extreme_sum_fails_closed(self):
+        entries = {str(i): self.hold(usd='9' * 32 + 'e18') for i in range(20000)}
+        entries['tiny'] = self.hold(usd='1e-18')
+        self.ledger(entries)
+        self.assertLess((self.home / 'boat-reservations.json').stat().st_size, inv.LIMIT)
+        result = self.report()
+        self.assertEqual(result['ledger']['state'], 'invalid')
+        self.assertIsNone(result['ledger']['reserved_usd'])
+        self.assertEqual(result['errors'], ['ledger-invalid'])
+
+    def test_launch_lstat_failure_is_generic(self):
+        state = self.launch()
+        target = state / 'complete'
+        original = Path.lstat
+        def denied(path, *args, **kwargs):
+            if path == target:
+                raise PermissionError(POISON)
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'lstat', denied):
+            result = self.report()
+        self.assertEqual(result['launches']['items'][0]['files']['complete'], {'state': 'error'})
+        self.assertEqual(result['errors'], ['launch-scan-error'])
+        self.assertNotIn(POISON, json.dumps(result))
 
     def test_read_change_and_cli_errors(self):
         source = self.root / inv.SOURCES[0]
