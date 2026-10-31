@@ -330,3 +330,12 @@ this approval. Do not merely lower a reported maximum, bypass the money gate,
 use a free different-family route to claim Claude acceptance, or increase the
 approved cumulative bound. No model invocation or reservation was made by this
 check. The exact maximum record is in the public preflight JSON.
+
+
+## Final preparation regression
+
+The required `uv run --with numpy --with scipy python -B tests/run.py` completed
+with 155 scripts, zero failures, exit 0. Source/manifest commit 6ac450e; only
+documentation changed during the run. Full command, log hash and reported skips
+are committed in `stream-b-preparation-suite-20261031.json`. This does not clear
+any launch blocker or substitute for fresh policy/design review.
