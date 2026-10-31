@@ -3754,3 +3754,26 @@ and the adjacent `.log`. Fresh reviews passed without blockers:
 Next lane-2 increment is stress/gate/outcome completion (large), followed by all
 diagnosis outcomes (large). Qualified-path legacy deletion remains lane 1's work.
 Activation remains off; item 8 remains separate.
+
+Package increment 2 progress (retained traversal slice): implementation at 895221b
+joins completed stress to the ordinary gate pipeline, persists stage evidence and
+card/context projections, records an immutable outcome, and routes completed-row
+replay without author work. Design reviews 1–6 are under
+`docs/reviews/stream-d-package-completion-design-*.md`; review 6 passed.
+The second full suite passed 160 scripts / 0 failures at 895221b; record and log:
+`docs/reports/stream-d-package-completion-suite-20261031T155420Z-c9044583.json`
+and adjacent `.log`. The first full run had only a worker-inventory expectation
+failure, fixed in 895221b; its failed record is retained too.
+
+This is NOT package completion and is not merge-ready without fresh diff review.
+No Murphy row closes. The package checkbox stays unchecked. Remaining within
+package increment 2: rejected/unchanged writer and confirmed-public-match outcome
+completion, entry receipt capture, isolated current-version comparison and version
+drift integration. Draft next-slice design: `stream-d-package-terminal-outcomes.md`.
+That draft has no passing review and no implementation. Its review attempts hit
+Claude rate limits and the explicitly requested DeepSeek fallback's credit limit;
+see `docs/reviews/stream-d-package-review-availability.md`.
+
+All diagnosis outcome routes remain next after the whole package. Qualified-path
+legacy allowance deletion remains lane 1's work; this lane did not edit it.
+Activation and item 8 qualification remain off/separate.
