@@ -7,6 +7,7 @@ import ast
 import contextlib
 import json
 import os
+import runpy
 from pathlib import Path
 import shutil
 import signal
@@ -49,17 +50,19 @@ def invoke_site(number):
     env_node = next(k.value for k in node.keywords if k.arg == 'env')
     env = eval(compile(ast.Expression(env_node), '<production-env>', 'eval'), namespace)
     assert env['BOAT_COMMAND_TIMEOUT_SECONDS'] == seconds
+    assert env['BOAT_CAPTURE_OUTPUT'] == '1'
     assert env.get('UNBUG_PROCESS_DEADLINE') == os.environ.get('UNBUG_PROCESS_DEADLINE')
     try:
         result = eval(compile(ast.Expression(node), '<production-call>', 'eval'), namespace)
         if isinstance(result, subprocess.CompletedProcess):
-            code, out = result.returncode, result.stdout
+            code, out, err = result.returncode, result.stdout, result.stderr
         else:
-            code, out = 0, result
+            code, out, err = 0, result, None
     except subprocess.CalledProcessError as error:
-        code, out = error.returncode, error.stdout
+        code, out, err = error.returncode, error.stdout, error.stderr
     if isinstance(out, bytes): out = out.decode()
-    print(json.dumps({'returncode': code, 'stdout': out}), flush=True)
+    if isinstance(err, bytes): err = err.decode()
+    print(json.dumps({'returncode': code, 'stdout': out, 'stderr': err}), flush=True)
 
 
 class OuterCallerTests(unittest.TestCase):
@@ -77,7 +80,14 @@ home=pathlib.Path(os.environ['TEST_HOME'])
 with (home/'calls.jsonl').open('a') as f: f.write(json.dumps(sys.argv[1:])+'\\n')
 if sys.argv[1:]==['--version']:
  print(os.environ['TEST_VERSION']); sys.exit(0)
+assert 'BOAT_CAPTURE_OUTPUT' not in os.environ
 mode=os.environ['TEST_MODE']
+if mode=='oversize':
+ os.write(int(os.environ['TEST_OUTPUT_FD']), b'x'*(8*1024*1024+1)); sys.exit(9)
+if mode.startswith('escape'):
+ if sys.argv[1]=='ssh': print('12345',flush=True)
+ else: print(pathlib.Path(os.environ['TEST_LIST']).read_text(),end='',flush=True)
+ print('injected transport diagnostic',file=sys.stderr,flush=True)
 if mode=='success':
  if sys.argv[1]=='ssh': print('12345')
  else: print(pathlib.Path(os.environ['TEST_LIST']).read_text())
@@ -85,10 +95,12 @@ if mode=='success':
 if mode=='failure': sys.exit(9)
 heartbeat=home/os.environ['TEST_HEARTBEAT']
 code="import pathlib,signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); p=pathlib.Path("+repr(str(heartbeat))+ ")\\nwhile True: p.write_text(str(time.monotonic_ns())); time.sleep(.02)"
+if mode=='escape-write':
+ code=code.replace('import pathlib,signal,time;', 'import os,pathlib,signal,time;').replace('time.sleep(.02)', 'os.write(1,b" "); os.write(2,b" "); time.sleep(.002)')
 child=subprocess.Popen([sys.executable,'-c',code],start_new_session=True)
 (home/'pids.json').write_text(json.dumps({'owner':os.getppid(),'transport':os.getpid(),'child':child.pid}))
 while not heartbeat.exists(): time.sleep(.01)
-if mode=='escape': sys.exit(0)
+if mode.startswith('escape'): sys.exit(9 if mode=='escape-failure' else 0)
 time.sleep(600)
 ''')
         self.cli.chmod(0o755)
@@ -126,7 +138,9 @@ time.sleep(600)
         result = subprocess.run([sys.executable, '-B', __file__, '--site', str(site)],
                                 env=env, capture_output=True, text=True, timeout=GUARD)
         self.assertEqual(result.returncode, 0, result.stderr)
-        return json.loads(result.stdout), time.monotonic() - start
+        data = json.loads(result.stdout)
+        if data['stderr'] is None: data['stderr'] = result.stderr
+        return data, time.monotonic() - start
 
     def test_six_actual_call_sites_preserve_artifacts_and_nonzero_results(self):
         for site, (module, index, _) in enumerate(SITES):
@@ -160,7 +174,7 @@ time.sleep(600)
 
     def test_sigterm_owner_finishes_slow_cleanup(self):
         process = subprocess.Popen([str(ROOT / 'bin/boat-call'), 'list', '--json'],
-                                   env={**self.env, 'TEST_MODE': 'hang'},
+                                   env={**self.env, 'TEST_MODE': 'hang', 'BOAT_CAPTURE_OUTPUT': '1'},
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             self.wait_heartbeat(); start = time.monotonic(); process.terminate()
@@ -172,33 +186,75 @@ time.sleep(600)
             if process.poll() is None: process.kill()
             process.communicate(timeout=GUARD)
 
-    def test_open_row_escaped_pipe_holder_demonstrates_remaining_hang(self):
-        caller = subprocess.Popen([sys.executable, '-B', __file__, '--site', '4'],
-                                  env={**self.env, 'TEST_MODE': 'escape'},
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        try:
-            self.wait_heartbeat()
-            owner = json.loads(self.pids.read_text())['owner']
-            end = time.monotonic() + GUARD
-            # ps's actual process state distinguishes a finished owner from a
-            # still-running one even if communicate has not reaped its zombie.
-            while True:
-                state = subprocess.run([shutil.which('ps'), '-o', 'stat=', '-p', str(owner)],
-                                       capture_output=True, text=True, timeout=GUARD).stdout.strip()
-                if not state or state.startswith('Z'): break
-                self.assertLess(time.monotonic(), end, 'Boat owner never finished')
-                time.sleep(.05)
-            self.assertIsNone(caller.poll(), 'expected the documented pipe wait')
-            before = self.heartbeat.read_text(); time.sleep(.2)
-            self.assertNotEqual(before, self.heartbeat.read_text())
-            os.kill(json.loads(self.pids.read_text())['child'], signal.SIGKILL)
-            out, err = caller.communicate(timeout=GUARD)
-            self.assertEqual(caller.returncode, 0, err)
-            self.assertEqual(json.loads(out)['returncode'], 0)
-        finally:
-            self.cleanup_processes()
-            if caller.poll() is None: caller.kill()
-            caller.communicate(timeout=GUARD)
+    def test_six_callers_return_while_escaped_descendant_holds_streams(self):
+        for mode in ('escape', 'escape-write', 'escape-failure'):
+            for site, (module, index, _) in enumerate(SITES):
+                with self.subTest(mode=mode, module=module, index=index):
+                    result, elapsed = self.invoke(site, mode)
+                    self.assertEqual(result['returncode'], 9 if mode=='escape-failure' else 0)
+                    expected = ('12345\n' if module == 'ttl_continuation' or
+                                (module == 'coordinator_inventory' and index == 0)
+                                else (FIXTURES / 'list.json').read_text())
+                    self.assertTrue(result['stdout'].startswith(expected), result)
+                    self.assertEqual(result['stdout'][len(expected):].strip(), '')
+                    diagnostic = 'injected transport diagnostic\n'
+                    self.assertTrue(result['stderr'].startswith(diagnostic), result)
+                    self.assertEqual(result['stderr'][len(diagnostic):].strip(), '')
+                    if mode == 'escape-write':
+                        self.assertGreater(len(result['stdout']), len(expected))
+                        self.assertGreater(len(result['stderr']), len(diagnostic))
+                    before = self.heartbeat.read_text(); time.sleep(.1)
+                    self.assertNotEqual(before, self.heartbeat.read_text(),
+                                        'escaped child must still be alive at caller return')
+                    print(f'LOCAL_TIMING {module}:{index} {mode}_seconds={elapsed:.3f}', flush=True)
+                    # Successful return proves neither descendant death nor remote cleanup.
+                    self.cleanup_processes()
+                    self.heartbeat.unlink(); self.pids.unlink(); self.calls.unlink()
+
+    def test_oversize_either_stream_fails_without_partial_output(self):
+        for fd in ('1', '2'):
+            with self.subTest(fd=fd):
+                result = subprocess.run([str(ROOT / 'bin/boat-call'), 'list', '--json'],
+                    env={**self.env, 'TEST_MODE': 'oversize', 'TEST_OUTPUT_FD': fd,
+                         'BOAT_CAPTURE_OUTPUT': '1'}, capture_output=True, timeout=GUARD)
+                self.assertEqual(result.returncode, 125)
+                self.assertEqual(result.stdout, b'')
+                self.assertEqual(result.stderr, b'boat-call: captured metadata exceeds 8 MiB\n')
+
+    def test_snapshot_preserves_shared_offset_with_short_reads_and_growth(self):
+        snapshot = runpy.run_path(str(ROOT / 'bin/boat-call'))['snapshot']
+        saved = (FIXTURES / 'list.json').read_bytes()
+        pread = os.pread
+        with tempfile.TemporaryFile() as stream:
+            stream.write(saved); stream.flush()
+            def append_and_read(fd, count, offset):
+                # Model an ordinary inherited writer sharing the descriptor's offset.
+                self.assertGreaterEqual(os.lseek(fd, 0, os.SEEK_CUR), len(saved))
+                os.write(fd, b' ')
+                return pread(fd, min(count, 7), offset)
+            with patch('os.pread', side_effect=append_and_read) as reader:
+                self.assertEqual(snapshot(stream, len(saved)), saved)
+                self.assertGreater(reader.call_count, 1)
+                self.assertEqual(stream.tell(), len(saved) + reader.call_count)
+            # A truncation cannot leak an apparently successful prefix.
+            stream.truncate(1)
+            with self.assertRaises(OSError): snapshot(stream, len(saved))
+
+    def test_default_output_is_streamed_before_transport_finishes(self):
+        output = self.home / 'streaming-output'
+        with output.open('wb') as stream:
+            process = subprocess.Popen([str(ROOT / 'bin/boat-call'), 'list', '--json'],
+                env={**self.env, 'TEST_MODE': 'escape'}, stdout=stream,
+                stderr=subprocess.DEVNULL)
+            try:
+                self.wait_heartbeat()
+                self.assertIsNone(process.poll(), 'slow cleanup should still be running')
+                self.assertEqual(output.read_bytes(), (FIXTURES / 'list.json').read_bytes())
+                self.assertEqual(process.wait(timeout=GUARD), 0)
+            finally:
+                self.cleanup_processes()
+                if process.poll() is None: process.kill()
+                process.wait(timeout=GUARD)
 
     def test_whole_status_and_ttl_functions_use_real_transport(self):
         import batch_status

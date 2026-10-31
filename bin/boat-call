@@ -6,9 +6,23 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import processes
 
 VERSION = 'boat 1.0.85'
+CAPTURE_LIMIT = 8 * 1024 * 1024
+
+
+def snapshot(stream, size):
+    # Child and owner share an open-file description. Never move its offset:
+    # an escaped appending writer could otherwise overwrite earlier output.
+    data = bytearray()
+    while len(data) < size:
+        chunk = os.pread(stream.fileno(), min(65536, size - len(data)), len(data))
+        if not chunk:
+            raise OSError('captured output truncated')
+        data.extend(chunk)
+    return data
 
 
 def main():
@@ -23,6 +37,7 @@ def main():
         executable = str(installed) if installed.is_file() else shutil.which('boat')
     if not executable: sys.exit('boat-call: pinned Boat executable not found')
     env = {**os.environ, 'BOAT_NO_UPDATE': '1', 'SHELL_SESSIONS_DISABLE': '1'}
+    capture = env.pop('BOAT_CAPTURE_OUTPUT', None) == '1'
     def stop(signum, _frame):
         raise SystemExit(128 + signum)
     for sig in (signal.SIGTERM, signal.SIGINT): signal.signal(sig, stop)
@@ -35,6 +50,24 @@ def main():
                                         env=env, stdin=subprocess.DEVNULL)
                 if version.returncode or version.stdout.strip() != VERSION:
                     sys.exit('boat-call: Boat version mismatch; expected ' + VERSION)
+            if capture:
+                with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+                    result = processes.run([executable, *args],
+                        stdin=None if forward else subprocess.DEVNULL,
+                        stdout=out, stderr=err, env=env)
+                    sizes = [os.fstat(stream.fileno()).st_size for stream in (out, err)]
+                    if any(size > CAPTURE_LIMIT for size in sizes):
+                        print('boat-call: captured metadata exceeds 8 MiB', file=sys.stderr)
+                        return 125
+                    try:
+                        stdout, stderr = [snapshot(stream, size)
+                                          for stream, size in zip((out, err), sizes)]
+                    except OSError as error:
+                        print('boat-call: capture failed: ' + str(error), file=sys.stderr)
+                        return 125
+                    sys.stdout.buffer.write(stdout)
+                    sys.stderr.buffer.write(stderr)
+                    return result.returncode
             result = processes.run([executable, *args], stdin=None if forward else subprocess.DEVNULL,
                                    env=env)
             return result.returncode
