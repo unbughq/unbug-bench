@@ -7,7 +7,10 @@ Used the existing per-server known-host file and scoped SSH key. Decrypted
 output or arguments, or were persisted. No files or services were changed.
 
 Both claude-token (account-1 label) and claude-factory-token-2 (account-2 label)
-exist and are nonempty. No credential is missing under either label.
+exist and are nonempty. No credential is missing under either label. An
+in-memory SHA-256 fingerprint comparison returned credential_fingerprints_equal:
+false. Neither token nor fingerprint values were output or retained. Different
+credentials do not establish different human accounts.
 
 Attempted read-only GET https://api.anthropic.com/api/oauth/profile for each
 credential, comparing only account UUIDs in VM memory if available. Both calls

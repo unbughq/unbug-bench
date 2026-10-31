@@ -64,8 +64,12 @@ class AdmissionTests(unittest.TestCase):
             self.assertEqual(reservation['state'], 'pending')
             self.assertEqual(self.callbacks, ['admitted'])
             self.calls.append(context.model_lease.lease_id)
-            # A's real wrapper handles this authored transport failure and fallback.
-            return 1 if fallback and len(self.calls) == 1 else 0
+            # Only provider rate evidence permits Claude's builder-account fallback.
+            if fallback and len(self.calls) == 1:
+                context.model_process_state['started'] = True
+                raise budget.BudgetError('provider_limit:' + context.model_lease.route,
+                    provider_failure=budget.classify_provider_failure('HTTP 429', context.model_lease.route))
+            return 0
         return self.patch(model_runtime.ModelRuntime, '_invoke', invoke)
 
     def assert_unadmitted(self):
@@ -319,11 +323,14 @@ class AdmissionTests(unittest.TestCase):
 
     def test_fallback_has_one_extension_and_operation_across_leases(self):
         self.install_transport(fallback=True)
-        self.call()
+        # Exercise immediate fallback; checkpoint mode separately parks unknown usage.
+        with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '0'}):
+            self.call()
         self.assertEqual(len(self.calls), 2)
         row, = extensions.read(self.c)
         reservations = list(json.loads(self.ledger.read_text())['invocation_reservations'].values())
         self.assertEqual(len(reservations), 2)
+        self.assertEqual([r['account'] for r in reservations], ['claude-factory-token-2', 'claude-token'])
         self.assertEqual({r['operation_id'] for r in reservations}, {row['writer_operation_id']})
         self.assertEqual({r['call_name'] for r in reservations}, {'builder-1'})
         self.assertFalse(hasattr(self.c, 'model_operation_id'))

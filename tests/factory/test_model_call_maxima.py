@@ -633,7 +633,7 @@ class ProtocolTests(unittest.TestCase):
     def test_successful_cli_cannot_hide_gate_unknown_usage_in_real_runtime_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);(root/'transcripts').mkdir();ram=root/'ram';ram.mkdir()
-            (ram/'claude-token').write_text('synthetic-oauth-only')
+            (ram/'claude-factory-token-2').write_text('synthetic-oauth-only')
             c=SimpleNamespace(work=root,case=root,case_id='synthetic',
                 card={'roles':{'writer':{'model':GATED_CLAUDE}}},ledger=root/'ledger.json',
                 batch_id='b',job_id='j',batch_deadline=time.time()+3600,
