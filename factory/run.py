@@ -2852,7 +2852,8 @@ def inherit_recovery_history(c, previous):
         history = diagnosis.extension_history(previous)
         if history is None or ('diagnosis_state' in previous and diagnosis._state(previous, history) is None):
             raise BudgetError('diagnosis_state_invalid')
-        for key in ('diagnosis_state', 'extension_history', 'factory_bug', 'factory_bug_resume_count'):
+        # route_receipts carry process-start evidence (diagnosis.actual_model_work).
+        for key in ('diagnosis_state', 'extension_history', 'factory_bug', 'factory_bug_resume_count', 'route_receipts'):
             if key in previous: c.card[key] = copy.deepcopy(previous[key])
         ordinary = (previous.get('case_budget') or {}).get('ordinary_limit_usd')
         configured = (previous.get('recovery_config') or {}).get('ordinary_limit_usd')
@@ -2999,6 +3000,8 @@ def main():
         if (not re.fullmatch('[0-9a-f]{64}', a.batch_release_sha256) or manifest.is_symlink() or
                 not manifest.is_file() or hashlib.sha256(manifest.read_bytes()).hexdigest() != a.batch_release_sha256):
             p.error('batch release differs before case execution')
+        a.max_cost = None  # Job money authority replaces the paid cap; --max-cost is historical.
+        if a.audit_g11 or a.continue_g11_review: p.error('a batch job cannot run a G11 audit')
     c.case_id = a.resume or a.case_id or "case-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(3)
     if a.rehearsal_interrupt_g10 and not a.late_gate_rehearsal:
         p.error("G10 interruption is restricted to late-gate rehearsal")

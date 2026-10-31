@@ -1604,7 +1604,10 @@ item 8.
    second author call after a completed one. Pending receipts use strict
    intent, like completed ones. Closes row 10. Persisting intent across
    extension admission and attack-receipt publication supports row 9.
-3. **Money cleanup and settlement** (medium to large). Remove the leftover
+3. **Money cleanup and settlement** (medium to large; implemented in
+   477d84a; design reviews 1–8 (review 8's blockers rejected, upheld by a
+   second goldfish); full suite passed at 477d84a, 155 scripts, 0 failed;
+   diff review 1 passed (Codex); not yet merged). Remove the leftover
    paid-cap checks for new factory jobs. That means every remaining entry in
    the paid-cap inventory above: `g11_review.py`, `ttl_continuation.py`,
    `key_holder.py` and `gate_state.py`, plus the `coordinator.py`,
@@ -1833,3 +1836,312 @@ accounting gap. No production extension caller exists yet (item 7);
 intent mandatory for that future caller. The skipped `if report and problems:`
 block's founder-feedback branch is already inert under `modern`; skipping it is
 also a simplification.
+
+### Third increment: money cleanup and settlement
+
+Problem. New factory jobs are the batch path only: `batch.bind` marks the
+job `_batch_job`, strips `--max-cost` from its argv (`batch.py:169–176`), and
+`run.py` runs it with `--batch-release-sha256`, so `model_runtime.factory_job`
+is true. `batch_money` refuses a manifest job carrying `max_cost`. Two gaps
+are left on that path.
+
+1. **Row 8: the $5 default still binds factory evidence.** The call path
+   already passes `max_cost=None` (`model_runtime.py:639`, `budget.py:736`),
+   so the cap is not enforced. But `run.py`'s `--max-cost` default of 5.0
+   stays in `c.args`. It is hashed into the stress binding
+   (`gate_state.judge_dependencies` settings, via `run.attack_binding`), the
+   G8/G9/G16 fingerprints (`gate_state.inputs`), the calibration identity
+   (`run.calibration_identity` limits) and `recovery_config`. So factory
+   evidence says it ran under a $5 cap that did not apply, and it cannot be
+   told apart from legacy evidence that really ran under the cap. That is the
+   binding migration the "Remove the paid cap everywhere" section requires.
+2. **Row 21: unknown usage still makes the case total unknown.**
+   `budget.complete_invocation` (`budget.py:357`) leaves a call whose receipt
+   lacks final usage as a `pending` reservation plus an `unpriced_invocations`
+   marker. Until the next `reconcile_reservations`, `case_spending` returns
+   `total_spent_usd: None`. Two admissions read that first:
+   - the router's retry inside the same `ModelRuntime._call`: the next
+     lease's `reserve_invocation` refuses with `money_wait`, so a provider
+     blip with partial usage blocks the retry on the next account;
+   - writer admission in `run.pending_call` (`run.py:385–387`):
+     `spent_usd is None` raises `budget_exhausted`, an ordinary terminal stop
+     that sends the case to diagnosis because of an accounting gap.
+
+Change.
+
+- `budget._run_budgeted`: for a factory call (bound to a reservation), do not
+  append an `unpriced_invocations` marker when a subscription session ends
+  without its usage event. The pending reservation already holds that call's
+  remaining maximum in `outstanding_reservations`, and every admission and
+  `check_limits` counts it. The marker only turned that bounded gap into
+  "total unknown". Non-factory calls keep the marker. This removes the
+  window in which a sibling concurrent call's `check_limits`
+  (`budget.py:845`) reads an unknown total and stops with `money_wait`.
+  A failed stop needs no marker either. `model_call_gate.enforce` closes the
+  call's gate on exit, and a closed `Allowance` refuses every further request,
+  so a process that outlived the stop cannot spend past the gate's bound.
+- `diagnosis.actual_model_work`: markers were also process-start evidence
+  for replacement eligibility. A subscription call that dies before its usage
+  event leaves no event. With no marker, it would look like zero work. The
+  card's `route_receipts` already record each lease's outcome. The runtime
+  resets an unstarted call to `denied` (`model_runtime.py:413–414`), so
+  `done` or `interrupted` means a process started. Count those rows as work.
+  `run.inherit_recovery_history` carries `route_receipts` across a resume,
+  as it already does for `diagnosis_state`. `ModelRuntime._call` records the
+  outcome before `complete_invocation`, so an accounting error cannot leave a
+  started call reading `admitted`.
+  This also closes a gap that predates this change: `finalize_accounting`
+  reconciles bound markers away before `record_exhaustion` reads them. Saved
+  cards carry no `route_receipts`, so their projections are unchanged.
+- `budget._settle_leaf`: a receipt without final usage is charged at the
+  smaller of the reservation maximum and the closed gate's bound in the
+  receipt (`cap_used.settled_usd + held_usd`). The gate holds each request's
+  worst case until its usage validates. That bound applies only when the gate
+  forwarded at least one request. Otherwise the snapshot is the unstarted
+  default, and the maximum stays. With the real $50 Claude maximum, one blip
+  without usage now costs one request's hold, not the whole ordinary budget.
+  Receipts with no gate snapshot (synthetic reconciliation leaves) keep the
+  maximum. Once a reservation is estimated, its charge is a ceiling, and
+  evidence without final usage never moves it, up or down. Only booked usage
+  above the charge raises it, with a zero gap. In D, an estimated row gains
+  events only through `_settle_leaf`, with one exception. The streaming
+  accountant books only while its process runs, inside `run_budgeted`, which
+  refuses a row that is not pending. `complete_invocation` estimates the row
+  after that returns. `reconcile_reservations` at the start of `_call`
+  excludes active call names and the call's own lease, and
+  `resume_provider_wait` refuses while a call is active. The exception: an
+  exam-owner child call still running on its HTTP thread when
+  `finalize_accounting` reconciles can book cancelled partial usage onto the
+  row that reconcile estimated. That call always ends interrupted with a
+  non-final receipt, written once, so its charge can only grow and it never
+  writes a release record. Only a final receipt can lower the charge,
+  through `reconciled_decreases` (the provenance B's collection requires).
+  B's collection check is unchanged by this increment. Its known limits
+  (a settled row that grows after its decrease record, and a ledger written
+  outside D's producers) predate it and are B's; see design review 8. The row's current charge counts every event already bound to
+  it: its `event_ids` plus ledger events tagged with its lease and
+  invocation. So a late booking followed by a stale replay keeps the total,
+  and the decrease record uses that same charge. A forged first snapshot is not defended against. The receipt
+  shares the work directory's trust with the ledger, as before.
+- `budget.complete_invocation`: a receipt without final usage settles through
+  the existing `_settle_leaf` as `estimated`, charging that bound. That also removes the marker bound to that invocation.
+  This is exactly what `reconcile_reservations` already does at the next
+  call or resume, done at the point the call ends. A later final receipt
+  replaces the estimate once, through the same settler and its
+  `reconciled_decreases` record. `settle()` for a provider wait re-reads the
+  same leaf and records its wait provenance as before. Unbound legacy markers
+  (no reservation) are unchanged and still go through the $33 import.
+- `batch_holder._extends` (B-owned, three lines): an estimated reservation
+  that becomes settled needs a `reconciled_decreases` record only when its
+  settled charge is lower. The producer writes that record only for a
+  positive release, so an equal or higher final charge used to leave a
+  collection incident that no later generation could clear. Both charges
+  are bound events plus the open estimate.
+- `run.py` `main`: in the existing `if a.batch_release_sha256:` block, after
+  the release digest check, set `a.max_cost = None`. This is before the card
+  is built. An explicit `--max-cost` on a
+  factory job is historical and ignored (`batch.bind` already strips it).
+  The stress binding, the G8/G9/G16 fingerprints and the calibration
+  identity then record `max_cost: None`. `recovery_config` records None
+  until the first `update_case_budget`, which already drops the key for
+  factory jobs (`model_runtime.py:265`). `coordinator.configuration_args`
+  already skips `max_cost` once `ordinary_limit_usd` is present. That value is the new
+  accounting-policy version. The `max_cost` key stays in each of them, so
+  non-factory fingerprints are byte-identical. Merging this is the one-time
+  intentional migration: factory evidence already fingerprinted with 5 stops
+  matching and reruns once, inside the job commitment. Pass criteria and
+  time/call limits are unchanged.
+
+Deliberately not changed. Each site below keeps its numeric cap because no
+new factory job reaches it. These paths have no job authority, so deleting
+the cap would leave them with no money bound at all. They retire with their
+paths (`docs/factory-single-path.md`), not here.
+
+- `g11_review.py`: `batch.bind` refuses `--audit-g11` and
+  `--restore-review`, the only launch of `--continue-g11-review`
+  (`batch.py:143–151`, `launch.sh:44`). The G11 audit is a
+  non-factory audit job, like `bin/run-exam`.
+- `ttl_continuation.py`: a batch policy has only `mode: batch` jobs
+  (`key_holder.py:128`), and `ttl_continuation.policy_check` requires
+  `mode: case`. B's launcher replaces TTL continuation.
+- `restart.py`, `coordinator.py`: `launch.sh` `factory_auto_resume` returns
+  at once for a batch release (`launch.sh:494`). The coordinator's
+  `max_cost` check is already skipped once `ordinary_limit_usd` is present.
+- `key_holder.py`: both checks are already skipped for `_batch_job`
+  (`:208`, `:355`).
+- `carry_over.py` `OPERATIONS`/`INFRASTRUCTURE_LIMIT`: only `project`,
+  `admission` and `load` read them, and only `tools/carry-over-corpus.py`
+  calls those (a report). No launch, resume or import admission uses them.
+  `legacy_import_dry_run` does not refuse on an allowance.
+- `gate_state.py`: no code change. Its values follow `c.args`.
+- `bin/run-exam`: keeps the $5 owner cap, as the inventory says.
+
+So the plan's "remove" for these entries becomes "prove unreachable from a
+factory job". The search exam below holds that line.
+
+Deletes: the `pending` + marker branch in `complete_invocation`, the
+factory-call marker in `run_budgeted`, and the factory job's $5 binding
+input. Adds one line in `run.py` and one forbidden flag in `batch.py`.
+
+`factory/README.md`: the `--max-cost` paragraph says the flag is the
+non-factory and exam-owner cap. Batch jobs use the job money channel's
+cumulative commitment.
+
+Tests, in `tests/factory/test_stream_d_runtime.py` on the hash-verified
+practice case and the captured 5813be ledger (priced cost already above $5).
+Only model outputs and the gate's unknown-request count are authored.
+
+- **Unknown usage settles at the gate bound, and the next admission
+  proceeds** (`test_unknown_usage_settles_at_gate_bound_and_next_admission_proceeds`).
+  Two subtests through the real `ModelRuntime._invoke`, the real
+  `run_budgeted` (so `on_started` and the reset to `denied` run), the real
+  router and ledger, and the real `Allowance` arithmetic. The CLI byte
+  streams and the one request without usage are authored. Each estimated
+  route keeps its real maximum (the reviewer's OpenRouter gate maximum, and
+  Claude's $50). The route receipt shows a started outcome and survives
+  `inherit_recovery_history`. A later final receipt replaces the estimate
+  once. A replayed non-final receipt with a lower snapshot leaves the ledger
+  byte-identical. (a) A gated reviewer call books $0.01 and leaves one request
+  without usage. It is estimated at the gate hold, and the next writer
+  `pending_call`, at the real $50 Claude maximum, is admitted and completes.
+  Admitting a writer at $50 after any spend needs an ordinary limit above
+  spend + $50. The test sets 100 as authored configuration. Under the
+  default $50 ordinary limit, a Claude writer round after any spend is
+  refused whether usage is known or not. That is the existing rollout
+  prerequisite (E/A route-maximum report against the ordinary limit), not
+  part of row 21. (b) A Claude writer blip without usage is
+  estimated at one request's hold. The router retries on the second Claude
+  account inside the same call. On the committed code, (a) stops with
+  `budget_exhausted` and (b) with `money_wait`.
+- **Late booking and wait replay** (`test_batch_accounting.py::
+  test_late_booking_and_wait_replay_never_lower_until_final`). A defensive
+  test: D produces a late booking on an estimated row only in the
+  exam-owner case above, and never follows it with a final receipt. On the saved
+  ledger through provider-wait `settle()`: estimate, a late booking tagged to
+  the row, a stale non-final replay, then a final receipt that lowers, equals
+  or raises the charge. Every step passes `collection_facts` against the
+  prior facts, and only the lowering receipt writes a decrease record.
+- **Equal or higher final receipt clears an incident**
+  (`test_batch_holder.py::test_equal_or_higher_final_receipt_clears_incident`).
+  A refused generation with an estimated row goes through the holder's
+  incident recovery. Equal and higher final charges clear it. A lower settled
+  charge without a record still does not extend.
+- **Estimate frozen across a resume**
+  (`test_batch_holder.py::test_estimate_frozen_across_resume_then_final_decrease_collects`).
+  The first ACK sees a $4 gate estimate and a second call's $10 estimate. A
+  resume without the receipt file keeps the $4, the final receipt releases
+  $4, and the second holder collection accepts it. Negative control: the
+  second call's estimate lowered without a final receipt is refused with
+  `unsupported_decrease`.
+- **Factory jobs carry no paid cap.** A `run.main` subprocess harness (same
+  pattern as the existing main test) runs with an authored batch-release file
+  (only its digest is checked) and an authored job installer. Both are
+  contract configuration, like `job-money.json`. The real artifacts are the
+  5813be ledger and the practice case. It records `c.args.max_cost is None` and
+  `recovery_config['max_cost'] is None`, then runs the real streaming
+  accountant with a priced OpenCode event on the 5813be ledger. The factory
+  setting books it past $5 without a stop. The non-factory control (5.0)
+  stops with `cost_limit`.
+- **Changed-stage membership.** With `max_cost` 5 versus None, only the
+  G8/G9/G16 fingerprints, the stress binding and the calibration identities
+  change. Every other gate fingerprint is identical.
+- **Search exam.** Every `max_cost`/`--max-cost` occurrence in `factory/`
+  (`.py`, `.sh`) and `bin/` is counted per file against a classified table:
+  factory-none, non-factory protection, historical decode or validation, or
+  binding key. A new occurrence fails the test until someone classifies it.
+
+Rows. Row 8 closes with the no-paid-cap and search-exam tests. Row 21 closes
+with the settlement, late-booking, incident and frozen-estimate tests. Both run on real saved ledger and case bytes
+through the real runtime, router and ledger code. Row 8 closes for batch
+jobs only. Non-batch runs and the exam owner keep their cap by design. Row
+21 closes for reservation-bound calls. An unbound legacy marker, like the
+attempt-6 Codex ledger the row cites, stays on the $33 import path.
+
+Existing tests affected. `test_stream_d_runtime.py::
+test_stream_accountant_links_unknown_usage_and_settles_once_above_five_dollars`
+asserted the factory marker after `run_budgeted`. It now asserts no marker,
+a known total with the reservation outstanding, and the same estimate after
+reconciliation. `test_flag_off_keeps_crash_reservation_without_forcing_router_deferral`
+asserted `money_wait` on the retry, the row-21 poisoning itself. It now
+asserts that the retry is admitted on a new lease with no router deferral,
+and that the crashed call's reservation is kept as an estimate with its
+marker settled. In `test_model_call_maxima.py`, the dispatch test's
+interrupted call is now `estimated` when it ends instead of `pending`, and
+the real-route settlement test charges the closed gate's bound (one
+request's hold) instead of the $50 maximum. The direct `complete_invocation` callers in
+`test_batch_accounting.py`, `test_stream_d_coverage.py` and
+`test_router_cheap_maxima.py` plant their own markers, or pass final
+receipts, or read saved proof records. A local draft of the
+`complete_invocation` change passes all three unchanged. The settlement test
+also covers a concurrent sibling call: it streams while the first call fails
+with unknown usage, and it finishes without `money_wait`.
+
+Design review 8 responses (Codex, FAIL). B1 and B2: rejected as outside
+this increment, pending a second goldfish (`stream-d-money-design-8-codex.md`).
+B1 needs a tagged booking on an estimated row outside `_settle_leaf`, which
+no D producer makes. B2 is a property of B's collection guard on the
+committed code, with or without this increment. The overclaim that B's
+check is now exact is removed above. A second goldfish (fresh Claude)
+upheld both rejections and found one Major: the stated reason missed two
+`reconcile_reservations` call sites and the exam-owner race. Fixed above by
+stating the real reasons. No code change.
+
+Design review 7 responses (Codex, FAIL). B1: accepted. The round-6
+collection change is withdrawn, because one call's release could cover
+another call's drop. Instead an estimated charge never moves on non-final
+evidence, so it cannot grow between collections, and B's check is unchanged.
+
+Design review 6 responses (Codex, FAIL; fix superseded by review 7). B1: accepted. Collection credits a
+release up to the prior ACK's estimate, so a grown estimate's final decrease
+collects. Fixed at the collection check because any non-final evidence
+without a gate snapshot can raise an estimate.
+
+Design review 5 responses (Codex, FAIL). B1: accepted. The current charge
+counts late-booked events bound to the row. M1: accepted. `_extends` accepts
+an equal or higher final charge without a decrease record. M2: accepted.
+The late-booking and incident tests above. N1: accepted. The test module
+docstring names the money rows.
+
+Design review 4 responses. DeepSeek was interrupted with no report. A Claude
+rerun was stopped before it reported, at the founder's direction, and review 4 ran on Codex
+(`gpt-6.1-sol`, FAIL). B1: accepted. The admission subtest uses real
+maxima for both routes, with the ordinary-limit prerequisite stated above.
+M1: accepted. Non-final estimates are monotonic, and the test replays a
+stale snapshot. N1: accepted. The round-2 failed-stop text is marked
+superseded.
+
+Design review 3 responses. DeepSeek returned no final report, so review 3
+was rerun with a fresh Claude reviewer (FAIL). B1: accepted. The failed-stop
+marker was removed again by the same call's `complete_invocation`. The
+exception is deleted, and the closed gate is the bound. M1: accepted. The
+estimate uses the gate's bound and is tested with the real maxima. M2:
+accepted. `route_receipts` inheritance is named above. M3: accepted. The
+settlement test runs the real `run_budgeted`. N1: accepted. The outcome is
+recorded before accounting. N2: accepted as a known gap. A runner killed
+mid-call loses the in-memory receipt row until the next checkpoint, so that
+call reads as no work. The reservation still settles. N3: accepted.
+`run.main` refuses a G11 audit on a batch job. N4: noted, unreachable and
+fails closed. N5: accepted. Row 8 is narrowed to batch jobs when it closes.
+N6: noted. `route_receipts` grow per call, like `events`.
+
+Design review 2 (DeepSeek, FAIL) responses. B1: accepted. Fixed through
+the route receipts above. The settlement test asserts that the estimated
+call's receipt shows a started outcome and that `actual_model_work` holds
+with no events or markers. The projection test adds denied/admitted
+(not work) and interrupted (work). M1: accepted. A failed stop keeps the
+factory marker (superseded by review 3: the exception is deleted, and the
+closed gate is the bound). N1: the comment beside it is now true. N2: line references
+are approximate, as elsewhere in this file.
+
+Design review 1 (DeepSeek, FAIL) responses. B1: accepted. The affected tests
+are listed above. Its premise that those tests assert the pending+marker
+state is wrong for the three direct callers, which pass under the change. M1:
+accepted, and the window is worse than the original text said. A sibling's
+`check_limits` stops, so it is not a short wait. Fixed at the source by
+deleting the factory marker, not by narrowing the window. M2: accepted as
+wording. The release file is authored configuration, and the row-8 proof
+rests on the real ledger and the real accountant. N1: accepted. `restart.py`
+is protected only by `launch.sh:494`'s early return. Item 8's search exam
+must keep it unreachable. N2: accepted. Add `--continue-g11-review` to
+`batch.bind`'s forbidden set. N3: noted. The `gate_state` literal stays 5,
+because it is the non-factory default.

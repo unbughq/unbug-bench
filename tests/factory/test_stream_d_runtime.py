@@ -3,10 +3,12 @@
 Model outputs, provider conditions and the job config are authored test inputs.
 Only Python stream emitters and the real local router/HTTP protocol execute;
 there is no model CLI, cloud launch, decryption or real crash-artifact claim.
-Only the writer-continuation tests close a row (Murphy 10): every writer
-interruption point (mid-call, returned before completion, completed, validated
-with problems) resumes without a second author call or changed inputs. No test
-here qualifies B/E rollout.
+The writer-continuation tests close Murphy 10: every writer interruption point
+(mid-call, returned before completion, completed, validated with problems)
+resumes without a second author call or changed inputs. The money tests close
+Murphy 8 for batch jobs (no paid cap is bound or enforced) and Murphy 21 for
+reservation-bound calls (unknown usage settles at the closed gate's bound and
+the next admission proceeds). No test here qualifies B/E rollout.
 """
 import copy
 from dataclasses import replace
@@ -269,13 +271,245 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
                 invocation_id=row['invocation_id'], lease_id=lease.lease_id, concurrent=True, resume=True,
                 max_total_calls=self.source['continuation_budget']['calls'] + 10)
         current = json.loads(self.ledger.read_text())
-        self.assertEqual(current['unpriced_invocations'][0]['invocation_id'], row['invocation_id'])
-        budget.reconcile_reservations(self.work, self.ledger)
+        # Row 21: the pending reservation bounds the gap; the total stays known.
+        self.assertEqual(current.get('unpriced_invocations', []), [])
+        self.assertEqual(budget.case_spending(current)['total_spent_usd'], self.baseline)
+        self.assertEqual(budget.outstanding_reservations(current), 100)
+        # A concurrent sibling streaming in this window is not stopped by money_wait.
+        sibling = model_router.Lease(uuid.uuid4().hex, self.c.models['attacker'][0], 'free', 1,
+                                     'free', 'minimax', 'free', **synthetic_maximum(self.c.models['attacker'][0]))
+        other = budget.reserve_invocation(self.ledger, sibling, 1, authority,
+            operation_id=str(uuid.uuid4()), call_name='attacker-stream-test')
+        event = {'type': 'step_finish', 'part': {'id': 'sibling-step', 'messageID': 'sibling', 'cost': .25,
+                 'tokens': {'input': 1, 'output': 1, 'reasoning': 0, 'cache': {'read': 0, 'write': 0}}}}
+        budget.run_budgeted([sys.executable, '-c', 'print(' + repr(json.dumps(event)) + ', flush=True)'], self.work,
+            os.environ.copy(), self.work / 'sibling.jsonl', self.ledger, 30, max_cost=None, driver='opencode',
+            configured_model=sibling.route, role='stress_tester', invocation_name='attacker-stream-test',
+            case_budget=200, job_authority=authority, invocation_id=other['invocation_id'],
+            lease_id=sibling.lease_id, concurrent=True, resume=True,
+            max_total_calls=self.source['continuation_budget']['calls'] + 10)
+        budget.reconcile_reservations(self.work, self.ledger, exclude_leases=(sibling.lease_id,))
         current = json.loads(self.ledger.read_text())
-        self.assertEqual(current['unpriced_invocations'], [])
-        self.assertEqual(budget.case_spending(current)['total_spent_usd'], round(self.baseline + 100, 9))
-        budget.reconcile_reservations(self.work, self.ledger)
+        self.assertEqual(current.get('unpriced_invocations', []), [])
+        self.assertEqual(budget.case_spending(current)['total_spent_usd'], round(self.baseline + 100.25, 9))
+        budget.reconcile_reservations(self.work, self.ledger, exclude_leases=(sibling.lease_id,))
         self.assertEqual(json.loads(self.ledger.read_text()), current)
+
+    def test_unknown_usage_settles_at_gate_bound_and_next_admission_proceeds(self):
+        """Row 21 through the real runtime, accountant, router, ledger and gate arithmetic.
+
+        Authored: the CLI byte streams and which gate request lacks usage. The
+        estimated call keeps its route's real maximum; the gate's real per-request
+        hold, not that maximum, is what the case is charged.
+        """
+        import contextlib
+        import diagnosis
+        import model_call_gate
+        from token_prices import GATED_CLAUDE, GATED_OPENROUTER, CLAUDE_OUTPUT, claude_gate_maximum, openrouter_gate_maximum
+        writer, reviewer = self.c.models['builder'][0], self.c.models['reviewers'][0][0]
+        self.assertEqual((writer in (GATED_CLAUDE,), reviewer in GATED_OPENROUTER), (True, True))
+        synthetic, unknown, attempts = model_router.route_maximum, set(), []
+        @contextlib.contextmanager
+        def gate(lease, env, cap_used, timeout, cancel=None, *, user=None):
+            state = model_call_gate.Allowance(lease, cancel)
+            if (lease.route, len(attempts)) in unknown:  # one forwarded request whose usage never validates
+                self.assertIsNotNone(state.reserve(CLAUDE_OUTPUT if lease.route == GATED_CLAUDE else
+                                                   GATED_OPENROUTER[lease.route]['output']))
+            try: yield cancel
+            finally:
+                state.close(); cap_used.clear(); cap_used.update(state.snapshot())
+        claude = lambda *events: [{'type': 'system', 'subtype': 'init', 'session_id': 's' + str(len(attempts))}, *events]
+        usage = {'input_tokens': 10, 'output_tokens': 10, 'cache_read_input_tokens': 0, 'cache_creation_input_tokens': 0}
+        done = claude({'type': 'assistant', 'message': {'id': 'm', 'usage': usage, 'content': []}},
+                      {'type': 'result', 'is_error': False, 'total_cost_usd': .5, 'usage': usage})
+        priced = [{'type': 'step_finish', 'part': {'id': 'reviewer-step', 'messageID': 'r', 'cost': .01,
+                   'tokens': {'input': 1, 'output': 1, 'reasoning': 0, 'cache': {'read': 0, 'write': 0}}}}]
+        streams = {}
+        real = budget.run_budgeted
+        def budgeted(cmd, *args, **kwargs):
+            events = streams[kwargs['invocation_name']][len(attempts)]
+            attempts.append(kwargs['invocation_name'])
+            emitter = [sys.executable, '-c', 'import json,sys\nfor e in json.loads(sys.argv[1]): print(json.dumps(e), flush=True)',
+                       json.dumps(events)]
+            return real(emitter, *args, **kwargs)
+        self.patch(model_runtime.model_call_gate, 'enforce', gate)
+        self.patch(model_runtime, 'run_budgeted', budgeted)
+        self.patch(model_runtime, 'pinned_cli', lambda kind: 'synthetic')
+        self.patch(run, 'HOME', self.work)
+        for case in ('reviewer_then_writer', 'writer_retry'):
+            with self.subTest(case=case):
+                self.ledger.write_text(json.dumps(self.source['continuation_budget']))
+                (self.work / 'attack-state.json').unlink(missing_ok=True)
+                self.c.card['builder_rounds'] = 0; self.c.card['route_receipts'] = []; attempts.clear()
+                self.c.provider_resume_done = False; self.c.force_budget_resume = True
+                if hasattr(self.c, 'model_resume_state'): self.c.model_resume_state['done'] = False
+                # Real maxima for both routes. With Claude's $50 maximum, a second
+                # writer round needs an ordinary limit above spend + $50: authored
+                # configuration standing in for the authorized envelope (rollout prerequisite).
+                real_bounds = {reviewer: openrouter_gate_maximum(reviewer), writer: claude_gate_maximum()}
+                self.c.args.case_budget = self.c.args.ordinary_case_budget = 100
+                self.c.card.pop('case_budget', None)
+                bounds = patch.object(model_router, 'route_maximum', lambda r: real_bounds.get(r) or synthetic(r))
+                bounds.start()
+                try:
+                    if case == 'reviewer_then_writer':
+                        unknown.clear(); unknown.add((reviewer, 0))
+                        streams.update({'reviewer-1': [priced], 'builder-1': [None, done]})
+                        run.model_call(self.c, [reviewer], 'authored review', self.case, 'reviewer-1')
+                        run.pending_call(self.c, self.c.models['builder'], 'retained findings', self.case, 'builder-1',
+                                         self.receipt(), role='writer', on_complete=lambda: None)
+                        self.assertEqual(self.c.card['builder_rounds'], 1)
+                        self.assertEqual(attempts, ['reviewer-1', 'builder-1'])
+                    else:
+                        unknown.clear(); unknown.add((writer, 0))
+                        streams['builder-retry'] = [claude({'type': 'result', 'is_error': True}), None]
+                        streams['builder-retry'][1] = done
+                        # Flag off: the runtime retries inline on the second account; with
+                        # provider waits on, unknown usage defers to a settled wait instead.
+                        with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '0'}):
+                            run.model_call(self.c, [writer], 'authored writer', self.case, 'builder-retry')
+                        accounts = [r['account'] for r in self.c.card['route_receipts']]
+                        self.assertEqual(len(accounts), 2); self.assertNotEqual(*accounts)
+                finally: bounds.stop()
+                ledger = json.loads(self.ledger.read_text())
+                self.assertEqual(ledger.get('unpriced_invocations', []), [])
+                rows = ledger['invocation_reservations']
+                lease, row = next((l, r) for l, r in rows.items() if r['state'] == 'estimated')
+                self.assertEqual(sorted(r['state'] for r in rows.values()), ['estimated', 'settled'])
+                cap = json.loads((self.work / 'usage-receipts' / (lease + '.json')).read_text())['cap_used']
+                self.assertEqual((cap['forwarded_requests'], cap['unknown_requests'], cap['closed']), (1, 1, True))
+                booked = sum(budget.event_charge(e) for e in ledger['events'] if e['id'] in row['event_ids'])
+                held = Decimal(cap['settled_usd']) + Decimal(cap['held_usd'])
+                self.assertEqual(Decimal(row['estimated_gap_usd']), budget.usd(held - booked))
+                self.assertLess(held, Decimal(row['maximum_usd']))  # the gate, not the lease maximum
+                spent = budget.case_spending(ledger)['total_spent_usd']
+                self.assertIsNotNone(spent)
+                self.assertEqual(budget.usd(spent), budget.usd(Decimal(str(self.baseline)) + held + Decimal('.5')))
+                # Real start evidence: on_started ran, so the estimated call reads as work.
+                started, = [r['outcome'] for r in self.c.card['route_receipts'] if r['lease_id'] == lease]
+                self.assertIn(started, ('done', 'interrupted'))
+                self.assertTrue(diagnosis.actual_model_work({'route_receipts': self.c.card['route_receipts'],
+                    'continuation_budget': {'events': [], 'unpriced_invocations': []}}))
+                restored = SimpleNamespace(card={}, args=self.c.args, job_money=self.c.job_money)
+                run.inherit_recovery_history(restored, self.c.card)  # survives resume
+                self.assertEqual(restored.card['route_receipts'], self.c.card['route_receipts'])
+                # Stale or replayed non-final evidence cannot lower the charge.
+                path = self.work / 'usage-receipts' / (lease + '.json')
+                saved = json.loads(path.read_text())
+                path.write_text(json.dumps({**saved, 'cap_used': {**cap, 'settled_usd': '0', 'held_usd': '0'}}))
+                before = self.ledger.read_bytes()
+                budget.complete_invocation(self.work, self.ledger, lease)
+                budget.reconcile_reservations(self.work, self.ledger)
+                self.assertEqual(self.ledger.read_bytes(), before)
+                path.write_text(json.dumps(saved))
+                # A later final receipt for the estimated call replaces the estimate once.
+                path.write_text(json.dumps({**json.loads(path.read_text()), 'final_usage_known': True}))
+                budget.complete_invocation(self.work, self.ledger, lease)
+                ledger = json.loads(self.ledger.read_text())
+                self.assertEqual(budget.usd(budget.case_spending(ledger)['total_spent_usd']),
+                                 budget.usd(Decimal(str(self.baseline)) + booked + Decimal('.5')))
+                self.assertEqual(len(ledger['reconciled_decreases']), 1)
+
+    def test_factory_call_over_old_paid_cap_completes_and_non_factory_stops(self):
+        """Row 8: real runtime choice of cap, real accountant, real 5813be ledger."""
+        self.assertGreater(self.source['continuation_budget']['cost'], 5)
+        self.assertEqual(self.c.args.max_cost, 5.0)  # the CLI default is still present on this context
+        real = budget.run_budgeted
+        seen = []
+        event = {'type': 'step_finish', 'part': {'id': 'priced-step', 'messageID': 'priced', 'cost': .5,
+                 'tokens': {'input': 1, 'output': 1, 'reasoning': 0, 'cache': {'read': 0, 'write': 0}}}}
+        emitter = [sys.executable, '-c', 'print(' + repr(json.dumps(event)) + ', flush=True)']
+        def budgeted(cmd, *args, **kwargs):
+            seen.append(kwargs['max_cost'])
+            return real(emitter, *args, **kwargs)
+        self.patch(model_runtime, 'run_budgeted', budgeted)
+        self.c.force_budget_resume = True  # the saved ledger stopped at a pause; this call resumes it
+        self.patch(model_runtime, 'invocation_maximum', lambda c, lease: Decimal(1))
+        run.model_call(self.c, self.c.models['attacker'], 'authored stress', self.case, 'attacker-1')
+        self.assertEqual(seen, [None])
+        ledger = json.loads(self.ledger.read_text())
+        self.assertEqual(budget.case_spending(ledger)['total_spent_usd'], round(self.baseline + .5, 9))
+        self.assertEqual(ledger['terminal_stop'], 'complete')
+        # Non-factory control on the same real ledger: the $5 cap still stops it.
+        self.ledger.write_text(json.dumps(self.source['continuation_budget']))
+        with self.assertRaisesRegex(budget.BudgetError, 'cost_limit'):
+            real(emitter, self.work, os.environ.copy(), self.work / 'control.jsonl', self.ledger, 30,
+                 max_cost=5.0, driver='opencode', configured_model='opencode/minimax-m3.1-flash-free',
+                 role='stress_tester', invocation_name='attacker-control', case_budget=1000, resume=True,
+                 max_total_calls=self.source['continuation_budget']['calls'] + 10)
+
+    def test_batch_main_records_no_paid_cap_and_only_cap_bound_stages_migrate(self):
+        """Row 8 migration: run.main sets the batch job's cap to None before any binding."""
+        from gate_state import inputs, judge_dependencies
+        harness = r'''
+import hashlib, json, pathlib, shutil, sys, types
+from unittest.mock import patch
+sys.path.insert(0, str(pathlib.Path.cwd().parent / 'bin'))
+import job_config, run
+root, practice, batch = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3] == 'batch'
+root.mkdir(); run.HOME = root; run.SEALED = root / 'out'
+release = b'authored batch release configuration'
+(root / 'batch-release.json').write_bytes(release)
+run.bench_manifest = lambda: 'public-practice-control'
+run.sh = lambda *a, **kw: types.SimpleNamespace(stdout='authored recipient')
+run.build_fixture = lambda c: shutil.copytree(practice, c.case)
+job_config.install = lambda c, a: None  # authored installer; money authority is tested separately
+def record(c):
+    (root / 'seen.json').write_text(json.dumps({'args': c.args.max_cost,
+        'recovery_config': c.card['recovery_config']['max_cost']}))
+run.validate_and_repair = record
+run.seal = lambda *a, **kw: None
+run.wipe = lambda c: None
+run.finalize_accounting = lambda c: None
+argv = ['run.py', '--dry-run'] + (['--batch-release-sha256', hashlib.sha256(release).hexdigest()] if batch else [])
+with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys, 'argv', argv):
+    run.main()
+'''
+        for mode, expected in (('batch', None), ('ordinary', 5.0)):
+            with self.subTest(mode=mode):
+                home = self.work / ('main-' + mode)
+                process = subprocess.run([sys.executable, '-B', '-c', harness, str(home), str(self.case), mode],
+                                         cwd=ROOT / 'factory', capture_output=True, text=True)
+                self.assertEqual(process.returncode, 0, process.stderr)
+                self.assertEqual(json.loads((home / 'seen.json').read_text()),
+                                 {'args': expected, 'recovery_config': expected})
+        self.c.models['reviewers'] = [[self.c.models['reviewers'][0][0]]]
+        def identities(cap):
+            self.c.args.max_cost = cap
+            from gate_state import DEPENDENCIES
+            gates = {gate: inputs(self.c, gate, ROOT) for gate in DEPENDENCIES}
+            return dict(gates, stress=judge_dependencies(self.c, ROOT),
+                        calibration=run.calibration_identity(self.c, 'strong_calibrator', 'statement', runs=1))
+        old, new = identities(5.0), identities(None)
+        self.assertIn('G4', old)
+        self.assertEqual({k for k in old if old[k] != new[k]}, {'G8', 'G9', 'G16', 'stress', 'calibration'})
+
+    def test_every_max_cost_occurrence_is_classified(self):
+        """Search exam: no new paid-cap use enters factory code unclassified."""
+        expected = {
+            'bin/run-exam': 4,                 # exam-owner protection, no factory authority
+            'factory/README.md': 4,            # documentation of both regimes
+            'factory/batch.py': 2,             # historical argv stripped from batch jobs
+            'factory/batch_money.py': 1,       # manifest job refuses a max_cost field
+            'factory/budget.py': 9,            # non-factory enforcement; factory requires None
+            'factory/coordinator.py': 3,       # legacy recovery binding, skipped with ordinary_limit_usd
+            'factory/g11_review.py': 11,        # sealed audit job; batch.bind refuses its flags
+            'factory/gate_state.py': 2,        # binding key; value follows c.args
+            'factory/key_holder.py': 1,        # legacy recovery; skipped for _batch_job
+            'factory/model_runtime.py': 3,     # factory None, non-factory forwarded; card key dropped
+            'factory/restart.py': 1,           # unreachable for batch (launch.sh factory_auto_resume)
+            'factory/run.py': 5,               # CLI default, batch None, binding keys
+            'factory/ttl_continuation.py': 8,  # mode=case continuation; batch policy refuses it
+        }
+        # free-model-cutover.json (not scanned) pins legacy case IDs only; batch IDs never match it.
+        found = {}
+        for path in [*(ROOT / 'factory').glob('*.py'), *(ROOT / 'factory').glob('*.sh'),
+                     ROOT / 'factory/README.md', *(p for p in (ROOT / 'bin').iterdir() if p.is_file())]:
+            try: text = path.read_text()
+            except UnicodeDecodeError: continue
+            count = text.count('max_cost') + text.count('max-cost')
+            if count: found[path.relative_to(ROOT).as_posix()] = count
+        self.assertEqual(found, expected)
 
     def test_real_high_call_cards_continue_with_telemetry_and_invocation_limit_stays(self):
         for suffix, count in (('5813be', 2496), ('e15450', 1627), ('873d7f', 1040)):
@@ -895,6 +1129,7 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
         def invoke(runtime, c, *args, **kwargs):
             c.model_process_state['started'] = True
             invoked.append(c.model_lease.lease_id)
+            if len(invoked) > 1: raise Killed()  # The retry was admitted; stop here.
             with budget.ledger_transaction(self.ledger) as ledger:
                 ledger.setdefault('unpriced_invocations', []).append({'role': 'writer', 'model': c.model_lease.route,
                     'invocation_id': c.invocation_reservation['invocation_id'], 'lease_id': c.model_lease.lease_id})
@@ -902,12 +1137,16 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
                 provider_failure={'reason': 'quota', 'scope': 'account', 'model': c.model_lease.route})
         with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '0'}), patch.object(model_router, 'await_lease', admit), \
                 patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
-            with self.assertRaisesRegex(budget.BudgetError, '^money_wait$'):
+            with self.assertRaises(Killed):
                 run.pending_call(self.c, self.c.models['builder'], 'retained findings', self.case, 'builder-1', self.receipt(),
                                  role='writer', on_complete=lambda: self.fail('must not complete'))
-        self.assertEqual(len(invoked), 1); self.assertEqual(observed, [False, False])
+        # Row 21: the crashed call's reservation is kept as an estimate and its
+        # bound marker settles, so the retry is admitted instead of money_wait.
+        self.assertEqual(len(invoked), 2); self.assertNotEqual(*invoked); self.assertEqual(observed, [False, False])
         self.assertFalse((self.work / 'provider_wait.json').exists())
-        self.assertEqual(len(json.loads(self.ledger.read_text())['invocation_reservations']), 1)
+        ledger = json.loads(self.ledger.read_text()); rows = ledger['invocation_reservations']
+        self.assertEqual(len(rows), 2); self.assertEqual(rows[invoked[0]]['state'], 'estimated')
+        self.assertEqual(ledger.get('unpriced_invocations', []), [])
         budget.reconcile_reservations(self.work, self.ledger)
         self.assertIsNotNone(budget.case_spending(json.loads(self.ledger.read_text()))['total_spent_usd'])
 

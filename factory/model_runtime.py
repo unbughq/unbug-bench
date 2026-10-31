@@ -460,6 +460,8 @@ class ModelRuntime:
                                 and not context.model_cap_used['unknown_requests']
                                 and not context.model_cap_used['in_flight_requests']),
                             'outcome': outcome})
+                        # Process-start evidence first: accounting below may raise.
+                        receipt_row.update(outcome=outcome, call_id=receipt)
                         if factory_job(c) and lease.lease_id in after.get('invocation_reservations', {}):
                             from budget import complete_invocation
                             complete_invocation(c.work, c.ledger, lease.lease_id)
