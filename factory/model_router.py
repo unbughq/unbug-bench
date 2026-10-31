@@ -103,11 +103,13 @@ def routes(model, accounts=ACCOUNTS):
     for route in chain:
         billing = ('subscription' if route.startswith(('claude/', 'codex/', 'opencode-go/')) else
                    'free' if route.endswith(('-free', ':free')) else 'paid')
-        labels = (ACCOUNTS[:2] if route.startswith('claude/') else ('codex-auth.json',) if route.startswith('codex/') else
+        labels = (('claude-factory-token-2', 'claude-token') if route.startswith('claude/') else ('codex-auth.json',) if route.startswith('codex/') else
                   ('openrouter-key',) if route.startswith('openrouter/') else
                   ACCOUNTS[2:4] if route.startswith('opencode-go/') or 'minimax-m3.1-flash-free' in route
                   or (route.startswith('opencode/') and billing == 'paid') else (None,))
-        if labels != (None,): labels = tuple(a for a in accounts if a in labels)
+        if labels != (None,):
+            labels = tuple(a for a in (labels if route.startswith('claude/') else accounts)
+                           if a in labels and a in accounts)
         for account in labels:
             if account is not None and account not in accounts: continue
             result.append(dict(route=route, account=account, billing=billing, family=family(route),
@@ -184,9 +186,14 @@ class Store:
             def blocked(route):
                 values = [health.get(route['pool'], {}), health.get(route['pool'] + '/' + route['route'], {})]
                 return next((v for v in values if v.get('reason') in ('credit', 'credential_expiring') or v.get('blocked_until', 0) > now), None)
+            def eligible(route):
+                # Spare capacity and caller preferences never unlock the builder account.
+                second = health.get('claude-factory-token-2', {})
+                return (route['account'] != 'claude-token' or
+                        (second.get('reason') in ('rate', 'quota') and second.get('blocked_until', 0) > now))
             def free(route):
                 occupied = sum(json.loads(r)['pool'] == route['pool'] for (r,) in db.execute('SELECT route FROM leases WHERE outcome IS NULL'))
-                return 0 if blocked(route) else max(0, self.capacities.get(route['pool'], 1) - occupied)
+                return 0 if not eligible(route) or blocked(route) else max(0, self.capacities.get(route['pool'], 1) - occupied)
             result = None
             if operation == 'status':
                 result = dict(observed_at=now, health=health, leases=[dict(lease_id=i, **json.loads(r), expires_at=e)
@@ -210,7 +217,7 @@ class Store:
                 if not re.fullmatch(r'[a-f0-9]{32}', identity): raise ValueError('invalid attempt id')
                 if not finite(data['deadline']) or not now < data['deadline']: raise ValueError('expired admission deadline')
                 choices = [r for r in _bounded_routes(data['model'], [a for a in data['accounts'] if a in self.accounts])
-                           if r['pool'] + '/' + r['route'] not in data.get('excluded_lanes', [])]
+                           if eligible(r) and r['pool'] + '/' + r['route'] not in data.get('excluded_lanes', [])]
                 payload = json.dumps(data, sort_keys=True, allow_nan=False)
                 previous = db.execute('SELECT payload FROM requests WHERE id=?', (identity,)).fetchone()
                 if previous and previous[0] != payload: raise ValueError('attempt id changed')
@@ -230,7 +237,7 @@ class Store:
                              if json.loads(p)['deadline'] > now and not db.execute('SELECT 1 FROM leases WHERE id=?', (json.loads(p)['id'],)).fetchone()]
                     for route in choices:
                         if not free(route): continue
-                        if any(any(r['pool'] == route['pool'] and r['pool'] + '/' + r['route'] not in p.get('excluded_lanes', [])
+                        if any(any(eligible(r) and r['pool'] == route['pool'] and r['pool'] + '/' + r['route'] not in p.get('excluded_lanes', [])
                                    for r in _bounded_routes(p['model'], p['accounts'])) for p in older): continue
                         expires = min(now + LEASE_SECONDS, data['deadline'])
                         db.execute('INSERT INTO leases VALUES (?,?,?,NULL,NULL)', (identity, json.dumps(route), expires))
@@ -246,7 +253,8 @@ class Store:
                             alternatives.append((ready, limit['reason'] if limit else 'rate', route))
                         bounded = any(route_maximum(r['route']) is not None for r in routes(data['model']))
                         ready, reason, route = min(alternatives, key=lambda row: row[0]) if alternatives else (
-                            now + 900, 'outage' if bounded else 'unbounded_route', dict(route=data['model'],account=None))
+                            now + 900, ('credential_expiring' if data['model'].startswith('claude/') else 'outage') if bounded
+                            else 'unbounded_route', dict(route=data['model'], account=None))
                         result = dict(kind='wait', reason=reason, retry_after=ready, route=route['route'], account=route['account'])
             elif operation in ('renew', 'finish', 'start'):
                 row = db.execute('SELECT route,expires,outcome,receipt FROM leases WHERE id=?', (data['lease_id'],)).fetchone()

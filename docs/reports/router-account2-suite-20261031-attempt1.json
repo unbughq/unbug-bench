@@ -1,0 +1,22 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "log": "/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/unbug-router-account2-suite-rfg4sogb.log",
+  "exit_code": 1,
+  "seconds": 1179.38,
+  "sha256": "666bf7d568399e6120884aa7b59c2c9c0219343bfe182c9ab9b26161079feae0",
+  "tail": [
+    "== tests/tools/test_unlock_sealed_audit.py ==",
+    ".Unlock diagnostic: stage=decrypt_and_extract; archive=case-20261017T120256Z-86b100; error=RuntimeError",
+    "........",
+    "----------------------------------------------------------------------",
+    "Ran 9 tests in 5.095s",
+    "",
+    "OK",
+    "",
+    "155 test scripts run; 3 failed.",
+    "FAILED: tests/factory/test_model_call_maxima.py",
+    "FAILED: tests/factory/test_stream_d_admission.py",
+    "FAILED: tests/factory/test_stream_d_runtime.py"
+  ],
+  "notes": "Initial full run completed: 155 scripts, 3 failed. Two stale account-selection fixtures failed; the generic-error inline fallback test in test_stream_d_runtime.py waited under the new policy and its process received SIGINT so the runner could finish. All three fixtures were corrected; targeted tests passed. Final uninterrupted full rerun recorded separately."
+}
