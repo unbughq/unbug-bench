@@ -92,3 +92,15 @@ Full-suite command, exit, counts and log hash are recorded separately in
 `isolation-settlement-cloud-suite-<UTC>-<nonce>.json` and its matching full log.
 Fresh design reviews are isolation-settlement-cloud-design-1.md and -design-2.md.
 The fresh diff review is saved under the same topic after suite completion.
+
+
+## Negative control
+
+Command: `uv run --with numpy --with scipy python -B docs/reports/isolation-settlement-cloud-negative.py`.
+Exit 1 as expected, 2026-10-31. The saved script changes Allowance.close only in
+its interpreter, deleting the retained-socket shutdown call; production files
+are never mutated. The TLS HTTP/1.1 Connection: close variant fails at
+handler_done.wait after the 15-second observation deadline (15.674 s total).
+Its late upstream release in finally permits cleanup. The matching
+isolation-settlement-cloud-negative.log preserves the assertion. This proves the
+new regression detects omission of socket shutdown; it is not a product failure.
