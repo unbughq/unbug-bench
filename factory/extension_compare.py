@@ -7,6 +7,7 @@ belong to the caller, as do bounded retries. This module never retries a stage.
 import copy
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -50,10 +51,26 @@ def _configuration(w):
 
 
 def _binding(w, stage, version):
-    if stage == 'stress':
-        return extensions.digest(dict(stage=stage, scientific_version=version,
-            case_sha256=_case(w), seed=w.seed, slot=w.factory_slot))
-    return gate_state.fingerprint(w, stage, w.bench)
+    # Scientific identity is portable. Full execution provenance is retained in
+    # the hashed receipt, but a slot/worker change cannot reroll its verdict.
+    return extensions.digest(dict(stage=stage, scientific_version=version, case_sha256=_case(w)))
+
+
+def _calibration(w, stage):
+    if stage != 'G16':
+        return None
+    identity = copy.deepcopy(gate_state.calibration_binding(w, w.bench))
+    # The receipt records the actual seed/slot separately. Both are execution
+    # provenance, not reasons to re-judge a fixed case at the same gate version.
+    identity.pop('seed', None)
+    identity.pop('slot', None)
+    return identity
+
+
+def _execution(w):
+    return dict(seed=w.seed, slot=w.factory_slot, bench_workers=getattr(w.args, 'bench_workers', 1),
+                concurrent_roles=getattr(w.args, 'concurrent_roles', True),
+                slot_environment=os.environ.get('UNBUG_FACTORY_SLOT'))
 
 
 def _path(root, name):
@@ -91,9 +108,9 @@ def _load(w, row, evidence):
         receipt = json.loads(path.read_text())
         if not isinstance(receipt, dict) or set(receipt) != {
                 'schema_version', 'stage', 'scientific_version', 'binding_sha256',
-                'case_sha256', 'status', 'detail', 'support', 'calibration_identity'}:
+                'case_sha256', 'status', 'detail', 'support', 'calibration_identity', 'execution'}:
             return None
-        if (type(receipt['schema_version']) is not int or receipt['schema_version'] != 1 or
+        if (type(receipt['schema_version']) is not int or receipt['schema_version'] != 2 or
                 receipt['stage'] != stage or receipt['scientific_version'] != row['version'] or
                 receipt['case_sha256'] != _case(w) or receipt['status'] != row['status'] or
                 receipt['binding_sha256'] != row['binding_sha256'] or
@@ -102,7 +119,10 @@ def _load(w, row, evidence):
                 _pending(row['status'] == 'pass', receipt['detail'])):
             return None
         json.dumps(receipt, allow_nan=False)
-        expected_calibration = gate_state.calibration_binding(w, w.bench) if stage == 'G16' else None
+        if not isinstance(receipt['execution'], dict) or set(receipt['execution']) != {
+                'seed', 'slot', 'bench_workers', 'concurrent_roles', 'slot_environment'}:
+            return None
+        expected_calibration = _calibration(w, stage)
         if receipt['calibration_identity'] != expected_calibration:
             return None
         support = receipt['support']
@@ -134,10 +154,10 @@ def _save(w, stage, version, ok, detail, paths):
         target.write_bytes(source.read_bytes())
         support[target_name] = gate_state.digest(target)
     binding = _binding(w, stage, version)
-    record = dict(schema_version=1, stage=stage, scientific_version=version,
+    record = dict(schema_version=2, stage=stage, scientific_version=version,
         binding_sha256=binding, case_sha256=_case(w), status='pass' if ok else 'fail',
         detail=detail, support=support,
-        calibration_identity=gate_state.calibration_binding(w, w.bench) if stage == 'G16' else None)
+        calibration_identity=_calibration(w, stage), execution=_execution(w))
     name = _receipt_name(stage)
     (w.work / name).parent.mkdir(parents=True, exist_ok=True)
     atomic_json(w.work / name, record)
@@ -171,23 +191,27 @@ def snapshot(w, source_generation, evaluate, previous=None, versions=None):
                 evidence.update(retained)
             else:
                 try:
-                    try:
-                        result = evaluate(w, stage)
-                    except CaseProblem as error:
-                        detail = {'problems': [str(error)]}
-                        name = f'comparison-errors/{stage}.json'
-                        (w.work / name).parent.mkdir(parents=True, exist_ok=True)
-                        atomic_json(w.work / name, detail)
-                        result = False, detail, [name]
-                    except BudgetError as error:
-                        if stage != 'stress' or str(error) != 'freshness_unresolved':
-                            raise
-                        raise InvalidInfra('stress freshness unresolved') from error
+                    result = evaluate(w, stage)
+                except CaseProblem as error:
+                    detail = {'problems': [str(error)]}
+                    name = f'comparison-errors/{stage}.json'
+                    (w.work / name).parent.mkdir(parents=True, exist_ok=True)
+                    atomic_json(w.work / name, detail)
+                    result = False, detail, [name]
+                except BudgetError as error:
+                    if stage != 'stress' or str(error) != 'freshness_unresolved':
+                        raise
+                    result = None
+                except InvalidInfra:
+                    result = None
+                # Only malformed returned evidence is pending. Programming errors
+                # raised inside an adapter propagate without publishing a pair.
+                try:
                     if not isinstance(result, (tuple, list)) or len(result) != 3:
                         raise ValueError('malformed evaluator result')
                     row, proof = _save(w, stage, version, *result)
                     evidence.update(proof)
-                except (InvalidInfra, ValueError, TypeError, FileNotFoundError):
+                except (ValueError, TypeError, FileNotFoundError):
                     row.update(status='pending', binding_sha256=None, evidence_sha256=None)
             if _case(w) != case or _configuration(w) != configuration:
                 raise _Changed('comparison evaluator changed its input')
@@ -245,25 +269,29 @@ def compare(c, number, bench, evaluate):
         versions = _versions(workspaces['entry'])
         if versions != _versions(workspaces['outcome']):
             return 'pending'
-        candidates = [(dict(entry=original['entry'], outcome=original['outcome']), None)]
-        candidates += [(pair, pair) for pair in original['comparisons']]
-        # Read/verify without evaluating mandatory-fresh stages. Their freshness
-        # policy applies to new comparisons, not rerolls of an already scored pair.
-        for pair, retained in candidates:
-            if (any([r['version'] for r in pair[p]['stages']] != list(versions.values())
-                    for p in workspaces) or extensions.progress(pair['entry'], pair['outcome']) == 'pending'):
-                continue
+        selected = extensions.comparison_pair(original, list(versions.values()))
+        retained = selected if any(selected is p for p in original['comparisons']) else None
+        if selected and extensions.progress(selected['entry'], selected['outcome']) != 'pending':
             valid = True
             for phase, w in workspaces.items():
-                extensions._save_evidence(_source(c, number, phase, retained), w.work, pair[phase])
-                valid &= all(_load(w, row, pair[phase]['evidence']) is not None
-                             for row in pair[phase]['stages'] if row['status'] in ('pass', 'fail'))
+                extensions._save_evidence(_source(c, number, phase, retained), w.work, selected[phase])
+                valid &= all(_load(w, row, selected[phase]['evidence']) is not None
+                             for row in selected[phase]['stages'] if row['status'] in ('pass', 'fail'))
             if valid:
                 if (_configuration(c) != configuration or
                         any(_versions(w) != versions for w in workspaces.values())):
                     return 'pending'
-                return extensions.progress(pair['entry'], pair['outcome'])
-        previous, retained = candidates[-1]
+                return extensions.progress(selected['entry'], selected['outcome'])
+            if retained is not None:
+                # Never replace a scored reconstruction with a different result.
+                # An unverifiable retained score needs recovery, not another roll.
+                return 'pending'
+        if selected:
+            previous = selected
+        elif original['comparisons']:
+            previous = retained = original['comparisons'][-1]
+        else:
+            previous = dict(entry=original['entry'], outcome=original['outcome'])
         pair = {}
         try:
             for phase, w in workspaces.items():

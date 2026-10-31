@@ -2619,3 +2619,45 @@ replacement for a valid already-scored original. Scratch card output fields
 (such as plain_app_broke) may be written by evaluators; only args, models and
 roles are scientific configuration and must remain unchanged. No scratch card
 field is copied into the live card.
+
+
+### Diff-review-1 resolution: portable scientific receipts and shared selection
+
+Blocker 1 and all nits accepted. This paragraph supersedes the earlier use of
+full gate_state.fingerprint in comparison receipts. Full live-run cache inputs
+still bind worker count and slot conservatively; comparison uses the scientific
+partition from item 5. Its binding is now exactly
+`extensions.digest({stage, scientific_version, case_sha256})` for every stage.
+The complete receipt and all supporting bytes remain hashed into the snapshot.
+Schema 2 adds `execution: {seed, slot, bench_workers, concurrent_roles,
+slot_environment}` for immutable provenance. Those recorded values do not need
+to match today's worker. Changing a seed cannot reroll an already-scored sample.
+No production item-6 receipts exist yet; schema-1 prototype originals are opaque
+and reconstruct through the same guarded path, never relabeled in place.
+
+G16's additional calibration identity remains checked after removing only seed
+and slot; these stay in receipt execution provenance. All other identity fields,
+including model/effort, scientific code and limits, remain exact. A change of
+scientific version still requires comparison at the new common version. As in
+item 5, selecting pooled rather than serial execution may add scientific executor
+code to the inventory and therefore change versions; numeric worker/concurrency
+or slot changes that keep the scientific vector equal cannot revoke the pair.
+
+`extensions.comparison_pair(row, versions)` is the single selector used by both
+compare and propose: matching retained reconstructions take precedence over the
+original, the first scored matching pair wins, otherwise the latest pending
+pair is returned. No matching vector returns None. compare validates that one
+selected pair's receipts/support before returning its score. A scored retained
+reconstruction that cannot be verified returns pending without rerolling or
+appending a rival score. An opaque original may still be reconstructed. Item 7
+must call compare before propose; propose's docstring now states that it checks
+state and retained bytes, not the scientific truth of opaque originals.
+
+Only malformed returned results/evidence are caught as pending. ValueError,
+TypeError and FileNotFoundError raised by evaluator code itself propagate with
+no comparison append. Tests now cover changed workers, concurrency, slot, slot
+environment and seed after a scored pair, asserting zero evaluator calls,
+byte-identical history and the same admission outcome. G16 receipt validation
+also survives moved execution provenance, and support-copy assertions include
+G5 as well as stress. The final diff report and responses are retained in
+`docs/reviews/stream-d-compare-diff-1.md`.

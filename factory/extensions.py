@@ -233,8 +233,26 @@ def active(c):
     return history[-1] if history and history[-1]['outcome'] is None else None
 
 
+def comparison_pair(row, versions):
+    """One selection rule for comparison and admission; never reroll a score."""
+    def matches(pair):
+        return pair['outcome'] is not None and all(
+            [r['version'] for r in pair[phase]['stages']] == versions
+            for phase in ('entry', 'outcome'))
+    matching = [pair for pair in row['comparisons'] if matches(pair)]
+    original = {'entry': row['entry'], 'outcome': row['outcome']}
+    if not matching and matches(original):
+        matching = [original]
+    return next((pair for pair in matching if progress(pair['entry'], pair['outcome']) != 'pending'),
+                matching[-1] if matching else None)
+
+
 def propose(c, snapshot):
-    """Check eligibility before admission without consuming an extension ID."""
+    """Check eligibility before admission without consuming an extension ID.
+
+    The owning runner must compare completed history first. This state helper
+    verifies retained bytes, not the scientific validity of opaque old receipts.
+    """
     import job_authority
     job_authority.for_case(c)
     validate_snapshot(snapshot)
@@ -252,18 +270,7 @@ def propose(c, snapshot):
     if history:
         prior = history[-1]
         versions = [r['version'] for r in snapshot['stages']]
-        # A retained reconstruction supersedes an opaque original at the same
-        # version. Among reconstructions the first scored pair is immutable.
-        candidates = [pair for pair in prior['comparisons'] if
-                      [r['version'] for r in pair['entry']['stages']] == versions and
-                      [r['version'] for r in pair['outcome']['stages']] == versions]
-        if not candidates:
-            candidates = [{'entry': prior['entry'], 'outcome': prior['outcome']}]
-        matching = [p for p in candidates if
-                    [r['version'] for r in p['entry']['stages']] == versions and
-                    [r['version'] for r in p['outcome']['stages']] == versions]
-        pair = next((p for p in matching if progress(p['entry'], p['outcome']) != 'pending'),
-                    matching[-1] if matching else None)
+        pair = comparison_pair(prior, versions)
         result = progress(pair['entry'], pair['outcome']) if pair else 'pending'
         if result == 'pending': raise BudgetError('extension_comparison_pending')
         if result != 'progress': raise BudgetError('retired_no_progress')

@@ -4,6 +4,8 @@ G4/G5 use the real evaluators on saved executions. Other stage verdicts, version
 changes and interruptions are controls, not a live extension qualification.
 """
 import copy
+from dataclasses import replace
+import os
 import gzip
 import json
 from pathlib import Path
@@ -136,6 +138,41 @@ class CompareTests(unittest.TestCase):
             self.assertEqual(self.compare(), 'progress')
         self.assertEqual((self.work / 'extension-history.json').read_bytes(), before)
 
+    def test_execution_plumbing_cannot_reroll_scored_pair_or_disagree_with_admission(self):
+        # Stay pooled: serial-to-pool selects new scientific executor code.
+        self.c.args.bench_workers = 4
+        self.prepare()
+        self.assertEqual(self.compare(), 'progress')
+        history = extensions.read(self.c)
+        outcome = history[0]['comparisons'][0]['outcome']
+        versions = compare._versions(self.workspace())
+        self.diagnosis()
+        proposal = extensions.propose(self.c, outcome)
+        before = (self.work / 'extension-history.json').read_bytes()
+        self.c.args.bench_workers = 2
+        self.c.args.concurrent_roles = not self.c.args.concurrent_roles
+        self.c.factory_slot = 7
+        self.c.seed += 5
+        with patch.dict(os.environ, {'UNBUG_FACTORY_SLOT': '7'}):
+            self.assertEqual(compare._versions(self.workspace()), versions)
+            with patch.object(self, 'evaluator', side_effect=AssertionError('rerolled plumbing')):
+                self.assertEqual(self.compare(), 'progress')
+            self.assertEqual(extensions.propose(self.c, outcome), proposal)
+            extensions.verify_proposal(self.c, proposal)
+        self.assertEqual((self.work / 'extension-history.json').read_bytes(), before)
+        selected = extensions.comparison_pair(history[0], list(versions.values()))
+        self.assertEqual(selected['outcome'], outcome)
+
+    def test_adapter_programming_errors_propagate_without_scoring(self):
+        self.prepare()
+        before = (self.work / 'extension-history.json').read_bytes()
+        for kind in (ValueError, TypeError, FileNotFoundError):
+            def broken(*args):
+                raise kind('authored adapter bug')
+            with self.assertRaisesRegex(kind, 'authored adapter bug'):
+                self.compare(broken)
+            self.assertEqual((self.work / 'extension-history.json').read_bytes(), before)
+
     def test_pending_invalid_execution_retry_then_no_reroll(self):
         self.prepare()
         def invalid(w, stage):
@@ -232,6 +269,10 @@ class CompareTests(unittest.TestCase):
         version = gate_state.scientific_version(w, 'G16', ROOT)
         row, evidence = compare._save(w, 'G16', version, True, {}, ['proof.json'])
         self.assertIsNotNone(compare._load(w, row, evidence))
+        moved = replace(w, seed=w.seed + 1, factory_slot=9)
+        moved.args.bench_workers = 2
+        with patch.dict(os.environ, {'UNBUG_FACTORY_SLOT': '9'}):
+            self.assertIsNotNone(compare._load(moved, row, evidence))
         with patch.object(gate_state, 'calibration_binding', return_value={'changed': True}):
             self.assertIsNone(compare._load(w, row, evidence))
         support = next(name for name in evidence if name.startswith('comparison-support/'))
@@ -244,10 +285,14 @@ class CompareTests(unittest.TestCase):
         w = self.workspace()
         def evaluate(w, stage):
             (w.work / 'same.json').write_text(json.dumps({'stage': stage, 'saved': execution('plain')}))
-            return stage != 'G1', {}, ['same.json']
+            return stage != 'G16', {}, ['same.json']
         result = compare.snapshot(w, self.c.source_generation, evaluate)
         stress = result['stages'][0]
         self.assertIsNotNone(compare._load(w, stress, result['evidence']))
+        middle = next(r for r in result['stages'] if r['stage'] == 'G5')
+        self.assertIsNotNone(compare._load(w, middle, result['evidence']))
+        support = self.work / 'comparison-support/G5/same.json'
+        self.assertEqual(json.loads(support.read_text())['stage'], 'G5')
         proof = self.work / 'same.json'; proof.unlink(); proof.symlink_to(self.ledger)
         result = compare.snapshot(w, self.c.source_generation, lambda *a: (True, {}, ['same.json']))
         self.assertEqual(result['stages'][0]['status'], 'pending')
