@@ -1,0 +1,141 @@
+{
+  "blockers": [
+    "B: pre-armed cleanup, current lifecycle cost proof, legacy ownership disposition, qualified inventory and controller account handoff remain unproved.",
+    "B2: authenticated input generation, owner/ACK, role binding and baseline S are missing.",
+    "A: merged profile release, honest maxima for every selected route, <=$5 item8 feasibility and <=$0.01 probe contract are missing.",
+    "E: cancellation/unknown settlement, escaped capture pipes and measured creation-through-deletion timing remain unproved.",
+    "D/B: item7 outcome joins, replacement admission clamp and cross-release cumulative carry-over require qualification.",
+    "Live account-2 attribution and natural 2-to-1-to-2 acceptance are unproved.",
+    "Final live policy, exact fault/cleanup interfaces and immutable release/input pins require fresh review."
+  ],
+  "funding": "Existing Claude/Codex subscriptions only; OpenRouter existing credit only; no top-ups. List-equivalent cost and unknown holds count.",
+  "infrastructure_usd": "10.00",
+  "launch_ready": false,
+  "max_workers": 20,
+  "model_usd": "90.00",
+  "order": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    7,
+    6
+  ],
+  "overhead_minutes": 15,
+  "releases": [
+    {
+      "batch": null,
+      "commit": null,
+      "name": "alpha",
+      "sha256": null
+    },
+    {
+      "batch": null,
+      "commit": null,
+      "name": "beta-fault",
+      "sha256": null
+    },
+    {
+      "batch": null,
+      "commit": null,
+      "name": "beta-fixed",
+      "sha256": null
+    },
+    {
+      "batch": null,
+      "commit": null,
+      "name": "beta-plumbing",
+      "sha256": null
+    },
+    {
+      "batch": null,
+      "commit": null,
+      "name": "beta-science",
+      "sha256": null
+    }
+  ],
+  "scenarios": [
+    {
+      "acceptance_heading": "Scenarios, bounds and acceptance evidence / 1. Writer interruption and provider wait",
+      "execution_minutes": 10,
+      "input": null,
+      "model_usd": "10.00",
+      "number": 1,
+      "replacement_incremental_usd": "0.00",
+      "root_incremental_usd": "10.00",
+      "workers": 3
+    },
+    {
+      "acceptance_heading": "Scenarios, bounds and acceptance evidence / 2. Stress timeout and diagnostic exhaustion",
+      "execution_minutes": 10,
+      "input": null,
+      "model_usd": "10.00",
+      "number": 2,
+      "replacement_incremental_usd": "0.00",
+      "root_incremental_usd": "10.00",
+      "workers": 2
+    },
+    {
+      "acceptance_heading": "Scenarios, bounds and acceptance evidence / 3. Retrieval and malformed output",
+      "execution_minutes": 5,
+      "input": null,
+      "model_usd": "5.00",
+      "number": 3,
+      "replacement_incremental_usd": "0.00",
+      "root_incremental_usd": "5.00",
+      "workers": 1
+    },
+    {
+      "acceptance_heading": "Scenarios, bounds and acceptance evidence / 4. G10 capped submitted guard and no-submission",
+      "execution_minutes": 10,
+      "input": null,
+      "model_usd": "15.00",
+      "number": 4,
+      "replacement_incremental_usd": "0.00",
+      "root_incremental_usd": "15.00",
+      "workers": 2
+    },
+    {
+      "acceptance_heading": "Scenarios, bounds and acceptance evidence / 5. Diagnosis: factory bug",
+      "execution_minutes": 15,
+      "input": null,
+      "model_usd": "15.00",
+      "number": 5,
+      "replacement_incremental_usd": "7.50",
+      "root_incremental_usd": "7.50",
+      "workers": 4
+    },
+    {
+      "acceptance_heading": "Scenarios, bounds and acceptance evidence / 6. Diagnosis: extension",
+      "execution_minutes": 15,
+      "input": null,
+      "model_usd": "25.00",
+      "number": 6,
+      "replacement_incremental_usd": "12.50",
+      "root_incremental_usd": "12.50",
+      "workers": 6
+    },
+    {
+      "acceptance_heading": "Scenarios, bounds and acceptance evidence / 7. Diagnosis: retire and limit refusal",
+      "execution_minutes": 5,
+      "input": null,
+      "model_usd": "10.00",
+      "number": 7,
+      "replacement_incremental_usd": "5.00",
+      "root_incremental_usd": "5.00",
+      "workers": 2
+    }
+  ],
+  "schema": 1,
+  "shared_infrastructure_usd": "2.00",
+  "source": {
+    "heading": "Item 8: live qualification and switch-on",
+    "path": "docs/designs/stream-d.md",
+    "sha256": "89ad3fbee6739937d9e7206d5c2181c1408a84f5aa7e46084a46668a10db5a13"
+  },
+  "total_usd": "100.00",
+  "wall_minutes": 480,
+  "worker_lifetime_minutes": 120,
+  "worker_slot_usd": "0.40"
+}
