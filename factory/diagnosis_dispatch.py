@@ -230,6 +230,11 @@ def apply(c, parent, manifest, result):
         if state['status'] == 'completed' and state['outcome'] != result['outcome']: raise InputVerificationError('changed outcome')
         state.update(status='completed', outcome=result['outcome'])
         c.card.update(status='stopped', terminal_stop=STOPS[result['outcome']])
+        if result['outcome'] == 'close_to_passing':
+            import extensions
+            if extensions.active(c) is not None:
+                # Verified replay may repair intent, but cannot execute the package yet.
+                extensions.writer_receipt(c)
         atomic_json(c.work / 'scorecard.json', c.card)
     stop(c, STOPS[result['outcome']])
 

@@ -3635,3 +3635,13 @@ rolled on through B's checkpoint path; stop new admissions while deploying it.
 Then plan() returns diagnosis_unavailable and dispatch stops diagnosis_pending,
 preserving queued entries, operations and receipts for collection; never erase paid work or kill ownership
 by toggling a flag. This plan flips no flag and spends nothing.
+### Item 7 launcher recovery increment
+
+`stream-d-launch-recovery.md` wires the retained writer selector into verified
+close-to-passing diagnosis replay at ordinary launcher entry. It recovers the
+admitted writer receipt before publishing the stopped card and before ordinary
+author/gate work. Execution still stops comparison-pending; no new extension
+is admitted and diagnosis remains disabled. The full package, launcher execution
+and round-limit routing, all diagnosis outcome execution, and qualified-path
+legacy allowance removal remain before item 8. Lane 1 item 4 is integrated by
+merging 6f30f8d. No Murphy row closes.
