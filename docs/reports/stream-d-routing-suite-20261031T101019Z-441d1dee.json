@@ -1,0 +1,19 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "--with",
+    "numpy",
+    "--with",
+    "scipy",
+    "python",
+    "-B",
+    "tests/run.py"
+  ],
+  "started_at": "2026-10-31T10:10:19.785933+00:00",
+  "finished_at": "2026-10-31T10:31:18.251562+00:00",
+  "exit_code": 0,
+  "base_sha": "4fecb0192161cac3d5f0b404d301335d3c577ce4",
+  "log": "docs/reports/stream-d-routing-suite-20261031T101019Z-441d1dee.log",
+  "log_sha256": "ca59f3cd176c7e55a5bef4e9f27e2337e3d5ec63b81b4569f54a59e4aa7819fe"
+}

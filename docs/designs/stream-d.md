@@ -2669,3 +2669,85 @@ byte-identical history and the same admission outcome. G16 receipt validation
 also survives moved execution provenance, and support-copy assertions include
 G5 as well as stress. The final diff report and responses are retained in
 `docs/reviews/stream-d-compare-diff-1.md`.
+
+
+## Item 7 first increment: admitted extension writer continuation (2026-10-31)
+
+### Problem and review boundary
+
+An extension's initial writer reservation bypasses the ordinary diagnosis
+threshold in `run.pending_call`, but its interrupted invocation resumes without
+`extension_proposal` and is treated as ordinary work. An already admitted
+extension can consequently stop at the same ordinary threshold that led to its
+diagnosis. The extension history already binds one writer operation and round;
+resuming must use that authority, without admitting a second extension.
+
+This is the first coherent part of item 7, not completion of continuation
+routing. It changes only the writer invocation admission seam. It does not wire
+new dispatch into the ordinary launcher, remove legacy recovery allowances, or
+turn diagnosis on. The founder decision supersedes the older diagnosis-off
+launch discussion above: no real cases before the helper is fully on.
+
+### Change and deletion
+
+Add `extensions.writer_continuation(c, receipt, name) -> bool`, called by
+`run.pending_call` for writers without a fresh extension proposal, after `resume_provider_wait` and
+`job_authority.for_case` checks and before acquiring a provider lease. It
+loads and validates the private extension history using the existing `read`
+path. With no active extension and no receipt extension marker it returns false
+and preserves ordinary admission. Any extension marker without an active
+matching history refuses. With an active extension it requires a schema-v2,
+pending writer receipt whose integer extension ID, round, operation ID and
+call name match that history. If prior lease and invocation are strings, the ledger reservation must match
+that invocation, the history's writer operation and builder call name. If both
+are None, accept only through `run.provider_continuation(c, receipt, 'writer')`;
+reuse its settled wait archive proof. Mixed null/string pairs refuse.
+Missing, completed, foreign or mismatched receipts
+refuse as `extension_reservation_mismatch` before a lease or invocation.
+
+Only that verified continuation bypasses the ordinary case threshold. It still
+uses `job_authority.for_case`, the existing router lease and
+`budget.reserve_invocation` with B's current cumulative commitment and deadline.
+It keeps the writer operation ID, extension ID and author round; a new provider
+attempt receives a new lease/invocation and spends normally. Recheck the binding
+immediately before reservation, as fresh extension proposals already do. An
+active extension cannot admit another ordinary writer operation. No second
+spend ledger, checkpoint schema, allowance, launch mode or environment switch.
+Remove the ordinary-threshold check only for this verified continuation;
+keep ordinary writer checks and all legacy launch behavior. No tests are deleted.
+
+The helper does not reconstruct a missing attack receipt: a crash between
+extension admission and receipt publication must remain fail-closed until the
+package router persists/restores writer intent. Completed writer validation,
+including unchanged_repair, remains the caller's existing responsibility; this
+seam refuses completed receipts rather than invoking them again.
+
+### Tests and Murphy rows
+
+Extend `tests/factory/test_stream_d_admission.py`, using its saved public
+practice case and collected 5813be ledger. Test a fresh extension admission,
+interrupted/pending receipt, and retry past the ordinary threshold with the same
+operation/round/extension and unchanged history length. Test refusal at B's
+cumulative commitment and with stale authority. Exercise missing history,
+completed history/receipt, wrong extension/round/operation/call/lease/invocation,
+including boolean IDs, before provider acquisition. Replay a settled archived
+provider wait positively and refuse missing archives or absent matching
+wait_settlements entries. These direct pending_call replays do not exercise
+launcher round-limit routing, which remains part of the next increment.
+No model spend: local replays only, within this reviewable increment. Ordinary writer exhaustion
+must still refuse. These are local control-flow replays with authored model
+execution and stage evidence, not live qualification. Run the full suite and
+retain its unique log and result record. Supports Murphy row 9; closes no row.
+
+### Remaining item 7 work and item 4 seam
+
+The next increment must route validated diagnosis outcomes through the ordinary
+B launch/checkpoint path, advance the old completed writer receipt at extension
+admission, and join the writer, unfinished stress work, freshness retrieval and
+one gate traversal into the durable extension package. It must finish/comparison-
+check outcomes, support factory-bug hold/resume and retirement, and remove legacy
+recovery allowances only on the qualified ordinary path. Reuse lane 1's current
+freshness/stress entry points; this increment introduces no dependency or new
+interface for item 4. Item 8 still requires integrated retained-artifact and
+authorized live A/B/E qualification, crash/wait/money coverage, review, and only
+then the diagnosis switch-on. Row 9 stays open.

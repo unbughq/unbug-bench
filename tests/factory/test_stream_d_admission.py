@@ -2,7 +2,8 @@
 
 Stage/money envelopes and route maxima are authored. Snapshot, router,
 reservation, reconciliation and publication run for real; no CLI is launched.
-No scientific stage producer, continuation or live qualification is claimed.
+Continuation coverage is direct pending_call replay; no launcher, scientific stage
+producer or live qualification is claimed.
 """
 import ast
 import copy
@@ -334,6 +335,113 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual({r['operation_id'] for r in reservations}, {row['writer_operation_id']})
         self.assertEqual({r['call_name'] for r in reservations}, {'builder-1'})
         self.assertFalse(hasattr(self.c, 'model_operation_id'))
+
+    def interrupted_extension(self, wait=False):
+        if wait:
+            rpc = model_router._rpc
+            def renewal(operation, payload):
+                if operation == 'renew': raise model_router.RouterUnavailable('authored renewal failure')
+                return rpc(operation, payload)
+            with patch.object(model_router, '_rpc', renewal):
+                with self.assertRaises(model_router.ProviderWait) as caught: self.call()
+            run.write_provider_wait(self.c, caught.exception)
+            self.c.provider_resume_done = False
+            self.c.model_resume_state['done'] = False
+            run.resume_provider_wait(self.c)
+        else:
+            with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=runtime.Killed):
+                with self.assertRaises(runtime.Killed): self.call()
+        self.receipt = json.loads((self.work / 'attack-state.json').read_text())
+        return (self.work / 'extension-history.json').read_bytes()
+
+    def test_pending_extension_continues_same_operation_above_ordinary_threshold(self):
+        history = self.interrupted_extension()
+        original = copy.deepcopy(self.receipt)
+        self.install_transport()
+        self.call(proposal=False, on_admitted=None)
+        self.assertEqual((self.work / 'extension-history.json').read_bytes(), history)
+        for field in ('extension_id', 'operation_id', 'round'):
+            self.assertEqual(self.receipt[field], original[field])
+        self.assertNotEqual(self.receipt['lease_id'], original['lease_id'])
+        self.assertEqual(self.c.card['builder_rounds'], 1)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_settled_provider_wait_continues_extension(self):
+        history = self.interrupted_extension(wait=True)
+        original = copy.deepcopy(self.receipt)
+        self.assertIsNone(original['lease_id'])
+        self.assertIsNone(original['invocation_id'])
+        self.assertTrue(run.provider_continuation(self.c, original, 'writer'))
+        self.install_transport()
+        self.call(proposal=False, on_admitted=None)
+        self.assertEqual((self.work / 'extension-history.json').read_bytes(), history)
+        for field in ('extension_id', 'operation_id', 'round'):
+            self.assertEqual(self.receipt[field], original[field])
+        self.assertEqual(len(self.calls), 1)
+
+    def refuse_continuation(self, receipt=None, name='builder-1', label='extension_reservation_mismatch'):
+        before = self.ledger.read_bytes()
+        with patch.object(model_router, 'await_lease', side_effect=AssertionError('lease before verification')):
+            with self.assertRaisesRegex(budget.BudgetError, '^' + label + '$'):
+                self.call(proposal=False, receipt=receipt or self.receipt, name=name)
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+    def test_continuation_receipt_mismatches_refuse_before_provider(self):
+        self.interrupted_extension()
+        for key, values in {
+            'extension_id': [None, True, 2], 'round': [True, 2],
+            'operation_id': [None, str(uuid.uuid4())], 'schema_version': [True, 1],
+            'phase': ['completed', 'validated'], 'actor': ['stress_tester'],
+            'lease_id': [None, uuid.uuid4().hex], 'invocation_id': [None, str(uuid.uuid4())],
+        }.items():
+            for value in values:
+                with self.subTest(key=key, value=value):
+                    self.refuse_continuation({**self.receipt, key: value})
+        self.refuse_continuation(name='builder-2')
+        self.refuse_continuation(runtime.RuntimeTests.receipt(self))
+        self.refuse_continuation({**self.receipt, 'lease_id': None, 'invocation_id': None})
+
+    def test_wait_requires_archive_and_matching_settlement_id(self):
+        self.interrupted_extension(wait=True)
+        identity = self.receipt['resumed_from_wait']
+        archive = self.work / 'provider_waits' / (identity + '.json')
+        data = archive.read_bytes(); archive.unlink()
+        self.refuse_continuation()
+        archive.write_bytes(data)
+        with budget.ledger_transaction(self.ledger) as ledger:
+            ledger['wait_settlements'][str(uuid.uuid4())] = ledger['wait_settlements'].pop(identity)
+        self.refuse_continuation()
+
+    def test_extension_marker_without_history_and_completed_history_refuse(self):
+        self.refuse_continuation({**self.receipt, 'extension_id': 1})
+        self.interrupted_extension()
+        extensions.complete(self.c, self.snapshot(2))
+        self.refuse_continuation()
+
+    def test_continuation_keeps_batch_money_and_current_authority(self):
+        history = self.interrupted_extension()
+        with patch.object(self.c, 'job_money', {**self.channel, 'revision': 999}):
+            self.refuse_continuation(label='money_wait')
+        with budget.ledger_transaction(self.ledger) as ledger:
+            ledger['list_cost_usd'] += 200
+        with patch.object(run, 'opencode', side_effect=AssertionError('must not invoke')):
+            with self.assertRaisesRegex(budget.BudgetError, '^money_wait$'):
+                self.call(proposal=False)
+        self.assertEqual((self.work / 'extension-history.json').read_bytes(), history)
+        self.assertEqual(self.c.card['builder_rounds'], 1)
+
+    def test_continuation_rechecks_binding_after_lease_wait(self):
+        self.interrupted_extension()
+        acquire = model_router.await_lease
+        def changed(*args, **kwargs):
+            lease = acquire(*args, **kwargs)
+            self.receipt['operation_id'] = str(uuid.uuid4())
+            return lease
+        before = self.ledger.read_bytes()
+        with patch.object(model_router, 'await_lease', changed):
+            with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
+                self.call(proposal=False)
+        self.assertEqual(self.ledger.read_bytes(), before)
 
     def test_extension_argument_has_no_production_caller(self):
         for path in (ROOT / 'factory').glob('*.py'):
