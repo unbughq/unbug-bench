@@ -2351,3 +2351,271 @@ artifact search found no capped-submission per-attempt receipt, so row 39 remain
 open for item 8. The new offline test is tests/factory/test_scientific_receipts.py;
 its module docstring explicitly distinguishes saved artifacts from authored stop
 metadata. No row closure is claimed by this increment.
+
+
+## Item 6 implementation: isolated extension comparison (2026-10-31)
+
+### Problem, scope and deletion
+
+Item 5 provides scientific versions and gate receipt bindings. `extensions`
+retains immutable revisions, but `retain_comparison` currently assumes both
+re-evaluations wrote evidence into the live work directory. There is no producer
+that prepares isolated inputs, checks a common version vector, or prevents an
+invalid execution from becoming a regression. Item 6 supplies that boundary.
+It supports row 9 and closes no Murphy row. Item 7 owns runner dispatch,
+continuation routing and money/checkpoint integration; diagnosis stays off.
+
+Add `factory/extension_compare.py`, a worker-owned comparison service. Its
+`compare(c, number, bench, evaluate)` reads verified completed extension history,
+pins the current ordered scientific version vector once, and processes entry
+and outcome from their retained case/evidence copies. It never evaluates the
+live candidate or hands the live context to `evaluate`. Delete the assumption
+that comparison evidence must be staged in live `c.work`: extend
+`retain_comparison` with explicit per-phase evidence roots (defaulting to the
+existing root for compatibility). The durable append remains its existing
+fsync-before-history transaction and leaves original snapshots unchanged.
+
+### Isolated execution and receipts
+
+The evaluator contract is explicit: `(workspace, stage) -> (passed, detail,
+evidence_paths)`. Workspace contains only independent case/work paths and copied
+scientific configuration (args, models, roles, seed, slot, case ID), plus the
+read-only bench source path. Its card is a new dictionary containing only copied roles, never the live card.
+It contains no ledger, job authority,
+model runtime, publisher or live work path. The evaluator must use workspace
+paths and execute under the ordinary admitted job when item 7 wires dispatch.
+There is deliberately no default adapter calling `run.gN`: those functions use
+global BENCH/results and would violate isolation. Item 7 must supply an isolated
+worker/process adapter with separate bench results and existing shared money
+admission. This API grants neither money nor a writer call. No live run here.
+
+Use temporary working copies of each saved revision. The immutable originals
+are never passed to the evaluator. Copy retained evidence into each workspace;
+never hardlink or follow symlinks. Verify the case digest before and after each
+evaluation and before publication. A gate that changes case bytes is rejected
+as pending, not accepted as an updated comparison. Mutable evaluator detail
+and configuration are independent of the live context. Cleanup temporary work
+on success and failure; persisted pair evidence is copied before cleanup.
+
+A new stage receipt binds schema, stage, scientific version, full input digest,
+case digest, status, detail and content hashes of supporting local evidence.
+Its digest is the snapshot stage evidence digest. Gate binding is item 5's
+`gate_state.fingerprint`; stress binds case/seed/slot plus its scientific
+version. The snapshot producer records all ordered stages; pending/unreached
+rows have no passing receipt. Pass/fail requires nonempty retained support,
+a strict bool verdict and no operational detail. Scientific inconclusive results are gate failures as specified below. `InvalidInfra`
+and malformed/missing evidence become pending; other exceptions propagate
+without publishing a scored comparison. The receipt reader verifies both the
+receipt and every supporting byte, current version and full binding. Historical
+snapshot rows with authored/opaque evidence remain historical and must be
+re-evaluated rather than relabeled.
+
+Only current, fully bound receipts can be reused. Reuse unaffected pass receipts only for the explicit reusable set below,
+when their scientific version is equal; no second dependency analysis. Execute in pipeline order until the
+first fail/pending; mark the remaining suffix unreached. A later formerly
+passed stage that is now unreachable cannot prove no regression and progress
+therefore remains pending. Both sides must have the same current version vector;
+recompute it after evaluation to detect code/settings changes during the pair.
+Version drift leaves the comparison pending, never relabels completed work.
+
+A pending pair is retained with pending stage rows when versions stayed pinned;
+`extensions.progress` already refuses to score it. Retry may reuse earlier
+passing receipts from the newest retained comparison, while pending work is
+re-executed. An incomplete original extension has no outcome and stays pending.
+A completed pair is append-only and replay-safe by its digest. No extension ID,
+writer round, public projection, or live gate result is advanced by comparison.
+
+### Tests and qualification limits
+
+Add `tests/factory/test_extension_compare.py`. Replay the saved public practice
+case, saved plain/reference/invalid executions and real item-5 receipt code.
+Authored evaluator orchestration controls are labeled, not called live proof.
+Test common-version progress/regression/no-progress, a one-gate version change,
+plumbing preservation, full evidence binding, tampered/missing evidence,
+invalid-infra pending and retry, version drift, mutation of scratch case/config,
+original snapshots and live candidate/card/cache byte preservation, crash before
+history append and duplicate replay. Run the full prescribed suite to a unique
+retained log and commit its result before fresh diff review.
+
+Row 39 remains open: the saved public card proves time-limit/no-submission
+counts, but no retained per-attempt capped-submission artifact was found in
+item 5. Item 8 needs an authorized ordinary G10 calibrator run that submits a
+guard before reaching its existing time/call cap, retaining the original
+results.json attempt receipt, guard, execution.json, stop metadata and bound
+usage/reservation settlement; replay it through G16/G17 to prove the capped
+failed attempt cannot become wrong_fix. This increment launches no such run.
+
+
+### Exact contracts and design-review-1 resolutions
+
+`Workspace` is a dataclass with fields `case: Path`, `work: Path`, `bench: Path`,
+`args: argparse.Namespace`, `models: dict`, `card: dict` (only roles), `seed: int`,
+`factory_slot: int`, `case_id: str`. Configuration comes from the current live
+context once at compare entry, deep-copied independently for each side. Versions
+and fingerprints use `workspace.bench`, the current read-only source bench,
+not a scratch results directory. The callback is trusted worker code, not a
+sandbox against malicious Python. No live mutable paths are exposed except the
+read-only source bench. Scratch directories use tempfile outside c.work; the
+callback must never write the source bench or use global runner paths. The
+item-7 process adapter must materialize a separate results/VM execution layout.
+
+The shared original-snapshot producer is `snapshot(workspace,
+source_generation, evaluate, previous=None, versions=None)`. `compare` calls it
+for each phase, and item 7 calls the same API to produce original entry/outcome
+snapshots. It returns the existing validated extension snapshot shape, never a
+new history shape. `previous` is a snapshot whose evidence is already copied to
+workspace.work; absence means fresh evaluation. `versions` is the pinned ordered
+stage-to-SHA map, or computed at entry when omitted. Its stage receipt writer
+and reader are private helpers of this API.
+
+Every terminal stage receipt lives at `comparison-receipts/<stage>.json`, with
+exact fields `schema_version` (1), `stage`, `scientific_version`,
+`binding_sha256`, `case_sha256`, `status` (pass/fail), `detail` (JSON object),
+`support` (relative filename-to-SHA map), `calibration_identity` (G16 identity,
+otherwise null). Supporting evidence paths returned by the evaluator are a
+nonempty list of canonical relative filenames under workspace.work. Reject
+absolute paths, dot/parent components, symlinks and names starting `case/`,
+`extension-snapshots/` or `comparison-receipts/`. Copy evidence into a private
+stage namespace `comparison-support/<stage>/<original-relative-name>` before
+writing the receipt. The snapshot evidence map contains the receipt plus these
+copied supporting files. This prevents later stages overwriting earlier proof.
+Missing/invalid JSON, support, or digest bindings refuse reuse. Detail and
+support are JSON-normalized copies, not evaluator-owned references.
+
+Reuse set is exactly gate_state.REUSABLE (G4/G5/G6/G8/G9/G13/G14/G15/G16), and
+only pass receipts reuse. G1/G2/G3/G7/G10/G11/G17/stress execute fresh when a new comparison is needed. Fail reuse is not
+introduced. The source is the newest retained comparison for each phase if any,
+otherwise the original entry/outcome; old opaque receipts cannot reuse. Require
+exact fingerprint, scientific version, case digest and every evidence byte.
+G8/G9 deliberately require exact identity, with no compatible_panel fallback;
+this is conservative extra work, not weaker validation. G16 additionally checks
+`gate_state.calibration_binding`; add optional `bench` to that helper and
+`run.calibration_identity` so this read-only calculation uses the explicit
+source bench without mutating run.BENCH. The supporting evidence must include
+all calibration attempt/guard/execution files used by that verdict; the adapter
+owns this complete dependency enumeration just as gate_state.save's producer
+does. Tampering any retained dependency refuses reuse.
+
+Pending classification is: InvalidInfra (including InfrastructureExhausted),
+non-bool verdict, non-dict/non-JSON detail, absent/malformed support, or detail
+containing top-level `error`, `classification:"invalid-infra"`,
+`invalid_infra:true`, or `execution_valid:false`. These
+produce a pending stage, never a scored fail. `review_inconclusive:true` and
+`verdict_valid:false` alone preserve the item-5 scientific gate failure when
+passed is false and supporting evidence is complete; they must never accompany
+a pass. They do not create a wrong_fix verdict. BudgetError (including provider
+wait) and other exceptions propagate without publishing a scored pair. No
+retry loop exists here: one call attempts each needed stage at most once per
+side. Item 4 supplies bounded operational retries inside evaluators; item 7
+must admit each new comparison under the batch money/deadline authority and
+terminate holds at that bound. Pending pairs and their disk use are bounded by
+those admitted attempts, not a new local scientific cap. No deployment until
+item 8 verifies those integration bounds.
+
+G2's comparison adapter re-verifies the saved search history by retrieval only:
+no author search top-up, freshness repair, or writes to case/freshness.jsonl.
+New retrieval responses are work evidence, bound to the saved case history.
+Insufficient/malformed history and unavailable retrieval are invalid-infra,
+therefore pending under item 4/7 bounds, matching GatePipeline.check. The full case
+digest remains immutable, including freshness.jsonl. If an adapter mistakenly
+runs the mutating normal path, its mutation is detected and comparison returns
+pending with no published pair; it is an adapter error, not endless allowed
+normal operation. Test both read-only G2 evaluation and mutation refusal.
+
+For admission, add an internal evidence-root resolver in extensions. Given a
+verified history and proposed snapshot, match case/stages/frontier/evidence
+against the latest extension's original outcome or retained compared outcomes
+(excluding source_generation as propose already does). Resolve to the matching
+retained outcome evidence root, preferring the newest comparison. Otherwise use
+c.work for ordinary first admission. Both verify_proposal and _save_case(entry)
+use that resolver, checking root-relative symlinks and every digest. No arbitrary
+root from a proposal is accepted. This copies the retained comparison outcome
+into the next immutable entry without polluting live gate evidence. Keep live
+case equality and authenticated current source_generation checks unchanged.
+Test compare → propose → verify_proposal → admit, including replay, a changed
+live case, and changed retained proof. _save_evidence takes an explicit root,
+and its symlink checks are relative to that root, including the root itself.
+
+compare and retain_comparison run only on the case's single owning worker,
+never concurrently with admit/complete. read() operates on a copied context/card
+inside compare, so public-projection recovery cannot mutate the live card.
+Persistence adds only comparison history/evidence, never live gate results.
+On code/configuration drift or scratch mutation return `pending` without an
+append. Otherwise return extensions.progress for the retained pair. A completed same-version pair is sticky: return its result without evaluation.
+Only absent/pending pairs may execute. Identical pending pair bytes deduplicate.
+
+Size/cost/risk: one implementation/review increment plus the offline full suite.
+Worst case is 17 stages per side; paid-stage families include stress, G2, G8/G9,
+G10/G16/G17 and G11, with their existing internal invocation bounds. Exact cash
+cannot be predicted from saved receipts. All re-evaluation, including version
+drift, consumes the existing batch commitment; item 7 enforces admission and
+records infrastructure waste where applicable, without granting extra money.
+The main risk is an adapter leaking writes via runner globals: no default
+adapter is supplied. This adds a roots API while removing the live-work staging
+assumption; it does not claim a net line-count deletion.
+
+Additional required tests from review 1: G16 inconclusive is fail, G16 changed
+calibration binding refuses reuse, G2 read-only/mutation paths, comparison-based
+next admission, and cross-stage support overwrite isolation. All blockers were
+accepted; docs/reviews/stream-d-compare-design-1.md preserves the final report.
+
+
+### Design-review-2 resolutions (all accepted)
+
+Re-judge the before and after copies with today's rules, so an extension is
+counted only when the case got further. Before allocating scratch or invoking
+an evaluator, compare examines the original pair then retained pairs in append
+order for a non-pending progress() result at the pinned versions. The first
+such pair is authoritative and returned unchanged. Original and retained bytes
+are verified through extensions.read first. This forbids stochastic rerolls;
+propose likewise selects the first non-pending matching pair, falling back to
+the latest pending pair only if no scored pair exists. An old opaque same-version
+pair is authoritative only if its terminal stage receipts verify under this
+module's reader; otherwise it needs reconstruction. Tests cover repeated compare
+and prior pending → scored → subsequent compare with zero evaluator calls.
+
+Stress's comparison adapter is a read-only review of the saved candidate:
+attacker searches are directed to workspace.work, retained as support, never
+appended to case/freshness.jsonl. G2 counts the saved case's builder/attacker
+history, not newly authored comparison searches. No original stress writer or
+repair loop is called. BudgetError('freshness_unresolved') is recognized only
+for stress and becomes pending invalid evidence; other BudgetError propagates.
+This does not grant a retry; item 7 bounds any retry/retirement at batch authority.
+Test read-only stress evidence, attempted case mutation and freshness_unresolved.
+
+Like GatePipeline.check, CaseProblem becomes a scientific fail with
+{'problems': [str(error)]}. Save that exception observation as a local supporting
+JSON file before producing its fail receipt. classification:'invalid-infra'
+always means pending, even when a bool verdict is supplied. The existing
+review_inconclusive failure does count as a gate regression after a baseline
+pass in this comparison API: it cannot establish the required retention of a
+pass. It still never labels a submitted fix wrong, changes writer feedback or
+creates a factory-bug claim. Item 7 uses the ordinary independent-review rule
+for substantive disagreement before retirement.
+
+The stress binding is digest({'stage':'stress', 'scientific_version':version,
+'case_sha256':case_digest, 'seed':workspace.seed,
+'slot':workspace.factory_slot}); digest is extensions.digest's canonical JSON.
+retain_comparison(c, number, entry, outcome, *, roots=None) takes optional
+{'entry': Path, 'outcome': Path}; omitted roots use c.work as before. Root input
+is worker-local, never supplied by public proposal/model output. All retained
+proofs are verified before append.
+
+Item 7 produces original snapshots by calling snapshot with a Workspace whose
+case/work are the ordinary owning worker's current case/work after admitted
+execution, or by copying the returned snapshot's named evidence from scratch
+into c.work before admit/complete. The former allows the shared writer to emit
+receipts directly at the paths current admission expects; it remains item 7's
+responsibility to use a non-mutating evaluator. compare itself always creates
+independent scratch workspaces outside the live work tree.
+
+
+Implementation clarification: propose prefers the first scored retained
+comparison before the original pair. If any retained comparison matches the
+vector, even pending, the original cannot be used as a fallback. This matters when an opaque original had
+current version labels but could not prove them: compare reconstructs it, and
+admission must consume that verified reconstruction. compare never produces a
+replacement for a valid already-scored original. Scratch card output fields
+(such as plain_app_broke) may be written by evaluators; only args, models and
+roles are scientific configuration and must remain unchanged. No scratch card
+field is copied into the live card.

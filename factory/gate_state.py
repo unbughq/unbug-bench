@@ -212,10 +212,10 @@ def scientific_version(c, gate, bench):
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 
 
-def calibration_binding(c):
+def calibration_binding(c, bench=None):
     # G16 also feeds portable delivery receipts; sealing still checks this identity.
     import run
-    return run.calibration_identity(c, "strong_calibrator", "statement", runs=c.args.runs)
+    return run.calibration_identity(c, "strong_calibrator", "statement", runs=c.args.runs, bench=bench)
 
 
 def fingerprint(c, gate, bench):

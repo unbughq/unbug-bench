@@ -2343,12 +2343,13 @@ def g9(c):
     return yes == len(votes) > 0, {"approve": c.card["reviewers_realism"]}
 
 
-def calibration_identity(c, role, exposure, *, runs=None):
+def calibration_identity(c, role, exposure, *, runs=None, bench=None):
     """Effective identity shared by durable attempts and gate reuse."""
     a = c.args
+    bench = BENCH if bench is None else bench
     import hashlib
     from gate_state import judge_dependencies
-    identity = {"version": 4, "case": case_hash(c), "bench": judge_dependencies(c, BENCH, calibration=True), "exposure": exposure,
+    identity = {"version": 4, "case": case_hash(c), "bench": judge_dependencies(c, bench, calibration=True), "exposure": exposure,
                 "prompt": hashlib.sha256(prompt("pilot", "Work in this directory. Write your guard to ./guard/.\n").encode()).hexdigest(),
                 "model": c.models[role], "effort": c.card.get("roles", {}).get(role, {}).get("effort", model_effort(c.models[role][0])),
                 "seed": c.seed, "runs": (runs if runs is not None else a.pilot_runs), "minutes": a.calibrator_minutes,
@@ -2360,7 +2361,7 @@ def calibration_identity(c, role, exposure, *, runs=None):
                              "effort": c.card.get("roles", {}).get("reviewer", {}).get("effort"),
                              "files": {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in (
                                  pathlib.Path(__file__).with_name("exam_responder.py"),
-                                 BENCH / "harbor/responder/responder.py", BENCH / "harbor/responder/ask-human")}}
+                                 bench / "harbor/responder/responder.py", bench / "harbor/responder/ask-human")}}
     return identity
 
 
