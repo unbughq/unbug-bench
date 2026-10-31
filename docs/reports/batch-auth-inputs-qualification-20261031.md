@@ -22,7 +22,14 @@ before first dispatch. Offline tests qualify those decisions with retained real
 ciphertext and explicitly authored batch bindings. They do not claim a live batch
 ACK or prove account identity, cleanup, a reviewed release or remote publication.
 
-After B3 installs its reviewed policy and release, run from that source on the VM:
+Deployment handoff to B3: the qualification helper is a repository tool, not a
+holder dependency. The current public BATCH_SOURCE selection excludes tools/;
+B3 must include tools/qualify-batch-inputs.py in its reviewed deployment, or make
+the matching reviewed source checkout available, before using the command below.
+B2 did not edit B3's release pins or manifest or copy code onto the VM.
+
+After B3 installs its reviewed policy, release and qualification helper, run from
+that source on the VM:
 
 ```sh
 python3 -B tools/qualify-batch-inputs.py \
@@ -55,3 +62,10 @@ archive. The tool neither activates pointers nor grants batch provenance.
 Rows new-single-path-1, new-batch-service-1 and new-batch-service-2 remain open.
 The new empty-namespace hazard new-batch-auth-inputs-1 also remains open: its
 contract regressions are not a live incident closure.
+
+Final validation: implementation 16f8159 passed the required full suite, 161
+scripts, zero failures, three reported skips. See
+batch-auth-inputs-suite-20261031T151828Z-b7422f94.json. Fresh diff review
+../reviews/batch-auth-inputs-diff-2.md passed with no blockers; its nested-repository
+Git-discovery finding is non-blocking and deferred. Final read-only store recheck
+at 15:42:36Z still found both planned stores absent. No rows are closed.
