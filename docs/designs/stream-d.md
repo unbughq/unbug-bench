@@ -2751,3 +2751,14 @@ freshness/stress entry points; this increment introduces no dependency or new
 interface for item 4. Item 8 still requires integrated retained-artifact and
 authorized live A/B/E qualification, crash/wait/money coverage, review, and only
 then the diagnosis switch-on. Row 9 stays open.
+
+### Item 7 receipt publication recovery increment
+
+The next prerequisite is specified in `stream-d-extension-receipt-routing.md`:
+retain the admitted writer intent before history publication and select/recover
+its attack receipt without restarting completed work. This is not launcher or
+package activation. The selector has no production caller; same-round stress
+returns no writer work and must be separately validated by package routing.
+The package must also fix the existing validated-writer binding hash update and
+preserve the admitted round-limit/release fields on pending replay. All remaining
+item 7 and item 8 qualification obligations above remain open; no row closes.

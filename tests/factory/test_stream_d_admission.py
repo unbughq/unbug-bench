@@ -354,6 +354,181 @@ class AdmissionTests(unittest.TestCase):
         self.receipt = json.loads((self.work / 'attack-state.json').read_text())
         return (self.work / 'extension-history.json').read_bytes()
 
+    def intent_path(self):
+        row = extensions.active(self.c)
+        return self.work / 'extension-writers' / (row['writer_operation_id'] + '.json')
+
+    def recover_publication(self, boundary, previous=None):
+        path = self.work / 'attack-state.json'
+        if previous is not None: registry.atomic_json(path, previous)
+        atomic = extensions.atomic_json if boundary == 'history' else registry.atomic_json
+        def interrupted(destination, value):
+            if boundary == 'history' and Path(destination).name == 'extension-history.json':
+                atomic(destination, value)
+                raise OSError(errno.ENOSPC, 'after durable history')
+            if boundary == 'attack' and Path(destination).name == 'attack-state.json':
+                raise OSError(errno.ENOSPC, 'before attack publication')
+            atomic(destination, value)
+        with patch.object(extensions if boundary == 'history' else registry, 'atomic_json', interrupted), \
+                patch.object(run, 'opencode', side_effect=AssertionError('writer before publication')):
+            with self.assertRaises(OSError): self.call()
+        history = (self.work / 'extension-history.json').read_bytes()
+        ledger = self.ledger.read_bytes()
+        intent = self.intent_path().read_bytes()
+        self.assertEqual(json.loads(intent)['previous'], previous)
+        recovered = extensions.writer_receipt(self.c)
+        self.assertEqual(recovered, json.loads(intent)['receipt'])
+        receipt_bytes = path.read_bytes()
+        self.c.card['builder_rounds'] = 0  # crash after file but before card update
+        self.assertEqual(extensions.writer_receipt(self.c), recovered)
+        self.assertEqual(self.c.card['builder_rounds'], 1)
+        self.assertEqual(path.read_bytes(), receipt_bytes)
+        self.assertEqual(self.intent_path().read_bytes(), intent)
+        self.assertEqual((self.work / 'extension-history.json').read_bytes(), history)
+        self.assertEqual(self.ledger.read_bytes(), ledger)
+        self.receipt = recovered
+        self.callbacks = ['admitted']  # first admission stopped before callback
+        self.install_transport()
+        self.call(proposal=False, on_admitted=None)
+        self.assertEqual(len(extensions.read(self.c)), 1)
+        self.assertEqual(self.receipt['operation_id'], recovered['operation_id'])
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(extensions.writer_receipt(self.c), self.receipt)
+
+    def test_recover_history_before_attack_with_no_predecessor(self):
+        self.recover_publication('history')
+
+    def test_recover_attack_failure_over_completed_writer(self):
+        self.recover_publication('attack', {'round': 0, 'actor': 'writer', 'phase': 'completed'})
+
+    def test_recover_history_over_previous_stress_receipt(self):
+        self.recover_publication('history', {'round': 0, 'actor': 'stress_tester', 'phase': 'validated'})
+
+    def test_writer_selector_preserves_wait_and_finished_receipts(self):
+        self.interrupted_extension(wait=True)
+        path = self.work / 'attack-state.json'
+        before = path.read_bytes()
+        self.assertEqual(extensions.writer_receipt(self.c), self.receipt)
+        self.assertEqual(path.read_bytes(), before)
+        self.install_transport()
+        self.call(proposal=False, on_admitted=None)
+        run.complete_writer(self.c, self.receipt, path)
+        for phase, next_phase in [('completed', 'G1'), ('validated', 'stress'), ('validated', 'writer')]:
+            self.receipt.update(phase=phase, next_phase=next_phase)
+            registry.atomic_json(path, self.receipt)
+            before = path.read_bytes()
+            self.assertEqual(extensions.writer_receipt(self.c), self.receipt)
+            self.assertEqual(path.read_bytes(), before)
+        self.receipt['binding']['case'] = 'inconsistent authored binding'
+        registry.atomic_json(path, self.receipt)
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
+            extensions.writer_receipt(self.c)
+
+    def test_writer_selector_leaves_same_round_stress_to_package(self):
+        self.interrupted_extension()
+        self.intent_path().unlink()  # no writer recovery or authority is needed
+        path = self.work / 'attack-state.json'
+        for phase in ('pending', 'completed', 'validated'):
+            registry.atomic_json(path, {'round': 1, 'actor': 'stress_tester', 'phase': phase})
+            before = path.read_bytes()
+            self.assertIsNone(extensions.writer_receipt(self.c))
+            self.assertEqual(path.read_bytes(), before)
+        for number in (True, 2):
+            registry.atomic_json(path, {'round': number, 'actor': 'stress_tester', 'phase': 'pending'})
+            with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
+                extensions.writer_receipt(self.c)
+
+    def test_writer_selector_refuses_damaged_intent_or_current_without_writes(self):
+        self.interrupted_extension()
+        intent_path, path = self.intent_path(), self.work / 'attack-state.json'
+        original_intent, original = intent_path.read_bytes(), path.read_bytes()
+        for target, source in ((intent_path, original_intent), (path, original)):
+            for field, value in [('operation_id', str(uuid.uuid4())), ('extension_id', True),
+                                 ('round', 2), ('input_problems', ['changed']), ('binding_sha256', '0' * 64),
+                                 ('invocation_id', str(uuid.uuid4())), ('actor', 'stress_tester')]:
+                if target == intent_path and field == 'input_problems': continue  # retained input is authoritative
+                if target == path and field == 'actor': value = 'foreign'
+                changed = json.loads(source)
+                receipt = changed['receipt'] if target == intent_path else changed
+                receipt[field] = value
+                registry.atomic_json(target, changed)
+                before = (path.read_bytes(), intent_path.read_bytes(), self.ledger.read_bytes())
+                with self.subTest(target=target.name, field=field):
+                    with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
+                        extensions.writer_receipt(self.c)
+                    self.assertEqual((path.read_bytes(), intent_path.read_bytes(), self.ledger.read_bytes()), before)
+                target.write_bytes(source)
+        for raw in ('null', '[]', '{bad', '{}'):
+            intent_path.write_text(raw)
+            with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
+                extensions.writer_receipt(self.c)
+        intent_path.unlink()
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
+            extensions.writer_receipt(self.c)
+        intent_path.write_bytes(original_intent)
+        for target, source in ((intent_path, original_intent), (path, original)):
+            target.unlink(); target.symlink_to(self.ledger)
+            with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
+                extensions.writer_receipt(self.c)
+            target.unlink(); target.write_bytes(source)
+        envelope = json.loads(original_intent)
+        envelope['previous'] = {'round': 0}
+        registry.atomic_json(intent_path, envelope)
+        path.unlink()
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
+            extensions.writer_receipt(self.c)
+
+    def test_bad_predecessor_or_intent_write_failure_never_admits_history(self):
+        path = self.work / 'attack-state.json'
+        for previous in ({'round': 1}, {'round': True}, {'round': -1}, [], None):
+            registry.atomic_json(path, previous)
+            with patch.object(run, 'opencode', side_effect=AssertionError('must not invoke')):
+                with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
+                    self.call(receipt=runtime.RuntimeTests.receipt(self))
+            self.assertFalse((self.work / 'extension-history.json').exists())
+        path.unlink()
+        atomic = extensions.atomic_json
+        def failure(path, value):
+            if Path(path).parent.name == 'extension-writers': raise OSError(errno.ENOSPC, 'intent write')
+            atomic(path, value)
+        with patch.object(extensions, 'atomic_json', failure):
+            with self.assertRaises(OSError): self.call()
+        self.assert_unadmitted()
+        self.assertIsNone(extensions.writer_receipt(self.c))
+
+    def test_orphan_intent_is_inert_and_helper_replay_is_immutable(self):
+        with patch.object(extensions, 'admit', side_effect=OSError(errno.ENOSPC, 'before history')):
+            with self.assertRaises(OSError): self.call()
+        intent_path, = (self.work / 'extension-writers').glob('*.json')
+        saved = intent_path.read_bytes()
+        intent = json.loads(saved)['receipt']
+        self.assertIsNone(extensions.writer_receipt(self.c))
+        self.assertFalse((self.work / 'attack-state.json').exists())
+        self.assertEqual(self.c.card['builder_rounds'], 0)
+        extensions.retain_writer(self.c, intent)
+        self.assertEqual(intent_path.read_bytes(), saved)
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
+            extensions.retain_writer(self.c, {**intent, 'input_problems': ['changed']})
+        self.assertEqual(intent_path.read_bytes(), saved)
+        self.assertEqual(self.callbacks, [])
+        self.assertEqual(self.calls, [])
+
+    def test_receipt_read_io_is_infrastructure_and_parent_symlink_refuses(self):
+        self.interrupted_extension()
+        original = diagnosis._input_bytes
+        intent = self.intent_path()
+        for error in (PermissionError('authored permission denial'), OSError(errno.EIO, 'authored EIO')):
+            def failed(path, base):
+                if Path(path) == intent: raise error
+                return original(path, base)
+            with patch.object(diagnosis, '_input_bytes', failed):
+                with self.assertRaises(type(error)): extensions.writer_receipt(self.c)
+        directory = intent.parent
+        moved = self.work / 'retained-writers'
+        directory.rename(moved); directory.symlink_to(moved, target_is_directory=True)
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_reservation_mismatch$'):
+            extensions.writer_receipt(self.c)
+
     def test_pending_extension_continues_same_operation_above_ordinary_threshold(self):
         history = self.interrupted_extension()
         original = copy.deepcopy(self.receipt)
