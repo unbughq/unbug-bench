@@ -372,6 +372,10 @@ def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_a
             extensions.verify_proposal(c, extension_proposal)
             if receipt['round'] != extension_proposal['round'] or name != 'builder-' + str(receipt['round']):
                 raise BudgetError('extension_reservation_mismatch')
+        continuation = False
+        if role == 'writer' and extension_proposal is None:
+            import extensions
+            continuation = extensions.writer_continuation(c, receipt, name)
         lease = model_router.await_lease(role, c, deadline)
         operation = (str(uuid.uuid4()) if extension_proposal is not None else
                      receipt.get('operation_id') or str(uuid.uuid4()))
@@ -381,6 +385,9 @@ def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_a
             maximum = model_runtime.invocation_maximum(c, lease)
             if extension_proposal is not None:
                 extensions.verify_proposal(c, extension_proposal)
+            elif continuation:
+                if not extensions.writer_continuation(c, receipt, name):
+                    raise BudgetError('extension_reservation_mismatch')
             elif role == 'writer':
                 _, summary = update_case_budget(c)
                 if summary['spent_usd'] is None or summary['spent_usd'] + float(maximum) > summary['ordinary_limit_usd']:

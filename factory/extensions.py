@@ -233,6 +233,29 @@ def active(c):
     return history[-1] if history and history[-1]['outcome'] is None else None
 
 
+def writer_continuation(c, receipt, name):
+    """Bind a pending writer retry to its admitted extension, never a new round."""
+    from run import provider_continuation
+    row = active(c)
+    if row is None and 'extension_id' not in receipt: return False
+    if (row is None or type(receipt.get('schema_version')) is not int or
+            receipt['schema_version'] != 2 or receipt.get('phase') != 'pending' or
+            receipt.get('actor') != 'writer' or type(receipt.get('extension_id')) is not int or
+            receipt['extension_id'] != row['extension_id'] or type(receipt.get('round')) is not int or
+            receipt['round'] != row['round'] or receipt.get('operation_id') != row['writer_operation_id'] or
+            name != 'builder-' + str(row['round'])):
+        raise BudgetError('extension_reservation_mismatch')
+    lease, invocation = receipt.get('lease_id'), receipt.get('invocation_id')
+    if isinstance(lease, str) and isinstance(invocation, str):
+        reservation = json.loads(c.ledger.read_text()).get('invocation_reservations', {}).get(lease, {})
+        if (reservation.get('operation_id') == row['writer_operation_id'] and
+                reservation.get('call_name') == name and reservation.get('invocation_id') == invocation):
+            return True
+    elif lease is None and invocation is None and provider_continuation(c, receipt, 'writer'):
+        return True
+    raise BudgetError('extension_reservation_mismatch')
+
+
 def comparison_pair(row, versions):
     """One selection rule for comparison and admission; never reroll a score."""
     def matches(pair):
