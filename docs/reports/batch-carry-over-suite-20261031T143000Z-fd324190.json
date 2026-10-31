@@ -1,0 +1,18 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "--with",
+    "numpy",
+    "--with",
+    "scipy",
+    "python",
+    "-B",
+    "tests/run.py"
+  ],
+  "code_commit": "bf3f1cbc834a33083d0cb8a2bfd9912abe2e345a",
+  "started_at": "2026-10-31T14:30:00.220534+00:00",
+  "log": "docs/reports/batch-carry-over-suite-20261031T143000Z-fd324190.log",
+  "status": "aborted",
+  "reason": "Stopped premature rerun to fix remaining failures from first completed suite."
+}
