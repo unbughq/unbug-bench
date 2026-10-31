@@ -88,3 +88,11 @@ compressed log: same basename .log.gz. Uncompressed log SHA256:
 Source/tests were unchanged during this full run. The log retains all reported
 skips and limitations; this is offline validation, not live qualification.
 Fresh diff review follows this committed record.
+
+
+Independent diff review is **blocked before review**, not passed. Claude hit its
+API rate limit; the exact user-authorized OpenCode fallback rejected its 256000
+output-token maximum against remaining allowance. See
+../reviews/stream-b-blocker-resolution-diff-attempts.md. No budget/configuration
+was changed and no unrequested model substituted. A fresh delegate review remains
+required; this branch is not merge-ready. The full suite passing is not a review.
