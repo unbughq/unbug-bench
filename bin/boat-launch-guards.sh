@@ -122,9 +122,10 @@ try:
     def query(*args):
         remaining = deadline - time.monotonic()
         if remaining <= 0: raise TimeoutError()
-        # boat-call owns process-group cancellation; allow it to finish that cleanup.
+        # boat-call owns process-group cancellation; allow it to finish that cleanup
+        # (processes.kill_tree: up to 60 s ps probe plus two 2 s waits).
         response = subprocess.run([str(root / 'bin/boat-call'), *args], capture_output=True,
-                                  text=True, timeout=remaining + 5,
+                                  text=True, timeout=remaining + 70,
                                   env={**os.environ, 'BOAT_COMMAND_TIMEOUT_SECONDS': str(remaining)})
         if response.returncode: raise ValueError('command failed')
         return json.loads(response.stdout)['operation']

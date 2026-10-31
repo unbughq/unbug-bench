@@ -142,9 +142,7 @@ class ProcessesTests(unittest.TestCase):
         self.stopped()
         # An exited, unreaped session leader: macOS refuses killpg on a zombie-only group.
         zombie = subprocess.Popen(['true'], start_new_session=True)
-        while subprocess.run(['ps', '-o', 'stat=', '-p', str(zombie.pid)],
-                             capture_output=True, text=True).stdout.strip()[:1] != 'Z':
-            time.sleep(.01)
+        os.waitid(os.P_PID, zombie.pid, os.WEXITED | os.WNOWAIT)  # exited, still unreaped
         processes.kill_tree(zombie.pid, alive=True)
         zombie.wait()
 
@@ -270,7 +268,7 @@ class SupervisorTests(unittest.TestCase):
                     else: fresh.append(args[i]); i += 1
                 result = subprocess.run([sys.executable, str(ROOT / 'factory/runner_supervisor.py'), '--',
                     sys.executable, '-B', str(factory / 'run.py'), *fresh, '--dry-run'],
-                    env={**os.environ,'HOME':str(home),'FACTORY_RUNNER_SECONDS':'10'},
+                    env={**os.environ,'HOME':str(home),'FACTORY_RUNNER_SECONDS':str(HANG_GUARD_SECONDS)},
                     capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
                 self.assertEqual(result.returncode, 1)
                 data = json.loads((home / 'sealed/runner-status.json').read_text())
