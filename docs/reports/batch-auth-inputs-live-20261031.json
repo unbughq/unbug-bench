@@ -1,0 +1,49 @@
+{
+  "observed_at": "2026-10-31T14:43:00.369369+00:00",
+  "control_vm": {
+    "id": 172111861,
+    "name": "unbug-control",
+    "migration_store_exists": false,
+    "migration_manifests": 0,
+    "batch_directories": [],
+    "sealed_checkpoints": 46
+  },
+  "mac": {
+    "migration_store": "/Users/bugsincode/Developer/unbug-bench/sealed/generations",
+    "exists": false
+  },
+  "method": "control-vm.selected label/name check and SSH read-only pathlib inventory; no secrets read",
+  "workers_created": 0,
+  "case_model_calls": 0,
+  "r2_verified": false,
+  "vm_unwrap_verified": false,
+  "rows_closed": [],
+  "empty_namespace": {
+    "case": "case-b-practice-20261031-practice",
+    "checked_paths": [
+      "/home/user/unbug-bench/sealed/case-b-practice-20261031-practice.casekey.age",
+      "/home/user/unbug-bench/sealed/case-b-practice-20261031-practice.checkpoint.tar.gz.age",
+      "/home/user/unbug-bench/sealed/case-b-practice-20261031-practice.progress.json",
+      "/home/user/unbug-bench/sealed/case-b-practice-20261031-practice.scorecard.json",
+      "/home/user/unbug-bench/sealed/case-b-practice-20261031-practice.scorecard.txt",
+      "/home/user/unbug-bench/sealed/case-b-practice-20261031-practice.search.age",
+      "/home/user/unbug-bench/sealed/case-b-practice-20261031-practice.statement.age",
+      "/home/user/unbug-bench/sealed/case-b-practice-20261031-practice.tar.gz.age",
+      "/home/user/unbug-bench/sealed/generations/case-b-practice-20261031-practice",
+      "/home/user/.unbug-control/batches/b-practice-20261031/generations/case-b-practice-20261031-practice",
+      "/home/user/.unbug-control/batches/b-practice-20261031/current/case-b-practice-20261031-practice.json"
+    ],
+    "collisions": [],
+    "batch_directory_exists": false,
+    "observed_at": "2026-10-31T14:51:14.641974+00:00",
+    "input_qualification": "pending reviewed B3 policy/release; namespace clear alone is not admission"
+  },
+  "launch_ready": false,
+  "final_store_recheck": {
+    "vm_migration_store_exists": false,
+    "vm_migration_manifests": 0,
+    "vm_batch_directories": [],
+    "mac_migration_store_exists": false,
+    "observed_at": "2026-10-31T15:42:36.269737+00:00"
+  }
+}

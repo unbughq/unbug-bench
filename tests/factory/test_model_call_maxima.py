@@ -34,7 +34,10 @@ import model_call_gate as gate
 import model_router as router
 import model_runtime
 import run
-from token_prices import GATED_CLAUDE, CLAUDE_PROFILES, CLAUDE_GATE_FIELDS, claude_gate_cost, claude_cost
+from token_prices import GATED_CLAUDE, CLAUDE_PROFILES, CLAUDE_GATE_FIELDS, claude_gate_cost, claude_cost, claude_profile, GATED_CLAUDE45
+
+LEGACY_CLAUDE_PROFILES = {k:v for k,v in CLAUDE_PROFILES.items() if k.startswith(GATED_CLAUDE)}
+MINIMAX = 'openrouter/minimax/minimax-m3.1-flash'
 
 FIXTURES = Path(__file__).with_name('fixtures')
 PAID = json.loads(gzip.decompress((FIXTURES/'router-paid-deepseek.json.gz').read_bytes()))
@@ -98,7 +101,8 @@ class MaximaTests(unittest.TestCase):
                 if actual.route in CLAUDE_PROFILES:
                     cap = CLAUDE_PROFILES[actual.route]
                     self.assertEqual((actual.max_usd, actual.max_input_tokens, actual.max_output_tokens),
-                                     (float(cap), int(cap * 5000000), int(cap * 50000)))
+                                     (float(cap), int(cap * (2000000 if actual.route.startswith(GATED_CLAUDE45) else 5000000)),
+                                      int(cap * (40000 if actual.route.startswith(GATED_CLAUDE45) else 50000))))
                 else:
                     self.assertIn(actual.route, GATED_OPENROUTER)
                 store.rpc('finish',dict(lease_id=actual.lease_id,outcome='denied',receipt=None))
@@ -150,7 +154,7 @@ class MaximaTests(unittest.TestCase):
             store.rpc('finish',dict(lease_id=record['lease_id'],outcome='denied',receipt=None))
 
     def test_small_profiles_serialize_even_zero_output_requests(self):
-        for model in CLAUDE_PROFILES.keys() - {GATED_CLAUDE}:
+        for model in LEGACY_CLAUDE_PROFILES.keys() - {GATED_CLAUDE}:
             state = gate.Allowance(lease(model),deadline=time.monotonic()+5)
             first = state.reserve(0); self.assertIsNotNone(first)
             waited = threading.Event(); original = state.condition.wait
@@ -234,7 +238,7 @@ class MaximaTests(unittest.TestCase):
         parser.feed(payload);self.assertIsNone(parser.final())
 
     def test_real_writer_partial_estimator_uses_captured_cli_mode_surface(self):
-        for model in CLAUDE_PROFILES:
+        for model in LEGACY_CLAUDE_PROFILES:
             capture=json.loads(gzip.decompress((FIXTURES/'router-claude-mode-cli.json.gz').read_bytes()))
             wanted={'b741739e-bdec-4272-8b41-4a7703b02d52:result','013eaa17-daa9-49f9-9ad5-c88288cd5d11:result'}
             writers=[e for c in PAID for e in c['continuation_budget']['events'] if e['id'] in wanted]
@@ -592,7 +596,7 @@ class MaximaTests(unittest.TestCase):
 
 class ProtocolTests(unittest.TestCase):
     def setUp(self):
-        self.seen=[];self.failure=False;self.malformed=False;self.stalled=None
+        self.seen=[];self.failure=False;self.malformed=False;self.stalled=None;self.responses=None
         self.https_connection=http.client.HTTPSConnection
         owner=self
         class Upstream(BaseHTTPRequestHandler):
@@ -601,7 +605,7 @@ class ProtocolTests(unittest.TestCase):
                 raw=self.rfile.read(int(self.headers['Content-Length']))
                 owner.seen.append((self.path,json.loads(raw),dict(self.headers)))
                 usage=dict(input_tokens=1,cache_read_input_tokens=0,cache_creation_input_tokens=0,output_tokens=1)
-                data=b'not valid usage' if owner.malformed else sse(usage)
+                data=owner.responses.pop(0) if owner.responses else b'not valid usage' if owner.malformed else sse(usage)
                 self.send_response(503 if owner.failure else 200)
                 self.send_header('Content-Type','text/event-stream')
                 if owner.stalled is None or owner.stalled.content_length:
@@ -624,7 +628,7 @@ class ProtocolTests(unittest.TestCase):
         threading.Thread(target=self.upstream.serve_forever,daemon=True).start()
         self.addCleanup(self.upstream.server_close);self.addCleanup(self.upstream.shutdown)
         def connect(host,**kwargs):
-            self.assertEqual(host,'api.anthropic.com')
+            self.assertIn(host,('api.anthropic.com','openrouter.ai'))
             return http.client.HTTPConnection('127.0.0.1',self.upstream.server_port,**kwargs)
         mock=patch.object(gate.http.client,'HTTPSConnection',side_effect=connect);mock.start();self.addCleanup(mock.stop)
 
@@ -706,7 +710,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual((cap['unknown_requests'],cap['in_flight_requests']),(1,0))
 
     def test_runtime_close_mid_response_retains_hold_once(self):
-        for route in CLAUDE_PROFILES:
+        for route in [*CLAUDE_PROFILES, MINIMAX]:
             for protocol,close_header in (('HTTP/1.1',False),('HTTP/1.1',True),('HTTP/1.0',False)):
                 with self.subTest(route=route,protocol=protocol,close_header=close_header):
                     self.upstream.RequestHandlerClass.protocol_version=protocol
@@ -743,8 +747,13 @@ class ProtocolTests(unittest.TestCase):
         # Synthetic transport fault through the real gate, runtime receipt writer
         # and accountant. Optional real local client process, never a provider CLI
         # or live worker. Protocol bytes and job authority are synthetic.
+        paid = model == MINIMAX
+        maximum = Decimal('0.690001') if paid else CLAUDE_PROFILES[model]
+        hold = Decimal('0.23' if paid else '2.409600' if model.startswith(GATED_CLAUDE45) else '8.655360')
+        provider = model.partition('/')[2] if paid else claude_profile(model)['model'].partition('/')[2]
         prefix=sse(dict(input_tokens=1,cache_read_input_tokens=0,
-                        cache_creation_input_tokens=0,output_tokens=1)).split(b'\n\n')[0]+b'\n\n'
+                        cache_creation_input_tokens=0,output_tokens=1),model=provider).split(b'\n\n')[0]+b'\n\n'
+        if paid: prefix=b'data: '+json.dumps(dict(id='synthetic',model=provider,choices=[])).encode()+b'\n\n'
         self.stalled=SimpleNamespace(prefix=prefix,release=threading.Event(),attempted=threading.Event(),
                                      close_header=close_header,content_length=content_length,
                                      wait_seconds=60 if real_cli else 30)
@@ -759,29 +768,35 @@ class ProtocolTests(unittest.TestCase):
             finally:handler_done.set()
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);(root/'transcripts').mkdir();ram=root/'ram';ram.mkdir()
-            (ram/'claude-factory-token-2').write_text('synthetic-only')
+            account = 'openrouter-key' if paid else 'claude-factory-token-2'
+            (ram/account).write_text('synthetic-only')
             deadline=float(int(time.time())+3600)
             channel=dict(schema=1,batch='synthetic',job='interrupt',case='case-interrupt',
                 reservation_id=str(uuid.uuid4()),revision=1,source_generation=None,
-                committed_total_usd=f'{CLAUDE_PROFILES[model]:.9f}',batch_deadline=router.utc(deadline))
+                committed_total_usd=f'{maximum:.9f}',batch_deadline=router.utc(deadline))
             c=SimpleNamespace(work=root,case=root,ledger=root/'ledger.json',
                 args=run.argument_parser().parse_args(['--source','hunt']),
                 card={'roles':{'writer':{'model':model}}},
                 case_id=channel['case'],batch_id=channel['batch'],job_id=channel['job'],
                 batch_deadline=deadline,source_generation=None,
                 job_money=copy.deepcopy(channel),authenticated_job_config={'job_money':copy.deepcopy(channel)},
-                router_accounts=('claude-factory-token-2',))
+                router_accounts=(account,))
             c.role_cancel=threading.Event()
             c.ledger.write_text(json.dumps({'cost':0,'calls':0,'events':[]}))
             store=router.Store(root/'router.sqlite')
             runtime=model_runtime.ModelRuntime(root,Mock(),Mock(),lambda p,**kw:shutil.rmtree(p),Mock())
             def client(env):
                 from urllib.parse import urlsplit
-                url=urlsplit(env['ANTHROPIC_BASE_URL'])
+                cfg=json.loads(env['OPENCODE_CONFIG_CONTENT'])['provider']['openrouter']['options'] if paid else None
+                url=urlsplit(cfg['baseURL'] if paid else env['ANTHROPIC_BASE_URL'])
+                request = dict(model=provider,messages=[{'role':'user','content':'synthetic'}],stream=True) if paid else body()
+                request['model']=provider
+                path='/api/v1/chat/completions' if paid else '/v1/messages'
+                bearer=cfg['apiKey'] if paid else 'synthetic-only'
                 connection=http.client.HTTPConnection(url.hostname,url.port,timeout=30)
                 try:
-                    connection.request('POST','/v1/messages',json.dumps(body()),
-                        {'Authorization':'Bearer synthetic-only','Content-Type':'application/json'})
+                    connection.request('POST',path,json.dumps(request),
+                        {'Authorization':'Bearer '+bearer,'Content-Type':'application/json'})
                     response=connection.getresponse();self.assertEqual(response.status,200)
                     first=response.read(len(prefix));self.assertEqual(first,prefix)
                     received.set()
@@ -800,7 +815,7 @@ class ProtocolTests(unittest.TestCase):
                     "url=urlsplit(os.environ['ANTHROPIC_BASE_URL'])\n"
                     "conn=http.client.HTTPConnection(url.hostname,url.port,timeout=60)\n"
                     "try:\n"+
-                    f" conn.request('POST','/v1/messages',{json.dumps(body())!r},"+
+                    f" conn.request('POST','/v1/messages',{json.dumps(dict(body(),model=provider))!r},"+
                     "{'Authorization':'Bearer '+os.environ['CLAUDE_CODE_OAUTH_TOKEN'],"+
                     "'Content-Type':'application/json'})\n"
                     " response=conn.getresponse()\n"+
@@ -816,8 +831,9 @@ class ProtocolTests(unittest.TestCase):
                 self.assertIn(result.returncode,(0,1),result.stderr)
                 return result.stdout.strip()
             def execute(cmd,cwd,env,*args,**kw):
-                self.assertEqual(cmd[cmd.index('--model')+1],GATED_CLAUDE.partition('/')[2])
-                self.assertEqual(env['CLAUDE_CODE_OAUTH_TOKEN'],'synthetic-only')
+                self.assertEqual(cmd[cmd.index('-m' if paid else '--model')+1],model if paid else provider)
+                if paid: self.assertNotIn('OPENROUTER_API_KEY',env)
+                else: self.assertEqual(env['CLAUDE_CODE_OAUTH_TOKEN'],'synthetic-only')
                 self.assertEqual(c.model_lease.route,model)
                 observed['gate']=kw['cancel']
                 if real_cli:
@@ -847,6 +863,8 @@ class ProtocolTests(unittest.TestCase):
             try:
                 with patch.object(router,'_rpc',store.rpc),patch.object(router,'SECRETS',ram), \
                      patch.object(model_runtime,'pinned_cli',return_value=str(executable) if real_cli else 'synthetic-no-cli'), \
+                     patch.object(model_runtime,'_opencode_flags',return_value=[]), \
+                     (patch.object(gate.sys,'platform','linux') if paid else nullcontext()), \
                      patch.object(model_runtime,'run_budgeted',side_effect=execute), \
                      patch.object(gate.Handler,'do_POST',handle):
                     future=pool.submit(runtime.call,c,[model],'synthetic',root,'builder-1',
@@ -886,13 +904,13 @@ class ProtocolTests(unittest.TestCase):
                     self.assertEqual([cap[k] for k in ('forwarded_requests','validated_requests',
                         'unknown_requests','in_flight_requests')],[1,0,1,0])
                     self.assertEqual(Decimal(cap['settled_usd']),0)
-                    self.assertEqual(Decimal(cap['held_usd']),Decimal('8.655360'))
+                    self.assertEqual(Decimal(cap['held_usd']),hold)
                     self.assertTrue(cap['closed']);self.assertFalse(cap['exhausted'])
                     ledger=json.loads(c.ledger.read_text());row,=ledger['invocation_reservations'].values()
-                    self.assertEqual(row['maximum_usd'],f'{CLAUDE_PROFILES[model]:.9f}')
+                    self.assertEqual(row['maximum_usd'],f'{maximum:.9f}')
                     self.assertEqual(row['state'],'estimated')
-                    self.assertEqual(row['estimated_gap_usd'],'8.655360000')
-                    self.assertEqual(Decimal(str(budget.case_spending(ledger)['total_spent_usd'])),Decimal('8.655360'))
+                    self.assertEqual(row['estimated_gap_usd'],f'{hold:.9f}')
+                    self.assertEqual(Decimal(str(budget.case_spending(ledger)['total_spent_usd'])),hold)
                     self.assertEqual(ledger['events'],[])
                     before=c.ledger.read_bytes()
                     self.stalled.release.set();self.assertTrue(self.stalled.attempted.wait(5))
@@ -918,7 +936,7 @@ class ProtocolTests(unittest.TestCase):
                     except ProcessLookupError:pass
 
     def test_successful_cli_cannot_hide_gate_unknown_usage_in_real_runtime_receipt(self):
-        for model in CLAUDE_PROFILES:
+        for model in LEGACY_CLAUDE_PROFILES:
             with tempfile.TemporaryDirectory() as temporary:
                 root=Path(temporary);(root/'transcripts').mkdir();ram=root/'ram';ram.mkdir()
                 (ram/'claude-factory-token-2').write_text('synthetic-oauth-only')

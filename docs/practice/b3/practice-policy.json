@@ -1,0 +1,43 @@
+{
+  "batch": {
+    "id": "b-practice-20261031",
+    "manifest_path": "factory/batches/b-practice-20261031.json",
+    "manifest_sha256": "90ce53cabe2504d6cac69eb23b6a4fcd002a85f8484e6d85c7e9c1bed401e928",
+    "max_concurrency": 1,
+    "release": "/home/user/.unbug-control/releases/b3-bc33fe52fe05805cc771ff45f3aee65b928e3b65",
+    "sha256": "edec739d9ecb7631d1eaf0dff60739b3c81e7ebcf9a851277c06f3cc59b5fc03"
+  },
+  "code_sha256": "55a16dd248fb7bd2987e7c71a4fb24de7e4f6ea06d52907383f15b7cbdfa643e",
+  "jobs": {
+    "practice": {
+      "args": [
+        "1",
+        "--source",
+        "port",
+        "--rotation-slot",
+        "0",
+        "--dry-run",
+        "--ttl-hours",
+        "1",
+        "--max-spend",
+        "5"
+      ],
+      "case": "case-b-practice-20261031-practice",
+      "claude_accounts": [
+        2
+      ],
+      "initial_accounts": {
+        "claude": 2
+      },
+      "mode": "batch",
+      "opencode_accounts": [
+        1,
+        2
+      ],
+      "requested_total_usd": "20.000000000"
+    }
+  },
+  "path": "/usr/local/bin:/usr/bin:/bin",
+  "recipient": "age17aef2zj3vd3zj60gtaldwu4383z79wpp9dt2rgth3s7umk9thskqngw6xv",
+  "root": "/BLOCKED/b3-not-approved-for-launch"
+}

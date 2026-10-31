@@ -259,14 +259,21 @@ with open(os.environ['TEST_DOCKER_CALLS'],'a') as f:
 
 class SupervisorTests(unittest.TestCase):
     def test_real_runner_early_import_and_ready_boundary(self):
-        for dependency, ready, attempts in (('gate_pipeline.py', False, 3), ('free_models.py', True, 1)):
+        for dependency, ready, attempts in (('gate_pipeline.py', False, 3), ('run.py', True, 1)):
             with self.subTest(dependency=dependency), tempfile.TemporaryDirectory() as tmp:
                 home = Path(tmp); factory = home / 'factory'
                 factory.mkdir()
                 for path in (ROOT / 'factory').glob('*.py'):
                     shutil.copy2(path, factory / path.name)
                 self.assertEqual((factory / 'run.py').read_bytes(), (ROOT / 'factory/run.py').read_bytes())
-                (factory / dependency).write_text('raise ImportError("injected dependency unavailable")\n')
+                target = factory / dependency
+                if ready:
+                    # The unused free_models startup import was deleted. Inject at
+                    # the same post-ready boundary without restoring that dependency.
+                    target.write_text(target.read_text().replace('    inherit_recovery_history(c, prev_card)',
+                        '    raise ImportError("injected post-ready failure")'))
+                else:
+                    target.write_text('raise ImportError("injected dependency unavailable")\n')
                 # Preserve the recorded source/routes/caps, using a fresh dry-run namespace.
                 args = worker_args(); fresh = []; i = 0
                 while i < len(args):

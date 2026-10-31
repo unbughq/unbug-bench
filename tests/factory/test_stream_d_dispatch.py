@@ -199,7 +199,6 @@ run.stop_pilot=lambda *a: False
 run.seal=lambda *a,**k: None
 run.pilot_homes=lambda: []
 founder_ruling.context=lambda c: None
-free_models.first_resume=lambda *a: False
 job_config.install=install
 if fault == 'execute' or fault.startswith('mode:'): batch_service.DIAGNOSIS_ENABLED=True
 if fault == 'execute':

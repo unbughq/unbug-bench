@@ -1,0 +1,44 @@
+{
+  "cloud_known": true,
+  "directory_timestamp_consistent": true,
+  "execution_binding": false,
+  "intact_history": false,
+  "sources": {
+    "bin/boat-launch-guards.sh": {
+      "ctime_before_launch": false,
+      "matches": [
+        {
+          "blob": "f1bab0c156688e597a12473ff0f8939c54d5d90a",
+          "commit": "493634773d57a0d6c3701b7451f63b40ceaaa61a"
+        }
+      ],
+      "observed_sha256": "3001e90436fa701afa7550ec8e24bee3482fefdce0fd192257550ea3d32c74cc"
+    },
+    "bin/boat-spend": {
+      "ctime_before_launch": false,
+      "matches": [
+        {
+          "blob": "2597e4026001e997deedf25474d7a7da2f45076d",
+          "commit": "493634773d57a0d6c3701b7451f63b40ceaaa61a"
+        }
+      ],
+      "observed_sha256": "f50e0caca24a36204d6053a298718eaaac7364c85ba0af3dfd0220436845c349"
+    },
+    "factory/control_resume.py": {
+      "ctime_before_launch": false,
+      "matches": [
+        {
+          "blob": "cdd08ea1c0bad2228a046eab75311c8a9aee095e",
+          "commit": "cfe4ad84c21fc2eaaacc06c63661d3cdb4afd519"
+        }
+      ],
+      "observed_sha256": "5fc31eb072d372c89dba95bf192678a49c093d7e1c1a99ef3fc66886c63f2bb3"
+    },
+    "factory/launch.sh": {
+      "ctime_before_launch": false,
+      "matches": [],
+      "observed_sha256": "5a9d03ba49cbb445fcb0dfefbdbb928bd7ed9a43155b07a3373cf676036c911d"
+    }
+  },
+  "verdict": "unresolved"
+}

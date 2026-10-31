@@ -1,0 +1,8 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "started_utc": "2026-10-31T14:49:17.645784+00:00",
+  "finished_utc": "2026-10-31T15:17:59.361803+00:00",
+  "exit_code": 0,
+  "log": "docs/reviews/stream-d-qualified-allowances-suite-20261031T144917Z-7e4fe9b8.log",
+  "scope": "Offline full suite after correcting obsolete post-ready fault injection; no live qualification or Murphy closure."
+}

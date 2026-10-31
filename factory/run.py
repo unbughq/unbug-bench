@@ -522,7 +522,10 @@ def build(c):
     """Writer and stress tester rounds, then a search top-up for whichever role logged too few (G2)."""
     prev = jload(c.work / "scorecard.json", {}) if getattr(c.args, 'resume', None) else {}
     from founder_ruling import context as ruling_context
-    ruling = ruling_context(c)
+    ruling = None if model_runtime.factory_job(c) else ruling_context(c)
+    reject_legacy_final_repair(c)
+    if model_runtime.factory_job(c) and str(prev.get('terminal_stop', '')).startswith('late_defect_needs_ruling:'):
+        raise BudgetError(prev['terminal_stop'])
     # Resumed after a failure that was not the case's content (G2 search log, G3 bench build): keep the
     # written case, skip writer and stress tester; G2 gets its search top-up below.
     if prev.get("failed_gate") in ("G2", "G3"):
@@ -1117,6 +1120,11 @@ def loop_freshness(c, result, report):
     return result, writer_report
 
 
+def reject_legacy_final_repair(c):
+    if model_runtime.factory_job(c) and jload(c.work / "attack-state.json", {}).get("final_repair"):
+        attack_unresolved(c, "invalid_recovery_receipt")
+
+
 def write_and_attack(c, prev, *, extension_id=None):
     """Alternate within whole-case list-price budget and the safety round cap."""
     from founder_ruling import context as ruling_context, feedback_allowed
@@ -1124,6 +1132,7 @@ def write_and_attack(c, prev, *, extension_id=None):
     if modern:
         import job_authority
         job_authority.for_case(c)
+        reject_legacy_final_repair(c)
         with model_runtime.dispatch(c, 'resume'): resume_provider_wait(c)
     extension = None
     if extension_id is not None:
@@ -1358,7 +1367,7 @@ def write_and_attack(c, prev, *, extension_id=None):
                 attack_unresolved(c, "unfinished_validation")
             # The founder retains these findings as writer feedback only. They
             # cannot grant a stress pass under this release's judging binding.
-            authorized_feedback = (not pending_review and saved is not None and
+            authorized_feedback = (not modern and not pending_review and saved is not None and
                 not set(binding_changed) - {'source', 'bench', 'prompt', 'models'} and
                 feedback_allowed(c, receipt, report, findings))
             if authorized_feedback:
@@ -3001,8 +3010,10 @@ def run_gates(c):
 def validate_and_repair(c):
     """Repair case defects on this worker; infrastructure and budget errors propagate."""
     repairable = {"G4", "G5", "G6", "G8", "G9", "G11", "G13", "G14", "G15", "G16", "G17"}
-    limit = getattr(c.args, "max_repairs", 2)
-    for attempt in range(limit + 1):
+    modern = model_runtime.factory_job(c)
+    limit = None if modern else getattr(c.args, "max_repairs", 2)
+    attempt = 0
+    while True:
         if not c.args.dry_run:
             from late_recovery import mark_gates
             mark_gates(c)
@@ -3018,10 +3029,10 @@ def validate_and_repair(c):
         if c.card.get('builder_rounds', 0) >= c.args.rounds:
             from late_recovery import stop_defect
             stop_defect(c, failed)
-        if attempt == limit: return
+        if not modern and attempt == limit: return
         before = case_hash(c)
         previous = copy.deepcopy(c.card)
-        log(c, "REPAIR", failed, f"{attempt + 1}/{limit}")
+        log(c, "REPAIR", failed, str(attempt + 1) if modern else f"{attempt + 1}/{limit}")
         # G10's executor has joined before any writer can mutate shared case files.
         for key in ("role_cancel", "calibrator_slot_offset", "votes", "review_hash",
                     "strategies", "early", "early_hash", "pilot_passes", "precheck_problems"):
@@ -3032,7 +3043,8 @@ def validate_and_repair(c):
         if case_hash(c) == before:
             c.card["repair_blocked"] = "repair made no case changes"
             return
-        c.card.setdefault("repairs", []).append({"attempt": attempt + 1, "failed_gate": failed})
+        attempt += 1
+        c.card.setdefault("repairs", []).append({"attempt": attempt, "failed_gate": failed})
         c.card["gates"] = {}
         c.card["gate_results"] = {}
         c.card["gate_minutes"] = {}
@@ -3215,7 +3227,7 @@ def main():
         p.error("rehearsal recipient is restricted to late-gate rehearsal")
     c.work = HOME / "work" / c.case_id
     c.case = c.work / "case"
-    if a.resume and not any(v == '--max-total-calls' or v.startswith('--max-total-calls=') for v in sys.argv[1:]):
+    if a.resume and not a.batch_release_sha256 and not any(v == '--max-total-calls' or v.startswith('--max-total-calls=') for v in sys.argv[1:]):
         saved = jload(c.work / ('g11-audit/scorecard.json' if a.continue_g11_review else 'scorecard.json'), {})
         # Omission preserves the issued ceiling; a new default cannot raise a restored case's allowance.
         a.max_total_calls = (saved.get('recovery_config') or saved.get('limits') or {}).get('max_total_calls', 1000)
@@ -3266,7 +3278,7 @@ def main():
         if a.resume and prev_card.get('batch_release_sha256') != a.batch_release_sha256:
             p.error('checkpoint release differs from batch; explicit migration required')
         c.card['batch_release_sha256'] = a.batch_release_sha256
-    if a.resume:
+    if a.resume and not a.batch_release_sha256:
         from founder_ruling import context as ruling_context
         ruling_context(c)
     inherit_recovery_history(c, prev_card)
@@ -3279,8 +3291,6 @@ def main():
     prepared = prev_card.get('factory_slots_prepared', 1)
     c.prepared_factory_slots = prepared if type(prepared) is int and prepared >= 1 else 1
     c.card['factory_slots_prepared'] = c.prepared_factory_slots
-    from free_models import first_resume as first_free_resume
-    c.free_transition_first = bool(a.resume and first_free_resume(c.case_id, prev_card, a))
     # Every gate reenters; only verified receipts authorize reuse of earlier work.
     if a.resume: c.card['resume'] = {"fresh_gates": True, "legacy_transcripts_preserved": True, "legacy_cost_excluded_from_continuation_ceiling": True}
     c.recipient = a.rehearsal_recipient if a.late_gate_rehearsal else FOUNDER_RECIPIENT
@@ -3289,8 +3299,6 @@ def main():
         from founder_decisions import record as record_founder_decisions
         record_founder_decisions(c)
         if a.resume:
-            from restart import raised_limits
-            explicit = lambda name: any(v == name or v.startswith(name + '=') for v in sys.argv[1:])
             from late_recovery import authenticate_gates
             authenticate_gates(c, prev_card)
         if a.batch_release_sha256 or a.factory_job_config or a.factory_job_config_sha256:
@@ -3312,7 +3320,9 @@ def main():
                             'late_gate_rehearsal', 'statement_only', 'skip_build')) or
                             hasattr(c, 'audit_source') or c.card.get('salvaged_from') or prev_card.get('salvaged_from')):
                         raise BudgetError('extension_execution_mode_invalid')
-        if a.resume and extension_id is None:
+        if a.resume and not model_runtime.factory_job(c):
+            from restart import raised_limits
+            explicit = lambda name: any(v == name or v.startswith(name + '=') for v in sys.argv[1:])
             c.limits_raised = raised_limits({**prev_card, 'continuation_budget': jload(c.ledger)}, a.case_budget, a.rounds,
                 explicit_budget=explicit('--case-budget'), explicit_rounds=explicit('--rounds'))
             c.card.update(c.limits_raised)
