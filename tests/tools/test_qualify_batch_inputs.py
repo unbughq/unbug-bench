@@ -133,6 +133,37 @@ class InputTests(unittest.TestCase):
         self.assertEqual(h.ops()[op['operation_id']]['incident'], 'preflight_refused')
         self.assertFalse(h.ops()[op['operation_id']]['dispatch_started'])
 
+    def test_git_lookup_failures_refuse_every_admission_surface(self):
+        h = self.h
+        errors = [FileNotFoundError(), subprocess.CalledProcessError(128, 'git'),
+                  subprocess.TimeoutExpired('git', 10)]
+        metadata = h.root / '.git'; metadata.symlink_to('absent-git-metadata')
+        for error in errors:
+            with self.subTest(error=type(error).__name__), patch.object(batch.subprocess, 'check_output', side_effect=error) as call:
+                with self.assertRaisesRegex(ValueError, 'request_refused'):
+                    holder.empty_input(h.root, h.directory, 'case-practice-j')
+                self.assertFalse(self.qualify()['eligible'])
+                with self.assertRaises(ValueError): h.reserve()
+                self.assertFalse((h.directory / 'money.json').exists())
+                self.assertFalse((h.directory / 'reservations.json').exists())
+                self.assertEqual(call.call_args.kwargs['timeout'], 10)
+                self.assertEqual(batch.restore_inventory(h.root), [])  # Legacy fallback only.
+        metadata.unlink()
+        for error in errors:
+            # Separate operation fixture so a previous terminal failure cannot mask the guard.
+            fresh = holder_fixtures.HolderTests('test_lifecycle_status_ack_retirement_source_and_replay')
+            fresh.setUp()
+            try:
+                op = fresh.reserve()
+                (fresh.root / '.git').symlink_to('absent-git-metadata')
+                with patch.object(batch.subprocess, 'check_output', side_effect=error):
+                    result, spawns = fresh.preflight(op)
+                self.assertIsInstance(result, ValueError); self.assertEqual(spawns, [])
+                saved = fresh.ops()[op['operation_id']]
+                self.assertEqual((saved['state'], saved['incident'], saved['dispatch_started']),
+                                 ('failed', 'preflight_refused', False))
+            finally: fresh.doCleanups()
+
     def test_permission_error_is_refusal(self):
         with patch.object(Path, 'lstat', side_effect=PermissionError):
             with self.assertRaisesRegex(ValueError, 'request_refused'):

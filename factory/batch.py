@@ -33,22 +33,22 @@ def save(path, value):
 
 
 def sealed_directories(root):
-    """Canonical ciphertext namespace and this checkout, without duplicates."""
+    """Canonical ciphertext namespace and this checkout; discovery must succeed."""
     directories = [root / 'sealed']
-    if not (root / '.git').exists(): return directories  # Installed releases have no Git metadata.
-    try:
-        common = Path(subprocess.check_output(['git', '-C', str(root), 'rev-parse',
-                                              '--git-common-dir'], text=True, stderr=subprocess.DEVNULL).strip())
-        common = (root / common).resolve() if not common.is_absolute() else common.resolve()
-        directories.insert(0, common.parent / 'sealed')
-    except (subprocess.CalledProcessError, OSError):
-        pass
-    return list(dict.fromkeys(directories))
+    try: (root / '.git').lstat()
+    except FileNotFoundError: return directories  # Installed releases have no Git metadata.
+    common = Path(subprocess.check_output(['git', '-C', str(root), 'rev-parse',
+                                          '--git-common-dir'], text=True,
+                                         stderr=subprocess.DEVNULL, timeout=10).strip())
+    common = (root / common).resolve() if not common.is_absolute() else common.resolve()
+    return list(dict.fromkeys([common.parent / 'sealed', *directories]))
 
 
 def restore_inventory(root):
     """Find canonical ciphertext through Git's common directory, then this checkout."""
-    for directory in sealed_directories(root):
+    try: directories = sealed_directories(root)
+    except (subprocess.SubprocessError, OSError): directories = [root / 'sealed']
+    for directory in directories:
         archives = sorted(directory.glob('*.checkpoint.tar.gz.age'))
         if archives:
             return archives

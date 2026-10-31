@@ -179,7 +179,9 @@ def empty_input(root, directory, case):
     from batch import sealed_directories
     from launch_manifest import collection_files
     paths = [directory / 'generations' / case, directory / 'current' / (case + '.json')]
-    for sealed in sealed_directories(root):
+    try: directories = sealed_directories(root)
+    except (subprocess.SubprocessError, OSError): raise ValueError('request_refused') from None
+    for sealed in directories:
         paths.extend(sealed / name for name in collection_files(case))
         paths.append(sealed / 'generations' / case)
     for path in paths:

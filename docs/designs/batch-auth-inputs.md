@@ -127,3 +127,12 @@ including mtimes in no-write tests; invoke Python with -B. Tests live in
  tests/factory/test_batch_holder.py and tests/tools/test_qualify_batch_inputs.py;
 existing tests/tools/test_migrate_legacy_checkpoints.py and
  tests/factory/test_restore_inventory.py must pass unchanged.
+
+## Diff-review clarification
+Canonical Git discovery under the batch lock has a 10-second timeout. Missing Git,
+failed Git, timeout, unreadable or dangling Git metadata refuse empty admission as
+plain ValueError, so dispatch terminates preflight rather than retrying forever.
+Only an absent .git entry means an installed release with no common checkout.
+The existing legacy restore_inventory fallback stays local-only on lookup errors;
+that fallback is not used by empty admission. The qualifier reports journal_present
+when an existing journal is observed under its shared lock.
