@@ -287,6 +287,8 @@ def _entry_evidence_root(c, history, snapshot):
     if history and history[-1]['outcome'] is not None:
         row = history[-1]
         parent = c.work / 'extension-snapshots' / str(row['extension_id'])
+        # This locates byte-identical evidence for the already-selected outcome;
+        # reverse location order cannot select a different scientific verdict.
         candidates = [(pair['outcome'], parent / ('comparison-' + digest(pair)) / 'outcome')
                       for pair in reversed(row['comparisons'])]
         candidates.append((row['outcome'], parent / 'outcome' / 'evidence'))

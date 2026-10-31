@@ -2624,7 +2624,11 @@ field is copied into the live card.
 ### Diff-review-1 resolution: portable scientific receipts and shared selection
 
 Blocker 1 and all nits accepted. This paragraph supersedes the earlier use of
-full gate_state.fingerprint in comparison receipts. Full live-run cache inputs
+full gate_state.fingerprint in comparison receipts. It also explicitly supersedes
+all earlier item-6 schema-1 field lists, "Require exact fingerprint" rules and
+stress-binding formulas containing seed/slot, including those in the isolated
+execution, exact-contracts and design-review-2 sections. The schema-2 field list
+and binding in this final resolution are authoritative. Full live-run cache inputs
 still bind worker count and slot conservatively; comparison uses the scientific
 partition from item 5. Its binding is now exactly
 `extensions.digest({stage, scientific_version, case_sha256})` for every stage.
@@ -2652,6 +2656,10 @@ reconstruction that cannot be verified returns pending without rerolling or
 appending a rival score. An opaque original may still be reconstructed. Item 7
 must call compare before propose; propose's docstring now states that it checks
 state and retained bytes, not the scientific truth of opaque originals.
+Item 7 must bound even an unverifiable retained score under the existing batch
+money/deadline authority: recover infrastructure evidence where possible and
+account its waste normally, otherwise retire at the bound. It must never retry
+this pending state indefinitely or discard a score to obtain a new verdict.
 
 Only malformed returned results/evidence are caught as pending. ValueError,
 TypeError and FileNotFoundError raised by evaluator code itself propagate with
