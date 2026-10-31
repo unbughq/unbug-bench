@@ -381,7 +381,7 @@ else: raise SystemExit(9)
         spend = self.home / 'spend.json'
         spend.write_text(json.dumps({'provider':'boat', 'balance_before_usd':10}))
         lost = self.home / 'lost-response'
-        lost.write_text('#!/bin/sh\nexit 124\n'); lost.chmod(0o755)
+        lost.write_text('#!/bin/sh\n[ -f "$UNBUG_LAUNCH_STATE/new.1.pending" ] || exit 99\ntouch "$UNBUG_LAUNCH_STATE/intent-seen"\nexit 124\n'); lost.chmod(0o755)
         script = r"""root=$1; state=$2; spend_file=$3; serial=0; bundle=''; label=factory
 ttl_seconds=$4; purpose=case; margin=1800
 . "$root/bin/boat-launch-guards.sh"
@@ -393,6 +393,7 @@ guard_exit 1
             'UNBUG_LAUNCH_STATE':str(state)}, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue((state / 'new.1.pending').exists())
+        self.assertTrue((state / 'intent-seen').exists())
         self.assertFalse((state / 'complete').exists())
         self.assertNotIn('finished_at', json.loads(spend.read_text()))
         self.assertIn('pending reconciliation', result.stderr)

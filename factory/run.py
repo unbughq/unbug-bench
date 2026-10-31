@@ -1124,7 +1124,6 @@ def write_and_attack(c, prev, *, extension_id=None):
     if modern:
         import job_authority
         job_authority.for_case(c)
-        install_publication_barrier(c)
         with model_runtime.dispatch(c, 'resume'): resume_provider_wait(c)
     extension = None
     if extension_id is not None:
@@ -2299,7 +2298,7 @@ def confirm_hits(c, flagged, *, retained_path=None):
             text = text.replace('"deleted" | null',
                 '"deleted" | "http_401" | "http_403" | "http_451" | "http_429" | "http_500" through "http_599" | "network_error" | null')
             text += (' Copy live_failure exactly from the runner receipt (including the actual three-digit HTTP status). '
-                     ' Access failures http_401/http_403/http_451/http_429/http_5xx/network_error '
+                     ' Access failures http_401/http_403/http_451/http_429/http_500–http_599/network_error '
                      'are not dead pages. Their archived snapshots can confirm a match but cannot clear one. '
                      'Keep a false or uncertain archived comparison unresolved while live access fails. '
                      'No snapshot clears only HTTP 404/410, DNS failure or confirmed deletion; '

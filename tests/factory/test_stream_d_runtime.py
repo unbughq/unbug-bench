@@ -68,7 +68,8 @@ class RuntimeTests(unittest.TestCase):
         args = run.argument_parser().parse_args(['--source', 'hunt', '--batch-release-sha256', 'a' * 64])
         writer, stress, reviewer, strong = ('claude/claude-opus-5-5', 'opencode/minimax-m3.1-flash-free',
                                            'openrouter/deepseek/deepseek-v4.1-flash', 'codex/gpt-6.1-sol')
-        self.c = c = SimpleNamespace(work=self.work, case=self.case, ledger=self.ledger, args=args,
+        self.c = c = run.Ctx()
+        vars(c).update(work=self.work, case=self.case, ledger=self.ledger, args=args,
             case_id=self.source['case'], seed=7, manifest0='public-practice-control-flow', role_cancel=threading.Event(),
             card={'case': self.source['case'], 'builder_rounds': 0, 'roles': {
                 role: {'model': model} for role, model in zip(('writer', 'stress_tester', 'reviewer', 'strong_calibrator'),
