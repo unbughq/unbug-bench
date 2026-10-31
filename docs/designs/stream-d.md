@@ -2145,3 +2145,570 @@ is protected only by `launch.sh:494`'s early return. Item 8's search exam
 must keep it unreachable. N2: accepted. Add `--continue-g11-review` to
 `batch.bind`'s forbidden set. N3: noted. The `gate_state` literal stays 5,
 because it is the non-factory default.
+
+
+### Fourth increment: ordinary retry bounds (lane 1, 2026-10-31)
+
+Problem. Batch calls already use the router and cumulative money authority, but
+G2 consumes a two-attempt defect allowance for expiry and HTTP outages consume
+mechanical-execution retries. Stress cannot identify completed categories.
+Malformed JSON stops instead of repairing the answer already bought.
+This is batch-only. Legacy bounds remain. No cases launch, diagnosis stays off,
+and items 5–7 are not implemented here.
+
+Change.
+
+1. Add durable ordinary-retry helpers under the private work directory. Retry
+   declared retrieval failures (InvalidInfra) with capped backoff, checking
+   authenticated job authority and cancellation before attempts and during waits.
+   Record transport failures separately from completed invalid work. No transport
+   retry count retires a funded case. Absolute batch deadline bounds transport;
+   actual model costs remain charged by ModelRuntime. Mechanical invalid-execution
+   policy stays with C. Batch launch already bypasses legacy restart/holder caps;
+   prove that boundary rather than removing protection from legacy launches.
+2. Factory G2 refreshes expired rows on every entry, not once per restore. Two
+   unsuccessful COMPLETED defect repairs remain distinct from refresh/transport
+   work. A provider wait or timeout never increments that counter. Existing
+   inflight merge retains old rows. Refresh trusted HTTP receipts before reuse,
+   retaining superseded response directories. Flagged and unflagged HTTP failures
+   use transport retry, with the unflagged fallback specified below. Confirmed
+   missing page/archive keeps existing semantics.
+   Final G2 invokes the freshness preparer, so aging after admission refreshes
+   automatically. Recheck expiry before reuse; stale evidence never passes.
+   Substantive unresolved review remains unresolved.
+3. Batch dedup, idea realism, G2 confirmation, G8/G9 and stress use retained-output
+   repair. Identity includes logical inputs, schema contract and requested model,
+   never timestamped paths. Persist raw answer and validation error before repair.
+   One schema-only repair per approved route for an identity, then exclude the
+   route through A's router. Repair prompt supplies retained answer and schema,
+   not a request for new investigation. Provider interruption keeps the pending
+   repair; only completed invalid repair spends a route. Account changes are not
+   new model routes. Exhaustion raises a distinct deterministic-output stop,
+   never writer feedback. Valid completed output is reusable for exact identity;
+   pending output without completion marker cannot grant a verdict. Validators
+   keep their scientific criteria.
+4. Batch stress runs the existing prompt in four categories: wrong fixes,
+   case/freshness, fairness, V2 strategies. Each call gets only an unfinished
+   category plus retained findings. Save separate category reports with binding,
+   completion marker and digest. Aggregate all blocking findings, unfinished
+   validation and freshness requests. Partial reports survive interruptions but
+   cannot grant coverage. Changed case/judging binding starts fresh coverage and
+   retains old files. Stop early on a definite blocker as before. Calls retain
+   writer round and stress operation. The diagnostic execution guard remains
+   shared across categories for the round (`attacker-{round}`); no new
+   diagnostics are granted.
+   Completed output with unfinished validation cannot complete its category.
+   Malformed categories use retained-answer repair. Modern receipt resume must
+   allow unfinished validation to reach category continuation. Legacy reports
+   stay readable.
+
+Publication. Each completed category is locally atomic and uses the existing
+quiescent encrypted checkpoint before another category. For production batches
+(recipient present, not dry-run), force checkpoint without the 15-minute throttle
+and require remote_durable. Failure retries publication in place under batch authority before paid work;
+there is no new checkpoint_pending terminal stop. This uses the existing uploader's remote
+receipt, not a new holder ACK protocol. Stronger B immutable-generation ACK is
+an item-8 activation prerequisite, not a claim of this increment.
+
+Lane-2 interface: category reuse takes attack_binding(c) as opaque JSON. Lane 2
+may narrow it to scientific dependencies. No per-gate version or comparison
+changes here.
+
+Deletes: batch expiry's two-attempt allowance, two-attempt HTTP retry cap,
+whole-review restart for unfinished coverage, and malformed-output terminal
+branches. Legacy and mechanical gate retry policy remains.
+
+Tests use the hash-verified practice case, captured 5813be ledger, retained
+real HTTP fixtures and saved stress reports. Model outputs, interruptions and
+clock changes are authored inputs. Test more than old retry bounds before
+success; cancellation/deadline in backoff; repeat expiry without defect debit;
+completed defect exhaustion; retained-answer repair across wait/restart; approved
+route exhaustion and changed-input reset; no added writer round. Kill a later
+stress category, restore tree, assert earlier bytes/findings survive and only
+unfinished categories dispatch. Missing remote publication blocks next paid
+call. Changed binding cannot reuse coverage. Exercise real dedup, idea, G2,
+G8/G9 and stress callers. Run full suite and commit its completed record.
+
+Rows targeted for closure: 11 (batch waits/transport), 12 (refresh/retrieval),
+15 (schema repair within approved equivalent chains). Row 13 remains open for
+item 7/8 diagnostic recovery; item 4 adds incremental stress coverage only.
+Close only with corresponding real-artifact tests;
+no legacy-path or live-qualification claim. Item 7 stays separate.
+
+
+Fourth-increment design review 2 resolutions (all accepted).
+
+Refresh progress. A refresh call which completes but leaves any targeted row
+expired consumes one of the two completed-defect attempts. A successful refresh
+consumes none. A completed no-op is unsuccessful, even if IDs or formatting
+changed. A wait, timeout or kill leaves a pending refresh and consumes no
+completed-defect attempt. Re-entry validates the retained call completion before
+charging it; a completed failed repair is charged exactly once. Reaching two
+unsuccessful completed repairs raises `freshness_evidence_unavailable`.
+
+Unflagged transport. Each unflagged URL gets a 120-second monotonic retrieval
+window per G2 invocation (including backoff), bounded also by batch authority.
+At that window's end, keep its old rows and bytes, mark the URL unfetched and
+use the existing alternative-search top-up. This is exclusion from evidence,
+never clearance. HTTP timeout is capped by the remaining window. Flagged URLs
+cannot be excluded this way: they remain pending through transport retry until
+retrievable or the batch deadline. Confirmed 404/archive-no-copy still uses the
+existing explicit unreachable verdict. Successful fetches are reused, so other
+URLs do not lose progress. This replaces the former one-shot unflagged fallback
+with bounded retries, not with a wait until batch retirement.
+
+Schema journal. `factory/ordinary_retry.py` owns a version-1 record per canonical
+input/schema/model digest under `work/ordinary-retries/<digest>/state.json`.
+Fields include binding, phase, spent_routes (model route strings, never accounts),
+pending_route, retained_answer path/digest, validation_error, output path/digest,
+and completed-call marker. Raw answers use immutable attempt-number filenames.
+Re-entry reconstructs exclusions for EVERY approved lane whose route is spent,
+by enumerating `model_router.routes(requested, accounts)`. Exclusions are scoped
+to the helper call; transport exclusions are not written as deterministic spent
+routes. Before admission, if every approved route is spent, the helper raises
+`malformed_output_exhausted`. It never asks the router to wait in that condition.
+The next approved route receives a schema-only repair of the same retained
+original answer and schema, not a fresh scientific call. A valid repair is not
+allowed to turn missing knowledge into a scientific claim: the schema permits
+unresolved/incomplete output and the prompt requires preserving uncertainty.
+The original route gets one completed repair too. Pending repairs interrupted by
+transport resume without spending a route. Completed malformed repairs spend
+one route atomically; completion markers prevent recharging on replay. Changed
+logical inputs or schema start a new digest and retain prior records.
+
+Stress contract. `factory/stress_progress.py` defines ordered stable IDs
+`wrong_fixes`, `case_freshness`, `fairness`, `v2_strategies`. Its request names
+exactly one category and uses a category-specific contract added to
+`factory/prompts/attacker.md`. In category mode, `category` is that exact ID and
+`category_complete` is a boolean; `complete` does not authorize whole-review
+completion. The runner maps category_complete into the existing report shape
+only when validating that category, and requires no unfinished_validation for
+coverage. The aggregate, not the model, computes whole-review `complete` from
+all four validated category markers. A nonempty definite blocker can return
+feedback before all coverage finishes. Partial findings stay in their category
+file, and are included in continuation prompts. Category IDs and markers live
+in `work/attacks/round-N-categories/<binding-sha256>/state.json`, with separate
+`<category>.json` reports. Completion digests bind exact bytes. The prompt edit
+intentionally changes attack_binding's prompt hash: existing saved stress
+receipts rerun once under this contract, never silently grant category coverage.
+
+Files and sequence. First implement ordinary_retry.py and its real-artifact
+tests in tests/factory/test_stream_d_retries.py, without changing
+bin/run_validity.retry. Then integrate G2 in run.py (ensure_freshness,
+freshness_topup, g2, confirm_hits) and timeout/generation handling in
+freshness_retrieval.py. Then integrate retained-answer handling in
+statement_precheck, idea_realism, review and confirm_hits. Finally implement
+stress_progress.py and the attacker prompt contract, joining it at
+write_and_attack and testing resume there. Tests exercise each producer before
+the next phase. No gate_state or extension-comparison changes.
+
+HTTP generations. Before replacing an existing retrieval directory, rename it
+to `<name>-superseded-<uuid4hex>` beside the active directory; never overwrite
+old response bytes. A fresh generation owns its receipts.json and body files.
+A partial failed generation is retained the same way before retry. Publication
+copies these with the private work tree.
+
+Publication scope. Failure blocks all subsequent model dispatch for this case,
+not only stress. Before checkpointing a category, persist a stress publication
+pending marker in its state. The runner checks that marker before any new model
+call, retries the quiescent checkpoint, and clears it only after the new
+`durable-checkpoint.json` reports remote_durable true. A prior successful receipt
+cannot clear a newer pending marker: require the checkpoint call performed for
+that marker to succeed. On crash after upload but before clearing, another
+checkpoint is safe. This uses existing whole-tree upload, not a holder ACK.
+Up to four forced full archive uploads per stress round add time/storage cost;
+item 8 must qualify that overhead before activation. Principal risk is accidental
+reuse of incomplete coverage; digest/marker and interruption tests target it.
+
+
+Fourth-increment design review 3 resolutions (all accepted; these details
+supersede earlier ambiguous wording).
+
+Stress operation state machine. One schema-v2 attack-state operation_id spans
+all categories and schema repairs for one stress round and binding. Its report
+always names the runner-written aggregate round-N.json. The category helper
+never substitutes a category path into attack-state. While ANY required category
+is pending, attack-state stays phase=pending, review_pending=true, with no
+review_completed marker. Category calls use pending_call with that same receipt,
+but their on_complete callback commits only their category completion and
+rewrites the aggregate; it does NOT complete attack-state. The aggregate is
+rewritten atomically after every category return (also on interruption in a
+finally block after the model process joins), preserving all parsed partial
+findings. Interrupted partial bytes remain separately even when unparseable.
+Only all four completed categories, or an explicit definite blocking finding,
+complete the stress operation. The runner then writes aggregate digest to both
+output_sha256 and review_completed.report_sha256, clears review_pending and
+sets phase=completed, followed by existing validation/feedback and phase=validated.
+A definite finding may end the round early but never grants a stress pass.
+
+The receipt has category_mode=1 and category_state pointing to the bound state
+file. On resume, this mode branches BEFORE the legacy saved-report unfinished
+validation and authentication decisions. Validate operation/round/binding and
+category digests; if the same binding is pending, retain the aggregate and call
+the category helper on the same operation without review_admitted renaming it.
+Completed categories skip calls; unfinished ones continue with retained output.
+A completed aggregate authenticates against its receipt before normal feedback
+or pass. Changed binding creates new coverage and a new operation_id (same writer
+round), retaining all old files. A legacy receipt without category_mode retains
+legacy validation rules and starts new category coverage when it needs rereview.
+The helper cannot return a passing aggregate with any category incomplete.
+
+Mechanical schema-repair guard. A repair cannot supply new scientific values.
+Before calling repair, parse the retained answer as JSON (allow only stripping
+a single surrounding markdown JSON fence). Extract the caller's decision
+projection ONLY if every required decision field is already present with the
+right type. After repair, require EXACT equality of that projection; otherwise
+that repair is invalid and spends its route. Dedup projection is duplicate_of;
+idea projection is approve; panel projection is both fairness.approve and
+realism.approve; G2 projection is the ordered list of URL/resolved/same_bug/
+retrieved/retrieved_from/archive_checked/archive_available/archive_snapshot_url/
+live_failure/app_version/version_scope, with the same optional-field defaults
+as its existing validator; stress projection includes category,
+category_complete, blocking, unfinished_validation, freshness_review and
+cheats_tried. This is deliberately conservative: malformed syntax that cannot
+be decoded, missing scientific fields, and empty/missing output cannot be
+repaired into ANY decision. They still get the schema-only attempt (which can
+return an unresolved envelope), but cannot approve, reject, clear freshness or
+be sent to the writer. This avoids heuristic extraction of a word like true
+from prose. Repair may fix non-decision shape/metadata only when a trustworthy
+projection exists, and still must pass the existing caller validator.
+
+Unresolved is an adapter envelope {status: unresolved, reason: ...}, not a new
+scientific verdict schema. Every caller handles it identically: spend that
+completed repair's route, try the next approved route on the same original
+answer, then raise malformed_output_exhausted when none remain. Never return
+it as dedup clear, an idea rejection, a panel vote, G2 clearance or stress
+feedback. A missing/empty output after a successful CLI completion is malformed;
+if the call did not complete it is pending transport work, never eligible for
+schema repair. No new full investigation is hidden inside a repair call.
+
+Freshness outage accounting. At each G2 pass distinguish row metadata defects
+from runner transport-unfetched rows. If every otherwise eligible row failed
+transport, retry retrieval with capped backoff instead of launching any model
+top-up. Partial transport failure still permits alternative-search top-up after
+the 120-second URL window. A completed top-up charges a defect only for remaining
+metadata defects/missing search minima computed BEFORE excluding transport
+failures. It never charges merely because new rows are also unfetchable. If a
+top-up yields no metadata progress while transport failures remain the sole
+cause, back off and retry retrieval, not another paid top-up of identical rows.
+Mixed expired/defect rows are one repair operation: successful means targeted
+metadata errors are gone and no new metadata defect was introduced. Otherwise
+one completed-defect charge, never one per row or role. The original two-attempt
+bound remains for genuine completed bad work.
+
+Freshness state. freshness-repair.json v2 stores statement_sha256,
+completed_defects and pending {operation_id, before_rows, targeted_errors,
+phase, output_sha256, charged}. Persist pending before work; persist completed
+from the call completion callback, before interpreting rows. Recovery finishes
+the inflight merge, checks completion and charges once, setting charged in the
+same atomic state write as completed_defects. Multi-role top-up tracks each role
+completion, so a wait on role two neither repeats role one nor counts the entire
+operation as completed. v1 migration preserves attempts as completed_defects
+conservatively (old files do not prove whether reservations completed); new
+expiry-only work is still allowed, but a new unsuccessful completion stops if
+the saved counter is already two. No v1 reset. recovery.expiry_freshness_stop
+remains legacy-only; batch G2 reads v2 itself.
+
+Publication retries. No checkpoint_pending terminal label is introduced.
+A pending category publication invokes checkpoint_progress(interval=0), validates
+that call's remote_durable result, and retries failures with the same capped
+backoff helper, under authority and cancellation. No model call may cross that
+barrier. Missing recipient on a non-dry production batch fails configuration
+closed instead of silently skipping publication. Tests without production
+publication install an explicit test callback rather than depending on absence
+of recipient. Publication I/O cannot run while a category call is active.
+
+Bound outcomes. Transport/publication retry ends at the authenticated deadline
+with retired_batch_bound (the existing job_authority label). A permanently
+unavailable flagged URL occupies this worker until then; it cannot be silently
+cleared. This may lower throughput, but does not hold other cases' admission
+locks. B owns capacity and replacement scheduling; no new slot promise here.
+malformed_output_exhausted and freshness_evidence_unavailable are operational
+stops, not case fail/pass or writer feedback. This increment will add them to
+D's exhaustion-label recognition only (not implement outcome routing), so the
+existing pending projection queues them when diagnosis is later enabled.
+
+Caller identities. All include schema version, requested model and role.
+Dedup: candidate statement bytes plus sorted case IDs and contents of every
+prior/reserved statement. Idea: statement bytes and review contract. Panel:
+reviewer index and complete copied case inventory (including freshness.jsonl)
+plus reviewer prompt hash. G2: confirmation_contract binding plus trusted
+retrieval digest. Stress: attack binding, round, category ID and category
+contract version; continuing partial output does not change that identity.
+No timestamped paths participate. Scientific binding updates remain lane 2's
+separate work. Exclusion contexts copy existing exclusions and UNION spent-route
+lanes; they never replace runtime transport exclusions.
+
+Cost and schedule. Four calls repeat case read-in up to four times; no measured
+per-category price exists, so claiming a numeric estimate would be fabricated.
+Each call is admitted at its enforced router maximum against the same cumulative
+job/batch envelope; up to four maxima plus repair maxima are the admission upper
+bound, not new money authority. Item 8 must measure this overhead. Serial dead
+URL windows can take 2 minutes per URL; this is acceptable for this increment
+only within the batch deadline and remains visible as transport time, not model
+work. Implementation order is the four phases above, followed by the full suite
+and fresh diff review in this task; no calendar delivery promise is made.
+
+Fixture inventory for tests: tests/factory/fixtures/invalid-runs-practice.json.gz
+(hash-verified case), tests/factory/fixtures/20261029-real-public-cards.json.gz
+(5813be ledger via tests/factory/test_stream_d.py::cards),
+tests/factory/fixtures/invalid-runs-http.json.gz (retained HTTP), and existing
+stress-report artifacts located by tests/factory/test_attack_report_freshness.py
+and test_stream_d_runtime.py. Before implementation, verify whether those tests
+actually contain captured stress report bytes; if not, explicitly label authored
+category reports and use the real case/ledger as the artifact proof. Do not
+claim authored model outputs are captured real stress findings.
+
+
+Fourth-increment design review 4 resolutions (accepted).
+
+Completed unfinished stress work. Distinguish a killed/transport-interrupted
+call from a successful CLI completion whose category remains incomplete. The
+latter is failed work, never transport. Each category stores completed_incomplete
+and a progress projection: sorted unique blocking findings, freshness requests
+and cheats_tried, plus explicit completed subchecks from a fixed list in that
+category's prompt. One continuation is allowed after an incomplete completion
+only if it added a new fixed subcheck or substantive finding. Rewording a finding
+is not progress; findings use stable IDs assigned at first retention, and only
+new completed subchecks grant continuation. The fixed subcheck set is finite.
+No-progress completion raises stress_validation_exhausted immediately; exhausting
+the finite subcheck set with unfinished_validation does the same. Completed
+incomplete output is never sent to schema repair merely to change completeness.
+Transport interruptions do not spend this count; resume keeps partial bytes.
+The operation, findings and incomplete coverage are retained at that label;
+D's exhaustion recognizer queues diagnosis under the existing pending projection.
+It is never a case verdict or writer feedback.
+
+Diagnostic boundary. This increment does not re-grant the round's diagnostic
+claim, whether completed or interrupted. An interrupted diagnostic is invalid
+execution and routes to the same operational stress_validation_exhausted outcome
+with its saved status, rather than buying another category call which cannot
+complete. The old unfinished_diagnostic and unfinished_validation terminal
+branches in category mode are replaced by that single recognized exhaustion.
+No blind rerun can overlap a surviving diagnostic process. Automatic diagnosis
+and repair of this execution remains item 7/8. Therefore row 13 is NOT fully
+closed by item 4 alone: incremental coverage and bounded continuation are proved
+here, but diagnostic-exhaustion automatic recovery is explicitly left open until
+item 7/8 tests it. The earlier target-to-close wording for row 13 is narrowed
+accordingly. This is a scope correction, not a claim that a new stop solves it.
+
+Unprojectable output. Supersedes review 3's guaranteed-failure repair calls.
+If the original completed answer has no trustworthy decision projection, skip
+schema repair and mark that model route spent for this input. Ask the next
+approved equivalent route the ORIGINAL full scientific request with the same
+logical input binding, in its own clean output file. Its independent valid
+answer can supply a verdict; it is new evidence, not a repaired claim. If that
+full answer is malformed but has a projection, give that route its one schema
+repair; if not, spend it without repair. Exhaustion is checked before admission.
+For projectable malformed answers, attempt schema-only repair first. On failed
+repair, spend its route and send the original full request to the next route.
+Persist kind=judgment|repair, route, original answer path and completion marker
+per attempt. Interrupted full/repair calls remain pending of that same kind.
+The durable spent_routes bound applies across both kinds and across restarts.
+Equivalent-model judgments still run every caller's existing validators and
+independence checks; no new model family is allowed.
+
+Archive fallback. Preserve HTTP status failures as typed retrieval evidence.
+After the same bounded live retry window (120 seconds), persistent HTTP access
+failures (401/403/451/429/5xx) try the existing archive availability API and
+snapshot retrieval. A retrieved snapshot may support independent judgment;
+record live_failure=http_<status> and retrieved_from=archive. Extend only the
+retrieval-agreement validator's accepted failure status syntax, not its criteria
+for same_bug or scope. Failed archive lookup/snapshot remains transport pending
+under authority. A successful archive lookup with no snapshot does NOT clear a
+bot-walled page (unlike confirmed 404/410/DNS disappearance): the live page may
+still be public to contestants. That condition stays unresolved with retained
+evidence and the same deadline hold; no public-match exclusion is invented.
+Unflagged URLs retain their bounded exclusion/top-up policy. Network errors
+without an HTTP response also attempt the archive after the window but cannot
+prove live disappearance. Batch flagged retrieval no longer calls
+run_validity.retry anywhere; all those calls use the new transport helper.
+
+Integration nits. review_admitted initializes/renames the aggregate exactly
+once per stress operation, not once per category nor on resume. Dispatch barrier
+is checked in model_runtime.dispatch after acquiring its serial lock, before
+admission (the already-active nested owner call bypass remains guarded as now).
+Install a runner-owned callback for forced checkpointing so model_runtime does
+not import run.py. Missing production callback with a pending marker fails
+configuration closed. _opencode skips its ordinary throttled checkpoint for
+category-mode calls: the helper's forced publication is the single checkpoint.
+Partial findings from a call without a completion marker NEVER end a round or
+become writer feedback; they only inform continuation. Per-category attempts
+use <category>-<attempt-number>.json; completed validated output is referenced
+by filename/digest in state.json, never overwritten. <category>.json is not an
+output path. The aggregate is the only mutable report view.
+
+
+Fourth-increment design review 5 resolutions (accepted).
+
+Fixed stress coverage contract. The ordered category/subcheck IDs below name
+existing attacker-prompt requirements, rather than new pass criteria. In category
+mode the prompt lists the category's full set and requires completed_subchecks
+to be a unique subset of it. Unknown IDs, duplicates or wrong types are malformed.
+
+- wrong_fixes: prior_families (recheck prior exploited families), timing_ordering,
+  over_refusal, partial_paths, test_data_identity_seed, judge_visibility,
+  data_editing. These are inspections of the wrong-fix dimensions already listed
+  in section 1; executing them all is not required or authorized.
+- case_freshness: plain_reference (inspect break/fix consistency),
+  expected_judges, public_search (log searches and request independent review),
+  contestant_leaks. These match the four section-2 checks.
+- fairness: discoverability, behavioral_grading, acceptable_answers,
+  owner_fact_sheet, provenance_realism. These match the five section-3 rules.
+- v2_strategies: frozen_first_fix, claim_without_evidence, ask_everything,
+  block_all_pending, honest_reference_comparison, intent_and_second_writer,
+  pending_and_blind_monitoring. These cover the named strategies and the final
+  V2 checks; inspection is distinct from the single optional execution diagnostic.
+
+category_complete=true requires ALL listed subchecks in completed_subchecks,
+no unfinished_validation and a completed call marker. A model's assertion alone
+cannot omit a subcheck. completed_subchecks joins the decision projection used
+for schema repair; repair cannot invent coverage. The first call is compared
+with an empty set. Each completed incomplete call may earn ONE MORE continuation
+only if it added at least one previously uncompleted subcheck; repeat this rule
+after every completion. Substantive findings alone do not earn continuation.
+The accumulated subcheck set is monotonic and bounded by the fixed list.
+If all subchecks are marked but the category remains incomplete/unfinished,
+raise stress_validation_exhausted without another call. If a completed report
+contains a definite blocking finding, that finding ends the round FIRST, even
+with unfinished validation or no coverage progress. Only completed-call findings
+can take this precedence; partial findings remain continuation context.
+
+Archive predicates (factory/run.py::checked_freshness_verdict). Keep dead limited
+to http_404, http_410, dns_failure and deleted. Add access_failure for http_401,
+http_403, http_451, http_429, http_5xx and network_error. `archived` accepts a
+verified retrieved archive snapshot after either dead or access_failure.
+`unreachable` still requires dead and verified archive absence. The agreement
+check still requires exact runner receipt values; it is not where statuses are
+classified. Update confirm_hits' confirmation prompt to list network_error and
+HTTP access failures and explain their stricter verdict handling.
+An archive behind access_failure may confirm same_bug=true, but may NOT clear
+same_bug=false: an older snapshot could miss current public information. A false
+or unresolved reviewer verdict in that state keeps the flagged URL pending.
+A subsequently successful live retrieval may clear through the ordinary
+independent review. For dead pages, existing archived false/exclusion semantics
+remain unchanged. Failed archive retrieval also stays pending. Held flagged URLs
+recheck live and archive after capped exponential backoff: 5, 10, 20, 40, then
+60 seconds between cycles, checking cancellation and authority at least every
+second while waiting. This trades archive API traffic for bounded recovery
+latency; no busy loop and no additional model call before new retrieval evidence.
+
+Equivalent routes. Claude currently has two accounts but one model route.
+Unprojectable completed Claude output therefore reaches
+malformed_output_exhausted with no futile schema-repair call and no unauthorized
+cross-family fallback. Row 15 closure is limited to retained-answer repair when
+there is a decision projection, and equivalent full-call fallback where A has
+an approved chain. Single-route unprojectable output remains a documented limit;
+it is operational exhaustion, never fabricated feedback or approval.
+
+Additional real-artifact test cases: no-progress stress stops; progress allows
+one further call per newly completed subcheck; all-subchecks-but-unfinished stops;
+completed blocker takes precedence; interrupted diagnostic becomes recognized
+operational exhaustion; undecodable output invokes the original full request on
+the next route; single-route Claude exhausts without repair; 403 plus archive
+can confirm but cannot clear; 403 plus no archive remains pending until live
+recovery/deadline. invalid-runs-http.json.gz supplies only the captured 200
+response. HTTP denials, archive availability bodies and snapshots for these
+new cases are authored test transport inputs, explicitly not captured evidence.
+
+
+Fourth-increment design review 6 resolutions (accepted).
+
+Stable G2 evidence identity. Keep digest(receipts) for byte-authentication of the
+full timestamped receipts. Add judgment_projection(receipts) and
+judgment_digest(receipts) in freshness_retrieval.py for reviewer reuse. The
+projection is an ordered list, one entry per supplied URL: url, retrieved_from,
+live_failure, archive_available, archive_snapshot_url, and content (ordered
+url/final_url/sha256 records ONLY for the live 200 response or actual retrieved
+archive snapshot 200 response). Exclude at, local body filename, directory,
+request ID, archive availability API response body, and all non-200 access
+failure response bodies. Archive metadata contributes only its normalized
+availability and selected snapshot URL. Retain access-error bodies privately
+when available for diagnosis, but they NEVER participate in judgment identity.
+A network failure has network_error and no content. Full receipt/body hashes
+must still validate before computing a projection; this does not weaken byte
+integrity. Retain both receipt_digest and judgment_digest in verdict records.
+
+G2 retained-output identity is confirmation_contract plus search_binding with
+evidence_sha256 replaced by the canonical semantic search-row digest, plus
+judgment_digest. Semantic rows include who/kind/query/url/hit/ambiguous/note/
+app_version/version_scope; exclude at, retrieved and _search_id (retrieval
+status is supplied by the trusted projection). Preserve case context, statement,
+reservation and requested models from search_binding. This also prevents model
+re-search timestamps from defeating content-identical verdict reuse. Validate
+fresh row metadata and fresh trusted receipts BEFORE reuse. Reuse the retained
+completed verdict for unchanged judgment identity, including an unresolved
+verdict, without a model call. Re-run checked_freshness_verdict against current
+receipts so an old false verdict cannot clear an access-failed URL. Retrieval
+refresh and receipt integrity remain independent of model-work identity.
+A changed page/snapshot content hash, normalized retrieval outcome, substantive
+search-row field, case context or contract permits a new judgment.
+
+Test two consecutive identical 403 + snapshot fetch cycles, with changed at,
+body filenames, availability API metadata and bot-wall nonce bytes: the second
+cycle must perform zero reviewer calls. Changing snapshot body, becoming live
+200, or changing case context must require a new judgment. A changed/tampered
+body without matching full receipt hash must fail validation before reuse.
+
+Two-phase retrieval API. Extend fetch to return typed non-200 HTTP responses
+(including retained body if bounded) and network_error; do not discard status
+into a generic exception. Add retrieve(rows, directory, *, archive=True,
+deadline=None). With archive=False, access/network failure produces a typed
+live failure consumed by transport retry, without an archive request. Dead
+404/410/DNS results can proceed directly to archive=True. At the live-window
+boundary, archive=True attempts the existing availability/snapshot path even
+for access failures. The runner chooses phases and owns backoff; retrieve has
+no retry loop. A network failure of archive lookup/snapshot is InvalidInfra,
+not proof of absence. Bound each HTTP call by the remaining deadline.
+
+Unflagged access failures also try archive at their window boundary. A verified
+snapshot counts as fetched for search minima, but an existing hit/ambiguous row
+must go through the stricter flagged policy. Archive absence or lookup failure
+keeps an unflagged URL excluded and allows alternative top-up. No unflagged
+transport outcome clears any historical hit.
+
+Stress bounds clarified. Retain the explicit category_complete boolean as a
+conservative additional model assertion; all subchecks done without it exhausts
+rather than guessing consent. The initial call plus strict-subset progress gives
+at most one call per subcheck (7+4+5+7=23 completed scientific category calls per
+round), before separate route-bounded schema repairs/fallbacks. If a report adds
+its final subcheck but is still incomplete, there is no further call. Interrupted
+transport calls remain charged actual money but do not consume completed-work
+bounds. A category needing the already-used diagnostic can still exhaust even
+if another category used it successfully; this is the explicitly deferred row-13
+recovery limit, not an extra diagnostic grant.
+
+
+Fourth-increment design review 7 resolutions (accepted).
+
+Fetch raw archive bytes. Rewrite the validated selected snapshot URL's
+/web/<14-digit-timestamp>/ (or existing id_) segment to
+/web/<timestamp>id_/ before HTTP retrieval. Retain archive_snapshot_url as the
+API-selected URL for existing agreement validation. The response's requested
+URL records the raw URL. Hash only the raw response bytes; never replay-toolbar
+HTML. A changed closest timestamp is legitimate new evidence. The transport
+test supplies different authored replay wrappers per cycle but asserts only
+the id_ URL is fetched and that identical raw snapshot bytes reuse judgment.
+
+Live-only receipt shape. An access/network failure has retrieved_from='none',
+live_failure='http_<status>' or 'network_error', archive_available=null,
+archive_snapshot_url=null. HTTP responses are retained with status/body/hash;
+a network error has one synthetic response with status='network_error', empty
+body and its hash (not a fetched-content claim). Thus load validates exact bytes
+without accepting an empty response list. These are intermediate transport
+receipts, never search-minimum or verdict evidence. The runner attempts archive
+at the window boundary; it does not pass a live-only failure to a reviewer.
+
+Hold predicate. ensure_freshness holds only when a blocked flagged row currently
+has access_failure/network_error, or archive retrieval itself is transport
+pending. The first is explicit in the G2 result as transport_pending; the second
+is handled inside retrieval transport retry before judgment. All other unresolved
+review (including live 200) retains freshness_review_unavailable. Recovery's
+legacy classification stays unchanged. Dynamic live-200 bodies can change
+judgment identity, but never enter this hold loop: a valid judgment clears or
+confirms, and an unresolved judgment stops. No arbitrary HTML normalization is
+introduced.
+
+Review 7's single blocker and three nits are accepted and corrected above.
+This is a narrow retrieval-URL/receipt correction; implementation proceeds with
+no disputed finding. Fresh diff review will verify the implemented contract.
