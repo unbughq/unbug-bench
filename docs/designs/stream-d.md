@@ -2712,3 +2712,23 @@ introduced.
 Review 7's single blocker and three nits are accepted and corrected above.
 This is a narrow retrieval-URL/receipt correction; implementation proceeds with
 no disputed finding. Fresh diff review will verify the implemented contract.
+
+
+Implementation notes for fourth increment. New modules are ordinary_retry.py,
+ordinary_freshness.py and stress_progress.py. Category continuation identity adds
+its completed-result ordinal to the stable category/input identity: this is a
+new completed-work unit authorized only by strict subcheck progress, not by a
+transport retry or partial output. The ordinary JSON helper retains raw attempt
+files in ordinary-retries and stress additionally copies each interrupted output
+to category-local immutable partial files. Freshness role-completion markers are
+written from on_complete; the pending operation becomes completed after every
+required role has returned or its completed marker is replayed. This closes the
+kill-after-role window without another model call. Old runtime writer/accounting
+tests isolate stress through a single-call adapter; new tests run the actual
+category orchestrator with the real router and reservation ledger.
+
+Tests/factory/test_stream_d_retries.py labels authored model/HTTP-denial/archive
+inputs explicitly. Full-suite result and fresh diff review will be recorded in
+docs/reviews/stream-d-retries-suite-1.md and stream-d-retries-diff-1.md.
+Rows 11/12/15 are batch-scope closures with the limitations stated in their table
+entries; row 13 remains open. No item-7 implementation or activation is included.
