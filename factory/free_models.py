@@ -60,13 +60,3 @@ def apply(c, roles):
         return roles
     c.card['model_transition'] = {'kind': 'approved-paid-to-free', 'before': row['before'], 'after': row['after'], 'caps': row['caps']}
     return {k: dict(v) for k, v in row['after'].items()}
-
-
-def first_resume(case, previous, args):
-    row = selected(case, args)
-    if not row:
-        return False
-    prior = signature(previous.get('roles') or {})
-    if not prior:
-        return False  # an aborted run recorded no roles (2026-10-20): nothing was kept, so nothing to clear
-    return prior != signature(row['after'])  # any change of roles reruns every gate

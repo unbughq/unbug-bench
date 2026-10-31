@@ -117,8 +117,9 @@ def select_models(c, *, log):
         elif getattr(a, flag + '_effort'): roles[role]['effort'] = getattr(a, flag + '_effort')
     roles['easy_calibrator'] = {'model': a.easy_calibrator, 'effort': a.easy_calibrator_effort or model_effort(a.easy_calibrator)}
     if a.reviewer2: roles['reviewer2'] = {'model': a.reviewer2, 'effort': a.reviewer2_effort or model_effort(a.reviewer2)}
-    from free_models import apply as apply_free_models
-    roles = apply_free_models(c, roles)
+    if not factory_job(c):
+        from free_models import apply as apply_free_models
+        roles = apply_free_models(c, roles)
     families = [family(roles[r]['model']) for r in flags]
     if len(set(families)) != 4: raise ValueError('Writer, stress-tester, strong calibrator and reviewer must be four different families')
     if a.reviewer2 and family(a.reviewer2) in (family(roles['writer']['model']), family(roles['stress_tester']['model'])):
