@@ -90,7 +90,7 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(self.store.rpc('status', {})['health'], {})
         self.observe(first, 'rate', reset_at=reset); self.finish(first, 'interrupted')
         self.assertEqual(self.store.rpc('capacity', {'route': model})['slots'], 1)
-        # The older busy request retains FIFO priority once fallback is eligible.
+        # Expire the older busy waiter before checking fallback and lease continuity.
         self.now[0] += router.LEASE_SECONDS + 1
         fallback_id = uuid.uuid4().hex
         fallback = self.acquire(model, identity=fallback_id)
