@@ -43,7 +43,8 @@ def extension_history(card):
 
 
 def _trigger(card, stop, history):
-    if stop in ('budget_exhausted', 'stress_review_unresolved:rounds_exhausted', 'infrastructure_exhausted'):
+    if stop in ('budget_exhausted', 'stress_review_unresolved:rounds_exhausted', 'infrastructure_exhausted',
+                'malformed_output_exhausted', 'freshness_evidence_unavailable', 'stress_validation_exhausted'):
         return True
     if stop == 'extension_incomplete':
         return bool(history and history[-1]['outcome_sha256'] is not None)

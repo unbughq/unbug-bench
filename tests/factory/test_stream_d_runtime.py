@@ -77,6 +77,12 @@ class RuntimeTests(unittest.TestCase):
             job_money=self.channel, authenticated_job_config={'job_money': copy.deepcopy(self.channel)},
             batch_id=self.channel['batch'], job_id=self.channel['job'], batch_deadline=self.channel['batch_deadline'],
             source_generation=self.channel['source_generation'])
+        # These tests isolate writer/accounting receipt behavior. Category coverage
+        # is exercised with real orchestration in test_stream_d_retries.py.
+        def single_stress(c, number, report, receipt, completed):
+            return run.pending_call(c, c.models['attacker'], run.stress_request(c, number, report),
+                c.work, f'attacker-{number}', receipt, role='stress_tester', on_complete=completed)
+        self.patch(run, 'stress_categories', single_stress)
         self.baseline = budget.case_spending(self.source['continuation_budget'])['total_spent_usd']
         self.patch(model_router, 'metadata', return_value=(c.batch_id, c.job_id, model_router.epoch(c.batch_deadline)))
         bounds = {'requests': 1, 'input_tokens': 1000, 'output_tokens': 1000, 'tool_fees_usd': '0'}
@@ -1063,7 +1069,7 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
         else:
             with self.assertRaises(Killed): run.write_and_attack(self.c, copy.deepcopy(self.c.card))
         self.assertEqual(calls[:3], ['builder-1', 'attacker-1', 'attacker-1'])
-        self.assertEqual(units[0]['operation_id'], units[1]['operation_id'])
+        self.assertNotEqual(units[0]['operation_id'], units[1]['operation_id'])  # changed judging binding
         self.assertEqual(units[0]['review_attempt'], units[1]['review_attempt'])
         if phase == 'pending':
             self.assertEqual(self.c.card['builder_rounds'], 1)

@@ -120,3 +120,19 @@ Verify wrong-guess guards falsify intent checks, one-place misses the second wri
 harmful/harmless pending changes behave under the preceding reference, and monitoring
 really goes blind while that protection fails. Check categories only; choose no new case
 outside the writer's case. Unannounced failures are a phase-2 placeholder.
+
+
+## Category mode
+
+If the runner supplies CATEGORY MODE, inspect only the named category and its
+unfinished required_subchecks. The runner supplies the complete fixed ID list.
+Write `category`, `category_complete` and `completed_subchecks` alongside the
+normal report arrays. Completed subchecks describe inspections actually finished,
+not checks you merely intended to run. Keep findings and freshness requests from
+earlier work. Whole-review `complete` is computed by the runner; the earlier
+whole-review placeholder instructions do not apply in category mode.
+A category needs every required subcheck and no unfinished validation. The shared
+one-diagnostic allowance still applies to the entire round. Distinguish inspection
+from execution; do not invent execution evidence or try another diagnostic when
+it is exhausted. Save findings to the output file as they arrive using atomic
+replacement, including before returning an incomplete result.
