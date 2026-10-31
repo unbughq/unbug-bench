@@ -1,0 +1,61 @@
+{
+  "control_vm": {
+    "id": 172111861,
+    "name": "unbug-control",
+    "status": "running"
+  },
+  "credential_labels": [
+    "claude-factory-token-2",
+    "claude-token",
+    "opencode-go-key",
+    "opencode-go-key-2"
+  ],
+  "credential_validity_and_human_mapping": "not_verified",
+  "credential_values_printed_or_saved": false,
+  "date": "2026-10-31",
+  "fleet": {
+    "page_complete": true,
+    "readable": true,
+    "worker_ids": []
+  },
+  "incremental_infrastructure_spend_usd": 0,
+  "model_spend_usd": 0,
+  "money_files": [],
+  "policy": {
+    "batch": null,
+    "job_count": 1,
+    "sha256": "fd0a861da1ef5f315ebf99345e410962437902004308539c9e02cd3d89beadf5"
+  },
+  "practice_candidate": {
+    "authenticated_checkpoint_eligible": false,
+    "batch_release_sha256": null,
+    "case": "case-20261014T130816Z-a869de",
+    "ciphertext_bytes": 2027790,
+    "ciphertext_hash_matches_card": true,
+    "control_key_decryption": false,
+    "dry_run": true,
+    "sha256": "d93308338261cf32d468ec21ca5e619eea06b6585451a2cf51b644e2102ba9c8"
+  },
+  "unbug_status": {
+    "available": false,
+    "reason": "bin/unbug absent on VM"
+  },
+  "units": {
+    "unbug-batch.service": "inactive",
+    "unbug-key-holder.service": "active",
+    "unbug-model-router.service": "inactive",
+    "unbug-resume-launches.timer": "active"
+  },
+  "unresolved_launch": {
+    "complete": false,
+    "controller_lock": "free",
+    "files": [
+      "controller.lock",
+      "launch.json"
+    ],
+    "id": "b275ffccd6134a33833853ad1d31ed16"
+  },
+  "vm_mutation": false,
+  "workers_created": 0,
+  "workers_deleted": 0
+}
