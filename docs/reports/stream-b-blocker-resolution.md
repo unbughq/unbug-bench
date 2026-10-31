@@ -77,3 +77,14 @@ creation and retain first-worker collection/deletion and model-ledger checks.
 Gate-smoke's independent remote-failure scenario uses a separate synthetic home.
 The removed successful multi-worker integration expectation is now a deferred
 settlement/practice exam, not a claimed pass under the new safety rule.
+
+
+Second full suite passed: **162 scripts, 0 failed, exit 0**, source
+31ec2d9621f1ceca3ad0eb594f35c652d0bbc57b; started 2026-10-31T16:12:40Z,
+finished 2026-10-31T16:40:16Z. Result:
+stream-b-blocker-resolution-suite-20261031T161240Z-b655fad9.json;
+compressed log: same basename .log.gz. Uncompressed log SHA256:
+88b5b83f4c5b0d310848cfa0c7b033fabdef7420a705cb997a74d0e5c7166017.
+Source/tests were unchanged during this full run. The log retains all reported
+skips and limitations; this is offline validation, not live qualification.
+Fresh diff review follows this committed record.
