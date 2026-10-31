@@ -59,6 +59,20 @@ its record is retained. Review 2's blocker was accepted by explicitly tracking
 the escaped-pipe risk as an open activation hold. Fresh review 3 passed.
 Verbatim records: docs/reviews/isolation-item8-prereqs-design-{1,2,3}.md.
 Full suite: `uv run --with numpy --with scipy python -B tests/run.py` completed
-with exit 0 in 1186.919 seconds. Full unfiltered log:
+with exit 0 in 1186.917 seconds. Full unfiltered log:
 `docs/reports/isolation-item8-prereqs-suite-20261031T131629Z-3cf32eef.log`.
-Fresh diff review follows this committed suite record.
+Fresh Claude diff review passed with no blockers, recorded verbatim in
+`docs/reviews/isolation-item8-prereqs-diff-1.md`. The reviewer independently reran
+the five new tests successfully (44.5 s) and verified the suite ran on a42c520;
+the subsequent commits contain records/documentation only. All 159 scripts passed.
+The original log is retained unmodified; future headers should record HEAD and
+working-tree state explicitly.
+
+Review clarifications: the roughly five-second timeout tests alone do not reproduce
+the deleted 25/30/120-second outer timer firing. The production-expression contract
+assertions (no outer timeout, correct owner deadline) catch that regression; the
+real-process runs establish cleanup ordering and descendant termination. No claim
+is made that those short runs reproduce the historical premature-owner kill.
+`factory/restore_bundle.py` also has raw Boat info/list calls with 60-second timers,
+bypassing boat-call entirely. Those are a separate path for future deletion
+qualification, not covered by this row closure.
