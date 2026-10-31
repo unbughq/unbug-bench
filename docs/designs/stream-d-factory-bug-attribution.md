@@ -183,3 +183,137 @@ new-stream-d-outcome-routes-1. Close the latter only if real saved monetary even
 through the new code-linked lifecycle prove ordinary headroom and batch total;
 otherwise retain open and state the missing proof. Full suite to unique committed
 log, then fresh diff review; no self-verification of blocker fixes.
+
+## Review 2 corrections (binding; supersede conflicting prose above)
+
+### Exact identity and owner joins (B1, M3)
+
+Receipt reservation elements have exactly lease_id, invocation_id, operation_id,
+call_name, parent_call_name (null when absent). Each must byte-equal the named
+frozen ledger row's same fields, using row.get('parent_call_name') for old rows.
+The map key must equal row.lease_id. Scope case equals c.case_id; ledger path must
+be c.ledger; stage/hash are captured by the code scope before the first call and
+never taken from a model. Ledger row identity is NOT a money-owner certificate.
+State settled is required for classification, not for retaining a failure's
+identity: an estimated operation is eligible but its amount remains pending.
+
+Add money_owner to each failure/replay receipt, equal to a deep copy of
+job_authority.for_case's validated current c.job_money dictionary (the exact
+nine-field channel). Do not infer it from a reservation. Retain the existing
+batch_id/job_id/source_generation as repeated fields and require equality to
+money_owner.batch/job/source_generation; require money_owner.case == receipt.case.
+The producer obtains it only from current RAM-authorized for_case, never a card.
+
+Freeze job-money.json and job-money-history.json with diagnosis input in addition
+to the failure/replay directories. _write_input_tree's names tuple names all four
+explicitly. Freeze only after ordinary verified install/authentication and
+reconciliation as today. For eligible(evidence_root,case), verify each receipt's
+money_owner equals either frozen work/job-money.json or a transition.old/new
+in frozen work/job-money-history.json. The latter is the exact authenticated
+transition history already validated by job_config.install, not a new source of
+money authority. Require job_authority.read(value,value) shape validation and
+same case for every candidate, and receipt release equality to the corresponding
+current/frozen release when current; historical receipt releases remain private
+producer evidence authenticated by the encrypted checkpoint, not fix authority.
+No new transition-chain implementation. A foreign dictionary or reservation
+mismatch refuses diagnosis input; matching an old owner grants no current spend.
+Existing inputs with no producer records need no newly frozen money files.
+
+resume_scope calls diagnosis._resume_bindings(c) for the current chain; it does
+not duplicate that helper's transition rules. An attribution link requires the
+last durable factory-bug-resumes entry, matching its full case/batch/job/reservation/
+source/release tuple against an element of that chain. Its held finding and
+held release must authenticate via _read_factory_bug_finding using the old bound
+owner. No history entry means no replay link. A same-batch held marker cannot
+acquire one. The caller need not have executed resume_factory_bug in this process:
+a later same-owner checkpoint can continue the durable admission, but the exact
+on-disk entry and chain proof are mandatory. Copy resume_id/replay_of from those
+proofs. No attributes supplied by a caller or model substitute for them.
+
+### Immutable input and finding compatibility (B2, M5)
+
+Remove the exact eligible_operation_ids != [] / failure_receipts != [] guard in
+_read_factory_bug_finding. Recompute both from eligible(evidence_root,case) and
+require exact equality with the finding. evidence_root is always the retained
+finding's inputs directory: read only work/factory-failures there, using
+_input_bytes no-follow regular reads and existing manifest/hash validation.
+Never consult mutable c.work/factory-failures for a completed finding. failure_receipts
+is a sorted list of exactly {path,sha256}, paths relative to inputs. Include only
+records contributing validated operations. Absent/empty directories or valid
+zero-reservation records yield []/[] and preserve old empty findings byte-for-byte.
+Malformed nonempty records refuse, never manufacture eligibility. No historical
+record may gain operations on replay; a preexisting empty finding with newly
+nonempty valid input proof refuses differing evidence instead of being upgraded.
+The fresh producer name has never shipped; no historical attribution is guessed.
+
+### Three durable phases and settlement order (M1)
+
+1. Hold: write history then immutable finding; classify settled eligible operations
+   with both resume fields null; publish completed held card last.
+2. B resume: after its ordinary input/chain validation, append the admission to
+   factory-bug-resumes.json durably. This existing append is the counter commit
+   point. Never clear the held card before attribution succeeds.
+3. Inside resume_factory_bug, immediately after the append-or-reuse block and
+   before constructing admitted_card, prepare model_runtime dispatch and take its
+   lock; assert no active_model_calls, run budget.reconcile_reservations, then
+   classify(c,finding,admission). This is quiescent because archive_pilot_state has
+   already joined old work. No new lease or model call. In one reclassification
+   ledger transaction, add newly settled eligible operations and replace a null
+   pair with the admission UUID/digest. Existing equal pair is idempotent; different
+   non-null pair is waste_attribution_mismatch. Both-null may legitimately lag a
+   committed history after a crash: replay performs phase 3 again using that same
+   admission. Mixed-null refuses. Only then clear held/infrastructure state using
+   B's existing atomic scorecard write and return True to dispatch's ordinary path.
+
+If any selected operation remains estimated/pending, classify may publish the
+settled subset and admitted pair but raises money_wait before card clearing. No
+new resume debit on retry. Filesystem failure keeps B's factory_bug_resume_io_wait
+handling; a semantic attribution mismatch must preserve held markers and raise
+its specific BudgetError rather than be converted to a scored result. Add tests
+at all three durability boundaries, including history committed / ledger null and
+ledger admitted / held scorecard lagging. No claim that resume runs outside
+_dispatch: B's hook is inside _dispatch before its ordinary reconciliation.
+
+### Ledger update predicate (M2, M4)
+
+V2 immutable identity is exactly schema_version, kind, id, finding_id,
+diagnosis_sha256. Reclassifier compares these fields exactly. operation_ids may
+only be a superset; event_ids must equal the current settled reservation union
+for that superset, with all rows settled and estimated_gap_usd == 0. Neither
+unknown nor estimated rows enter a waste record. classify recomputes eligibility
+from immutable failed proof and validates each additional replay proof against
+the durable resume link before supplying additions. It also rechecks ledger rows.
+Pending selected operations remain in the immutable finding, never dropped from
+its eligible set. An existing classified operation must never disappear when
+another operation settles. Other waste records may share no operation or event.
+The accountant still refuses waste_operations_pending for a supplied unsettled
+row; the classifier only submits the eligible settled subset.
+
+_settle_leaf explicitly branches on waste.schema_version: 1 keeps existing
+float-compatible historical refresh; 2 refreshes the event union and assigns
+format(usd(_waste_amount(events, ids)), '.9f'), never float. Unknown versions
+refuse. Preserve immutable v2 identity and paired resume fields. All mutation is
+inside the existing ledger transaction and validates aggregate case_spending;
+no total increase/decrease comes from reclassification. Actual late provider
+charges can increase total normally, but only their ordinary/waste allocation
+changes here. Add zero-price, sub-nanodollar and late-growth tests to shared ledger
+coverage controls, not a separate rounding implementation.
+
+### Thread and failure scope clarification (N1–N3)
+
+InfrastructureExhausted is an InvalidInfra subclass and qualifies when it escapes
+an actual attempt scope. Gate retry exhaustion raised before invoking check has
+no new scope and no duplicate receipt. Stress scope wraps only stress_categories;
+if that function does not raise InvalidInfra for a path, no cost qualifies there.
+Do not turn incomplete report/CLI exceptions into InvalidInfra just to attribute
+cost. The producer is causal evidence, not a new validity classifier.
+
+Owner HTTP-thread calls must share the tester's current attempt. At construction
+of the model-backed owner responder, capture a context copy and run each request's
+model invocation under its own copied context. Do not run one Context concurrently.
+The shared attempt object is locked, so tester and owner lease bindings accumulate
+once and parent_call_name remains part of the receipt join. This extends the
+explicit context propagation beyond G10 submit; it does not change owner pricing,
+model selection, gates or exam policy. Standalone exam responders without an
+active factory attempt remain unaffected. Test two concurrent tester/owner pairs
+and unrelated foreground calls with distinct operations and expected sets.
