@@ -332,8 +332,9 @@ def authorize_locked(state, record, name, source_generation):
     if source_generation is not None: raise MoneyWait('money_wait')
     if name in record.get('carry_from', {}).get('jobs', {}): raise MoneyWait('money_wait')
     wanted = job['template']['requested_total_usd']
-    cap = allocation_cap(record, name)
-    if amount(wanted) > cap: wanted = f'{cap // 10**9}.{cap % 10**9:09d}'
+    if 'practice_admission' in record:
+        cap = allocation_cap(record, name)
+        if amount(wanted) > cap: wanted = f'{cap // 10**9}.{cap % 10**9:09d}'
     if aggregate(state) + amount(wanted) > amount(record['money_limit_usd']): raise MoneyWait('money_wait')
     auth = dict(schema=1, batch=record['id'], job=name, case=job['case'],
                 reservation_id=str(uuid.uuid4()), revision=1, source_generation=None,

@@ -15,7 +15,13 @@ ledger or settlement mechanism was introduced. Both activation gates remain off.
 Design review: docs/reviews/stream-b-admission-clamps-design-1.md (Claude, PASS,
 zero blockers). All three majors were clarified before implementation.
 Targeted validation: admission clamps 8 tests, holder 59, carry-over 14, input
-qualifier 11, all passed. Full-suite record and fresh diff review follow.
+qualifier 11, all passed. The first full-suite record is below; fresh diff review
+found B1 (two nondiscriminating tests) and M1 (production partial-grant regression).
+Both are accepted in docs/reviews/stream-b-admission-clamps-diff-1.md. The fix
+keeps the baseline-mismatch cap above held, gives the history test spare aggregate
+headroom, and limits partial grants to practice manifests. A new regression
+requires production oversized requests to refuse without mutation. A full-suite
+rerun and fresh independent review will validate these changes.
 No Murphy rows closed: retained artifacts use authored batch and lifecycle
 bindings. No workers, model calls, live cloud, pushes or secret handling.
 

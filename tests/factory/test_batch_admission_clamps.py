@@ -76,6 +76,17 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(money.authorize_locked(dict(jobs={}, incidents={}), h.record, 'j-r2', None)
                          ['committed_total_usd'], '20.000000000')
 
+    def test_production_oversized_template_refuses_without_partial_grant(self):
+        h = self.h
+        h.record['jobs']['j']['requested_total_usd'] = '5000.000000000'
+        h.freeze()
+        state = dict(jobs={}, incidents={})
+        with self.assertRaises(money.MoneyWait):
+            money.authorize_locked(state, h.record, 'j', None)
+        self.assertEqual(state, dict(jobs={}, incidents={}))
+        with money.locked(h.home, h.record['id']): pass
+        self.check_refusal(h.record, h.policy, 'j')
+
     def test_manifest_rejects_malformed_or_unfunded_allocations(self):
         self.practice(); h = self.h
         good = deepcopy(h.record)
@@ -162,7 +173,9 @@ class AdmissionTests(unittest.TestCase):
             record['practice_admission'] = dict(schema=1, jobs={
                 'j': allocation(usd(money.amount('1000.000000000') - money.amount(s)), s),
                 'k': allocation('1000.000000000'), 'j-r1': allocation('7.500000000')})
-            if label == 'mismatch': record['practice_admission']['jobs']['j']['baseline_usd'] = '0.000000000'
+            if label == 'mismatch':
+                # Cap stays above held: only authenticated baseline equality can refuse.
+                record['practice_admission']['jobs']['j']['baseline_usd'] = usd(money.amount(s) + 10**9)
             if label == 'too-small': record['practice_admission']['jobs']['j']['incremental_usd'] = '7.500000000'
             h.pin_target(record, policy)
             if label != 'good':
@@ -174,11 +187,13 @@ class AdmissionTests(unittest.TestCase):
                 state = h.target_state(record, policy)
                 self.assertEqual(state['jobs']['j']['previous']['total_usd'], s)
                 # Persisted import reads apply the same baseline contract.
-                bad = deepcopy(record); bad['practice_admission']['jobs']['j']['baseline_usd'] = '0.000000000'
+                bad = deepcopy(record); bad['practice_admission']['jobs']['j']['baseline_usd'] = usd(money.amount(s) + 10**9)
                 with self.assertRaises(ValueError): transfer.read_import(h.home / 'batches/good', bad)
 
     def test_two_releases_retain_omitted_history_and_do_not_regrant(self):
         self.practice(); h = self.h
+        # Re-admitting k fits the aggregate cap; only historical ownership refuses.
+        h.record['money_limit_usd'] = '9000.000000000'; h.freeze()
         card = h.stopped(); h.stopped('k'); h.derive(card)
         total = money.aggregate(h.money())
         record, policy = self.target({'j': card['sha256'], 'j-r1': None})
@@ -194,6 +209,8 @@ class AdmissionTests(unittest.TestCase):
         h.use_target(record, policy)
         self.assertEqual(money.aggregate(h.money()), total)
         self.assertEqual(h.money()['carried_debit_usd'], '1000.000000000')
+        self.assertLess(total + money.amount(record['jobs']['k']['requested_total_usd']),
+                        money.amount(record['money_limit_usd']))
         self.check_refusal(record, policy, 'k')
         op = h.started(h.reserve(source=card['sha256']))
         payload = (ROOT / 'sealed/case-20261017T212118Z-1ad7fa.casekey.age').read_bytes()
