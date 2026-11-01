@@ -438,7 +438,9 @@ exit "$status"
             counter += 1
             state = base / f"state-{counter}"
             state.mkdir()
-            env = dict(os.environ, BOAT_CMD=str(fake), FAKE_STATE=str(state), FAKE_MODE=mode, FAKE_STATEMENT_SHA=statement_sha, UNBUG_CONTROL_HOME=str(base / "control"),
+            # Independent synthetic scenarios have independent accounting homes.
+            # Cross-launch liability/replay is exercised in test_isolation_timeouts.
+            env = dict(os.environ, BOAT_CMD=str(fake), FAKE_STATE=str(state), FAKE_MODE=mode, FAKE_STATEMENT_SHA=statement_sha, UNBUG_CONTROL_HOME=str(base / f"control-{counter}"),
                        BOAT_POLL_SECONDS="0.1", BOAT_STALL_MINUTES="0.02",
                        BOAT_UNREACHABLE_SECONDS="1", BOAT_COMMAND_TIMEOUT_SECONDS="2", BOAT_COLLECT_RETRY_SECONDS="0", UNBUG_SECRETS_FILE=str(bundle_file), FAKE_IDENTITY=str(identity), FAKE_PERMISSION_HELPER=str(bench / "factory/case_permissions.py"))
             env.update(overrides)
@@ -555,7 +557,7 @@ exit "$status"
             assert rec["ttl_seconds"] == hours * 3600
             assert rec["actual_spend_usd"] is None
             assert abs(rec["account_balance_delta_usd"] - 0.001) < 1e-9
-            assert "TTL:" in err
+            assert "TTL-priced estimate admitted; not a hard billing ceiling" in err
         code, _, err, _, rec = run("exam", extra=("--arm", "C", "--tries", "2"))
         assert code == 0 and rec["ttl_seconds"] == 7 * 3600, err
         code, _, err, _, rec = run("exam", extra=("--ttl-hours", "0.5"))
@@ -750,12 +752,14 @@ exit "$status"
         quoted = subprocess.check_output(["/bin/sh", "-c", '. "$1"; quote "$2"', "sh",
                                           str(bench / "bin/boat-launch-guards.sh"), value], text=True)
         assert shlex.split(quoted) == [value], quoted
-        env = dict(os.environ, BOAT_CMD=str(fake), FAKE_STATE=str(base), FAKE_BALANCE="123456")
+        env = dict(os.environ, BOAT_CMD=str(fake), FAKE_STATE=str(base), FAKE_BALANCE="123456",
+                   UNBUG_CONTROL_HOME=str(base / "standalone-control"))
         assert subprocess.check_output([str(bench / "bin/boat-spend")], env=env, text=True).strip() == "1.23456"
         # The cap prices the machine size: 10 large VMs for 2 h = $1.44 must exceed a $1 cap (2026-10-18).
         big = subprocess.run([str(bench / "bin/boat-spend"), "--check", "10", "2", "1", str(base / "cap.json")],
                              env=dict(env, BOAT_TYPE="large"), capture_output=True, text=True)
-        assert big.returncode != 0 and "$1.4400" in big.stderr, big.stderr
+        assert big.returncode != 0 and "estimated batch cost exceeds balance or --max-spend" in big.stderr, big.stderr
+        assert json.loads((base / "cap.json").read_text())["estimated_usd"] == 1.44
         print("PASS argument quoting, standalone dollars-left command, size-priced cap")
     print(f"All launch guard checks passed ({time.monotonic() - started:.1f}s); no real boat calls.")
 

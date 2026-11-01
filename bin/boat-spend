@@ -4,7 +4,8 @@
 --total prints every Hetzner server's cost so far (results/spend/hcloud-hosts.jsonl, live ones to now).
 Observes account balance deltas without attributing concurrent activity to a worker. With
 BOAT_CMD=bin/hcloud-boat (Hetzner: no balance API) the cap uses the dearest type in HCLOUD_PLACES at its live
-Hetzner price, and the finish record prices each server's billed hours. On boat the cap uses BOAT_TYPE's rate.
+Hetzner price, and the finish record prices each server's billed hours. On Boat TTL pricing is an estimate, never a guaranteed billing ceiling.
+Boat liability persists after finish; another reservation blocks admission.
 2026-10-18: a fixed cx price under-reported cpx servers 2-4x and the cap never fired; prices are now live.
 """
 import datetime
@@ -68,8 +69,32 @@ def write(path, data):
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    with tmp.open('w') as stream:
+        json.dump(data, stream, indent=2)
+        stream.write('\n'); stream.flush(); os.fsync(stream.fileno())
     tmp.replace(path)
+    directory = os.open(path.parent, os.O_RDONLY)
+    try: os.fsync(directory)
+    finally: os.close(directory)
+
+
+def read_ledger(path):
+    try:
+        ledger = (json.loads(path.read_text()) if path and path.exists()
+                  else {'version': 1, 'reservations': {}})
+        if (not isinstance(ledger, dict) or type(ledger.get('version')) is not int or
+                ledger['version'] != 1 or not isinstance(ledger.get('reservations'), dict)):
+            raise ValueError()
+        for key, row in ledger['reservations'].items():
+            if (not isinstance(key, str) or not isinstance(row, dict) or
+                    row.get('status') not in ('reserved', 'finished', 'reconciled_expired') or
+                    type(row.get('usd')) not in (str, int, float)):
+                raise ValueError()
+            amount = D(str(row['usd']))
+            if not amount.is_finite() or amount < 0: raise ValueError()
+        return ledger
+    except (ValueError, TypeError, decimal.InvalidOperation):
+        raise ValueError('invalid reservation ledger') from None
 
 
 def main():
@@ -84,9 +109,7 @@ def main():
 
 
 def accounting(ledger_path):
-    ledger = (json.loads(ledger_path.read_text()) if ledger_path and ledger_path.exists()
-              else {'version': 1, 'reservations': {}})
-    if ledger.get('version') != 1: raise ValueError('unknown reservation ledger')
+    ledger = read_ledger(ledger_path)
     def save_ledger():
         if ledger_path: write(ledger_path, ledger)
     if len(sys.argv) == 1:
@@ -100,7 +123,7 @@ def accounting(ledger_path):
             raise ValueError("VM count and TTL must be positive; max-spend must be nonnegative")
         seconds = int((hours * 3600).to_integral_value(rounding=decimal.ROUND_CEILING))
         hours = D(seconds) / 3600
-        before = None if HETZNER else balance()
+        before = None
         if HETZNER:
             types = {p.partition("@")[0] for p in os.environ.get("HCLOUD_PLACES", "cx33@fsn1").split()}
             rate = max(eur_per_hour(t) for t in types) * USD_PER_EUR
@@ -109,29 +132,36 @@ def accounting(ledger_path):
         estimate = count * hours * rate
         key = str(pathlib.Path(path).resolve())
         holds = ledger['reservations']
-        # Expiry and an empty fleet cannot resolve a lost creation response.
-        # Retain the full hold until the controller's ordinary finish protocol.
-        reserved = sum(D(str(v['usd'])) for k, v in holds.items()
-                       if k != key and v['status'] == 'reserved')
-        allowed = (HETZNER or estimate + reserved <= before) and estimate <= cap
+        previous = holds.get(key)
+        refusal = None
+        if previous and previous['status'] != 'reserved':
+            refusal = 'completed reservation cannot be reused'
+        elif previous and D(str(previous['usd'])) != estimate:
+            refusal = 'reservation envelope changed'
+        elif any(k != key for k in holds):
+            # Reserved, finished and historical expired-release rows all have
+            # unqualified liability. No numeric field is settlement authority.
+            refusal = 'infrastructure liability unsettled'
+        else:
+            before = None if HETZNER else balance()
+            if estimate > cap or (not HETZNER and estimate > before):
+                refusal = 'estimated batch cost exceeds balance or --max-spend'
+        allowed = refusal is None
         if allowed and ledger_path:
-            previous = holds.get(key)
-            if previous and previous['status'] != 'reserved':
-                raise ValueError('completed reservation cannot be reused')
-            if previous and D(str(previous['usd'])) != estimate:
-                raise ValueError('reservation envelope changed')
             holds[key] = previous or dict(usd=str(estimate), expires_at=time.time() + seconds + 1800,
                                          status='reserved')
-        save_ledger()
-        write(path, dict(started_at=now(), vms=count, ttl_seconds=seconds,
-                         estimated_usd=float(estimate), max_spend_usd=float(cap),
-                         provider="hetzner" if HETZNER else "boat",
-                         balance_before_usd=None if HETZNER else float(before), balance_after_usd=None,
-                         actual_spend_usd=None, allowed=allowed))
-        left = "Hetzner, no balance API" if HETZNER else f"balance ${before:.5f}"
-        print(f"TTL: {hours:g} h per VM; batch estimate ${estimate:.4f}; {left}; cap ${cap}", file=sys.stderr)
-        if not allowed:
-            raise ValueError("refusing launch: estimated batch cost exceeds balance or --max-spend")
+            save_ledger()
+        data = dict(started_at=now(), vms=count, ttl_seconds=seconds,
+                    estimated_usd=float(estimate), max_spend_usd=float(cap),
+                    provider="hetzner" if HETZNER else "boat",
+                    balance_before_usd=None if before is None else float(before), balance_after_usd=None,
+                    actual_spend_usd=None, allowed=allowed)
+        if refusal: data['refusal'] = refusal
+        # Neither refused admission nor accepted replay erases lifecycle evidence.
+        if not pathlib.Path(path).exists() or (allowed and previous is None):
+            write(path, data)
+        if refusal: raise ValueError(refusal)
+        print('TTL-priced estimate admitted; not a hard billing ceiling', file=sys.stderr)
         print(seconds)
     elif sys.argv[1] == "--finish":
         path, code, ids_file = sys.argv[2:]
@@ -139,7 +169,7 @@ def accounting(ledger_path):
         if data.get("finished_at"):
             hold = ledger['reservations'].get(str(pathlib.Path(path).resolve()))
             if hold:
-                hold.update(status='finished', finished_at=data['finished_at'])
+                hold.update(status='finished', finished_at=data['finished_at'], actual_spend_usd=None)
                 save_ledger()
             return
         data.update(finished_at=now(), exit_code=int(code), ids=pathlib.Path(ids_file).read_text().split())
@@ -155,13 +185,13 @@ def accounting(ledger_path):
             data.update(balance_after_usd=float(after), actual_spend_usd=None,
                         account_balance_delta_usd=float(delta), attribution='account_observation')
             print(f"Account observation (not lifecycle spend): delta ${delta:.5f}; balance ${after:.5f}", file=sys.stderr)
-        except Exception as exc:
-            data["balance_after_error"] = str(exc)
-            print(f"WARNING: actual spend unavailable: {exc}", file=sys.stderr)
+        except Exception:
+            data["balance_after_error"] = "balance_unavailable"
+            print("WARNING: account balance unavailable", file=sys.stderr)
         write(path, data)
         hold = ledger['reservations'].get(str(pathlib.Path(path).resolve()))
         if hold:
-            hold.update(status='finished', finished_at=now())
+            hold.update(status='finished', finished_at=data['finished_at'], actual_spend_usd=None)
             save_ledger()
     else:
         raise ValueError(__doc__)
@@ -170,5 +200,11 @@ def accounting(ledger_path):
 if __name__ == "__main__":
     try:
         main()
-    except (ValueError, KeyError, OSError, decimal.InvalidOperation, subprocess.SubprocessError) as exc:
-        sys.exit(f"boat-spend: {exc}")
+    except (ValueError, KeyError, TypeError, OSError, decimal.InvalidOperation, subprocess.SubprocessError) as exc:
+        labels = {'invalid reservation ledger', 'invalid credit balance',
+                  'VM count and TTL must be positive; max-spend must be nonnegative',
+                  'completed reservation cannot be reused', 'reservation envelope changed',
+                  'infrastructure liability unsettled',
+                  'estimated batch cost exceeds balance or --max-spend'}
+        label = str(exc) if type(exc) is ValueError and str(exc) in labels else 'accounting unavailable'
+        sys.exit('boat-spend: ' + label)
