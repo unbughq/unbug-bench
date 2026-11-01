@@ -60,8 +60,12 @@ card test retains both exhaustion IDs and its existing default refusal assertion
 
 ## 2. Subsequent entry is a verified retained outcome
 
-Keep the first-entry implementation intact. entry(c,r) selects a new internal
-subsequent_entry when verified history is nonempty. Reject active rows, reused
+Keep the first-entry implementation intact. At entry's existing
+if extensions.read(owner) branch, before its evidence-mapping try block, call
+subsequent_entry(c,r) with the LIVE runner context c, not the copied owner.
+Every operational marker, checkpoint and early-G3 reset below targets this live
+c. Neither entry's copy nor compare's internal owner copy receives these effects.
+The first-entry evidence mapping must not catch subsequent_entry exceptions. Reject active rows, reused
 diagnoses and the extension limit using the existing extensions eligibility
 rules before evaluation. Require extensions.digest(extensions.tree(c.case)) to equal the retained latest
 outcome case_sha256, including freshness.jsonl. A mismatch raises
@@ -75,13 +79,16 @@ with extensions.comparison_pair using the current vector. Rely on compare's exis
 path; do not add a second receipt verifier. Return a deep copy of the selected outcome with source_generation
 rebound to job_authority.for_case(c).source_generation. No other field changes.
 
-pending -> extension_comparison_pending. no_progress or regression ->
+A pending producer result follows the exhaustive recovery table below; it never
+ends as extension_comparison_pending on the opted-in production route.
+no_progress or regression ->
 retired_no_progress (the same decision propose enforces). progress returns the
 snapshot, and extensions.propose/verify_proposal remain mandatory before the
 writer reservation. Missing/tampered scored proof in a previously retained comparison keeps compare's
 existing pending return and never gets re-evaluated. Evaluator Records errors
 are distinct: extension_snapshot_changed and extension_reservation_mismatch
-propagate as evidence stops; version mismatch remains extension_comparison_pending.
+propagate as evidence stops; ordinary Records retain their version-mismatch label; evaluator identity/version
+mismatch maps to extension_snapshot_changed as specified in the recovery table.
 Do not translate malformed envelopes/support to InvalidInfra or retry them. Original snapshots/history rows are never rewritten.
 
 ## 3. Scientific version versus execution layout
@@ -116,14 +123,23 @@ Add factory/extension_evaluator.py, exposing Evaluator(c,r,number) as a context
 manager and callable (Workspace,stage)->(ok,detail,proof paths). It runs only
 under the already authenticated owning job; it is not a launcher or public CLI.
 No new machine, model worker, service or queue is created by this increment.
+__enter__ records configuration only. Copy installation, manifest validation,
+subreaper enablement and child startup are lazy inside the first parent evaluator
+invoke; a verified completed-pair fast path starts no setup or processes.
 
 One OS child per phase runs gates serially. Use multiprocessing.get_context(
 'fork') and a duplex Pipe on the Linux worker. No serialised credentials or
 authenticated channel file is written. Fork only with no active model calls
-and threading.active_count() == 1; reject a non-quiescent fork with
-InvalidInfra before starting it. The child calls os.setpgid(0,0) before any work. Immediately rebind run.seal to a
+and threading.active_count() == 1. Wait up to 30 seconds for leftover diagnosis
+threads to exit, checking cancellation and deadline, before refusing the fork.
+Refusal raises InvalidInfra INSIDE the parent attempt and consumes that attempt;
+a subsequent retry can wait again. No active model calls are allowed during this
+wait. A daemon that exits within the bound is accepted. The child calls os.setpgid(0,0) before any work. Immediately rebind r.seal to a
 stub raising RuntimeError('child seal'), then acknowledge its process-group ID.
-The parent runner module is unaffected by the fork-local rebinding.
+The parent runner module is unaffected by the fork-local rebinding. Here r is
+the passed runner object (normally sys.modules['__main__']); apply child-only
+seal/_opencode/BENCH/COMPOSE and serial rebindings to it and also to sys.modules[
+'run'] if a second runner module has been imported.
 The parent retains original runner globals. In the child only:
 - set run.BENCH/COMPOSE to a private copied bench;
 - put that bench's bin first on sys.path and evict only bench, factory_pool and
@@ -153,7 +169,8 @@ cyclic, directory or excluded-target links as InvalidInfra. No destination
 symlinks are created. No secret/credential paths are added to the source set. Verify the source
 manifest equals c.manifest0 before copying, then compute bench_manifest over the
 installed copy and require equality with c.manifest0 before a gate may run.
-A missing file, changed source or bad copy is InvalidInfra, never a G1 failure.
+A missing file, changed source or bad copy is InvalidInfra counted by the parent
+attempt, never a G1 failure.
 Repeat checks on an existing copy and before its first stage in each process.
 Also hash the copied factory tree separately: ordered relative file names and
 sha256 values using the same inclusion/symlink materialization rule, excluding
@@ -165,7 +182,9 @@ Identity is extensions.digest of schema_version=1, extension_id, both original
 case hashes, and the ordered current version vector. The copy is atomically
 installed; never refresh over existing execution evidence. Mutable bench results
 and seed IDs are private. Docker services are exclusively used sequentially by
-this job and freshly set up per phase. This does not claim concurrent-container
+this job and freshly set up per phase. The fixed unbug-bench Compose project and
+unbug-bench-medusa:latest image tag are shared; private G3 rebuilds that tag from
+manifest-identical source, not a distinct concurrent application. This does not claim concurrent-container
 isolation. After comparison, ordinary execution must prepare live G3 again:
 clear live c.early['G3'] and preparation markers before returning from the producer;
 package.run already clears early G3 immediately before traversal. Test that the
@@ -199,7 +218,7 @@ Workspace.work under evaluator-support/<stage>/... before returning proof paths.
 No pickle file is accepted from disk; Pipe is an inherited private channel.
 Only BudgetError, InvalidInfra and CaseProblem are translated to their existing
 types; other child exceptions become a diagnostic RuntimeError, not a fail.
-Unexpected child death is InvalidInfra, hence pending. No partial reply scores.
+Unexpected child death is InvalidInfra inside the parent attempt. No partial reply scores.
 The parent uses processes.kill_tree while the child leader still exists, then
 os.killpg(child.pid, SIGKILL) and join, never its own group. Cooperative child
 shutdown runs pilot disposal first: stop_pilot for each pilot_homes user (which
@@ -220,7 +239,7 @@ escaping to init. A failure to enable subreaping is InvalidInfra before any chil
 After joining the phase leader, enumerate the parent's remaining children and
 descendants using numeric ps pid/ppid/pgid fields only. Use processes.kill_tree
 for surviving owned leaders, and privileged stop_pilot for cross-user work. Reap
-adopted children with waitpid(WNOHANG), repeat until no descendants remain, and
+adopted children with waitpid(WNOHANG) until no descendants remain.
 Each kill_tree retains its existing 60-second ps allowance. After the last
 kill_tree returns, allow a total of 30 seconds for numeric verification/reaping,
 with each verification probe bounded by the remaining time. Any probe timeout
@@ -244,26 +263,33 @@ Keep comparison.snapshot's current REUSABLE pass policy; do not relabel an old
 opaque receipt as current. Each requested stage first checks its durable Records
 record before entering the retry journal. A valid same-version pass OR fail is
 returned without invoking the gate again. Restore its card/context projection.
-Missing records run through gate_attempt.execute with attempts=2,
-interruption=BudgetError and the phase infra-attempts.json. Use the ordinary
-gate identity fields plus comparison identity/phase. publish forwards operational
-state/elapsed/reused events to the parent publisher, never a child gate status on
-the live card. record_crash writes a numbered phase-local gate-details/<stage>.
-crash-N.json with the same type/message/traceback diagnostics as the pipeline. Capture inside invoke,
-persisting proof before returning. Pending-shaped results write no scored
-record and return pending. Infrastructure exhaustion is never regression. On gate_attempt's crashed outcome,
-send an exhaustion message containing stage and error_type. For a G stage the
-PARENT sets owner.card['infrastructure_gate'] = {'gate': stage, 'error_type':
-error_type, 'classification': 'invalid-infra', 'exhausted': True,
+The PARENT owns gate_attempt.execute for each stage, with attempts=2,
+interruption=BudgetError and the durable phase infra-attempts.json. Its invoke
+performs lazy phase setup, sends one request and waits for the reply. Child death,
+IPC failure, invalid copy/manifest, fork/quiescence/subreaper/cleanup failure
+raise InvalidInfra inside invoke and are counted. Before retry, finish cleanup;
+start a fresh phase child and re-run machine setup as required. The child owns
+no second gate_attempt journal. It evaluates once and commits Records before
+replying. A committed record is checked before entering the parent journal,
+including after a lost reply; replay it rather than invoking again.
+
+Use ordinary gate identity fields plus comparison identity/phase. publish
+forwards only operational state/elapsed/reused events. record_crash writes
+numbered phase-local gate-details/<stage>.crash-N.json with type/message/traceback.
+A pending-shaped returned gate result is InvalidInfra inside invoke, not a saved
+score. A stress freshness hold follows the recovery table below. The parent
+checks returned proof and source versions before returning a scored tuple.
+
+On gate_attempt's crashed outcome, for a G stage the LIVE PARENT c sets
+c.card['infrastructure_gate'] = {'gate': stage, 'error_type': error_type,
+'classification': 'invalid-infra', 'exhausted': True,
 'diagnostic': retained_diagnostic_relative_path}, then raises
-BudgetError('infrastructure_exhausted'). For stress, set no infrastructure_gate
-marker and raise BudgetError('stress_validation_exhausted'). Do not copy child
-terminal/card fields through the ordinary effects channel. Main's handler sets
-new_exhaustion and record_exhaustion queues diagnosis.
-Do not publish a scored pair or silently retry the exhausted journal. A new
-scientific version gets a new identity/journal; the same exhausted identity remains
-held for the ordinary factory-bug diagnosis/fix route. This does not grant an
-extra infrastructure attempt.
+BudgetError('infrastructure_exhausted'). For stress set no infrastructure_gate
+and raise BudgetError('stress_validation_exhausted'). These labels pass main's
+new_exhaustion accounting into record_exhaustion. No child terminal/card fields
+are copied through the effects channel. A scientific version or retry runtime
+revision change follows existing journal identities; unchanged exhausted journals
+never acquire extra attempts. A new diagnosis does not itself reset a journal.
 
 Use real r.g1 ... r.g17, not the writer/repair loop. G3 machine setup runs once
 in each new child before any fresh measured gate; if its scored record exists,
@@ -280,7 +306,7 @@ attack-state.json, operation ID and report under the phase work. Build the same
 review receipt and completion callback as write_and_attack's stress-only segment,
 then call attack_report and loop_freshness and apply its existing complete,
 blocking and unfinished-diagnostic rules. Never call write_and_attack or consume
-a writer round. Use the factory_waste comparison scope specified below. Stress freshness
+a writer round. The parent owns the factory_waste comparison scope specified below; no child scope is opened. Stress freshness
 public match is a scored stress failure with confirmed proof; unresolved
 freshness remains pending. Supporting artifacts use Records.sources('stress').
 
@@ -303,7 +329,14 @@ Transcripts, ordinary-retry journals and model output stay in phase work.
 The shared ledger and root usage-receipts survive even a SIGKILL before IPC.
 Do not change budget.py validators or broaden receipt path acceptance.
 
-Factory-waste comparison scopes use an explicit comparison=True parameter on
+Parent-owned factory-waste comparison scopes wrap each stage invoke. Before
+starting IPC, snapshot the shared ledger reservation IDs; in invoke's finally,
+read new reservation rows and call factory_waste.record_reservation on each while
+the parent scope is active, before propagating the result/error. Exclusive case
+ownership and no concurrent model calls ensure these rows belong to this attempt.
+Thus child death does not discard causal reservation linkage. Never infer spend
+from timestamps or public card totals. The child opens no factory-waste scope.
+The parent uses an explicit comparison=True parameter on
 attempt/Attempt (default False); comparison=True forces link=None and NEVER calls
 resume_scope or classify. They may publish their own invalid-infra factory-failures
 proof, but never factory-replays. All ordinary callers retain default behavior.
@@ -362,12 +395,12 @@ change the scored pair or cause re-evaluation.
 
 Files: new factory/extension_evaluator.py and
 tests/factory/test_stream_d_comparison.py; modify extension_package.py,
-extension_compare.py (execution metadata only), model_runtime.py,
+extension_compare.py (execution metadata and extracted existing fast-path verifier), model_runtime.py,
 factory_waste.py, diagnosis_dispatch.py, diagnosis.py (selected comparison
 crash inputs only) and the small main/manifest-helper seams in run.py.
 Update stream-d.md and stream-d-outcome-routes.md plus this design/reviews/reports.
 Do not alter extension limits, resume attribution validators, activation or
-Murphy status. Delete the unconditional history refusal in entry, replacing it
+existing Murphy statuses; add only the explicitly deferred static-review row below. Delete the unconditional history refusal in entry, replacing it
 with the verified subsequent-entry path; delete no safety test.
 
 ## 8. Tests and exams
@@ -479,8 +512,9 @@ then admits, without an extra coordinator relaunch. A provider/money interruptio
 uses the existing bounded relaunch policy, not a new allowance. Infrastructure
 exhaustion queues diagnosis with the above crash/journal inputs; a repeated
 close_to_passing decision at unchanged runtime cannot reset that exhausted journal
-and remains an infrastructure stop. A factory-bug decision instead uses the existing
-held/fix workflow and its resume limit. This design does not promise that a wrong
+and remains an infrastructure stop. A factory-bug decision is held under the existing workflow, but the return target
+after a fix is a known separate gap recorded below; this design does not claim
+that it resumes comparison automatically. This design does not promise that a wrong
 repeated diagnosis can never consume the coordinator's three-launch limit; live
 qualification must measure it. No reset, silent retry, extra launch or automatic
 spend is added to hide that limit.
@@ -491,3 +525,71 @@ metadata. Assert pending diagnosis, valid G marker or no stress marker, and
 included comparison diagnostics, never diagnosis_input_invalid. Default
 comparison_route=False remains a compatibility/testing boundary; record its
 removal as an item-7 cleanup after every production caller has the producer.
+
+## Round-3 recovery contract (binding)
+
+B1 and M1–M3 are accepted. Parent attempts replace the child retry/exhaustion
+message. Add a thin pair-level gate_attempt.execute around compare only for
+failures outside a requested stage (not another layer of stage retries). Its
+identity is operation='extension-comparison', extension_id, both immutable case
+hashes and pinned versions; journal is identity-root/pair-attempts.json. It has
+the same two-attempt bound. Stage exhaustion is a BudgetError and propagates
+through it without consuming or resetting a pair attempt. No third allowance.
+Pair-level record_crash writes comparison-diagnostics; exhausted pair attempts
+raise stress_validation_exhausted with no G marker. Successful stage Records
+survive pair retry, so a scored pass or rejection is never rerolled.
+
+Extract compare's existing current completed-pair verification into an internal
+helper used by compare and the producer. Call it BEFORE the pair retry journal:
+a verified terminal current pair returns immediately even if an old journal was
+left running. A selected terminal retained pair with bad bytes raises the existing
+extension_snapshot_changed evidence stop. This is the existing proof check moved
+to a reusable function, not a second validation implementation.
+
+Exhaustive sources of incompleteness on subsequent_entry:
+
+| Source | Route |
+| --- | --- |
+| Child/IPC/setup/manifest/thread/subreaper/cleanup failure | InvalidInfra within parent stage invoke; at most two attempts; then G infrastructure_exhausted or stress_validation_exhausted, both diagnosis triggers. |
+| Pending-shaped evaluator result | Same stage-attempt invalid-infrastructure route; never publish a pending score as a fail. |
+| Stress freshness_unresolved or a freshness-only unresolved result | BudgetError('freshness_evidence_unavailable'); existing diagnosis trigger, no G marker, retain actual freshness proof. |
+| Ordinary G2 freshness_evidence_unavailable, malformed_output_exhausted, stress_validation_exhausted | Propagate unchanged; existing diagnosis triggers. |
+| Source/config/version drift caught before/after a stage | InvalidInfra within that parent stage attempt. |
+| Drift or other pending result returned by compare outside a stage | InvalidInfra inside pair invoke; preserve scored Records; after two attempts stress_validation_exhausted with pair diagnostic. |
+| Selected retained terminal pair fails proof verification | extension_snapshot_changed evidence stop; never evaluate or relabel it. |
+| Malformed/tampered Records or support | Propagate extension_snapshot_changed/extension_reservation_mismatch evidence stop; never retry scored evidence. |
+| Records pinned-version mismatch | Treat as evidence mismatch, extension_snapshot_changed, because each execution identity already pins the full vector; do not map it to a held comparison. |
+| Money/provider/deadline/cancel | Propagate existing operational BudgetError labels unchanged through both attempts. |
+
+The production producer therefore has no non-retryable
+extension_comparison_pending exit. Non-opted-in dispatch and first-entry holds
+remain unchanged. Evidence stops intentionally end cleanly, as existing evidence
+validation does; they are not claimed retryable. A historical active row and
+invalid/used diagnosis fail existing eligibility checks before attempts.
+
+Before the first comparison checkpoint, the LIVE c removes stale failed_gate,
+failed_detail and infrastructure_gate, sets failed_gate=None, status='stopped',
+and terminal_stop='runner_error:comparison_in_progress'. This existing RETRY label
+is a checkpoint recovery marker, not an exhaustion. Keep diagnosis_state and
+extension history intact. Every parent comparison checkpoint uses that context.
+On successful producer return remove the temporary status/terminal_stop before
+ordinary admission; on an exception main writes the actual stop. The producer
+must not replace a later failure with its in-progress marker. Test the sealed
+mid-comparison card with recovery.require_restart_stop and restart.plan using
+saved restore artifacts. A kill then re-enters the same sole entry producer.
+
+Additional exams: one child death then success finishes without relaunch; two
+child deaths queue a diagnosis; out-of-band setup failures consume parent
+attempts; a thread exiting inside 30 seconds permits fork while a longer one
+consumes an attempt; the mid-comparison checkpoint is retryable; each table row
+has either a valid diagnosis input/restart route or the named intentional evidence
+stop. No unresolved infrastructure fault ends as extension_comparison_pending.
+
+Deferred static finding new-stream-d-current-comparison-1: after a post-extension
+factory-bug fix, resume_factory_bug removes diagnosis_state and _dispatch returns
+False, so main resumes ordinary build/validation rather than the interrupted
+comparison. Record this as open in docs/murphy-register.md, with this review and
+code paths as static evidence, not a claimed live incident. It needs a separately
+reviewed durable resume target across factory-bug admission and comparison.
+Do not claim it fixed or close item 7. Existing resume/extension/retire limits
+remain unchanged. This is an explicit remaining item-7 obligation.
