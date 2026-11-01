@@ -64,3 +64,12 @@ The exact required suite passed at source 72cd3d9405a3ee17c7bfa958c6396b57954241
 The unique record is stream-b-admission-clamps-suite-20261101T193952Z-7bd3784d.json
 and its matching .log.gz, including UTC times and both log hashes. Source and
 tests were unchanged during the run. Fresh diff review is still required.
+
+## Review-fix validation
+At c3faf6f0ef5bb669940a71d59ba3fcd15bcf651f (tree
+60107507423dcf3cda09d3f9422d365233372305), the full required suite passed again:
+169 scripts, 0 failed, exit 0. Record:
+stream-b-admission-clamps-suite-20261101T201211Z-bac41af7.json and matching .log.gz.
+The targeted admission script now has 9 passing tests. The earlier suite remains
+historical evidence for the first implementation, not validation of these fixes.
+B1 and M1 closure awaits the fresh independent diff review. No rows closed.
