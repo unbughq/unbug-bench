@@ -3817,3 +3817,39 @@ The parent limited this task to review closure: no next package work was started
 The package checkbox remains open and no Murphy rows close. Optional findings
 remain recorded in the reviews. Reviewer order is Claude, free OpenCode, then
 fresh Codex gpt-6.1-sol; paid OpenRouter is forbidden.
+
+### First-entry capture increment (after retained package traversal)
+
+This lane split the remaining package work again to provide
+`extension_package.entry(c, runner)` for a first extension. Approved design:
+`docs/designs/stream-d-entry-capture.md`, fresh design reviews 1–3 (PASS in 3).
+Capture uses the existing stage evidence collector only when diagnosis activation
+is enabled and ordinary mode permits it. It preserves ordinary gate results and
+retry behavior; entry reads proof on a copied context without evaluation. No
+changes to lane 1's diagnosis_dispatch.py are included.
+
+The package checkbox remains open. Subsequent-entry isolated current-version
+comparison and version-drift integration are next; rejected/unchanged writer and
+confirmed-public-match terminal outcomes remain afterward. First-entry holds
+mid-gate budget exhaustion and stress-before-gates exhaustion as
+extension_comparison_pending, not retirement. The terminal-outcomes producer must
+later supply the failed-stress retirement contract lane 1 expects. Old runs with
+no entry records need comparison/reconstruction, not invented receipts.
+
+Activation still requires measuring serial G10 overhead: capture serializes it
+only once diagnosis is enabled. Historical overlapped timing (144.4 G10 minutes
+of 148.1 gate minutes) does not measure that added cost. No live qualification,
+workers or paid calls were run here. Murphy 9/13 are supported; no rows close.
+
+First-entry capture is complete for this increment at implementation 10da907.
+The full suite passed 167 scripts / 0 failures; its committed record is
+`docs/reports/stream-d-entry-capture-suite-20261101T150744Z-6a486d1b.json`
+with adjacent `.log`. Design reviews are
+`docs/reviews/stream-d-entry-capture-design-{1,2,3}.md` (PASS in 3), and fresh
+Claude diff review `docs/reviews/stream-d-entry-capture-diff-1.md` passed without
+blockers. Optional findings remain recorded there. No Murphy rows close.
+
+Next increment for lane 1: isolated current-version comparison, subsequent-entry
+selection/reconstruction and version-drift integration. Rejected/unchanged writer
+and confirmed-public-match terminal outcomes still follow. The larger package
+and item-7 checkbox remain open; activation and live qualification are unchanged.

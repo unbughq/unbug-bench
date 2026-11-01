@@ -3032,6 +3032,9 @@ def pause_terminal(error, case):
 def run_gates(c, *, replay_gate=None, around_gate=None, serial=False, replay_only=False):
     model_runtime.prepare_dispatch(c)
     pipeline = _gate_pipeline()
+    if replay_gate is None and around_gate is None:
+        from extension_package import observation_enabled, observe
+        if observation_enabled(c): return observe(c, sys.modules[__name__], pipeline)
     if serial: pipeline.overlap_reason = lambda c: 'extension evidence capture'
     if replay_only: pipeline.budget_boundary = lambda c: None
     return pipeline.run(c, replay_gate=replay_gate, around_gate=around_gate)
