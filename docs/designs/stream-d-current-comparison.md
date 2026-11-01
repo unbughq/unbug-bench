@@ -29,8 +29,10 @@ decisions. No new allowance, extension, resume, or retirement rule is introduced
 
 ## 1. Replace the pending-comparison routing boundary
 
-Add keyword comparison_route=False to apply, replay and dispatch, forwarding it
-through the dispatch/replay chain. Existing callers keep the conservative hold.
+Add keyword comparison_route=False to apply, replay, dispatch, _dispatch and
+invoke. Forward it at every edge: dispatch -> _dispatch; _dispatch -> replay ->
+apply; _dispatch's valid-journal branch -> apply; and _dispatch -> invoke -> apply
+for a fresh diagnosis. Test all three apply call sites, including fresh invoke. Existing callers keep the conservative hold.
 The main runner opts in with dispatch(..., comparison_route=True).
 
 Only in apply's existing completed-prior-row / different-exhaustion branch:
@@ -61,8 +63,10 @@ card test retains both exhaustion IDs and its existing default refusal assertion
 Keep the first-entry implementation intact. entry(c,r) selects a new internal
 subsequent_entry when verified history is nonempty. Reject active rows, reused
 diagnoses and the extension limit using the existing extensions eligibility
-rules before evaluation. Require the live case tree to equal the retained
-latest outcome tree. Do not update the live case to make it match.
+rules before evaluation. Require extensions.digest(extensions.tree(c.case)) to equal the retained latest
+outcome case_sha256, including freshness.jsonl. A mismatch raises
+extension_snapshot_changed, as verify_proposal does. Do not use semantic
+run.case_hash or update live bytes to make them match.
 
 Run extension_compare.compare(c, last.extension_id, r.BENCH, evaluator) inside
 the evaluator's lifetime. It still owns common-version pinning, immutable
@@ -74,8 +78,11 @@ rebound to job_authority.for_case(c).source_generation. No other field changes.
 pending -> extension_comparison_pending. no_progress or regression ->
 retired_no_progress (the same decision propose enforces). progress returns the
 snapshot, and extensions.propose/verify_proposal remain mandatory before the
-writer reservation. Missing/tampered retained scored proof stays pending, never
-gets re-evaluated. Original snapshots/history rows are never rewritten.
+writer reservation. Missing/tampered scored proof in a previously retained comparison keeps compare's
+existing pending return and never gets re-evaluated. Evaluator Records errors
+are distinct: extension_snapshot_changed and extension_reservation_mismatch
+propagate as evidence stops; version mismatch remains extension_comparison_pending.
+Do not translate malformed envelopes/support to InvalidInfra or retry them. Original snapshots/history rows are never rewritten.
 
 ## 3. Scientific version versus execution layout
 
@@ -114,16 +121,21 @@ One OS child per phase runs gates serially. Use multiprocessing.get_context(
 'fork') and a duplex Pipe on the Linux worker. No serialised credentials or
 authenticated channel file is written. Fork only with no active model calls
 and threading.active_count() == 1; reject a non-quiescent fork with
-InvalidInfra before starting it. The child calls os.setpgid(0,0) before any work
-and acknowledges its process-group ID to the parent.
+InvalidInfra before starting it. The child calls os.setpgid(0,0) before any work. Immediately rebind run.seal to a
+stub raising RuntimeError('child seal'), then acknowledge its process-group ID.
+The parent runner module is unaffected by the fork-local rebinding.
 The parent retains original runner globals. In the child only:
 - set run.BENCH/COMPOSE to a private copied bench;
 - put that bench's bin first on sys.path and evict only bench, factory_pool and
   claims, whose globals resolve bench paths; never evict run_validity;
 - set BENCH in the child environment;
-- set parallel_calibrators and g10_overlap_reason to serial choices;
+- set run.parallel_calibrators = lambda c: False and
+  run.g10_overlap_reason = lambda c: 'comparison serial';
 - preserve the original factory module objects and exception classes; assert
   run_validity.InvalidInfra is extension_compare.InvalidInfra after imports.
+  After eviction, fail InvalidInfra if any module other than run_validity and
+  processes still has __file__ under the original bin directory. This explicit
+  fail-closed allowlist catches future path-bound in-process imports.
 Subprocess checkpoint/setup tools therefore import the copied bin modules.
 No parent environment or sys.modules changes.
 
@@ -133,12 +145,21 @@ Extract the existing bench_manifest inclusion predicate into a pure helper in
 run.py and use it unchanged both for manifest hashing and source copying. Copy
 all files included by that predicate, plus the factory source tree needed by
 subprocess imports (excluding __pycache__). Excluded trees are never traversed.
-Any symlink in the included source set is InvalidInfra; do not preserve or follow
-it. No secret/credential paths are added to the source set. Verify the source
+For an included symlink, accept only a relative link whose fully resolved target
+is a regular file inside the source root AND in the included file set. Materialize
+its target bytes as a regular file at the link's relative destination (including
+the real CLAUDE.md -> AGENTS.md link). Reject absolute, escaping, dangling,
+cyclic, directory or excluded-target links as InvalidInfra. No destination
+symlinks are created. No secret/credential paths are added to the source set. Verify the source
 manifest equals c.manifest0 before copying, then compute bench_manifest over the
 installed copy and require equality with c.manifest0 before a gate may run.
 A missing file, changed source or bad copy is InvalidInfra, never a G1 failure.
 Repeat checks on an existing copy and before its first stage in each process.
+Also hash the copied factory tree separately: ordered relative file names and
+sha256 values using the same inclusion/symlink materialization rule, excluding
+__pycache__. Retain that digest in the installed-source manifest and require
+source/copy equality before execution; scientific-vector checks are additional,
+not a replacement for full copied-source integrity.
 
 Identity is extensions.digest of schema_version=1, extension_id, both original
 case hashes, and the ordered current version vector. The copy is atomically
@@ -162,8 +183,10 @@ readers and reject symlinks. Round is the admitted row round.
 
 The runtime context is a shallow copy of the owner with independent args, card
 and models, case/work set to these phase paths, and no inherited early, votes,
-pilot_passes, role_cancel, audit attributes, or live scientific cache. Keep
-authenticated job configuration, ledger path and source_generation. Set
+pilot_passes, role_cancel, audit attributes, or live scientific cache. Remove recipient from the phase context explicitly. Keep authenticated job
+configuration, ledger path and source_generation. Set c.stress_checkpoint to
+send an owner-checkpoint request over Pipe and return the parent's remote_durable
+boolean. Never put an encryption key or R2 destination into the phase context. Set
 accounting_work to the owner's work path. The scientific card starts with roles,
 case identity and builder_rounds; operational authorization state is copied.
 Records uses the phase observation_id, retaining the existing scientific card/
@@ -185,9 +208,11 @@ homes through ordinary archive_pilot_state. Model subprocess ownership stays
 with budget/processes.run and their existing finally/kill_tree paths. Parent
 repeats privileged stop_pilot checks after child death, including forced death.
 
-Before fork the parent becomes a Linux child subreaper using prctl
+Before fork the parent becomes a Linux child subreaper using
+ctypes.CDLL(None, use_errno=True).prctl
 (PR_GET_CHILD_SUBREAPER=37, PR_SET_CHILD_SUBREAPER=36), saving the previous value
-and restoring it after final cleanup. No other subprocess owner may run in the
+and restoring it after final cleanup. Clear errno before each call; a nonzero
+return or nonzero errno is InvalidInfra, including failure to restore. No other subprocess owner may run in the
 parent during the evaluator lifetime except its synchronous checkpoint helpers.
 Double-forked or detached orphans are then reparented to this owner instead of
 escaping to init. A failure to enable subreaping is InvalidInfra before any child.
@@ -196,8 +221,11 @@ After joining the phase leader, enumerate the parent's remaining children and
 descendants using numeric ps pid/ppid/pgid fields only. Use processes.kill_tree
 for surviving owned leaders, and privileged stop_pilot for cross-user work. Reap
 adopted children with waitpid(WNOHANG), repeat until no descendants remain, and
-refuse after a bounded 30 seconds if any survive (raise InvalidInfra; do not
-start another phase or writer). Exclude only the synchronous ps probe itself.
+Each kill_tree retains its existing 60-second ps allowance. After the last
+kill_tree returns, allow a total of 30 seconds for numeric verification/reaping,
+with each verification probe bounded by the remaining time. Any probe timeout
+means quiescence is unproved (survivors present), not success. If the verification
+window expires, raise InvalidInfra and do not start another phase or writer. Exclude only the synchronous ps probe itself.
 Never signal the parent's own group. The single-thread/exclusive-owner precondition
 makes these descendants comparison-owned; publication subprocesses must already
 have joined before cleanup. A child dying before its group acknowledgement is
@@ -224,9 +252,14 @@ the live card. record_crash writes a numbered phase-local gate-details/<stage>.
 crash-N.json with the same type/message/traceback diagnostics as the pipeline. Capture inside invoke,
 persisting proof before returning. Pending-shaped results write no scored
 record and return pending. Infrastructure exhaustion is never regression. On gate_attempt's crashed outcome,
-raise BudgetError('infrastructure_exhausted') to the parent, set its existing
-infrastructure_gate to the stage and retain the phase-local diagnostic path.
-Main's ordinary handler sets new_exhaustion and record_exhaustion queues diagnosis.
+send an exhaustion message containing stage and error_type. For a G stage the
+PARENT sets owner.card['infrastructure_gate'] = {'gate': stage, 'error_type':
+error_type, 'classification': 'invalid-infra', 'exhausted': True,
+'diagnostic': retained_diagnostic_relative_path}, then raises
+BudgetError('infrastructure_exhausted'). For stress, set no infrastructure_gate
+marker and raise BudgetError('stress_validation_exhausted'). Do not copy child
+terminal/card fields through the ordinary effects channel. Main's handler sets
+new_exhaustion and record_exhaustion queues diagnosis.
 Do not publish a scored pair or silently retry the exhausted journal. A new
 scientific version gets a new identity/journal; the same exhausted identity remains
 held for the ordinary factory-bug diagnosis/fix route. This does not grant an
@@ -295,8 +328,14 @@ The parent checkpoints the original owning context with ordinary
 checkpoint_progress(c,r.seal,quiescent=True). Stress category publication requests
 use interval=0 and require remote_durable as today; failure returns to the
 ordinary publication retry path. No model is active at these boundaries.
-Automatic child _opencode checkpointing is replaced with this parent callback,
-not disabled without replacement. The whole comparison-runs tree is inside
+The child-only evaluator wraps run._opencode: call the original; after a successful
+return, durably send effects and request exactly one normal parent checkpoint
+for non-user, non-stress_category_call serial calls. Removing recipient prevents
+the original _opencode checkpoint. The wrapper does not checkpoint twice through
+on_complete. stress_category_call uses c.stress_checkpoint through the ordinary
+category publication barrier instead. The run.seal trap catches every accidental
+child seal, including _gate_completed if mistakenly called. Thus automatic
+checkpointing is replaced at a named seam, not disabled without replacement. The whole comparison-runs tree is inside
 the ordinary seal, so phase records and retry state travel on the normal restore.
 
 Completed pairs are served before creating child processes or consulting money.
@@ -324,7 +363,8 @@ change the scored pair or cause re-evaluation.
 Files: new factory/extension_evaluator.py and
 tests/factory/test_stream_d_comparison.py; modify extension_package.py,
 extension_compare.py (execution metadata only), model_runtime.py,
-factory_waste.py, diagnosis_dispatch.py and the small main seam in run.py.
+factory_waste.py, diagnosis_dispatch.py, diagnosis.py (selected comparison
+crash inputs only) and the small main/manifest-helper seams in run.py.
 Update stream-d.md and stream-d-outcome-routes.md plus this design/reviews/reports.
 Do not alter extension limits, resume attribution validators, activation or
 Murphy status. Delete the unconditional history refusal in entry, replacing it
@@ -359,7 +399,10 @@ bytes with the implementation under test.
 - Kill before/after stage record, after entry phase, after pair proof and before
   history append. A committed rejection never reruns; stale retry journal plus
   record replays. Incomplete execution remains pending, never no_progress.
-- Missing/tampered/symlink record or support stays pending without new invocation.
+- Missing/tampered/symlink evaluator record or support raises its evidence-stop
+  label without new invocation. A missing not-yet-executed stage remains pending
+  only for an interrupted execution; missing authoritative committed records
+  are never permission to reroll.
   Previously scored retained pair stays authoritative. Repeated completed compare
   starts no child/model, makes no money check and returns identical evidence.
 - Shared authenticated ledger under offline router fixtures from
@@ -401,7 +444,8 @@ for the operator is to decide automatically, without rerunning anything already
 scored, whether the last extra writer round moved the case forward.
 
 Additional required tests: a missing private manifest file yields pending, never
-G1 fail; source symlinks refuse; lazy-imported InvalidInfra stays the same class;
+G1 fail; the real repository copy materializes CLAUDE.md safely and matches the
+source bench_manifest, while unsafe symlinks refuse; lazy-imported InvalidInfra stays the same class;
 a detached grandchild is killed or blocks the next phase; active thread refuses
 fork; a saved factory-bug resume whose stage/hash matches the comparison must
 produce no factory-replays and never call classify. Existing attribution tests
@@ -412,3 +456,38 @@ compare still evaluates outcome after an entry-side pending result; leave that
 existing policy unchanged in this increment. It can spend on the other side, but
 durable stage records retain that work. Completed-pair proof verification remains
 compare's existing fast-path check, not a duplicate subsequent_entry validator.
+
+## Round-2 review resolution and diagnostic handoff
+
+N1–N3 and M1–M5 are accepted and incorporated above. Add two exact checkpoint
+exams: a child G2 non-user model completion produces exactly one parent
+checkpoint; a completed stress category publication produces exactly one forced
+parent checkpoint. Child SEALED/R2 adapters raise if touched. Inspect the owner
+card passed to sealing for absence of phase gate/status fields.
+
+On exhaustion the parent copies the phase infra-attempts.json, phase manifest,
+and gate-details/*.crash-*.json to
+work/comparison-diagnostics/<identity>/<phase>/, preserving bytes via safe readers.
+Publish a small index with extension_id, phase, pinned versions and evaluated
+case_sha256; no verdict is synthesized. Add comparison-diagnostics to the selected
+work roots in diagnosis._write_input_tree. Do not add the private bench or whole
+comparison-runs tree. queued_inputs must carry these exact files and hashes so
+the reviewer can distinguish a comparison failure from ordinary gate evidence.
+
+Expected path is one normal resumed launch that diagnoses and completes comparison
+then admits, without an extra coordinator relaunch. A provider/money interruption
+uses the existing bounded relaunch policy, not a new allowance. Infrastructure
+exhaustion queues diagnosis with the above crash/journal inputs; a repeated
+close_to_passing decision at unchanged runtime cannot reset that exhausted journal
+and remains an infrastructure stop. A factory-bug decision instead uses the existing
+held/fix workflow and its resume limit. This design does not promise that a wrong
+repeated diagnosis can never consume the coordinator's three-launch limit; live
+qualification must measure it. No reset, silent retry, extra launch or automatic
+spend is added to hide that limit.
+
+Exercise G and stress exhaustion through finalize_accounting -> record_exhaustion
+-> queued_inputs with real saved diagnosis fixtures and labelled authored stop
+metadata. Assert pending diagnosis, valid G marker or no stress marker, and
+included comparison diagnostics, never diagnosis_input_invalid. Default
+comparison_route=False remains a compatibility/testing boundary; record its
+removal as an item-7 cleanup after every production caller has the producer.
