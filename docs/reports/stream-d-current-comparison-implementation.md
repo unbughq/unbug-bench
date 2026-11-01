@@ -16,6 +16,10 @@ in the tests. Real saved practice/HTTP/plain/reference bytes, real G1/G2/G3/G4/G
 category aggregation, router reservation/settlement, records and comparisons are
 exercised. No workers or live model calls were made.
 
-Full suite and independent diff review are pending. The Linux-only tests must run
+Full suite passed at `4d19cff`: 170 scripts, zero failures. Record:
+`stream-d-current-comparison-suite-20261101T210113Z-a57565ff.json` and adjacent
+log. The first run at `7689557` found only the missing new-module expectation in
+the worker upload test; its failure record is retained and the expectation was
+updated explicitly. Independent diff review is pending. The Linux-only tests must run
 on a qualified Linux test host before activation; no Linux execution is claimed
 from this Mac. Remaining implementation is listed in the item-7 checklist.
