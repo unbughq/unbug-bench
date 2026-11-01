@@ -3275,8 +3275,6 @@ def main():
         c.card['account_handoffs'] = accounts['history']
     prev_card = jload(c.work / "scorecard.json", {}) if a.resume else {}
     if a.batch_release_sha256:
-        if a.resume and prev_card.get('batch_release_sha256') != a.batch_release_sha256:
-            p.error('checkpoint release differs from batch; explicit migration required')
         c.card['batch_release_sha256'] = a.batch_release_sha256
     if a.resume and not a.batch_release_sha256:
         from founder_ruling import context as ruling_context

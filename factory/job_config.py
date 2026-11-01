@@ -37,6 +37,38 @@ def host_check(path, digest, case, generation, release):
     return value
 
 
+def verified_config(path, digest, case, release_sha, *, generation=...):
+    from job_authority import read
+    current = read_file(Path(path), digest, private=True)
+    fields = {'schema', 'batch_id', 'job_id', 'case_id', 'batch_deadline', 'source_generation',
+              'batch_release_sha256', 'manifest_sha256', 'job_money'}
+    if set(current) != fields or type(current['schema']) is not int or current['schema'] != 1:
+        raise ValueError()
+    if (current['case_id'] != case or current['batch_release_sha256'] != release_sha or
+            not re.fullmatch('[a-z0-9-]+', current['batch_id']) or
+            not re.fullmatch('[a-z0-9-]+', current['job_id'])):
+        raise ValueError()
+    release = read_file(FACTORY.parent / 'batch-release.json', release_sha)
+    worker = read_file(FACTORY.parent / 'worker-release-manifest.json',
+                       release['files']['worker-release-manifest.json'])
+    relative = 'factory/batches/' + current['batch_id'] + '.json'
+    if worker['files'][relative] != current['manifest_sha256']: raise ValueError()
+    record = check_manifest(read_file(FACTORY / 'batches' / (current['batch_id'] + '.json'),
+                                      current['manifest_sha256']))
+    if (record['id'] != current['batch_id'] or record['batch_deadline'] != current['batch_deadline'] or
+            __import__('batch_service').resolve_job(record, current['job_id'])['case'] != case or
+            record['restore_recipient'] != (FACTORY / 'control-recipient.txt').read_text().strip()):
+        raise ValueError()
+    incoming = current['job_money']
+    for field, key in (('batch_id', 'batch'), ('job_id', 'job'), ('case_id', 'case'),
+                       ('batch_deadline', 'batch_deadline'), ('source_generation', 'source_generation')):
+        if current[field] != incoming[key]: raise ValueError()
+    read(incoming, incoming)  # Authentication above; D now validates its owned consumer contract.
+    if amount(incoming['committed_total_usd']) > amount(record['money_limit_usd']): raise ValueError()
+    if generation is not ... and current['source_generation'] != generation: raise ValueError()
+    return current, record
+
+
 def install(c, args):
     """Must run after restore authentication and before any D/model admission."""
     from budget import BudgetError
@@ -49,42 +81,34 @@ def install(c, args):
     try:
         from job_authority import read
         if not args.factory_job_config or not args.factory_job_config_sha256: raise ValueError()
-        current = read_file(Path(args.factory_job_config), args.factory_job_config_sha256, private=True)
-        fields = {'schema', 'batch_id', 'job_id', 'case_id', 'batch_deadline', 'source_generation',
-                  'batch_release_sha256', 'manifest_sha256', 'job_money'}
-        if set(current) != fields or type(current['schema']) is not int or current['schema'] != 1:
-            raise ValueError()
-        if (current['case_id'] != c.case_id or current['batch_release_sha256'] != args.batch_release_sha256 or
-                not re.fullmatch('[a-z0-9-]+', current['batch_id']) or
-                not re.fullmatch('[a-z0-9-]+', current['job_id'])):
-            raise ValueError()
-        release = read_file(FACTORY.parent / 'batch-release.json', args.batch_release_sha256)
-        worker = read_file(FACTORY.parent / 'worker-release-manifest.json',
-                           release['files']['worker-release-manifest.json'])
-        relative = 'factory/batches/' + current['batch_id'] + '.json'
-        if worker['files'][relative] != current['manifest_sha256']: raise ValueError()
-        record = check_manifest(read_file(FACTORY / 'batches' / (current['batch_id'] + '.json'),
-                                          current['manifest_sha256']))
-        if (record['id'] != current['batch_id'] or record['batch_deadline'] != current['batch_deadline'] or
-                record['jobs'][current['job_id']]['case'] != c.case_id or
-                record['restore_recipient'] != (FACTORY / 'control-recipient.txt').read_text().strip()):
-            raise ValueError()
+        current, record = verified_config(args.factory_job_config, args.factory_job_config_sha256, c.case_id, args.batch_release_sha256)
         incoming = current['job_money']
-        for field, key in (('batch_id', 'batch'), ('job_id', 'job'), ('case_id', 'case'),
-                           ('batch_deadline', 'batch_deadline'), ('source_generation', 'source_generation')):
-            if current[field] != incoming[key]: raise ValueError()
-        read(incoming, incoming)  # Authentication above; D now validates its owned consumer contract.
-        if amount(incoming['committed_total_usd']) > amount(record['money_limit_usd']): raise ValueError()
-        if (c.card.get('terminal_stop') == 'retired_batch_bound' or
+        spec = record.get('carry_from', {}).get('jobs', {}).get(current['job_id'])
+        importing = bool(spec and spec['generation'] is not None and spec['generation'] == incoming['source_generation'])
+        if not importing and (c.card.get('terminal_stop') == 'retired_batch_bound' or
                 getattr(c, 'checkpoint_card', {}).get('terminal_stop') == 'retired_batch_bound'):
             raise ValueError()
+        if getattr(args, 'resume', None) and hasattr(c, 'checkpoint_card'):
+            expected = record['carry_from']['policy']['batch']['sha256'] if importing else args.batch_release_sha256
+            if c.checkpoint_card.get('batch_release_sha256') != expected: raise ValueError()
         saved_path = c.work / 'job-money.json'
         history_path = c.work / 'job-money-history.json'
         if getattr(args, 'resume', None):
             # Missing old money is a legacy import, deliberately unsupported here.
             saved = json.loads(saved_path.read_text())
-            for key in ('batch', 'job', 'case', 'reservation_id', 'batch_deadline'):
-                if saved[key] != incoming[key]: raise ValueError()
+            cross_batch = saved['batch'] != incoming['batch']
+            if cross_batch:
+                from batch_transfer import predecessor
+                from batch_money import channel
+                old_policy, old_record = predecessor(record)
+                if not importing: raise ValueError()
+                channel(saved, old_record, current['job_id'])
+                if (saved['case'] != incoming['case'] or saved['job'] != incoming['job'] or
+                        saved['reservation_id'] == incoming['reservation_id'] or incoming['revision'] != 1 or
+                        spec['committed_total_usd'] != incoming['committed_total_usd']): raise ValueError()
+            else:
+                for key in ('batch', 'job', 'case', 'reservation_id', 'batch_deadline'):
+                    if saved[key] != incoming[key]: raise ValueError()
             read(saved, saved)
             history = json.loads(history_path.read_text()) if history_path.exists() else {}
             if not isinstance(history, dict): raise ValueError()
@@ -100,7 +124,10 @@ def install(c, args):
                         public.get('sha256') != incoming['source_generation'] or public.get('job_money') != saved or
                         incoming['source_generation'] is None or incoming['source_generation'] == saved['source_generation'] or
                         incoming['committed_total_usd'] != saved['committed_total_usd']): raise ValueError()
-                expected_revision = saved['revision'] + (card_total(public) is not None)
+                expected_release = old_policy['batch']['sha256'] if cross_batch else args.batch_release_sha256
+                if cross_batch and (public.get('batch_release_sha256') != expected_release or
+                        getattr(c, 'checkpoint_card', {}).get('batch_release_sha256') != expected_release): raise ValueError()
+                expected_revision = 1 if cross_batch else saved['revision'] + (card_total(public) is not None)
                 if incoming['revision'] != expected_revision: raise ValueError()
                 key = incoming['reservation_id'] + '/' + str(incoming['revision']) + '/' + incoming['source_generation']
                 transition = dict(old=saved, new=incoming, config_sha256=args.factory_job_config_sha256,
@@ -117,6 +144,7 @@ def install(c, args):
         atomic_json(saved_path, incoming)
         # Separate objects: a model cannot turn persisted case state into current authority.
         c.authenticated_job_config = deepcopy(current)
+        c.authenticated_batch_manifest = deepcopy(record)
         c.job_money = deepcopy(incoming)
         c.batch_id, c.job_id = current['batch_id'], current['job_id']
         c.batch_deadline, c.source_generation = current['batch_deadline'], current['source_generation']

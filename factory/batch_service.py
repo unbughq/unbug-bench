@@ -32,9 +32,12 @@ def resolve_job(manifest, job_id):
         if not manifest.get('replacement_policy', {}).get('enabled'):
             raise ValueError('replacement disabled')
     if root not in manifest['jobs']: raise ValueError('unknown job')
-    return dict(job=job_id, root_job=root, ordinal=ordinal,
-                case='case-' + manifest['id'] + '-' + job_id,
-                template=deepcopy(manifest['jobs'][root]))
+    imported = manifest.get('carry_from', {}).get('jobs', {}).get(job_id)
+    template = deepcopy(manifest['jobs'][root])
+    case = imported['case'] if imported else 'case-' + manifest['id'] + '-' + job_id
+    template['case'] = case
+    if imported: template['requested_total_usd'] = imported['committed_total_usd']
+    return dict(job=job_id, root_job=root, ordinal=ordinal, case=case, template=template)
 
 
 def _regular(path):
@@ -94,7 +97,7 @@ def _load(directory, record, manifest_sha):
                     entries={}, derivations={}, queue={}, next_sequence=0)
     state = _json(path)
     try:
-        if (set(state) - {'operations'} != {'schema', 'batch', 'manifest_sha256', 'entries', 'derivations', 'queue', 'next_sequence'} or
+        if (set(state) - {'operations', 'imported_derivations'} != {'schema', 'batch', 'manifest_sha256', 'entries', 'derivations', 'queue', 'next_sequence'} or
                 type(state['schema']) is not int or state['schema'] != 1 or state['batch'] != record['id'] or
                 state['manifest_sha256'] != manifest_sha or type(state['next_sequence']) is not int or
                 state['next_sequence'] < 0): raise ValueError()
@@ -111,7 +114,10 @@ def _load(directory, record, manifest_sha):
                     not re.fullmatch('[0-9a-f]{64}', entry['manifest_sha256']) or
                     entry['state'] != 'pending'): raise ValueError()
             if entry['facts'] is not None: _facts(entry['facts'])
-        children = set()
+        if 'imported_derivations' in state:
+            from batch_transfer import read_import, latches
+            if state['imported_derivations'] != latches(read_import(directory, record)): raise ValueError()
+        children = {v['derivation']['child_job'] for v in state.get('imported_derivations', {}).values()}
         for parent, row in state['derivations'].items():
             job = resolve_job(record, row['parent_job'])
             child = resolve_job(record, row['child_job'])
@@ -135,7 +141,7 @@ def _load(directory, record, manifest_sha):
                     row['sequence'] >= state['next_sequence'] or row['sequence'] in sequences): raise ValueError()
             sequences.add(row['sequence'])
             if row['kind'] == 'replacement':
-                derivation = state['derivations'][row['parent_case']]
+                derivation = derivations(state)[row['parent_case']]
                 if (key != 'replacement/' + row['parent_case'] or derivation['child_job'] != row['job'] or
                         row['source_generation'] is not None or row['reason'] not in ('unknown_total', 'exhaustion')):
                     raise ValueError()
@@ -151,10 +157,16 @@ def _load(directory, record, manifest_sha):
     return state
 
 
+def derivations(state):
+    inherited = {k: v['derivation'] for k, v in state.get('imported_derivations', {}).items()}
+    if set(inherited) & set(state['derivations']): raise ValueError('duplicate imported lineage')
+    return {**inherited, **state['derivations']}
+
+
 def _lineage(state, record, name):
     job = resolve_job(record, name)
     if job['ordinal']:
-        parents = [r for r in state['derivations'].values() if r['child_job'] == name]
+        parents = [r for r in derivations(state).values() if r['child_job'] == name]
         if len(parents) != 1 or parents[0]['child_case'] != job['case']:
             raise ValueError('unrecorded derived job')
     return job
@@ -263,7 +275,8 @@ def _enqueue(state, record, entry, card):
                                   source_generation=source, owner_job=owner['job'], parent_case=parent,
                                   sequence=state['next_sequence'], reason=reason)
         state['next_sequence'] += 1
-    if _replacement(facts) and record.get('replacement_policy', {}).get('enabled'):
+    if (_replacement(facts) and record.get('replacement_policy', {}).get('enabled') and
+            job['case'] not in state.get('imported_derivations', {})):
         child = resolve_job(record, job['root_job'] + '-r' + str(job['ordinal'] + 1))
         row = dict(parent_case=job['case'], parent_job=job['job'], root_job=job['root_job'],
                    ordinal=child['ordinal'], child_job=child['job'], child_case=child['case'],
@@ -273,7 +286,7 @@ def _enqueue(state, record, entry, card):
             if {**old, 'eligible_generation': entry['generation']} != row:
                 raise ValueError('changed replacement lineage')
         else:
-            if any(r['child_job'] == child['job'] for r in state['derivations'].values()):
+            if any(r['child_job'] == child['job'] for r in derivations(state).values()):
                 raise ValueError('claimed replacement')
             state['derivations'][job['case']] = row
         request('replacement/' + job['case'], 'replacement', child, None, job['case'],

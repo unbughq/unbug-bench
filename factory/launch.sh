@@ -746,6 +746,7 @@ PYCODE
         ruling_args="--founder-ruling /home/user/founder-ruling.json --founder-ruling-sha256 '$founder_ruling_sha'"
       fi
       release_args=""; [ -z "$batch_sha" ] || release_args="--release-sha256 '$batch_sha'"
+      [ -z "$job_config" ] || release_args="$release_args --job-config /dev/shm/secrets/factory-job.json --job-config-sha256 '$job_config_sha'"
       cat "$card" | boat --stdin ssh "$id" "python3 -B ~/factory/restore_ledger.py --case '$restore' --generation '$r2_sha' $ruling_args $release_args" > "$state/$id.restore-accounting.json" || {
         echo "$id: restored accounting refused; no runner started" >&2; exit 1;
       }

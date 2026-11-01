@@ -228,4 +228,168 @@ class HeldTests(unittest.TestCase):
         self.assertEqual(self.c.card['factory_bug']['gate_or_stage'], 'unknown')
 
 
+
+
+class ResumeTests(unittest.TestCase):
+    """Saved practice/5813be bytes; batch/finding transitions explicitly authored."""
+    patch = runtime.RuntimeTests.patch
+
+    def setUp(self):
+        import test_stream_d_inputs as inputs
+        import job_config
+        inputs.InputTests.setUp(self)
+        old_work = self.work
+        self.work = old_work.with_name('case-source-j'); old_work.rename(self.work)
+        self.case = self.work / 'case'
+        self.bench = self.work / 'authored-bench'
+        self.parent = self.work / 'diagnosis' / self.c.card['diagnosis_state']['exhaustion_id']
+        self.patch(job_config, 'FACTORY', self.work / 'authored-release/factory')
+        self.c.work, self.c.case, self.c.case_id = self.work, self.case, self.work.name
+        self.c.card['case'] = self.c.case_id
+        self.c.job_money.update(batch='source', job='j', case=self.c.case_id)
+        self.c.authenticated_job_config['job_money'] = copy.deepcopy(self.c.job_money)
+        self.c.batch_id, self.c.job_id = 'source', 'j'
+        self.c.checkpoint_card = copy.deepcopy(self.c.card)
+        self.install_receipt()
+        self.old_release = self.c.args.batch_release_sha256
+        recipient = (ROOT / 'factory/control-recipient.txt').read_text().strip()
+        self.record = dict(schema=1, id='source', money_limit_usd=self.c.job_money['committed_total_usd'],
+            batch_deadline=self.c.batch_deadline, max_concurrency=1, target_slots=1, restore_recipient=recipient,
+            jobs={'j': dict(mode='batch', case=self.c.case_id, args=['1'],
+                            requested_total_usd=self.c.job_money['committed_total_usd'])})
+        self.c.authenticated_batch_manifest = copy.deepcopy(self.record)
+        self.manifest = self.freeze()
+        inputs.InputTests.persist(self, self.manifest)
+        self.held_card = copy.deepcopy(self.c.card)
+        self.transition('fixed', 'b'*64)
+
+    def install_receipt(self, *args, **kwargs):
+        import test_stream_d_inputs as inputs
+        return inputs.InputTests.install_receipt(self, *args, **kwargs)
+
+    def freeze(self):
+        return diagnosis.queued_inputs(self.c, self.bench, quiescent=True)
+
+    def result(self, manifest):
+        import test_stream_d_inputs as inputs
+        return inputs.InputTests.result(self, manifest)
+
+    def transition(self, name, release, *, same_batch=False):
+        from registry import atomic_json
+        import job_config
+        if not same_batch:
+            release_path = job_config.FACTORY.parent / 'batch-release.json'
+            release_value = json.loads(release_path.read_text()); release_value['authored_revision'] = release
+            release_path.write_text(json.dumps(release_value))
+            release = hashlib.sha256(release_path.read_bytes()).hexdigest()
+        else: release = self.c.authenticated_job_config['batch_release_sha256']
+        old = copy.deepcopy(self.c.job_money)
+        old_record = copy.deepcopy(self.c.authenticated_batch_manifest)
+        prior_release = self.c.authenticated_job_config['batch_release_sha256']
+        source = hashlib.sha256((name + release + str(old['revision'])).encode()).hexdigest()
+        new = {**old, 'batch': name, 'source_generation': source,
+               'reservation_id': old['reservation_id'] if same_batch else str(uuid.uuid4()),
+               'revision': old['revision'] + 1 if same_batch else 1}
+        if not same_batch:
+            raw = json.dumps(old_record)
+            policy = dict(jobs=old_record['jobs'], batch=dict(id=old_record['id'], release='/authored',
+                sha256=prior_release, manifest_sha256=hashlib.sha256(raw.encode()).hexdigest(),
+                manifest_path='factory/batches/' + old_record['id'] + '.json', max_concurrency=1))
+            self.record = {**old_record, 'id': name, 'carry_from': dict(schema=1, manifest_json=raw,
+                policy=policy, snapshot_sha256='f'*64, jobs={'j': dict(generation=source,
+                    case=self.c.case_id, committed_total_usd=old['committed_total_usd'])})}
+            self.c.authenticated_batch_manifest = copy.deepcopy(self.record)
+        path = self.work / 'job-money-history.json'
+        history = json.loads(path.read_text()) if path.exists() else {}
+        history[new['reservation_id'] + '/' + str(new['revision']) + '/' + source] = dict(
+            old=old, new=new, config_sha256='c'*64, source_generation=source)
+        atomic_json(path, history)
+        self.c.job_money = copy.deepcopy(new)
+        self.c.authenticated_job_config.update(job_money=copy.deepcopy(new), batch_release_sha256=release)
+        self.c.batch_id, self.c.job_id, self.c.source_generation = name, 'j', source
+        self.c.args.batch_release_sha256 = release
+        self.c.checkpoint_card = copy.deepcopy(self.c.card)
+
+    def test_admission_keeps_real_ledger_and_replay_debits_once(self):
+        before = self.ledger.read_bytes()
+        self.assertTrue(diagnosis.resume_factory_bug(self.c))
+        self.assertEqual(self.ledger.read_bytes(), before)
+        self.assertEqual(self.c.card['factory_bug_resume_count'], 1)
+        self.assertNotIn('factory_bug', self.c.card)
+        diagnosis.require_model_work(self.c.card)
+        history = (self.work / 'factory-bug-resumes.json').read_bytes()
+        # Simulate a process replay from the held card after the durable append.
+        self.c.card = copy.deepcopy(self.held_card)
+        self.assertTrue(diagnosis.resume_factory_bug(self.c))
+        self.assertEqual((self.work / 'factory-bug-resumes.json').read_bytes(), history)
+
+    def test_dispatch_admits_before_replaying_hold_or_acquiring_a_lease(self):
+        import diagnosis_dispatch
+        import model_runtime
+        import run
+        with patch.object(model_runtime, 'prepare_dispatch', side_effect=AssertionError('no diagnosis model')):
+            self.assertFalse(diagnosis_dispatch.dispatch(self.c, run))
+        self.assertEqual(self.c.card['factory_bug_resume_count'], 1)
+        diagnosis.require_model_work(self.c.card)
+
+    def test_append_ahead_collected_checkpoint_repairs_through_money_transition(self):
+        import diagnosis_dispatch
+        import run
+        real = diagnosis.atomic_json
+        def fail(path, value):
+            if path.name == 'scorecard.json': raise OSError('authored death before cleared card')
+            real(path, value)
+        with patch.object(diagnosis, 'atomic_json', fail), self.assertRaisesRegex(
+                budget.BudgetError, 'factory_bug_resume_io_wait'):
+            diagnosis_dispatch.dispatch(self.c, run)
+        self.assertEqual(self.c.card['diagnosis_state'], self.held_card['diagnosis_state'])
+        self.assertNotEqual(self.c.card.get('terminal_stop'), 'diagnosis_input_invalid')
+        self.c.card = copy.deepcopy(self.held_card)
+        self.transition('fixed', 'b'*64, same_batch=True)
+        self.assertTrue(diagnosis.resume_factory_bug(self.c))
+        self.assertEqual(self.c.card['factory_bug_resume_count'], 1)
+
+    def test_same_admission_crossing_another_release_keeps_uuid(self):
+        diagnosis.resume_factory_bug(self.c)
+        history = (self.work / 'factory-bug-resumes.json').read_bytes()
+        self.c.card = copy.deepcopy(self.held_card)
+        self.transition('fixed-again', 'd'*64)
+        self.assertTrue(diagnosis.resume_factory_bug(self.c))
+        self.assertEqual((self.work / 'factory-bug-resumes.json').read_bytes(), history)
+
+    def test_missing_history_and_changed_release_chain_never_admit(self):
+        path = self.work / 'factory-bug-resumes.json'
+        path.unlink()
+        with self.assertRaisesRegex(budget.BudgetError, 'factory_bug_history_invalid'):
+            diagnosis.resume_factory_bug(self.c)
+        self.assertFalse(path.exists())
+        self.assertNotIn('factory_bug_resume_count', self.c.card)
+        self.c.card = copy.deepcopy(self.held_card)
+        path.write_text('[]')
+        self.c.authenticated_batch_manifest['carry_from']['policy']['batch']['sha256'] = '0'*64
+        with self.assertRaises(budget.BudgetError): diagnosis.resume_factory_bug(self.c)
+        self.assertEqual(json.loads(path.read_text()), [])
+
+    def test_three_distinct_resumes_then_fourth_retires_before_work(self):
+        for ordinal in range(4):
+            if ordinal == 3:
+                with self.assertRaisesRegex(budget.BudgetError, 'retired_factory_bug_limit'):
+                    diagnosis.resume_factory_bug(self.c)
+                self.assertEqual(self.c.card['factory_bug_resume_count'], 3)
+                break
+            self.assertTrue(diagnosis.resume_factory_bug(self.c))
+            self.assertEqual(self.c.card['factory_bug_resume_count'], ordinal + 1)
+            self.c.card.update(status='stopped', terminal_stop='infrastructure_exhausted',
+                               infrastructure_gate={'gate': 'G10', 'exhausted': True})
+            diagnosis.record_exhaustion(self.c.card, new_exhaustion=True)
+            self.c.checkpoint_card = copy.deepcopy(self.c.card)
+            self.install_receipt()
+            manifest = self.freeze()
+            self.parent = self.work / 'diagnosis' / manifest['exhaustion_id']
+            diagnosis.persist_factory_bug(self.c, self.result(manifest), generation=manifest['generation'],
+                                         evidence_root=self.parent / 'inputs')
+            # Keep the authored source pin consistent for frozen source capture.
+            self.transition('fixed-' + str(ordinal), str(ordinal + 5)*64)
+
+
 if __name__ == '__main__': unittest.main()

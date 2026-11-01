@@ -70,7 +70,14 @@ def build_snapshot(policy, fleet, states, config, status, *, now):
         # Conflicting retirement hints remain unknown; provider presence always wins.
         retired[row["id"]] = retired.get(row["id"], True) and row["retired"]
     cases = set(mappings.values())
-    for job in policy['jobs'].values():
+    jobs = policy['jobs']
+    if 'batch' in policy:
+        from batch_money import manifest
+        from batch_service import resolve_job
+        record = manifest(policy, pathlib.Path(policy['root']))
+        jobs = {name: resolve_job(record, name)['template'] for name in
+                set(record['jobs']) | set(record.get('carry_from', {}).get('jobs', {}))}
+    for job in jobs.values():
         case = job.get('case')
         if not isinstance(case, str) or not CASE.fullmatch(case): continue
         cases.add(case)

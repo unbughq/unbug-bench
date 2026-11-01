@@ -117,6 +117,7 @@ elif cmd == 'ssh':
         print('\n'.join(p.name for p in (vm/'sealed').iterdir() if p.is_file() and
             p.name.endswith(('.age','.scorecard.json','.scorecard.txt','.progress.json')))); sys.exit()
     command = command.replace('/home/user',str(vm)).replace('/dev/shm/casekey',str(vm/'casekey'))
+    command = command.replace('/dev/shm/secrets/',str(vm/'shm-secrets')+'/')
     if 'cat > '+str(vm/'casekey') in command:
         data = sys.stdin.buffer.read()
         assert data != pathlib.Path(IDENTITY).read_bytes(), 'founder identity sent to worker'
@@ -201,11 +202,15 @@ class BatchLaunchTests(unittest.TestCase):
                                         (['--max-total-calls=9000', '--max-cost', '10'], 5000),
                                         (['--max-total-calls=750', '--max-total-calls', '9000',
                                           '--max-cost', '.5', '--max-cost=10'], 750)):
-            with self.subTest(arguments=arguments), patch('batch_money.manifest'):
+            with self.subTest(arguments=arguments), patch('batch_money.manifest') as manifest:
                 policy = {'batch': {'id': 'public', 'release': 'unused', 'sha256': 'a' * 64},
                           'jobs': {'a': {'mode': 'batch', 'case': 'case-public-a', 'max_calls': 5000,
                                          'requested_total_usd': '50.000000000', 'args': ['1', '--source', 'port', '--rotation-slot', '1',
                                                                *arguments]}}}
+                manifest.return_value = dict(schema=1, id='public', jobs=policy['jobs'],
+                    money_limit_usd='50.000000000', batch_deadline='2099-01-01T00:00:00Z',
+                    max_concurrency=1, target_slots=1,
+                    restore_recipient='age1' + 'a' * 58)
                 job = batch.bind(policy, 'a', None, ROOT)
                 self.assertEqual(job['max_calls'], 5000)  # Historical metadata only.
                 self.assertNotIn('max_cost',job)

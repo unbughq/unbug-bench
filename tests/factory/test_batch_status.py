@@ -56,6 +56,15 @@ class RenderTests(unittest.TestCase):
         text = self.render([row(stopped_rejection)])
         self.assertIn('Sealed 0', text); self.assertIn('nothing needs you', text)
 
+    def test_factory_bug_resume_limit_is_retired_without_scoring_or_attention(self):
+        card = {**REJECTED, 'terminal_stop': 'retired_factory_bug_limit',
+                'case_budget': {'spent_usd': 100, 'limit_usd': 100}}
+        text = self.render([row(card)])
+        self.assertIn('1 retired', text)
+        self.assertIn('0 rejected', text)
+        self.assertIn('nothing needs you', text)
+        self.assertIn('factory bug resume limit reached', text)
+
     def test_authored_factory_bug_held_is_unscored_and_actionable(self):
         # New public operational fields edited onto saved real cards, not D output.
         for original in (SEALED, REJECTED, OLD):
