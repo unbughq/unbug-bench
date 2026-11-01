@@ -33,7 +33,7 @@ def current_attempt():
 
 
 class Attempt:
-    def __init__(self, c, stage, case_sha256):
+    def __init__(self, c, stage, case_sha256, *, comparison=False):
         job_authority.for_case(c)
         from diagnosis import _sha
         release = c.authenticated_job_config.get('batch_release_sha256')
@@ -47,7 +47,7 @@ class Attempt:
             batch_release_sha256=c.authenticated_job_config['batch_release_sha256'],
             money_owner=copy.deepcopy(c.job_money))
         self.reservations = {}
-        self.link = resume_scope(c, stage, case_sha256)
+        self.link = None if comparison else resume_scope(c, stage, case_sha256)
 
     def mark_unpublishable(self, reason):
         with self.lock:
@@ -82,13 +82,13 @@ class Attempt:
 
 
 @contextlib.contextmanager
-def attempt(c, stage, case_sha256):
+def attempt(c, stage, case_sha256, *, comparison=False):
     # Non-factory execution has no B channel and cannot produce paid proof.
     from model_runtime import factory_job
     if not factory_job(c):
         yield None
         return
-    scope = Attempt(c, stage, case_sha256)
+    scope = Attempt(c, stage, case_sha256, comparison=comparison)
     token = _attempt.set(scope)
     try:
         yield scope
@@ -101,9 +101,24 @@ def attempt(c, stage, case_sha256):
         _attempt.reset(token)
 
 
+class ForwardedAttempt:
+    def __init__(self, mark):
+        self.mark_unpublishable = mark
+
+
+@contextlib.contextmanager
+def forward_attempt(mark):
+    """Keep owner-drain safety in a child without publishing its copied scope."""
+    token = _attempt.set(ForwardedAttempt(mark) if mark is not None else None)
+    try:
+        yield
+    finally:
+        _attempt.reset(token)
+
+
 def record_reservation(c, row):
     scope = current_attempt()
-    if scope is None: return
+    if scope is None or isinstance(scope, ForwardedAttempt): return
     if Path(c.ledger) != Path(scope.c.ledger) or c.case_id != scope.value['case']:
         raise budget.BudgetError('invalid_waste_attribution')
     value = {k: row.get(k) for k in _FIELDS}

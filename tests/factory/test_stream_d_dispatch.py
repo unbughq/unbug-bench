@@ -233,7 +233,8 @@ if fault in ('execute', 'admit', 'admit-money'):
  restart.raised_limits=run.restore_gate_crash=forbidden
 if fault.startswith('held:'):
  import diagnosis, diagnosis_dispatch
- def held(c,r):
+ def held(c,r,*,comparison_route=False):
+  assert comparison_route is True
   c.card['diagnosis_state'].update(status='completed', outcome='factory_bug')
   c.card['factory_bug']={'finding_id':c.card['diagnosis_state']['exhaustion_id']}
   raise diagnosis.FactoryBugHeldWait(fault.split(':',1)[1])
@@ -363,6 +364,24 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             self.assertEqual(dispatch.dispatch(self.c, run), 0)
         self.assertEqual(len(self.calls), calls)
         self.assertIsNone(diagnosis.pending_projection(self.c.card))
+
+    def test_comparison_opt_in_reaches_fresh_replay_and_valid_journal_apply(self):
+        self.answer = 'close_to_passing'
+        original = dispatch.apply
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), \
+                patch.object(dispatch, 'apply', wraps=original) as applied:
+            self.assertEqual(dispatch.dispatch(self.c, run, comparison_route=True), 0)
+            self.assertTrue(applied.call_args.kwargs['comparison_route'])
+            calls = len(self.calls)
+            self.resume()
+            self.assertEqual(dispatch.dispatch(self.c, run, comparison_route=True), 0)
+            self.assertTrue(applied.call_args.kwargs['comparison_route'])
+            (self.parent / 'decision.json').unlink()
+            self.resume()
+            self.assertEqual(dispatch.dispatch(self.c, run, comparison_route=True), 0)
+            self.assertTrue(applied.call_args.kwargs['comparison_route'])
+            self.assertEqual(applied.call_count, 3)
+            self.assertEqual(len(self.calls), calls)
 
     def test_main_converts_zero_before_package_and_money_refusal_checkpoints(self):
         self.answer = 'close_to_passing'

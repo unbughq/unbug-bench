@@ -221,7 +221,7 @@ def decision(c, parent, manifest, result):
     return result
 
 
-def apply(c, parent, manifest, result, *, resume=False):
+def apply(c, parent, manifest, result, *, resume=False, comparison_route=False):
     root = parent / 'inputs'
     if result['outcome'] == 'factory_bug':
         d.persist_factory_bug(c, result, generation=manifest['generation'], evidence_root=root)
@@ -239,7 +239,8 @@ def apply(c, parent, manifest, result, *, resume=False):
                     prior = history[-1]
                     versions = [stage['version'] for stage in prior['outcome']['stages']]
                     pair = extensions.comparison_pair(prior, versions)
-                    if pair is None or extensions.progress(pair['entry'], pair['outcome']) == 'pending':
+                    if (not (comparison_route and batch_service.DIAGNOSIS_ENABLED is True) and
+                            (pair is None or extensions.progress(pair['entry'], pair['outcome']) == 'pending')):
                         stop(c, 'extension_comparison_pending')
                 row = (history[-1] if history and
                        history[-1]['exhaustion_id'] == manifest['exhaustion_id'] else None)
@@ -258,7 +259,7 @@ def apply(c, parent, manifest, result, *, resume=False):
     stop(c, STOPS[result['outcome']])
 
 
-def replay(c, parent, manifest, journal_value=None):
+def replay(c, parent, manifest, journal_value=None, *, comparison_route=False):
     result = None
     path = parent / 'decision.json'
     if path.exists() or path.is_symlink():
@@ -283,7 +284,7 @@ def replay(c, parent, manifest, journal_value=None):
                 raise InputVerificationError('conflicting finding')
         d.restore_factory_bug(c, generation=manifest['generation'], evidence_root=parent / 'inputs')
         stop(c, 'factory_bug_held')
-    if result is not None: return apply(c, parent, manifest, result, resume=True)
+    if result is not None: return apply(c, parent, manifest, result, resume=True, comparison_route=comparison_route)
 
 
 def closed_routes(value):
@@ -301,7 +302,7 @@ def carry_context(c):
     return True
 
 
-def _dispatch(c, r):
+def _dispatch(c, r, *, comparison_route=False):
     previous = c.checkpoint_card
     if not carry_context(c): return False
     state = previous.get('diagnosis_state')
@@ -328,7 +329,7 @@ def _dispatch(c, r):
             templates, schema_sha = contract(parent / 'inputs')
             model, family = verify(reviewer, c)
             value = verify(journal, c, parent, manifest, schema_sha, family)
-        extension_id = replay(c, parent, manifest, value)
+        extension_id = replay(c, parent, manifest, value, comparison_route=comparison_route)
         if type(extension_id) is int: return extension_id
         if value is None:
             templates, schema_sha = contract(parent / 'inputs')
@@ -337,7 +338,7 @@ def _dispatch(c, r):
         if value['attempts'] and value['attempts'][-1]['status'] == 'valid':
             try: result = verify(validate, c, manifest, parent / 'inputs', verify(raw_answer, parent, value['attempts'][-1]))
             except (ValueError, BudgetError): invalid(c)
-            return apply(c, parent, manifest, decision(c, parent, manifest, result))
+            return apply(c, parent, manifest, decision(c, parent, manifest, result), comparison_route=comparison_route)
         if state['status'] == 'completed': invalid(c)
         routes = model_router.routes(model, getattr(c, 'router_accounts', model_router.ACCOUNTS))
         if routes and all(row['route'] in closed_routes(value) for row in routes): stop(c, 'retired_diagnosis_malformed')
@@ -345,13 +346,13 @@ def _dispatch(c, r):
         from worker_release import verify_selected_drivers
         c.diagnosis_driver_qualification = verify_selected_drivers({'reviewer': [model]},
             lambda driver: r.pinned_cli(driver) if driver in ('codex', 'claude') else r.OPENCODE_BIN)
-        return invoke(c, r, parent, manifest, model, routes, templates, value)
+        return invoke(c, r, parent, manifest, model, routes, templates, value, comparison_route=comparison_route)
 
 
-def dispatch(c, r):
+def dispatch(c, r, *, comparison_route=False):
     """Called immediately after verified job installation; all handled paths stop."""
     try:
-        return _dispatch(c, r)
+        return _dispatch(c, r, comparison_route=comparison_route)
     except InputVerificationError:
         invalid(c)
     except BudgetError as error:
@@ -361,7 +362,7 @@ def dispatch(c, r):
         raise
 
 
-def invoke(c, r, parent, manifest, model, routes, templates, value):
+def invoke(c, r, parent, manifest, model, routes, templates, value, *, comparison_route=False):
     identity = manifest['exhaustion_id']
     old_operation = getattr(c, 'model_operation_id', None)
     old_exclusions = getattr(c, 'router_excluded', None)
@@ -440,7 +441,7 @@ def invoke(c, r, parent, manifest, model, routes, templates, value):
             finally:
                 if not preserve_task:
                     remove_task(c, identity); prepared = False
-            if result is not None: return apply(c, parent, manifest, decision(c, parent, manifest, result))
+            if result is not None: return apply(c, parent, manifest, decision(c, parent, manifest, result), comparison_route=comparison_route)
     finally:
         if old_operation is None: c.__dict__.pop('model_operation_id', None)
         else: c.model_operation_id = old_operation

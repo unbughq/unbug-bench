@@ -663,3 +663,14 @@ strengthen its no-work contract by patching both snapshot and evaluator construc
 to raise if reached. Add a separate valid completed-history test demonstrating the
 new producer route. This is the only superseded first-entry expectation changed;
 all outcome-route, history-before-card, attribution and retry assertions stay intact.
+
+## Round-5 non-blocking clarification
+
+Design review 5 passes. A complete effects exchange means receipt of a stage
+result or typed stop. Missing reply suppresses waste only when the parent cannot
+prove descendant quiescence and reconcile usage. If cleanup and reconciliation
+succeed, an ordinary InvalidInfra proof remains eligible, including after a killed
+child. Any explicit forwarded owner_drain_timeout always suppresses publication.
+For non-factory attempt=None the child installs None, not a forwarding proxy.
+The killed-child accounting exam asserts eligible proof only in the proved-quiet,
+reconciled case; the owner-drain/unknown-cleanup exams assert suppression.
