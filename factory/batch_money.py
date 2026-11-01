@@ -54,6 +54,24 @@ def check_manifest(record, *, _ancestors=True):
                     ('max_calls' in job and (type(job['max_calls']) is not int or job['max_calls'] <= 0)) or
                     amount(job['requested_total_usd']) <= 0 or 'max_cost' in job):
                 raise ValueError()
+        if 'practice_admission' in record:
+            practice = record['practice_admission']
+            if (not isinstance(practice, dict) or set(practice) != {'schema', 'jobs'} or
+                    type(practice['schema']) is not int or practice['schema'] != 1 or
+                    not isinstance(practice['jobs'], dict) or not jobs.keys() <= practice['jobs'].keys()):
+                raise ValueError()
+            total = 0
+            for name, allocation in practice['jobs'].items():
+                if name not in jobs and not (isinstance(name, str) and name.endswith('-r1') and
+                        name[:-3] in jobs and record.get('replacement_policy', {}).get('enabled')):
+                    raise ValueError()
+                if not isinstance(allocation, dict) or set(allocation) != {'baseline_usd', 'incremental_usd'}:
+                    raise ValueError()
+                baseline = amount(allocation['baseline_usd'])
+                incremental = amount(allocation['incremental_usd'])
+                if incremental <= 0 or ('carry_from' not in record and baseline): raise ValueError()
+                total += baseline + incremental
+            if total > amount(record['money_limit_usd']): raise ValueError()
         if 'carry_from' in record and _ancestors:
             from batch_transfer import check
             check(record)
@@ -101,10 +119,18 @@ def channel(value, record, name):
         if (value['batch'], value['job'], value['case'], value['batch_deadline']) != (
                 record['id'], name, resolved(record, name)['case'], record['batch_deadline']):
             raise ValueError()
-        if amount(value['committed_total_usd']) > amount(record['money_limit_usd']): raise ValueError()
+        if amount(value['committed_total_usd']) > allocation_cap(record, name): raise ValueError()
         return value
     except (KeyError, TypeError, ValueError, AttributeError):
         raise MoneyWait('money_wait') from None
+
+
+def allocation_cap(record, name):
+    """Manifest-authenticated lifetime ceiling; no allowance is inferred from a parent."""
+    if 'practice_admission' not in record: return amount(record['money_limit_usd'])
+    allocation = record['practice_admission']['jobs'].get(name)
+    if allocation is None: raise MoneyWait('money_wait')
+    return amount(allocation['baseline_usd']) + amount(allocation['incremental_usd'])
 
 
 def resolved(record, name):
@@ -131,7 +157,8 @@ def authorize(policy, name, source_generation, root, home, *, now=None):
     exists. A persisted grant is retained even if projection/delivery later fails.
     """
     record = manifest(policy, root)
-    if 'carry_from' in record or re.search(r'-r[0-9]+$', name): raise MoneyWait('money_wait')
+    if 'practice_admission' in record or 'carry_from' in record or re.search(r'-r[0-9]+$', name):
+        raise MoneyWait('money_wait')
     if deadline(record['batch_deadline']) <= (time.time() if now is None else now):
         raise MoneyWait('retired_batch_bound')
     if name not in record['jobs']: raise MoneyWait('money_wait')
@@ -305,6 +332,8 @@ def authorize_locked(state, record, name, source_generation):
     if source_generation is not None: raise MoneyWait('money_wait')
     if name in record.get('carry_from', {}).get('jobs', {}): raise MoneyWait('money_wait')
     wanted = job['template']['requested_total_usd']
+    cap = allocation_cap(record, name)
+    if amount(wanted) > cap: wanted = f'{cap // 10**9}.{cap % 10**9:09d}'
     if aggregate(state) + amount(wanted) > amount(record['money_limit_usd']): raise MoneyWait('money_wait')
     auth = dict(schema=1, batch=record['id'], job=name, case=job['case'],
                 reservation_id=str(uuid.uuid4()), revision=1, source_generation=None,
