@@ -3002,9 +3002,12 @@ def pause_terminal(error, case):
     return {'terminal_stop': 'paused'}
 
 
-def run_gates(c):
+def run_gates(c, *, replay_gate=None, around_gate=None, serial=False, replay_only=False):
     model_runtime.prepare_dispatch(c)
-    return _gate_pipeline().run(c)
+    pipeline = _gate_pipeline()
+    if serial: pipeline.overlap_reason = lambda c: 'extension evidence capture'
+    if replay_only: pipeline.budget_boundary = lambda c: None
+    return pipeline.run(c, replay_gate=replay_gate, around_gate=around_gate)
 
 
 def validate_and_repair(c):
@@ -3351,9 +3354,9 @@ def main():
             if a.statement_only:  # statements round: pick the bug, write statement.md, pause (the VM parks)
                 statement_precheck(c); raise BudgetError("statement-ready")
             if extension_id is not None:
-                write_and_attack(c, prev_card, extension_id=extension_id)
-                raise BudgetError('extension_comparison_pending')
-            if not a.audit_fairness and not a.late_gate_rehearsal and not c.card.get("salvaged_from"):
+                import extension_package
+                extension_package.run(c, sys.modules[__name__], prev_card, extension_id)
+            elif not a.audit_fairness and not a.late_gate_rehearsal and not c.card.get("salvaged_from"):
                 build(c)
         if a.late_gate_rehearsal:
             from late_rehearsal import run as rehearse
@@ -3361,7 +3364,7 @@ def main():
         elif a.audit_fairness or a.rehearse_only:
             from sealed_audit import run as audit
             audit(c, sys.modules[__name__])
-        else:
+        elif extension_id is None:
             validate_and_repair(c)
     except (BudgetError, PauseRequested) as error:
         c.stopped = True
