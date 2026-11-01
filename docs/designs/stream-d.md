@@ -3817,3 +3817,26 @@ The parent limited this task to review closure: no next package work was started
 The package checkbox remains open and no Murphy rows close. Optional findings
 remain recorded in the reviews. Reviewer order is Claude, free OpenCode, then
 fresh Codex gpt-6.1-sol; paid OpenRouter is forbidden.
+
+### First-entry capture increment (after retained package traversal)
+
+This lane split the remaining package work again to provide
+`extension_package.entry(c, runner)` for a first extension. Approved design:
+`docs/designs/stream-d-entry-capture.md`, fresh design reviews 1–3 (PASS in 3).
+Capture uses the existing stage evidence collector only when diagnosis activation
+is enabled and ordinary mode permits it. It preserves ordinary gate results and
+retry behavior; entry reads proof on a copied context without evaluation. No
+changes to lane 1's diagnosis_dispatch.py are included.
+
+The package checkbox remains open. Subsequent-entry isolated current-version
+comparison and version-drift integration are next; rejected/unchanged writer and
+confirmed-public-match terminal outcomes remain afterward. First-entry holds
+mid-gate budget exhaustion and stress-before-gates exhaustion as
+extension_comparison_pending, not retirement. The terminal-outcomes producer must
+later supply the failed-stress retirement contract lane 1 expects. Old runs with
+no entry records need comparison/reconstruction, not invented receipts.
+
+Activation still requires measuring serial G10 overhead: capture serializes it
+only once diagnosis is enabled. Historical overlapped timing (144.4 G10 minutes
+of 148.1 gate minutes) does not measure that added cost. No live qualification,
+workers or paid calls were run here. Murphy 9/13 are supported; no rows close.

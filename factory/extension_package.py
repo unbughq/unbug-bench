@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import tempfile
+import uuid
 
 from budget import BudgetError
 import extension_compare as comparison
@@ -48,11 +49,21 @@ def project(card):
 
 
 class Records:
-    def __init__(self, c, r, row):
+    def __init__(self, c, r, row=None, *, observation_id=None, round_number=None):
         self.c, self.r, self.row = c, r, row
-        self.root = c.work / 'extension-package' / str(row['extension_id'])
-        self.completed = row['outcome'] is not None
+        if row is not None:
+            if observation_id is not None or round_number is not None: raise ValueError('two record owners')
+            self.root = c.work / 'extension-package' / str(row['extension_id'])
+            self.operation_id, self.round_number = row['writer_operation_id'], row['round']
+            self.completed = row['outcome'] is not None
+        else:
+            from diagnosis import _uuid4
+            if not _uuid4(observation_id) or type(round_number) is not int or round_number < 0:
+                raise ValueError('invalid observation owner')
+            self.root = c.work / 'entry-records' / observation_id
+            self.operation_id, self.round_number, self.completed = None, round_number, False
         self.prepared = False
+        self.observed = {}
 
     def load(self, stage, *, check_version=True):
         path = self.root / stage / 'record.json'
@@ -66,8 +77,8 @@ class Records:
                     'scientific_version', 'ok', 'info', 'support', 'card', 'deleted', 'context'}:
                 refuse()
             if (type(data['schema_version']) is not int or data['schema_version'] != 1 or
-                    data['writer_operation_id'] != self.row['writer_operation_id'] or
-                    type(data['round']) is not int or data['round'] != self.row['round'] or
+                    data['writer_operation_id'] != self.operation_id or
+                    type(data['round']) is not int or data['round'] != self.round_number or
                     data['case_sha256'] != self.r.case_hash(self.c) or
                     not isinstance(data['card'], dict) or set(data['card']) & EXCLUDED or
                     not isinstance(data['context'], dict) or set(data['context']) - set(CONTEXT) or
@@ -183,8 +194,8 @@ class Records:
             if 'pilot_passes' in context:
                 context['pilot_passes'] = [str(Path(p).relative_to(c.work)) for p in context['pilot_passes']]
             card = project(c.card)
-            data = dict(schema_version=1, writer_operation_id=self.row['writer_operation_id'],
-                round=self.row['round'], case_sha256=r.case_hash(c),
+            data = dict(schema_version=1, writer_operation_id=self.operation_id,
+                round=self.round_number, case_sha256=r.case_hash(c),
                 scientific_version=gate_state.scientific_version(c, stage, r.BENCH), ok=ok,
                 info=info, support=support, card=card, deleted=sorted(set(old_card) - set(card)), context=context)
             atomic_json(temporary / 'record.json', {'record': data, 'sha256': extensions.digest(data)})
@@ -215,10 +226,40 @@ class Records:
         self.save(stage, ok, info, before, card)
         return ok, info
 
+    def observe_gate(self, c, stage, invoke):
+        """Observe ordinary execution without changing its verdict or retry policy."""
+        self.observed[stage] = False
+        try:
+            before = {key: gate_state.digest(path) for key, path in gate_state.inventory(c, self.r.BENCH).items()}
+            old_card, case = project(c.card), self.r.case_hash(c)
+        except CAPTURE_ERRORS:
+            before = None
+        result = invoke()  # Execution exceptions belong only to the ordinary pipeline.
+        if before is None: return result
+        try:
+            ok, info = result
+            if comparison._pending(ok, info): return result
+            if case != self.r.case_hash(c): return result
+            self.save(stage, ok, info, before, old_card)
+            self.observed[stage] = True
+        except CAPTURE_ERRORS:
+            # Even a failure after rename cannot authorize entry: no close marker.
+            try: shutil.rmtree(self.root / stage)
+            except OSError: pass
+        return result
+
     def evidence(self, w, stage):
         data = self.load(stage)
         if data is None: return None
         return data['ok'], data['info'], list(data['support'])
+
+
+def scientific_binding(binding):
+    value = copy.deepcopy(binding)
+    value['bench'].pop('seed', None)
+    for key in ('bench_workers', 'concurrent_roles'):
+        value['bench']['settings'].pop(key, None)
+    return value
 
 
 def stress(c, r, records):
@@ -235,14 +276,8 @@ def stress(c, r, records):
             completed.get('binding') != hashlib.sha256(json.dumps(receipt.get('binding'), sort_keys=True).encode()).hexdigest() or
             completed.get('report_sha256') != gate_state.digest(report)):
         refuse('extension_execution_pending')
-    def scientific(binding):
-        value = copy.deepcopy(binding)
-        value['bench'].pop('seed', None)
-        for key in ('bench_workers', 'concurrent_roles'):
-            value['bench']['settings'].pop(key, None)
-        return value
     # Match scientific_version's execution-only exclusions at the pre-G3 seam.
-    if scientific(receipt['binding']) != scientific(r.attack_binding(c)):
+    if scientific_binding(receipt['binding']) != scientific_binding(r.attack_binding(c)):
         refuse('extension_comparison_pending')
     result = r.attack_report(report)
     if result is None: refuse()
@@ -312,3 +347,107 @@ def run(c, r, previous, number):
         extensions.complete(c, snapshot)
     if not result['ok'] or c.card.get('failed_gate'):
         raise BudgetError('extension_incomplete')
+
+
+CAPTURE_ERRORS = (BudgetError, InvalidInfra, OSError, ValueError, KeyError, TypeError)
+EVIDENCE_STOPS = {'extension_reservation_mismatch', 'extension_snapshot_changed', 'extension_comparison_pending'}
+
+
+def observation_enabled(c):
+    import batch_service
+    import model_runtime
+    return (batch_service.DIAGNOSIS_ENABLED is True and model_runtime.factory_job(c)
+            and not any(getattr(c.args, name, False) for name in
+                        ('dry_run', 'rehearse_only', 'audit_fairness', 'late_gate_rehearsal'))
+            and not hasattr(c, 'audit_source') and not hasattr(c, 'audit_gates'))
+
+
+def safe_directory(c, path):
+    if any(p.is_symlink() for p in (path, *path.parents) if p.is_relative_to(c.work)):
+        refuse()
+
+
+def observe_stress(c, r, records):
+    """Only authenticated, completed clean stress can support a first entry."""
+    records.observed['stress'] = False
+    try:
+        from late_recovery import gate_marker, cleared_stress
+        receipt = extensions._writer_json(c.work / 'attack-state.json', c.work)
+        number = receipt['round']
+        if (type(number) is not int or number < 1 or number != records.round_number
+                or receipt['report'] != f'round-{number}.json'
+                or scientific_binding(receipt['binding']) != scientific_binding(r.attack_binding(c))
+                or r.attack_diagnostic_unfinished(c, number)):
+            return
+        if gate_marker(c) is None: return
+        report = c.work / 'attacks' / receipt['report']
+        result = r.attack_report(report)
+        if result.get('freshness_review') or result.get('freshness_review_malformed'):
+            result, _ = cleared_stress(c, receipt, report, result)
+        if not result['complete'] or result['blocking'] or result['unfinished_validation']: return
+        before = {key: gate_state.digest(path) for key, path in gate_state.inventory(c, r.BENCH).items()}
+        records.save('stress', True, result, before, project(c.card))
+        records.observed['stress'] = True
+    except CAPTURE_ERRORS:
+        try: shutil.rmtree(records.root / 'stress')
+        except OSError: pass
+
+
+def observe(c, r, pipeline):
+    """Capture one activated ordinary traversal; never replay its observations."""
+    from diagnosis import _uuid4
+    job_authority.for_case(c)
+    number = c.card.get('builder_rounds', 0)
+    records = Records(c, r, observation_id=str(uuid.uuid4()), round_number=number)
+    safe_directory(c, records.root)
+    records.root.mkdir(parents=True)
+    identity = records.root.name
+    pointer = dict(schema_version=1, observation_id=identity, round_number=number, case_sha256=r.case_hash(c))
+    atomic_json(records.root.parent / 'current.json', pointer)
+    for old in records.root.parent.iterdir():
+        if old != records.root and _uuid4(old.name):
+            safe_directory(c, old)
+            shutil.rmtree(old)
+    observe_stress(c, r, records)
+    pipeline.overlap_reason = lambda c: 'entry evidence capture'
+    result = pipeline.run(c, around_gate=records.observe_gate)
+    if (records.observed and all(records.observed.values()) and not getattr(c, 'stopped', False)
+            and 'infrastructure_gate' not in c.card):
+        atomic_json(records.root / 'closed.json', dict(schema_version=1, observation_id=identity,
+                                                      case_sha256=r.case_hash(c)))
+    return result
+
+
+def entry(c, r):
+    """Produce the first extension's entry from completed proof, without evaluation."""
+    authority = job_authority.for_case(c)
+    owner = copy.copy(c)
+    owner.args, owner.card, owner.models = copy.deepcopy((c.args, c.card, c.models))
+    if extensions.read(owner): refuse('extension_comparison_pending')
+    try:
+        from diagnosis import _uuid4
+        pointer = extensions._writer_json(owner.work / 'entry-records/current.json', owner.work)
+        if (set(pointer) != {'schema_version', 'observation_id', 'round_number', 'case_sha256'}
+                or type(pointer['schema_version']) is not int or pointer['schema_version'] != 1
+                or not _uuid4(pointer['observation_id']) or type(pointer['round_number']) is not int
+                or pointer['round_number'] != owner.card.get('builder_rounds', 0)
+                or pointer['case_sha256'] != r.case_hash(owner)):
+            refuse()
+        records = Records(owner, r, observation_id=pointer['observation_id'], round_number=pointer['round_number'])
+        closed = extensions._writer_json(records.root / 'closed.json', owner.work)
+        if (type(closed.get('schema_version')) is not int or
+                closed != {k: pointer[k] for k in ('schema_version', 'observation_id', 'case_sha256')}): refuse()
+        records.load('G3')  # Restore workers on the copy before pinning the vector.
+        for name in ('comparison-receipts', 'comparison-support'):
+            target = owner.work / name
+            safe_directory(owner, target)
+            if target.exists(): shutil.rmtree(target)
+        snapshot = comparison.snapshot(workspace(owner, r), authority.source_generation, records.evidence)
+        if snapshot['stages'][0]['status'] != 'pass' or any(row['status'] == 'pending' for row in snapshot['stages']):
+            refuse('extension_comparison_pending')
+        return snapshot
+    except BudgetError as error:
+        if str(error) not in EVIDENCE_STOPS: raise
+        refuse('extension_comparison_pending')
+    except (OSError, ValueError, KeyError, TypeError, comparison._Changed):
+        refuse('extension_comparison_pending')
