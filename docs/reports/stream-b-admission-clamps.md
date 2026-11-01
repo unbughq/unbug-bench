@@ -20,8 +20,7 @@ found B1 (two nondiscriminating tests) and M1 (production partial-grant regressi
 Both are accepted in docs/reviews/stream-b-admission-clamps-diff-1.md. The fix
 keeps the baseline-mismatch cap above held, gives the history test spare aggregate
 headroom, and limits partial grants to practice manifests. A new regression
-requires production oversized requests to refuse without mutation. A full-suite
-rerun and fresh independent review will validate these changes.
+requires production oversized requests to refuse without mutation. The full-suite rerun and fresh independent review below validate these changes.
 No Murphy rows closed: retained artifacts use authored batch and lifecycle
 bindings. No workers, model calls, live cloud, pushes or secret handling.
 
@@ -63,7 +62,7 @@ The exact required suite passed at source 72cd3d9405a3ee17c7bfa958c6396b57954241
 (tree 76918921668c074a371f0809c7eaac3833330c78): 169 scripts, 0 failed, exit 0.
 The unique record is stream-b-admission-clamps-suite-20261101T193952Z-7bd3784d.json
 and its matching .log.gz, including UTC times and both log hashes. Source and
-tests were unchanged during the run. Fresh diff review is still required.
+tests were unchanged during the run. This first run predates the review fixes below.
 
 ## Review-fix validation
 At c3faf6f0ef5bb669940a71d59ba3fcd15bcf651f (tree
@@ -72,4 +71,17 @@ At c3faf6f0ef5bb669940a71d59ba3fcd15bcf651f (tree
 stream-b-admission-clamps-suite-20261101T201211Z-bac41af7.json and matching .log.gz.
 The targeted admission script now has 9 passing tests. The earlier suite remains
 historical evidence for the first implementation, not validation of these fixes.
-B1 and M1 closure awaits the fresh independent diff review. No rows closed.
+Fresh Claude diff review 2 passed with no blockers or majors and independently
+closed B1 and M1. The reviewer repeated the baseline/history deletion mutations,
+read_import bypass mutation and production partial-grant mutation; all failed
+the corrected tests. Review files:
+- docs/reviews/stream-b-admission-clamps-design-1.md
+- docs/reviews/stream-b-admission-clamps-diff-1.md
+- docs/reviews/stream-b-admission-clamps-diff-2.md
+
+One deliberate production behavior change applies even without the practice
+schema: replay after incidents or cumulative overrun now refuses instead of
+returning old authority. Ordinary replacement-chain semantics and oversized
+production-request refusal remain unchanged. Optional redundant early checks
+are retained. No runtime/test edits follow the passing review. No rows closed.
+This increment is complete; the preflight blockers listed above remain.
