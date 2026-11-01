@@ -1,6 +1,7 @@
 """Batch-wide model admission. Public metadata only; the control VM owns SQLite.
 
-No model or credential transport lives here. Tests may inject _rpc; production
+No model payload transport lives here. The optional credit reader holds the
+OpenRouter credential only for read-only credit queries. Tests may inject _rpc; production
 callers always use authenticated HTTP and the same await_lease seam.
 """
 from contextlib import closing, contextmanager
@@ -13,6 +14,8 @@ import hmac
 import json
 import math
 import os
+import pwd
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
 import re
 import sqlite3
 import ssl
@@ -24,7 +27,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from budget import BudgetError
-from token_prices import GATED_CLAUDE, CLAUDE_PROFILES, claude_gate_maximum, openrouter_gate_maximum
+from token_prices import GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, claude_gate_maximum, openrouter_gate_maximum
 
 WAIT_SECONDS, RENEW_SECONDS, LEASE_SECONDS = 60, 60, 180
 SECRETS = Path('/dev/shm/secrets')
@@ -154,9 +157,98 @@ class RouterUnavailable(RuntimeError):
     pass
 
 
+PAID_CEILING = 11_630_000_000
+CREDIT_OVERLAP = 900
+
+
+def _nano(value, rounding=ROUND_CEILING):
+    if isinstance(value, bool): raise ValueError('invalid paid amount')
+    try:
+        number = Decimal(str(value))
+        if not number.is_finite() or number < 0: raise ValueError()
+        return int((number * 1_000_000_000).to_integral_value(rounding=rounding))
+    except (InvalidOperation, ValueError, OverflowError):
+        raise ValueError('invalid paid amount') from None
+
+
+def _dollars(value):
+    return format(Decimal(value) / 1_000_000_000, '.9f')
+
+
+class _NoCreditRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs): return None
+
+
+def available_credit():
+    """Read-only, bounded observation. Never expose credentials/provider diagnostics."""
+    token = os.environ.get('OPENROUTER_API_KEY')
+    if not token: return None
+    request = urllib.request.Request('https://openrouter.ai/api/v1/credits',
+        headers={'Authorization': 'Bearer ' + token})
+    try:
+        opener = urllib.request.build_opener(_NoCreditRedirect)
+        with opener.open(request, timeout=2) as response:
+            raw = response.read(16385)
+            if len(raw) > 16384: return None
+            data = json.loads(raw, parse_float=Decimal)['data']
+            credit, usage = data['total_credits'], data['total_usage']
+            if any(type(v) not in (int, Decimal) or not Decimal(v).is_finite() or v < 0 for v in (credit, usage)):
+                return None
+            value = Decimal(credit) - Decimal(usage)
+            return value if value >= 0 else None
+    except Exception:
+        return None
+
+
+def production_database(config):
+    if 'database' in config or 'UNBUG_CONTROL_HOME' in os.environ:
+        raise ValueError('router database is not configurable')
+    home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
+    path = home / '.unbug-control' / 'router' / 'factory.sqlite3'
+    if any(p.is_symlink() for p in (path, path.parent, path.parent.parent)):
+        raise ValueError('linked router ledger')
+    return path
+
+
+def _paid_envelope(operation, data):
+    fields = {'lease_id', 'request_id'} | ({'usage'} if operation == 'paid_settle' else set())
+    if (not isinstance(data, dict) or set(data) != fields or any(
+            not isinstance(data[k], str) or not re.fullmatch('[a-f0-9]{32}', data[k])
+            for k in ('lease_id', 'request_id'))):
+        raise ValueError('invalid paid request')
+
+
+def _paid_counts(db, since):
+    total = outstanding = 0
+    for hold, charge, state, settled in db.execute('SELECT hold,charge,state,settled_at FROM paid_requests'):
+        if (type(hold) is not int or hold < 0 or type(charge) is not int or not 0 <= charge <= hold
+                or state not in ('pending', 'unknown', 'settled') or
+                (state != 'settled' and charge != hold) or
+                (state == 'settled' and not finite(settled))):
+            raise ValueError('invalid paid ledger')
+        total += charge
+        if state != 'settled' or settled >= since: outstanding += charge
+    return total, outstanding
+
+
+def _paid_charge(profile, usage):
+    if not isinstance(usage, dict): return None
+    try:
+        incoming, output = usage['prompt_tokens'], usage['completion_tokens']
+        if (type(incoming) is not int or not 0 <= incoming <= profile['context'] or
+                type(output) is not int or not 0 <= output <= profile['output']): return None
+        value = (incoming * Decimal(profile['prices'][0]) + output * Decimal(profile['prices'][2])) / 1_000_000
+        if 'cost' in usage:
+            cost = usage['cost']
+            if type(cost) not in (int, float) or not finite(cost) or not 0 <= Decimal(str(cost)) <= value: return None
+        return _nano(value)
+    except (KeyError, TypeError, ValueError, InvalidOperation): return None
+
+
 class Store:
     """One short SQLite transaction per RPC; no process-local availability cache."""
-    def __init__(self, path, *, capacities=None, accounts=ACCOUNTS, clock=time.time):
+    def __init__(self, path, *, capacities=None, accounts=ACCOUNTS, clock=time.time, credit_reader=None):
+        self.credit_reader = credit_reader
         self.path, self.clock = str(path), clock
         self.capacities, self.accounts = capacities or {}, tuple(accounts)
         if any(a not in ACCOUNTS for a in self.accounts): raise ValueError('unapproved account')
@@ -164,18 +256,32 @@ class Store:
             raise ValueError('invalid lane capacity')
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute('PRAGMA synchronous=FULL')
             db.executescript('CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, payload TEXT, created REAL, seen REAL);'
                              'CREATE TABLE IF NOT EXISTS leases (id TEXT PRIMARY KEY, route TEXT, expires REAL, outcome TEXT, receipt TEXT);'
                              'CREATE TABLE IF NOT EXISTS health (pool TEXT PRIMARY KEY, value TEXT);'
-                             'CREATE TABLE IF NOT EXISTS observations (id TEXT PRIMARY KEY);')
+                             'CREATE TABLE IF NOT EXISTS observations (id TEXT PRIMARY KEY);'
+                             'CREATE TABLE IF NOT EXISTS paid_account (id INTEGER PRIMARY KEY CHECK(id=1), ceiling INTEGER, credit INTEGER);'
+                             'CREATE TABLE IF NOT EXISTS paid_requests (id TEXT PRIMARY KEY, lease_id TEXT, route TEXT, profile TEXT, '
+                             'hold INTEGER, charge INTEGER, state TEXT, settled_at REAL, usage TEXT);')
             if 'seen' not in {row[1] for row in db.execute('PRAGMA table_info(requests)')}:
                 db.execute('ALTER TABLE requests ADD COLUMN seen REAL NOT NULL DEFAULT 0')
 
-    def rpc(self, operation, data):
+    def rpc(self, operation, data, *, handling_started=None):
+        started = time.monotonic() if handling_started is None else handling_started
+        credit, fetched_at = None, self.clock()
+        if operation in ('paid_reserve', 'paid_settle'): _paid_envelope(operation, data)
+        if operation == 'paid_reserve':
+            try:
+                observed = self.credit_reader() if self.credit_reader else None
+                if observed is not None: credit = _nano(observed, ROUND_FLOOR)
+            except Exception: pass  # Unknown credit refuses; no provider diagnostics.
         now = self.clock()
         with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
+            db.execute('PRAGMA synchronous=FULL')
             db.execute('BEGIN IMMEDIATE')
             db.execute("UPDATE leases SET outcome='expired' WHERE outcome IS NULL AND expires<=?", (now,))
+            db.execute("UPDATE paid_requests SET state='unknown' WHERE state='pending' AND lease_id IN (SELECT id FROM leases WHERE outcome IS NOT NULL)")
             health = {k: json.loads(v) for k, v in db.execute('SELECT pool,value FROM health')}
             for key, value in health.items():
                 if value.get('reason') not in ('credit', 'credential_expiring') and value.get('blocked_until', 0) <= now:
@@ -195,9 +301,18 @@ class Store:
                 occupied = sum(json.loads(r)['pool'] == route['pool'] for (r,) in db.execute('SELECT route FROM leases WHERE outcome IS NULL'))
                 return 0 if not eligible(route) or blocked(route) else max(0, self.capacities.get(route['pool'], 1) - occupied)
             result = None
-            if operation == 'status':
+            if operation == 'paid_reserve':
+                result = self._paid_reserve(db, data, credit, fetched_at, started)
+            elif operation == 'paid_settle':
+                result = self._paid_settle(db, data, now)
+            elif operation == 'status':
                 result = dict(observed_at=now, health=health, leases=[dict(lease_id=i, **json.loads(r), expires_at=e)
                     for i, r, e in db.execute('SELECT id,route,expires FROM leases WHERE outcome IS NULL')])
+                account = db.execute('SELECT ceiling,credit FROM paid_account WHERE id=1').fetchone()
+                total, outstanding = _paid_counts(db, now - CREDIT_OVERLAP)
+                result['paid'] = dict(total_usd=_dollars(total), outstanding_usd=_dollars(outstanding),
+                    ceiling_usd=_dollars(account[0]) if account else None,
+                    available_credit_usd=_dollars(account[1]) if account and account[1] is not None else None)
             elif operation == 'capacity':
                 choices = [r for r in _bounded_routes(data['route'], self.accounts) if r['route'] == data['route']]
                 # Alternatives sharing a wallet/account do not create extra capacity.
@@ -211,13 +326,14 @@ class Store:
                 db.execute("UPDATE leases SET outcome='denied' WHERE id=? AND outcome IS NULL", (identity,))
                 result = {'cancelled': True}
             elif operation == 'acquire':
-                if set(data) - {'excluded_lanes'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
+                if set(data) - {'excluded_lanes', 'paid_protocol'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
                 if not isinstance(data['role'], str) or not re.fullmatch(r'[a-z_0-9]{1,40}', data['role']): raise ValueError('invalid role')
                 identity = data['id']
                 if not re.fullmatch(r'[a-f0-9]{32}', identity): raise ValueError('invalid attempt id')
                 if not finite(data['deadline']) or not now < data['deadline']: raise ValueError('expired admission deadline')
                 choices = [r for r in _bounded_routes(data['model'], [a for a in data['accounts'] if a in self.accounts])
-                           if eligible(r) and r['pool'] + '/' + r['route'] not in data.get('excluded_lanes', [])]
+                           if (r['route'] not in GATED_OPENROUTER or type(data.get('paid_protocol')) is int and data['paid_protocol'] == 1)
+                           and eligible(r) and r['pool'] + '/' + r['route'] not in data.get('excluded_lanes', [])]
                 payload = json.dumps(data, sort_keys=True, allow_nan=False)
                 previous = db.execute('SELECT payload FROM requests WHERE id=?', (identity,)).fetchone()
                 if previous and previous[0] != payload: raise ValueError('attempt id changed')
@@ -226,7 +342,8 @@ class Store:
                 lease = db.execute('SELECT route,expires,outcome FROM leases WHERE id=?', (identity,)).fetchone()
                 if lease:
                     if lease[2] is not None: raise ValueError('closed lease cannot be replayed')
-                    if valid_maximum(json.loads(lease[0])):
+                    if (valid_maximum(json.loads(lease[0])) and
+                            (json.loads(lease[0])['route'] not in GATED_OPENROUTER or data.get('paid_protocol') == 1)):
                         result = dict(kind='lease', lease_id=identity, **json.loads(lease[0]), expires_at=lease[1])
                     else:
                         db.execute("UPDATE leases SET outcome='denied' WHERE id=?", (identity,))
@@ -262,6 +379,10 @@ class Store:
                 if operation in ('renew', 'start'):
                     if row[2] is not None: raise ValueError('closed lease')
                     if not valid_maximum(json.loads(row[0])): raise ValueError('unbounded lease')
+                    if json.loads(row[0])['route'] in GATED_OPENROUTER:
+                        admitted = json.loads(db.execute('SELECT payload FROM requests WHERE id=?', (data['lease_id'],)).fetchone()[0])
+                        if type(admitted.get('paid_protocol')) is not int or admitted['paid_protocol'] != 1:
+                            raise ValueError('legacy paid lease')
                     if operation == 'start':
                         marker = '/execution/' + data['lease_id']
                         if db.execute('SELECT 1 FROM observations WHERE id=?', (marker,)).fetchone():
@@ -310,8 +431,55 @@ class Store:
                     db.execute('INSERT INTO observations VALUES (?)', (identity,))
                 result = {'observed': True}
             else: raise ValueError('unknown router operation')
+            db.execute("UPDATE paid_requests SET state='unknown' WHERE state='pending' AND lease_id IN (SELECT id FROM leases WHERE outcome IS NOT NULL)")
             save_health()
             return result
+
+
+
+    def _paid_reserve(self, db, data, credit, fetched_at, started):
+        denied = lambda reason: dict(granted=False, reason=reason)
+        prior = db.execute('SELECT lease_id FROM paid_requests WHERE id=?', (data['request_id'],)).fetchone()
+        if prior: return denied('duplicate' if prior[0] == data['lease_id'] else 'binding')
+        row = db.execute('SELECT route,outcome FROM leases WHERE id=?', (data['lease_id'],)).fetchone()
+        if not row or row[1] is not None: return denied('binding')
+        lease = json.loads(row[0])
+        if lease['route'] not in GATED_OPENROUTER or lease['account'] != 'openrouter-key' or not valid_maximum(lease):
+            return denied('binding')
+        request = db.execute('SELECT payload FROM requests WHERE id=?', (data['lease_id'],)).fetchone()
+        if not request: return denied('binding')
+        request = json.loads(request[0])
+        if (type(request.get('paid_protocol')) is not int or request['paid_protocol'] != 1 or
+                not db.execute('SELECT 1 FROM observations WHERE id=?', ('/execution/' + data['lease_id'],)).fetchone()):
+            return denied('binding')
+        if time.monotonic() - started >= 4: return denied('binding')
+        account = db.execute('SELECT ceiling FROM paid_account WHERE id=1').fetchone()
+        ceiling = account[0] if account else min(PAID_CEILING, credit) if credit is not None else None
+        if ceiling is not None and (type(ceiling) is not int or not 0 <= ceiling <= PAID_CEILING):
+            raise ValueError('invalid paid ceiling')
+        if credit is None: return denied('credit')
+        profile = GATED_OPENROUTER[lease['route']]
+        hold = _paid_charge(profile, dict(prompt_tokens=profile['context'], completion_tokens=profile['output']))
+        total, outstanding = _paid_counts(db, fetched_at - CREDIT_OVERLAP)
+        if total + hold > ceiling or outstanding + hold > credit: return denied('credit')
+        db.execute('INSERT OR REPLACE INTO paid_account VALUES (1,?,?)', (ceiling, credit))
+        frozen = dict(profile, price_source=lease['price_source'])
+        db.execute('INSERT INTO paid_requests VALUES (?,?,?,?,?,?,?,?,?)',
+            (data['request_id'], data['lease_id'], lease['route'], json.dumps(frozen), hold, hold, 'pending', None, None))
+        return dict(granted=True)
+
+    def _paid_settle(self, db, data, now):
+        row = db.execute('SELECT lease_id,profile,hold,state,usage FROM paid_requests WHERE id=?', (data['request_id'],)).fetchone()
+        if not row or row[0] != data['lease_id']: return dict(settled=False)
+        usage = json.dumps(data['usage'], sort_keys=True, allow_nan=False)
+        if row[3] != 'pending':
+            return dict(settled=row[3] == 'settled' and row[4] == usage)
+        charge = _paid_charge(json.loads(row[1]), data['usage'])
+        known = charge is not None and charge <= row[2]
+        db.execute('UPDATE paid_requests SET charge=?,state=?,settled_at=?,usage=? WHERE id=?',
+            (charge if known else row[2], 'settled' if known else 'unknown', now if known else None,
+             usage if known else None, data['request_id']))
+        return dict(settled=known)
 
 
 def _rpc(operation, data):
@@ -353,7 +521,7 @@ def _account_order(case):
 
 def _admit(role, case, deadline, identity, accounts, excluded=()):
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
-    data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_lanes=list(excluded))
+    data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_lanes=list(excluded), paid_protocol=1)
     result = _rpc('acquire', data)
     if result.get('kind') == 'lease':
         result.pop('kind')
@@ -564,6 +732,7 @@ class Handler(BaseHTTPRequestHandler):
         super().setup()
     def log_message(self, *args): pass
     def do_POST(self):
+        handling_started = time.monotonic()
         self.connection.settimeout(5)
         status, value = 400, {'error': 'invalid router request'}
         if not hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer ' + self.server.token):
@@ -573,7 +742,7 @@ class Handler(BaseHTTPRequestHandler):
                 if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Content-Length', [])) != 1: raise ValueError()
                 size = int(self.headers['Content-Length'])
                 if not 0 < size <= 16384: raise ValueError()
-                value = self.server.store.rpc(self.path.removeprefix('/'), json.loads(self.rfile.read(size)))
+                value = self.server.store.rpc(self.path.removeprefix('/'), json.loads(self.rfile.read(size)), handling_started=handling_started)
                 status = 200
             except (ValueError, KeyError, TypeError, OSError, sqlite3.Error): pass
         encoded = json.dumps(value, allow_nan=False).encode()
@@ -588,7 +757,7 @@ def main():
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
     token = os.environ.get('FACTORY_ROUTER_TOKEN', '')
-    server = Server(('0.0.0.0', 8765), Store(config['database'], capacities=config.get('capacities'), accounts=config.get('accounts', ACCOUNTS)), token)
+    server = Server(('0.0.0.0', 8765), Store(production_database(config), capacities=config.get('capacities'), accounts=config.get('accounts', ACCOUNTS), credit_reader=available_credit), token)
     server.enable_tls(os.environ['FACTORY_ROUTER_CERT'], os.environ['FACTORY_ROUTER_KEY'])
     server.serve_forever()
 

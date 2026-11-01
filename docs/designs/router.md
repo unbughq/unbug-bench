@@ -1,5 +1,18 @@
 # Factory model router — stream A
 
+> Shared paid-spend supersession (2026-11-01):
+> [router-shared-paid-spend.md](router-shared-paid-spend.md) replaces the per-batch
+> router configuration/database/token contract. One control-VM-wide service uses
+> the service account's ~/.unbug-control/router/factory.sqlite3; production rejects
+> database config and UNBUG_CONTROL_HOME overrides. All batches pin the same global
+> accounts/capacities/config/service identity. B3 owns config/RAM delivery and
+> drain/restart rotation. Server upgrades precede clients; paid_protocol=1 and
+> per-request paid authorization are mandatory. No existing practice pins activate
+> this code. New placement of openrouter-key in router RAM for read-only credit
+> observations requires founder acknowledgement before deployment. This offline
+> implementation supplies no credential and performs no activation.
+
+
 ## Problem and authority
 
 Every factory role already enters ModelRuntime.call, but that method silently
