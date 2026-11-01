@@ -73,6 +73,15 @@ class ProgressTests(unittest.TestCase):
                 with self.assertRaises(ValueError): public_progress.publish(path, stage, status, elapsed)
             self.assertEqual(set(json.loads(path.read_text())["stages"]), {"role:writer", "early:G5"})
 
+    def test_comparison_progress_is_fixed_operational_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'case-synthetic.progress.json'
+            allowed = ['comparison', 'comparison:stress', *('comparison:G' + str(n) for n in range(1, 18))]
+            for stage in allowed: public_progress.publish(path, stage, 'completed', 1)
+            self.assertEqual(set(json.loads(path.read_text())['completed']), set(allowed))
+            for stage in ('comparison:private text', 'comparison:G0', 'comparison:G18', 'comparison:role:writer'):
+                with self.assertRaises(ValueError): public_progress.publish(path, stage, 'running')
+
     def test_failed_write_preserves_previous_publication(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as directory:

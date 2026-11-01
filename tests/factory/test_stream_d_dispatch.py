@@ -205,8 +205,8 @@ run.seal=seal
 run.pilot_homes=lambda: []
 founder_ruling.context=lambda c: None
 job_config.install=install
-if fault in ('execute', 'admit', 'admit-money') or fault.startswith('mode:'): batch_service.DIAGNOSIS_ENABLED=True
-if fault in ('execute', 'admit', 'admit-money'):
+if fault in ('execute', 'admit', 'admit-money', 'admit-comparison') or fault.startswith('mode:'): batch_service.DIAGNOSIS_ENABLED=True
+if fault in ('execute', 'admit', 'admit-money', 'admit-comparison'):
  run.sh=lambda *a,**k: None
  run.pick_models=lambda c: {'builder':['claude/claude-opus-5-5']}
  worker_release.verify_selected_drivers=lambda *a,**k: {}
@@ -224,6 +224,16 @@ if fault in ('execute', 'admit', 'admit-money'):
    c.card['admission_test_entered']=True
    return 1
   diagnosis_dispatch.admit_extension=admit
+ if fault == 'admit-comparison':
+  # Authored producer stop, reached through real main -> dispatch -> admit_extension.
+  # The isolated producer itself is exercised with real progress in comparison tests.
+  def entry(c,r):
+   assert c.card['diagnosis_state']['outcome'] == 'close_to_passing'
+   assert c.card['terminal_stop'] == 'extension_comparison_pending'
+   c.card['comparison_producer_entered']=True
+   raise run.BudgetError('freshness_evidence_unavailable')
+  extension_package.entry=entry
+  run.writer_request=run.pending_call=forbidden
  if fault == 'admit-money':
   def models(c):
    c.authenticated_job_config['job_money']['source_generation']='f'*64
@@ -253,16 +263,20 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         published = json.loads((self.ledger.parent / (self.c.case_id + '.scorecard.json')).read_text())
         expected = {'qualification': 'runner_error:ValueError', 'active': 'extension_comparison_pending',
                     'execute': 'extension_comparison_pending', 'admit': 'extension_comparison_pending',
-                    'admit-money': 'money_wait'}
+                    'admit-money': 'money_wait', 'admit-comparison': 'freshness_evidence_unavailable'}
         if fault.startswith('held:'): expected[fault] = 'factory_bug_held'
         if fault.startswith('mode:'): expected[fault] = 'extension_execution_mode_invalid'
         self.assertEqual(published['terminal_stop'], expected.get(fault, 'diagnosis_pending'))
-        self.assertEqual(published['diagnosis_state']['exhaustion_id'], self.parent.name)
+        if fault == 'admit-comparison':
+            self.assertEqual(published['diagnosis_state']['status'], 'pending')
+            self.assertNotEqual(published['diagnosis_state']['exhaustion_id'], self.parent.name)
+        else:
+            self.assertEqual(published['diagnosis_state']['exhaustion_id'], self.parent.name)
         if fault in ('active', 'execute') or fault.startswith('mode:'):
             self.assertEqual(published['builder_rounds'], self.admitted_receipt['round'])
             self.assertEqual(published['continuation_budget']['invocation_reservations'],
                              json.loads(self.ledger.read_text())['invocation_reservations'])
-        elif fault not in ('admit', 'admit-money'):
+        elif fault not in ('admit', 'admit-money', 'admit-comparison'):
             self.assertNotIn('invocation_reservations', published['continuation_budget'])
         if fault in ('admit', 'admit-money'):
             self.assertEqual(published['test_seals'], [True])
@@ -390,6 +404,16 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.c.checkpoint_card = copy.deepcopy(self.c.card)
         self.main_resume('admit')
         self.main_resume('admit-money')
+
+    def test_main_routes_zero_to_pending_producer_before_any_writer_call(self):
+        self.answer = 'close_to_passing'
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+            self.assertEqual(dispatch.dispatch(self.c, run, comparison_route=True), 0)
+        self.c.checkpoint_card = copy.deepcopy(self.c.card)
+        published = self.main_resume('admit-comparison')
+        self.assertTrue(published['comparison_producer_entered'])
+        self.assertNotIn('execution_test_entered', published)
+        self.assertEqual(published.get('extension_history', []), [])
 
     def test_main_held_attribution_refusals_checkpoint_without_new_exhaustion(self):
         for reason in ('money_wait', 'invalid_provider_wait', 'usage_reconciliation_while_active',

@@ -23,3 +23,20 @@ the worker upload test; its failure record is retained and the expectation was
 updated explicitly. Independent diff review is pending. The Linux-only tests must run
 on a qualified Linux test host before activation; no Linux execution is claimed
 from this Mac. Remaining implementation is listed in the item-7 checklist.
+
+
+Diff review 1 blocked on unsupported public progress labels and missing boundary
+exams. The fix deliberately adds only fixed comparison stage labels to the public
+allowlist and uses the real publisher throughout the comparison tests. The five
+boundary exams now cover thread quiescence/refusal, settlement before retry,
+finalization into verified diagnosis inputs, restart.plan through the real parent
+checkpoint helper, and main admission into a pending producer with writer calls
+forbidden. Saved practice/ledger bytes are used; process, clock and ciphertext
+transports are authored and labelled. Focused results: 34 comparison tests (two
+Linux skips), 63 dispatch tests, six public progress tests, all passing.
+
+The same fix forces final pair publication before scratch cleanup, checks current
+versions before invocation and replay, and documents the accounting-root provider
+wait seam. Full suite for these fixes and fresh diff review round 2 are pending.
+Linux activation must exercise the entire real Evaluator start/fork/ready/receive/
+close/subreaper-restore path; the two isolated Linux exams alone are insufficient.

@@ -674,3 +674,25 @@ child. Any explicit forwarded owner_drain_timeout always suppresses publication.
 For non-factory attempt=None the child installs None, not a forwarding proxy.
 The killed-child accounting exam asserts eligible proof only in the proved-quiet,
 reconciled case; the owner-drain/unknown-cleanup exams assert suppression.
+
+
+## Diff-review round 1 decisions
+
+B1: extend the public operational stage allowlist deliberately with only the fixed
+labels `comparison`, `comparison:stress`, and `comparison:G1` through
+`comparison:G17`. Status/timing metadata retains the existing schema and filtering;
+no case content or arbitrary stage names are accepted. Subsequent-entry tests use
+the real publisher with a temporary SEALED directory.
+
+M1: force a fresh completed-pair checkpoint and delete scratch only when that call
+both advances the receipt and confirms remote durability. A stale receipt never
+permits deletion. M2: check the pinned source vector before every invoke, again
+before sending work, and after its reply; committed records cannot bypass drift.
+N4: `run.resume_provider_wait` uses `accounting_work` for the provider wait archive,
+settlement and reconciliation, while the phase attack receipt remains phase-local.
+This preserves the existing owner path and settles child usage at its owner root.
+
+B2 is resolved by adding the five requested boundary exams, not by deferral.
+Linux activation evidence must additionally exercise the complete real
+Evaluator.start_child/fork/ready/receive/close_child/subreaper restoration path;
+the Mac protocol and detached-process tests alone do not qualify it (M3).

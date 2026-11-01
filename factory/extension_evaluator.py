@@ -426,8 +426,8 @@ class Evaluator:
 
     def checkpoint(self, force=False):
         from durable_checkpoint import checkpoint_progress
-        checkpoint_progress(self.c, self.r.seal, quiescent=True, **({'interval': 0} if force else {}))
-        return self.c.card.get('durable_checkpoint', {}).get('remote_durable') is True
+        advanced = checkpoint_progress(self.c, self.r.seal, quiescent=True, **({'interval': 0} if force else {}))
+        return advanced and self.c.card.get('durable_checkpoint', {}).get('remote_durable') is True
 
     def close_child(self):
         if self.process is None and not self.cleanup_pending: return
@@ -505,7 +505,14 @@ class Evaluator:
         self.c.card.pop('infrastructure_gate', None)
         raise BudgetError('stress_validation_exhausted')
 
+    def check_versions(self):
+        if comparison._versions(comparison.Workspace(self.c.case, self.c.work, self.r.BENCH,
+                self.c.args, self.c.models, self.c.card, self.c.seed,
+                getattr(self.c, 'factory_slot', 0), self.c.case_id)) != self.versions:
+            raise InvalidInfra('comparison version changed')
+
     def invoke(self, stage):
+        self.check_versions()
         committed = self.records.load(stage)
         if committed is not None: return committed['ok'], committed['info']
         self.r.case_budget_boundary(self.c)
@@ -516,6 +523,7 @@ class Evaluator:
             attempt_id = scope.value['attempt_id'] if scope is not None else None
             try:
                 self.start_child()
+                self.check_versions()
                 self.pipe.send(('stage', stage, attempt_id))
                 while True:
                     message = self.receive()
@@ -541,10 +549,7 @@ class Evaluator:
                         if kind == 'CaseProblem': raise CaseProblem(text)
                         raise RuntimeError(text)
                     else: raise InvalidInfra('invalid comparison IPC')
-                if comparison._versions(comparison.Workspace(self.c.case, self.c.work, self.r.BENCH,
-                        self.c.args, self.c.models, self.c.card, self.c.seed,
-                        getattr(self.c, 'factory_slot', 0), self.c.case_id)) != self.versions:
-                    raise InvalidInfra('comparison version changed')
+                self.check_versions()
                 data = self.records.load(stage)
                 if data is None: raise InvalidInfra('child omitted stage record')
                 self.checkpoint()

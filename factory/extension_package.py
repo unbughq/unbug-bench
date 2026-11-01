@@ -514,9 +514,9 @@ def subsequent_entry(c, r):
         pair = selected()
         if pair is None: raise InvalidInfra('completed comparison proof unavailable')
         value = result(pair)
-        evaluator.checkpoint()
+        durable = evaluator.checkpoint(force=True)
         # Only a remotely durable completed pair permits scratch deletion.
-        if c.card.get('durable_checkpoint', {}).get('remote_durable') is True:
+        if durable:
             for phase in ('entry', 'outcome'):
                 for source in (evaluator.root / phase / 'work/transcripts').glob('*'):
                     if source.is_file():

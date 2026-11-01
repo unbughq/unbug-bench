@@ -31,6 +31,10 @@ import run
 from run_validity import InvalidInfra
 import test_extension_compare as comparison_tests
 
+REAL_PUBLIC_PROGRESS = run.public_progress
+REAL_START_CHILD = evaluator.Evaluator.start_child
+REAL_CHECKPOINT = evaluator.Evaluator.checkpoint
+
 
 class ComparisonTests(unittest.TestCase):
     patch = comparison_tests.CompareTests.patch
@@ -43,7 +47,7 @@ class ComparisonTests(unittest.TestCase):
 
     def setUp(self):
         comparison_tests.CompareTests.setUp(self)
-        self.patch(run, 'public_progress', lambda *a, **k: None)
+        self.patch(run, 'SEALED', self.work / 'sealed-progress')
         self.checkpoints = []
         def checkpoint(instance, force=False):
             self.checkpoints.append(copy.deepcopy(instance.c.card))
@@ -99,6 +103,9 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(history[0]['outcome'], self.original['outcome'])
         self.assertEqual(extensions.propose(self.c, value)['extension_id'], 2)
         self.assertTrue(self.transport_calls)
+        public = json.loads((run.SEALED / (self.c.case_id + '.progress.json')).read_text())
+        self.assertEqual(public['stages']['comparison']['status'], 'completed')
+        self.assertIn('comparison:G5', public['stages'])
         first = list(self.transport_calls)
         with patch.object(evaluator.Evaluator, '__init__', side_effect=AssertionError('new execution')):
             self.assertEqual(package.entry(self.c, run), value)
@@ -190,6 +197,118 @@ class ComparisonTests(unittest.TestCase):
                     raise InvalidInfra('owner request cleanup incomplete')
         self.assertFalse((self.work / 'factory-failures').exists())
         self.assertFalse((self.work / 'factory-replays').exists())
+
+    def test_dead_child_settles_final_receipt_before_retry_admission(self):
+        import job_authority, model_router
+        from router_test_support import synthetic_maximum
+        self.ready()
+        original_start = evaluator.Evaluator.start_child
+        started = []
+        lease = model_router.Lease(str(uuid.uuid4()), self.c.models['builder'][0], 'claude-token', 1,
+            'subscription', 'anthropic', 'claude-token', **synthetic_maximum(self.c.models['builder'][0]))
+        def start(instance):
+            if not started:
+                budget.reserve_invocation(self.ledger, lease, 1, job_authority.for_case(self.c),
+                    operation_id=str(uuid.uuid4()), call_name='comparison-authored-dead-call')
+                (self.work / 'usage-receipts').mkdir(exist_ok=True)
+                registry.atomic_json(self.work / 'usage-receipts' / (lease.lease_id + '.json'),
+                    dict(lease_id=lease.lease_id, events=[], booked_event_ids=[],
+                         final_usage_known=True, outcome='done', usage_delta={'cost': 0}))
+                started.append('died')
+                raise InvalidInfra('authored death with final zero-usage receipt')
+            row = json.loads(self.ledger.read_text())['invocation_reservations'][lease.lease_id]
+            self.assertEqual(row['state'], 'settled')
+            self.assertEqual(row['estimated_gap_usd'], '0.000000000')
+            started.append('retry-after-settlement')
+            original_start(instance)
+        with patch.object(evaluator.Evaluator, 'start_child', start):
+            package.entry(self.c, run)
+        self.assertEqual(started[:2], ['died', 'retry-after-settlement'])
+        self.assertEqual(budget.case_spending(json.loads(self.ledger.read_text()))['total_spent_usd'], self.baseline)
+
+    def test_thread_wait_accepts_quiescence_and_exhausts_without_fork(self):
+        import threading
+        from unittest.mock import Mock
+        self.ready()
+        versions = comparison._versions(self.workspace())
+        instance = evaluator.Evaluator(self.c, run, 1, versions)
+        instance.context, instance.manifest = self.c, {}
+        event = threading.Event()
+        thread = threading.Thread(target=event.wait, daemon=True)
+        thread.start()
+        child = Mock(pid=12345)
+        channel, peer = Mock(), Mock()
+        context = Mock()
+        context.Pipe.return_value = channel, peer
+        context.Process.return_value = child
+        def release(_): event.set(); thread.join(1)
+        try:
+            with patch.object(evaluator.threading, 'active_count', side_effect=lambda: 1 + thread.is_alive()), \
+                    patch.object(evaluator.time, 'sleep', side_effect=release), \
+                    patch.object(evaluator, 'install_bench'), patch.object(evaluator, 'subreaper', return_value=0), \
+                    patch.object(evaluator.multiprocessing, 'get_context', return_value=context), \
+                    patch.object(instance, 'receive', return_value=('ready', 12345)):
+                REAL_START_CHILD(instance)
+            child.start.assert_called_once()
+            self.assertFalse(thread.is_alive())
+        finally: event.set(); thread.join(1)
+        # A genuinely live thread is held beyond each authored 30-second deadline.
+        event.clear(); thread = threading.Thread(target=event.wait, daemon=True); thread.start()
+        clock = [0]
+        def elapsed(_): clock[0] += 31
+        try:
+            with patch.object(evaluator.Evaluator, 'start_child', REAL_START_CHILD), \
+                    patch.object(evaluator.threading, 'active_count', side_effect=lambda: 1 + thread.is_alive()), \
+                    patch.object(evaluator.time, 'monotonic', side_effect=lambda: clock[0]), \
+                    patch.object(evaluator.time, 'sleep', side_effect=elapsed), \
+                    patch.object(evaluator.multiprocessing, 'get_context', side_effect=AssertionError('unsafe fork')):
+                with self.assertRaisesRegex(budget.BudgetError, '^stress_validation_exhausted$'):
+                    package.entry(self.c, run)
+        finally: event.set(); thread.join(1)
+        journal = next((self.work / 'comparison-runs').rglob('infra-attempts.json'))
+        self.assertEqual(next(iter(json.loads(journal.read_text()).values()))['invalid_attempts'], 2)
+
+    def test_real_parent_checkpoint_is_restartable_and_forces_final_publication(self):
+        import hashlib, restart
+        self.ready()
+        self.c.card['seed'] = self.c.seed
+        # Frozen practice bytes stand in for ciphertext transport; no encryption/R2 call.
+        archive_bytes = (ROOT / 'tests/factory/fixtures/invalid-runs-practice.json.gz').read_bytes()
+        archive = self.work / (self.c.case_id + '.checkpoint.tar.gz.age')
+        public = self.work / (self.c.case_id + '.scorecard.json')
+        sealed = []
+        def seal(c, checkpoint=False):
+            self.assertIs(c, self.c)
+            self.assertTrue(checkpoint)
+            archive.write_bytes(archive_bytes)
+            c.card.update(archive=str(archive), sha256=hashlib.sha256(archive_bytes).hexdigest(),
+                          r2_object='authored-comparison-checkpoint')
+            registry.atomic_json(public, c.card)
+            self.assertEqual(restart.plan(public, 0, 7200,
+                '--max-cost 100000 --max-total-calls 100000 --case-budget 100000'),
+                (c.case_id, 60, c.seed))
+            self.assertEqual(c.card['terminal_stop'], 'runner_error:comparison_in_progress')
+            sealed.append(copy.deepcopy(c.card))
+        with patch.object(evaluator.Evaluator, 'checkpoint', REAL_CHECKPOINT), patch.object(run, 'seal', seal):
+            package.entry(self.c, run)
+        self.assertEqual(len(sealed), 2)  # First stage plus forced completed-pair publication.
+        self.assertTrue(extensions.read(self.c)[0]['comparisons'])
+        self.assertFalse(list((self.work / 'comparison-runs').glob('*/*/bench')))
+
+    def test_stale_remote_receipt_never_deletes_scratch(self):
+        self.ready()
+        self.c.card['durable_checkpoint'] = {'remote_durable': True}
+        package.entry(self.c, run)  # Authored checkpoint callback returns False.
+        self.assertTrue(list((self.work / 'comparison-runs').glob('*/*/pair-attempts.json')))
+
+    def test_retry_checks_versions_before_replaying_committed_record(self):
+        self.ready()
+        instance = evaluator.Evaluator(self.c, run, 1, comparison._versions(self.workspace()))
+        instance.records = SimpleNamespace(load=lambda stage: {'ok': True, 'info': {}})
+        with patch.object(comparison, '_versions', return_value={'G1': 'f' * 64}), \
+                patch.object(run, 'case_budget_boundary', side_effect=AssertionError('admission after drift')):
+            with self.assertRaisesRegex(InvalidInfra, 'comparison version changed'):
+                instance.invoke('G1')
 
     def test_pending_pair_routes_to_producer_before_writer_admission(self):
         import batch_service
@@ -480,6 +599,61 @@ class StressComparisonTests(unittest.TestCase):
                     self.assertFalse(ok)
                     self.assertTrue(detail['confirmed_public_match'])
         self.assertEqual(len(self.calls), 1)
+
+
+class DiagnosisBoundaryTests(unittest.TestCase):
+    import test_stream_d_inputs as input_tests
+    patch = input_tests.InputTests.patch
+    install_receipt = input_tests.InputTests.install_receipt
+
+    def setUp(self):
+        self.input_tests.InputTests.setUp(self)
+
+    def check_handoff(self, stage):
+        import gate_attempt
+        c = self.c
+        c.card['diagnosis_state'].update(status='completed', outcome='close_to_passing')
+        previous_id = c.card['diagnosis_state']['exhaustion_id']
+        instance = evaluator.Evaluator.__new__(evaluator.Evaluator)
+        instance.c, instance.r, instance.number = c, run, 1
+        instance.identity, instance.versions, instance.phase = 'a' * 64, {stage: 'b' * 64}, 'entry'
+        instance.row = {phase: {'case_sha256': 'c' * 64} for phase in ('entry', 'outcome')}
+        instance.root = self.work / 'comparison-runs/1' / instance.identity
+        phase = instance.root / 'entry'
+        instance.context = SimpleNamespace(work=phase / 'work')
+        instance.context.work.mkdir(parents=True)
+        registry.atomic_json(phase / 'manifest.json', {'authored_phase_identity': stage})
+        def failed(): raise InvalidInfra('authored dead phase transport')
+        outcome = gate_attempt.execute(failed, publish=lambda *a: None,
+            record_crash=lambda error: instance.crash(stage, error), interruption=budget.BudgetError,
+            attempts=2, journal=instance.context.work / 'infra-attempts.json', identity={'stage': stage})
+        self.assertTrue(outcome.crashed)
+        label = 'stress_validation_exhausted' if stage == 'stress' else 'infrastructure_exhausted'
+        with self.assertRaisesRegex(budget.BudgetError, '^' + label + '$'):
+            instance.exhausted(stage)
+        # Ordinary main handler fields, followed by the real finalizer and restore seam.
+        c.card.update(status='stopped', terminal_stop=label)
+        c.stopped = c.exhaustion_occurred = True
+        run.finalize_accounting(c)
+        self.assertEqual(c.card['diagnosis_state']['status'], 'pending')
+        self.assertNotEqual(c.card['diagnosis_state']['exhaustion_id'], previous_id)
+        c.checkpoint_card = copy.deepcopy(c.card)
+        self.install_receipt()
+        manifest = diagnosis.queued_inputs(c, self.bench, quiescent=True)
+        selected = {name: sha for name, sha in manifest['files'].items()
+                    if name.startswith('work/comparison-diagnostics/')}
+        self.assertTrue(any(name.endswith('/infra-attempts.json') for name in selected))
+        self.assertEqual(sum('.crash-' in name for name in selected), 2)
+        root = self.work / 'diagnosis' / c.card['diagnosis_state']['exhaustion_id'] / 'inputs'
+        for name, sha in selected.items():
+            self.assertEqual(gate_state.digest(root / name), sha)
+        self.assertNotEqual(c.card['terminal_stop'], 'diagnosis_input_invalid')
+
+    def test_gate_exhaustion_finalizes_and_freezes_comparison_diagnostics(self):
+        self.check_handoff('G4')
+
+    def test_stress_exhaustion_finalizes_and_freezes_comparison_diagnostics(self):
+        self.check_handoff('stress')
 
 
 class CopyTests(unittest.TestCase):
