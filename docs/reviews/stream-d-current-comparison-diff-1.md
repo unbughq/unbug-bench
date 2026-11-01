@@ -131,3 +131,9 @@ checks before invocation/replay and send, plus the existing post-reply check.
 M3 remains an explicit Linux activation exam requiring the full real evaluator
 process path, beyond the two Mac-skipped tests. N4's accounting seam is documented.
 N1–N3 remain non-blocking findings. Fresh round-2 review must verify the blocker fixes.
+
+M2 follow-through: the evaluator callable also checks the pinned vector before
+loading any cached record. This prevents a pair retry at changed live versions
+from stamping an old pinned record with the newly observed version. The regression
+assertion covers both invoke retry and callable/cache entry. The in-progress suite
+at ae2421c was deliberately stopped for this fix and will be rerun in full.

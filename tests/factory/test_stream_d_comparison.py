@@ -309,6 +309,9 @@ class ComparisonTests(unittest.TestCase):
                 patch.object(run, 'case_budget_boundary', side_effect=AssertionError('admission after drift')):
             with self.assertRaisesRegex(InvalidInfra, 'comparison version changed'):
                 instance.invoke('G1')
+            with patch.object(instance, 'phase_for', side_effect=AssertionError('cached result after drift')):
+                with self.assertRaisesRegex(InvalidInfra, 'comparison version changed'):
+                    instance(self.workspace(), 'G1')
 
     def test_pending_pair_routes_to_producer_before_writer_admission(self):
         import batch_service

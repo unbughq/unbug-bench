@@ -580,6 +580,7 @@ class Evaluator:
         for reason in value['unpublishable']: scope.mark_unpublishable(reason)
 
     def __call__(self, w, stage):
+        self.check_versions()
         self.phase_for(w)
         data = self.records.load(stage)
         if data is None:
