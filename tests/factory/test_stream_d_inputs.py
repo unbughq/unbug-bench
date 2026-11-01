@@ -411,11 +411,12 @@ class InputTests(unittest.TestCase):
         self.assertNotIn('work/gate-cache/G4.json', self.freeze()['files'])
 
     def test_release_digest_and_selected_symlinks_refuse_exclusions_stay_out(self):
-        for name in ('job-money.json', 'private-key.txt', 'logs/stdio.log', 'statements/statement.md'):
+        (self.work / 'job-money.json').write_text(json.dumps(self.c.job_money))
+        for name in ('private-key.txt', 'logs/stdio.log', 'statements/statement.md'):
             path = self.work / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text('authored exclusion')
         manifest = self.freeze()
         self.assertTrue(all(not name.startswith(('work/logs/', 'work/statements/')) for name in manifest['files']))
-        self.assertNotIn('work/job-money.json', manifest['files'])
+        self.assertIn('work/job-money.json', manifest['files'])
         self.assertNotIn('work/private-key.txt', manifest['files'])
         shutil.rmtree(self.parent)
         source = job_config.FACTORY / 'run.py'; original = source.read_bytes(); source.write_bytes(original + b'\n')

@@ -235,6 +235,12 @@ def apply(c, parent, manifest, result, *, resume=False):
             row = extensions.active(c)
             if row is None:
                 history = extensions.read(c)
+                if history and history[-1]['exhaustion_id'] != manifest['exhaustion_id']:
+                    prior = history[-1]
+                    versions = [stage['version'] for stage in prior['outcome']['stages']]
+                    pair = extensions.comparison_pair(prior, versions)
+                    if pair is None or extensions.progress(pair['entry'], pair['outcome']) == 'pending':
+                        stop(c, 'extension_comparison_pending')
                 row = (history[-1] if history and
                        history[-1]['exhaustion_id'] == manifest['exhaustion_id'] else None)
             if row is not None:
@@ -245,9 +251,9 @@ def apply(c, parent, manifest, result, *, resume=False):
                 else:
                     from extension_package import completed_route
                     completed_route(c, row)
-                if resume and batch_service.DIAGNOSIS_ENABLED is True:
-                    atomic_json(c.work / 'scorecard.json', c.card)
-                    return row['extension_id']
+            if batch_service.DIAGNOSIS_ENABLED is True:
+                atomic_json(c.work / 'scorecard.json', c.card)
+                return row['extension_id'] if row is not None else 0
         atomic_json(c.work / 'scorecard.json', c.card)
     stop(c, STOPS[result['outcome']])
 
@@ -302,7 +308,7 @@ def _dispatch(c, r):
     if previous.get('terminal_stop') in INVALID: stop(c, previous['terminal_stop'])
     job_authority.for_case(c)
     if d._state(c.card, d.extension_history(c.card)) is None: invalid(c)
-    if d.resume_factory_bug(c): return False
+    if d.resume_factory_bug(c, r): return False
     model_runtime.prepare_dispatch(c)
     with c.model_dispatch_lock:
         if c.active_model_calls: raise BudgetError('usage_reconciliation_while_active')
@@ -331,7 +337,7 @@ def _dispatch(c, r):
         if value['attempts'] and value['attempts'][-1]['status'] == 'valid':
             try: result = verify(validate, c, manifest, parent / 'inputs', verify(raw_answer, parent, value['attempts'][-1]))
             except (ValueError, BudgetError): invalid(c)
-            apply(c, parent, manifest, decision(c, parent, manifest, result))
+            return apply(c, parent, manifest, decision(c, parent, manifest, result))
         if state['status'] == 'completed': invalid(c)
         routes = model_router.routes(model, getattr(c, 'router_accounts', model_router.ACCOUNTS))
         if routes and all(row['route'] in closed_routes(value) for row in routes): stop(c, 'retired_diagnosis_malformed')
@@ -434,7 +440,7 @@ def invoke(c, r, parent, manifest, model, routes, templates, value):
             finally:
                 if not preserve_task:
                     remove_task(c, identity); prepared = False
-            if result is not None: apply(c, parent, manifest, decision(c, parent, manifest, result))
+            if result is not None: return apply(c, parent, manifest, decision(c, parent, manifest, result))
     finally:
         if old_operation is None: c.__dict__.pop('model_operation_id', None)
         else: c.model_operation_id = old_operation
@@ -444,3 +450,35 @@ def invoke(c, r, parent, manifest, model, routes, templates, value):
             r.dispose_diagnosis_pilot(c)
         finally:
             if prepared and not preserve_task: remove_task(c, identity)
+
+
+def admit_extension(c, r, previous):
+    """Convert a validated diagnosis into one reserved writer, outside dispatch."""
+    import extension_package
+    import extensions
+    from late_recovery import invalidate
+
+    job_authority.for_case(c)
+    history = extensions.read(c)
+    state = d._state(c.card, extensions.public(history))
+    if not state or state['status'] != 'completed' or state['outcome'] != 'close_to_passing':
+        raise BudgetError('extension_diagnosis_required')
+    if history and history[-1]['outcome'] is None:
+        raise BudgetError('extension_already_active')
+    if len(history) >= extensions.LIMIT:
+        raise BudgetError('retired_extension_limit')
+    entry = getattr(extension_package, 'entry', None)
+    if entry is None:
+        raise BudgetError('extension_comparison_pending')
+    proposal = extensions.propose(c, entry(c, r))
+    number = proposal['round']
+    problems = r.writer_feedback(c, previous)
+    receipt, prompt = r.writer_request(c, number, number, None, problems, [], [],
+                                       r.case_hash(c), bool(problems))
+    r.pending_call(c, c.models['builder'], prompt, c.case, f'builder-{number}', receipt,
+        role='writer', extension_proposal=proposal, on_admitted=lambda: invalidate(c),
+        on_complete=lambda: r.complete_writer(c, receipt, c.work / 'attack-state.json'))
+    row = extensions.active(c)
+    if row is None or row['extension_id'] != proposal['extension_id']:
+        raise BudgetError('extension_reservation_mismatch')
+    return row['extension_id']

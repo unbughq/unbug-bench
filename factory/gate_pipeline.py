@@ -5,6 +5,7 @@ root. This module never imports the runner or discovers its globals.
 """
 import json
 import contextlib
+import contextvars
 import sys
 import threading
 import time
@@ -48,15 +49,16 @@ class GatePipeline:
             signature = gate_state.fingerprint(c, gate, self.bench)
             before = {key: gate_state.digest(path) for key, path in gate_state.inventory(c, self.bench).items()}
         import processes  # run.py installs the bench bin path after importing this module
+        from factory_waste import attempt
         try:
-            with (processes.deadline(getattr(getattr(c, 'args', None), 'agent_timeout', 14400))
+            with attempt(c, gate, self.case_hash(c)), (processes.deadline(getattr(getattr(c, 'args', None), 'agent_timeout', 14400))
                   if gate in ('G13', 'G14', 'G15') else contextlib.nullcontext()):
                 ok, info = self.evaluate(c, gate)
+                if info.get('classification') == 'invalid-infra':
+                    from run_validity import InvalidInfra
+                    raise InvalidInfra('gate execution evidence is incomplete')
         except CaseProblem as error:
             return False, {'problems': [str(error)]}
-        if info.get('classification') == 'invalid-infra':
-            from run_validity import InvalidInfra
-            raise InvalidInfra('gate execution evidence is incomplete')
         if reusable and ok and signature == gate_state.fingerprint(c, gate, self.bench):
             gate_state.save(c, gate, info, signature, before, self.bench)
         return ok, info
@@ -184,7 +186,7 @@ class GatePipeline:
                         c.role_cancel = threading.Event()
                         g10_started = time.time()
                         self.log(c, "G10", "start (overlapping bench gates)")
-                        future = pool.submit(run_gate, "G10")
+                        future = pool.submit(contextvars.copy_context().run, run_gate, "G10")
                 started = g10_started if gate == "G10" and future is not None else time.time()
                 if gate == "G10" and future is not None:
                     outcome = future.result()  # joined before G11; same card/log format
