@@ -332,7 +332,13 @@ def _settle_leaf(ledger, receipt, wait_id=None):
             rows = [r for r in ledger['invocation_reservations'].values()
                     if r['operation_id'] in waste['operation_ids'] and r['state'] == 'settled']
             waste['event_ids'] = sorted({i for r in rows for i in r['event_ids']})
-            waste['infrastructure_waste_usd'] = float(usd(_waste_amount(events, waste['event_ids'])))
+            amount = usd(_waste_amount(events, waste['event_ids']))
+            if waste.get('schema_version') == 2:
+                waste['infrastructure_waste_usd'] = format(amount, '.9f')
+                _factory_bug_v2(ledger, waste, events)
+            elif waste.get('schema_version') == 1:
+                waste['infrastructure_waste_usd'] = float(amount)
+            else: raise BudgetError('invalid_waste_attribution')
     # Unknown invocations written by the streaming accountant are now covered by
     # this reservation. Historical entries without an invocation_id stay unknown.
     ledger['unpriced_invocations'] = [e for e in ledger.get('unpriced_invocations', [])
@@ -420,6 +426,39 @@ def reconcile_reservations(work, ledger_path, *, exclude_leases=(), exclude_call
             for receipt in leaves: _settle_leaf(ledger, receipt)
 
 
+def _factory_bug_v2(ledger, record, events):
+    """The shared exact validator for current factory-bug monetary records."""
+    try:
+        keys = {'schema_version', 'kind', 'id', 'finding_id', 'diagnosis_sha256',
+                'resume_id', 'resume_binding_sha256', 'operation_ids', 'event_ids', 'infrastructure_waste_usd'}
+        if set(record) != keys or type(record['schema_version']) is not int or record['schema_version'] != 2:
+            raise ValueError()
+        def identity(value):
+            parsed = uuid.UUID(value)
+            return str(parsed) == value and parsed.version == 4
+        if (record['kind'] != 'factory_bug' or not identity(record['finding_id']) or
+                record['id'] != 'factory-bug:' + record['finding_id'] or
+                re.fullmatch('[0-9a-f]{64}', record['diagnosis_sha256']) is None): raise ValueError()
+        pair = (record['resume_id'], record['resume_binding_sha256'])
+        if pair != (None, None) and (not identity(pair[0]) or
+                re.fullmatch('[0-9a-f]{64}', pair[1]) is None): raise ValueError()
+        operations, ids = record['operation_ids'], record['event_ids']
+        if (not isinstance(operations, list) or not operations or operations != sorted(set(operations)) or
+                not all(identity(op) for op in operations) or not isinstance(ids, list) or
+                ids != sorted(set(ids)) or any(not isinstance(i, str) for i in ids)): raise ValueError()
+        rows = [row for row in ledger.get('invocation_reservations', {}).values() if row['operation_id'] in operations]
+        if ({row['operation_id'] for row in rows} != set(operations) or
+                any(row['state'] != 'settled' or usd(row['estimated_gap_usd']) != 0 for row in rows)):
+            raise BudgetError('waste_operations_pending')
+        if set(ids) != {i for row in rows for i in row['event_ids']} or not set(ids) <= events.keys(): raise ValueError()
+        amount = record['infrastructure_waste_usd']
+        if (not isinstance(amount, str) or re.fullmatch(r'(?:0|[1-9][0-9]*)\.[0-9]{9}', amount) is None or
+                amount != format(usd(_waste_amount(events, ids)), '.9f')): raise ValueError()
+        return ids, operations
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise BudgetError('invalid_waste_attribution') from None
+
+
 def reclassify_factory_bug(path, record):
     """Only the diagnosis/fix-evidence validator may supply this attribution.
 
@@ -436,6 +475,23 @@ def reclassify_factory_bug(path, record):
             raise BudgetError('invalid_waste_attribution')
         operations = record.get('operation_ids', [])
         existing = next((r for r in ledger.get('infrastructure_waste', []) if r.get('id') == record.get('id')), None)
+        if record.get('schema_version') == 2:
+            events = {event['id']: event for event in ledger.get('events', [])}
+            _factory_bug_v2(ledger, record, events)
+            if existing is not None:
+                identity = ('schema_version', 'kind', 'id', 'finding_id', 'diagnosis_sha256')
+                if (any(existing.get(k) != record[k] for k in identity) or
+                        not set(existing['operation_ids']) <= set(record['operation_ids']) or
+                        (existing['resume_id'] is not None and
+                         (existing['resume_id'], existing['resume_binding_sha256']) !=
+                         (record['resume_id'], record['resume_binding_sha256']))):
+                    raise BudgetError('waste_attribution_mismatch')
+                existing.clear(); existing.update(record)
+            else:
+                ledger.setdefault('infrastructure_waste', []).append(record)
+            if case_spending(ledger)['total_spent_usd'] is None: raise BudgetError('invalid_waste_attribution')
+            return
+        if record.get('schema_version') != 1: raise BudgetError('invalid_waste_attribution')
         if existing is not None:
             identity = ('kind', 'schema_version', 'id', 'diagnosis_sha256', 'fix_commit', 'fix_attribution_sha256', 'operation_ids')
             if any(existing.get(k) != record.get(k) for k in identity): raise BudgetError('waste_attribution_mismatch')
@@ -498,6 +554,14 @@ def _spending(ledger, models_used=None):
     classified_events, classified_operations, waste_ids = set(), set(), set()
     for record in records:
         if isinstance(record, dict) and record.get('kind') == 'factory_bug':
+            if record.get('schema_version') != 1:
+                ids, operations = _factory_bug_v2(ledger, record, events)
+                if (record['id'] in waste_ids or set(ids) & classified_events or
+                        set(operations) & classified_operations): raise BudgetError('invalid_waste_attribution')
+                for identity in ids: breakdown[event_roles[identity]] -= event_charge(events[identity])
+                waste += _waste_amount(events, ids)
+                classified_events.update(ids); classified_operations.update(operations); waste_ids.add(record['id'])
+                continue
             try:
                 ids, operations = record['event_ids'], record['operation_ids']
                 related = [row for row in ledger.get('invocation_reservations', {}).values()

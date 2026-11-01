@@ -1,0 +1,18 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "--with",
+    "numpy",
+    "--with",
+    "scipy",
+    "python",
+    "-B",
+    "tests/run.py"
+  ],
+  "head": "1b05499a99e17bd432f338dea61ea5ba56e4c0f7",
+  "started": "2026-11-01T14:39:39.539929+00:00",
+  "finished": "2026-11-01T15:09:26.874873+00:00",
+  "exit_code": 0,
+  "log": "docs/reports/stream-d-pending-comparison-suite-20261101T143939Z-90c224cd.log"
+}
