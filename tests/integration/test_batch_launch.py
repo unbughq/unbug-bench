@@ -228,7 +228,7 @@ class BatchLaunchTests(unittest.TestCase):
             self.assertEqual(row['launch_id'],'1'*32)  # Reservation/replay history survives.
             self.assertFalse(holder.reconcile_batch_receipts(policy,[row]))
 
-    def test_public_fresh_interruption_resume_and_two_jobs_on_one_unlock(self):
+    def test_public_fresh_interruption_and_liability_refuses_successors_on_one_unlock(self):
         if not (CONSUMER_ROOT/'job_authority.py').is_file():
             self.skipTest('D consumer not merged; explicit --consumer-root integration run required; no enablement')
         if not batch.restore_inventory(ROOT):
@@ -364,7 +364,9 @@ class BatchLaunchTests(unittest.TestCase):
                             raise AssertionError('\n'.join(f.read_text() for f in (runtime/'jobs').glob('*.log'))+
                                                  '\nLast offline operations: '+'\n'.join(calls)) from None
                         if p.returncode:
-                            raise AssertionError('\n'.join(f.read_text() for f in (runtime/'jobs').glob('*.log')))
+                            logs='\n'.join(f.read_text() for f in (runtime/'jobs').glob('*.log'))
+                            if 'infrastructure liability unsettled' not in logs:
+                                raise AssertionError(logs)
                     return Connection(next(requests)()),None
             runtime=base/'runtime'; runtime.mkdir(mode=0o700)
             # Exercise the real serialized holder loop without a socket or holder process.
@@ -378,7 +380,7 @@ class BatchLaunchTests(unittest.TestCase):
                  patch.object(holder.sys,'stdin',SimpleNamespace(buffer=io.BytesIO(key))), \
                  patch.dict(os.environ,{'UNBUG_SECRETS_FILE':str(credentials)}):
                 holder.serve(policy_path,.1)
-                self.assertEqual(len(verifications),1,'two jobs must share one identity verification')
+                self.assertEqual(len(verifications),1,'all requests must share one identity verification')
                 # Recreate the lost-reap window from durable, actually completed
                 # public launches. The second service has no old child handles.
                 rows=json.loads((runtime/'reservations.json').read_text())
@@ -387,20 +389,21 @@ class BatchLaunchTests(unittest.TestCase):
                 batch.save(runtime/'reservations.json',rows)
                 latest=json.loads((root/'sealed/case-public-a.scorecard.json').read_text())['sha256']
                 issue_collected_fixture(latest)
-                requests=iter([lambda:payload('a',latest),lambda:payload('a',latest),lambda:{'op':'stop'}])
+                requests=iter([lambda:payload('a',latest),lambda:{'op':'stop'}])
                 holder.sys.stdin.buffer=io.BytesIO(key)
                 holder.serve(policy_path,.1)
             errors=[(i,r) for i,r in enumerate(results) if 'error' in r]
-            if errors != [(2,results[2]),(4,results[4]),(7,results[7])]:
+            if errors != [(2,results[2]),(4,results[4]),(6,results[6])]:
                 logs='\n'.join(p.read_text() for p in (runtime/'jobs').glob('*.log'))
                 self.fail('unexpected offline results: '+repr(results)+'\n'+logs)
-            for index in (2,4,7):
+            for index in (2,4,6):
                 self.assertIn('checkpoint already used',results[index]['error'])
-            self.assertTrue(all(results[i].get('started') for i in (0,1,3,6)))
-            self.assertEqual(len(processes),4)
-            self.assertTrue(all(p.returncode==0 for p in processes))
+            self.assertTrue(all(results[i].get('started') for i in (0,1,3)))
+            self.assertEqual(len(processes),3)
+            self.assertEqual(processes[0].returncode,0)
+            self.assertTrue(all(p.returncode!=0 for p in processes[1:]))
             receipts=json.loads((runtime/'reservations.json').read_text())
-            self.assertEqual(len(receipts),4)
+            self.assertEqual(len(receipts),3)
             self.assertTrue(receipts[0]['completed_ok'])
             self.assertEqual(receipts[0]['generation'],prior_generation)
             self.assertEqual({r['case'] for r in receipts},{'case-public-a','case-public-b'})
@@ -408,26 +411,28 @@ class BatchLaunchTests(unittest.TestCase):
             self.assertEqual({r['launch']['argv'][r['launch']['argv'].index('--batch-sha256')+1]
                               for r in receipts},{digest})
             saved=json.loads((ROOT/'tests/factory/fixtures/c7d405-confirm-timeout-card.json').read_text())['continuation_budget']
-            ids={e.get('id') for e in saved['events']}
-            added=[e for e in json.loads((ROOT/'tests/factory/fixtures/e15450-collected-card.json').read_text())
-                   ['continuation_budget']['events'] if e.get('id') not in ids and
-                   isinstance(e.get('cost'),(int,float)) and e['cost']>0][:2]
-            for index,worker in enumerate(sorted(cloud.glob('vm-*'))):
-                card=next((worker/'sealed').glob('*.scorecard.json'))
-                public=json.loads(card.read_text())
-                self.assertEqual(public['batch_release_sha256'],digest)
-                ledger=public['continuation_budget']; extra=added[:max(0,index-1)]
-                self.assertEqual(ledger['calls'],saved['calls']+len(extra))
-                self.assertAlmostEqual(ledger['cost'],saved['cost']+sum(e['cost'] for e in extra))
-                self.assertEqual(ledger['events'],saved['events']+extra)
-                self.assertEqual(ledger['infrastructure_waste'],saved['infrastructure_waste'])
-                self.assertTrue((worker/'deleted').exists())
+            # The first public worker still exercises the real release/collection
+            # lifecycle. No second worker can exist until attributed settlement.
+            self.assertEqual([p.name for p in cloud.glob('vm-*')], ['vm-1'])
+            calls=[json.loads(line) for line in (cloud/'calls.jsonl').read_text().splitlines()]
+            self.assertEqual(sum(c[0]=='new' for c in calls),1)
+            public=json.loads(next((cloud/'vm-1/sealed').glob('*.scorecard.json')).read_text())
+            self.assertEqual(public['batch_release_sha256'],digest)
+            ledger=public['continuation_budget']
+            self.assertEqual(ledger['calls'],saved['calls'])
+            self.assertEqual(ledger['cost'],saved['cost'])
+            self.assertEqual(ledger['events'],saved['events'])
+            self.assertEqual(ledger['infrastructure_waste'],saved['infrastructure_waste'])
+            self.assertTrue((cloud/'vm-1/deleted').exists())
             self.assertEqual(receipts[2]['budget_calls'],saved['calls'])
             self.assertEqual(receipts[2]['budget_cost'],saved['cost'])
-            self.assertEqual(receipts[3]['budget_calls'],saved['calls']+1)
-            self.assertAlmostEqual(receipts[3]['budget_cost'],saved['cost']+added[0]['cost'])
+            infra=json.loads((base/'control/boat-reservations.json').read_text())
+            self.assertEqual(len(infra['reservations']),1)
+            held=next(iter(infra['reservations'].values()))
+            self.assertEqual(held['status'],'finished')
+            self.assertIsNone(held['actual_spend_usd'])
             # Public-card edits cannot assign batch provenance to an old embedded checkpoint.
-            work=cloud/'vm-3/work/case-public-a'
+            work=cloud/'vm-1/work/case-public-a'
             public=json.loads((root/'sealed/case-public-a.scorecard.json').read_text())
             archived=json.loads((work/'scorecard.json').read_text()); archived.pop('batch_release_sha256')
             batch.save(work/'scorecard.json',archived)

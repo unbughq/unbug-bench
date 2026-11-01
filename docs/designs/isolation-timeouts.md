@@ -503,3 +503,10 @@ seconds); concurrent full suite **148 scripts, 0 failed**. Fresh diff review 3
 passes with no blockers. Exact evidence, hashes and baseline reproduction
 commands are in `docs/reports/isolation-timeouts-loaded.md` and its JSON.
 Only documentation changed after the tested/reviewed source commit.
+
+## Boat liability accounting supersession (2026-10-31)
+
+stream-b-blocker-resolution.md supersedes finish-time liability release and
+exclusion of historical reconciled_expired reservations. Unknown liability now
+blocks another admission; TTL pricing is only an estimate. Historical test
+results below/above remain historical, not the current admission contract.

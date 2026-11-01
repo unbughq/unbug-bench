@@ -207,9 +207,18 @@ elif args[0]=='ssh' and 'summary.json' in args[2]: print(json.dumps({'status':'F
                 self.assertNotEqual(p.returncode, 0)
                 self.assertEqual(len(events.read_text().splitlines()), before)
                 (root / name).write_text('synthetic source')
+            # Unknown liability blocks another worker on this same control home.
+            p = subprocess.run(args, text=True, capture_output=True, env=env, timeout=30)
+            self.assertNotEqual(p.returncode, 0)
+            self.assertIn('infrastructure liability unsettled', p.stderr)
+            calls = [json.loads(x) for x in events.read_text().splitlines()]
+            self.assertEqual(sum(c[0] == 'new' for c in calls), 1)
+            # Independent failure scenario has its own synthetic accounting home;
+            # this is not a settlement/reset of the first scenario's liability.
             # A real remote failure must still collect the FAIL and delete this worker.
             p = subprocess.run(args, text=True, capture_output=True,
-                               env={**env, 'FIXTURE_SMOKE_FAIL': '1'}, timeout=30)
+                               env={**env, 'FIXTURE_SMOKE_FAIL': '1',
+                                    'UNBUG_CONTROL_HOME': str(root / 'failure-control-home')}, timeout=30)
             self.assertNotEqual(p.returncode, 0)
             calls = [json.loads(x) for x in events.read_text().splitlines()]
             self.assertEqual(sum(c[0] == 'new' for c in calls), 2)

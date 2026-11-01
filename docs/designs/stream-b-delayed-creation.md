@@ -153,3 +153,10 @@ status. No new live failure was observed. Follow-up register candidate from revi
 N3: the collection-failure message in boat-launch-guards.sh recommends Hetzner
 cleanup even on Boat; correct that provider-specific guidance separately. No
 cleanup or legacy blocker is closed merely by documenting it.
+
+## Boat liability accounting supersession (2026-10-31)
+
+stream-b-blocker-resolution.md supersedes finish-time liability release and
+exclusion of historical reconciled_expired reservations. Unknown liability now
+blocks another admission; TTL pricing is only an estimate. Historical test
+results below/above remain historical, not the current admission contract.
