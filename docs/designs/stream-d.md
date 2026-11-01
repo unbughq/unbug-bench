@@ -3840,3 +3840,16 @@ Activation still requires measuring serial G10 overhead: capture serializes it
 only once diagnosis is enabled. Historical overlapped timing (144.4 G10 minutes
 of 148.1 gate minutes) does not measure that added cost. No live qualification,
 workers or paid calls were run here. Murphy 9/13 are supported; no rows close.
+
+First-entry capture is complete for this increment at implementation 10da907.
+The full suite passed 167 scripts / 0 failures; its committed record is
+`docs/reports/stream-d-entry-capture-suite-20261101T150744Z-6a486d1b.json`
+with adjacent `.log`. Design reviews are
+`docs/reviews/stream-d-entry-capture-design-{1,2,3}.md` (PASS in 3), and fresh
+Claude diff review `docs/reviews/stream-d-entry-capture-diff-1.md` passed without
+blockers. Optional findings remain recorded there. No Murphy rows close.
+
+Next increment for lane 1: isolated current-version comparison, subsequent-entry
+selection/reconstruction and version-drift integration. Rejected/unchanged writer
+and confirmed-public-match terminal outcomes still follow. The larger package
+and item-7 checkbox remain open; activation and live qualification are unchanged.
