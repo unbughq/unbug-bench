@@ -335,7 +335,8 @@ read new reservation rows and call factory_waste.record_reservation on each whil
 the parent scope is active, before propagating the result/error. Exclusive case
 ownership and no concurrent model calls ensure these rows belong to this attempt.
 Thus child death does not discard causal reservation linkage. Never infer spend
-from timestamps or public card totals. The child opens no factory-waste scope.
+from timestamps or public card totals. The child opens no publishing factory-waste scope. It uses the forwarding scope
+specified in the round-4 binding section, replacing the inherited parent object.
 The parent uses an explicit comparison=True parameter on
 attempt/Attempt (default False); comparison=True forces link=None and NEVER calls
 resume_scope or classify. They may publish their own invalid-infra factory-failures
@@ -572,8 +573,9 @@ failed_detail and infrastructure_gate, sets failed_gate=None, status='stopped',
 and terminal_stop='runner_error:comparison_in_progress'. This existing RETRY label
 is a checkpoint recovery marker, not an exhaustion. Keep diagnosis_state and
 extension history intact. Every parent comparison checkpoint uses that context.
-On successful producer return remove the temporary status/terminal_stop before
-ordinary admission; on an exception main writes the actual stop. The producer
+Save exact pre-producer status/terminal_stop values, including whether each key
+was absent. On successful producer return restore those values exactly before
+ordinary admission, so first and subsequent entry hand the writer the same state; on an exception main writes the actual stop. The producer
 must not replace a later failure with its in-progress marker. Test the sealed
 mid-comparison card with recovery.require_restart_stop and restart.plan using
 saved restore artifacts. A kill then re-enters the same sole entry producer.
@@ -593,3 +595,71 @@ code paths as static evidence, not a claimed live incident. It needs a separatel
 reviewed durable resume target across factory-bug admission and comparison.
 Do not claim it fixed or close item 7. Existing resume/extension/retire limits
 remain unchanged. This is an explicit remaining item-7 obligation.
+
+## Round-4 attribution and retry details (binding)
+
+B1 and M1–M4 are accepted. Add factory_waste.forward_attempt(mark_unpublishable)
+as a context manager with a small proxy scope. Its only public behavior is
+mark_unpublishable(reason); factory_waste.record_reservation returns immediately
+for this proxy, since the parent collects authoritative ledger rows. Ordinary
+Attempt and ordinary callers are unchanged. Immediately after fork replace the
+inherited _attempt contextvar with this proxy; enter/reset it for EACH stage
+request, bound to the parent's active Attempt.value['attempt_id'], not just the
+first stage that caused the fork. There is never a stale first-stage scope.
+
+A mark is first atomically persisted/fsynced in phase work at
+attempt-effects/<attempt-id>.json with exact fields schema_version=1, attempt_id,
+and unpublishable (a list of nonempty reason strings). Then send an effect
+message with that attempt ID and wait for parent acknowledgement. Serialize
+Pipe requests with one child lock (including request/reply pairing), so an owner
+handler thread cannot interleave bytes with a checkpoint message. Parent verifies
+ID against the active scope, calls mark_unpublishable(reason), then acknowledges.
+The parent's finally safely reads this same attempt's durable effect file before
+scope exit, including after child death, and applies all reasons idempotently.
+On lost IPC/child death where no complete effects acknowledgement is available,
+mark the attempt unpublishable('comparison_child_lost') conservatively. Do not
+publish waste from an ambiguous cleanup. The attempt still counts as invalid
+infrastructure in the retry journal.
+
+This non-None forwarding scope preserves exam_responder.owner_channel's scoped
+drain behavior. It must still raise InvalidInfra on an incomplete drain. Test an
+authored G10 owner_drain_timeout through the child protocol: parent attempt gets
+the signal before publish, no factory-failures/factory-replays file is written,
+and the invalid attempt count increments. Also test the signal delivered after
+an earlier stage in the same child, and lost-ack replay from the durable file.
+
+After any failed child invocation, fully quiesce its descendants, then call
+budget.reconcile_reservations(c.work,c.ledger) on the LIVE parent before allowing
+the stage retry. Child root usage receipts are already there. Do not reconcile
+while a model or descendant may still run. A reconciliation BudgetError propagates
+unchanged; it cannot be masked by an InvalidInfra retry. Test a dead child with a
+pending reservation and valid retained final usage: settlement precedes retry
+admission and releases the known unused reservation without a spurious money_wait.
+Unknown usage retains the existing conservative reservation charge.
+
+Pair journal version identity is computed before entering execute with
+extension_compare._versions on a Workspace using the owner's unchanged args,
+models and source BENCH. The phase records share that pinned vector. Pair
+publish is operational events only (stage label 'comparison', state/elapsed/reused),
+never live gate results. Every other non-BudgetError exception escaping compare,
+including diagnostic RuntimeError and ValueError, counts as a pair attempt.
+After two, use the existing stress_validation_exhausted trigger, but the copied
+diagnostic index has scope='pair' (stage indices use scope='stage') so diagnosis
+sees that stress itself need not have failed. BudgetError labels propagate except
+for the explicit freshness translation already specified.
+
+The pre-producer failure fields remain in the immutable diagnosis-input card.
+The live card intentionally removes them for the in-progress checkpoint's restart
+eligibility; an evidence-stop card does not restore them and cannot claim a new
+scientific gate failure. Success restores only the exact saved status/terminal_stop;
+G3 setup remains invalidated and historical failure proof remains in the diagnosis
+input, not a misleading live failed_gate.
+
+Explicit test disposition: test_stream_d_entry.test_history_refuses_without_snapshot_or_evaluation
+currently mocks extensions.read to return an invalid untyped history row, then
+expects the now-superseded all-history hold. Replace that authored stub with a real
+malformed extension-history.json and assert extension_history_invalid. Retain and
+strengthen its no-work contract by patching both snapshot and evaluator construction
+to raise if reached. Add a separate valid completed-history test demonstrating the
+new producer route. This is the only superseded first-entry expectation changed;
+all outcome-route, history-before-card, attribution and retry assertions stay intact.
