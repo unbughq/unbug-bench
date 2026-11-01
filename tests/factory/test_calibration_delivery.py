@@ -389,6 +389,18 @@ class DeliveryTests(unittest.TestCase):
                 atomic_results(c.work / folder / "results.json", [row])
                 if folder != "judge_breadth":
                     c.card["calibrators"]["strong" if role == "strong_calibrator" else "easy"] = attempt_summary([row])
+            # Package replay must retain exam metadata, then use the ordinary
+            # delivery verifier over these completed artifact-backed attempts.
+            import extension_package, uuid
+            row = {'extension_id': 1, 'writer_operation_id': str(uuid.uuid4()),
+                   'round': 1, 'outcome': None}
+            records = extension_package.Records(c, run, row)
+            records.capture(c, 'G10', lambda: (True, c.card['calibrators']))
+            owner = copy.deepcopy(c.card['owner_contract'])
+            c.card.pop('owner_contract'); c.card.pop('calibrators')
+            records.completed = True
+            records.replay(c, 'G10')
+            self.assertEqual(c.card['owner_contract'], owner)
             sealed_audit.retain_delivery(c, run)
             archive = self.root / "synthetic.age"; archive.write_bytes(b"synthetic authenticated ciphertext stand-in")
             c.card["sha256"] = hashlib.sha256(archive.read_bytes()).hexdigest()

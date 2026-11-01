@@ -3781,3 +3781,39 @@ PASS with no blockers. Full suite: 161 scripts, 0 failures; retained logs and
 correction history in `docs/reviews/stream-d-qualified-allowances-suite.md`.
 No Murphy row closes. Rows 9, 13 and 39 retain their remaining integration/live
 qualification requirements; lane 2's package/outcome work and item 8 are separate.
+
+Package increment 2 progress (retained traversal slice): implementation at 895221b
+joins completed stress to the ordinary gate pipeline, persists stage evidence and
+card/context projections, records an immutable outcome, and routes completed-row
+replay without author work. Design reviews 1–6 are under
+`docs/reviews/stream-d-package-completion-design-*.md`; review 6 passed.
+The second full suite passed 160 scripts / 0 failures at 895221b; record and log:
+`docs/reports/stream-d-package-completion-suite-20261031T155420Z-c9044583.json`
+and adjacent `.log`. The first full run had only a worker-inventory expectation
+failure, fixed in 895221b; its failed record is retained too.
+
+This is NOT package completion. The retained traversal slice passed fresh diff
+review 2 at eae085f after the two test blockers in diff review 1 were fixed.
+No Murphy row closes. The package checkbox stays unchecked. Remaining within
+package increment 2: rejected/unchanged writer and confirmed-public-match outcome
+completion, entry receipt capture, isolated current-version comparison and version
+drift integration. Draft next-slice design: `stream-d-package-terminal-outcomes.md`.
+That draft has no passing review and no implementation. Its review attempts hit
+Claude rate limits and the explicitly requested DeepSeek fallback's credit limit;
+see `docs/reviews/stream-d-package-review-availability.md`.
+
+All diagnosis outcome routes remain next after the whole package. Qualified-path
+legacy allowance deletion remains lane 1's work; this lane did not edit it.
+Activation and item 8 qualification remain off/separate.
+
+Retained traversal slice review follow-up: test fixes are committed at 58b2625;
+full suite passed 160 scripts with zero failures, recorded in
+`docs/reports/stream-d-package-review-fixes-suite-20261031T173136Z-9cc253b4.json`
+and adjacent `.log`. Fresh Claude reviews are saved verbatim in
+`docs/reviews/stream-d-package-completion-diff-1.md` (BLOCK on two test gaps) and
+`docs/reviews/stream-d-package-completion-diff-2.md` (PASS, both blockers closed).
+The follow-up changes tests and records only; production code is unchanged.
+The parent limited this task to review closure: no next package work was started.
+The package checkbox remains open and no Murphy rows close. Optional findings
+remain recorded in the reviews. Reviewer order is Claude, free OpenCode, then
+fresh Codex gpt-6.1-sol; paid OpenRouter is forbidden.
