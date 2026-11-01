@@ -1,0 +1,13 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "started_at": "2026-11-01T19:39:52.018398+00:00",
+  "source_commit": "72cd3d9405a3ee17c7bfa958c6396b5795424141",
+  "source_tree": "76918921668c074a371f0809c7eaac3833330c78",
+  "finished_at": "2026-11-01T20:08:06.621538+00:00",
+  "exit_code": 0,
+  "scripts": 169,
+  "failed": 0,
+  "log_sha256": "f1742d86e9509d3db0d6c3d6b456c83f74b77cc709d3595a16bdb7900e0429a8",
+  "log": "docs/reports/stream-b-admission-clamps-suite-20261101T193952Z-7bd3784d.log.gz",
+  "compressed_log_sha256": "6ee3f3c2ce291deeb56f6cd100a50456df92841449ee56345be0e599aebff79c"
+}

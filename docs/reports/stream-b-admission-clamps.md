@@ -51,3 +51,10 @@ not automatic conversion of historical $20 checkpoints. Input selection must
 respect it. The preflight's old expected-conversion wording is not implemented
 as an unconditional migration. A later proposal to lower commitments must review
 prepare/read_import/imported_row separately and retain historical liabilities.
+
+## Full-suite validation
+The exact required suite passed at source 72cd3d9405a3ee17c7bfa958c6396b5795424141
+(tree 76918921668c074a371f0809c7eaac3833330c78): 169 scripts, 0 failed, exit 0.
+The unique record is stream-b-admission-clamps-suite-20261101T193952Z-7bd3784d.json
+and its matching .log.gz, including UTC times and both log hashes. Source and
+tests were unchanged during the run. Fresh diff review is still required.
