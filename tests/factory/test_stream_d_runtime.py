@@ -75,7 +75,7 @@ class RuntimeTests(unittest.TestCase):
                 role: {'model': model} for role, model in zip(('writer', 'stress_tester', 'reviewer', 'strong_calibrator'),
                                                              (writer, stress, reviewer, strong))}},
             models={'builder': [writer], 'attacker': [stress], 'reviewers': [[reviewer]], 'strong_calibrator': [strong]},
-            job_money=self.channel, authenticated_job_config={'job_money': copy.deepcopy(self.channel)},
+            job_money=self.channel, authenticated_job_config={'job_money': copy.deepcopy(self.channel), 'batch_release_sha256': args.batch_release_sha256},
             batch_id=self.channel['batch'], job_id=self.channel['job'], batch_deadline=self.channel['batch_deadline'],
             source_generation=self.channel['source_generation'])
         # These tests isolate writer/accounting receipt behavior. Category coverage

@@ -1,0 +1,18 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "--with",
+    "numpy",
+    "--with",
+    "scipy",
+    "python",
+    "-B",
+    "tests/run.py"
+  ],
+  "head": "fcd21dc7de4b98ed6b8f584c8bf3eaa597852761",
+  "started": "2026-10-31T16:12:19.530065+00:00",
+  "finished": "2026-10-31T16:41:24.046438+00:00",
+  "exit_code": 0,
+  "log": "docs/reports/stream-d-outcome-routes-suite-20261031T161219Z-f939c066.log"
+}

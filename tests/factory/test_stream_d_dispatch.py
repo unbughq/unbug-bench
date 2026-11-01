@@ -116,8 +116,11 @@ class DispatchTests(unittest.TestCase):
             budget.release_uninvoked(c.ledger, lease.lease_id)
 
     def stopped(self, label):
-        with self.assertRaisesRegex(budget.BudgetError, '^' + label + '$'):
-            dispatch.dispatch(self.c, run)
+        if label == 'extension_comparison_pending' and batch_service.DIAGNOSIS_ENABLED is True:
+            self.assertEqual(dispatch.dispatch(self.c, run), 0)
+        else:
+            with self.assertRaisesRegex(budget.BudgetError, '^' + label + '$'):
+                dispatch.dispatch(self.c, run)
         self.assertEqual(self.c.card['terminal_stop'], label)
 
     def resume(self):
@@ -196,12 +199,14 @@ def install(c,a):
 def forbidden(*a,**k): raise AssertionError('unexpected role/Compose work')
 run.sh=run.pick_models=run.build=run.validate_and_repair=run.make_pilots=forbidden
 run.stop_pilot=lambda *a: False
-run.seal=lambda *a,**k: None
+def seal(c, checkpoint=False):
+ c.card.setdefault('test_seals', []).append(checkpoint)
+run.seal=seal
 run.pilot_homes=lambda: []
 founder_ruling.context=lambda c: None
 job_config.install=install
-if fault == 'execute' or fault.startswith('mode:'): batch_service.DIAGNOSIS_ENABLED=True
-if fault == 'execute':
+if fault in ('execute', 'admit', 'admit-money') or fault.startswith('mode:'): batch_service.DIAGNOSIS_ENABLED=True
+if fault in ('execute', 'admit', 'admit-money'):
  run.sh=lambda *a,**k: None
  run.pick_models=lambda c: {'builder':['claude/claude-opus-5-5']}
  worker_release.verify_selected_drivers=lambda *a,**k: {}
@@ -212,8 +217,27 @@ if fault == 'execute':
   raise run.BudgetError('extension_comparison_pending')
  import extension_package
  extension_package.run=execute
+ if fault == 'admit':
+  import diagnosis_dispatch
+  def admit(c,r,prev):
+   assert not c.card.get('extension_history')
+   c.card['admission_test_entered']=True
+   return 1
+  diagnosis_dispatch.admit_extension=admit
+ if fault == 'admit-money':
+  def models(c):
+   c.authenticated_job_config['job_money']['source_generation']='f'*64
+   return {'builder':['claude/claude-opus-5-5']}
+  run.pick_models=models
  import restart
  restart.raised_limits=run.restore_gate_crash=forbidden
+if fault.startswith('held:'):
+ import diagnosis, diagnosis_dispatch
+ def held(c,r):
+  c.card['diagnosis_state'].update(status='completed', outcome='factory_bug')
+  c.card['factory_bug']={'finding_id':c.card['diagnosis_state']['exhaustion_id']}
+  raise diagnosis.FactoryBugHeldWait(fault.split(':',1)[1])
+ diagnosis_dispatch.dispatch=held
 if fault == 'qualification':
  batch_service.DIAGNOSIS_ENABLED=True
  def unavailable(*a,**k): raise ValueError('authored CLI version mismatch')
@@ -227,7 +251,9 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.assertEqual(process.returncode, 0, process.stderr)
         published = json.loads((self.ledger.parent / (self.c.case_id + '.scorecard.json')).read_text())
         expected = {'qualification': 'runner_error:ValueError', 'active': 'extension_comparison_pending',
-                    'execute': 'extension_comparison_pending'}
+                    'execute': 'extension_comparison_pending', 'admit': 'extension_comparison_pending',
+                    'admit-money': 'money_wait'}
+        if fault.startswith('held:'): expected[fault] = 'factory_bug_held'
         if fault.startswith('mode:'): expected[fault] = 'extension_execution_mode_invalid'
         self.assertEqual(published['terminal_stop'], expected.get(fault, 'diagnosis_pending'))
         self.assertEqual(published['diagnosis_state']['exhaustion_id'], self.parent.name)
@@ -235,9 +261,13 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             self.assertEqual(published['builder_rounds'], self.admitted_receipt['round'])
             self.assertEqual(published['continuation_budget']['invocation_reservations'],
                              json.loads(self.ledger.read_text())['invocation_reservations'])
-        else:
+        elif fault not in ('admit', 'admit-money'):
             self.assertNotIn('invocation_reservations', published['continuation_budget'])
-        if fault == 'execute': self.assertTrue(published['execution_test_entered'])
+        if fault in ('admit', 'admit-money'):
+            self.assertEqual(published['test_seals'], [True])
+        if fault == 'admit': self.assertTrue(published['admission_test_entered'])
+        if fault == 'admit-money': self.assertNotIn('execution_test_entered', published)
+        if fault in ('execute', 'admit'): self.assertTrue(published['execution_test_entered'])
         return published
 
     def test_all_outcomes_replay_after_unknown_total_and_preserve_id(self):
@@ -320,6 +350,37 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         with patch.object(extensions, 'active', return_value={**row, 'exhaustion_id': str(uuid.uuid4())}), \
                 patch.object(extensions, 'writer_receipt', side_effect=AssertionError('unverified intent')):
             self.stopped('diagnosis_input_invalid')
+
+    def test_fresh_decision_cleans_pilot_and_replay_returns_zero_without_model(self):
+        self.answer = 'close_to_passing'
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+            self.assertEqual(dispatch.dispatch(self.c, run), 0)
+        self.dispose.assert_called_once()
+        self.assertIsNone(getattr(self.c, 'model_operation_id', None))
+        calls = len(self.calls)
+        self.resume()
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+            self.assertEqual(dispatch.dispatch(self.c, run), 0)
+        self.assertEqual(len(self.calls), calls)
+        self.assertIsNone(diagnosis.pending_projection(self.c.card))
+
+    def test_main_converts_zero_before_package_and_money_refusal_checkpoints(self):
+        self.answer = 'close_to_passing'
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+            self.assertEqual(dispatch.dispatch(self.c, run), 0)
+        self.c.checkpoint_card = copy.deepcopy(self.c.card)
+        self.main_resume('admit')
+        self.main_resume('admit-money')
+
+    def test_main_held_attribution_refusals_checkpoint_without_new_exhaustion(self):
+        for reason in ('money_wait', 'invalid_provider_wait', 'usage_reconciliation_while_active',
+                       'usage_reconciliation_pending', 'invalid_waste_attribution',
+                       'waste_attribution_mismatch', 'factory_bug_resume_io_wait'):
+            published = self.main_resume('held:' + reason)
+            self.assertEqual(published['factory_bug_wait_reason'], reason)
+            self.assertEqual(published['diagnosis_state']['outcome'], 'factory_bug')
+            self.assertEqual(published['factory_bug']['finding_id'], self.parent.name)
+            self.assertEqual(published['test_seals'], [True])
 
     def test_main_routes_execution_and_stops_before_gates(self):
         self.prepare_active_launch()
@@ -418,6 +479,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             self.admit_active_control(1)
             extensions.complete(self.c, extension_tests.ExtensionTests.snapshot(self, 2))
             self.c.card['terminal_stop'] = origin
+            self.c.stopped = True  # main marks the package's substantive failure before finalization
             self.c.exhaustion_occurred = True
             run.finalize_accounting(self.c)
             self.parent = self.work / 'diagnosis' / self.c.card['diagnosis_state']['exhaustion_id']
@@ -468,6 +530,22 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.pilots.reset_mock(); self.qualify.reset_mock(); self.helper_calls.clear()
         self.resume(); self.stopped('factory_bug_held')
         self.assertEqual(len(self.calls), 1)
+        self.pilots.assert_not_called(); self.qualify.assert_not_called()
+        self.assertEqual(self.helper_calls, [])
+
+    def test_valid_close_journal_publishes_decision_without_another_paid_call(self):
+        self.answer = 'close_to_passing'
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'decision', side_effect=Crash):
+            with self.assertRaises(Crash): dispatch.dispatch(self.c, run)
+        self.assertFalse((self.parent / 'decision.json').exists())
+        self.assertEqual(json.loads((self.parent / 'attempts.json').read_text())['attempts'][-1]['status'], 'valid')
+        calls = len(self.calls)
+        self.pilots.reset_mock(); self.qualify.reset_mock(); self.helper_calls.clear()
+        self.resume()
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+            self.assertEqual(dispatch.dispatch(self.c, run), 0)
+        self.assertTrue((self.parent / 'decision.json').is_file())
+        self.assertEqual(len(self.calls), calls)
         self.pilots.assert_not_called(); self.qualify.assert_not_called()
         self.assertEqual(self.helper_calls, [])
 

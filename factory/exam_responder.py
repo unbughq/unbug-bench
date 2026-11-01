@@ -1,5 +1,8 @@
 """The exam's ask-human protocol, with the existing metered reviewer as owner."""
 import contextlib
+import contextvars
+import sys
+import time
 import copy
 import importlib.util
 import hashlib
@@ -15,6 +18,7 @@ from http.server import ThreadingHTTPServer
 
 REQUEST_SECONDS = 5
 MAX_BODY = 16 * 1024
+OWNER_DRAIN_SECONDS = 30
 
 
 @contextlib.contextmanager
@@ -91,6 +95,10 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
     count = 0
     owner_lock = threading.Lock()
 
+    from factory_waste import current_attempt
+    scope = current_attempt()
+    owner_context = contextvars.copy_context()
+
     def answer(question):
         nonlocal count
         count += 1
@@ -102,7 +110,7 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
                 + json.dumps(question) + "\nWrite only {\"answer\": \"...\"} to " + str(output)
                 + ". Use no other case files, tools or sources except writing this answer file.")
         try:
-            code = r.model_call(owner, c.models["reviewers"][0], text, directory,
+            code = owner_context.copy().run(r.model_call, owner, c.models["reviewers"][0], text, directory,
                                 f"reviewer-owner-{workspace.parent.name}-{workspace.name}-{count}", timeout=120)
             payload = r.jload(output, {})
             value = payload.get("answer")
@@ -171,7 +179,33 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
                 self.rfile = original
                 owner_lock.release()
 
-    server = ThreadingHTTPServer((host, 0), Handler)
+    class JoinedOwnerServer(ThreadingHTTPServer):
+        def __init__(self, *args):
+            self.requests = set()
+            self.condition = threading.Condition()
+            self.accepting = True
+            super().__init__(*args)
+
+        def process_request(self, request, client_address):
+            def serve():
+                try: self.process_request_thread(request, client_address)
+                finally:
+                    with self.condition:
+                        self.requests.discard(threading.current_thread())
+                        self.condition.notify_all()
+            with self.condition:
+                if not self.accepting:
+                    self.shutdown_request(request)
+                    return
+                child = threading.Thread(target=serve, daemon=True)
+                self.requests.add(child)
+                try: child.start()
+                except BaseException:
+                    self.requests.discard(child)
+                    self.shutdown_request(request)
+                    raise
+
+    server = (JoinedOwnerServer if scope is not None else ThreadingHTTPServer)((host, 0), Handler)
     server.daemon_threads = True
     server.block_on_close = False
     server.answer_question = answer
@@ -186,10 +220,31 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
         if failure:
             raise failure[0]
     finally:
+        body_error = sys.exc_info()[1]
         cancel.set()
-        server.shutdown()
-        thread.join(timeout=1)
-        server.server_close()
+        if scope is None:
+            server.shutdown()
+            thread.join(timeout=1)
+            server.server_close()
+        else:
+            deadline = time.monotonic() + OWNER_DRAIN_SECONDS
+            with server.condition: server.accepting = False
+            shutdown = threading.Thread(target=server.shutdown, daemon=True)
+            shutdown.start()
+            shutdown.join(max(0, deadline - time.monotonic()))
+            thread.join(max(0, deadline - time.monotonic()))
+            with server.condition:
+                while server.requests and time.monotonic() < deadline:
+                    server.condition.wait(max(0, deadline - time.monotonic()))
+                incomplete = bool(server.requests) or shutdown.is_alive() or thread.is_alive()
+            server.server_close()
+            if incomplete:
+                scope.mark_unpublishable('owner_drain_timeout')
+                if body_error is None:
+                    from run_validity import InvalidInfra
+                    raise InvalidInfra('owner request cleanup incomplete')
+            elif failure and body_error is None:
+                raise failure[0]
 
 
 @contextlib.contextmanager

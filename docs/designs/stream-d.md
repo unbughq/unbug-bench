@@ -3817,3 +3817,14 @@ The parent limited this task to review closure: no next package work was started
 The package checkbox remains open and no Murphy rows close. Optional findings
 remain recorded in the reviews. Reviewer order is Claude, free OpenCode, then
 fresh Codex gpt-6.1-sol; paid OpenRouter is forbidden.
+
+Package increment 1 is complete at c68b819: diagnosis replay preserves the
+completed freshness-review pointer, with existing validation still required for
+reuse. Full suite: 160 scripts, zero failures; record and unique log at
+`docs/reports/stream-d-package-freshness-suite-20261031T141323Z-eb25473b.json`
+and the adjacent `.log`. Fresh reviews passed without blockers:
+`docs/reviews/stream-d-package-freshness-design-1.md` and
+`docs/reviews/stream-d-package-freshness-diff-1.md`. No Murphy rows close.
+Next lane-2 increment is stress/gate/outcome completion (large), followed by all
+diagnosis outcomes (large). Qualified-path legacy deletion remains lane 1's work.
+Activation remains off; item 8 remains separate.
