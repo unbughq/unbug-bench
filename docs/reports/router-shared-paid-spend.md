@@ -73,8 +73,15 @@ Full suite: 167 scripts, 0 failures, exit 0.
 contains the command, timestamps and SHA-256 of the committed log.
 
 Diff-review follow-up: the original full-suite result above lacked a tested-source
-snapshot and is historical evidence only. The replacement run will name a clean
-committed source tree, verify it remains unchanged, and retain its unique log.
+snapshot and is historical evidence only. The replacement run below names a clean committed source tree, verifies it
+remained unchanged, and retains its unique log.
 Worker and pilot diagnosis runtime calls now share a real Store across distinct
 batch/job authorities in an explicit synthetic transport test. A third batch
 cannot replenish the shared allowance. No production code changed after review 1.
+
+Replacement full suite: **167 scripts, 0 failures, exit 0**.
+[Source-bound suite record](router-shared-paid-spend-suite-20261101T184931Z-a3a2e902.json)
+names tested commit `302677faa677b6e0750b1a7034ce23a1ad091050` and tree
+`72513d6c2260f10078503ee8f550b5f9218239e5`. The worktree was clean before
+the run and all tracked source remained unchanged at completion. Later commits
+add this report and the suite/review artifacts only.
