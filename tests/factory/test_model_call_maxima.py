@@ -90,7 +90,7 @@ class MaximaTests(unittest.TestCase):
         models |= {*CLAUDE_PROFILES, GATED_CLAUDE + ':large'}
         models |= {c['terminal_stop'].partition(':')[2] for c in LIMITS}
         for model in models:
-            result = store.rpc('acquire', dict(id=uuid.uuid4().hex, model=model, accounts=list(router.ACCOUNTS),
+            result = store.rpc('acquire', dict(paid_protocol=1,id=uuid.uuid4().hex, model=model, accounts=list(router.ACCOUNTS),
                 role='writer', deadline=time.time()+3600))
             if model not in qualified:
                 self.assertEqual((result['kind'], result['reason']), ('wait','unbounded_route'))
@@ -147,7 +147,7 @@ class MaximaTests(unittest.TestCase):
                 with gate.enforce(forged,{'CLAUDE_CODE_OAUTH_TOKEN':'synthetic'}, {},1):
                     self.fail('forged maximum entered gate')
             store = router.Store(self.root/(name+'.sqlite'))
-            record = store.rpc('acquire',dict(id=uuid.uuid4().hex,model=model,
+            record = store.rpc('acquire',dict(paid_protocol=1,id=uuid.uuid4().hex,model=model,
                 accounts=['claude-token','claude-factory-token-2'],role='writer',deadline=time.time()+60))
             self.assertEqual((record['route'],record['account']),(model,'claude-factory-token-2'))
             self.assertTrue(record['price_source'].endswith(f':profile={name}:usd={CLAUDE_PROFILES[model]}'))
@@ -383,7 +383,7 @@ class MaximaTests(unittest.TestCase):
 
     def test_execution_start_is_one_use_across_store_restart(self):
         path=self.root/'router.sqlite';store=router.Store(path)
-        result=store.rpc('acquire',dict(id=uuid.uuid4().hex,model=GATED_CLAUDE,accounts=list(router.ACCOUNTS),role='writer',deadline=time.time()+3600))
+        result=store.rpc('acquire',dict(paid_protocol=1,id=uuid.uuid4().hex,model=GATED_CLAUDE,accounts=list(router.ACCOUNTS),role='writer',deadline=time.time()+3600))
         identity=result['lease_id'];store.rpc('start',{'lease_id':identity})
         store=router.Store(path)
         with self.assertRaisesRegex(ValueError,'already started'):store.rpc('start',{'lease_id':identity})
@@ -406,7 +406,7 @@ class MaximaTests(unittest.TestCase):
         for suffix,limit in (('short','49.999999999'),('fit','50.000000000')):
             work=self.root/suffix;work.mkdir();path=work/'ledger.json'
             path.write_text(json.dumps({'cost':0,'calls':0,'events':[]}));before=path.read_bytes()
-            record=store.rpc('acquire',dict(id=uuid.uuid4().hex,model=GATED_CLAUDE,
+            record=store.rpc('acquire',dict(paid_protocol=1,id=uuid.uuid4().hex,model=GATED_CLAUDE,
                 accounts=list(router.ACCOUNTS),role='writer',deadline=deadline))
             actual=router.Lease(**{k:v for k,v in record.items() if k!='kind'})
             self.assertTrue(router.valid_lease(actual,GATED_CLAUDE))
@@ -467,7 +467,7 @@ class MaximaTests(unittest.TestCase):
     def test_factory_dispatch_preserves_lease_maximum_gate_and_invocation_identity(self):
         # Actual router policy, runtime gate and D accountant; fake process boundary.
         # Neither a CLI nor an upstream connection is launched.
-        store = router.Store(self.root / 'router.sqlite')
+        store = router.Store(self.root / 'router.sqlite', credit_reader=lambda: Decimal('11.63'))
         secrets = self.root / 'secrets'; secrets.mkdir()
         (secrets / 'claude-factory-token-2').write_text('synthetic-only')
         runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(),
@@ -753,7 +753,7 @@ class ProtocolTests(unittest.TestCase):
         provider = model.partition('/')[2] if paid else claude_profile(model)['model'].partition('/')[2]
         prefix=sse(dict(input_tokens=1,cache_read_input_tokens=0,
                         cache_creation_input_tokens=0,output_tokens=1),model=provider).split(b'\n\n')[0]+b'\n\n'
-        if paid: prefix=b'data: '+json.dumps(dict(id='synthetic',model=provider,choices=[])).encode()+b'\n\n'
+        if paid: prefix=b'data: '+json.dumps(dict(paid_protocol=1,id='synthetic',model=provider,choices=[])).encode()+b'\n\n'
         self.stalled=SimpleNamespace(prefix=prefix,release=threading.Event(),attempted=threading.Event(),
                                      close_header=close_header,content_length=content_length,
                                      wait_seconds=60 if real_cli else 30)
@@ -783,7 +783,7 @@ class ProtocolTests(unittest.TestCase):
                 router_accounts=(account,))
             c.role_cancel=threading.Event()
             c.ledger.write_text(json.dumps({'cost':0,'calls':0,'events':[]}))
-            store=router.Store(root/'router.sqlite')
+            store=router.Store(root/'router.sqlite', credit_reader=lambda: Decimal('11.63'))
             runtime=model_runtime.ModelRuntime(root,Mock(),Mock(),lambda p,**kw:shutil.rmtree(p),Mock())
             def client(env):
                 from urllib.parse import urlsplit
@@ -922,6 +922,9 @@ class ProtocolTests(unittest.TestCase):
                         budget.reconcile_reservations(root,c.ledger)
                         self.assertEqual(c.ledger.read_bytes(),before)
                     self.assertEqual(store.rpc('status',{})['leases'],[])
+                    if paid:
+                        self.assertEqual(Decimal(store.rpc('status',{})['paid']['total_usd']),hold)
+                        self.assertEqual(Decimal(store.rpc('status',{})['paid']['outstanding_usd']),hold)
                     interrupted,=c.router_interrupted_calls
                     self.assertEqual(interrupted['lease_id'],row['lease_id'])
                     self.assertEqual(interrupted['call_id'],route['call_id'])
@@ -946,7 +949,7 @@ class ProtocolTests(unittest.TestCase):
                     args=argparse.Namespace(agent_timeout=5,max_cost=100,max_role_calls=1000,
                         max_total_calls=10000,no_progress_minutes=1,max_zero_tokens=3,case_budget=1000,resume=None))
                 c.ledger.write_text(json.dumps({'cost':0,'calls':0,'events':[]}));before=c.ledger.read_bytes()
-                store=router.Store(root/'router.sqlite');self.malformed=True
+                store=router.Store(root/'router.sqlite', credit_reader=lambda: Decimal('11.63'));self.malformed=True
                 def execute(cmd,cwd,env,*args,**kwargs):
                     self.assertEqual(cmd[cmd.index('--model')+1],GATED_CLAUDE.partition('/')[2])
                     url=__import__('urllib.parse',fromlist=['urlsplit']).urlsplit(env['ANTHROPIC_BASE_URL'])

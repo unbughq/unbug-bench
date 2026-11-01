@@ -40,7 +40,7 @@ def request(route,**extra):
 
 
 def response(route,usage=None):
-    return dict(id='chatcmpl-synthetic',model=route.partition('/')[2],
+    return dict(paid_protocol=1,id='chatcmpl-synthetic',model=route.partition('/')[2],
         choices=[dict(index=0,delta={'content':'synthetic'},finish_reason='stop')],
         usage=usage or dict(prompt_tokens=100,completion_tokens=10,total_tokens=110))
 
@@ -78,12 +78,12 @@ class CheapTests(unittest.TestCase):
         store=router.Store(self.root/'router.sqlite')
         # Existing same-family paid fallback is allowed only with its account.
         for accounts in ([],['claude-token']):
-            result=store.rpc('acquire',dict(id=uuid.uuid4().hex,model=free,accounts=accounts,role='writer',deadline=time.time()+3600))
+            result=store.rpc('acquire',dict(paid_protocol=1,id=uuid.uuid4().hex,model=free,accounts=accounts,role='writer',deadline=time.time()+3600))
             # A qualified family fallback exists but its account is unavailable:
             # preserve the router's existing outage classification and no lease.
             self.assertEqual((result['kind'],result['reason']),('wait','outage'))
         self.assertEqual(store.rpc('status',{})['leases'],[])
-        result=store.rpc('acquire',dict(id=uuid.uuid4().hex,model=free,accounts=['openrouter-key'],role='writer',deadline=time.time()+3600))
+        result=store.rpc('acquire',dict(paid_protocol=1,id=uuid.uuid4().hex,model=free,accounts=['openrouter-key'],role='writer',deadline=time.time()+3600))
         self.assertEqual(result['route'],'openrouter/deepseek/deepseek-v4.1-flash')
         store.rpc('finish',dict(lease_id=result['lease_id'],outcome='denied',receipt=None))
 
@@ -265,7 +265,9 @@ class CheapTests(unittest.TestCase):
                 XDG_CONFIG_HOME=str(self.root/'config'),XDG_DATA_HOME=str(self.root/'data'),XDG_CACHE_HOME=str(self.root/'cache'))
             used={}
             with patch.object(gate.sys,'platform','linux'),patch.object(gate.http.client,'HTTPSConnection',side_effect=connect):
-                with gate.enforce(lease(route),env,used,3) as active:
+                from test_router_paid_spend import authority
+                actual = lease(route)
+                with authority(actual), gate.enforce(actual,env,used,3) as active:
                     self.assertFalse(set(env)&{'OPENROUTER_API_KEY','CLAUDE_CODE_OAUTH_TOKEN','HTTPS_PROXY','OPENCODE_TEST_MANAGED_CONFIG_DIR','PARALLEL_API_KEY','OPENCODE_WEBSEARCH_PROVIDER','OPENCODE_CONFIG'})
                     self.assertEqual(env['OPENCODE_ENABLE_EXA'],'1')
                     config=json.loads(env['OPENCODE_CONFIG_CONTENT']);provider=config['provider']['openrouter']

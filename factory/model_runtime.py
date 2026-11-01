@@ -481,7 +481,7 @@ class ModelRuntime:
                 finally:
                     # Publish the shared limit before freeing its slot, closing the
                     # finish->observe race that would admit another worker to it.
-                    if invoked and failure and failure['reason'] != 'router_unavailable' and not failure.get('per_call'):
+                    if invoked and failure and failure['reason'] != 'router_unavailable' and not failure.get('per_call') and not failure.get('shared_paid'):
                         try:
                             model_router.observe(lease=lease, reason=failure['reason'], reset_at=failure.get('reset_at'),
                                 observation_id=lease.lease_id + ':failure')
@@ -506,6 +506,12 @@ class ModelRuntime:
                 lease_id=lease.lease_id, call_id=receipt)
             if invoked:
                 prior_waits.append({'role': role, **asdict(last_wait)})
+            if failure.get('shared_paid'):
+                # Financial refusal must not restart a CLI even before the
+                # general provider-wait rollout flag is enabled.
+                error = model_router.ProviderWait(role, last_wait)
+                error.previous_waits = prior_waits
+                raise error
             context.router_wait = last_wait
             context.router_uncertain = last_wait.reason == 'router_unavailable'
             if context.router_uncertain and context.role_cancel.is_set():

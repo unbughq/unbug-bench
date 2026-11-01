@@ -1,5 +1,5 @@
 [Unit]
-Description=Unbug batch model admission on the control VM
+Description=Unbug shared model admission and paid authority on the control VM
 Wants=network-online.target
 After=network-online.target
 

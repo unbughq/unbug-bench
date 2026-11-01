@@ -1,4 +1,4 @@
-"""Worker-local admission for Claude-owned inference; no ledger bookings or payload logs.
+"""Worker-local admission for inference; shared paid authorization but no case-ledger bookings or payload logs.
 
 This is not a sandbox for arbitrary Bash/network use of the account credential.
 Each upstream attempt holds its whole worst case before network; only complete,
@@ -157,13 +157,14 @@ class Allowance:
         self.condition = threading.Condition(self.lock)
         self.deadline = deadline
         self.closed = False
+        self.paid_failure = None
         self.active, self.connections = {}, {}
         self.forwarded = self.validated = self.unknown = self.unsupported = 0
         self.settled = [Decimal(0), 0, 0]
         self.retained = [Decimal(0), 0, 0]
 
     def is_set(self):
-        return self.exhaustion.is_set() or (self.cancel is not None and self.cancel.is_set())
+        return self.paid_failure is not None or self.exhaustion.is_set() or (self.cancel is not None and self.cancel.is_set())
 
     def _held(self):
         return [self.retained[i] + sum(v[i] for v in self.active.values()) for i in range(3)]
@@ -208,7 +209,7 @@ class Allowance:
     def finish(self, identity, usage):
         with self.condition:
             allowance = self.active.pop(identity, None)
-            if allowance is None: return  # close already retained it; never refund late.
+            if allowance is None: return False  # close already retained it; never refund late.
             amount = self.amount(usage)
             if amount is not None and any(amount[i] > allowance[i] for i in range(3)): amount = None
             target = self.settled if amount is not None else self.retained
@@ -216,6 +217,7 @@ class Allowance:
             if amount is None: self.unknown += 1
             else: self.validated += 1
             self.condition.notify_all()
+            return amount is not None
 
     def snapshot(self):
         with self.lock:
@@ -534,10 +536,34 @@ class Handler(BaseHTTPRequestHandler):
             with gate.state.lock:
                 if not gate.state.closed: gate.state.unsupported += 1
             self.error(400, 'invalid_request_error', 'route_feature_unsupported'); return
+        if paid and gate.state.paid_failure:
+            self.error(503, 'api_error', 'shared_paid_spend_wait'); return
         identity = gate.state.reserve(body['max_tokens'])
         if identity is None:
             self.error(400, 'invalid_request_error',
                 'model_call_cap' if gate.state.exhaustion.is_set() else 'invocation_stopped'); return
+        paid_id = None
+        if paid:
+            import model_router
+            paid_id = secrets.token_hex(16)
+            definite = False
+            try:
+                result = model_router._rpc('paid_reserve', dict(lease_id=gate.state.lease.lease_id, request_id=paid_id))
+                if result == {'granted': True}: reason = None
+                elif (set(result) == {'granted', 'reason'} and result['granted'] is False
+                        and result['reason'] in ('credit', 'duplicate', 'binding')):
+                    definite = True
+                    reason = 'credit' if result['reason'] == 'credit' else 'router_unavailable'
+                else: reason = 'router_unavailable'
+            except model_router.RouterUnavailable: reason = 'router_unavailable'
+            if reason:
+                with gate.state.condition:
+                    gate.state.paid_failure = reason
+                    gate.state.condition.notify_all()
+                # A definite refusal proves this attempt never reached upstream.
+                # It is a validated zero-cost admission, not provider usage.
+                gate.state.finish(identity, dict(prompt_tokens=0, completion_tokens=0) if definite else None)
+                self.error(503, 'api_error', 'shared_paid_spend_wait'); return
         encoded = json.dumps(body, allow_nan=False).encode()
         headers = {'Authorization': 'Bearer ' + gate.upstream_token, 'Content-Type': 'application/json', 'Accept-Encoding': 'identity'}
         if not paid: headers.update({'anthropic-version': '2023-06-01', 'anthropic-beta': BETAS})
@@ -579,7 +605,14 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             connection.close()
             with gate.state.lock: gate.state.connections.pop(connection, None)
-            gate.state.finish(identity, usage)
+            known = gate.state.finish(identity, usage)
+            if paid_id is not None:
+                # Complete before downstream EOF; late completion after close
+                # cannot refund centrally. Failed RPC leaves the entire hold.
+                try:
+                    model_router._rpc('paid_settle', dict(lease_id=gate.state.lease.lease_id,
+                        request_id=paid_id, usage=usage if known else None))
+                except model_router.RouterUnavailable: pass
 
     def do_GET(self): self.error(400, 'invalid_request_error', 'route_feature_unsupported')
 
@@ -684,5 +717,9 @@ def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
         raise
     finally:
         cap_used.clear(); cap_used.update(gate.state.snapshot())
+        if gate.state.paid_failure and str(failure) != 'cancellation_failed':
+            error = BudgetError('shared_paid_spend_wait')
+            error.provider_failure = dict(reason=gate.state.paid_failure, model=lease.route, shared_paid=True)
+            raise error from None
         if gate.state.exhaustion.is_set() and str(failure) != 'cancellation_failed':
             raise BudgetError('model_call_cap') from None
