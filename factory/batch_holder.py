@@ -212,12 +212,25 @@ def _admit(directory, record, policy, root, ops, state, name, source_generation,
     if provider_wait and source_generation is None: raise ValueError('request_refused')
     identity = operation_id(policy, name, source_generation)
     row = state['jobs'].get(name)
+    if state['incidents'] or money.aggregate(state) > money.amount(record['money_limit_usd']):
+        raise money.MoneyWait('money_wait')
+    if 'practice_admission' in record:
+        money.allocation_cap(record, name)  # Also refuses unlisted replacement generations.
+        if source_generation is None:
+            if money.amount(record['practice_admission']['jobs'][name]['baseline_usd']):
+                raise money.MoneyWait('money_wait')
+            if 'carry_from' in record and name not in carried:
+                from batch_transfer import read_import
+                receipt = read_import(directory, record)
+                while receipt is not None:
+                    if name in receipt['snapshot']['money']['jobs']: raise money.MoneyWait('money_wait')
+                    receipt = receipt['snapshot']['prior_import']
     if identity in ops:
         if provider_wait: raise ValueError('request_refused')
         if row is None or row['authority']['source_generation'] != source_generation:
             raise ValueError('request_refused')
         return deepcopy(ops[identity]['authority'])
-    if (state['incidents'] or sum(o['state'] in ('pending', 'launched') and o['retirement'] is None
+    if (sum(o['state'] in ('pending', 'launched') and o['retirement'] is None
             for o in ops.values()) >= record['max_concurrency'] or
             any(o['job'] == name and o['state'] in ('pending', 'launched') and o['retirement'] is None
                 for o in ops.values())): raise money.MoneyWait('money_wait')

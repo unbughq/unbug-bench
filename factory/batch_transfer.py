@@ -109,6 +109,26 @@ def snapshot(directory, record, policy):
                 prior_import=prior_import)
 
 
+def practice_check(record, old, snapshot_value):
+    """A release transition preserves allocations; first entry proves each baseline."""
+    current, previous = record.get('practice_admission'), old.get('practice_admission')
+    if previous is not None:
+        require(current == previous)
+    if current is None: return
+    for name, allocation in current['jobs'].items():
+        spec = record['carry_from']['jobs'].get(name)
+        if spec is not None:
+            row = snapshot_value['money']['jobs'][name]
+            require(money.amount(row['held_usd']) <= money.allocation_cap(record, name))
+            if previous is None:
+                require(row['previous']['estimated'] == {} and
+                        row['previous']['total_usd'] == allocation['baseline_usd'])
+            if spec['generation'] is None:
+                require(allocation['baseline_usd'] == '0.000000000')
+        elif previous is None:
+            require(allocation['baseline_usd'] == '0.000000000')
+
+
 def read_import(directory, record):
     """Frozen proof, no nested locks. Source export is never changed or removed."""
     import batch_service as service
@@ -126,6 +146,7 @@ def read_import(directory, record):
     snap = receipt['snapshot']
     require(snap['batch'] == old['id'] and snap['manifest_sha256'] == policy['batch']['manifest_sha256'] and
             snap['release_sha256'] == policy['batch']['sha256'])
+    practice_check(record, old, snap)
     total = money.aggregate(snap['money'])
     selected = 0
     for name, binding in receipt['jobs'].items():
@@ -189,6 +210,7 @@ def prepare(policy, root, home):
             raise money.MoneyWait('retired_batch_bound')
         snap = snapshot(src, old, old_policy)
         require(digest(snap) == record['carry_from']['snapshot_sha256'])
+        practice_check(record, old, snap)
         require(money.aggregate(snap['money']) <= money.amount(record['money_limit_usd']) <= money.amount(old['money_limit_usd']))
         existing = service._json(src / 'export.json') if (src / 'export.json').exists() else None
         if existing is None:
