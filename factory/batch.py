@@ -141,10 +141,15 @@ def prepare(directory, digest, root, output):
 
 def bind(policy, name, checkpoint, root, *, home=None, operation=None):
     """Translate empty/nonempty progress to the one existing launcher implementation."""
-    batch, job = policy['batch'], policy['jobs'][name]
+    batch = policy['batch']
     from batch_money import manifest
-    manifest(policy, root)
-    case = 'case-' + batch['id'] + '-' + name
+    from batch_service import resolve_job
+    import batch_holder
+    record = manifest(policy, root)
+    if not batch_holder.HOLDER_ENABLED and ('carry_from' in record or re.search(r'-r[0-9]+$', name)):
+        raise ValueError('request_refused')
+    resolved = resolve_job(record, name)
+    job, case = resolved['template'], resolved['case']
     args = job['args']
     forbidden = {'--restore', '--restore-review', '--qualified-release', '--batch-release',
                  '--batch-sha256', '--case-id', '--resume', '--reuse-review-worker', '--probe',
@@ -168,8 +173,12 @@ def bind(policy, name, checkpoint, root, *, home=None, operation=None):
             card = json.loads((source / (case + '.scorecard.json')).read_text())
         else:
             card = json.loads((root / 'sealed' / (case + '.scorecard.json')).read_text())
+        expected_release = batch['sha256']
+        imported = record.get('carry_from', {}).get('jobs', {}).get(name)
+        if batch_holder.HOLDER_ENABLED and imported and imported['generation'] == checkpoint:
+            expected_release = record['carry_from']['policy']['batch']['sha256']
         if (card.get('case') != case or card.get('sha256') != checkpoint or
-                card.get('batch_release_sha256') != batch['sha256']):
+                card.get('batch_release_sha256') != expected_release):
             raise ValueError('checkpoint differs from batch release or requested generation')
         mode = 'case'
     # Historical cumulative caps are metadata only for manifest-bound batch jobs.

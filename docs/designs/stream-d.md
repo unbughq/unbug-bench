@@ -3711,6 +3711,20 @@ legacy allowance removal remain before item 8. Lane 1 item 4 is integrated by
 merging 6f30f8d. No Murphy row closes.
 
 
+## Cross-batch implementation addendum reference
+
+[batch-carry-over.md](batch-carry-over.md) specifies the B transfer and D resume
+admission increment under review. It preserves the existing meaning of same
+owner: continuing case identity, with a new B reservation for a new batch.
+Manifest root maps remain roots only; imported derived jobs are authenticated
+through the separate pinned carry_from map and retained derivations, never
+inserted as mutable roots. Existing lifetime history and empty causal-attribution
+restrictions remain unchanged. The fourth distinct factory-bug admission stops
+unscored as `retired_factory_bug_limit`, with the retained history count 3.
+The addendum replaces the unspecified B integration prerequisite when implemented
+and reviewed; activation and real-artifact Murphy closure remain separate gates.
+
+
 ### Item 7 remaining-increment checklist (lane 2, 2026-10-31)
 
 Sizes include implementation, tests and fresh design/diff review. Receipt

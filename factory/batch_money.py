@@ -32,7 +32,7 @@ def deadline(value):
         raise MoneyWait('money_wait') from None
 
 
-def check_manifest(record):
+def check_manifest(record, *, _ancestors=True):
     try:
         if record['schema'] != 1 or type(record['schema']) is not int: raise ValueError()
         if not re.fullmatch('[a-z0-9-]+', record['id']): raise ValueError()
@@ -41,7 +41,7 @@ def check_manifest(record):
         jobs = record['jobs']
         if not isinstance(jobs, dict) or not jobs: raise ValueError()
         for key in ('max_concurrency', 'target_slots'):
-            if type(record[key]) is not int or not 1 <= record[key] <= len(jobs): raise ValueError()
+            if type(record[key]) is not int or record[key] < 1: raise ValueError()
         if not re.fullmatch('age1[0-9a-z]{58}', record['restore_recipient']): raise ValueError()
         if 'replacement_policy' in record:
             replacement = record['replacement_policy']
@@ -50,10 +50,13 @@ def check_manifest(record):
                     type(replacement['enabled']) is not bool): raise ValueError()
         for name, job in jobs.items():
             if (not re.fullmatch('[a-z0-9-]+', name) or re.search(r'-r[0-9]+$', name) or job['mode'] != 'batch' or
-                    job['case'] != 'case-' + record['id'] + '-' + name or
+                    job['case'] != record.get('carry_from', {}).get('jobs', {}).get(name, {}).get('case', 'case-' + record['id'] + '-' + name) or
                     ('max_calls' in job and (type(job['max_calls']) is not int or job['max_calls'] <= 0)) or
                     amount(job['requested_total_usd']) <= 0 or 'max_cost' in job):
                 raise ValueError()
+        if 'carry_from' in record and _ancestors:
+            from batch_transfer import check
+            check(record)
         return record
     except (KeyError, TypeError, ValueError):
         raise MoneyWait('money_wait') from None
@@ -96,7 +99,7 @@ def channel(value, record, name):
         source = value['source_generation']
         if source is not None and not re.fullmatch('[0-9a-f]{64}', source): raise ValueError()
         if (value['batch'], value['job'], value['case'], value['batch_deadline']) != (
-                record['id'], name, record['jobs'][name]['case'], record['batch_deadline']):
+                record['id'], name, resolved(record, name)['case'], record['batch_deadline']):
             raise ValueError()
         if amount(value['committed_total_usd']) > amount(record['money_limit_usd']): raise ValueError()
         return value
@@ -104,13 +107,20 @@ def channel(value, record, name):
         raise MoneyWait('money_wait') from None
 
 
+def resolved(record, name):
+    from batch_service import resolve_job
+    return resolve_job(record, name)
+
+
 @contextmanager
-def locked(home, batch):
+def locked(home, batch, *, read_export=False):
     directory = home / 'batches' / batch
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     if directory.is_symlink(): raise MoneyWait('money_wait')
     with (directory / 'lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        if not read_export and ((directory / 'export.json').exists() or (directory / 'export.json').is_symlink()):
+            raise MoneyWait('batch_exported')
         yield directory
 
 
@@ -121,6 +131,7 @@ def authorize(policy, name, source_generation, root, home, *, now=None):
     exists. A persisted grant is retained even if projection/delivery later fails.
     """
     record = manifest(policy, root)
+    if 'carry_from' in record or re.search(r'-r[0-9]+$', name): raise MoneyWait('money_wait')
     if deadline(record['batch_deadline']) <= (time.time() if now is None else now):
         raise MoneyWait('retired_batch_bound')
     if name not in record['jobs']: raise MoneyWait('money_wait')
@@ -215,23 +226,36 @@ def load_locked(directory, record, manifest_sha):
     if not path.exists() and not path.is_symlink(): return dict(**header, jobs={}, incidents={})
     try:
         state = _json(path)
-        if (set(state) != set(header) | {'jobs', 'incidents'} or
+        if (set(state) - {'carried_debit_usd'} != set(header) | {'jobs', 'incidents'} or
                 any(state[k] != v for k, v in header.items()) or type(state['schema']) is not int or
                 not isinstance(state['jobs'], dict) or not isinstance(state['incidents'], dict)):
             raise ValueError()
+        if 'carry_from' in record:
+            from batch_transfer import read_import
+            receipt = read_import(directory, record)
+            if (state.get('carried_debit_usd') != receipt['carried_debit_usd'] or
+                    receipt['target_manifest_sha256'] != manifest_sha): raise ValueError()
+        elif 'carried_debit_usd' in state: raise ValueError()
         for name, row in state['jobs'].items():
-            if set(row) != {'authority', 'held_usd', 'known_floor_usd', 'previous', 'acks', 'sources', 'overrun'}:
+            if set(row) - {'imported'} != {'authority', 'held_usd', 'known_floor_usd', 'previous', 'acks', 'sources', 'overrun'}:
                 raise ValueError()
+            base = None
+            if 'imported' in row:
+                from batch_transfer import imported_row
+                base = imported_row(directory, record, name, row)
+            elif name in record.get('carry_from', {}).get('jobs', {}): raise ValueError()
             auth = channel(row['authority'], record, name)
+            if base and (auth['reservation_id'] != base['authority']['reservation_id'] or
+                         auth['committed_total_usd'] != base['authority']['committed_total_usd']): raise ValueError()
             if amount(row['held_usd']) != amount(auth['committed_total_usd']): raise ValueError()
             floor = amount(row['known_floor_usd']); previous_check(row['previous'])
             sources = row['sources']
-            if (not isinstance(sources, list) or not sources or sources[0] is not None or
+            if (not isinstance(sources, list) or not sources or sources[0] != (base['generation'] if base else None) or
                     any(not _sha(v) for v in sources[1:]) or len(set(sources)) != len(sources) or
                     sources[-1] != auth['source_generation'] or not isinstance(row['acks'], dict) or
                     type(row['overrun']) is not bool or row['overrun'] != (floor > amount(row['held_usd']))):
                 raise ValueError()
-            known = [0]
+            known = [amount(base['known_floor_usd']) if base else 0]
             for generation, ack in row['acks'].items():
                 if (not _sha(generation) or set(ack) != {'operation_id', 'generation', 'manifest_sha256',
                         'authority', 'previous', 'facts', 'retirement'} or ack['generation'] != generation or
@@ -265,22 +289,24 @@ def load_locked(directory, record, manifest_sha):
 
 
 def aggregate(state):
-    return sum(max(amount(r['held_usd']), amount(r['known_floor_usd'])) for r in state['jobs'].values())
+    return amount(state.get('carried_debit_usd', '0.000000000')) + sum(
+        max(amount(r['held_usd']), amount(r['known_floor_usd'])) for r in state['jobs'].values())
 
 
 def authorize_locked(state, record, name, source_generation):
     """Caller owns batch lock and persists the returned mutation before config."""
     if state['incidents'] or aggregate(state) > amount(record['money_limit_usd']): raise MoneyWait('money_wait')
-    if name not in record['jobs']: raise MoneyWait('money_wait')
+    job = resolved(record, name)
     if name in state['jobs']:
         row = state['jobs'][name]
         if row['overrun'] or row['authority']['source_generation'] != source_generation:
             raise MoneyWait('money_wait')
         return dict(row['authority'])
     if source_generation is not None: raise MoneyWait('money_wait')
-    wanted = record['jobs'][name]['requested_total_usd']
+    if name in record.get('carry_from', {}).get('jobs', {}): raise MoneyWait('money_wait')
+    wanted = job['template']['requested_total_usd']
     if aggregate(state) + amount(wanted) > amount(record['money_limit_usd']): raise MoneyWait('money_wait')
-    auth = dict(schema=1, batch=record['id'], job=name, case=record['jobs'][name]['case'],
+    auth = dict(schema=1, batch=record['id'], job=name, case=job['case'],
                 reservation_id=str(uuid.uuid4()), revision=1, source_generation=None,
                 committed_total_usd=wanted, batch_deadline=record['batch_deadline'])
     state['jobs'][name] = dict(authority=auth, held_usd=wanted, known_floor_usd='0.000000000',

@@ -236,7 +236,7 @@ def _held_stage(card, stop):
     return value if value in GATES else 'unknown'
 
 
-def _factory_bug_history(c):
+def _factory_bug_history(c, *, admitted_replay=None):
     path = Path(c.work) / 'factory-bug-resumes.json'
     try:
         if path.is_symlink(): raise ValueError()
@@ -271,7 +271,9 @@ def _factory_bug_history(c):
             raise ValueError()
         for card in (c.card, getattr(c, 'checkpoint_card', {})):
             count = card.get('factory_bug_resume_count', len(history))
-            if type(count) is not int or count != len(history): raise ValueError()
+            if type(count) is not int: raise ValueError()
+            if count != len(history) and not (admitted_replay is not None and history and
+                    history[-1] == admitted_replay and count == len(history) - 1): raise ValueError()
     except (FileNotFoundError, ValueError, KeyError, TypeError):
         c.card.pop('factory_bug_resume_count', None)
         c.card.update(status='stopped', terminal_stop='factory_bug_history_invalid')
@@ -380,6 +382,130 @@ def restore_factory_bug(c, *, generation, evidence_root):
     history = _factory_bug_history(c)
     _complete_factory_bug(c, finding, history, state)
     return True
+
+
+def _resume_bindings(c):
+    """Authenticated current channel plus an unbranched encrypted transition chain."""
+    from job_authority import for_case, read
+    from batch_transfer import predecessor
+    from batch_money import channel
+    for_case(c)
+    current = dict(c.authenticated_job_config['job_money'])
+    records = {}
+    record = c.authenticated_batch_manifest
+    release = c.authenticated_job_config['batch_release_sha256']
+    while True:
+        if record['id'] in records: raise ValueError('cyclic release history')
+        records[record['id']] = (record, release)
+        if 'carry_from' not in record: break
+        policy, record = predecessor(record)
+        release = policy['batch']['sha256']
+    path = Path(c.work) / 'job-money-history.json'
+    transitions = json.loads(_input_bytes(path, c.work)) if path.exists() else {}
+    if not isinstance(transitions, dict): raise ValueError('invalid money history')
+    bindings, seen = [], set()
+    cursor = current
+    while True:
+        read(cursor, cursor)
+        record, release = records[cursor['batch']]
+        channel(cursor, record, cursor['job'])
+        key = (cursor['reservation_id'], cursor['revision'], cursor['source_generation'])
+        if key in seen: raise ValueError('cyclic money history')
+        seen.add(key); bindings.append((cursor, release))
+        matches = [item for item in transitions.values() if item.get('new') == cursor]
+        if not matches: break
+        if len(matches) != 1: raise ValueError('branched money history')
+        item = matches[0]
+        if (set(item) != {'old', 'new', 'config_sha256', 'source_generation'} or
+                not _sha(item['config_sha256']) or item['source_generation'] != cursor['source_generation']):
+            raise ValueError('invalid money transition')
+        previous = item['old']
+        if (previous['case'] != cursor['case'] or previous['job'] != cursor['job'] or
+                previous['committed_total_usd'] != cursor['committed_total_usd']):
+            raise ValueError('changed owner allocation')
+        if previous['batch'] == cursor['batch']:
+            if (previous['reservation_id'] != cursor['reservation_id'] or
+                    cursor['revision'] not in (previous['revision'], previous['revision'] + 1)):
+                raise ValueError('invalid same owner transition')
+        else:
+            policy, _ = predecessor(record)
+            spec = record['carry_from']['jobs'][cursor['job']]
+            if (policy['batch']['id'] != previous['batch'] or cursor['revision'] != 1 or
+                    previous['reservation_id'] == cursor['reservation_id'] or
+                    spec['generation'] != cursor['source_generation']):
+                raise ValueError('invalid imported transition')
+        cursor = previous
+    return bindings
+
+
+def resume_factory_bug(c):
+    """One lifetime admission after verified installation, before diagnosis replay."""
+    state = c.card.get('diagnosis_state')
+    if not isinstance(state, dict) or state.get('outcome') != 'factory_bug': return False
+    from job_authority import for_case, read
+    authority = for_case(c)
+    path = _finding_path(c, state['exhaustion_id'])
+    admission_validated = False
+    try:
+        finding = json.loads(_input_bytes(path, c.work))
+        # Same-batch holds keep the existing strict replay path and never admit.
+        if finding['held_batch_id'] == authority.batch: return False
+        bindings = _resume_bindings(c)
+        held = [(value, release) for value, release in bindings if
+                value['batch'] == finding['held_batch_id'] and release == finding['held_release_sha256']]
+        if not held: raise ValueError('missing held binding')
+        old, old_release = held[0]
+        if old_release == c.authenticated_job_config['batch_release_sha256']: raise ValueError('unchanged release')
+        manifest = queued_inputs(c, c.work, quiescent=True)
+        finding = _read_factory_bug_finding(c, path, read(old, old), old_release, state,
+                                           manifest['generation'], path.parent / 'inputs')
+        try:
+            raw = json.loads(_input_bytes(Path(c.work) / 'factory-bug-resumes.json', c.work))
+            if not isinstance(raw, list): raise ValueError('invalid history')
+        except (OSError, ValueError, TypeError):
+            # Preserve D's public history-invalid stop, including a missing file
+            # after a retained finding. Never initialize or relabel this as zero.
+            _factory_bug_history(c)
+            raise BudgetError('factory_bug_history_invalid') from None
+        prior = [row for row in raw if isinstance(row, dict) and row.get('finding_id') == finding['finding_id']]
+        admission = prior[0] if len(prior) == 1 else None
+        if admission is not None:
+            if not any(all(admission.get(k) == value[v] for k, v in (
+                    ('case', 'case'), ('batch_id', 'batch'), ('job_id', 'job'),
+                    ('reservation_id', 'reservation_id'), ('source_generation', 'source_generation'))) and
+                    admission.get('batch_release_sha256') == release and
+                    admission.get('held_batch_id') == finding['held_batch_id'] for value, release in bindings):
+                raise ValueError('unbound admission replay')
+        history = _factory_bug_history(c, admitted_replay=admission)
+        admission_validated = True
+        if admission is None:
+            if len(history) == 3:
+                c.card.pop('failed_gate', None)
+                c.card.update(status='stopped', terminal_stop='retired_factory_bug_limit', factory_bug_resume_count=3)
+                c.stopped = True
+                atomic_json(Path(c.work) / 'scorecard.json', c.card)
+                raise BudgetError('retired_factory_bug_limit')
+            admission = dict(schema_version=1, resume_id=str(uuid.uuid4()), finding_id=finding['finding_id'],
+                case=c.case_id, held_batch_id=finding['held_batch_id'], batch_id=authority.batch,
+                job_id=authority.job, reservation_id=authority.reservation_id,
+                source_generation=authority.source_generation,
+                batch_release_sha256=c.authenticated_job_config['batch_release_sha256'])
+            history.append(admission)
+            atomic_json(Path(c.work) / 'factory-bug-resumes.json', history)
+        admitted_card = dict(c.card)
+        for key in ('factory_bug', 'diagnosis_state', 'infrastructure_gate', 'terminal_stop', 'failed_gate'):
+            admitted_card.pop(key, None)
+        admitted_card.update(status='running', factory_bug_resume_count=len(history))
+        atomic_json(Path(c.work) / 'scorecard.json', admitted_card)
+        c.card.clear(); c.card.update(admitted_card)
+        c.stopped = False
+        return True
+    except OSError:
+        if admission_validated:
+            raise BudgetError('factory_bug_resume_io_wait') from None
+        raise BudgetError('diagnosis_finding_invalid') from None
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise BudgetError('diagnosis_finding_invalid') from None
 
 
 def require_model_work(card):

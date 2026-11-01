@@ -152,7 +152,7 @@ def parked(policy_path, job_name, worker, extra):
     """Manual parked restores need the same explicit policy and held-key pipe."""
     import key_holder
     policy = key_holder.policy_load(policy_path)
-    job = policy['jobs'][job_name]
+    job = key_holder.job_template(policy, job_name)
     if job['mode'] != 'case': raise ValueError('parked handoff needs a case job')
     root = Path(__file__).resolve().parents[1]
     env = {**os.environ, 'BOAT_CMD': str(root / 'bin/hcloud-boat')}
