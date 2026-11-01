@@ -235,8 +235,9 @@ def apply(c, parent, manifest, result, *, resume=False):
             row = extensions.active(c)
             if row is None:
                 history = extensions.read(c)
-                row = (history[-1] if history and
-                       history[-1]['exhaustion_id'] == manifest['exhaustion_id'] else None)
+                if history and history[-1]['exhaustion_id'] != manifest['exhaustion_id']:
+                    stop(c, 'extension_comparison_pending')
+                row = history[-1] if history else None
             if row is not None:
                 if row['exhaustion_id'] != manifest['exhaustion_id']:
                     raise InputVerificationError('extension differs from diagnosis')
