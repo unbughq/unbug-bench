@@ -37,6 +37,8 @@ Linux skips), 63 dispatch tests, six public progress tests, all passing.
 
 The same fix forces final pair publication before scratch cleanup, checks current
 versions before invocation and replay, and documents the accounting-root provider
-wait seam. Full suite for these fixes and fresh diff review round 2 are pending.
+wait seam. Full suite for these fixes passes at `0224014`: 170 scripts, zero failures.
+Record: `stream-d-current-comparison-suite-20261101T220115Z-11ab3a7f.json` and
+adjacent log. Fresh diff review round 2 is pending.
 Linux activation must exercise the entire real Evaluator start/fork/ready/receive/
 close/subreaper-restore path; the two isolated Linux exams alone are insufficient.
