@@ -236,8 +236,13 @@ def apply(c, parent, manifest, result, *, resume=False):
             if row is None:
                 history = extensions.read(c)
                 if history and history[-1]['exhaustion_id'] != manifest['exhaustion_id']:
-                    stop(c, 'extension_comparison_pending')
-                row = history[-1] if history else None
+                    prior = history[-1]
+                    versions = [stage['version'] for stage in prior['outcome']['stages']]
+                    pair = extensions.comparison_pair(prior, versions)
+                    if pair is None or extensions.progress(pair['entry'], pair['outcome']) == 'pending':
+                        stop(c, 'extension_comparison_pending')
+                row = (history[-1] if history and
+                       history[-1]['exhaustion_id'] == manifest['exhaustion_id'] else None)
             if row is not None:
                 if row['exhaustion_id'] != manifest['exhaustion_id']:
                     raise InputVerificationError('extension differs from diagnosis')

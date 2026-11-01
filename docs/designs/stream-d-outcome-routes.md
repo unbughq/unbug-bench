@@ -57,13 +57,16 @@ before returning. Enabled fresh and replayed close_to_passing follow this table:
 | Active, same exhaustion | Existing positive-ID path and writer_receipt validation. |
 | Active, other exhaustion | diagnosis_input_invalid, no work. |
 | Completed, same exhaustion | Existing completed_route validation and positive ID. |
-| Completed, other exhaustion | Stop extension_comparison_pending; do not skip the prior package to return 0. |
+| Completed, other exhaustion | Use comparison_pair at the retained outcome versions; unresolved comparison stops extension_comparison_pending, otherwise return 0 for admission to verify current-version progress. |
 
 Merge correction (2026-11-01): the earlier completed/other table entry relied
 on a future entry/comparison producer and weakened lane 2's existing refusal.
 Until a separately reviewed comparison route replaces this boundary, apply must
-stop on that prior completed row before returning a fresh-admission sentinel.
-A changed exhaustion ID is not proof of progress. The existing package regression
+check that prior completed row with extensions.comparison_pair and progress before
+returning a fresh-admission sentinel. A missing pair or pending progress stops
+extension_comparison_pending. A resolved pair still reaches ordinary admission,
+which must prove progress at current versions; neither this route nor a changed
+exhaustion ID grants a writer round. The existing package regression
 (test_dispatch_recovers_history_committed_before_card) covers both valid
 same-exhaustion recovery and refusal for a different exhaustion. This narrow
 production fix uses ENGINEERING's obvious-cause small-fix design exemption;
