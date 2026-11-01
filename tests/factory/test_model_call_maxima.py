@@ -753,7 +753,7 @@ class ProtocolTests(unittest.TestCase):
         provider = model.partition('/')[2] if paid else claude_profile(model)['model'].partition('/')[2]
         prefix=sse(dict(input_tokens=1,cache_read_input_tokens=0,
                         cache_creation_input_tokens=0,output_tokens=1),model=provider).split(b'\n\n')[0]+b'\n\n'
-        if paid: prefix=b'data: '+json.dumps(dict(paid_protocol=1,id='synthetic',model=provider,choices=[])).encode()+b'\n\n'
+        if paid: prefix=b'data: '+json.dumps(dict(id='synthetic',model=provider,choices=[])).encode()+b'\n\n'
         self.stalled=SimpleNamespace(prefix=prefix,release=threading.Event(),attempted=threading.Event(),
                                      close_header=close_header,content_length=content_length,
                                      wait_seconds=60 if real_cli else 30)

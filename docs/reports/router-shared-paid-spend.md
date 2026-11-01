@@ -57,7 +57,10 @@ or relocation of authoritative state is unsupported, not a reset feature.
 
 The router process newly holding openrouter-key in RAM for read-only /credits is
 a security-property change requiring founder acknowledgement before deployment.
-B3 owns RAM-only delivery and drain/restart rotation. No credential was delivered
+B3 owns RAM-only delivery and drain/restart rotation. The practice run must
+confirm that GET /api/v1/credits accepts the deployed key type and returns the
+expected schema. Authorization failure or rate limiting fails closed; historical
+funding observations do not qualify a newly deployed credential/endpoint contract. No credential was delivered
 or read here; an unconfigured reader refuses paid requests. The lifetime ceiling
 cannot be raised at runtime. Any future change requires founder-directed code
 and data migration; no credit purchase or top-up is authorized.
@@ -68,3 +71,10 @@ outside this increment, as requested.
 Full suite: 167 scripts, 0 failures, exit 0.
 [Unique suite record](router-shared-paid-spend-suite-20261101T150101Z-9bce2a01.json)
 contains the command, timestamps and SHA-256 of the committed log.
+
+Diff-review follow-up: the original full-suite result above lacked a tested-source
+snapshot and is historical evidence only. The replacement run will name a clean
+committed source tree, verify it remains unchanged, and retain its unique log.
+Worker and pilot diagnosis runtime calls now share a real Store across distinct
+batch/job authorities in an explicit synthetic transport test. A third batch
+cannot replenish the shared allowance. No production code changed after review 1.

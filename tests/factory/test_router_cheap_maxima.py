@@ -40,7 +40,7 @@ def request(route,**extra):
 
 
 def response(route,usage=None):
-    return dict(paid_protocol=1,id='chatcmpl-synthetic',model=route.partition('/')[2],
+    return dict(id='chatcmpl-synthetic',model=route.partition('/')[2],
         choices=[dict(index=0,delta={'content':'synthetic'},finish_reason='stop')],
         usage=usage or dict(prompt_tokens=100,completion_tokens=10,total_tokens=110))
 

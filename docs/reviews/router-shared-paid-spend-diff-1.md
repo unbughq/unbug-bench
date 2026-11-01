@@ -60,3 +60,19 @@
 ## Murphy rows
 
 No rows are claimed closed, which matches the design. There was nothing to verify.
+
+
+## Elephant disposition
+
+PASS, no blockers. All three majors accepted. M1: the original suite record
+lacked a source snapshot, so a replacement full suite will run from a clean
+committed source tree and record both commit and tree plus an end-of-run unchanged
+source check. No retrospective provenance is claimed for the original log.
+M2: added real ModelRuntime.call/_invoke/enforce worker and pilot diagnosis calls
+against one Store with distinct batch/job authorities, followed by a third-batch
+refusal; OS isolation and the CLI are explicit doubles. Added exactly-one-upstream
+assertion to the successful wire test. M3: deployed-key /credits acceptance and
+schema are now explicit practice prerequisites. N2: removed accidental protocol
+fields from synthetic provider responses. Other optional nits deferred: existing
+fail-closed behavior is unchanged, and no production code changes follow review.
+A fresh diff review of these follow-up changes follows the new full suite.

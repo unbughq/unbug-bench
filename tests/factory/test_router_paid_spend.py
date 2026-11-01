@@ -254,17 +254,92 @@ class PaidWireTests(unittest.TestCase):
                 self.assertEqual(self.seen, [])
                 self.assertEqual(store.rpc('status', {})['paid']['total_usd'], '0.230000000' if lost else '0.000000000')
 
+    def test_worker_and_diagnosis_runtime_share_one_ledger_across_batches(self):
+        import copy
+        import shutil
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        import test_model_call_maxima as core
+        import diagnosis_task
+        from budget import BudgetError
+        runtime_module = core.model_runtime
+        # Only OS isolation and the CLI process are doubles. ModelRuntime.call,
+        # _invoke, enforce, request parsing and central Store all execute normally.
+        @contextmanager
+        def offline_wall(active, lease, user):
+            try: yield
+            finally: active.close()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ram = root/'ram'; ram.mkdir(); (ram/'openrouter-key').write_text('synthetic-only')
+            store = router.Store(root/'router.sqlite', credit_reader=lambda: Decimal('.46'))
+            command = Mock()
+            runtime = runtime_module.ModelRuntime(root, command, Mock(),
+                lambda path, **kw: shutil.rmtree(path), lambda user: root/'pilot')
+            calls = []
+            def execute(cmd, cwd, env, *args, **kwargs):
+                kwargs['on_started']()
+                calls.append((kwargs['invocation_name'], 'pilot' in cmd))
+                self.assertNotIn('OPENROUTER_API_KEY', env)
+                if 'pilot' in cmd:
+                    self.assertNotIn('OPENCODE_ENABLE_EXA', env)
+                    config = json.loads(env['OPENCODE_CONFIG_CONTENT'])
+                    self.assertEqual(config['permission']['webfetch'], 'deny')
+                status, _ = self.post(kwargs['cancel'])
+                if status != 200: raise BudgetError('process_error')
+                return SimpleNamespace(returncode=0)
+            def context(index):
+                work = root/str(index); work.mkdir(); (work/'transcripts').mkdir()
+                deadline = router.utc(float(int(time.time())+3600))
+                auth = dict(schema=1,batch='batch-'+str(index),job='job-'+str(index),case='case-'+str(index),
+                    reservation_id=str(uuid.uuid4()),revision=1,source_generation=None,
+                    committed_total_usd='0.690001000',batch_deadline=deadline)
+                c = SimpleNamespace(work=work,case=work,ledger=work/'ledger.json',
+                    args=core.run.argument_parser().parse_args(['--source','hunt']),
+                    card={'roles': {role: {'model':MINIMAX} for role in ('writer','reviewer')}},
+                    case_id=auth['case'],batch_id=auth['batch'],job_id=auth['job'],batch_deadline=deadline,
+                    source_generation=None,job_money=copy.deepcopy(auth),
+                    authenticated_job_config={'job_money':copy.deepcopy(auth)},router_accounts=('openrouter-key',))
+                c.ledger.write_text(json.dumps({'cost':0,'calls':0,'events':[]}))
+                return c
+            event = dict(id='synthetic',model='minimax/minimax-m3.1-flash',
+                choices=[dict(index=0,finish_reason='stop')],
+                usage=dict(prompt_tokens=1000000,completion_tokens=900000,total_tokens=1900000))
+            payload = b'data: '+json.dumps(event).encode()+b'\n\ndata: [DONE]\n\n'
+            self.responses = [payload, payload]
+            with patch.object(router,'_rpc',store.rpc), patch.object(router,'SECRETS',ram), \
+                 patch.object(runtime_module,'_opencode_flags',return_value=[]), \
+                 patch.object(runtime_module,'run_budgeted',side_effect=execute), \
+                 patch.object(gate,'_wall_access',offline_wall), patch.object(gate.sys,'platform','linux'), \
+                 patch.object(runtime_module.pwd,'getpwnam',return_value=SimpleNamespace(pw_uid=1234)), \
+                 patch.object(diagnosis_task,'_quiet'), patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'0'}):
+                for index, name, user in ((1,'builder-1',None),(2,'diagnosis-synthetic','pilot')):
+                    c = context(index)
+                    self.assertEqual(runtime.call(c,[MINIMAX],'synthetic',c.work,name,user=user),0)
+                    self.assertEqual(store.rpc('status',{})['paid']['total_usd'],f'{Decimal(".23")*index:.9f}')
+                # A third batch gets no replenishment, even with separate job authority.
+                c = context(3)
+                with self.assertRaises(router.ProviderWait):
+                    runtime.call(c,[MINIMAX],'synthetic',c.work,'builder-1')
+            self.assertEqual(calls,[('builder-1',False),('diagnosis-synthetic',True),('builder-1',False)])
+            self.assertEqual(len(self.seen),2)
+            self.assertEqual(store.rpc('status',{})['paid']['total_usd'],'0.460000000')
+            with closing(sqlite3.connect(store.path)) as db:
+                self.assertEqual(db.execute('SELECT COUNT(DISTINCT lease_id) FROM paid_requests').fetchone()[0],2)
+
     def test_settlement_precedes_downstream_eof_and_transport_loss_retains(self):
         import test_model_call_maxima as core
         for lost in (False, True):
             actual = core.lease(MINIMAX)
             self.responses = [self.payload()]
+            before = len(self.seen)
             with authority(actual) as store, patch.object(gate.sys, 'platform', 'linux'):
                 def rpc(op, data):
                     if lost and op == 'paid_settle': raise router.RouterUnavailable('lost settlement')
                     return store.rpc(op, data)
                 with patch.object(router, '_rpc', rpc), gate.enforce(actual, self.env(), {}, 3) as active:
                     self.assertEqual(self.post(active)[0], 200)
+                    self.assertEqual(len(self.seen)-before, 1)
                     # HTTP read reached EOF: settlement has already been attempted.
                     self.assertEqual(store.rpc('status', {})['paid']['total_usd'], '0.230000000' if lost else '0.000000250')
                 store.rpc('finish', dict(lease_id=actual.lease_id, outcome='done', receipt=None))
