@@ -1,0 +1,14 @@
+{
+  "attempts": 5,
+  "requested_at": 1793267533.6944551,
+  "finished_at": 1793267586.3883,
+  "outcome": "ready",
+  "worker_id": "bx_d6dzvjbc",
+  "observed": {
+    "id": "bx_d6dzvjbc",
+    "type": "default",
+    "state": "idle",
+    "ttlSeconds": 57600,
+    "hydratedAt": "2026-10-29T09:53:04.708Z"
+  }
+}

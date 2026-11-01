@@ -1,0 +1,17 @@
+{
+  "started_at": "2026-10-29T09:52:13.047070+00:00",
+  "vms": 1,
+  "ttl_seconds": 57600,
+  "estimated_usd": 0.576,
+  "max_spend_usd": 0.75,
+  "provider": "boat",
+  "balance_before_usd": 4.26532,
+  "balance_after_usd": 4.17171,
+  "actual_spend_usd": 0.09361,
+  "allowed": true,
+  "finished_at": "2026-10-29T11:18:22.596883+00:00",
+  "exit_code": 0,
+  "ids": [
+    "bx_d6dzvjbc"
+  ]
+}
