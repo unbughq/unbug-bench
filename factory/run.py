@@ -166,14 +166,20 @@ def jload(path, default=None):
     except (OSError, ValueError): return default
 
 
-def bench_manifest():
+def bench_manifest_includes(relative):
+    return (relative == "factory/case_permissions.py" or not re.match(
+        r"(results/|factory/|sealed/|unbug/|\.git/|projects/medusa/(node_modules|\.medusa)/|.*__pycache__/|projects/medusa/seed-ids\.json$)", relative))
+
+
+def bench_manifest(root=None):
     """Hash of every bench file a builder must not change (results, installed deps and unbug/, the
     contract's runtime-state folder that guards write to, excluded)."""
     import hashlib
     h = hashlib.sha256()
-    for f in sorted(BENCH.rglob("*")):
-        rel = f.relative_to(BENCH).as_posix()
-        if f.is_file() and (rel == "factory/case_permissions.py" or not re.match(r"(results/|factory/|sealed/|unbug/|\.git/|projects/medusa/(node_modules|\.medusa)/|.*__pycache__/|projects/medusa/seed-ids\.json$)", rel)):
+    root = BENCH if root is None else pathlib.Path(root)
+    for f in sorted(root.rglob("*")):
+        rel = f.relative_to(root).as_posix()
+        if f.is_file() and bench_manifest_includes(rel):
             h.update(rel.encode() + b"\0" + f.read_bytes() + b"\0")
     return h.hexdigest()
 
@@ -322,14 +328,15 @@ def resume_provider_wait(c):
     if getattr(c, 'active_model_calls', set()): raise BudgetError('usage_reconciliation_while_active')
     from budget import settle, reconcile_reservations
     from registry import atomic_json
-    live = c.work / 'provider_wait.json'
+    work = model_runtime.accounting_work(c)
+    live = work / 'provider_wait.json'
     if live.exists():
         record = jload(live)
         batch, job, deadline = model_router.metadata(c)
         if (not isinstance(record, dict) or record.get('case') != c.case_id or record.get('batch') != batch
                 or record.get('job') != job or model_router.epoch(record.get('batch_deadline')) != deadline):
             raise BudgetError('invalid_provider_wait')
-        settle(record, work=c.work, ledger_path=c.ledger)
+        settle(record, work=work, ledger_path=c.ledger)
         path = c.work / 'attack-state.json'
         pending = jload(path, {})
         role = ('writer' if pending.get('repair_pending') else 'stress_tester' if pending.get('review_pending') else None)
@@ -339,11 +346,11 @@ def resume_provider_wait(c):
         if matched:
             pending.update(lease_id=None, invocation_id=None, resumed_from_wait=record['wait_id'])
             atomic_json(path, pending)
-        archive = c.work / 'provider_waits'; archive.mkdir(exist_ok=True)
+        archive = work / 'provider_waits'; archive.mkdir(exist_ok=True)
         target = archive / (record['wait_id'] + '.json')
         if target.exists() and jload(target) != record: raise BudgetError('provider_wait_archive_mismatch')
         live.replace(target)
-    if model_runtime.factory_job(c): reconcile_reservations(c.work, c.ledger)
+    if model_runtime.factory_job(c): reconcile_reservations(work, c.ledger)
     c.provider_resume_done = True
     state['done'] = True
 
@@ -3344,7 +3351,7 @@ def main():
             archive_pilot_state(c)
             if model_runtime.factory_job(c):
                 from diagnosis_dispatch import dispatch
-                routed = dispatch(c, sys.modules[__name__])
+                routed = dispatch(c, sys.modules[__name__], comparison_route=True)
                 if type(routed) is int:
                     extension_id = routed
                     if (any(getattr(a, name, False) for name in ('dry_run', 'rehearse_only', 'audit_fairness',

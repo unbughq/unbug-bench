@@ -3853,3 +3853,23 @@ Next increment for lane 1: isolated current-version comparison, subsequent-entry
 selection/reconstruction and version-drift integration. Rejected/unchanged writer
 and confirmed-public-match terminal outcomes still follow. The larger package
 and item-7 checkbox remain open; activation and live qualification are unchanged.
+
+
+### Item 7 current-version comparison implementation
+
+The isolated comparison producer and subsequent-entry reconstruction are implemented
+in `stream-d-current-comparison.md`, including the explicitly replaced pending-pair
+routing boundary. Fresh design review 5 passes. Full suite passes at 0224014 (170 scripts, zero
+failures), including diff-round-1 blocker fixes. Fresh Claude diff review round 2
+passes with no blockers (`docs/reviews/stream-d-current-comparison-diff-2.md`).
+This increment is complete for handback; package increment 2 stays unchecked.
+
+Remaining item-7 work after this slice: rejected/unchanged writer outcomes,
+confirmed-public-match terminal package outcomes, partial first-entry captures
+(including budget exhaustion before gate closure and stress exhaustion before
+traversal), and the post-extension factory-bug return target recorded as
+`new-stream-d-current-comparison-1`. Integrated outcome qualification and item 8
+remain separate. No Murphy row is closed and diagnosis activation stays false.
+The temporary `comparison_route=False` compatibility seam remains until item 7
+is complete. Linux process containment and live upload/time/cost qualification
+remain explicit activation evidence; the Mac suite cannot qualify those paths.

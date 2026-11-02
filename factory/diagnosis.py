@@ -691,7 +691,7 @@ def _write_input_tree(c, bench, root, card, state):
         prefix, base = ('work/bench-results/', bench / 'results') if kind == 'bench' else ('work/', c.work)
         add(prefix + name, _input_bytes(path, base))
     names = ('bench-results', 'attack-state.json', 'attacks', 'gate-continuation.json',
-             'late-defect.json', 'extension-history.json', 'extension-snapshots', 'transcripts',
+             'late-defect.json', 'extension-history.json', 'extension-snapshots', 'comparison-diagnostics', 'transcripts',
              'usage-receipts', 'factory-failures', 'factory-replays', 'job-money.json', 'job-money-history.json', 'infra-attempts.json', 'strong_calibrator', 'easy_calibrator',
              'early_probe', 'fixes', 'evidence', 'history', 'verdict.json', 'prototype.json',
              'public-search.json', 'idea-realism.json', 'audit-baseline.json', 'delivery-provenance.json')

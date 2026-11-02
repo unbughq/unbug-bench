@@ -49,8 +49,9 @@ def project(card):
 
 
 class Records:
-    def __init__(self, c, r, row=None, *, observation_id=None, round_number=None):
+    def __init__(self, c, r, row=None, *, observation_id=None, round_number=None, expected_versions=None):
         self.c, self.r, self.row = c, r, row
+        self.expected_versions = copy.deepcopy(expected_versions)
         if row is not None:
             if observation_id is not None or round_number is not None: raise ValueError('two record owners')
             self.root = c.work / 'extension-package' / str(row['extension_id'])
@@ -64,6 +65,10 @@ class Records:
             self.operation_id, self.round_number, self.completed = None, round_number, False
         self.prepared = False
         self.observed = {}
+
+    def version(self, stage):
+        return (self.expected_versions[stage] if self.expected_versions is not None else
+                gate_state.scientific_version(self.c, stage, self.r.BENCH))
 
     def load(self, stage, *, check_version=True):
         path = self.root / stage / 'record.json'
@@ -95,8 +100,8 @@ class Records:
                 count = data['card'].get('bench_workers_effective')
                 if type(count) is not int or count < 1: refuse()
                 self.c.args.bench_workers = count
-            if check_version and data['scientific_version'] != gate_state.scientific_version(self.c, stage, self.r.BENCH):
-                refuse('extension_comparison_pending')
+            if check_version and data['scientific_version'] != self.version(stage):
+                refuse('extension_snapshot_changed' if self.expected_versions is not None else 'extension_comparison_pending')
             return data
         except (KeyError, ValueError, TypeError, OSError):
             refuse()
@@ -196,7 +201,7 @@ class Records:
             card = project(c.card)
             data = dict(schema_version=1, writer_operation_id=self.operation_id,
                 round=self.round_number, case_sha256=r.case_hash(c),
-                scientific_version=gate_state.scientific_version(c, stage, r.BENCH), ok=ok,
+                scientific_version=self.version(stage), ok=ok,
                 info=info, support=support, card=card, deleted=sorted(set(old_card) - set(card)), context=context)
             atomic_json(temporary / 'record.json', {'record': data, 'sha256': extensions.digest(data)})
             extensions._sync_tree(temporary)
@@ -423,7 +428,7 @@ def entry(c, r):
     authority = job_authority.for_case(c)
     owner = copy.copy(c)
     owner.args, owner.card, owner.models = copy.deepcopy((c.args, c.card, c.models))
-    if extensions.read(owner): refuse('extension_comparison_pending')
+    if extensions.read(owner): return subsequent_entry(c, r)
     try:
         from diagnosis import _uuid4
         pointer = extensions._writer_json(owner.work / 'entry-records/current.json', owner.work)
@@ -451,3 +456,79 @@ def entry(c, r):
         refuse('extension_comparison_pending')
     except (OSError, ValueError, KeyError, TypeError, comparison._Changed):
         refuse('extension_comparison_pending')
+
+
+def subsequent_entry(c, r):
+    """The sole current-version producer, before any subsequent writer admission."""
+    import diagnosis
+    import gate_attempt
+    from extension_evaluator import Evaluator, EXECUTION
+    authority = job_authority.for_case(c)
+    history = extensions.read(c)
+    state = diagnosis._state(c.card, extensions.public(history))
+    if not state or state['status'] != 'completed' or state['outcome'] != 'close_to_passing':
+        refuse('extension_diagnosis_required')
+    if not history or history[-1]['outcome'] is None: refuse('extension_already_active')
+    if len(history) >= extensions.LIMIT: refuse('retired_extension_limit')
+    if any(row['exhaustion_id'] == state['exhaustion_id'] for row in history):
+        refuse('extension_diagnosis_already_used')
+    row = history[-1]
+    if extensions.digest(extensions.tree(c.case)) != row['outcome']['case_sha256']: refuse()
+    number = row['extension_id']
+    def selected():
+        pair, valid, retained = comparison.current_pair(c, number, r.BENCH, execution=EXECUTION)
+        if pair is not None and retained and not valid: refuse()
+        return pair if valid else None
+    def result(pair):
+        progress = extensions.progress(pair['entry'], pair['outcome'])
+        if progress != 'progress': refuse('retired_no_progress')
+        value = copy.deepcopy(pair['outcome'])
+        value['source_generation'] = authority.source_generation
+        return value
+    pair = selected()
+    if pair is not None: return result(pair)
+    versions = comparison._versions(workspace(c, r))
+    evaluator = Evaluator(c, r, number, versions)
+    missing = object()
+    previous = {key: c.card.get(key, missing) for key in ('status', 'terminal_stop')}
+    c.card.update(status='stopped', terminal_stop='runner_error:comparison_in_progress', failed_gate=None)
+    for key in ('failed_detail', 'infrastructure_gate'): c.card.pop(key, None)
+    evaluator.root.mkdir(parents=True, exist_ok=True)
+    def invoke():
+        with evaluator:
+            status = comparison.compare(c, number, r.BENCH, evaluator, execution=EXECUTION)
+            if status == 'pending':
+                selected()  # Unverifiable scored proof is an evidence stop, not another roll.
+                raise InvalidInfra('comparison incomplete or version changed')
+            return True, {'progress': status}
+    def crash(error):
+        atomic_json(evaluator.root / 'pair-crash.json',
+                    {'error_type': type(error).__name__, 'message': str(error)})
+    try:
+        outcome = gate_attempt.execute(invoke,
+            publish=lambda status, *args: r.public_progress(c, 'comparison', status),
+            record_crash=crash, interruption=BudgetError, attempts=2,
+            journal=evaluator.root / 'pair-attempts.json', identity={
+                'operation': 'extension-comparison', 'identity': evaluator.identity, 'versions': versions})
+        if outcome.crashed: evaluator.exhausted('stress', pair=True)
+        pair = selected()
+        if pair is None: raise InvalidInfra('completed comparison proof unavailable')
+        value = result(pair)
+        durable = evaluator.checkpoint(force=True)
+        # Only a remotely durable completed pair permits scratch deletion.
+        if durable:
+            for phase in ('entry', 'outcome'):
+                for source in (evaluator.root / phase / 'work/transcripts').glob('*'):
+                    if source.is_file():
+                        target = c.work / 'transcripts' / (evaluator.identity + '-' + phase + '-' + source.name)
+                        target.parent.mkdir(exist_ok=True)
+                        shutil.copyfile(source, target)
+            shutil.rmtree(evaluator.root)
+        for key, old in previous.items():
+            if old is missing: c.card.pop(key, None)
+            else: c.card[key] = old
+        return value
+    finally:
+        getattr(c, 'early', {}).pop('G3', None)
+        for key in PREPARATION: c.card.pop(key, None)
+        c.__dict__.pop('prepared_factory_slots', None)

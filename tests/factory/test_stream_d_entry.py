@@ -290,9 +290,12 @@ class EntryTests(unittest.TestCase):
 
     def test_history_refuses_without_snapshot_or_evaluation(self):
         run.run_gates(self.c)
-        with patch.object(extensions, 'read', return_value=[{'authored': 'prior history'}]), \
-                patch.object(package.comparison, 'snapshot', side_effect=AssertionError('snapshot')):
-            self.pending()
+        import extension_evaluator
+        (self.work / 'extension-history.json').write_text('[{"authored": "invalid history"}]')
+        with patch.object(package.comparison, 'snapshot', side_effect=AssertionError('snapshot')), \
+                patch.object(extension_evaluator, 'Evaluator', side_effect=AssertionError('evaluation')):
+            with self.assertRaisesRegex(budget.BudgetError, '^extension_history_invalid$'):
+                package.entry(self.c, run)
 
     def test_exact_activation_and_mode_exclusions(self):
         for name in ('dry_run', 'rehearse_only', 'audit_fairness', 'late_gate_rehearsal'):

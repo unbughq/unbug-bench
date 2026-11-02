@@ -16,6 +16,7 @@ _STATUSES = {"running", "completed", "failed", "interrupted"}
 
 def _stage(stage):
     return isinstance(stage, str) and (re.fullmatch(r"(?:early:)?G(?:[1-9]|1[0-7])", stage) is not None
+           or re.fullmatch(r"comparison(?::(?:stress|G(?:[1-9]|1[0-7])))?", stage) is not None
            or stage in {"role:" + role for role in _ROLES})
 
 

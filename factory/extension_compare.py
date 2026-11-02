@@ -31,6 +31,7 @@ class Workspace:
     seed: int
     factory_slot: int
     case_id: str
+    execution: dict | None = None
 
 
 class _Changed(RuntimeError):
@@ -47,7 +48,7 @@ def _case(w):
 
 
 def _configuration(w):
-    return copy.deepcopy((vars(w.args), w.models, w.card.get('roles', {})))
+    return copy.deepcopy((vars(w.args), w.models, w.card.get('roles', {}), getattr(w, 'execution', None)))
 
 
 def _binding(w, stage, version):
@@ -68,9 +69,17 @@ def _calibration(w, stage):
 
 
 def _execution(w):
-    return dict(seed=w.seed, slot=w.factory_slot, bench_workers=getattr(w.args, 'bench_workers', 1),
+    override = getattr(w, 'execution', None)
+    if override is not None and (not isinstance(override, dict) or
+            set(override) != {'bench_workers', 'concurrent_roles'} or
+            type(override['bench_workers']) is not int or override['bench_workers'] < 1 or
+            type(override['concurrent_roles']) is not bool):
+        raise ValueError('invalid comparison execution')
+    result = dict(seed=w.seed, slot=w.factory_slot, bench_workers=getattr(w.args, 'bench_workers', 1),
                 concurrent_roles=getattr(w.args, 'concurrent_roles', True),
                 slot_environment=os.environ.get('UNBUG_FACTORY_SLOT'))
+    result.update(override or {})
+    return result
 
 
 def _path(root, name):
@@ -229,10 +238,10 @@ def snapshot(w, source_generation, evaluate, previous=None, versions=None):
     return result
 
 
-def _workspace(c, root, bench):
+def _workspace(c, root, bench, execution=None):
     return Workspace(root / 'case', root / 'work', Path(bench), copy.deepcopy(c.args),
         copy.deepcopy(c.models), {'roles': copy.deepcopy(c.card.get('roles', {}))},
-        c.seed, getattr(c, 'factory_slot', 0), c.case_id)
+        c.seed, getattr(c, 'factory_slot', 0), c.case_id, copy.deepcopy(execution))
 
 
 def _source(c, number, phase, pair=None):
@@ -241,12 +250,55 @@ def _source(c, number, phase, pair=None):
             parent / phase / 'evidence')
 
 
-def compare(c, number, bench, evaluate):
+def current_pair(c, number, bench, *, execution=None):
+    """Verify the selected terminal pair before any retry/setup boundary.
+
+    Return (pair, valid, retained). Invalid original opaque proof may be
+    reconstructed; invalid retained scored proof may never be rerolled.
+    """
+    owner = copy.copy(c)
+    owner.card = copy.deepcopy(c.card)
+    history = extensions.read(owner)
+    if type(number) is not int or not 1 <= number <= len(history):
+        raise BudgetError('extension_history_invalid')
+    original = history[number - 1]
+    if original['outcome'] is None: return None, False, False
+    configuration = _configuration(c)
+    with tempfile.TemporaryDirectory(prefix='unbug-verify-') as directory:
+        workspaces = {}
+        for phase in ('entry', 'outcome'):
+            w = _workspace(c, Path(directory) / phase, bench, execution)
+            w.work.mkdir(parents=True)
+            shutil.copytree(c.work / 'extension-snapshots' / str(number) / phase / 'case', w.case)
+            if _case(w) != original[phase]['case_sha256']:
+                raise BudgetError('extension_snapshot_changed')
+            workspaces[phase] = w
+        versions = _versions(workspaces['entry'])
+        if versions != _versions(workspaces['outcome']): return None, False, False
+        selected = extensions.comparison_pair(original, list(versions.values()))
+        retained = selected if any(selected is p for p in original['comparisons']) else None
+        if not selected or extensions.progress(selected['entry'], selected['outcome']) == 'pending':
+            return None, False, False
+        valid = True
+        for phase, w in workspaces.items():
+            extensions._save_evidence(_source(c, number, phase, retained), w.work, selected[phase])
+            valid &= all(_load(w, row, selected[phase]['evidence']) is not None
+                         for row in selected[phase]['stages'] if row['status'] in ('pass', 'fail'))
+        valid &= (_configuration(c) == configuration and
+                  all(_versions(w) == versions for w in workspaces.values()))
+        return copy.deepcopy(selected), bool(valid), retained is not None
+
+
+def compare(c, number, bench, evaluate, *, execution=None):
     """Return progress/no_progress/regression/pending. Single owning worker only.
 
     Live mutations are limited to append-only comparison history and proofs.
     A completed current pair is authoritative: no stochastic re-rolls.
     """
+    terminal, valid, was_retained = current_pair(c, number, bench, execution=execution)
+    if terminal is not None:
+        if valid: return extensions.progress(terminal['entry'], terminal['outcome'])
+        if was_retained: return 'pending'
     owner = copy.copy(c)
     owner.card = copy.deepcopy(c.card)
     history = extensions.read(owner)
@@ -260,7 +312,7 @@ def compare(c, number, bench, evaluate):
         root = Path(directory)
         workspaces = {}
         for phase in ('entry', 'outcome'):
-            w = _workspace(c, root / phase, bench)
+            w = _workspace(c, root / phase, bench, execution)
             w.work.mkdir(parents=True)
             shutil.copytree(c.work / 'extension-snapshots' / str(number) / phase / 'case', w.case)
             if _case(w) != original[phase]['case_sha256']:
@@ -271,21 +323,6 @@ def compare(c, number, bench, evaluate):
             return 'pending'
         selected = extensions.comparison_pair(original, list(versions.values()))
         retained = selected if any(selected is p for p in original['comparisons']) else None
-        if selected and extensions.progress(selected['entry'], selected['outcome']) != 'pending':
-            valid = True
-            for phase, w in workspaces.items():
-                extensions._save_evidence(_source(c, number, phase, retained), w.work, selected[phase])
-                valid &= all(_load(w, row, selected[phase]['evidence']) is not None
-                             for row in selected[phase]['stages'] if row['status'] in ('pass', 'fail'))
-            if valid:
-                if (_configuration(c) != configuration or
-                        any(_versions(w) != versions for w in workspaces.values())):
-                    return 'pending'
-                return extensions.progress(selected['entry'], selected['outcome'])
-            if retained is not None:
-                # Never replace a scored reconstruction with a different result.
-                # An unverifiable retained score needs recovery, not another roll.
-                return 'pending'
         if selected:
             previous = selected
         elif original['comparisons']:

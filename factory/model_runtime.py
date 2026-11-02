@@ -38,6 +38,11 @@ INTERRUPTED_LOCK = threading.Lock()
 DISPATCH_INIT_LOCK = threading.Lock()
 
 
+def accounting_work(c):
+    """Comparison keeps scientific scratch separate from the owning ledger receipts."""
+    return getattr(c, 'accounting_work', c.work)
+
+
 def factory_job(c):
     return bool(getattr(getattr(c, 'args', None), 'batch_release_sha256', None) or hasattr(c, 'job_money'))
 
@@ -330,7 +335,7 @@ class ModelRuntime:
             if len(models) != 1: raise ValueError('Select one requested model per role')
             if factory_job(c):
                 from budget import reconcile_reservations
-                reconcile_reservations(c.work, c.ledger, exclude_leases=(lease.lease_id,) if lease else (),
+                reconcile_reservations(accounting_work(c), c.ledger, exclude_leases=(lease.lease_id,) if lease else (),
                                        exclude_calls=c.active_model_calls)
             requested, role = models[0], invocation_role(name)
             if hasattr(c, 'args'): case_budget_boundary(c, requested, lease_id=lease.lease_id if lease else None)
@@ -455,8 +460,8 @@ class ModelRuntime:
                         unidentified = max(0, sum(not e.get('id') and e.get('invocation') == name for e in after.get('events', []))
                             - sum(not e.get('id') and e.get('invocation') == name for e in before.get('events', [])))
                         receipt = 'usage-receipts/' + lease.lease_id + '.json'
-                        (c.work / 'usage-receipts').mkdir(exist_ok=True)
-                        atomic_json(c.work / receipt, {'lease_id': lease.lease_id, 'invocation': name,
+                        (accounting_work(c) / 'usage-receipts').mkdir(exist_ok=True)
+                        atomic_json(accounting_work(c) / receipt, {'lease_id': lease.lease_id, 'invocation': name,
                             **{k: getattr(lease, k) for k in model_router.MAXIMUM_FIELDS},
                             'cap_used': dict(context.model_cap_used),
                             'booked_event_ids': [e['id'] for e in events],
@@ -473,7 +478,7 @@ class ModelRuntime:
                         receipt_row.update(outcome=outcome, call_id=receipt)
                         if factory_job(c) and lease.lease_id in after.get('invocation_reservations', {}):
                             from budget import complete_invocation
-                            complete_invocation(c.work, c.ledger, lease.lease_id)
+                            complete_invocation(accounting_work(c), c.ledger, lease.lease_id)
                     receipt_row.update(outcome=outcome, call_id=receipt)
                     if cancelled and invoked and receipt:
                         with INTERRUPTED_LOCK:
@@ -525,7 +530,7 @@ class ModelRuntime:
                                        or (last_wait.reason == 'router_unavailable'
                                            and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1')
                                        or (factory_job(c) and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
-                                           and not _read_json(c.work / receipt, {}).get('final_usage_known', False)))
+                                           and not _read_json(accounting_work(c) / receipt, {}).get('final_usage_known', False)))
             context.force_budget_resume = c.force_budget_resume = True
             lease = None
 
