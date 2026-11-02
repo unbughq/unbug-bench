@@ -15,7 +15,7 @@ change. No workers or live/paid calls. Supports Murphy 9/13, closes none.
 
 Add optional writer_early=None to write_and_attack. Its two post-writer early_checks
 sites call (writer_early or early_checks)(c); dry-run skipping stays unchanged.
-The package supplies lambda c: records.writer_early(c). Keep its existing G1
+The package supplies records.writer_early. Keep its existing G1
 callback and public.capture context. Ordinary callers use exactly today's path.
 
 Add optional on_rejection=None to run.early_checks and GatePipeline.early_checks.
@@ -24,9 +24,11 @@ text, clear c.early as today, then call on_rejection(c, gate, info, problems) be
 returning that same list. This is AFTER gate_attempt.execute, outside its retry
 journal. Saving an observation therefore cannot retry a paid gate. For saved-cheat
 feedback, call on_rejection(c, 'saved-cheats', detail, problems), where detail is
-{'sample': 'retained_case_cheats', 'runs_each': 1,
+{'sample': 'retained_case_cheats',
  'summary': copy of c.card['early_gates'].get('saved_cheats')}; summary may be None
-when early_cheat_check returned a CaseProblem. The returned problems are the
+when early_cheat_check returned a CaseProblem. Immediately before calling
+saved_cheat_check, pop c.card.get('early_gates', {}).pop('saved_cheats', None),
+so a prior round's summary cannot be mistaken for this sample's result. The returned problems are the
 authoritative diagnostic in both cases. Exceptions never invoke the callback.
 No success callback and no pass observation are added.
 
@@ -41,7 +43,7 @@ result with writer_observation metadata described below; a pass refuses.
 
 If no record exists, take one inventory digest baseline and scientific-card
 projection before r.early_checks. Invoke r.early_checks(c, on_rejection=save_failure).
-The callback requires False-compatible info under comparison._pending and a
+The callback requires ok is False and not comparison._pending(ok, info), and a
 nonempty list of nonempty string problems. Pending-shaped info writes no record
 and leaves the existing tuple/feedback path unchanged. It checks case_hash is
 unchanged, then calls existing Records.save(stage, False, annotated_info, before,
@@ -78,7 +80,8 @@ or raises infrastructure, so normally it produces no rejection observation.
 
 Restore the verified record using Records.restore, clear c.early, and remove
 c.early_hash if present. Restore the original early_gates rejection marker:
-for gate stages set {'ok': False, 'minutes': 0}; for saved-cheats restore the
+for gate stages set {'ok': False, 'minutes': 0}, explicitly a replay marker
+with no new execution time; for saved-cheats restore the
 saved summary when non-None, otherwise remove that stale marker. Emit no new
 progress stage and make no money, setup, G15, checkpoint or model call. Return
 a deep copy of retained feedback. No pass is restored as a gate verdict. The
@@ -108,9 +111,9 @@ is a labelled control selecting that saved transport, never a live worker.
 
 Test fresh/completed/done writer capture, actual G5 diagnostic and byte retention,
 authored G15 rejection, and actual saved-cheat rejection with no G6 record/cache.
-Kill after save but before validated receipt: resume with every early evaluator,
+Kill after save but before validated receipt: resume with G1, every early evaluator,
 setup and checkpoint forbidden; feedback and record bytes match, writer once,
-history open/no stress. Kill before publication preserves ordinary retry/cache.
+history open/no stress, and the writer receipt stays byte-identical at completed. Kill before publication preserves ordinary retry/cache.
 Test recorded effective workers 1 with resume requesting 2 and no false drift or
 live args mutation. Missing/tampered/symlink support, stage version drift, case
 drift, multiple/pass-shaped records and metadata corruption refuse before work.
@@ -130,3 +133,41 @@ is a local copy only on rejection, no new model spend. Main risks are calling th
 sample G6 or replaying through paid earlier checks; explicit namespace and
 forbidden-call exams cover both. The remaining rejected-writer increment consumes
 these observations for terminal completion/progress; no such result is claimed here.
+
+
+## Round-1 binding fixes
+
+B2: package.run checks for a retained early rejection before entering write_and_attack,
+inside its existing incomplete-row/no-stress branch. Factor the early-record lookup
+and restoration above into Records.replay_writer_early(), called both here and at
+the start of writer_early. It returns None if no early record exists, otherwise
+returns the retained nonempty feedback after validation/restoration. Include G1
+in the conflict check: any G1 record alongside an early record refuses
+extension_snapshot_changed; a lone G1 remains owned by the existing G1 path.
+Before restoring a found early rejection, authenticate extensions.writer_receipt(c):
+it must be actor writer, phase completed or validated, repair_pending False,
+output_sha256 equal to current case_hash, and the same admitted operation/round
+(the existing writer_receipt validator checks the reservation and frozen fields).
+A failure here refuses extension_snapshot_changed; no receipt is rewritten.
+On a found rejection package.run raises extension_execution_pending immediately.
+It does not enter G1, early checks, stress, or the writer loop, and does not mark
+G1 pass. This is safe because the verified, unchanged-case rejection already
+prevents the single admitted round from advancing; this slice publishes no
+terminal score. In particular the after-publication crash retains a completed
+receipt, rather than fabricating a later validated/exhausted receipt. A normal
+fresh rejection still follows the ordinary validated/exhausted hold. The future
+terminal producer must accept these two authenticated publication windows.
+Version drift still holds: direct lookup gives extension_comparison_pending;
+package entry explicitly maps only that label to extension_execution_pending to
+preserve the package-visible hold. All other evidence refusals propagate.
+
+B1 exam: seed a stale saved_cheats summary with ok True, then let real
+saved_cheat_check return a CaseProblem. The retained summary is None and replay
+removes any stale saved_cheats marker. No contradictory pass is retained.
+
+M1 disposition: keep the worker count and copied-context validation. Although
+scientific_version removes the numeric bench_workers setting, dependency_files
+(gate_state.py:113) omits bin/factory_pool.py at one worker. G4/G5/G15/G6 depend on
+MEASURE, so their version still changes between one and multiple workers. The
+existing reduced-worker test must use real scientific_version, not a fixed mock.
+This slice deliberately does not alter normal versions or cache fingerprints.
