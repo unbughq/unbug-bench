@@ -30,7 +30,7 @@ from budget import BudgetError
 from token_prices import GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, claude_gate_maximum, openrouter_gate_maximum
 
 WAIT_SECONDS, RENEW_SECONDS, LEASE_SECONDS = 60, 60, 180
-SECRETS = Path('/dev/shm/secrets')
+from worker_secrets import SECRETS
 ACCOUNTS = ('claude-token', 'claude-factory-token-2', 'opencode-go-key',
             'opencode-go-key-2', 'codex-auth.json', 'openrouter-key')
 CHAINS = (
@@ -175,7 +175,7 @@ def _dollars(value):
     return format(Decimal(value) / 1_000_000_000, '.9f')
 
 
-class _NoCreditRedirect(urllib.request.HTTPRedirectHandler):
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs): return None
 
 
@@ -186,7 +186,7 @@ def available_credit():
     request = urllib.request.Request('https://openrouter.ai/api/v1/credits',
         headers={'Authorization': 'Bearer ' + token})
     try:
-        opener = urllib.request.build_opener(_NoCreditRedirect)
+        opener = urllib.request.build_opener(_NoRedirect)
         with opener.open(request, timeout=2) as response:
             raw = response.read(16385)
             if len(raw) > 16384: return None
@@ -482,23 +482,35 @@ class Store:
         return dict(settled=known)
 
 
-def _rpc(operation, data):
-    url, token = os.environ.get('FACTORY_ROUTER_URL', ''), os.environ.get('FACTORY_ROUTER_TOKEN', '')
+def router_request(url, token, operation, data, *, ca_file=None, ca_pem=None):
+    """Authenticated router-only TLS; never proxy or redirect bearer authority."""
     parsed = urlsplit(url)
     if not token or (parsed.scheme != 'https' and not (parsed.scheme == 'http' and parsed.hostname in ('localhost', '127.0.0.1', '::1'))):
         raise RouterUnavailable('router unconfigured')
-    request = urllib.request.Request(url.rstrip('/') + '/' + operation, json.dumps(data, allow_nan=False).encode(),
-                                     {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
     try:
-        with urllib.request.urlopen(request, timeout=5) as response:
-            result = json.loads(response.read(1024 * 1024))
-            if not isinstance(result, dict): raise ValueError('invalid router response')
+        context = ssl.create_default_context()
+        if ca_file or ca_pem: context.load_verify_locations(cafile=ca_file, cadata=ca_pem)
+        opener = urllib.request.build_opener(_NoRedirect, urllib.request.ProxyHandler({}),
+                                             urllib.request.HTTPSHandler(context=context))
+        request = urllib.request.Request(url.rstrip('/') + '/' + operation, json.dumps(data, allow_nan=False).encode(),
+                                         {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
+        with opener.open(request, timeout=5) as response:
+            raw = response.read(1024 * 1024 + 1)
+            if response.status != 200 or len(raw) > 1024 * 1024: raise ValueError()
+            result = json.loads(raw)
+            if not isinstance(result, dict): raise ValueError()
             return result
     except urllib.error.HTTPError as error:
         error.close()
         raise RouterUnavailable('router response unavailable') from None
     except (OSError, ValueError, urllib.error.URLError):
         raise RouterUnavailable('router response unavailable') from None
+
+
+def _rpc(operation, data):
+    return router_request(os.environ.get('FACTORY_ROUTER_URL', ''),
+                          os.environ.get('FACTORY_ROUTER_TOKEN', ''), operation, data,
+                          ca_file=os.environ.get('FACTORY_ROUTER_CA_FILE'))
 
 
 def metadata(case):

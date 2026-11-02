@@ -151,20 +151,28 @@ class HolderTests(unittest.TestCase):
     def test_ttl_stop_without_diagnosis_state_is_resumable(self):
         self.check_unexhausted_source('ttl_retired')
 
-    def test_dispatch_creator_intent_is_durable_and_never_repeated(self):
+    def check_dispatch_creator_intent(self, router_client):
         import key_holder
         import account_handoff
         op = self.reserve(); self.policy.update(code_sha256='fingerprint', path='/usr/bin:/bin', recipient='founder-public')
         calls = []
+        environment = dict(os.environ)
+        environment.pop('UNBUG_ROUTER_CLIENT_FILE', None)
+        if router_client is not None: environment['UNBUG_ROUTER_CLIENT_FILE'] = router_client
         def run(argv, **kwargs):
             data = (self.record['restore_recipient'].encode() if argv[0] == 'age-keygen' else
                     json.dumps(dict(sandboxes=[], pageInfo=dict(hasMore=False))).encode())
             return SimpleNamespace(stdout=data)
         def popen(argv, **kwargs):
             self.assertTrue(self.ops()[op['operation_id']]['dispatch_started'])
+            if router_client is None:
+                self.assertNotIn('UNBUG_ROUTER_CLIENT_FILE', kwargs['env'])
+            else:
+                self.assertEqual(kwargs['env']['UNBUG_ROUTER_CLIENT_FILE'], router_client)
             calls.append(argv)
             return SimpleNamespace(stdin=io.BytesIO(), wait=lambda: 0)
         with ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, environment, clear=True))
             stack.enter_context(patch.object(key_holder, 'fingerprint', return_value='fingerprint'))
             stack.enter_context(patch.object(key_holder, 'secret_labels', return_value={'claude-token'}))
             stack.enter_context(patch.object(account_handoff, 'launch_accounts', return_value=(None, 1, {})))
@@ -174,6 +182,12 @@ class HolderTests(unittest.TestCase):
             holder.dispatch(self.policy, self.root, self.home, op['operation_id'], b'authored test identity')
         self.assertEqual(len(calls), 1)
         self.assertNotIn(b'authored test identity', (self.directory / 'reservations.json').read_bytes())
+
+    def test_dispatch_creator_intent_is_durable_and_never_repeated(self):
+        self.check_dispatch_creator_intent(None)
+
+    def test_dispatch_forwards_router_client_path_when_set(self):
+        self.check_dispatch_creator_intent(str(self.home / 'public-router-client.json'))
 
     def test_gate_off_and_schema1_never_migrate(self):
         with patch.object(holder, 'HOLDER_ENABLED', False), self.assertRaises(ValueError): self.reserve()

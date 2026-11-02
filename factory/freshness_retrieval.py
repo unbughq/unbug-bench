@@ -97,17 +97,18 @@ def retrieve(rows, directory, *, archive=True, deadline=None, access=False):
     return receipts
 
 
-def load(directory, rows):
-    """Validate the runner receipt and every retained byte before judgment or reuse."""
+def load(directory, rows, *, check_age=True):
+    """Validate receipts and bytes; completed terminal proof may disable cache expiry."""
     directory = Path(directory)
     try:
         if directory.is_symlink(): raise ValueError()
         receipts = json.loads((directory / 'receipts.json').read_text())
         if not isinstance(receipts, list) or len(receipts) != len(rows): raise ValueError()
-        now = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.timezone.utc) if check_age else None
         for receipt, row in zip(receipts, rows):
             at = datetime.datetime.fromisoformat(receipt['at'])
-            if receipt['url'] != row['url'] or not at <= now < at + datetime.timedelta(hours=24): raise ValueError()
+            if receipt['url'] != row['url'] or at.tzinfo is None: raise ValueError()
+            if check_age and not at <= now < at + datetime.timedelta(hours=24): raise ValueError()
             if not receipt['responses']: raise ValueError()
             for response in receipt['responses']:
                 name = response['body']

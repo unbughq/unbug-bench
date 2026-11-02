@@ -27,7 +27,8 @@ COMPOSE = ["docker", "compose", "-f", str(BENCH / "projects/medusa/compose.yaml"
 PROMPTS = pathlib.Path(__file__).resolve().parent / "prompts"
 SEALED = HOME / "sealed"
 STATEMENTS = HOME / "statements"
-STATEMENTS_KEY = pathlib.Path("/dev/shm/secrets/statements-key")
+from worker_secrets import SECRETS
+STATEMENTS_KEY = SECRETS / "statements-key"
 STATEMENTS_RECIPIENT = PROMPTS.parent / "statements-recipient.txt"
 FOUNDER_RECIPIENT = "age13u0yesmknrnw9z2ff2nnmlk5lf8r2hutrt5mv0lh7nal8jfdkq4qewh0fy"
 GATES = ["G1", "G2", "G3", "G4", "G5", "G16", "G8", "G9", "G6", "G13", "G14", "G15", "G7", "G10", "G17", "G11"]  # cheap rejectors first
@@ -1081,6 +1082,8 @@ def loop_freshness(c, result, report):
         raise BudgetError('freshness_unresolved')
     previous = jload(c.work / 'scorecard.json', {})
     retained = (previous.get('loop_freshness') or {}).get('verdict_path') if getattr(c.args, 'resume', None) else None
+    recorder = getattr(c, 'extension_public_match_recorder', None)
+    if recorder is not None: recorder(c, rows, report)
     try:
         blocked = confirm_hits(c, rows, retained_path=retained)
     finally:

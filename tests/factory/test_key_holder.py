@@ -118,6 +118,7 @@ def main():
         shutil.copyfile(SOURCE.with_name('control_resume.py'), root/'factory/control_resume.py')
         shutil.copyfile(SOURCE.with_name('recovery.py'), root/'factory/recovery.py')
         shutil.copyfile(SOURCE.with_name('account_handoff.py'), root/'factory/account_handoff.py')
+        shutil.copyfile(SOURCE.with_name('worker_secrets.py'), root/'factory/worker_secrets.py')
         shutil.copyfile(SOURCE.with_name('launch_manifest.py'), root/'factory/launch_manifest.py')
         launcher = root/'factory/launch.sh'
         launcher.write_text('#!/bin/sh\nset -eu\nidentity=$(cat)\nprintf "%s" "$identity" | wc -c > proof.txt\nprintf "private fixture output\\n"\n')

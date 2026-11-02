@@ -1,0 +1,33 @@
+{
+  "evidence": "offline public synthetic transport; mutations applied only to copied release source",
+  "results": [
+    {
+      "mutation": "omit_pack",
+      "killed": true,
+      "failures": 1,
+      "errors": 0,
+      "seconds": 22.47
+    },
+    {
+      "mutation": "omit_pushed_token",
+      "killed": true,
+      "failures": 1,
+      "errors": 0,
+      "seconds": 17.13
+    },
+    {
+      "mutation": "omit_worker_export",
+      "killed": true,
+      "failures": 1,
+      "errors": 0,
+      "seconds": 96.2
+    },
+    {
+      "mutation": "omit_worker_ca",
+      "killed": true,
+      "failures": 1,
+      "errors": 0,
+      "seconds": 96.11
+    }
+  ]
+}
