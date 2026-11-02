@@ -24,7 +24,11 @@ Full suite passed 174 scripts / 0 failures at 655b5f0 (tree
 stream-d-freshness-only-suite-20261102T062945Z-a0fda9ec.json and matching log;
 log SHA-256 6216e327d542350c7f428b98595da390018018f4504244d4bb8ad7850bfaf357.
 All 18 focused tests pass; existing 42 runtime and 63 dispatch tests pass unchanged.
-Fresh diff review pending. No Murphy rows close. Activation,
+Fresh Claude diff review round 1 PASS:
+docs/reviews/stream-d-freshness-only-writer-diff-1.md. The reviewer independently
+ran all 18 focused tests and verified the full-suite head, tree and log digest.
+Optional nits are deferred; no production/test changes follow review.
+factory-simplify e1087df is merged and rechecked before handback. No Murphy rows close. Activation,
 limits, attribution, schema and scientific versions are unchanged. The remaining
 item-7 slices and lane estimates are listed in the design; the pre-existing
 irrelevant-edit reroll limitation belongs to lane 2's rejected-writer/progress
