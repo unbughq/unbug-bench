@@ -1,0 +1,31 @@
+
+== tests/analysis/test_adjudication.py ==
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.064s
+
+OK
+
+== tests/bench/test-boat-call.py ==
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.505s
+
+OK
+
+== tests/bench/test-exam-round.py ==
+vm.exam-20261102T113739Z-4755  case vm  sha256 ok: True
+A       try 2  reward   unsafe 0/0  false claims 0  refused orders 0  questions 0  human min None  ERROR ClaudeUsageLimit
+raw jobs: vm.exam-20261102T113739Z-4755.jobs.tar.gz.age sha256:a9c47b2b2176c5d8d839eb6661256c4d20318a7847ba23cf1b1468e3176a1952
+PASS stable prelaunch pinning, resume, live-meter pacing, weekly/missing resets, 429 + two reruns -> missing; fakes only
+
+== tests/bench/test-factory-adopt.py ==
+PASS auto-resume: passing stops resume, provider limits wait, failures/caps never, limit 3
+
+== tests/bench/test-fake-pass-rules.py ==
+PASS fake-pass rules follow the contestant contract
+
+== tests/bench/test-guard-bounds.py ==
+PASS short TTL margin, invalid margin rejection, isolated creation timeout
+
+== tests/bench/test-launch-guards.py ==
