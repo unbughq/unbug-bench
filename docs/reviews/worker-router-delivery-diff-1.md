@@ -139,3 +139,14 @@ commit-bound procedures. The report now states these limits explicitly. The six
 optional nits remain open too; none is rejected or claimed fixed. No Murphy row
 is closed and no live action is authorized by this review.
 
+
+## Parent-directed follow-up after acceptance
+
+The parent accepted 1a884a7 and requested a test-only M1 correction without
+re-review: assert batch_holder.dispatch's launcher environment with the router
+client path set and unset. Those assertions are added; production code is
+unchanged. The report distinguishes this dispatch-boundary coverage from the
+key_holder end-to-end exam. For M2 the parent declined mutation tooling and
+accepted explicit documentation when source provenance is unknown; the report
+states that these writer-recorded results are not reproducible. The original
+review above remains verbatim. No optional nit or Murphy row is claimed closed.

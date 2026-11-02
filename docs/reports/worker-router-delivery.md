@@ -8,8 +8,9 @@ plus this CA, without proxies or redirects. Model subprocesses do not inherit
 
 The parent approved the shared worker-secrets constant after design round 2;
 there was no round 3. Its default remains `/dev/shm/secrets`. The single override
-is for the offline exam and is not passed by production dispatch. Both holder
-launch paths pass the optional host client-file path; only that path is persisted.
+is for the offline exam and is not passed by production dispatch. The full-command exam covers key_holder.serve. Separate batch_holder.dispatch
+tests now assert that its launcher environment forwards the optional client-file
+path when set and omits it when unset; only that path is persisted.
 The host-only packer is excluded from the worker archive. The shared directory
 module enters both the host fingerprint and worker qualification inventory.
 
@@ -110,9 +111,10 @@ nits. Full text: ../reviews/worker-router-delivery-diff-1.md. The reviewer verif
 suite hashes/source trees and independently passed all three timing-failed
 scripts plus the new delivery and full-command integration tests.
 
-M1 remains open: both dispatch paths forward the optional client path in code,
-but the end-to-end exam exercises only key_holder.serve; practice
-batch_holder.dispatch forwarding has not been directly tested. M2 remains open:
+At review handback M1 remained open: the end-to-end exam exercised only
+key_holder.serve, and batch_holder.dispatch forwarding lacked a direct test.
+The parent-directed follow-up below addresses that gap. M2 remains a documented
+limitation:
 the mutation JSON files are writer records without a committed reproduction
 procedure or source binding, so they are not independently reproduced proof.
 The reviewer reasoned through their expected failures but did not reproduce
@@ -123,3 +125,31 @@ as the parent instructed handback on PASS. No rows close and no live work resume
 Future full suites use the parent's new shared lock command:
 `lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py`.
 The recorded runs predate that rule; single-file reruns remain unlocked.
+
+## Parent-directed M1/M2 follow-up
+
+M1 is covered by the existing real batch_holder.dispatch test, now run with the
+client-file variable both set and unset. Assertions inspect the environment
+passed to Popen, and retain the durable-intent and no-repeat checks. Production
+code already forwards the path correctly; no production change was needed.
+This does not turn the key_holder full-command exam into a practice end-to-end
+exam; it directly covers the practice dispatch environment boundary.
+
+For M2, the exact source_commit/source_tree of the earlier mutation executions
+is unknown: they ran against mutable copied source before the implementation
+commit. The results remain writer-recorded and not reproducible from a committed
+procedure. No commit/tree values are invented, and neither JSON is retroactively
+bound to the later implementation commit. Per parent decision, no mutation
+tooling is built.
+
+The parent requested only test_batch_holder.py and test_batch_launch.py for this
+follow-up, with no full suite and no re-review if production code is unchanged.
+The parent will run the quiet full suite at merge under the shared lock.
+
+Follow-up validation: with BENCH set to this worktree, both commands exited 0:
+`uv run --with numpy --with scipy python -B tests/factory/test_batch_holder.py`
+(60 tests, OK) and
+`uv run --with numpy --with scipy python -B tests/integration/test_batch_launch.py`
+(8 tests, OK; nested release qualifications also passed). No tests were skipped.
+Only the holder test and documentation changed. No full suite, re-review, live
+action or production-code change was performed in this follow-up.
