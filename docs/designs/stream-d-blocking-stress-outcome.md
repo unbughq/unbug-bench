@@ -210,3 +210,11 @@ claim the slice removes every stress hold; resolving that missing-metadata route
 is outside this slice. Mixed-report detail may still contain request lines even
 if a separate clearance exists: retaining the authenticated original on the
 real-defect path avoids inventing a rewritten scientific result.
+
+Implementation baseline update: parent published factory-simplify 02f3bc9 after
+a quiet 176/0 integrated suite, confirming the previous controller failures were
+host load. Merge 02f3bc9 into this branch before diff review. The merge is clean;
+its stress predicate is unchanged, while lane-2 freshness-only and B worker
+router delivery changes are inherited. Validate this slice on that merged tree.
+The earlier locked attempt on superseded source c1304cd was stopped and recorded
+as interrupted/no verdict, not as a full-suite failure or pass.
