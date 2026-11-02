@@ -440,7 +440,7 @@ def batch_tick(policy, children, waits, spawn):
     """One holder scan. A refused operation or file is logged by label and never stops the holder."""
     if 'batch' not in policy: return
     import batch_holder
-    if not batch_holder.HOLDER_ENABLED: return
+    if not batch_holder.active(policy, ROOT): return
     for operation, (action, child) in list(children.items()):
         code = child.poll()
         if code is None: continue
@@ -472,7 +472,10 @@ def batch_request(policy, req):
     """Gated batch reservation routes; None falls through to the legacy request paths."""
     if 'batch' not in policy or req.get('op') not in ('launch', 'operation') or 'batch' not in req: return None
     import batch_holder
-    if not batch_holder.HOLDER_ENABLED: return None
+    if not batch_holder.active(policy, ROOT):
+        import practice
+        if policy['batch']['id'] == practice.BATCH: raise ValueError('request_refused')
+        return None
     if req['batch'] != policy['batch']['id']: raise ValueError('request_refused')
     if set(req) == {'op', 'batch', 'job', 'checkpoint'} and req['op'] == 'launch':
         return batch_holder.reply(batch_holder.reserve(policy, ROOT, CONTROL_HOME, req['job'], req['checkpoint']))
@@ -489,7 +492,7 @@ def serve(policy_path, hours, identity_file=None):
     if 'batch' in policy:
         import batch_holder
         # The shell commands read $UNBUG_CONTROL_HOME/policy.json; only that file may drive batch work.
-        if batch_holder.HOLDER_ENABLED and policy_path != (CONTROL_HOME / 'policy.json').resolve():
+        if batch_holder.active(policy, ROOT) and policy_path != (CONTROL_HOME / 'policy.json').resolve():
             raise ValueError('batch policy must be the control home policy')
     secure_directory(RUNTIME)
     lock_fd = os.open(RUNTIME/'holder.lock', os.O_RDWR | os.O_CREAT | getattr(os, 'O_NOFOLLOW', 0), 0o600)

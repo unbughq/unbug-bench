@@ -54,52 +54,7 @@ PYCODE
 
 # Print IDs, or durably merge them before resolving known creation markers.
 guard_ids() {
-  python3 - "$state" "${1:-print}" <<'PYIDS'
-import json, os, pathlib, re, stat, sys, tempfile
-state, mode = pathlib.Path(sys.argv[1]), sys.argv[2]
-try:
-    ids = set((state / "ids").read_text().split())
-    known = []
-    for path in sorted(state.glob("new.*")):
-        if not re.fullmatch(r"new\.[0-9]+", path.name): continue
-        found = False
-        for line in path.read_text().splitlines():
-            try: event = json.loads(line)
-            except ValueError: continue
-            if not isinstance(event, dict): raise ValueError('invalid event')
-            worker = event.get("id")
-            if (event.get("event") == "created" and isinstance(worker, str) and
-                    re.fullmatch(r"[A-Za-z0-9_-]+", worker)):
-                ids.add(worker); found = True
-        if found: known.append(path)
-    text = "".join(worker + "\n" for worker in sorted(ids))
-    if mode == 'print':
-        print(text, end='')
-    else:
-        directory = os.open(state, os.O_RDONLY)
-        try:
-            # Identity must survive before its uncertainty marker can disappear.
-            for path in known:
-                with path.open('rb') as response: os.fsync(response.fileno())
-            with tempfile.NamedTemporaryFile(mode='w', dir=state, delete=False) as stream:
-                temporary = pathlib.Path(stream.name)
-                try:
-                    stream.write(text); stream.flush(); os.fsync(stream.fileno())
-                    temporary.replace(state / 'ids')
-                finally: temporary.unlink(missing_ok=True)
-            os.fsync(directory)
-            if mode == 'resolve':
-                for path in known:
-                    marker = path.with_name(path.name + '.pending')
-                    try: regular = stat.S_ISREG(marker.lstat().st_mode)
-                    except FileNotFoundError: continue
-                    if regular: marker.unlink()
-                os.fsync(directory)
-        finally: os.close(directory)
-except (OSError, ValueError):
-    print('creation evidence could not be persisted; ownership retained', file=sys.stderr)
-    sys.exit(1)
-PYIDS
+  python3 -B "$root/factory/boat_lifecycle.py" ids "$state" "${1:-print}"
 }
 
 guard_new() {
@@ -146,77 +101,7 @@ PY
 
 # Boat deletion is asynchronous: inventory absence is only an orphan check.
 guard_delete_receipt() {
-  python3 - "$root" "$spend_file" "$retire_id" "$state/ids" <<'PYDELETE'
-import datetime, json, math, os, pathlib, subprocess, sys, tempfile, time
-root, spend, worker = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
-try:
-    if worker not in pathlib.Path(sys.argv[4]).read_text().split():
-        raise ValueError('worker not owned by this launch')
-    timeout = float(os.environ.get('BOAT_DELETION_TIMEOUT_SECONDS', '60'))
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise ValueError('invalid deadline')
-    deadline = time.monotonic() + timeout
-    evidence = spend.with_suffix('.deletions') / worker
-    evidence.mkdir(parents=True, exist_ok=True)
-    def save(name, value):
-        with tempfile.NamedTemporaryFile(mode='w', dir=evidence, delete=False) as stream:
-            temporary = pathlib.Path(stream.name)
-            try:
-                json.dump(value, stream, indent=2)
-                stream.write('\n'); stream.flush(); os.fsync(stream.fileno())
-                temporary.replace(evidence / name)
-            finally:
-                temporary.unlink(missing_ok=True)
-    def query(*args):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0: raise TimeoutError()
-        # boat-call owns process-group cancellation; allow it to finish that cleanup
-        # (60 s ps probe plus two 2 s waits). boat-call may first check --version;
-        # both runs share its deadline, leaving a small interpreter-startup margin.
-        response = subprocess.run([str(root / 'bin/boat-call'), *args], capture_output=True,
-                                  text=True, timeout=remaining + 70,
-                                  env={**os.environ, 'BOAT_COMMAND_TIMEOUT_SECONDS': str(remaining)})
-        if response.returncode: raise ValueError('command failed')
-        return json.loads(response.stdout)['operation']
-    def identity(operation, operation_id):
-        if (not isinstance(operation, dict) or operation.get('id') != operation_id or
-                operation.get('targetId') != worker or operation.get('kind') != 'sandbox'):
-            raise ValueError('operation identity mismatch')
-        return {k: operation.get(k) for k in
-                ('id', 'targetId', 'kind', 'status', 'stage', 'completedAt')}
-    request = evidence / 'deletion-request.json'
-    if request.exists():
-        operation = json.loads(request.read_text())
-    else:
-        attempted = pathlib.Path(sys.argv[4]).parent / (worker + '.deletion-attempted')
-        if attempted.exists(): raise ValueError('uncertain deletion request; reconcile manually')
-        attempted.touch()
-        operation = query('delete', worker, '--yes', '--json')
-    operation_id = operation.get('id')
-    if not isinstance(operation_id, str) or not operation_id: raise ValueError('missing operation id')
-    operation = identity(operation, operation_id)
-    save('deletion-request.json', operation)
-    while True:
-        operation = identity(query('deletion', 'status', operation_id, '--json'), operation_id)
-        save('deletion-completion-query.json', operation)
-        if time.monotonic() >= deadline: raise TimeoutError()
-        if operation['status'] == 'completed':
-            if operation['stage'] != 'completed': raise ValueError('completion stage mismatch')
-            value = operation['completedAt']
-            if not isinstance(value, str) or not value: raise ValueError('missing completion timestamp')
-            if datetime.datetime.fromisoformat(value.replace('Z', '+00:00')).tzinfo is None:
-                raise ValueError('completion timestamp lacks timezone')
-            save('deletion-completion.json', operation)
-            break
-        if (operation['status'] not in ('pending', 'processing') or
-                operation['stage'] in ('failed', 'cancelled', 'canceled', 'completed') or
-                operation['completedAt'] is not None):
-            raise ValueError('failed or inconsistent operation')
-        time.sleep(min(2, max(0, deadline - time.monotonic())))
-except Exception:
-    print(f'{worker}: deletion receipt verification FAILED; manual reconciliation required', file=sys.stderr)
-    sys.exit(1)
-PYDELETE
+  python3 -B "$root/factory/boat_lifecycle.py" delete "$root" "$spend_file" "$retire_id" "$state/ids"
 }
 
 guard_retire() {

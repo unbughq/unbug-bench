@@ -1,0 +1,69 @@
+{
+  "launch_ready": false,
+  "live": [
+    {
+      "ceiling_usd": "0.000000000",
+      "id": "provider_cost_and_legacy_debt",
+      "status": "unproved"
+    },
+    {
+      "ceiling_usd": "0.000000000",
+      "id": "distinct_accounts_and_deployment",
+      "status": "unproved"
+    },
+    {
+      "ceiling_usd": "0.000000000",
+      "id": "armed_admission",
+      "status": "unproved"
+    },
+    {
+      "ceiling_usd": "5.000000000",
+      "id": "worker_and_verified_deletion",
+      "status": "unproved"
+    },
+    {
+      "ceiling_usd": "19.990000000",
+      "id": "account2_model_work_and_settlement",
+      "status": "unproved"
+    },
+    {
+      "ceiling_usd": "0.000000000",
+      "id": "publication_replay",
+      "status": "unproved"
+    }
+  ],
+  "offline": [
+    {
+      "id": "manifest",
+      "reason": "checked_offline",
+      "status": "pass"
+    },
+    {
+      "id": "roles",
+      "reason": "checked_offline",
+      "status": "pass"
+    },
+    {
+      "id": "activation",
+      "reason": "checked_offline",
+      "status": "pass"
+    },
+    {
+      "id": "cleanup",
+      "reason": "checked_offline",
+      "status": "pass"
+    },
+    {
+      "id": "fault",
+      "reason": "checked_offline",
+      "status": "pass"
+    },
+    {
+      "id": "pins",
+      "reason": "unpinned",
+      "status": "fail"
+    }
+  ],
+  "schema": 1,
+  "source_commit": "070a332e6ab87965b2b33f2e2e61a55053848927"
+}

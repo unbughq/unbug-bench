@@ -9,7 +9,8 @@ import json
 
 CHECKED_HELPERS = ('bin/qualified-release.py', 'tools/boat_readiness.py')
 HASH_FILE = 'factory/launcher-sha256.json'
-TRUSTED_FILES = ('factory/control_resume.py',
+TRUSTED_FILES = ('factory/practice.py', 'factory/practice_cleanup.py', 'factory/boat_lifecycle.py',
+ 'control/unbug-practice-cleanup@.service', 'factory/control_resume.py',
  'factory/key_holder.py',
  'factory/batch.py',
  'factory/batch_money.py',
@@ -97,7 +98,8 @@ WORKER_CONFIG = ('factory/invalid-runs-compat.json',
  'factory/statements-recipient.txt', 'factory/control-recipient.txt')
 WORKER_GLOBS = ('factory/*.py', 'factory/*.sh', 'factory/prompts/*.md', 'factory/batches/*.json')
 # Public tracked source only; never export sealed/, results/ or local credentials.
-BATCH_SOURCE = ('bin', 'cases', 'factory', 'guards', 'harbor', 'projects',
+BATCH_SOURCE = ('control/unbug-practice-cleanup@.service', 'tools/practice-fault.py',
+                'tools/qualify-batch-inputs.py', 'bin', 'cases', 'factory', 'guards', 'harbor', 'projects',
                 'scenarios', 'tests', 'CONTESTANT.md', 'SPEC.md', 'README.md')
 
 INHERITED_HELPERS = ('founder-run.py', 'start-in-terminal.sh', 'sync-to-vm.sh')
