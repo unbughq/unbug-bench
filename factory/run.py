@@ -1081,6 +1081,8 @@ def loop_freshness(c, result, report):
         raise BudgetError('freshness_unresolved')
     previous = jload(c.work / 'scorecard.json', {})
     retained = (previous.get('loop_freshness') or {}).get('verdict_path') if getattr(c.args, 'resume', None) else None
+    recorder = getattr(c, 'extension_public_match_recorder', None)
+    if recorder is not None: recorder(c, rows, report)
     try:
         blocked = confirm_hits(c, rows, retained_path=retained)
     finally:

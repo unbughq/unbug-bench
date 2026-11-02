@@ -56,24 +56,26 @@ def invalidate(c):
     (c.work / 'gate-continuation.json').unlink(missing_ok=True)
 
 
-def cleared_stress(c, attack, report, original):
-    """A freshness-only request may be cleared only by its completed independent review."""
-    from restore_ledger import read_object
-    from run import attack_report, checked_freshness_verdict, case_hash, freshness_only_clearance
+def freshness_proof(c, attack, report, proof):
+    """Validate completed independent freshness proof under explicit case/work roots."""
+    from diagnosis import _input_bytes
+    from run import checked_freshness_verdict, case_hash
     from admission import search_binding
     from types import SimpleNamespace
+    import extensions
     import re
-    path = report.with_suffix('.clearance.json')
-    proof = read_object(path)
+    read = lambda path: json.loads(_input_bytes(path, c.work))
     relative = proof.get('verdict_path')
     require(isinstance(relative, str) and re.fullmatch(r'g2-confirm-[0-9]+/verdict.json', relative),
-            'invalid stress freshness clearance path')
+            'invalid stress freshness proof path')
     verdict = c.work / relative
     receipt = proof['confirmation']
     binding = receipt['binding']
-    snapshot = SimpleNamespace(case=c.case,case_id=attack['binding']['case_id'],
-        models=binding['models'],admission_binding=binding.get('reservation'),freshness_confirmed_hits=0)
+    snapshot = SimpleNamespace(case=c.case, case_id=attack['binding']['case_id'],
+        models=binding['models'], admission_binding=binding.get('reservation'), freshness_confirmed_hits=0)
     rows = proof['rows']
+    completed, answer = read(verdict.parent / 'review-completed.json'), read(verdict)
+    extensions.tree(verdict.parent / 'retrieval')  # No symlinks or special files in retained HTTP evidence.
     from freshness_retrieval import load, digest as retrieval_digest
     try:
         snapshot.freshness_retrieval = load(verdict.parent / 'retrieval', rows)
@@ -81,19 +83,29 @@ def cleared_stress(c, attack, report, original):
                 'changed stress freshness retrieval')
     except RuntimeError as error:
         raise ValueError('missing stress freshness retrieval') from error
-    require(proof.get('source_sha256') == sha(report) and
+    require(proof.get('source_sha256') == hashlib.sha256(_input_bytes(report, c.work)).hexdigest() and
             receipt.get('verdict_path') == relative and
-            read_object(verdict.parent/'review-completed.json') == {'binding':binding, 'retrieval_sha256':receipt.get('retrieval_sha256')} and
-            read_object(verdict).get('hits') == receipt.get('hits') and
-            binding == {**search_binding(snapshot,rows),'confirmation_contract':2} and
-            rows and not checked_freshness_verdict(snapshot,rows,receipt.get('hits')) and
-            not snapshot.freshness_confirmed_hits and
-            proof.get('case_sha256') == case_hash(c), 'unverified stress freshness clearance')
-    resolved = report.with_name(report.stem+'-writer.json')
+            completed == {'binding': binding, 'retrieval_sha256': receipt.get('retrieval_sha256')} and
+            answer.get('hits') == receipt.get('hits') and
+            binding == {**search_binding(snapshot, rows), 'confirmation_contract': 2} and
+            rows and proof.get('case_sha256') == case_hash(c), 'unverified stress freshness proof')
+    blocked = checked_freshness_verdict(snapshot, rows, receipt.get('hits'))
+    return snapshot, blocked
+
+
+def cleared_stress(c, attack, report, original):
+    """A freshness-only request may be cleared only by its completed independent review."""
+    from diagnosis import _input_bytes
+    from run import attack_report, freshness_only_clearance
+    path = report.with_suffix('.clearance.json')
+    proof = json.loads(_input_bytes(path, c.work))
+    snapshot, blocked = freshness_proof(c, attack, report, proof)
+    require(not blocked and not snapshot.freshness_confirmed_hits, 'unverified stress freshness clearance')
+    resolved = report.with_name(report.stem + '-writer.json')
     parsed = attack_report(resolved)
     require(proof.get('resolved_sha256') == sha(resolved) and
             parsed == freshness_only_clearance(original), 'stress clearance changed findings')
-    return parsed, {'clearance_sha256':sha(path)}
+    return parsed, {'clearance_sha256': sha(path)}
 
 
 def stop_defect(c, gate):

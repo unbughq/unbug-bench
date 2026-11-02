@@ -224,3 +224,8 @@ through _save's new keyword. Completed run checks live full-tree hash equals
 row.outcome.case_sha256 before stop, as subsequent_entry does. Existing intent
 for the same report is never rewritten for different rows; preserve bytes and
 refuse on mismatch when capture/completion validates it.
+
+Intent also records original c.models as models: attack.binding.models contains
+only the stress chain, whereas search_binding uses the full model map. Require
+confirmation.binding.models == intent.models so current model drift cannot
+relabel the old reviewer family or let a stale confirmation match new inputs.
