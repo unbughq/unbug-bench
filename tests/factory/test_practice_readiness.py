@@ -195,6 +195,8 @@ class PracticeTests(unittest.TestCase):
         response = subprocess.CompletedProcess([], 0, 'ActiveState=active\nSubState=running\nExecMainPID=42\n')
         with patch.object(practice, 'active', return_value=True), patch.object(practice, 'admission'), patch.dict(os.environ, UNBUG_CLOUD='boat'), patch.object(cleanup, 'digest', return_value='a' * 64), patch.object(cleanup.subprocess, 'run', return_value=response):
             cleanup.armed(self.policy, self.root, self.home, op)
+            changed = deepcopy(self.policy); changed['code_sha256'] = 'different release'
+            with self.assertRaises(money.MoneyWait): cleanup.armed(changed, self.root, self.home, op)
             for field, value in [('pid', 43), ('launch_id', 'b' * 32), ('timing', dict(practice.TIMING, grace_seconds=1800)), ('policy_sha256', 'b' * 64)]:
                 marker = cleanup.ready(self.policy, op, 42); marker[field] = value
                 service.atomic_json(target, marker)
@@ -218,11 +220,14 @@ class PracticeTests(unittest.TestCase):
         # verification is covered by the existing real commit-built release exam.
         bundle = self.root / 'bundle'; (bundle / 'release').mkdir(parents=True)
         for name in preflight.files():
+            (bundle / name).parent.mkdir(parents=True, exist_ok=True)
             (bundle / name).write_text('{}')
         sha = service.digest(bundle / 'release/batch-release.json')
         batch.save(bundle / 'policy.json', preflight.policy(ROOT, sha))
         (bundle / cleanup.UNIT).write_bytes((ROOT / 'control' / cleanup.UNIT).read_bytes())
         (bundle / 'practice.conf').write_text(preflight.DROPIN)
+        for name in ('tools/practice-fault.py', 'tools/qualify-batch-inputs.py'):
+            (bundle / name).write_bytes((ROOT / name).read_bytes())
         batch.save(bundle / 'release/batch-release.json', dict(commit=preflight.git(ROOT, 'rev-parse', 'HEAD')))
         sha = service.digest(bundle / 'release/batch-release.json')
         batch.save(bundle / 'policy.json', preflight.policy(ROOT, sha))

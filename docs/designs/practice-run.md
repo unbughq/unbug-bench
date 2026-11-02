@@ -1,51 +1,35 @@
-# $25 plumbing practice — no live action in this increment
+# $25 plumbing practice — stop before live action
 
-Objective: prove one disposable worker can run, publish its output and be deleted
-without the Mac, within $25. Success needs real account2 usage, consistent
-publication records and completed deletion; an abort is never a pass.
+Prove one fresh worker can publish and be deleted without the Mac. Success needs
+real account-2 usage, publication records and verified deletion. An abort is not
+a pass. One worker, concurrency one; diagnosis, replacement and helper comparison
+off. Empty-input authentication establishes prior spend $0; case authority $19.99.
+Item 8, queued-child creation and multi-worker carry remain separate work and pins.
 
-One fresh case, one worker, concurrency one, 60-minute provider TTL. Diagnosis,
-replacement and helper comparison stay off. Item 8 is a separate run and pin.
-No historic case is imported: authenticated empty-input admission establishes
-prior spend S=$0, new case allocation E=$19.99. Reserve $0.01 unused; no separate probe or invented cent-level
-profile. Attribute account 2 using an ordinary strong-calibrator call inside E.
-The case may stop at its bound without sealing; that is not scientific acceptance.
+**Timing: parent-approved after round 2.** Normal collection starts at worker
+start + 30 minutes. Watchdog deletion is start + 30-minute run cap + 15-minute
+collection grace, strictly before the 60-minute provider TTL. Never use reservation
+time or extend the deadline on restart. Refuse incompatible timings at admission.
 
-## Steps, evidence and incremental ceilings
-| Step | Exact action / evidence | Ceiling |
+| Step | Action and required evidence | Incremental ceiling |
 |---|---|---|
-| 0. Pin offline | After readiness is merged and reviewed, `python3 -B tools/pin-practice.py --output /ABS/NEW-DIRECTORY`. It requires clean HEAD=factory-simplify, builds with batch.build, verifies, and emits exact host/worker/policy/manifest/route hashes. Do not wait for lane 2. | $0 |
-| 1. Live entry checks | On the control VM verify those hashes and complete inventory. Resolve legacy launch b275ffccd6134a33833853ad1d31ed16 provider debt with non-creation proof or linked deletion and charges; empty fleet is insufficient. Obtain a provider bound covering multiplicity, delayed stop/deletion, storage/egress/proxy and all incremental costs <=$5. If unavailable, abort before creation; the experiment cannot manufacture that guarantee. | $0 |
-| 2. Account/deployment | Provision through existing secret delivery only. Privately authenticate account 1 and account 2 and compare provider account identities, not token bytes. Record only `distinct_accounts:true`, labels, UTC and operator confirmation. Account 2 must match claude-factory-token-2, not exam claude-token-2. Drain old paid clients, install router before clients, verify common SQLite ledger and credit-reader schema, and verify R2 access. Router key-in-RAM deployment needs the existing founder acknowledgement. | $0 |
-| 3. Arm and admit | Install generated policy through normal deployment. Explicitly enable only the release/hash-authenticated practice manifest. Run qualify-batch-inputs for the empty input. Reserve once; before dispatch the control VM's independent cleanup service must be active and bound to the operation/deadline. Record operation/launch/reservation IDs and timer evidence. | $0 |
-| 4. Worker lifecycle | One holder launch through the existing key-holder interface; no checkpoint. Provider creation/worker ID and timestamps bind to that operation. Set provider TTL 60 min; normal collection at worker start+30 min, watchdog deletion at start+45 min (30-minute run cap + 15-minute collection grace), strictly before start+60 min TTL, never extended. Keep the Mac disconnected. Restart the holder once; the same operation and worker must remain. | $5 shared infrastructure envelope, including step 6 |
-| 5. Bounded model work | Use fresh explicit roles: writer MiniMax M3.1 Flash ($0.690001/invocation), stress DeepSeek V4.1 Flash ($1.174406120), reviewer MiMo V2.6 Pro (exact route_maximum in pins), strong calibrator Claude Opus4.5 compact ($3), easy calibrator MiniMax. No Codex route is selected because its enforced maximum is absent. Claude starts account2; account1 is eligible only on genuine current account2 rate exhaustion. Capture lease/invocation IDs, worker UTC window, ordinary receipts and private account2 usage correlation with builder traffic excluded. OpenRouter uses the one shared ceiling min($11.63, observed credit), never a new per-run allowance or top-up. Natural 2→1→2 absent is unexercised, never forced. | $19.99 total list-equivalent, including paid calls, waste and unknown holds; not per invocation |
-| 6. Publication/delete | Arm `python3 -B tools/practice-fault.py --policy POLICY --operation OPERATION` once before collection; it fails the first publication before transport/ACK, then normal holder replay proceeds. No fake verdict/receipt. Normal collect-before-delete first; at deadline the independent practice-only watchdog deletes positively bound disposable workers even if collection failed. Preserve failed-collection evidence. Require deletion request ID, targetId, kind=sandbox, status/stage=completed, timezone-aware completedAt, and complete hasMore=false inventory with the exact ID absent. Run the normal holder reconcile scan; retain immutable generation, ACK/pointer and money or an explicit failed-publication result. | Included in step 4's $5; no second worker |
-| 7. Close | Disable practice admission; stop the cleanup unit only after verified completion or a terminal operation that never dispatched. Record settlement or retained unknown holds, final deployment hashes and public account/deletion evidence. No reservation reset or second Boat admission; unknown infrastructure remains held. | $0 |
+| 0. Pin offline | After this reviewed change merges, run `python3 -B tools/pin-practice.py --output /ABS/NEW`. Clean HEAD must equal available factory-simplify. Verify generated hashes; do not wait for lane 2. | $0 |
+| 1. Live entry | Resolve b275ffccd6134a33833853ad1d31ed16 debt: provider non-creation proof, or linked worker, completed deletion and charges. Empty inventory is insufficient. Obtain a provider bound covering multiplicity, delayed creation/deletion, storage, egress, proxy and all incremental infrastructure costs ≤$5. Missing proof means abort before deployment or creation. | $0 |
+| 2. Accounts/deploy | Privately authenticate accounts 1 and 2 as distinct provider identities, not different token bytes. Account 2 is `claude-factory-token-2`, never exam `claude-token-2`. Record only labels, UTC, `distinct_accounts:true` and operator confirmation. Install pinned code/policy, host tools and cleanup unit (also its source copy under control/), plus the generated holder drop-in. Drain old paid clients; install router before clients. Verify common ledger, credit-reader schema, R2 access, hashes and existing founder acknowledgement for router keys in RAM. | $0 |
+| 3. Admit/arm | Run `tools/qualify-batch-inputs.py --policy POLICY --home CONTROL_HOME --job practice`. Enable only the hash-authenticated practice policy. Reserve once through the existing key-holder interface. Start `unbug-practice-cleanup@OP.service`; record active PID, readiness binding and operation/launch/reservation IDs before dispatch. | $0 |
+| 4. Worker | Record creation ID, worker-start timestamp and 60-minute TTL. Disconnect the Mac; restart the holder once. Require the same operation and worker. No relaunch or second worker. | $5, shared with deletion |
+| 5. Model work | Use all five explicit roles in the pinned manifest: MiniMax writer/easy calibrator, DeepSeek stress, MiMo reviewer, Claude Opus4.5 compact strong calibrator. Every route has a pinned maximum; no unbounded Codex route. Start Claude account 2; account 1 only on genuine current exhaustion. Correlate lease/invocation IDs and UTC receipts with private account-2 usage, excluding builder traffic. Natural 2→1→2 absent means unexercised. OpenRouter stays within the existing shared min($11.63, observed credit), with no top-up. | $19.99 total list-equivalent, including waste and unknown holds |
+| 6. Publish/delete | Once before collection, arm `python3 -B tools/practice-fault.py --policy POLICY --operation OP`. First publication fails before transport/ACK; ordinary replay must publish the same generation. Normal collection precedes deletion; the independent watchdog still deletes positively owned disposable workers at its deadline if collection fails. Require deletion request ID, exact target, kind=sandbox, completed status/stage, timezone-aware completion time, and full hasMore=false inventory proving absence. Run holder reconcile; retain generation, ACK/pointer and money records, or explicit failure. | Included in $5 |
+| 7. Close | Disable practice admission. Stop cleanup only after verified completion or terminal non-dispatch. Retain settlement or unknown holds; never reset the infrastructure ledger. | $0 |
 
-Total reserved: $19.99 model + $0.01 unused + $5 infrastructure = $25.
-Subscription list-equivalent charges count toward $19.99; no subscription purchase.
-No step authorizes new spend beyond the total. Missing/uncertain charges retain
-holds. No additional worker, relaunch or replacement is authorized in this run.
+Total reserved: **$19.99 model + $0.01 unused + $5 infrastructure = $25**.
+There is no separate probe, subscription purchase or additional allowance.
 
-## Abort rules
-Before creation abort on stale pins, unqualified/duplicate accounts, missing
-account2, unresolved legacy debt, absent provider cost/multiplicity bound, failed
-cleanup arming, stale/depleted shared paid ledger, failed empty-input proof or
-missing required deployment acknowledgement. These are live entry checks, not
-successful-run evidence. If a provider cannot supply the bound, return the
-specific contract gap to the parent; do not increase $5 or call it qualified.
-After creation stop model admission on cap/refusal, unknown settlement, duplicate
+Abort before creation for stale pins, unqualified/duplicate accounts, missing
+account 2, unresolved debt, absent provider bound, failed cleanup arming, stale or
+depleted paid ledger, failed empty-input proof or missing deployment acknowledgement.
+After creation, stop model admission on cap/refusal, unknown settlement, duplicate
 creation, lost ownership, late output after cancellation, failed publication,
-identity mismatch or deadline. Keep cleanup active until verified deletion.
-Unknown creation/deletion means no retry/new worker; reconcile the same IDs.
-Never call a failed/unexercised scientific or account-fallback check a pass.
-
-Entry checks in step1 are the likely $0 abort: neither the old launch debt nor
-the exceptional provider bound is established. Run them before deployment changes.
-Queued-child creation, helper comparison and multi-worker carry-over remain
-separate item8 work; this plumbing run does not claim to qualify them.
-
-Timing decision: **parent-approved after round 2**. Derive deletion from worker
-start plus run cap plus collection grace, never reservation time. Refuse admission
-if normal collection < watchdog deletion < provider TTL cannot hold.
+identity mismatch or deadline. Keep cleanup until verified deletion; unknown
+creation/deletion permits reconciliation only, never another worker or fake proof.
+The likely first result is a $0 abort: provider bounds and old debt remain unproved.

@@ -153,4 +153,6 @@ if __name__ == '__main__':
             delete_receipt(*sys.argv[2:6], timeout=float(os.environ.get('BOAT_DELETION_TIMEOUT_SECONDS', '60')))
         else: raise ValueError()
     except Exception:
-        sys.exit('lifecycle evidence unavailable; ownership retained; manual reconciliation required')
+        if len(sys.argv) > 1 and sys.argv[1] == 'ids':
+            sys.exit('creation evidence could not be persisted; ownership retained')
+        sys.exit('deletion receipt verification FAILED; manual reconciliation required')

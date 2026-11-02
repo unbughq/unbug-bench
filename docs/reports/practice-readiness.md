@@ -37,3 +37,15 @@ systemd/provider transports and pin containers are explicit doubles. Existing
 isolation and holder tests pass; thirteen new contracts pass, including timing,
 wrong ready PID/hash/launch, fault replay, unknown deletion holds, and stale pins.
 Full-suite record and a fresh diff review follow.
+
+First full suite: a61b705, 172 scripts, 9 failed. The unique source-bound JSON
+and compressed log are retained (20261102T015856Z-68d9ba0b). Fixes restore
+guard diagnostic labels, supply the extracted helper to staged layouts, retain
+the historical observation grammar and update the explicit worker-file inventory.
+The integration test also caught a real worker archive ownership mismatch: host
+control/tools files now travel separately in the pin bundle, not as new worker
+source roots. Watcher readiness now hashes the complete policy, with a regression
+for changed code under an unchanged manifest. No provider calls were involved.
+The real commit-built pin artifact smoke test passed at a61b705 with only the
+merged-head identity check substituted for this unmerged branch; it was temporary
+and removed, never production pins. The CLI guard itself is tested for rejection.

@@ -145,7 +145,7 @@ monitor before creation is expected. Resolve IDs through the shared helper.
 
 The watcher publishes atomic batches/<batch>/cleanup/<operation>.ready.json with
 exact keys schema:1, operation_id, launch_id, timing (run_seconds, grace_seconds,
-ttl_seconds), policy_sha256, pid. This avoids precreating the launch directory
+ttl_seconds), policy_sha256 (key_holder.policy_digest of the entire policy), pid. This avoids precreating the launch directory
 owned exclusively by control_resume. Status lives beside readiness.
 It then polls every 5 seconds. No delete before deadline; at deadline call the
 shared deletion function for every positively bound ID, independently of collection.
@@ -222,8 +222,8 @@ preflight.json, and pins.json with exact keys schema:1, source_commit, source_tr
 batch_id, deadline, launch_ready:false, manifest_sha256, trusted_code_sha256,
 batch_release_sha256, files:{relative_path:SHA256}, routes:{role:{route,max_usd,
 max_input_tokens,max_output_tokens,price_source}}, cleanup_unit_sha256,
-activation_dropin_sha256. files covers six release files, policy and generated
-unit/drop-in bytes; route fields come from route_maximum. Re-run preflight using
+activation_dropin_sha256. files covers six release files, policy, generated
+unit/drop-in bytes and the two host tools (practice-fault.py and qualify-batch-inputs.py); route fields come from route_maximum. Re-run preflight using
 the bundle, verify all hashes and non-null maxima. Output path must not exist;
 failed partial output is retained marked incomplete, never reused as valid pins.
 Cut against available reviewed/merged head, independent of lane2; item8 pins later.
@@ -262,3 +262,12 @@ The generated holder drop-in also sets UNBUG_CLOUD=boat. Tests are in
 tests/factory/test_practice_readiness.py; role resolution and temporal ordering
 are real pure-code exams; systemd/cloud responses and pin containers are authored
 contract fixtures. Existing isolation/launch tests cover shared deletion behavior.
+
+Packaging correction from the full suite: keep control/ and tools/ out of the
+worker archive so qualified-release retains its existing owned-root boundary.
+The pin bundle carries the cleanup unit and two host tools separately. Live
+deployment installs the unit both in /etc/systemd/system and the pinned source
+location under root/control, and the tools under root/tools. All are hashed.
+Staged test layouts include the extracted lifecycle helper. Frozen October VM
+evidence is validated against its historical environment labels; no evidence is
+rewritten to claim that the new activation label was observed then.

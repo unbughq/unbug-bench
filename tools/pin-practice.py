@@ -24,6 +24,9 @@ def build(root, output):
     batch.save(output / "policy.json", preflight.policy(root, sha))
     (output / preflight.practice_cleanup.UNIT).write_bytes((root / "control" / preflight.practice_cleanup.UNIT).read_bytes())
     (output / "practice.conf").write_text(preflight.DROPIN)
+    (output / "tools").mkdir()
+    for name in ("tools/practice-fault.py", "tools/qualify-batch-inputs.py"):
+        (output / name).write_bytes((root / name).read_bytes())
     batch.save(output / "pins.json", preflight.pins(root, output))
     incomplete.unlink()
     try:

@@ -23,8 +23,9 @@ def location(home, op):
 
 
 def ready(policy, op, pid):
+    from key_holder import policy_digest
     return dict(schema=1, operation_id=op["operation_id"], launch_id=op["launch_id"],
-                timing=practice.TIMING, policy_sha256=policy["batch"]["manifest_sha256"], pid=pid)
+                timing=practice.TIMING, policy_sha256=policy_digest(policy), pid=pid)
 
 
 def armed(policy, root, home, op):
@@ -83,6 +84,7 @@ def step(policy, root, home, op, now=None):
                 raise ValueError("start unknown")
             _, deadline, _ = practice.deadlines(int(raw))
             deadlines.append(deadline)
+            result["deadline"] = min(deadlines)
             try: holder._retirement(root, path, worker)
             except (OSError, ValueError, KeyError, TypeError):
                 if now >= deadline:

@@ -53,7 +53,7 @@ def policy(root, release_sha):
 
 def files():
     return ["release/" + n for n in (*batch.INPUTS, "deploy.py", "batch-release.json")] + [
-        "policy.json", practice_cleanup.UNIT, "practice.conf"]
+        "policy.json", practice_cleanup.UNIT, "practice.conf", "tools/practice-fault.py", "tools/qualify-batch-inputs.py"]
 
 
 def pins(root, bundle):
@@ -75,6 +75,8 @@ def verify_bundle(root, bundle):
     if json.loads((bundle / "policy.json").read_text()) != policy(root, saved["batch_release_sha256"]): raise ValueError("policy stale")
     if (bundle / practice_cleanup.UNIT).read_bytes() != (root / "control" / practice_cleanup.UNIT).read_bytes(): raise ValueError()
     if (bundle / "practice.conf").read_text() != DROPIN: raise ValueError()
+    for name in ("tools/practice-fault.py", "tools/qualify-batch-inputs.py"):
+        if (bundle / name).read_bytes() != (root / name).read_bytes(): raise ValueError()
 
 
 def check(root, bundle=None):
