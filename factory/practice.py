@@ -5,10 +5,10 @@ from pathlib import Path
 import batch_money as money
 from registry import atomic_json
 
-BATCH = 'b-plumbing-practice'
+BATCH = 'b-plumbing-practice-2'
 TIMING = dict(run_seconds=1800, grace_seconds=900, ttl_seconds=3600)
 EXPECTED = {'schema': 1,
- 'id': 'b-plumbing-practice',
+ 'id': 'b-plumbing-practice-2',
  'batch_deadline': '2026-11-07T00:00:00Z',
  'money_limit_usd': '19.990000000',
  'max_concurrency': 1,
@@ -19,7 +19,7 @@ EXPECTED = {'schema': 1,
                         'jobs': {'practice': {'baseline_usd': '0.000000000',
                                               'incremental_usd': '19.990000000'}}},
  'jobs': {'practice': {'mode': 'batch',
-                       'case': 'case-b-plumbing-practice-practice',
+                       'case': 'case-b-plumbing-practice-2-practice',
                        'requested_total_usd': '19.990000000',
                        'claude_accounts': [2, 1],
                        'initial_accounts': {'claude': 2},
