@@ -5,6 +5,8 @@
 A completed stress call that finds a real defect must finish its extension as a
 failure even when other checks remain unfinished. Interrupted work must never
 become a case result. This removes a human stop without buying more work.
+When the stress reviewer has finished a call and found a real defect, record a
+failure and send it to diagnosis instead of waiting forever.
 
 Lane 1 slice 2 of the remaining-item-7 table in
 stream-d-freshness-only-writer.md. Baseline: accepted public-match 8b36a26 on
@@ -42,13 +44,27 @@ but is not an approved implementation spec; this document owns only this slice.
 Keep Records.load/completed replay first and the existing actor, validated phase,
 round/round-limit, report hash, review-attempt, binding and scientific-identity
 checks. Add review_pending is False to the existing receipt refusal condition;
-pending/inconsistent review state cannot authorize a score. Keep the existing
-freshness clearance branch before deciding whether blocking findings remain.
+pending/inconsistent review state cannot authorize a score.
 
-After attack_report/classify and any authenticated clearance, calculate once:
-findings = [item for item in result['blocking']
+Immediately after attack_report/classify, calculate once:
+findings = [item for item in r.freshness_only_clearance(result)['blocking']
             if item.strip().lower() != 'review incomplete'].
-This is exactly the existing writer/evaluator distinction, not a new classifier.
+Reuse the existing exact request-line projection, not a new text classifier.
+Run the existing freshness clearance branch ONLY if findings is empty and the
+report has freshness_review or freshness_review_malformed. In that branch its
+existing missing/invalid proof still refuses extension_execution_pending.
+No recomputation of findings is needed: cleared_stress requires its returned
+report to equal freshness_only_clearance(original), so it cannot add a defect
+absent from the initial projection. It can only remove the exact request lines.
+
+When findings is nonempty, skip clearance and retain the original report,
+unrewritten, as failure detail. This covers a real defect with an excluded URL
+request but no exact request-line blocker: loop_freshness returns the original
+report and writes no clearance in that case. The independent defect survives
+any permitted clearance, so no freshness result can turn it into a pass. Do not
+change loop_freshness or catch its public_match/unresolved exceptions: the normal
+package route still propagates them before it reaches this producer. This is not
+lane 2's freshness-only continuation route.
 attack_report already moves explicit legacy 'validation unfinished:' labels to
 unfinished_validation. Other case-defect prose stays blocking; do not infer an
 operational failure from its wording. A model's status='scored' grants nothing.
@@ -57,8 +73,9 @@ Delete the unconditional unfinished-work refusal. Refuse
 extension_execution_pending only when findings is empty AND any of these holds:
 not result.complete; nonempty result.blocking (the incomplete-review sentinel);
 nonempty result.unfinished_validation; attack_diagnostic_unfinished(c, round).
-Set ok = not findings. The extra result.blocking condition preserves the ordinary
-writer loop's refusal of 'review incomplete' alone, even if complete was asserted.
+Set ok = not findings. The extra result.blocking condition also keeps exact
+request-only blockers without verified clearance and 'review incomplete' alone
+pending, even if complete was asserted.
 
 Keep BOTH downstream guards unchanged: a pass still needs
 next_phase='extension_comparison'; a failure still needs receipt.exhausted=True
@@ -75,7 +92,8 @@ No completed-phase-only fallback, new allowance or direct history writer.
 | Review pending, missing/mismatched completed marker or report hash | extension_execution_pending; no outcome |
 | Scientific binding differs | Existing extension_comparison_pending |
 | Malformed parsed report or missing exhaustion proof for a failure | Existing snapshot refusal; no outcome |
-| Unresolved freshness, provider/money/cancel stop, InvalidInfra/explicit invalid execution detail | Existing refusal/exception; no scored outcome |
+| Unresolved/unverified freshness when clearance could decide the verdict | Existing extension_execution_pending; no scored outcome |
+| Provider/money/cancel stop, raised freshness stop or InvalidInfra/explicit invalid execution detail | Existing refusal/exception; no scored outcome |
 
 ## Retention, replay and accounting
 
@@ -110,6 +128,14 @@ barrier, pending_call, receipts, package and snapshot/accountant paths. Author
 only external CLI answers and the remote checkpoint acknowledgement, labelled as
 controls; do not call these captured real stress findings.
 
+Keep ExecutionTests' authored G1/early_checks controls and its forbidden
+statement_precheck/early_review/reselect_candidate/validate_and_repair patches.
+Keep its loop_freshness no-op ONLY for non-freshness cases, explicitly labelled.
+For the freshness cases capture REAL_LOOP_FRESHNESS before fixture setup and
+restore it afterward; only confirm_hits is an authored exclusion/unresolved
+control (zero confirmed hits plus blocked [] or supplied rows, respectively).
+No real HTTP/reviewer call or invented retrieval proof is used in this slice.
+
 Positive midterm: one real admitted writer changes the saved case; one category
 CLI completes with a concrete authored blocker, incomplete category/subchecks
 and unfinished_validation. During that completed call create the ordinary
@@ -125,7 +151,22 @@ open and propagate the original stop. Also cover InfrastructureExhausted,
 provider/money refusal, pending review/missing or mismatched completion, malformed
 report, no exhaustion proof, unresolved freshness, explicit invalid-infra result,
 status=scored without actual findings, sentinel-only and legacy unfinished labels.
+Positive freshness boundary: the real loop_freshness consumes a nonempty URL
+request on a real completed-category defect report with NO exact request-only
+blocker; confirm_hits returns an explicitly authored exclusion. Assert no
+.clearance.json or -writer.json is created, the original report remains intact,
+and the package still commits stress fail. This is B1's actual production path.
+Negative producer boundary: a request-only blocker/nonempty freshness_review
+with no clearance file must still raise extension_execution_pending and leave
+history open; call package.stress directly with its authenticated receipt so
+this exact boundary is exercised. Raised freshness_unresolved through package.run
+must continue propagating without an outcome. For legacy validation-unfinished
+labels, assert the real category engine invoked completed() and the receipt has
+a completion marker, while the parsed report has no defect and history stays
+open: a raw status='scored' cannot authorize a package result.
 Existing genuine clean-pass/gate-traversal and public-match tests remain green.
+Reuse existing execution/runtime infrastructure/provider/money regression files
+rather than duplicating entire test classes in the new file.
 
 Final exam: two completed replays with writer/stress/gates forbidden, no ledger or
 extension-count change; kill after retained stress record and after outcome
