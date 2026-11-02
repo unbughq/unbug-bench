@@ -65,3 +65,13 @@ are in practice-readiness-suite-20261102T024431Z-8ee060ec.json; its .log.gz is
 committed beside it. This supersedes the failed first run as implementation
 validation. The full launch-guard scenarios also passed separately (450 seconds,
 no real Boat calls). No code or test changed after the passing suite source commit.
+
+Fresh Claude diff review round 1: PASS, no blockers; saved verbatim in
+../reviews/practice-readiness-diff-1.md. Per the parent instruction to hand back
+as soon as review passes, this increment stops without another implementation
+or review round. One non-blocking major remains open (M1): an exception from the
+practice activation check in batch_tick can stop the key-holder loop and lose
+its in-memory identity. The reviewer recommends catching it and testing the
+refusal. This is an OFFLINE issue, not a live-only deferral; it is handed back
+explicitly, not rejected or claimed fixed. Seven optional nits remain recorded.
+No source/tests changed after the passing suite, and no Murphy rows closed.
