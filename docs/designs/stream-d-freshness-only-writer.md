@@ -84,8 +84,9 @@ records.capture(c, 'G2', lambda: run.g2(c)). The authored fetch returns the save
 HTTP body at the requested URL; the authored reviewer answer resolves that exact
 new URL as excluded (same_bug False). Use the existing fixture's old rows as
 non-hit baseline controls, and assert flagged_hits == 1. Assert the new URL appears
-in retained public-search.json, the reviewer's supplied rows, the retained verdict
-hits and the retrieval receipts/body evidence. This test fails if G2 ignores the
+in the reviewer's supplied rows and the retained verdict
+hits and the retrieval receipts/body evidence; public-search.json carries the
+flagged_hits count, not URLs, so assert that count there. This test fails if G2 ignores the
 new row, even if it otherwise returns pass. Only fetch/reviewer transports are
 authored; G2, retrieval, confirmation and record validators execute for real.
 

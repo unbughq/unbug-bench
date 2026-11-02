@@ -1362,8 +1362,8 @@ def write_and_attack(c, prev, *, extension_id=None):
                 # Completion checkpoints precede validation, including this refusal.
                 # Check before retained findings can trigger freshness/model work.
                 if (receipt['before_repair_sha256'] == receipt['output_sha256'] and
-                        (receipt['repair_requested'] or (extension is not None and
-                         extensions.digest(extensions.tree(c.case)) == extension['entry']['case_sha256']))):
+                        (extensions.digest(extensions.tree(c.case)) == extension['entry']['case_sha256']
+                         if extension is not None else receipt['repair_requested'])):
                     attack_unresolved(c, 'unchanged_repair')
             problems = receipt.get('validation_problems') or receipt.get('input_problems')
             source = receipt.get('findings_report')
@@ -1521,8 +1521,8 @@ def write_and_attack(c, prev, *, extension_id=None):
                          precheck_problems=problems)), c.case, f"builder-{n}")
             c.card["builder_rounds"] = n
             if (case_hash(c) == before_repair and
-                    (repair_requested or (extension is not None and
-                     extensions.digest(extensions.tree(c.case)) == extension['entry']['case_sha256']))):
+                    (extensions.digest(extensions.tree(c.case)) == extension['entry']['case_sha256']
+                     if extension is not None else repair_requested)):
                 attack_unresolved(c, "unchanged_repair")
             # Invalid cases go straight back to the builder; never spend an attack on them.
             problems = g1(c)[1]["problems"] or None

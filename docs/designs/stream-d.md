@@ -3882,7 +3882,7 @@ as a completed outcome, with immutable authenticated writer proof. Completed
 replay performs no writer/stress/gate work; a subsequent close-to-passing diagnosis
 retires it for no progress even after scientific version drift. Freshness-only
 changes with no repair request keep the existing G1/stress path. Repair-requested
-freshness-only changes retain the deferred evidence-stop behavior.
+freshness-only changes were deferred here; the following continuation slice removes that hold.
 
 Design: `stream-d-unchanged-writer-outcome.md`, parent-approved after design round
 2 (B2 full-tree identity/fallthrough, N3 unknown-frontier acceptance, N4 all-pass
@@ -3894,3 +3894,16 @@ Fresh Claude diff review round 1 passes with no blockers or majors:
 for handback. No Murphy row closes. Package increment
 2 remains open for rejected writer and public-match outcomes, partial first-entry
 capture and the post-extension factory-bug return target. Activation stays off.
+
+
+### Item 7 freshness-only writer continuation slice
+
+The approved design `stream-d-freshness-only-writer.md` changes both extension
+writer completion checks to require full-tree identity for unchanged_repair.
+A repair-requested writer that changes search evidence now reaches ordinary G1,
+early checks and stress without another writer call. Ordinary non-extension
+unchanged behavior and exact full-tree terminal proofs stay unchanged.
+Design review round 2 passes. Implementation and focused evidence tests are in
+progress; full suite and fresh diff review remain required. No Murphy rows close.
+The six remaining slices, ownership and estimates are in that design's table;
+package increment 2 and All diagnosis outcomes stay unchecked.
