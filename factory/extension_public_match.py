@@ -88,22 +88,25 @@ def capture(c, r, row):
     absent = object()
     previous = getattr(c, 'extension_public_match_recorder', absent)
     def record(owner, rows, report):
-        if owner is not c or report != _report(c, row): return
-        receipt = read(c.work / 'attack-state.json', c.work)
-        if not _receipt(c, r, row, receipt, report): return
-        old = _intent(c, r, row, report)
-        if old is not None:
-            if old['rows'] != rows: refuse()
-            return
-        from extension_package import workspace
-        w = workspace(c, r)
-        value = dict(schema_version=1, kind='public_match_request', extension_id=row['extension_id'],
-            writer_operation_id=row['writer_operation_id'], round=row['round'], entry_sha256=extensions.digest(row['entry']),
-            source_generation=job_authority.for_case(c).source_generation, case_sha256=r.case_hash(c),
-            case_tree_sha256=extensions.digest(extensions.tree(c.case)), receipt=receipt,
-            source_sha256=sha(report, c.work), rows=copy.deepcopy(rows), versions=comparison._versions(w),
-            execution=comparison._execution(w), models=copy.deepcopy(c.models))
-        atomic_json(report.with_suffix('.public-match.json'), {'record': value, 'sha256': extensions.digest(value)})
+        try:
+            if owner is not c or report != _report(c, row): return
+            receipt = read(c.work / 'attack-state.json', c.work)
+            if not _receipt(c, r, row, receipt, report): return
+            old = _intent(c, r, row, report)
+            if old is not None:
+                if old['rows'] != rows: refuse()
+                return
+            from extension_package import workspace
+            w = workspace(c, r)
+            value = dict(schema_version=1, kind='public_match_request', extension_id=row['extension_id'],
+                writer_operation_id=row['writer_operation_id'], round=row['round'], entry_sha256=extensions.digest(row['entry']),
+                source_generation=job_authority.for_case(c).source_generation, case_sha256=r.case_hash(c),
+                case_tree_sha256=extensions.digest(extensions.tree(c.case)), receipt=receipt,
+                source_sha256=sha(report, c.work), rows=copy.deepcopy(rows), versions=comparison._versions(w),
+                execution=comparison._execution(w), models=copy.deepcopy(c.models))
+            atomic_json(report.with_suffix('.public-match.json'), {'record': value, 'sha256': extensions.digest(value)})
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, BudgetError):
+            refuse()
     c.extension_public_match_recorder = record
     try: yield
     finally:
@@ -126,7 +129,7 @@ def _confirmed(c, r, row, intent, report):
     if r.family(models['reviewers'][0][0]) in {r.family(models[key][0]) for key in ('builder', 'attacker')}: refuse()
     proof = dict(source_sha256=intent['source_sha256'], case_sha256=intent['case_sha256'],
                  rows=intent['rows'], verdict_path=confirmation['verdict_path'], confirmation=confirmation)
-    snapshot, blocked = freshness_proof(c, intent['receipt'], report, proof)
+    snapshot, blocked = freshness_proof(c, intent['receipt'], report, proof, retained=True)
     if not snapshot.freshness_confirmed_hits: return None
     if len(blocked) != snapshot.freshness_confirmed_hits: return None
     result = r.attack_report(report)

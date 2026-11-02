@@ -1,6 +1,6 @@
 """Saved practice/5813be and saved HTTP bytes; authored transport/reviewer controls."""
 import copy
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import hashlib
 import json
 from pathlib import Path
@@ -19,6 +19,7 @@ import extension_public_match as public
 import extensions
 import freshness_retrieval
 import gate_state
+import late_recovery
 import registry
 import run
 import test_scientific_receipts as artifacts
@@ -156,6 +157,73 @@ class PublicMatchTests(unittest.TestCase):
         self.complete()
         self.assertEqual(len(self.reviews), 1)
 
+    def future_clock(self):
+        future = datetime.now(timezone.utc) + timedelta(hours=49)
+        class Later(datetime):
+            @classmethod
+            def now(cls, tz=None): return future.astimezone(tz)
+        return patch.object(freshness_retrieval.datetime, 'datetime', Later)
+
+    def test_retained_public_match_replays_and_retires_after_retrieval_expiry(self):
+        self.confirm(); row = self.complete()
+        ledger = self.ledger.read_bytes()
+        with self.future_clock(), \
+             patch.object(run, 'write_and_attack', side_effect=AssertionError('paid replay')), \
+             patch.object(run, 'retained_answer', side_effect=AssertionError('review replay')), \
+             patch.object(freshness_retrieval, 'fetch', side_effect=AssertionError('retrieval replay')), \
+             patch.object(extension_evaluator, 'Evaluator', side_effect=AssertionError('paid comparison')):
+            self.assertTrue(public.verified(self.c, run, row))
+            package.completed_route(self.c, row)
+            with self.assertRaisesRegex(budget.BudgetError, '^extension_incomplete$'):
+                package.run(self.c, run, self.prev, 1)
+            self.diagnosis()
+            with self.assertRaisesRegex(budget.BudgetError, '^retired_no_progress$'):
+                package.subsequent_entry(self.c, run)
+        self.assertEqual(self.ledger.read_bytes(), ledger)
+        self.assertEqual(len(self.reviews), 1)
+        class NoClock(datetime):
+            @classmethod
+            def now(cls, tz=None): raise AssertionError('retained proof consulted the live clock')
+        with patch.object(freshness_retrieval.datetime, 'datetime', NoClock):
+            self.assertTrue(public.verified(self.c, run, row))
+
+    def test_confirmation_cache_completes_after_retrieval_expiry(self):
+        self.confirm()
+        with self.future_clock(), \
+             patch.object(run, 'retained_answer', side_effect=AssertionError('review rerun')), \
+             patch.object(freshness_retrieval, 'fetch', side_effect=AssertionError('retrieval rerun')):
+            self.complete()
+        self.assertEqual(len(self.reviews), 1)
+
+    def test_clearance_corruption_and_expiry_keep_execution_pending_policy(self):
+        self.matches = False
+        registry.atomic_json(self.report, {'complete': True,
+            'blocking': ['[freshness-review] independent verdict required'],
+            'freshness_review': [self.rows[0]['url']]})
+        path = self.work/'attack-state.json'; receipt = json.loads(path.read_text())
+        receipt['review_completed']['report_sha256'] = hashlib.sha256(self.report.read_bytes()).hexdigest()
+        registry.atomic_json(path, receipt)
+        REAL_FRESHNESS(self.c, run.attack_report(self.report), self.report)
+        proof = json.loads(self.report.with_suffix('.clearance.json').read_text())
+        directory = self.work/Path(proof['verdict_path']).parent
+        body = next((directory/'retrieval').glob('*.body'))
+        for broken in (body, directory/'review-completed.json', directory/'verdict.json'):
+            saved = broken.read_bytes()
+            broken.unlink()
+            if broken == body:
+                target = broken.with_suffix('.saved'); target.write_bytes(saved); broken.symlink_to(target)
+            elif broken.name == 'verdict.json': broken.write_text('[]')
+            with self.subTest(broken=broken):
+                with self.assertRaisesRegex(budget.BudgetError, '^extension_execution_pending$'):
+                    package.stress(self.c, run, package.Records(self.c, run, self.row))
+                with self.assertRaises(ValueError): late_recovery.mark_gates(self.c)
+            if broken.is_symlink(): broken.unlink(); target.unlink()
+            broken.write_bytes(saved)
+        with self.future_clock():
+            with self.assertRaisesRegex(budget.BudgetError, '^extension_execution_pending$'):
+                package.stress(self.c, run, package.Records(self.c, run, self.row))
+            with self.assertRaises(ValueError): late_recovery.mark_gates(self.c)
+
     def test_intent_without_confirmation_stays_open(self):
         with public.capture(self.c, run, self.row):
             self.c.extension_public_match_recorder(self.c, [self.rows[0]], self.report)
@@ -222,8 +290,40 @@ class PublicMatchTests(unittest.TestCase):
             with self.assertRaisesRegex(budget.BudgetError, '^extension_snapshot_changed$'):
                 public.complete(self.c, run, self.row)
             path.write_bytes(saved)
+            alias = path.with_name(path.name + '.outside'); alias.write_bytes(saved)
+            path.unlink(); path.symlink_to(alias)
+            with self.assertRaisesRegex(budget.BudgetError, '^extension_snapshot_changed$'):
+                public.complete(self.c, run, self.row)
+            path.unlink(); alias.unlink(); path.write_bytes(saved)
         self.assertEqual(len(self.reviews),1)
         self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
+
+    def test_stale_confirmation_and_changed_entry_identity(self):
+        self.confirm()
+        path = self.work/'freshness-verdict.json'; saved = path.read_bytes()
+        value = json.loads(saved); value['binding']['case_id'] = 'case-another-request'
+        registry.atomic_json(path, value)
+        self.assertFalse(public.complete(self.c, run, self.row))
+        self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
+        path.write_bytes(saved)
+        wrong = copy.deepcopy(self.row); wrong['entry']['case_sha256'] = '0'*64
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_snapshot_changed$'):
+            public.complete(self.c, run, wrong)
+
+    def test_same_family_reviewer_cannot_be_relabelled_as_independent_proof(self):
+        self.confirm()
+        path = self.report.with_suffix('.public-match.json'); envelope = json.loads(path.read_text())
+        models = envelope['record']['models']
+        models['reviewers'] = [models['builder']]
+        envelope['sha256'] = extensions.digest(envelope['record'])
+        registry.atomic_json(path, envelope)
+        path = self.work/'freshness-verdict.json'; confirmation = json.loads(path.read_text())
+        confirmation['binding']['models'] = copy.deepcopy(models)
+        registry.atomic_json(path, confirmation)
+        registry.atomic_json(self.work/Path(confirmation['verdict_path']).parent/'review-completed.json',
+            {'binding': confirmation['binding'], 'retrieval_sha256': confirmation['retrieval_sha256']})
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_snapshot_changed$'):
+            public.complete(self.c, run, self.row)
 
     def test_exclusion_is_not_a_public_match_terminal(self):
         self.matches=False
@@ -258,6 +358,14 @@ class PublicMatchTests(unittest.TestCase):
             with self.assertRaisesRegex(budget.BudgetError,'^extension_snapshot_changed$'):
                 self.c.extension_public_match_recorder(self.c, [{**self.rows[0],'note':'different'}], self.report)
         self.assertEqual(self.report.with_suffix('.public-match.json').read_bytes(), saved)
+        for path, corrupt in ((self.report.with_suffix('.public-match.json'), b'{}'),
+                              (self.report.with_suffix('.public-match.json'), b'not JSON'),
+                              (self.work/'attack-state.json', b'{"actor":"stress_tester","phase":"validated","review_pending":false,"round":9,"round_limit":9,"report":"round-9.json"}')):
+            original = path.read_bytes(); path.write_bytes(corrupt)
+            with public.capture(self.c, run, self.row):
+                with self.assertRaisesRegex(budget.BudgetError, '^extension_snapshot_changed$'):
+                    self.c.extension_public_match_recorder(self.c, [self.rows[0]], self.report)
+            path.write_bytes(original)
 
     def test_retained_proof_tamper_and_symlinks_refuse(self):
         self.confirm(); row=self.complete()

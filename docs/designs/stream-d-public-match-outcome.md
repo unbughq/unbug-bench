@@ -231,3 +231,24 @@ relabel the old reviewer family or let a stale confirmation match new inputs.
 
 The report's optional freshness_review defaults to [] exactly as loop_freshness
 does; a search-log hit can be confirmed without an attacker URL request.
+
+## Diff-round-1 corrections
+
+B1: freshness_proof takes keyword retained=False. Only public-match _confirmed
+passes retained=True; that validates retrieval through load(check_age=False).
+Receipt timestamps still parse with a timezone, rows/URLs and body hashes still
+match, the complete receipt list and its digest still match confirmation, and
+no clock is consulted. Ordinary cleared_stress uses the default age check
+unchanged. A completed public-match observation is never a cache refresh.
+
+M1: no-follow JSON reads normalize missing/invalid metadata to Refused/ValueError,
+including non-object verdicts. Whole-tree retrieval checks apply only to retained
+terminal proof; ordinary clearance keeps load's InvalidInfra-to-ValueError
+mapping. Symlinked clearance bodies still yield extension_execution_pending at
+the package boundary and ValueError at ordinary gate continuation.
+
+N1–N3: capture normalizes malformed intent/receipt failures to
+extension_snapshot_changed. Tests cover stale confirmation binding, different
+entry identity, same-family reviewer and live proof symlinks. stop's gate_results
+projection is exactly {'G2': freshness_detail}, matching failed_detail and
+loop_freshness; it is a projection of the retained verdict, not another gate run.

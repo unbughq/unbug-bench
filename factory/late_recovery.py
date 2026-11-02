@@ -56,7 +56,7 @@ def invalidate(c):
     (c.work / 'gate-continuation.json').unlink(missing_ok=True)
 
 
-def freshness_proof(c, attack, report, proof):
+def freshness_proof(c, attack, report, proof, *, retained=False):
     """Validate completed independent freshness proof under explicit case/work roots."""
     from diagnosis import _input_bytes
     from run import checked_freshness_verdict, case_hash
@@ -64,7 +64,14 @@ def freshness_proof(c, attack, report, proof):
     from types import SimpleNamespace
     import extensions
     import re
-    read = lambda path: json.loads(_input_bytes(path, c.work))
+    def read(path):
+        try:
+            value = json.loads(_input_bytes(path, c.work))
+            require(isinstance(value, dict), 'invalid stress freshness metadata')
+            digest(value)
+            return value
+        except (OSError, ValueError, TypeError, OverflowError, RecursionError):
+            require(False, 'invalid stress freshness metadata')
     relative = proof.get('verdict_path')
     require(isinstance(relative, str) and re.fullmatch(r'g2-confirm-[0-9]+/verdict.json', relative),
             'invalid stress freshness proof path')
@@ -75,13 +82,14 @@ def freshness_proof(c, attack, report, proof):
         models=binding['models'], admission_binding=binding.get('reservation'), freshness_confirmed_hits=0)
     rows = proof['rows']
     completed, answer = read(verdict.parent / 'review-completed.json'), read(verdict)
-    extensions.tree(verdict.parent / 'retrieval')  # No symlinks or special files in retained HTTP evidence.
     from freshness_retrieval import load, digest as retrieval_digest
     try:
-        snapshot.freshness_retrieval = load(verdict.parent / 'retrieval', rows)
+        if retained:
+            extensions.tree(verdict.parent / 'retrieval')  # Terminal proof rejects every symlink/special file.
+        snapshot.freshness_retrieval = load(verdict.parent / 'retrieval', rows, check_age=not retained)
         require(retrieval_digest(snapshot.freshness_retrieval) == receipt.get('retrieval_sha256'),
                 'changed stress freshness retrieval')
-    except RuntimeError as error:
+    except (RuntimeError, OSError) as error:
         raise ValueError('missing stress freshness retrieval') from error
     require(proof.get('source_sha256') == hashlib.sha256(_input_bytes(report, c.work)).hexdigest() and
             receipt.get('verdict_path') == relative and
