@@ -1,8 +1,9 @@
 # Complete an extension whose writer changed nothing
 
 An admitted extra writer round can finish without changing the case. Today the
-writer loop stops at `stress_review_unresolved:unchanged_repair`, leaving its
-history active forever. Finish that round from its already retained evidence and
+writer loop either stops at `stress_review_unresolved:unchanged_repair` when a
+repair was requested, leaving its history active, or continues into checks when
+no repair was requested. Finish that round from its already retained evidence and
 let the next diagnosis retire it for no progress. No stress or gate is run to
 rediscover the same result.
 
@@ -30,28 +31,41 @@ At package entry, before `write_and_attack`, inspect an active row's authenticat
 `extensions.writer_receipt(c)`. Also inspect it after the existing writer loop
 raises exactly `stress_review_unresolved:unchanged_repair`. Only a receipt with
 actor writer, phase completed, repair_pending False, next_phase G1,
-repair_requested True, round and round_limit equal to the admitted row's round,
+type(repair_requested) is bool (either value), round and round_limit equal to the admitted row's round,
 and before_repair_sha256 == output_sha256 == r.case_hash(c) qualifies.
 `writer_receipt` already authenticates the immutable request, operation and lease;
 it is mandatory before accepting the tuple. A pending receipt never qualifies.
-All other writer/infra/provider/money/cancel results keep their existing route.
+The two unchanged checks in write_and_attack (completed-writer resume and fresh
+writer completion) use `(repair_requested or extension is not None)` instead of
+repair_requested alone. Thus a pending writer completed inside the package also
+stops before G1, early checks or stress. Ordinary non-extension behavior is
+unchanged. All other writer/infra/provider/money/cancel results keep their route.
 
 Require `extensions.digest(extensions.tree(c.case)) == row['entry']['case_sha256']`
 and `extensions._verify_case(c, number, 'entry', row['entry'])`. This checks
 freshness.jsonl too, unlike case_hash. A hash-only unchanged receipt with a changed
 full tree is `extension_snapshot_changed`, never a terminal score or a re-roll.
 
-Stage a copy of the entry evidence with `_save_evidence` in a temporary work
-directory. Add `extension-terminal/<number>.json`, schema_version 1, with exact
+Stage a copy of the entry evidence with `_save_evidence` in a system
+TemporaryDirectory outside the live work/archive tree. Add `extension-terminal/<number>.json`, schema_version 1, with exact
 keys schema_version, kind (`unchanged_writer`), extension_id, writer_operation_id,
 round, entry_sha256 (`extensions.digest(row['entry'])`), case_sha256, and receipt
-(the authenticated completed writer receipt). Outcome is a deep copy of entry
+(the authenticated completed writer receipt), written with atomic_json for
+deterministic bytes on retry. Outcome is a deep copy of entry
 with current authority.source_generation and the new proof path/hash in evidence;
 all stage rows, versions and frontier remain identical. Extend `extensions.complete`
 with optional `evidence_root`, passed only to its existing `_save_case` call, so
 staging never overwrites live gate/receipt files. Its atomic case/evidence-before-
 history ordering stays unchanged. Temporary staging is removed in finally.
 
+Both fresh completion and replay project the same terminal card: clear stale
+failed_gate, failed_detail and infrastructure_gate; set gates to the retained
+entry pass/fail rows (excluding stress) and gate_results to an empty dict. If the
+entry frontier names a failed stage, set failed_gate to that stage and failed_detail
+to {unchanged_writer: True, entry_sha256: digest(entry), retained_stage: stage};
+otherwise leave failed_gate absent. Set stress_review to {status: not_run,
+reason: unchanged_writer}. No stale unchanged_repair or later-gate field survives.
+The immutable entry proof carries full diagnostics; these card fields identify it.
 After completing history raise existing `extension_incomplete`; normal main and
 finalize_accounting queue one new exhaustion. Do not mark the case retired until
 diagnosis chooses close_to_passing or not_converging through the existing routes.
@@ -65,6 +79,9 @@ receipt tuple, and equality of entry/outcome case hash, stage rows and frontier.
 It checks the receipt output hash against the retained case using r.case_hash on
 a shallow context with that case path. It never calls writer_receipt after the
 row is complete, uses the live mutable attack-state, or reauthorizes a lease.
+Exact equalities: proof extension_id, round and writer_operation_id match the
+row; receipt operation_id, extension_id and round match the row; entry_sha256
+is digest(row['entry']); proof case_sha256 equals entry.case_sha256.
 Malformed/missing/tampered terminal proof is `extension_snapshot_changed`.
 
 `completed_route` uses this verifier before its ordinary stress-record requirement.
@@ -87,7 +104,9 @@ transport returns success without modifying files, explicitly authored as a no-o
 Use retained entry receipts from the real snapshot/Records tests rather than
 inventing passes; the unchanged producer must preserve every retained byte.
 Tests cover fresh completion and restart after completed writer publication,
-two terminal replays, history-before-card dispatch, one diagnosis queued through
+both repair_requested values (including a previous card without failed_gate),
+two terminal replays with identical terminal card fields, history-before-card
+dispatch, one diagnosis queued through
 finalize_accounting, and the next completed close_to_passing diagnosis retiring
 without writer_request, pending_call, snapshot, compare or evaluator construction.
 Repeat the latter with current versions changed: no paid re-evaluation.
@@ -103,6 +122,10 @@ Midterm: targeted retained-artifact and routing tests. Final: full required suit
 with unique committed log/record, then fresh diff review. One implementation
 commit plus records is expected. Main risk is confusing writer case_hash with
 full-tree identity; the freshness-only mutation test proves the distinction.
-Cost is engineering/test time and one already-admitted writer call; there is no
-new model spend or live qualification. The payoff is removing this active-history
-dead end. Supports Murphy 9/13; closes no row. Package increment 2 remains open.
+Cost is engineering/test time, the already-admitted writer call, and one new
+diagnosis call under existing money bounds. Keeping the ordinary diagnosis route
+also lets it select factory_bug; immediate retirement would bypass that decision.
+There is no new stress/gate spend or live qualification. The payoff is removing
+the active-history dead end for exact full-tree identity. A writer that changes
+only freshness.jsonl remains an evidence stop in this slice; handling that
+scientifically distinct output is explicitly deferred with rejected outputs. Supports Murphy 9/13; closes no row. Package increment 2 remains open.
