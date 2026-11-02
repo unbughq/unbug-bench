@@ -102,3 +102,24 @@ An earlier standalone attempt, ...T083144Z-154c9e3d, omitted BENCH and caused
 path/import errors. It is retained, marked non-qualifying and explicitly not used
 as validation. The passing rerun record includes the environment correction.
 Fresh diff review follows; no workers, live cloud, paid calls or repin occurred.
+
+## Fresh diff review and handback
+
+Claude opus-5-5 review 1 passed with no blockers, two majors and six optional
+nits. Full text: ../reviews/worker-router-delivery-diff-1.md. The reviewer verified
+suite hashes/source trees and independently passed all three timing-failed
+scripts plus the new delivery and full-command integration tests.
+
+M1 remains open: both dispatch paths forward the optional client path in code,
+but the end-to-end exam exercises only key_holder.serve; practice
+batch_holder.dispatch forwarding has not been directly tested. M2 remains open:
+the mutation JSON files are writer records without a committed reproduction
+procedure or source binding, so they are not independently reproduced proof.
+The reviewer reasoned through their expected failures but did not reproduce
+them. The six nits, including non-default TMPDIR qualification and Linux exam
+coverage, remain open. No further code/test changes follow the passing review,
+as the parent instructed handback on PASS. No rows close and no live work resumes.
+
+Future full suites use the parent's new shared lock command:
+`lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py`.
+The recorded runs predate that rule; single-file reruns remain unlocked.
