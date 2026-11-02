@@ -34,3 +34,13 @@
 - Deployment, reservation and creation: not started.
 - Practice spend across both entry attempts: models $0; infrastructure $0.
 - Cleanup: no practice worker or pending creation; no deletion required; no cleanup unit armed.
+
+## Automated identity check — step 2
+
+- Operator identity confirmation: not sure; not accepted as proof.
+- Identity check UTC: 2026-11-02T05:48:41.004239+00:00.
+- Labels: claude-token; claude-factory-token-2.
+- Automated identity evidence: unavailable; distinct_accounts remains unconfirmed.
+- Status: handed back at step 2; no admission or deployment continuation.
+- Practice spend: models $0; infrastructure $0.
+- Worker IDs: none; cleanup not required.
