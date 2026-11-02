@@ -7,8 +7,8 @@ rather than ordinary construction. Keep the prior diagnosis and use its existing
 replay route. This avoids another paid diagnosis and an unrelated writer round.
 
 Parent-approved after round 2. Lane 1 slice 3, Murphy new-stream-d-current-comparison-1. Baseline accepted
-4dcbda8 includes factory-simplify 02f3bc9. Merge factory-simplify after land10 lands
-and before handback. Diagnosis remains disabled. No other lane's work, enabling
+4dcbda8; land10/factory-simplify b75c9b4 was merged at ae93bba before
+implementation. Merge newest factory-simplify again before handback. Diagnosis remains disabled. No other lane's work, enabling
 active-extension diagnoses, legacy entry reconstruction, new resume authority,
 money allowance, launch path or retry reset is in scope. The control service's
 existing later-batch admission remains the only factory-bug resume counter.
@@ -79,7 +79,7 @@ After the existing locked provider-wait/reconcile/classify/refresh_replays phase
 succeeds, restore X in the SAME admitted_card write that clears Y's held fields
 and retains factory_bug_resume_count. None keeps the existing ordinary clearing.
 The private record is unchanged. Existing post-admission I/O held-wait behavior
-is unchanged. Retirement and existing money waits retain their priority.
+is unchanged. Retirement keeps its priority; the existing money guards remain.
 
 Keep main and its previous-card argument unchanged. The real subsequent_entry
 comparison path already clears failed_gate, failed_detail and infrastructure_gate
@@ -97,9 +97,11 @@ activation bypass. Model work remains outside the dispatch lock as today.
 Crashes after B appends but before clearing reuse the existing admission.
 Crashes after clearing replay X from the scorecard; B sees close_to_passing and
 does nothing. Crashes after a subsequent writer admission use apply's existing
-writer_receipt route. Missing/corrupt X inputs, attempts or decision refuse via
-the existing replay/input-invalid policy, never ordinary construction or a new
-diagnosis call. A debit already durably admitted is not refunded.
+writer_receipt route. Missing/corrupt bound X inputs or an invalid journal refuse
+via the existing replay/input-invalid policy, never ordinary construction or a
+new diagnosis call. A missing decision with a valid completed journal keeps the
+existing model-free decision publication recovery. A debit already durably
+admitted is not refunded.
 
 ## Retry and immutable-package limits (B2, M3, M4)
 
@@ -170,8 +172,9 @@ item 8 explicitly, not hidden behind a conditional closure promise.
 ## Cost, risk, schedule and delivery
 
 Offline inference $0; no workers/network or new runtime spending authority.
-Risk: X's original retained artifacts must survive carry-over; explicit
-cross-release replay and corruption exams test that existing assumption.
+Risk: X's original retained artifacts must survive carry-over. Focused in-place
+owner/release transitions test local retention only; checkpoint archive/restore
+and the full comparison chain remain unproven item-8 obligations.
 Unhashed fixes cannot refresh retries; immutable package replay may re-exhaust.
 Legacy post-extension holds without the record refuse rather than guess.
 These limits are explicit, not new reconstruction work for lane 2.
