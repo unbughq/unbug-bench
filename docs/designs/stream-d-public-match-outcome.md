@@ -211,3 +211,16 @@ design/two diff review rounds; after round 2 report remaining blockers in 3 line
 Full suite to unique committed log, wait, then fresh diff review. Before handback
 merge newest factory-simplify and revalidate affected paths. No workers, paid
 calls, secrets, row closure, activation or claim of all-item-7 completion.
+
+## Round-2 implementation clarifications
+
+Deterministic freshness detail is exactly {rows:len(intent.rows),
+requested:len(dict.fromkeys(attack_report(copied_report)['freshness_review'])),
+verdict_path:confirmation.verdict_path, outcome:'public_match',reason:'same_bug'}.
+Use it for the receipt, failed_detail and loop_freshness. Never read the card.
+Intent versions come from comparison._versions(workspace(c,r)). Terminal Workspace
+has case=tempcase, work=tempwork, execution=None; execution override goes only
+through _save's new keyword. Completed run checks live full-tree hash equals
+row.outcome.case_sha256 before stop, as subsequent_entry does. Existing intent
+for the same report is never rewritten for different rows; preserve bytes and
+refuse on mismatch when capture/completion validates it.
