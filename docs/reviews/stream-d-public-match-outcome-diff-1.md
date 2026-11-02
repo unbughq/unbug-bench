@@ -80,3 +80,13 @@ I reviewed `e1087df..b038eba` in `/Users/bugsincode/.t3/worktrees/unbug-bench/t3
 ## Elephant disposition
 
 B1 and M1 accepted in full; no blocker rejected. Add an explicit retained-proof clock policy used only by the public-match validator, preserve ordinary clearance expiry and failure mapping, and cover delayed completion/replay/next diagnosis plus clearance symlinks. N1–N3 also accepted: normalize capture failures, fill decision-table assertions, and document gate_results projection. Fresh round-2 diff review will verify these fixes; no self-verification of B1.
+
+## Implemented correction record
+
+fb731a2 implements B1 and M1 and the accepted nits. Twenty public-match tests pass,
+including 49-hour recovery/replay/retirement, an explicit forbidden-live-clock
+check, ordinary-clearance expiry, symlink/missing/non-object clearance errors,
+and the missing decision-table boundaries. The full post-fix command completed
+175 scripts with one failed controller script; its record and the failed isolated
+recheck are committed with the report. This is not a clean full-suite pass and
+not independent approval of B1. Fresh final diff review remains required.

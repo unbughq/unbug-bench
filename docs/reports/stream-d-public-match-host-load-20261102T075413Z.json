@@ -1,0 +1,27 @@
+{
+  "observed_at": "2026-11-02T07:54:13.701842+00:00",
+  "head": "fb731a2c522e939ea7539aeaace2bf54db70e290",
+  "suite_log": "docs/reports/stream-d-public-match-suite-20261102T072645Z-fc5a65d6.log",
+  "load_averages": [
+    49.326171875,
+    157.57470703125,
+    146.134765625
+  ],
+  "earlier_observed_load_averages": [
+    481.95,
+    271.19,
+    127.06
+  ],
+  "control_resume": {
+    "tests": 24,
+    "failures": 9,
+    "errors": 4,
+    "observed_failures": "10\u201320 second fault-boundary and subprocess deadlines",
+    "unfinished_children_recorded": [
+      93203,
+      94657
+    ],
+    "unfinished_children_still_present": false
+  },
+  "status": "Failure coincides with host load spike; isolation rerun and clean full suite still required. No timeout or unrelated production changes."
+}

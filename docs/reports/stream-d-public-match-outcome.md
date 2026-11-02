@@ -1,10 +1,18 @@
 Confirmed public-match extension outcome, lane 1 slice 1.
 
-factory-simplify e1087df is merged. Source at 66f03512e6c509cea2dddce01488eef30484b2e3 completes a confirmed public match as a stress failure using the retained independent verdict, completion receipt and exact HTTP bytes. Completed replay and the next diagnosis buy no further model or retrieval work. Unchanged-writer handling keeps priority; diagnosis remains disabled.
+Delivery status: blocked on a clean post-fix full-suite result; final fresh diff review pending. No claim of merge readiness.
 
-Required suite: `uv run --with numpy --with scipy python -B tests/run.py`.
-Result: 175 test scripts, 0 failed; exit 0. Record: `stream-d-public-match-suite-20261102T063133Z-b8654592.json` and `.log`, tested source 66f03512e6c509cea2dddce01488eef30484b2e3. The new public-match file passes all 15 tests, and the existing unchanged-writer file passes all 15.
+factory-simplify e1087df is merged. Implementation source is fb731a2c522e939ea7539aeaace2bf54db70e290. A confirmed public match becomes a stress failure backed by the retained independent verdict, completion receipt and exact HTTP bytes. Completed replay and the next diagnosis buy no further model or retrieval work. Unchanged-writer handling keeps priority; diagnosis remains disabled.
 
-Design reviews: `docs/reviews/stream-d-public-match-outcome-design-1.md` and `docs/reviews/stream-d-public-match-outcome-design-2.md`; round 2 passes with no blockers. Accepted detail and interface clarifications are implemented. A fresh diff review follows this committed suite record.
+Diff round 1 found B1 (retained HTTP proof wrongly expires after 24 hours) and M1 (ordinary clearance failure mapping changed). Both were accepted and fixed in fb731a2. Public-match proof alone selects no-clock retrieval validation; timestamps still parse, URLs/body hashes/digests/completion bindings still validate. Ordinary clearance retains its 24-hour window and ValueError/extension_execution_pending failure mapping. N1–N3 were also addressed.
+
+Required post-fix suite: `uv run --with numpy --with scipy python -B tests/run.py`.
+Result at fb731a2: 175 scripts run, 1 failed, exit 1. Only `tests/factory/test_control_resume.py` failed (24 tests, 9 failures, 4 errors: 10–20 second subprocess/fault-boundary deadlines). Record: `stream-d-public-match-suite-20261102T072645Z-fc5a65d6.json` and `.log`. The same run passes all 20 public-match tests, 28 loop-freshness tests, 12 late-gate tests and 15 unchanged-writer tests.
+
+The isolated control-resume recheck also fails: 24 tests, 10 failures, 3 errors; record `stream-d-public-match-control-resume-recheck-20261102T075456Z-5e42bb39.json` and `.log`. Host load observations are in `stream-d-public-match-host-load-20261102T075413Z.json`; one observed one-minute load was about 482, and the isolated run started near 38 and ended near 254. This is evidence of concurrent load and deadline failures, not proof that the failure is unrelated. Controller/launch production and test files were not changed. No timeout weakening or unreviewed harness fix was added to this slice. A clean post-fix full suite remains an explicit delivery blocker.
+
+Historical pre-correction suite: 175 scripts, 0 failed at 66f03512e6c509cea2dddce01488eef30484b2e3; `stream-d-public-match-suite-20261102T063133Z-b8654592.json` and `.log`. That pass does not qualify the later clock-policy correction.
+
+Design records: `docs/reviews/stream-d-public-match-outcome-design-1.md` and `-design-2.md` (round 2 passes). Diff record: `docs/reviews/stream-d-public-match-outcome-diff-1.md` (NOT PASS, fixes accepted). Round 2 must independently verify the fixes; none is self-approved.
 
 No Murphy rows closed and no live qualification claimed. Lane 1 slices 2 (blocking stress with unfinished diagnostics) and 3 (factory-bug resume to its pending package/comparison target) remain separate increments. Lane 2 retains freshness-only continuation, rejected-writer outcomes, partial/legacy first-entry reconstruction and final all-outcomes integration.

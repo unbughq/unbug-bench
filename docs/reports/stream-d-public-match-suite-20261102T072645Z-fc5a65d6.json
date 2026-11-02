@@ -1,0 +1,8 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "head": "fb731a2c522e939ea7539aeaace2bf54db70e290",
+  "started_at": "2026-11-02T07:26:45.014222+00:00",
+  "log": "docs/reports/stream-d-public-match-suite-20261102T072645Z-fc5a65d6.log",
+  "exit_code": 1,
+  "finished_at": "2026-11-02T08:32:00.140153+00:00"
+}

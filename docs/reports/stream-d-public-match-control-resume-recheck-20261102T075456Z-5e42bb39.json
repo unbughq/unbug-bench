@@ -1,0 +1,18 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/factory/test_control_resume.py",
+  "head": "fb731a2c522e939ea7539aeaace2bf54db70e290",
+  "started_at": "2026-11-02T07:54:56.366965+00:00",
+  "load_at_start": [
+    38.03759765625,
+    141.08544921875,
+    140.61669921875
+  ],
+  "log": "docs/reports/stream-d-public-match-control-resume-recheck-20261102T075456Z-5e42bb39.log",
+  "exit_code": 1,
+  "finished_at": "2026-11-02T08:07:46.885815+00:00",
+  "load_at_end": [
+    254.2734375,
+    175.28564453125,
+    149.064453125
+  ]
+}
