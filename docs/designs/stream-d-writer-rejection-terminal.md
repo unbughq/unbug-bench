@@ -69,7 +69,8 @@ Check the same equality before and after staging. A raw old writer receipt or
 feedback text without an observation is never evidence.
 
 Before calling extensions.writer_receipt, read attack-state.json safely and require
-actor writer, phase completed/validated and repair_pending False. This prevents
+actor writer, round == row.round (strict int), phase completed/validated and
+repair_pending False. This prevents
 writer_receipt's previous-to-intent recovery write on a refusal path. Then call
 writer_receipt to authenticate immutable intent, reservation and continuation.
 Require operation_id/extension_id/round against row, round_limit == row.round,
@@ -120,7 +121,8 @@ require exact equality to row.outcome.
 Do not consult today's gate versions/models/slot, or rewrite comparisons/history.
 
 Wire verified into completed_route before Records.load(stress), and into package.run
-before the ordinary stress path. On replay require live full tree == outcome tree,
+at the top of run alongside unchanged_outcome and public.verified, before creating
+Records or entering any stress path. On replay require live full tree == outcome tree,
 then stop. For an active row call complete before write_and_attack (after existing
 unchanged/public terminals). After write_and_attack raises the existing
 stress_review_unresolved:rounds_exhausted handoff, call complete again before
@@ -200,3 +202,14 @@ exact receipt checks and forbidden-call exams target each. Remaining lane-2 work
 partial/legacy first-entry reconstruction 6–10h, final all-outcomes integration
 4–6h including successful irrelevant-edit progress checks. Lane 1 factory-bug
 return remains its separate prerequisite (3–5h estimate).
+
+## Round-2 implementation clarifications
+
+Rename test_package_version_drift_keeps_existing_handoff_label to describe terminal
+completion despite historical-version drift; it now asserts extension_incomplete
+and the retained outcome, with no evaluator calls. The legacy validated receipt
+test uses an explicit extension_execution_pending assertion, not the updated
+completion helper. The pre-authentication round check also rejects a previous
+round's validated receipt. The no-recovery-write guarantee applies to this
+producer's explicit refusal cases; existing complete_unchanged calls writer_receipt
+earlier in package.run and is not changed by this slice.
