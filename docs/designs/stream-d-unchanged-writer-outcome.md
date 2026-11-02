@@ -36,15 +36,19 @@ and before_repair_sha256 == output_sha256 == r.case_hash(c) qualifies.
 `writer_receipt` already authenticates the immutable request, operation and lease;
 it is mandatory before accepting the tuple. A pending receipt never qualifies.
 The two unchanged checks in write_and_attack (completed-writer resume and fresh
-writer completion) use `(repair_requested or extension is not None)` instead of
-repair_requested alone. Thus a pending writer completed inside the package also
+writer completion) use `repair_requested or (extension is not None and
+extensions.digest(extensions.tree(c.case)) == extension['entry']['case_sha256'])`
+instead of repair_requested alone (still inside the case_hash equality check). Thus a pending writer completed inside the package also
 stops before G1, early checks or stress. Ordinary non-extension behavior is
 unchanged. All other writer/infra/provider/money/cancel results keep their route.
 
 Require `extensions.digest(extensions.tree(c.case)) == row['entry']['case_sha256']`
 and `extensions._verify_case(c, number, 'entry', row['entry'])`. This checks
-freshness.jsonl too, unlike case_hash. A hash-only unchanged receipt with a changed
-full tree is `extension_snapshot_changed`, never a terminal score or a re-roll.
+freshness.jsonl too, unlike case_hash. At package entry a qualifying hash tuple
+with a different full tree falls through: repair True keeps unchanged_repair,
+repair False proceeds into G1/stress as today. Only after catching
+`stress_review_unresolved:unchanged_repair` with repair True does this mismatch
+raise `extension_snapshot_changed`; proof/tree tampering also keeps that label.
 
 Stage a copy of the entry evidence with `_save_evidence` in a system
 TemporaryDirectory outside the live work/archive tree. Add `extension-terminal/<number>.json`, schema_version 1, with exact
@@ -63,7 +67,10 @@ failed_gate, failed_detail and infrastructure_gate; set gates to the retained
 entry pass/fail rows (excluding stress) and gate_results to an empty dict. If the
 entry frontier names a failed stage, set failed_gate to that stage and failed_detail
 to {unchanged_writer: True, entry_sha256: digest(entry), retained_stage: stage};
-otherwise leave failed_gate absent. Set stress_review to {status: not_run,
+otherwise leave failed_gate absent (an unreached frontier is 'unknown' to
+diagnosis and must be accepted). Refuse `extension_snapshot_changed` if entry's
+frontier equals len(stages), both before completion and when reading terminal
+proof; an all-pass entry cannot justify extension_incomplete. Set stress_review to {status: not_run,
 reason: unchanged_writer}. No stale unchanged_repair or later-gate field survives.
 The immutable entry proof carries full diagnostics; these card fields identify it.
 After completing history raise existing `extension_incomplete`; normal main and
@@ -127,5 +134,16 @@ diagnosis call under existing money bounds. Keeping the ordinary diagnosis route
 also lets it select factory_bug; immediate retirement would bypass that decision.
 There is no new stress/gate spend or live qualification. The payoff is removing
 the active-history dead end for exact full-tree identity. A writer that changes
-only freshness.jsonl remains an evidence stop in this slice; handling that
-scientifically distinct output is explicitly deferred with rejected outputs. Supports Murphy 9/13; closes no row. Package increment 2 remains open.
+only freshness.jsonl keeps the existing route: repair False reaches G1/stress;
+repair True is the deferred evidence stop after unchanged_repair. Supports Murphy 9/13; closes no row. Package increment 2 remains open.
+
+
+## Parent-approved after round 2
+
+The parent accepted B2's full-tree extension-only stop and package-entry
+fallthrough exactly as recorded above, without round 3. Add the freshness-only /
+repair False / no failed_gate regression test proving G1 and stress run with no
+terminal proof or snapshot refusal. N3 is resolved by the explicit unknown-stage
+projection and a diagnosis acceptance test. N4 is resolved by rejecting an
+all-pass entry. Round-2 review remains BLOCK as historical evidence; this parent
+decision authorizes implementation and the subsequent fresh diff review.

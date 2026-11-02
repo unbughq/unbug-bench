@@ -3873,3 +3873,20 @@ remain separate. No Murphy row is closed and diagnosis activation stays false.
 The temporary `comparison_route=False` compatibility seam remains until item 7
 is complete. Linux process containment and live upload/time/cost qualification
 remain explicit activation evidence; the Mac suite cannot qualify those paths.
+
+
+### Item 7 unchanged writer terminal outcome slice
+
+Exact full-tree unchanged writer output now retains the admitted entry observations
+as a completed outcome, with immutable authenticated writer proof. Completed
+replay performs no writer/stress/gate work; a subsequent close-to-passing diagnosis
+retires it for no progress even after scientific version drift. Freshness-only
+changes with no repair request keep the existing G1/stress path. Repair-requested
+freshness-only changes retain the deferred evidence-stop behavior.
+
+Design: `stream-d-unchanged-writer-outcome.md`, parent-approved after design round
+2 (B2 full-tree identity/fallthrough, N3 unknown-frontier acceptance, N4 all-pass
+refusal). Implementation and focused tests are in progress; full suite and fresh
+diff review are required before handback. No Murphy row closes. Package increment
+2 remains open for rejected writer and public-match outcomes, partial first-entry
+capture and the post-extension factory-bug return target. Activation stays off.

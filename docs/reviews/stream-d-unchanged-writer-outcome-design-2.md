@@ -48,3 +48,5 @@ I made no edits, live or paid calls, or subagents. Per the brief there is no rou
 
 B2 remains open. Stopped after round 2 under the parent's review limit; no implementation or round-3 review. Parent decision required. N3 and N4 are recorded for that decision.
 
+
+Parent decision: ACCEPT B2 fix exactly as written, plus N3 unknown-frontier diagnosis test and N4 all-pass refusal. Recorded as parent-approved after round 2 in the design. Implementation authorized; no third design review.

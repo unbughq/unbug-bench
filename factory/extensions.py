@@ -483,7 +483,7 @@ def admit(c, proposal, lease, operation_id):
     return row
 
 
-def complete(c, snapshot):
+def complete(c, snapshot, *, evidence_root=None):
     validate_snapshot(snapshot)
     if any(row['status'] == 'pending' for row in snapshot['stages']):
         raise BudgetError('extension_execution_pending')
@@ -493,7 +493,7 @@ def complete(c, snapshot):
     if row['outcome'] is not None:
         if row['outcome'] != snapshot: raise BudgetError('extension_outcome_changed')
         return
-    _save_case(c, row['extension_id'], 'outcome', snapshot)
+    _save_case(c, row['extension_id'], 'outcome', snapshot, evidence_root=evidence_root)
     row['outcome'] = copy.deepcopy(snapshot)
     _write(c, history)
 
