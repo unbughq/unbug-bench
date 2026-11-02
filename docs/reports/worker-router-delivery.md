@@ -69,3 +69,36 @@ artifacts for the public sentinel. The corrected token-export mutation fails in
 19.16 seconds without timeout. Removing worker CA loading reaches the outer
 96-second bound (router unavailable); the focused TLS tests independently prove
 trust failure. These are offline negative controls, not live cleanup evidence.
+
+## Final validation and parent decision
+
+The canonical full suite at 1597620 completed 174 scripts with three failures
+under severe host contention (observed one-minute load 485 on 12 logical CPUs).
+The two earlier source/fixture failures were fixed. This run's failures were:
+
+- test_isolation_timeouts.py: the unchanged two-second asynchronous cancellation
+  cleanup deadline expired.
+- test_model_router.py: the per-call quota test exhausted its unchanged ten-second
+  model-call budget before switching its synthetic subscription account.
+- test_parallel.py: the synthetic grandchild missed its unchanged ten-second
+  startup deadline.
+
+Parent decision, 2026-11-02: "Finish and keep your current run. If only
+timing-sensitive tests fail, rerun those test scripts on their own once load
+drops, record both the failure and the passing rerun, and don't weaken any test
+limits." The parent stopped its own merge suite. Lane 1 was left untouched.
+
+The full record is worker-router-delivery-suite-20261102T072446Z-8ca7e013.json
+and its matching compressed log. It remains marked qualifying=false; this is not
+an all-green full-suite claim. All three complete failing scripts then passed
+sequentially with BENCH set exactly as tests/run.py sets it, at load 10–11:
+worker-router-delivery-timing-reruns-20261102T083651Z-a7ae8f44.json and its log.
+They ran the same source commit/tree, with no production code, test or timeout
+change. This full run plus the isolated passes satisfies the parent's revised
+validation procedure. Isolation ran 26 tests and router ran 42; parallel printed
+its normal PASS results.
+
+An earlier standalone attempt, ...T083144Z-154c9e3d, omitted BENCH and caused
+path/import errors. It is retained, marked non-qualifying and explicitly not used
+as validation. The passing rerun record includes the environment correction.
+Fresh diff review follows; no workers, live cloud, paid calls or repin occurred.
