@@ -24,7 +24,11 @@ Design reviews docs/reviews/stream-d-writer-early-observation-design-{1,2}.md;
 round 2 PASS. Both blockers are fixed. Optional worker-count simplification was
 independently rejected in round 2 because dependency_files excludes factory_pool
 at one worker. Terminal receipt consistency remains a next-slice obligation.
-Full locked suite and fresh diff review pending. No Murphy rows close.
+Focused file: 11 tests pass. Implementation caba7e6 passes the locked full suite:
+179 scripts, 0 failed, exit 0, elapsed 2282.7 seconds. Record and log:
+`stream-d-writer-early-suite-20261102T153312Z-deedf1fd.{json,log}`.
+Log SHA-256: `87f8ab62e82bf21687422c4cef444a927770a135d2759875c65d1d590766fc47`.
+Fresh diff review pending. No Murphy rows close.
 
 Next lane 2 slice: rejected-writer terminal completion/replay and progress decision,
 including stricter receipt consistency and irrelevant-edit rerolls. Then partial/

@@ -3931,6 +3931,7 @@ No Murphy rows close; package increment 2 and All diagnosis outcomes stay open.
 Design `stream-d-writer-early-observation.md` passes fresh review round 2. The
 implementation retains failed early gate and private saved-cheat observations;
 replay precedes G1 and every early check and never creates a full G6 result.
-Terminal completion/progress remains separate. Full locked suite and fresh diff
-review are pending. No Murphy row closes. Lane 1 public-match and blocking-stress
+Terminal completion/progress remains separate. Implementation caba7e6 passes the
+locked full suite: 179 scripts / 0 failures. Fresh diff review is pending.
+No Murphy row closes. Lane 1 public-match and blocking-stress
 outcomes are now merged; post-extension factory-bug return remains lane 1.
