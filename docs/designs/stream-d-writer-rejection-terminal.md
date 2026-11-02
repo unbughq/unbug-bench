@@ -2,7 +2,8 @@
 
 ## Problem, scope and decision
 
-A failed writer check now survives a restart, but the extension stays active
+A writer whose output failed a check should finish its extra round, not stay open
+forever. A failed writer check now survives a restart, but the extension stays active
 forever. Close that history from the actual rejection and let the next diagnosis
 choose its normal outcome. If it asks for another extension, reject that request
 as retired_no_progress without running stress or checks to rediscover the failure.
@@ -30,7 +31,8 @@ this failure-only decision and remain an explicit final integration obligation.
 ## One terminal module, existing evidence and publication
 
 Add factory/extension_writer_rejection.py with complete(c,r,row), verified(c,r,row),
-stop(c,row). Add its worker inventory entry using the existing inventory mechanism.
+stop(c,row). Add factory/extension_writer_rejection.py to expected_worker in
+tests/tools/test_launch_manifest.py; worker_files already includes factory/*.py.
 Keep Records as the only rejection evidence producer. Do not add callbacks or
 run any check. Delete package.run's direct replay_writer_early hold branch and
 replace it with complete/stop at that location. Keep writer_early's shared helper
@@ -39,14 +41,21 @@ for the existing capture path. No rewrite of writer receipts.
 The selector examines only G1,G15,G3,G4,G5,saved-cheats record.json under this row's
 package root, including symlinks as present. None returns False (normal route).
 More than one, or a stress record alongside a candidate, refuses
-extension_snapshot_changed. Other package gate directories alongside a candidate
-also refuse: a rejected single round cannot have reached final gates.
+extension_snapshot_changed. The exact additional refusal set is subdirectories
+(or symlinks at those paths) named in extensions.stages(), excluding the candidate;
+stress is already in that set. A rejected single round cannot reach final gates.
+Ignore dot-prefixed staging directories, including .stage-*/record.json left by
+SIGKILL; they are not published observations. Do not scan arbitrary directories.
 
 Use a copied context (copied args/card) and Records.load(check_version=False) to
 validate envelope, identity, case and support. The rejection is historical: never
 compare it with current gate versions, and never restore its card projection.
 G1 must be ok is False, non-pending under comparison._pending, and info.problems
-a nonempty list of nonempty strings. Early records additionally use the exact
+a nonempty list of nonempty strings. Tighten writer_g1's save predicate to require
+that same nonempty-string problems list, since write_and_attack only rejects when
+problems is truthy. A False tuple with empty problems is returned unchanged and
+writes no failure record. Test it continuing to early/stress without a G1 record.
+Early records additionally use the exact
 writer_observation feedback/positive-int bench_workers validation from the prior
 slice; factor that validation into a Records helper shared by replay and terminal
 selection rather than duplicating it. G3 retains load's effective-count check.
@@ -78,22 +87,21 @@ record.json and exactly its support files preserving work-relative paths; these
 include the full observed case. Write extension-terminal/<id>-writer-rejection.json
 with atomic_json. Its exact keys are schema_version=1, kind=writer_rejection,
 extension_id, writer_operation_id, round, entry_sha256, case_tree_sha256,
-source_generation, stage, record_sha256, receipt. Bind entry_sha256 to digest(entry),
+stage, record_sha256, receipt. Bind entry_sha256 to digest(entry),
 record_sha256 to the raw record envelope file, case_tree_sha256 to the complete
-observed tree, and source_generation to job_authority.for_case(c).source_generation.
+observed tree. No generation or slot is stored in this immutable marker.
 
-Build outcome with that generation/tree digest, copied entry stage names/versions
+Build outcome with job_authority.for_case(c).source_generation and that tree digest, copied entry stage names/versions
 all status unreached and null binding/evidence hashes, frontier 0, and evidence
 mapping every copied record/support/marker path to its actual hash. Call existing
 validate_snapshot and extensions.complete(evidence_root=staging). Existing
 _save_case copy/rename-before-history and immutable target verification provide
-retry safety. If an outcome directory already exists while history is still open,
-read its fixed marker first, derive the expected snapshot from its retained bytes
-and stored generation, and run the same verified logic against a temporary row
-with that outcome. Require its record and receipt to equal the authenticated
-current rejection; then complete that exact snapshot. Never regenerate a marker
-with a new source generation after rename. The rename-crash exam changes source
-generation on resume and requires byte-identical retained outcome evidence.
+retry safety. Generation is outcome lineage only, as in complete_unchanged:
+a crash after rename can rebuild identical evidence with the current generation.
+_save_case verifies the existing target bytes and complete commits the new lineage
+once. There is no special orphan-outcome reader or temporary history row. The
+rename-crash exam changes generation and requires byte-identical evidence, with
+only outcome.source_generation taking the authenticated resumed generation.
 Refuse an all-pass entry (frontier == len(stages)); do not invent
 an outcome for a state admission should not create.
 
@@ -107,7 +115,8 @@ is the retained outcome case. Records.load(check_version=False) then rechecks
 all recorded paths/hashes and original writer operation/round. Use the same pure
 receipt/feedback/full-tree rules as complete, without calling writer_receipt or
 reading live ledger/attack-state. Rebuild the expected snapshot from these bytes
-and the marker's stored generation; require exact equality to row.outcome.
+and row.outcome.source_generation (validated as a SHA by validate_snapshot);
+require exact equality to row.outcome.
 Do not consult today's gate versions/models/slot, or rewrite comparisons/history.
 
 Wire verified into completed_route before Records.load(stress), and into package.run
@@ -118,13 +127,18 @@ stress_review_unresolved:rounds_exhausted handoff, call complete again before
 stress(); propagate all other original stops. The producer handles completed and
 validated publication windows; there is no synthesized validation receipt.
 
-stop clears gates/gate_results, failed_gate/failed_detail/infrastructure_gate and
-stale early markers, then sets stress_review={status:not_run,reason:writer_rejection}.
-For G1/G15/G3/G4/G5 set failed_gate to the actual rejecting gate and failed_detail
-to retained info. For saved-cheats leave failed_gate absent ('unknown' in diagnosis),
-and set failed_detail to private sample info/feedback; never label it G6. Preserve
+stop sets card.gates={} and card.gate_results={}, then pops these card keys:
+failed_gate, failed_detail, infrastructure_gate, early_gates. It removes the
+context attributes early and early_hash if present. It sets
+stress_review={status:not_run,reason:writer_rejection}. For every rejecting stage,
+failed_detail is exactly a deep copy of the retained record's info, including
+writer_observation where present; no inferred/rewritten feedback is added.
+For G1/G15/G3/G4/G5 set failed_gate to that actual stage. For saved-cheats leave
+failed_gate absent ('unknown' in diagnosis); never label the sample G6. Preserve
 builder_rounds and money/diagnosis fields. Raise extension_incomplete so main and
 finalize_accounting queue one new exhaustion after the outcome is committed.
+The terminal tests seed stale early/card/context state and assert these exact
+values and absences on both fresh completion and replay.
 
 In subsequent_entry, after existing eligibility and live-tree checks, call verified
 before current_pair or Evaluator and raise retired_no_progress. The production
@@ -146,8 +160,11 @@ controls. No real workers, network or model calls.
   unreached and exact retained diagnostic/support bytes. No stress or G6 claim.
 - Crash after observation before validation, after validation before exhaustion,
   after outcome rename before history, and after history before card: same proof,
-  outcome and stop on replay. Forbid writer, G1, early checks, stress, gates, money
+  diagnostic and stop on replay; the rename-before-history window may rebind only
+  outcome.source_generation as specified above. Forbid writer, G1, early checks, stress, gates, money
   and model calls; forbid writer_receipt on completed outcome replay.
+- A valid candidate next to .stage-x/record.json completes normally; the leftover
+  directory is ignored, while an actual conflicting published-stage directory refuses.
 - Valid record with repair_pending True, pending/wrong phase, wrong next_phase,
   wrong feedback, awaiting_stress True, mixed exhaustion markers or wrong operation
   refuses before evaluator calls and leaves attack-state bytes unchanged.
@@ -164,7 +181,12 @@ controls. No real workers, network or model calls.
   dispatch recovers committed history before card via completed_route.
 - Existing observation tests that asserted the old package hold are updated only
   at the package boundary to expect extension_incomplete and a completed outcome;
-  their capture/refusal/no-rerun assertions remain. Direct helper tests unchanged.
+  their capture/refusal/no-rerun assertions remain. Specifically update held() and
+  rejected() helpers and fresh/completed/done/kill-after-record package tests in
+  test_stream_d_writer_g1.py, plus held()/observation() and package paths in
+  test_stream_d_writer_early.py. test_legacy_validated_receipt_is_not_reconstructed
+  retains the execution_pending hold. Direct helper replay tests remain unchanged:
+  the shared helper contracts are kept, although package entry now dominates them.
   Ordinary runtime, route, attribution, retry and public/blocking tests unchanged.
 
 Midterm is retained observation -> terminal replay with forbidden evaluators.
