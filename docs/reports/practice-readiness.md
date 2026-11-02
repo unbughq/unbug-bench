@@ -128,3 +128,10 @@ fd92c3d10b07b28d35a6be840fb5dd935bcd5bf1 amended only the two decision documents
 The JSON retains both source commits/trees and the verified changed paths. No
 runtime or test bytes changed during or after this passing run. The scoped fresh
 Claude re-check is diff round 2 of 2; nits 2, 5, 6 and 7 remain open.
+
+Fresh Claude scoped diff review round 2: **PASS, no blockers or majors**.
+Saved verbatim in `../reviews/practice-readiness-diff-2.md`. M1 and round-1
+nits 1, 3 and 4 are independently verified; founder decisions and full-suite
+provenance also pass. Round-1 nits 2, 5, 6 and 7 and the three optional round-2
+nits remain recorded and open. No runtime/tests changed after the suite.
+No Murphy rows closed or live actions taken. This increment stops here.
