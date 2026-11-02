@@ -62,3 +62,15 @@ Checked at 789f588 in t3-21bef30c, read-only. No tests, writes or network calls.
 ## Elephant disposition
 
 Accept B1, M1 and M2; reject no finding. The named fixtures do not yet specify one executable decision/extension/comparison chain, and the main harness was misnamed. The proposed previous-card override must be removed because it can discard legitimate feedback; the existing comparison path already clears infrastructure feedback. In-place owner transitions must not be described as an archive/restore proof. Record-read error mapping and permanent held-state limits also need explicit treatment. No implementation or test work begins. Final design round 2 did not pass; stop and hand the remaining blocker back to the parent under its two-round cap. Murphy new-stream-d-current-comparison-1 remains open. No suite was run for this design-only increment.
+
+
+## Parent decision: parent-approved after round 2
+
+The parent approves the design logic, with no third design review. B1's combined
+fixture and row-closing exam is deferred, not rejected as solved. Implement with
+focused existing-fixture unit tests and label authored states/seams honestly.
+Keep new-stream-d-current-comparison-1 OPEN; add the exact retained-artifact chain
+to item 8. Accept M1 (remove previous-card override) and M2 (in-place transition is
+not archive/restore evidence). Map target read errors explicitly and document
+permanent held-state limits. Full suite under shared lock and max two fresh diff
+reviews remain required. This supersedes the prior stop disposition.

@@ -6,7 +6,7 @@ After the factory is fixed, return to the case's interrupted extension compariso
 rather than ordinary construction. Keep the prior diagnosis and use its existing
 replay route. This avoids another paid diagnosis and an unrelated writer round.
 
-Lane 1 slice 3, Murphy new-stream-d-current-comparison-1. Baseline accepted
+Parent-approved after round 2. Lane 1 slice 3, Murphy new-stream-d-current-comparison-1. Baseline accepted
 4dcbda8 includes factory-simplify 02f3bc9. Merge factory-simplify after land10 lands
 and before handback. Diagnosis remains disabled. No other lane's work, enabling
 active-extension diagnoses, legacy entry reconstruction, new resume authority,
@@ -81,15 +81,10 @@ and retains factory_bug_resume_count. None keeps the existing ordinary clearing.
 The private record is unchanged. Existing post-admission I/O held-wait behavior
 is unchanged. Retirement and existing money waits retain their priority.
 
-After atomic scorecard success, when X was restored, set the ephemeral
-c.extension_resume_previous = deepcopy(admitted_card). This is only the previous
-card argument for writer feedback, not routing or authority. B already removes
-failed_gate and infrastructure_gate from admitted_card. In main's existing
-integer branch, use getattr(c, 'extension_resume_previous', prev_card) for BOTH
-admit_extension and extension_package.run. The original held prev_card Y must
-not feed an infrastructure failure to writer_feedback. Keep c.checkpoint_card
-unchanged because it belongs to authenticated installation. On later launches
-the checkpoint is already the restored X card, so no attribute is needed.
+Keep main and its previous-card argument unchanged. The real subsequent_entry
+comparison path already clears failed_gate, failed_detail and infrastructure_gate
+before attempting comparison. A previous-card override could discard legitimate
+scientific feedback when an existing pair is reused, so no override is added.
 
 In _dispatch, when resume_factory_bug returns True:
 - no restored completed close_to_passing state: return False as today;
@@ -122,55 +117,55 @@ and replays that immutable package; extension_incomplete can recur without work
 or outcome mutation. A resume can be consumed this way, bounded by three. This
 change preserves the correct target; it cannot revise an immutable result.
 
-## Tests and row closure
+## Parent-approved after round 2: focused tests, no row closure
 
-New tests/factory/test_stream_d_resume_target.py, with one small main-harness
-extension in test_stream_d_dispatch.py if needed. Use real saved practice case
-and 5813be ledger bytes. Pin reused producers:
-- DispatchTests' InputTests setup, real queued_inputs/journal/decision/apply with
-  its labelled CLI answer control and actual reservation/settlement.
-- test_stream_d_comparison.ComparisonTests' real admit/complete/snapshot flow,
-  evaluator child transport control, and DiagnosisBoundaryTests.check_handoff's
-  real retry exhaustion/finalize/freeze sequence.
-- test_stream_d_held.ResumeTests.transition for actual later-batch release/
-  money-chain transitions (not its already-held setUp or a nonexistent class).
+Parent approved the design logic after final design round 2, with no round 3.
+B1's combined fixture/row-closing exam is explicitly removed from this increment.
+M1 is accepted: no previous-card override or main change. M2 is accepted:
+owner/release transitions in the focused tests happen IN PLACE; they are not an
+archive/restore or imported-ledger proof. The item-8 checklist must require:
+"close new-stream-d-current-comparison-1 with a real decision → extension →
+subsequent_entry comparison exhaustion → factory-bug hold/resume chain on
+retained artifacts".
 
-The row-closing final exam is
-test_completed_extension_comparison_factory_bug_relaunch_returns_to_original_target:
-produce a completed extension, validated X, real comparison retry exhaustion,
-Y pending/frozen factory_bug, and later-batch admission. Copy the actual hashed
-runtime files into the private test tree, bind run_validity.__file__ to that
-private bin/run_validity.py before the first comparison, and clear its cache.
-After the hold, append an authored fix comment to a copied factory .py file,
-clear runtime_revision.cache_clear(), assert the hash changed, and keep the
-original journal bytes/entries. Restore the module binding/cache in cleanup.
-The actual comparison now succeeds using the named evaluator transport control;
-entry/progress admission buys exactly one writer. No ordinary build/validation,
-extra diagnosis CLI, reset journal or writer before progress. X's original input,
-decision, attempt bytes and reservation identities survive the release change.
-Check exactly one B debit, one new extension, unchanged prior entry/outcome
-bytes, conservative cumulative spend and ordinary/waste conservation.
+New tests/factory/test_stream_d_resume_target.py uses these fixtures honestly:
+- DispatchTests.setUp (saved practice and 5813be bytes), its labelled CLI answer
+  control and real queued_inputs/journal/decision/apply. Test retaining X, freezing
+  it under a new factory-bug diagnosis, an in-place authenticated owner transition
+  using ResumeTests.transition, and dispatch replay of the original X with no
+  second diagnosis. This chain has NO extension/comparison execution claim.
+- Existing DispatchTests.admit_active_control uses authored snapshot controls,
+  real pending_call admission and writer_receipt. These exercise return to an
+  already admitted successor without a second writer, not subsequent_entry.
+  A completed-route unit seam may be controlled explicitly; do not imply an
+  authored snapshot proves package scientific execution.
+- ResumeTests.setUp/transition provide a real finding/admission and saved ledger
+  with authored lifecycle state. Where needed, retain an explicitly authored X
+  before freeze to test the helper/atomic restore only. This is not a journal or
+  subsequent_entry proof.
 
-Midterm/negative exams:
-- Unchanged runtime/science: original journal immediately re-exhausts with no
-  evaluator/writer call, one B admission only; another later hold uses a new
-  admission, eventual three-resume retirement unchanged.
-- Crash after B append before card clear, after cleared-card publication, and
-  after actual writer admission: reconstruct from disk, preserve one debit and
-  no duplicate writer. Reused-admission validation also rejects changed records.
-- Committed-package target replays extension_incomplete without work, as above.
-- No-extension/no-record ordinary hold remains ordinary. Missing/corrupt/
-  symlinked live/frozen record, missing X replay artifacts, and changed owners
-  refuse with held/input-invalid/owner policy and no paid work.
-- Disabled activation still stops extension_comparison_pending; no build path.
-- Main subprocess harness (DispatchTests.main_stop) checks restored previous
-  context reaches both admission and package, has no failed_gate/infrastructure
-  feedback, and forbids ordinary build/validate. Its setup controls stay labelled.
-- Freeze/input inventory and ledger authority tests remain intact.
+Focused assertions: enabled selection writes before scorecard return; disabled
+selection does not retain or bypass activation; identical replay preserves bytes;
+new validated diagnosis replaces X; malformed/symlinked/changed/missing records
+refuse without a new debit; bad reads map extension_resume_target_invalid rather
+than factory_bug_resume_io_wait; reused admission validates again. Crash after
+append and before card clear reuses its admission; crash after clear replays X;
+active successor recovers the same writer receipt. Original X manifest, journal,
+decision and reservation bytes/identities remain intact during the in-place owner
+transition. Missing replay artifacts refuse input-invalid, no new diagnosis call.
+Existing no-record pre-extension tests keep ordinary recovery. Existing tests
+cover the unchanged lifetime retirement/money rules. No full main harness or
+pair-attempts/runtime-revision qualification is claimed by these focused tests.
 
-Close new-stream-d-current-comparison-1 ONLY with the final real-artifact test
-and fresh diff review confirming the chain; otherwise leave it open and report
-the missing exam. No row 9, full item 7 or live qualification closure.
+Record read/parse errors are caught inside the target helper and mapped to
+FactoryBugHeldWait('extension_resume_target_invalid'). A missing/invalid retained
+record permanently holds the case until its original evidence is restored;
+later batches do not repair it, do not consume a new admission and cannot safely
+guess a replacement target. It requires evidence repair/operator action.
+
+Murphy new-stream-d-current-comparison-1 stays OPEN. Close no rows, claim no full
+item-7 or live qualification. The real retained-artifact chain is deferred to
+item 8 explicitly, not hidden behind a conditional closure promise.
 
 ## Cost, risk, schedule and delivery
 
