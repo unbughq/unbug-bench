@@ -3909,3 +3909,15 @@ round 1 passes: docs/reviews/stream-d-freshness-only-writer-diff-1.md. This slic
 is complete for handback. No Murphy rows close.
 The six remaining slices, ownership and estimates are in that design's table;
 package increment 2 and All diagnosis outcomes stay unchecked.
+
+
+### Item 7 rejected-writer G1 observation slice
+
+Design `stream-d-writer-g1-observation.md` passes fresh review round 1. The package
+now retains real failed post-writer G1 observations before validation-receipt
+publication and replays them across that crash window. Passes are not recorded.
+Ten focused tests pass. Full locked suite and fresh diff review remain required.
+This is evidence capture only: terminal completion/progress, early-gate and
+saved-cheat observations remain open, alongside partial/legacy entry reconstruction
+and final all-outcomes integration. Lane 1 public-match completion has landed.
+No Murphy rows close; package increment 2 and All diagnosis outcomes stay open.

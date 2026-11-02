@@ -231,6 +231,21 @@ class Records:
         self.save(stage, ok, info, before, card)
         return ok, info
 
+    def writer_g1(self, c, invoke):
+        """Retain the actual post-writer rejection, never an early pass."""
+        old = self.load('G1')
+        if old is not None:
+            if old['ok'] is not False: refuse()
+            self.restore('G1', old)
+            return old['ok'], old['info']
+        before = {k: gate_state.digest(p) for k, p in gate_state.inventory(c, self.r.BENCH).items()}
+        card, case = project(c.card), self.r.case_hash(c)
+        ok, info = invoke()
+        if ok is False and not comparison._pending(ok, info):
+            if self.r.case_hash(c) != case: refuse()
+            self.save('G1', ok, info, before, card)
+        return ok, info
+
     def observe_gate(self, c, stage, invoke):
         """Observe ordinary execution without changing its verdict or retry policy."""
         self.observed[stage] = False
@@ -418,7 +433,8 @@ def run(c, r, previous, number):
         if public.complete(c, r, row): public.stop(c, extensions.read(c)[-1])
         try:
             with public.capture(c, r, row):
-                r.write_and_attack(c, previous, extension_id=number)
+                r.write_and_attack(c, previous, extension_id=number,
+                    writer_g1=lambda c: records.writer_g1(c, lambda: r.g1(c)))
         except BudgetError as error:
             if str(error) == 'freshness_public_match':
                 if public.complete(c, r, row): public.stop(c, extensions.read(c)[-1])
