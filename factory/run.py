@@ -1159,7 +1159,7 @@ def writer_request(c, n, round_limit, findings, problems, release_rereviews,
     return receipt, text
 
 
-def write_and_attack(c, prev, *, extension_id=None):
+def write_and_attack(c, prev, *, extension_id=None, writer_g1=None):
     """Alternate within whole-case list-price budget and the safety round cap."""
     from founder_ruling import context as ruling_context, feedback_allowed
     modern = model_runtime.factory_job(c)
@@ -1528,7 +1528,7 @@ def write_and_attack(c, prev, *, extension_id=None):
                      if extension is not None else repair_requested)):
                 attack_unresolved(c, "unchanged_repair")
             # Invalid cases go straight back to the builder; never spend an attack on them.
-            problems = g1(c)[1]["problems"] or None
+            problems = (writer_g1 or g1)(c)[1]["problems"] or None
             if problems:
                 if modern:
                     writer_receipt.update(phase='validated', validation_problems=problems, next_phase='writer')
@@ -1549,7 +1549,7 @@ def write_and_attack(c, prev, *, extension_id=None):
                 "report": f"round-{n}.json", "round_limit": round_limit, "awaiting_stress": True,
                 "release_rereviews": release_rereviews, "release_review_attempts": release_review_attempts})
         elif modern and resume_writer_validation:
-            problems = g1(c)[1]['problems'] or None
+            problems = (writer_g1 or g1)(c)[1]['problems'] or None
             if not problems: problems = None if c.args.dry_run else early_checks(c)
             binding = attack_binding(c)
             resume_unit.update(binding=binding, binding_sha256=hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest(),
