@@ -1,0 +1,52 @@
+{
+  "source_commit": "1597620a4cda22de8a8e985bc73036e9c14bd3e5",
+  "source_tree": "1cc9197850ecf08fdaf7204775e3927e632877d5",
+  "parent_authorization": "2026-11-02: preserve full run; if only timing-sensitive tests fail, rerun those test scripts individually once load drops; do not weaken limits",
+  "full_suite_record": "docs/reports/worker-router-delivery-suite-20261102T072446Z-8ca7e013.json",
+  "observed_peak_load_1m": 485.01220703125,
+  "logical_cpus": 12,
+  "tests_unchanged": true,
+  "results": [
+    {
+      "script": "tests/factory/test_isolation_timeouts.py",
+      "command": "uv run --with numpy --with scipy python -B tests/factory/test_isolation_timeouts.py",
+      "started_at": "2026-11-02T08:31:45Z",
+      "load_average": [
+        18.3515625,
+        29.85888671875,
+        59.400390625
+      ],
+      "exit_code": 0,
+      "finished_at": "2026-11-02T08:32:32Z"
+    },
+    {
+      "script": "tests/factory/test_model_router.py",
+      "command": "uv run --with numpy --with scipy python -B tests/factory/test_model_router.py",
+      "started_at": "2026-11-02T08:32:32Z",
+      "load_average": [
+        19.396484375,
+        28.4267578125,
+        57.34375
+      ],
+      "exit_code": 1,
+      "finished_at": "2026-11-02T08:32:32Z"
+    },
+    {
+      "script": "tests/factory/test_parallel.py",
+      "command": "uv run --with numpy --with scipy python -B tests/factory/test_parallel.py",
+      "started_at": "2026-11-02T08:32:32Z",
+      "load_average": [
+        19.396484375,
+        28.4267578125,
+        57.34375
+      ],
+      "exit_code": 1,
+      "finished_at": "2026-11-02T08:32:33Z"
+    }
+  ],
+  "qualifying": false,
+  "log": "docs/reports/worker-router-delivery-timing-reruns-20261102T083144Z-154c9e3d.log.gz",
+  "log_sha256": "e409eb69a7a23b9e5589e8bbc5cdd643bce837eba9c82d8c532ecefcf96c90ae",
+  "compressed_log_sha256": "08c51aad3b15be12b9a75e4f67b02a891c501f7a857f040edb86cc7c5084d5b5",
+  "harness_error": "Standalone wrapper omitted BENCH set by tests/run.py; model-router and parallel scripts encountered path/import errors. Not validation."
+}

@@ -322,7 +322,15 @@ secrets_b64=$(printf '%s' "$secrets_b64" | base64 -d | python3 -c 'import io, sy
 keep, src, out = set(sys.argv[1:]), tarfile.open(fileobj=io.BytesIO(sys.stdin.buffer.read())), io.BytesIO()
 with tarfile.open(fileobj=out, mode="w") as t: [t.addfile(m, src.extractfile(m)) for m in src.getmembers() if m.name in keep]
 sys.stdout.buffer.write(out.getvalue())' $secrets | base64) || { echo "could not select secrets" >&2; exit 1; }
-for need in "$claude_secret" codex-auth.json "$opencode_secret" openrouter-key; do
+router_names=""
+if [ -n "$batch_release" ]; then
+  router_names="factory-router-url factory-router-token factory-router-ca.pem"
+  if [ "${UNBUG_RESUME_LAUNCH:-}" != 1 ]; then
+    secrets_b64=$(printf '%s' "$secrets_b64" | python3 -B "$here/router_delivery.py") || exit 1
+  fi
+  secrets="$secrets $router_names"
+fi
+for need in "$claude_secret" codex-auth.json "$opencode_secret" openrouter-key $router_names; do
   case " $secrets " in *" $need "*) ;; *) echo "$secrets_file lacks $need (run bin/setup-secrets)" >&2; exit 1 ;; esac
 done
 # On the VM: drop boat relay settings, load each pushed key (codex keeps its own file).
@@ -333,6 +341,9 @@ if [ -n "${FACTORY_ACCOUNT_POLICY:-}" ]; then
 fi
 for s in $secrets; do
   case $s in
+    factory-router-url) vm_creds="$vm_creds; test -s /dev/shm/secrets/$s; export FACTORY_ROUTER_URL=\$(cat /dev/shm/secrets/$s)" ;;
+    factory-router-token) vm_creds="$vm_creds; test -s /dev/shm/secrets/$s; export FACTORY_ROUTER_TOKEN=\$(cat /dev/shm/secrets/$s)" ;;
+    factory-router-ca.pem) vm_creds="$vm_creds; test -s /dev/shm/secrets/$s; export FACTORY_ROUTER_CA_FILE=/dev/shm/secrets/$s" ;;
     statements-key) ;; # runner reads the private key file directly, never through the environment
     claude-token|claude-factory-token-2|claude-factory-token-3) vm_creds="$vm_creds; export CLAUDE_CODE_OAUTH_TOKEN=\$(cat /dev/shm/secrets/$s)" ;;
     openrouter-key) vm_creds="$vm_creds; export OPENROUTER_API_KEY=\$(cat /dev/shm/secrets/openrouter-key)" ;;

@@ -98,6 +98,10 @@ parent merge plus migration record. Existing spend/commitments/terminal records
 are loaded first; reject lowering below consumption/commitments or reviving
 retired_batch_bound. Host owner is trusted; this is not a signature/vault system.
 
+The unimplemented `router.url` field below is superseded by the shared RAM
+client configuration in [worker-router-delivery.md](worker-router-delivery.md).
+It is not a second router URL source.
+
 Schema-v1 example (IDs/amounts are illustrative, not authorization):
 
 ```json

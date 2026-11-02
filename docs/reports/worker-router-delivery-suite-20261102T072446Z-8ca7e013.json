@@ -1,0 +1,14 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "source_commit": "1597620a4cda22de8a8e985bc73036e9c14bd3e5",
+  "source_tree": "1cc9197850ecf08fdaf7204775e3927e632877d5",
+  "started_at": "2026-11-02T07:24:46Z",
+  "finished_at": "2026-11-02T08:27:07Z",
+  "exit_code": 1,
+  "qualifying": false,
+  "log": "docs/reports/worker-router-delivery-suite-20261102T072446Z-8ca7e013.log.gz",
+  "log_sha256": "ab7a875fb1a07ba5ee4e091d531c5518be185796606ba4797c497500b53e0850",
+  "compressed_log_sha256": "e899f0644eae9ed742cd7eee36b91f1e1237a8001f8d84f0fdfcc320f416a04c",
+  "test_scripts": 174,
+  "failed_scripts": 3
+}

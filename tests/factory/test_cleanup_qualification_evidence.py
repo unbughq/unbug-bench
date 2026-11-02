@@ -14,7 +14,10 @@ ROOT = Path(__file__).resolve().parents[2]
 BASE = ROOT / 'docs/reports/stream-b-cleanup-qualification-20261031'
 sys.path.insert(0, str(ROOT / 'factory'))
 import deployment_inventory as inventory
-from control_resume import ENVIRONMENT
+# Validate the historical producer's literal schema, not today's launch environment.
+PROBE_ENVIRONMENT = ast.literal_eval(next(node.value for node in
+    ast.parse((BASE / 'probe.py').read_text()).body if isinstance(node, ast.Assign)
+    and any(isinstance(target, ast.Name) and target.id == 'environment' for target in node.targets)))
 
 UNITS = ('unbug-key-holder.service', 'unbug-resume-launches.timer',
          'unbug-resume-launches.service', 'unbug-model-router.service', 'unbug-batch.service')
@@ -133,8 +136,7 @@ def validate(value):
     row = legacy['launch']; keys(row, ('cloud', 'type', 'argv', 'environment_present', 'unknown_environment_keys'))
     enum(row['cloud'], ('boat', 'hetzner', 'absent', 'other'))
     enum(row['type'], ('small', 'default', 'large', 'xlarge', 'absent', 'other')); enum(row['argv'], ('launch', 'other'))
-    # Frozen 2026-10-31 observation predates the practice activation label.
-    keys(row['environment_present'], set(ENVIRONMENT) - {'UNBUG_CLOUD', 'BOAT_TYPE', 'UNBUG_PRACTICE_BATCH'})
+    keys(row['environment_present'], PROBE_ENVIRONMENT)
     for v in row['environment_present'].values(): boolean(v)
     boolean(row['unknown_environment_keys'])
     row = legacy['git']; keys(row, ('head', 'reflog', 'exit_label')); digest(row['head'], True, 40); enum(row['exit_label'], EXIT)
