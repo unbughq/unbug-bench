@@ -61,3 +61,21 @@
 - Smallest needed change: allow account1 eligibility when account2 is explicitly absent from router accounts; change the practice manifest and exact validator to initial account1/allowed [1], test, review, and cut new pins.
 - Practice spend: models $0; infrastructure $0.
 - Worker IDs: none; no pending creation; cleanup not required.
+
+## Superseding founder decision and step-2 deployment check
+
+- Founder decision (2026-11-02): "Use existing token."
+- Decision recorded UTC: 2026-11-02T05:58:15.104440+00:00.
+- Labels: claude-token and existing claude-factory-token-2, unchanged; pinned initial2/allowed[2,1]. No exam label used.
+- distinct_accounts: "unverified (founder accepted)".
+- Account-2 attribution and natural 2→1→2 handoff: unproven.
+- Invalid, expired or refused token-2: ordinary stop under the plan.
+- Account-1-only instruction and its routing hold: superseded. Source 3a50896 and original release pins retained; no code change or repin.
+- VM observation UTC: 2026-11-02T05:57:11.267585+00:00.
+- Encrypted credential labels verified: claude-token, claude-factory-token-2, opencode-go-key, openrouter-key, codex-auth.json.
+- Holder, resume timer, model-router and batch services: inactive.
+- Shared router runtime configuration: absent; deployment not begun.
+- Step 2: ABORT, required founder acknowledgement of OpenRouter credential placement in router RAM not found in available records. Identity waiver does not claim that separate check passed.
+- Practice spend: models $0; infrastructure $0.
+- Worker IDs: none; no pending creation, no cleanup unit armed, no deletion required.
+- Deployment mutation: none; no decrypted credentials persisted or emitted.
