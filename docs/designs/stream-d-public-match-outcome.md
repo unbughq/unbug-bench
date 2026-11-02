@@ -9,9 +9,8 @@ that proved result. No scoring standard, model allowance, schema, launcher or
 activation change. DIAGNOSIS_ENABLED stays False. This is lane 1 slice 1 of
 be567f9:docs/designs/stream-d-freshness-only-writer.md's remaining-slices table.
 
-Baseline factory-simplify 3a50896 includes comparison 6599e95. Incoming 184e81c
-(unchanged-writer outcome) is a prerequisite, merged via latest factory-simplify
-before integration. Reuse its complete(evidence_root=...) and package hooks;
+Baseline factory-simplify e1087df is merged before integration. It includes
+comparison 6599e95 and unchanged-writer outcome 184e81c, the prerequisite. Reuse its complete(evidence_root=...) and package hooks;
 leave unchanged-writer predicates alone. Lane 2 keeps freshness-only continuation,
 rejected writer, partial first entry and final integration. Lane 1's unfinished
 blocking stress and factory-bug return slices remain separate. Supports Murphy
@@ -215,7 +214,7 @@ calls, secrets, row closure, activation or claim of all-item-7 completion.
 ## Round-2 implementation clarifications
 
 Deterministic freshness detail is exactly {rows:len(intent.rows),
-requested:len(dict.fromkeys(attack_report(copied_report)['freshness_review'])),
+requested:len(dict.fromkeys(attack_report(copied_report).get('freshness_review', []))),
 verdict_path:confirmation.verdict_path, outcome:'public_match',reason:'same_bug'}.
 Use it for the receipt, failed_detail and loop_freshness. Never read the card.
 Intent versions come from comparison._versions(workspace(c,r)). Terminal Workspace
@@ -229,3 +228,6 @@ Intent also records original c.models as models: attack.binding.models contains
 only the stress chain, whereas search_binding uses the full model map. Require
 confirmation.binding.models == intent.models so current model drift cannot
 relabel the old reviewer family or let a stale confirmation match new inputs.
+
+The report's optional freshness_review defaults to [] exactly as loop_freshness
+does; a search-log hit can be confirmed without an attacker URL request.
