@@ -30,8 +30,8 @@ credential readiness or router transport. Its socket/SSH/provider/CLI edges run
 inside a temporary HOME and TMPDIR. Real age is required; absence is an explicit
 skip. Install commands fail closed. On macOS the Linux-only paid gate produces
 `route_feature_unsupported` after the real lease, yielding
-`provider_preflight_failed`; it does not execute a model CLI. Linux reaches the
-nonzero model executable edge. Focused process-boundary tests cover filtering on
+`provider_preflight_failed`; it does not execute a model CLI. On Linux the exam requires the
+nonzero model executable edge; this host did not qualify that platform. Focused process-boundary tests cover filtering on
 both platforms. The earlier public interruption test retains its runner double
 and is not delivery evidence.
 
@@ -51,3 +51,21 @@ After parent merge, repin before resuming. The live deployment must write the
 router service env and client JSON together in control-VM RAM using one token,
 install its certificate/CA, and start the service before launcher admission.
 That deployment and the practice run remain stopped until parent authorization.
+
+## First suite and corrections
+
+The first canonical run at 607bf58 completed 174 scripts with two failures; its
+record is non-qualifying. The historical-observation test incorrectly compared
+its frozen 2026-10-31 fields with today's control_resume allowlist. It now reads
+the literal field list from the retained probe using ast.literal_eval, without
+executing it or changing any observation. The gate-smoke preallocation path also
+needed to hash worker_secrets.py with its existing runtime dependencies; its
+source-tampering test caught the omission. That list is now updated.
+
+The final integration checks additionally require a missing host client config
+to refuse before billing or creation (the holder still reads its fleet first),
+and scan collected public JSON/text
+artifacts for the public sentinel. The corrected token-export mutation fails in
+19.16 seconds without timeout. Removing worker CA loading reaches the outer
+96-second bound (router unavailable); the focused TLS tests independently prove
+trust failure. These are offline negative controls, not live cleanup evidence.

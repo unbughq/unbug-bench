@@ -175,3 +175,7 @@ The CLI cloud-image edge maps hardcoded executable paths only; its Python audit
 hook refuses real /dev/shm or shared /tmp/factory accesses. TMPDIR isolates runtime
 CLI/config scratch paths. The synthetic R2 credentials exercise host parsing only,
 not actual publication authentication.
+
+The gate-smoke preallocation source list must also include worker_secrets.py,
+since account_handoff imports it. Historical evidence schemas come from their
+retained producer, not the evolving control_resume environment allowlist.

@@ -131,5 +131,7 @@ def verify_exam(test,base,root,cloud,config,store,digest,results,runtime):
     token='public-offline-router-sentinel'
     test.assertNotIn(token,logs)
     test.assertNotIn(token,(cloud/'calls.jsonl').read_text())
+    for f in (root/'sealed').iterdir():
+        if f.suffix in ('.json','.txt'): test.assertNotIn(token.encode(),f.read_bytes(),str(f))
     for f in (base/'control').rglob('*'):
         if f.is_file():test.assertNotIn(token.encode(),f.read_bytes(),str(f))

@@ -239,12 +239,16 @@ class BatchLaunchTests(unittest.TestCase):
         self.run_public_launch()
 
     def test_complete_worker_command_router_delivery(self):
-        if not shutil.which('age'): self.skipTest('real age required for offline worker exam')
-        if any(Path('/home',n).exists() for n in ('pilot','pilot-strong','pilot-easy')):
-            self.skipTest('offline exam requires no real pilot homes on host')
         self.run_public_launch(full_worker=True)
 
-    def run_public_launch(self, full_worker=False):
+    def test_missing_router_config_refuses_before_creation(self):
+        self.run_public_launch(full_worker=True, missing_client=True)
+
+    def run_public_launch(self, full_worker=False, missing_client=False):
+        if full_worker:
+            if not shutil.which('age'): self.skipTest('real age required for offline worker exam')
+            if any(Path('/home',n).exists() for n in ('pilot','pilot-strong','pilot-easy')):
+                self.skipTest('offline exam requires no real pilot homes on host')
         if not (CONSUMER_ROOT/'job_authority.py').is_file():
             self.skipTest('D consumer not merged; explicit --consumer-root integration run required; no enablement')
         if not batch.restore_inventory(ROOT):
@@ -409,9 +413,19 @@ class BatchLaunchTests(unittest.TestCase):
                  patch.object(holder.resource,'setrlimit'), patch.object(holder.signal,'signal'), \
                  patch.object(holder.subprocess,'Popen',side_effect=spawn), \
                  patch.object(holder.sys,'stdin',SimpleNamespace(buffer=io.BytesIO(key))), \
-                 patch.dict(os.environ,{'UNBUG_SECRETS_FILE':str(credentials), 'UNBUG_ROUTER_CLIENT_FILE':str(router_config)}):
+                 patch.dict(os.environ,{'UNBUG_SECRETS_FILE':str(credentials), 'UNBUG_ROUTER_CLIENT_FILE':str(base/'missing-client' if missing_client else router_config)}):
                 holder.serve(policy_path,.1)
                 self.assertEqual(len(verifications),1,'all requests must share one identity verification')
+                if missing_client:
+                    self.assertEqual(len(processes),1)
+                    self.assertNotEqual(processes[0].returncode,0)
+                    # The holder performs its existing read-only fleet preflight first.
+                    self.assertEqual([json.loads(line)[0] for line in (cloud/'calls.jsonl').read_text().splitlines()], ['list'])
+                    self.assertFalse(list(cloud.glob('vm-*')))
+                    logs='\n'.join(f.read_text() for f in (runtime/'jobs').glob('*.log'))
+                    self.assertIn('router delivery refused',logs)
+                    self.assertNotIn(TOKEN,logs)
+                    return
                 if full_worker:
                     from worker_delivery_edge import verify_exam
                     verify_exam(self,base,root,cloud,router_config,router_store,digest,results,runtime)
