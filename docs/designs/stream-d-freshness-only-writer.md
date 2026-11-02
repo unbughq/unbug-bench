@@ -74,7 +74,9 @@ tests for ordinary unchanged_repair stay byte-for-byte unchanged and must pass.
 
 For G2, reuse the saved HTTP/confirmation fixture and real run.g2 test from
 `test_stream_d_execution.py::test_real_g2_retains_freshness_confirmation_and_response_bytes`.
-After admission append one well-formed, current-time hit row with a unique URL
+After admission refresh the saved baseline rows' timestamps to now and set hit=False
+so expired evidence cannot bypass confirmation. Then append one well-formed,
+current-time hit row with a unique URL
 (e.g. the saved fixture URL plus a distinct query) and valid pinned app_version.
 Run complete_writer on the saved repair-True receipt; assert output_sha256 ==
 before_repair_sha256. Then assert complete_unchanged is False, and call
