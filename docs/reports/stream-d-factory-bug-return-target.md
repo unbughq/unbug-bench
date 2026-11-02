@@ -43,7 +43,9 @@ history to the existing completed-successor test (authored scientific snapshots,
 not subsequent_entry proof). Expanded focused file: 13 tests OK in 21.638s.
 The tautological feedback assertion was removed and plain-stop ordering was
 documented. Production code remains unchanged since 9cd1a66. Final diff review
-round 2 is pending; the parent merge suite remains the delivery gate.
+round 2 PASSED with no blockers at reviewed HEAD 2e20d31; the parent merge suite
+remains the delivery gate. Optional nits are deferred, with no post-review source
+or test changes.
 
 Murphy new-stream-d-current-comparison-1 remains OPEN, no rows closed.
 Item 8 now explicitly requires:
@@ -63,3 +65,11 @@ review finish and hand back when it passes."
 Implemented: only this lane's verified queued lockf process was terminated; no
 review was cancelled and no other lane's suite was touched. No further full
 suite is scheduled by this lane for this source unless the parent requests it.
+
+
+Review records: docs/reviews/stream-d-factory-bug-return-target-design-1.md;
+docs/reviews/stream-d-factory-bug-return-target-design-2.md (parent-approved after
+round 2); docs/reviews/stream-d-factory-bug-return-target-diff-1.md;
+docs/reviews/stream-d-factory-bug-return-target-diff-2.md (final PASS).
+
+Newest factory-simplify b75c9b4 is already merged; no active tests remain.
