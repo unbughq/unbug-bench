@@ -44,3 +44,20 @@
 - Status: handed back at step 2; no admission or deployment continuation.
 - Practice spend: models $0; infrastructure $0.
 - Worker IDs: none; cleanup not required.
+
+## Founder account-1 decision and offline stop
+
+- Founder decision (2026-11-02): "Use account 1 for the practice run for now."
+- Decision recorded UTC: 2026-11-02T05:54:56.341529+00:00.
+- Allowed Claude label: claude-token only; claude-factory-token-2 must not be deployed to the VM.
+- Account-distinctness requirement: waived for this run.
+- Account-2 attribution and natural 2→1→2 handoff: UNEXERCISED, deferred, not failures.
+- Shared account-1 Claude rate limit: ordinary cap/refusal stop, including builder contention.
+- Offline source checked: 3a50896325a6054164b0ce0c9e001649cd22dc32; routing, holder, handoff, launch and practice sources unchanged from that pin.
+- Offline router account1-only capacity: 0 slots; account 1 remains gated on current account-2 rate/quota health even when account 2 is absent.
+- Offline account1-only manifest match: false; exact practice validator requires initial account 2 and allowed accounts [2,1].
+- Offline pinned handoff initial Claude selection with only account1 held: 2. Holder rejects missing selected account2; launcher alone can filter to account1 but cannot override these earlier checks.
+- Status: STOP before deployment; code change required. No factory code or manifest edited mid-run; no account-health record fabricated.
+- Smallest needed change: allow account1 eligibility when account2 is explicitly absent from router accounts; change the practice manifest and exact validator to initial account1/allowed [1], test, review, and cut new pins.
+- Practice spend: models $0; infrastructure $0.
+- Worker IDs: none; no pending creation; cleanup not required.
