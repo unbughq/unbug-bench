@@ -307,6 +307,8 @@ class TTLGuardTests(unittest.TestCase):
                                 ('DONE', ['collect', 'delete', 'proof'])):
             with self.subTest(reply=reply), tempfile.TemporaryDirectory() as temp:
                 root = pathlib.Path(temp); (root / 'bin').mkdir(); (root / 'state').mkdir()
+                (root / 'factory').mkdir()
+                (root / 'factory/boat_lifecycle.py').write_bytes((guard.parent.parent / 'factory/boat_lifecycle.py').read_bytes())
                 (root / 'state/ids').write_text('worker-synthetic\n')
                 (root / 'state/worker-synthetic.started').write_text('1\n')
                 fake = root / 'bin/boat-call'

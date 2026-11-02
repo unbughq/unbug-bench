@@ -1,0 +1,23 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "started_at": "2026-11-02T03:32:07.458112+00:00",
+  "source_commit": "fd92c3d10b07b28d35a6be840fb5dd935bcd5bf1",
+  "source_tree": "178e80fb06b82420972136fe9dc1000971c1e778",
+  "finished_at": "2026-11-02T04:06:15.703909+00:00",
+  "exit_code": 0,
+  "scripts": 172,
+  "failed": 0,
+  "log_path": "docs/reports/practice-readiness-m1-suite-20261102T033207Z-0c21fe85.log.gz",
+  "log_sha256": "94869fcd42b34a478a36da2eb2b086f70547b058dd73edb7a41b1f405e173390",
+  "compressed_log_sha256": "ed1a881856361e1c32eaac29a76e573965d59b67f11ab617b5013789e110dd5e",
+  "initial_source_commit": "e4715b760b63e18091b2a6938a76a5f37df6cc2e",
+  "initial_source_tree": "148fc558ebd7746170d08664f4ace8d4144ccdbd",
+  "source_amendment": {
+    "reason": "Founder-requested decisions amended into the same M1 commit during the suite. Only the listed documentation paths changed; the run started at initial_source_commit, not source_commit.",
+    "changed_paths": [
+      "docs/designs/practice-run.md",
+      "docs/reports/practice-readiness.md"
+    ],
+    "runtime_and_tests_unchanged": true
+  }
+}

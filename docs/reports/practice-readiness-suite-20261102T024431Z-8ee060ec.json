@@ -1,0 +1,13 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "started_at": "2026-11-02T02:44:31.258807+00:00",
+  "source_commit": "6e67efa33f089a8e4277591b0a0cbd2acbac1d05",
+  "source_tree": "f0bc30a286787bf328c15535d73c5d875e99b4fe",
+  "finished_at": "2026-11-02T03:22:39.655707+00:00",
+  "exit_code": 0,
+  "scripts": 172,
+  "failed": 0,
+  "log_path": "docs/reports/practice-readiness-suite-20261102T024431Z-8ee060ec.log.gz",
+  "log_sha256": "d8ddddb13b09610056874274172f2f61185ed28350ff57bef0798bb1dd310da5",
+  "compressed_log_sha256": "36949587b2eecca1a354e8113a67af69144dd41d72d1408c15965a0a1a9f0bd9"
+}
