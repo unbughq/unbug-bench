@@ -34,8 +34,13 @@ INCIDENTS = (None, 'creation_unknown', 'accounting_refused', 'legacy_retire',
              'preflight_refused', 'resume_failed', 'publication_failed')
 
 
-def enabled():
-    if not HOLDER_ENABLED: raise ValueError('request_refused')
+def active(policy, root):
+    import practice
+    return HOLDER_ENABLED or practice.active(policy, root)
+
+
+def enabled(policy, root):
+    if not active(policy, root): raise ValueError('request_refused')
 
 
 def operation_id(policy, job, source):
@@ -200,6 +205,10 @@ def empty_input(root, directory, case):
 
 def _admit(directory, record, policy, root, ops, state, name, source_generation, provider_wait=False):
     """Shared decision; only supplied in-memory state changes. Caller owns lock."""
+    import practice
+    if record['id'] == practice.BATCH:
+        if not practice.matches(record): raise ValueError('request_refused')
+        practice.admission(record)
     resolved = service.resolve_job(record, name)
     carried = record.get('carry_from', {}).get('jobs', {})
     if name not in carried and any(re.fullmatch(re.escape(name) + r'-r[1-9][0-9]*', child) for child in carried):
@@ -252,7 +261,7 @@ def _admit(directory, record, policy, root, ops, state, name, source_generation,
 
 
 def reserve(policy, root, home, name, source_generation, *, provider_wait=False):
-    enabled()
+    enabled(policy, root)
     from batch_transfer import prepare
     prepare(policy, root, home)
     record = money.manifest(policy, root)
@@ -283,7 +292,7 @@ def reply(op):
 
 
 def lookup(policy, root, home, identity):
-    enabled(); record = money.manifest(policy, root)
+    enabled(policy, root); record = money.manifest(policy, root)
     directory = home / 'batches' / record['id']
     with service._regular(directory / 'lock') as lock:
         fcntl.flock(lock, fcntl.LOCK_SH)
@@ -304,7 +313,7 @@ def operation_lock(directory, identity):
 
 
 def record_exit(policy, root, home, identity, code):
-    enabled(); record = money.manifest(policy, root)
+    enabled(policy, root); record = money.manifest(policy, root)
     directory = home / 'batches' / record['id']
     try:
         with operation_lock(directory, identity), money.locked(home, record['id']):
@@ -325,7 +334,7 @@ def record_child(policy, root, home, identity, action, code):
     `failures`, and the holder waits 60 * 2**(failures-1) seconds before the next
     spawn. At RETRY_LIMIT it becomes a terminal incident that the scans skip.
     """
-    enabled(); record = money.manifest(policy, root)
+    enabled(policy, root); record = money.manifest(policy, root)
     directory = home / 'batches' / record['id']
     try:
         with operation_lock(directory, identity), money.locked(home, record['id']):
@@ -427,7 +436,7 @@ def _reconcile_one(directory, root, home, op, state):
 
 
 def reconcile(policy, root, home):
-    enabled(); record = money.manifest(policy, root)
+    enabled(policy, root); record = money.manifest(policy, root)
     with money.locked(home, record['id']) as directory:
         ops = _operations(directory, record, policy)
         state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
@@ -468,7 +477,7 @@ def _wait_due(card, record):
 
 def schedule_waits(policy, root, home):
     """Reserve due, published, retired waits; ordinary reconcile dispatches next tick."""
-    enabled(); record = money.manifest(policy, root)
+    enabled(policy, root); record = money.manifest(policy, root)
     with money.locked(home, record['id']) as directory:
         ops = _operations(directory, record, policy)
     for op in ops.values():
@@ -489,7 +498,7 @@ def schedule_waits(policy, root, home):
 
 def orphaned(policy, root, home):
     """Discover only initialized controllers; the existing controller lock wins."""
-    enabled(); record = money.manifest(policy, root)
+    enabled(policy, root); record = money.manifest(policy, root)
     ready = []
     with money.locked(home, record['id']) as directory:
         for identity, op in _operations(directory, record, policy).items():
@@ -507,7 +516,7 @@ def orphaned(policy, root, home):
 
 def unpublished(policy, root, home):
     """Launches whose output is collected and complete but never published/ACKed."""
-    enabled(); record = money.manifest(policy, root)
+    enabled(policy, root); record = money.manifest(policy, root)
     ready = []
     with money.locked(home, record['id']) as directory:
         for identity, op in _operations(directory, record, policy).items():
@@ -551,7 +560,7 @@ def _r2_env(identity_bytes, secrets):
 
 def publish_replay(policy, root, home, identity, identity_bytes):
     """Holder-driven publication replay: the same idempotent collect command, with R2 in memory."""
-    enabled(); record = money.manifest(policy, root)
+    enabled(policy, root); record = money.manifest(policy, root)
     directory = home / 'batches' / record['id']
     with operation_lock(directory, identity):  # Held for the whole run; a second child refuses.
         with money.locked(home, record['id']):
@@ -564,7 +573,7 @@ def publish_replay(policy, root, home, identity, identity_bytes):
 
 
 def resume_controller(policy, root, home, identity, identity_bytes):
-    enabled(); record = money.manifest(policy, root)
+    enabled(policy, root); record = money.manifest(policy, root)
     directory = home / 'batches' / record['id']
     with operation_lock(directory, identity):
         with money.locked(home, record['id']):
@@ -587,7 +596,7 @@ def resume_controller(policy, root, home, identity, identity_bytes):
 
 def source_directory(policy, root, home, identity):
     """Pure POST resolver used by both bind and the shell before restore."""
-    enabled(); record = money.manifest(policy, root)
+    enabled(policy, root); record = money.manifest(policy, root)
     directory = home / 'batches' / record['id']
     with service._regular(directory / 'lock') as lock:
         fcntl.flock(lock, fcntl.LOCK_SH)
@@ -661,7 +670,7 @@ def r2_publish(root, key, path):
 
 
 def collect(policy, root, home, identity, transport=None):
-    enabled(); record = money.manifest(policy, root)
+    enabled(policy, root); record = money.manifest(policy, root)
     with money.locked(home, record['id']) as directory:
         ops = _operations(directory, record, policy); op = deepcopy(ops[identity])
         _config(policy, home, op)
@@ -699,6 +708,8 @@ def collect(policy, root, home, identity, transport=None):
         candidate = dict(schema=1, operation_id=identity, generation=generation,
                          manifest_sha256=entry['manifest_sha256'], state='pending')
         atomic_json(outbox_path, candidate)
+        import practice
+        practice.fault(policy, root, home, identity)
     snapshot = directory / 'generations' / op['case'] / generation
     manifest = service._json(snapshot / 'manifest.json')
     transport = transport or (lambda key, path: r2_publish(root, key, path))
@@ -750,7 +761,7 @@ def collect(policy, root, home, identity, transport=None):
 
 def dispatch(policy, root, home, identity, identity_bytes):
     """One preflight owner, then the existing shell controller. No new launcher."""
-    enabled(); record = money.manifest(policy, root)
+    enabled(policy, root); record = money.manifest(policy, root)
     directory = home / 'batches' / record['id']
     with operation_lock(directory, identity):
         try:
@@ -776,6 +787,8 @@ def dispatch(policy, root, home, identity, identity_bytes):
             account, claude, accounts = launch_accounts(card, job, {}, labels)
             if ((account is not None and OPENCODE_ACCOUNTS[account] not in labels) or
                     CLAUDE_ACCOUNTS[claude] not in labels): raise ValueError('request_refused')
+            import practice_cleanup
+            practice_cleanup.armed(policy, root, home, op)
             fleet = subprocess.run([str(root / 'bin/boat-call'), 'list', '--json'],
                                    capture_output=True, check=True,
                                    env={**os.environ, 'BOAT_CAPTURE_OUTPUT': '1', 'BOAT_COMMAND_TIMEOUT_SECONDS': '25'})
@@ -793,6 +806,8 @@ def dispatch(policy, root, home, identity, identity_bytes):
                        UNBUG_BATCH_OPERATION=identity, CLAUDE_SECRET_NAME=CLAUDE_ACCOUNTS[claude],
                        FACTORY_ACCOUNT_POLICY=json.dumps({p + '_accounts': job.get(p + '_accounts', []) for p in ('opencode', 'claude')}),
                        FACTORY_ACCOUNT_STATE=json.dumps(accounts))
+            import practice
+            if practice.active(policy, root): env['UNBUG_PRACTICE_BATCH'] = practice.BATCH
             if account is not None: env['OPENCODE_SECRET_NAME'] = OPENCODE_ACCOUNTS[account]
             with money.locked(home, record['id']):
                 ops = _operations(directory, record, policy)
@@ -800,6 +815,7 @@ def dispatch(policy, root, home, identity, identity_bytes):
                 current = _post(directory, record, policy, home, ops, state, identity)
                 if current['state'] != 'pending' or current['dispatch_started'] or current['incident'] is not None: return
                 if current['source_generation'] is None: empty_input(root, directory, current['case'])
+                practice_cleanup.armed(policy, root, home, current)
                 current['launch'] = dict(argv=argv, environment={k: env[k] for k in ENVIRONMENT if k in env})
                 current['dispatch_started'] = True
                 _save(directory, record, policy, ops)
@@ -829,9 +845,9 @@ def main():
     parser.add_argument('--recipient')
     a = parser.parse_args()
     try:
-        enabled()
         from key_holder import policy_load, ROOT, CONTROL_HOME
         policy = policy_load(a.policy)
+        enabled(policy, ROOT)
         if a.command in ('dispatch', 'resume', 'publish'):
             key = bytearray(sys.stdin.buffer.read(4097))
             try:

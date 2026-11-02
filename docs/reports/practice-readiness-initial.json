@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "commit": "070a332e6ab87965b2b33f2e2e61a55053848927",
+  "observed_at": "2026-11-01T21:18:37.417687+00:00",
+  "exit_code": 1,
+  "output": "PREPARATION INVALID / PINS STALE: host differs from batch commit\n",
+  "blockers": [
+    "B: pre-armed cleanup, current lifecycle cost proof, legacy ownership disposition, qualified inventory and controller account handoff remain unproved.",
+    "B2: authenticated input generation, owner/ACK, role binding and baseline S are missing.",
+    "A: merged profile release, honest maxima for every selected route, <=$5 item8 feasibility and <=$0.01 probe contract are missing.",
+    "E: cancellation/unknown settlement, escaped capture pipes and measured creation-through-deletion timing remain unproved.",
+    "D/B: item7 outcome joins, replacement admission clamp and cross-release cumulative carry-over require qualification.",
+    "Live account-2 attribution and natural 2-to-1-to-2 acceptance are unproved.",
+    "Final live policy, exact fault/cleanup interfaces and immutable release/input pins require fresh review."
+  ],
+  "scope": "offline only"
+}

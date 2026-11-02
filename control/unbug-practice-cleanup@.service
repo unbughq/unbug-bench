@@ -1,0 +1,15 @@
+[Unit]
+Description=Cleanup for one disposable practice operation
+After=network-online.target
+[Service]
+Type=simple
+User=user
+Group=user
+WorkingDirectory=/home/user/unbug-bench
+Environment=HOME=/home/user UNBUG_CLOUD=boat UNBUG_PRACTICE_BATCH=b-plumbing-practice
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+UMask=0077
+LimitCORE=0
+ExecStart=/usr/bin/python3 -B /home/user/unbug-bench/factory/practice_cleanup.py --operation %i
+Restart=on-failure
+RestartSec=5

@@ -1,4 +1,5 @@
 """Validate preparation pins offline; deliberately never return success to launchers."""
+# Historical frozen preflight; current plumbing checks: tools/practice-preflight.py.
 import copy
 from decimal import Decimal as D
 import hashlib

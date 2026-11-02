@@ -9,7 +9,9 @@ import json
 
 CHECKED_HELPERS = ('bin/qualified-release.py', 'tools/boat_readiness.py')
 HASH_FILE = 'factory/launcher-sha256.json'
-TRUSTED_FILES = ('factory/control_resume.py',
+TRUSTED_FILES = ('factory/practice.py', 'factory/practice_cleanup.py', 'factory/boat_lifecycle.py',
+ 'control/unbug-practice-cleanup@.service', 'tools/practice-fault.py',
+ 'tools/qualify-batch-inputs.py', 'factory/control_resume.py',
  'factory/key_holder.py',
  'factory/batch.py',
  'factory/batch_money.py',

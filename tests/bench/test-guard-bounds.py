@@ -16,6 +16,8 @@ import tempfile
 with tempfile.TemporaryDirectory() as temp:
     root = Path(temp)
     (root / 'bin').mkdir()
+    (root / 'factory').mkdir()
+    shutil.copy(_BENCH_ROOT / 'factory/boat_lifecycle.py', root / 'factory/boat_lifecycle.py')
     (root / 'results/spend').mkdir(parents=True)
     shutil.copy((_BENCH_ROOT / "bin" / 'boat-launch-guards.sh'), root / 'bin/boat-launch-guards.sh')
     for name, code in {

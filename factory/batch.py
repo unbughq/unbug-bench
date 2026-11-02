@@ -146,7 +146,7 @@ def bind(policy, name, checkpoint, root, *, home=None, operation=None):
     from batch_service import resolve_job
     import batch_holder
     record = manifest(policy, root)
-    if not batch_holder.HOLDER_ENABLED and ('carry_from' in record or re.search(r'-r[0-9]+$', name)):
+    if not batch_holder.active(policy, root) and ('carry_from' in record or re.search(r'-r[0-9]+$', name)):
         raise ValueError('request_refused')
     resolved = resolve_job(record, name)
     job, case = resolved['template'], resolved['case']
@@ -165,7 +165,7 @@ def bind(policy, name, checkpoint, root, *, home=None, operation=None):
         if not isinstance(checkpoint, str) or not re.fullmatch('[0-9a-f]{64}', checkpoint):
             raise ValueError('invalid checkpoint generation')
         import batch_holder
-        if batch_holder.HOLDER_ENABLED:
+        if batch_holder.active(policy, root):
             operation = operation or __import__('os').environ.get('UNBUG_BATCH_OPERATION')
             home = home or Path(__import__('os').environ.get('UNBUG_CONTROL_HOME', str(Path.home() / '.unbug-control')))
             source = batch_holder.source_directory(policy, root, home, operation)
@@ -175,7 +175,7 @@ def bind(policy, name, checkpoint, root, *, home=None, operation=None):
             card = json.loads((root / 'sealed' / (case + '.scorecard.json')).read_text())
         expected_release = batch['sha256']
         imported = record.get('carry_from', {}).get('jobs', {}).get(name)
-        if batch_holder.HOLDER_ENABLED and imported and imported['generation'] == checkpoint:
+        if batch_holder.active(policy, root) and imported and imported['generation'] == checkpoint:
             expected_release = record['carry_from']['policy']['batch']['sha256']
         if (card.get('case') != case or card.get('sha256') != checkpoint or
                 card.get('batch_release_sha256') != expected_release):

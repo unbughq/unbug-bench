@@ -133,7 +133,8 @@ def validate(value):
     row = legacy['launch']; keys(row, ('cloud', 'type', 'argv', 'environment_present', 'unknown_environment_keys'))
     enum(row['cloud'], ('boat', 'hetzner', 'absent', 'other'))
     enum(row['type'], ('small', 'default', 'large', 'xlarge', 'absent', 'other')); enum(row['argv'], ('launch', 'other'))
-    keys(row['environment_present'], set(ENVIRONMENT) - {'UNBUG_CLOUD', 'BOAT_TYPE'})
+    # Frozen 2026-10-31 observation predates the practice activation label.
+    keys(row['environment_present'], set(ENVIRONMENT) - {'UNBUG_CLOUD', 'BOAT_TYPE', 'UNBUG_PRACTICE_BATCH'})
     for v in row['environment_present'].values(): boolean(v)
     boolean(row['unknown_environment_keys'])
     row = legacy['git']; keys(row, ('head', 'reflog', 'exit_label')); digest(row['head'], True, 40); enum(row['exit_label'], EXIT)
