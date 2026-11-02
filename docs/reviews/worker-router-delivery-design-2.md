@@ -61,3 +61,12 @@ review, implementation, worker or live action. Parent decision required on the
 shared worker RAM-directory seam versus explicit edge exceptions. Major 2 and
 nits 3–5 are accepted for the eventual revision; no fix is claimed yet.
 
+## Parent-approved after round 2 — implementation disposition
+
+The parent selected option (a): one shared worker RAM-directory constant, default
+unchanged, and one offline override. Implemented in worker_secrets.py and all four
+consumers. Major 2 and nits 3–5 are implemented: explicit Claude executable,
+fail-closed install edges, private TMPDIR, real-age prerequisite, missing resume
+files refuse, conditional host client-path forwarding and resume name appending.
+The brief Heilmeier text remains. No third design review and no live action.
+Fresh diff review must verify these fixes; this disposition is not self-approval.

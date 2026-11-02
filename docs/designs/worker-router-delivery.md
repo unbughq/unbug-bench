@@ -76,7 +76,7 @@ the push-secrets tar. Revision 2 addresses design review 1 in full.
    capture on gated and ungated paths. Files in /dev/shm/secrets remain readable
    by the same Unix user: this preserves the existing proportionate isolation,
    not a claim of adversarial separation from a same-user tool.
-6. Remove the integration test shortcut for BOTH ssh and exec: execute every
+6. Add a full-command integration exam without the shortcuts in BOTH ssh and exec: execute every
    received worker command in synthetic HOME, mapping the ENTIRE /dev/shm prefix
    before execution (including bare /dev/shm/secrets), /home/user and hardcoded
    /usr/local/bin/opencode,codex to local doubles. Never touch developer /dev/shm.
@@ -95,14 +95,18 @@ and provider network boundaries are local doubles; no real model/VM/network.
 
 Use real model_router.Server/Store, temporary SQLite, and enable_tls with a
 throwaway localhost certificate. Capacity permits the first bounded model lease;
-the CLI double exits nonzero, so provider_preflight ends with
+on Linux the CLI double exits nonzero. On macOS the Linux-only paid gate
+refuses route_feature_unsupported after the real router lease, so provider_preflight ends with
 terminal_stop=provider_preflight_failed, then the ordinary seal/collect/deletion
 path runs. This is a delivered-but-failed provider exam, not a case pass. The
 router requests/lease row must exist and carry the manifest deadline; the actual
 acquire schema has NO batch/job fields, so do not invent such columns. Assert
 batch/job in authenticated config and final job_money/receipt bindings, and cover
 model_router.metadata with the real installed config in a focused consumer test.
-The model double asserts no FACTORY_ROUTER_* token was inherited. Runtime can
+The Linux model double asserts no FACTORY_ROUTER_* token was inherited;
+focused gated/ungated process-boundary tests cover this on macOS too. The old
+public interruption/money-contract exam retains its explicitly narrower runner
+double and is not cited as delivery evidence. Runtime can
 retry within its existing bound; all retries remain synthetic and bounded by the
 outer test timeout. No production token, home, account or cloud endpoint is used.
 
@@ -150,3 +154,24 @@ for the missing router transport observed during offline practice preparation.
 Add the new row as open; no rows close from synthetic transport evidence.
 No live worker failure is claimed. Founder approval covers this offline change;
 parent merges, then authorizes repin/resume separately.
+
+## Parent-approved after round 2
+
+Use one worker RAM-secrets constant in factory/worker_secrets.py, default
+/dev/shm/secrets, with UNBUG_TEST_WORKER_SECRETS as the single offline-exam
+override. Import it in model_router, job_config, account_handoff and run; audit
+other worker readers too. No override is propagated by production dispatch.
+The exam uses its own TMPDIR and explicit FACTORY_CLAUDE_BIN. Real age is required
+(skip loudly if unavailable). npm, apt-get, curl and sudo except loginctl are
+fail-closed edge doubles. No shared host /tmp or real /dev/shm is touched.
+Before router exports, test -s on all three worker files, including resumes.
+Dispatch passes UNBUG_ROUTER_CLIENT_FILE only if set, otherwise helper default.
+Append names to $secrets on resume without packing/probing/need-checking host
+client config. No third design review; implementation and at most two diff rounds.
+
+Implementation audit: the legacy key_holder.serve batch dispatch also builds a
+sanitized environment. It now passes the optional client path by the same rule.
+The CLI cloud-image edge maps hardcoded executable paths only; its Python audit
+hook refuses real /dev/shm or shared /tmp/factory accesses. TMPDIR isolates runtime
+CLI/config scratch paths. The synthetic R2 credentials exercise host parsing only,
+not actual publication authentication.

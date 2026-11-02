@@ -31,7 +31,7 @@ from registry import atomic_json
 PROMPTS = pathlib.Path(__file__).resolve().parent / "prompts"
 OPENCODE_BIN = os.environ.get("FACTORY_OPENCODE_BIN", "opencode")
 CODEX_VERSION, CLAUDE_VERSION = "0.162.1", "2.1.299"
-CLAUDE_PREFIX = pathlib.Path("/tmp/factory-claude-cli")
+CLAUDE_PREFIX = pathlib.Path(tempfile.gettempdir()) / "factory-claude-cli"
 CODEX_OFF = ["multi_agent", "apps", "plugins", "remote_plugin", "browser_use", "browser_use_external",
              "in_app_browser", "computer_use", "image_generation"]
 INTERRUPTED_LOCK = threading.Lock()
@@ -165,7 +165,7 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
     """Merged over the user config: provider keys come from the environment (factory/launch.sh loads
     them from ~/.secrets; boat's paid relay is off since 2026-10-16), and boat's desktop `computer`
     MCP off (about 28k prompt tokens a call, unneeded). In /tmp so the pilot user can read it; no secret."""
-    path = pathlib.Path("/tmp/factory-" + model.replace("/", "-").replace(":", "-") + ".json") if model else pathlib.Path("/tmp/factory-opencode.json")
+    path = pathlib.Path(tempfile.gettempdir()) / ("factory-" + model.replace("/", "-").replace(":", "-") + ".json" if model else "factory-opencode.json")
     base = None if diagnosis else os.environ.get("OPENCODE_API_KEY_BASE_URL")
     from token_prices import runtime_prices as price
     cfg = {"mcp": {"computer": {"enabled": False}},
@@ -564,7 +564,8 @@ class ModelRuntime:
         if role == 'stress_tester':
             timeout = min(timeout or c.args.agent_timeout, attacker_timeout(c))
         effort = c.card.get('roles', {}).get(role, {}).get('effort', model_effort(model))
-        env, scratch = {**os.environ, **getattr(c, "model_env", {})}, None
+        env, scratch = {k: v for k, v in {**os.environ, **getattr(c, "model_env", {})}.items()
+                        if not k.startswith("FACTORY_ROUTER_")}, None
         env = diagnostic_env(c, name, role, env)
         diagnosis = user == 'pilot' and name.startswith('diagnosis-')
         if diagnosis: env = diagnosis_environment(env, driver, lease, self.pilot_home(user))

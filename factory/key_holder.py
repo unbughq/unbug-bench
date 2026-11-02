@@ -742,6 +742,8 @@ def serve(policy_path, hours, identity_file=None):
                             fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o600)
                             env = {'BOAT_COMMAND_TIMEOUT_SECONDS': '120', 'PATH': policy['path'], 'HOME': str(pathlib.Path.home()), 'USER': os.environ.get('USER', ''), 'LANG': 'en_US.UTF-8', 'UNBUG_CLOUD': 'boat', 'BOAT_TYPE': 'default'}
                             env.update(UNBUG_SECRETS_FILE=str(secrets_file), UNBUG_CONTROL_HOME=str(CONTROL_HOME), UNBUG_LAUNCH_ID=uuid.uuid4().hex)
+                            if batch_job and 'UNBUG_ROUTER_CLIENT_FILE' in os.environ:
+                                env['UNBUG_ROUTER_CLIENT_FILE'] = os.environ['UNBUG_ROUTER_CLIENT_FILE']
                             if job.get('ttl_continuation'): env['FACTORY_TTL_CONTINUATION'] = json.dumps(job)
                             if account is not None: env['OPENCODE_SECRET_NAME'] = OPENCODE_ACCOUNTS[account]
                             env['CLAUDE_SECRET_NAME'] = CLAUDE_ACCOUNTS[claude_account]

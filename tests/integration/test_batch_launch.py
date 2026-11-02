@@ -28,6 +28,8 @@ sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
 import batch
 import key_holder as holder
 import restore_ledger
+sys.path.insert(0,str(ROOT/'tests/factory'))
+from router_delivery_support import router, TOKEN
 from registry import Registry
 
 RUNNER = r'''
@@ -234,20 +236,32 @@ class BatchLaunchTests(unittest.TestCase):
             self.assertFalse(holder.reconcile_batch_receipts(policy,[row]))
 
     def test_public_fresh_interruption_and_liability_refuses_successors_on_one_unlock(self):
+        self.run_public_launch()
+
+    def test_complete_worker_command_router_delivery(self):
+        if not shutil.which('age'): self.skipTest('real age required for offline worker exam')
+        if any(Path('/home',n).exists() for n in ('pilot','pilot-strong','pilot-easy')):
+            self.skipTest('offline exam requires no real pilot homes on host')
+        self.run_public_launch(full_worker=True)
+
+    def run_public_launch(self, full_worker=False):
         if not (CONSUMER_ROOT/'job_authority.py').is_file():
             self.skipTest('D consumer not merged; explicit --consumer-root integration run required; no enablement')
         if not batch.restore_inventory(ROOT):
             self.skipTest('REAL RESTORE INVENTORY ABSENT: public release build qualification is unavailable; builds stay blocked')
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory() as temp, router(Path(temp)/'tls') as (router_config, router_store, router_server):
             base = Path(temp).resolve(); root = base/'source'; root.mkdir()
             cloud = base/'cloud'; cloud.mkdir()
             runner = base/'public-runner.py'; runner.write_text(RUNNER)
+            if full_worker:
+                from worker_delivery_edge import CLOUD as full_cloud, install_edges
+                install_edges(base)
             identity = base/'throwaway-identity'
             subprocess.run(['age-keygen','-o',str(identity)], check=True, capture_output=True)
             recipient = subprocess.check_output(['age-keygen','-y',str(identity)], text=True).strip()
             fake = base/'offline-cloud.py'
             fake.write_text('CLOUD_ROOT='+repr(str(cloud))+'\nRUNNER='+repr(str(runner))+
-                            '\nIDENTITY='+repr(str(identity))+'\n'+CLOUD)
+                            '\nIDENTITY='+repr(str(identity))+'\n'+(full_cloud if full_worker else CLOUD))
             # Snapshot real maintained public sources independently of the release builder.
             names = subprocess.check_output(['git','ls-files','-z','--',*batch.BATCH_SOURCE,
                                              *batch.HOST_FILES,'tools/install_source.py'],cwd=ROOT).decode().split('\0')
@@ -271,7 +285,12 @@ class BatchLaunchTests(unittest.TestCase):
             roles['easy_calibrator']={'model':'opencode/glm-5.3-flash-free','effort':'default','family':'z-ai'}
             jobs={n:dict(mode='batch',case='case-public-'+n,roles=roles,max_calls=5000,
                          requested_total_usd='100.000000000',
-                         args=['1','--source','port','--rotation-slot','1']) for n in ('a','b')}
+                         args=['1','--source','port','--rotation-slot','1', '--bench-workers','1']) for n in ('a','b')}
+            if full_worker:
+                import practice
+                for job in jobs.values():
+                    job['args']=practice.EXPECTED['jobs']['practice']['args']+['--bench-workers','1']
+                    job.update(claude_accounts=[2,1],initial_accounts={'claude':2})
             batch_manifest=dict(schema=1,id='public',jobs=jobs,max_concurrency=2,target_slots=2,
                                 money_limit_usd='400.000000000',batch_deadline='2099-01-01T00:00:00Z',
                                 restore_recipient=(root/'factory/control-recipient.txt').read_text().strip())
@@ -304,13 +323,19 @@ class BatchLaunchTests(unittest.TestCase):
                            input=b'public historical practice statement',check=True)
             Registry(root/'sealed/statement-registry').import_historical('case-old',statement)
             plain=base/'credentials'; plain.mkdir()
-            for name in ('claude-token','opencode-go-key','openrouter-key','statements-key'):
+            for name in ('claude-token','claude-factory-token-2','claude-token-2','opencode-go-key','openrouter-key','statements-key'):
                 (plain/name).write_text('offline-public-placeholder\n')
+            if full_worker:
+                (plain/'r2-env').write_text('R2_ACCOUNT_ID=public\nR2_ACCESS_KEY_ID=public\nR2_SECRET_ACCESS_KEY=public\nR2_BUCKET=public\n')
             (plain/'codex-auth.json').write_text(json.dumps({'tokens':{'access_token':
                 'e30.eyJleHAiOjQxMDI0NDQ4MDB9.synthetic'},'last_refresh':'2026-10-28T00:00:00Z'}))
             data=subprocess.check_output(['tar','-C',str(plain),'-cf','-',*sorted(p.name for p in plain.iterdir())])
             credentials=base/'credentials.age'
             subprocess.run(['age','-r',recipient,'-o',str(credentials)],input=data,check=True)
+            if full_worker:
+                import batch_holder
+                r2=batch_holder._r2_env(identity.read_bytes(),credentials)
+                self.assertEqual(set(r2),{'R2_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY','R2_BUCKET'})
             policy=dict(root=str(root),code_sha256=holder.fingerprint(root),recipient=recipient,
                         path=os.environ['PATH'],batch=dict(id='public',release=str(release),sha256=digest,
                         max_concurrency=2,manifest_path='factory/batches/public.json',
@@ -347,6 +372,7 @@ class BatchLaunchTests(unittest.TestCase):
                 return generations[0]
             requests=iter([lambda:payload('a'),lambda:payload('b'),lambda:payload('a'),
                            lambda:payload('a',checkpoint()),lambda:payload('a',checkpoint()),lambda:{'op':'stop'}])
+            if full_worker: requests=iter([lambda:payload('a'),lambda:{'op':'stop'}])
             class Connection:
                 def __init__(self,value): self.value=json.dumps(value).encode()+b'\n'
                 def __enter__(self): return self
@@ -370,22 +396,26 @@ class BatchLaunchTests(unittest.TestCase):
                                                  '\nLast offline operations: '+'\n'.join(calls)) from None
                         if p.returncode:
                             logs='\n'.join(f.read_text() for f in (runtime/'jobs').glob('*.log'))
-                            if 'infrastructure liability unsettled' not in logs:
+                            if not full_worker and 'infrastructure liability unsettled' not in logs:
                                 raise AssertionError(logs)
                     return Connection(next(requests)()),None
             runtime=base/'runtime'; runtime.mkdir(mode=0o700)
             # Exercise the real serialized holder loop without a socket or holder process.
             key=next(v for v in identity.read_bytes().splitlines() if v.startswith(b'AGE-SECRET-KEY-'))+b'\n'
             with patch.multiple(holder,ROOT=root,RUNTIME=runtime,SOCKET=runtime/'control.sock',CONTROL_HOME=base/'control'), \
-                 patch.object(holder.socket,'socket',return_value=Server()), \
+                 patch.object(holder,'socket',SimpleNamespace(**{**vars(holder.socket),'socket':lambda *a,**k:Server()})), \
                  patch.object(holder.os,'chmod',side_effect=lambda *a:None), \
                  patch.object(holder,'peer_is_owner',return_value=True), \
                  patch.object(holder.resource,'setrlimit'), patch.object(holder.signal,'signal'), \
                  patch.object(holder.subprocess,'Popen',side_effect=spawn), \
                  patch.object(holder.sys,'stdin',SimpleNamespace(buffer=io.BytesIO(key))), \
-                 patch.dict(os.environ,{'UNBUG_SECRETS_FILE':str(credentials)}):
+                 patch.dict(os.environ,{'UNBUG_SECRETS_FILE':str(credentials), 'UNBUG_ROUTER_CLIENT_FILE':str(router_config)}):
                 holder.serve(policy_path,.1)
                 self.assertEqual(len(verifications),1,'all requests must share one identity verification')
+                if full_worker:
+                    from worker_delivery_edge import verify_exam
+                    verify_exam(self,base,root,cloud,router_config,router_store,digest,results,runtime)
+                    return
                 # Recreate the lost-reap window from durable, actually completed
                 # public launches. The second service has no old child handles.
                 rows=json.loads((runtime/'reservations.json').read_text())

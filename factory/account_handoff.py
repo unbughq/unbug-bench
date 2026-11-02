@@ -21,7 +21,7 @@ ACCOUNTS = {'opencode': {1: 'opencode-go-key', 2: 'opencode-go-key-2'},
             'claude': {1: 'claude-token', 2: 'claude-factory-token-2', 3: 'claude-factory-token-3'}}
 SECRET_ENV = {'opencode': 'OPENCODE_SECRET_NAME', 'claude': 'CLAUDE_SECRET_NAME'}
 KEY_ENV = {'opencode': 'OPENCODE_API_KEY', 'claude': 'CLAUDE_CODE_OAUTH_TOKEN'}
-SECRETS = Path('/dev/shm/secrets')
+from worker_secrets import SECRETS
 
 
 def write(path, value):
@@ -143,7 +143,7 @@ def exports(state_path):
     for provider, account in state['accounts'].items():
         label = ACCOUNTS[provider][account]
         commands += ['export ' + SECRET_ENV[provider] + '=' + shlex.quote(label),
-                     'export ' + KEY_ENV[provider] + '=$(cat /dev/shm/secrets/' + label + ')']
+                     'export ' + KEY_ENV[provider] + '=$(cat ' + shlex.quote(str(SECRETS / label)) + ')']
     commands.append('export FACTORY_ACCOUNT_STATE=' + shlex.quote(json.dumps(state, sort_keys=True)))
     return '; '.join(commands)
 
