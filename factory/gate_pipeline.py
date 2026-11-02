@@ -4,6 +4,7 @@ Scientific evaluators and runtime effects are injected by the factory compositio
 root. This module never imports the runner or discovers its globals.
 """
 import json
+import copy
 import contextlib
 import contextvars
 import sys
@@ -73,7 +74,7 @@ class GatePipeline:
         self.log(c, gate, "crashed", type(error).__name__)
 
 
-    def early_checks(self, c):
+    def early_checks(self, c, *, on_rejection=None):
         """G3-G5 right after the writer (~20 min on a cpx42): a case whose bug is not real or whose keys are wrong goes
         back to the writer in the same round, before the stress tester spends time on it. Returns writer problems or None;
         passing results are reused by the gate loop while the case is unchanged."""
@@ -96,11 +97,17 @@ class GatePipeline:
                 problems = [f"early check {gate} failed: {json.dumps(info)}"]
                 details = c.work / "gate-details" / f"{gate}.json"
                 if details.is_file(): problems.append(f"details: {details.read_text()[:8000]}")
+                if on_rejection is not None: on_rejection(c, gate, info, problems)
                 return problems
             c.early[gate] = (ok, info)
+        c.card.get("early_gates", {}).pop("saved_cheats", None)
         problems = self.saved_cheat_check(c)
         if problems:
             c.early = {}
+            if on_rejection is not None:
+                detail = dict(sample="retained_case_cheats",
+                    summary=copy.deepcopy(c.card.get("early_gates", {}).get("saved_cheats")))
+                on_rejection(c, "saved-cheats", detail, problems)
             return problems
         c.early_hash = self.case_hash(c)
         return None

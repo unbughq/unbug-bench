@@ -3924,3 +3924,13 @@ This is evidence capture only: terminal completion/progress, early-gate and
 saved-cheat observations remain open, alongside partial/legacy entry reconstruction
 and final all-outcomes integration. Lane 1 public-match completion has landed.
 No Murphy rows close; package increment 2 and All diagnosis outcomes stay open.
+
+
+### Item 7 early writer rejection observation slice
+
+Design `stream-d-writer-early-observation.md` passes fresh review round 2. The
+implementation retains failed early gate and private saved-cheat observations;
+replay precedes G1 and every early check and never creates a full G6 result.
+Terminal completion/progress remains separate. Full locked suite and fresh diff
+review are pending. No Murphy row closes. Lane 1 public-match and blocking-stress
+outcomes are now merged; post-extension factory-bug return remains lane 1.

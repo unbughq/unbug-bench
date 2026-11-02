@@ -67,6 +67,10 @@ class Records:
         self.observed = {}
 
     def version(self, stage):
+        if stage == 'saved-cheats':
+            return extensions.digest(dict(kind=stage,
+                g6=gate_state.scientific_version(self.c, 'G6', self.r.BENCH),
+                source=gate_state.source_inputs('early_cheat_check')))
         return (self.expected_versions[stage] if self.expected_versions is not None else
                 gate_state.scientific_version(self.c, stage, self.r.BENCH))
 
@@ -184,7 +188,9 @@ class Records:
         try:
             support = {}
             inputs = (gate_state.judge_dependencies(c, r.BENCH) if stage == 'stress'
-                      else gate_state.inputs(c, stage, r.BENCH))
+                      else gate_state.inputs(c, 'G6' if stage == 'saved-cheats' else stage, r.BENCH))
+            if stage == 'saved-cheats':
+                inputs.update(kind=stage, sample_source=gate_state.source_inputs('early_cheat_check'))
             atomic_json(temporary / 'inputs.json', inputs)
             sources = self.sources(stage, before)
             sources['inputs.json'] = temporary / 'inputs.json'
@@ -245,6 +251,62 @@ class Records:
             if self.r.case_hash(c) != case: refuse()
             self.save('G1', ok, info, before, card)
         return ok, info
+
+    def replay_writer_early(self):
+        stages = ('G15', 'G3', 'G4', 'G5', 'saved-cheats')
+        found = [stage for stage in stages if (self.root / stage / 'record.json').exists()
+                 or (self.root / stage / 'record.json').is_symlink()]
+        if not found: return None
+        if len(found) != 1 or (self.root / 'G1/record.json').exists() or (self.root / 'G1/record.json').is_symlink():
+            refuse()
+        c, stage = self.c, found[0]
+        receipt = extensions.writer_receipt(c)
+        if (not isinstance(receipt, dict) or receipt.get('actor') != 'writer' or
+                receipt.get('phase') not in ('completed', 'validated') or
+                receipt.get('repair_pending') is not False or receipt.get('output_sha256') != self.r.case_hash(c)):
+            refuse()
+        probe = copy.copy(c)
+        probe.args, probe.card = copy.deepcopy(c.args), copy.deepcopy(c.card)
+        reader = Records(probe, self.r, self.row)
+        data = reader.load(stage, check_version=False)
+        observation = data['info'].get('writer_observation')
+        if (data['ok'] is not False or not isinstance(observation, dict) or
+                set(observation) != {'feedback', 'bench_workers'} or
+                type(observation['bench_workers']) is not int or observation['bench_workers'] < 1 or
+                not isinstance(observation['feedback'], list) or not observation['feedback'] or
+                any(not isinstance(p, str) or not p for p in observation['feedback'])):
+            refuse()
+        probe.args.bench_workers = observation['bench_workers']
+        data = reader.load(stage)
+        self.restore(stage, data)
+        c.early = {}
+        if hasattr(c, 'early_hash'): del c.early_hash
+        markers = c.card.setdefault('early_gates', {})
+        if stage == 'saved-cheats':
+            summary = data['info'].get('summary')
+            if summary is None: markers.pop('saved_cheats', None)
+            else: markers['saved_cheats'] = copy.deepcopy(summary)
+        else:
+            markers[stage] = {'ok': False, 'minutes': 0}  # replay, not execution time
+        return copy.deepcopy(observation['feedback'])
+
+    def writer_early(self, c):
+        retained = self.replay_writer_early()
+        if retained is not None: return retained
+        before = {k: gate_state.digest(p) for k, p in gate_state.inventory(c, self.r.BENCH).items()}
+        card, case = project(c.card), self.r.case_hash(c)
+        def rejected(c, stage, info, problems):
+            if comparison._pending(False, info): return
+            if (stage not in ('G15', 'G3', 'G4', 'G5', 'saved-cheats') or
+                    'writer_observation' in info or not isinstance(problems, list) or not problems or
+                    any(not isinstance(p, str) or not p for p in problems) or
+                    type(c.args.bench_workers) is not int or c.args.bench_workers < 1 or
+                    self.r.case_hash(c) != case):
+                refuse()
+            detail = copy.deepcopy(info)
+            detail['writer_observation'] = dict(feedback=copy.deepcopy(problems), bench_workers=c.args.bench_workers)
+            self.save(stage, False, detail, before, card)
+        return self.r.early_checks(c, on_rejection=rejected)
 
     def observe_gate(self, c, stage, invoke):
         """Observe ordinary execution without changing its verdict or retry policy."""
@@ -436,9 +498,15 @@ def run(c, r, previous, number):
         if complete_unchanged(c, r, row): stop_unchanged(c, row)
         if public.complete(c, r, row): public.stop(c, extensions.read(c)[-1])
         try:
+            if records.replay_writer_early() is not None: refuse('extension_execution_pending')
+        except BudgetError as error:
+            if str(error) == 'extension_comparison_pending': refuse('extension_execution_pending')
+            raise
+        try:
             with public.capture(c, r, row):
                 r.write_and_attack(c, previous, extension_id=number,
-                    writer_g1=lambda c: records.writer_g1(c, lambda: r.g1(c)))
+                    writer_g1=lambda c: records.writer_g1(c, lambda: r.g1(c)),
+                    writer_early=records.writer_early)
         except BudgetError as error:
             if str(error) == 'freshness_public_match':
                 if public.complete(c, r, row): public.stop(c, extensions.read(c)[-1])

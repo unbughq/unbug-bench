@@ -958,8 +958,8 @@ def restore_gate_crash(c, previous):
     c.args.skip_build = True  # a crash is never case feedback or a writer round
 
 
-def early_checks(c):
-    return _gate_pipeline().early_checks(c)
+def early_checks(c, *, on_rejection=None):
+    return _gate_pipeline().early_checks(c, on_rejection=on_rejection)
 
 
 def early_review(c):
@@ -1159,7 +1159,7 @@ def writer_request(c, n, round_limit, findings, problems, release_rereviews,
     return receipt, text
 
 
-def write_and_attack(c, prev, *, extension_id=None, writer_g1=None):
+def write_and_attack(c, prev, *, extension_id=None, writer_g1=None, writer_early=None):
     """Alternate within whole-case list-price budget and the safety round cap."""
     from founder_ruling import context as ruling_context, feedback_allowed
     modern = model_runtime.factory_job(c)
@@ -1534,7 +1534,7 @@ def write_and_attack(c, prev, *, extension_id=None, writer_g1=None):
                     writer_receipt.update(phase='validated', validation_problems=problems, next_phase='writer')
                     atomic_json(receipt_path, writer_receipt)
                 continue
-            problems = None if c.args.dry_run else early_checks(c)
+            problems = None if c.args.dry_run else (writer_early or early_checks)(c)
             if problems:
                 if modern:
                     writer_receipt.update(phase='validated', validation_problems=problems, next_phase='writer')
@@ -1550,7 +1550,7 @@ def write_and_attack(c, prev, *, extension_id=None, writer_g1=None):
                 "release_rereviews": release_rereviews, "release_review_attempts": release_review_attempts})
         elif modern and resume_writer_validation:
             problems = (writer_g1 or g1)(c)[1]['problems'] or None
-            if not problems: problems = None if c.args.dry_run else early_checks(c)
+            if not problems: problems = None if c.args.dry_run else (writer_early or early_checks)(c)
             binding = attack_binding(c)
             resume_unit.update(binding=binding, binding_sha256=hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest(),
                                phase='validated', validation_problems=problems,
