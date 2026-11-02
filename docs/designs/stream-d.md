@@ -3932,6 +3932,8 @@ Design `stream-d-writer-early-observation.md` passes fresh review round 2. The
 implementation retains failed early gate and private saved-cheat observations;
 replay precedes G1 and every early check and never creates a full G6 result.
 Terminal completion/progress remains separate. Implementation caba7e6 passes the
-locked full suite: 179 scripts / 0 failures. Fresh diff review is pending.
+locked full suite: 179 scripts / 0 failures. Fresh Claude diff review round 1
+PASS: `docs/reviews/stream-d-writer-early-observation-diff-1.md`. Observation
+slice complete; terminal completion/progress and item 7 remain open.
 No Murphy row closes. Lane 1 public-match and blocking-stress
 outcomes are now merged; post-extension factory-bug return remains lane 1.

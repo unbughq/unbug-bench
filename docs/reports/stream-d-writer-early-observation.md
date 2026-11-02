@@ -28,7 +28,10 @@ Focused file: 11 tests pass. Implementation caba7e6 passes the locked full suite
 179 scripts, 0 failed, exit 0, elapsed 2282.7 seconds. Record and log:
 `stream-d-writer-early-suite-20261102T153312Z-deedf1fd.{json,log}`.
 Log SHA-256: `87f8ab62e82bf21687422c4cef444a927770a135d2759875c65d1d590766fc47`.
-Fresh diff review pending. No Murphy rows close.
+Fresh Claude diff review round 1 PASS, recorded verbatim in
+`docs/reviews/stream-d-writer-early-observation-diff-1.md`. Optional receipt
+authentication coverage is carried into terminal work. No Murphy rows close.
+Before handback, factory-simplify remains b75c9b4, already merged.
 
 Next lane 2 slice: rejected-writer terminal completion/replay and progress decision,
 including stricter receipt consistency and irrelevant-edit rerolls. Then partial/
