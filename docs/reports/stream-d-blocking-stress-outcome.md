@@ -1,6 +1,6 @@
 Scored blocking stress outcome, lane 1 slice 2.
 
-Implementation is complete and the required serialized full suite passes; fresh diff review pending. No merge-readiness claim before that review.
+Implementation and the required serialized full suite pass. Fresh goldfish diff review round 1 passes with no blocking finding: `docs/reviews/stream-d-blocking-stress-outcome-diff-1.md`. No production/test source changed after the reviewed run.
 
 Baseline factory-simplify 02f3bc9 is merged. Only production change: factory/extension_package.py::stress (7 insertions, 3 deletions). Authenticated completed-call defects now complete a stress-failure outcome even when coverage, validation or a diagnostic remains unfinished. The helper computes surviving findings through the existing freshness_only_clearance projection. It requires clearance only when clearance could change the verdict, so excluded URL requests with an independent defect no longer require a nonexistent clearance file. Original detail remains unchanged on the defect path. The receipt/pending/hash/binding, exhaustion, pass-phase and explicit invalid-execution checks remain in force. No new model call, extension, allowance, schema or money/launch path. Diagnosis remains disabled.
 
@@ -16,3 +16,10 @@ Design reviews: `docs/reviews/stream-d-blocking-stress-outcome-design-1.md` (B1 
 Known scope limit: exact request-only blockers with missing or empty freshness metadata deliberately become an unscored extension_execution_pending hold, rather than the previous scored failure. That stop is not a diagnosis trigger, so this is an un-diagnosed hold, not a completed recovery route. The writer loop/evaluator remain unchanged; this divergence and its unmeasured frequency are documented in the passing design. Do not claim this increment resolves every stress stop.
 
 No rows closed. Lane 1 slice 3 (post-extension factory-bug return to package/comparison target, new-stream-d-current-comparison-1) remains; lane 2 owns rejected-writer, partial/legacy first-entry and final all-outcomes integration. Freshness-only continuation and the previously accepted public-match route are inherited from 02f3bc9 and were not taken over.
+
+Final review disposition: N3 (pending report status) is fixed. Optional N1/N2
+test-strengthening is deferred: the real exclusion path is covered, but the
+raised-freshness-stop negative directly mocks loop_freshness; stress-record
+recovery is demonstrated through the subsequent outcome-directory subtest rather
+than an independent recovery assertion. These are not blocking findings. The
+reviewed production and test tree remains unchanged after the 177/0 record.
