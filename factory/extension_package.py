@@ -300,9 +300,100 @@ def stress(c, r, records):
     return records.save('stress', ok, result, {}, project(c.card))
 
 
+def unchanged_receipt(c, r, row, receipt):
+    return (isinstance(receipt, dict) and receipt.get('actor') == 'writer' and
+        receipt.get('phase') == 'completed' and receipt.get('repair_pending') is False and
+        receipt.get('next_phase') == 'G1' and type(receipt.get('repair_requested')) is bool and
+        type(receipt.get('round')) is int and receipt['round'] == row['round'] and
+        type(receipt.get('round_limit')) is int and receipt['round_limit'] == row['round'] and
+        type(receipt.get('extension_id')) is int and receipt['extension_id'] == row['extension_id'] and
+        receipt.get('operation_id') == row['writer_operation_id'] and
+        receipt.get('before_repair_sha256') == receipt.get('output_sha256') == r.case_hash(c))
+
+
+def terminal_name(row):
+    return f"extension-terminal/{row['extension_id']}.json"
+
+
+def unchanged_outcome(c, r, row):
+    """Verify immutable no-change proof without reopening writer or gate work."""
+    outcome, entry = row['outcome'], row['entry']
+    name = terminal_name(row)
+    if outcome is None or name not in outcome['evidence']: return False
+    try:
+        for phase in ('entry', 'outcome'):
+            extensions._verify_case(c, row['extension_id'], phase, row[phase])
+        root = c.work / 'extension-snapshots' / str(row['extension_id']) / 'outcome'
+        proof = extensions._writer_json(root / 'evidence' / name, root)
+        retained = copy.copy(c)
+        retained.case = root / 'case'
+        if (set(proof) != {'schema_version', 'kind', 'extension_id', 'writer_operation_id',
+                          'round', 'entry_sha256', 'case_sha256', 'receipt'} or
+                type(proof['schema_version']) is not int or proof['schema_version'] != 1 or
+                proof['kind'] != 'unchanged_writer' or
+                type(proof['extension_id']) is not int or type(proof['round']) is not int or
+                any(proof[key] != row[key] for key in ('extension_id', 'round', 'writer_operation_id')) or
+                proof['entry_sha256'] != extensions.digest(entry) or
+                proof['case_sha256'] != entry['case_sha256'] or
+                any(outcome[key] != entry[key] for key in ('case_sha256', 'stages', 'frontier')) or
+                entry['frontier'] == len(entry['stages']) or name in entry['evidence'] or
+                outcome['evidence'] != {**entry['evidence'], name: gate_state.digest(root / 'evidence' / name)} or
+                not unchanged_receipt(retained, r, row, proof['receipt'])):
+            refuse()
+    except (OSError, ValueError, KeyError, TypeError):
+        refuse()
+    except BudgetError:
+        refuse()
+    return True
+
+
+def complete_unchanged(c, r, row, *, after_stop=False):
+    receipt = extensions.writer_receipt(c)
+    if not unchanged_receipt(c, r, row, receipt): return False
+    entry = row['entry']
+    if extensions.digest(extensions.tree(c.case)) != entry['case_sha256']:
+        if after_stop and receipt['repair_requested']: refuse()
+        return False
+    if entry['frontier'] == len(entry['stages']): refuse()
+    extensions._verify_case(c, row['extension_id'], 'entry', entry)
+    name = terminal_name(row)
+    if name in entry['evidence']: refuse()
+    with tempfile.TemporaryDirectory(prefix='unbug-terminal-') as directory:
+        root = Path(directory)
+        source = c.work / 'extension-snapshots' / str(row['extension_id']) / 'entry/evidence'
+        extensions._save_evidence(source, root, entry)
+        proof = dict(schema_version=1, kind='unchanged_writer', extension_id=row['extension_id'],
+            writer_operation_id=row['writer_operation_id'], round=row['round'],
+            entry_sha256=extensions.digest(entry), case_sha256=entry['case_sha256'], receipt=receipt)
+        (root / name).parent.mkdir(parents=True)
+        atomic_json(root / name, proof)
+        outcome = copy.deepcopy(entry)
+        outcome['source_generation'] = job_authority.for_case(c).source_generation
+        outcome['evidence'][name] = gate_state.digest(root / name)
+        extensions.complete(c, outcome, evidence_root=root)
+    return True
+
+
+def stop_unchanged(c, row):
+    entry = row['entry']
+    for key in ('failed_gate', 'failed_detail', 'infrastructure_gate'):
+        c.card.pop(key, None)
+    c.card['gates'] = {stage['stage']: stage['status'] for stage in entry['stages']
+                       if stage['stage'] != 'stress' and stage['status'] in ('pass', 'fail')}
+    c.card['gate_results'] = {}
+    frontier = entry['stages'][entry['frontier']]
+    if frontier['status'] == 'fail':
+        c.card['failed_gate'] = frontier['stage']
+        c.card['failed_detail'] = dict(unchanged_writer=True,
+            entry_sha256=extensions.digest(entry), retained_stage=frontier['stage'])
+    c.card['stress_review'] = dict(status='not_run', reason='unchanged_writer')
+    raise BudgetError('extension_incomplete')
+
+
 def completed_route(c, row):
     """Validate package proof before routing a committed outcome's lagging card."""
     import run as r
+    if unchanged_outcome(c, r, row): return
     data = Records(c, r, row).load('stress', check_version=False)
     if data is None: refuse('extension_outcome_changed')
 
@@ -313,10 +404,17 @@ def run(c, r, previous, number):
     if type(number) is not int or not history or history[-1]['extension_id'] != number:
         refuse('extension_history_invalid')
     row = history[-1]
+    if unchanged_outcome(c, r, row):
+        if extensions.digest(extensions.tree(c.case)) != row['entry']['case_sha256']: refuse()
+        stop_unchanged(c, row)
     records = Records(c, r, row)
     if not records.completed and records.load('stress') is None:
+        if complete_unchanged(c, r, row): stop_unchanged(c, row)
         try: r.write_and_attack(c, previous, extension_id=number)
         except BudgetError as error:
+            if str(error) == 'stress_review_unresolved:unchanged_repair':
+                if complete_unchanged(c, r, row, after_stop=True): stop_unchanged(c, row)
+                raise
             if str(error) not in ('extension_comparison_pending', 'stress_review_unresolved:rounds_exhausted'):
                 raise
     result = stress(c, r, records)
@@ -474,6 +572,7 @@ def subsequent_entry(c, r):
         refuse('extension_diagnosis_already_used')
     row = history[-1]
     if extensions.digest(extensions.tree(c.case)) != row['outcome']['case_sha256']: refuse()
+    if unchanged_outcome(c, r, row): refuse('retired_no_progress')
     number = row['extension_id']
     def selected():
         pair, valid, retained = comparison.current_pair(c, number, r.BENCH, execution=EXECUTION)
