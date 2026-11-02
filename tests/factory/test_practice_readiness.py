@@ -59,14 +59,15 @@ class PracticeTests(unittest.TestCase):
         changed = deepcopy(record); changed["jobs"]["practice"]["requested_total_usd"] = "20.000000000"
         self.assertFalse(practice.matches(changed))
 
-    def practice_policy(self):
-        record = deepcopy(practice.EXPECTED)
-        path = self.root / preflight.MANIFEST; path.write_text(json.dumps(record))
+    def practice_policy(self, record=None):
+        record = deepcopy(practice.EXPECTED if record is None else record)
+        manifest_path = "factory/batches/" + record["id"] + ".json"
+        path = self.root / manifest_path; path.write_text(json.dumps(record))
         digest = service.digest(path)
         policy = deepcopy(self.policy)
         policy["jobs"] = record["jobs"]
-        policy["batch"].update(id=practice.BATCH, manifest_path=preflight.MANIFEST, manifest_sha256=digest)
-        (self.release / "source-manifest.json").write_text(json.dumps({"files": {preflight.MANIFEST: digest}}))
+        policy["batch"].update(id=record["id"], manifest_path=manifest_path, manifest_sha256=digest)
+        (self.release / "source-manifest.json").write_text(json.dumps({"files": {manifest_path: digest}}))
         return policy
 
     def test_authenticated_activation_scope_and_legacy_fallthrough(self):
@@ -85,6 +86,41 @@ class PracticeTests(unittest.TestCase):
         with patch.object(holder, "HOLDER_ENABLED", False), patch.object(key_holder, "ROOT", self.root), patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(ValueError, "request_refused"):
                 key_holder.batch_request(policy, dict(op="launch", batch=practice.BATCH))
+
+    def test_previous_practice_id_refused_and_ceilings_unchanged(self):
+        record = json.loads((ROOT / preflight.MANIFEST).read_text())
+        self.assertEqual(practice.BATCH, 'b-plumbing-practice-2')
+        self.assertEqual(record['jobs']['practice']['case'], 'case-b-plumbing-practice-2-practice')
+        self.assertEqual(record['money_limit_usd'], '19.990000000')
+        self.assertEqual(record['jobs']['practice']['requested_total_usd'], '19.990000000')
+        self.assertEqual(record['practice_admission']['jobs']['practice'],
+                         dict(baseline_usd='0.000000000', incremental_usd='19.990000000'))
+        args = record['jobs']['practice']['args']
+        self.assertEqual(args[args.index('--max-spend') + 1], '5')
+        self.assertEqual(args[args.index('--ttl-hours') + 1], '1')
+        self.assertIn('UNBUG_PRACTICE_BATCH=' + practice.BATCH + '\n', preflight.DROPIN)
+        self.assertIn('UNBUG_PRACTICE_BATCH=' + practice.BATCH + '\n',
+                      (ROOT / 'control' / cleanup.UNIT).read_text())
+        old = deepcopy(record)
+        old['id'] = 'b-plumbing-practice'
+        old['jobs']['practice']['case'] = 'case-b-plumbing-practice-practice'
+        policy = self.practice_policy(old)  # Authenticated old manifest, not a missing-file refusal.
+        self.assertFalse(practice.matches(old))
+        self.assertEqual(money.manifest(policy, self.root), old)
+        # Existing holder fixture permits seeding an old terminal preflight through real APIs.
+        op = holder.reserve(policy, self.root, self.home, 'practice', None)
+        holder.record_exit(policy, self.root, self.home, op['operation_id'], 1)
+        self.assertEqual(holder.lookup(policy, self.root, self.home, op['operation_id'])['state'], 'failed')
+        before = {p: p.read_bytes() for p in self.home.rglob('*') if p.is_file()}
+        with patch.object(holder, 'HOLDER_ENABLED', False):
+            for selected in (old['id'], practice.BATCH):
+                with self.subTest(selected=selected), patch.dict(os.environ, UNBUG_PRACTICE_BATCH=selected):
+                    self.assertFalse(holder.active(policy, self.root))
+                    with self.assertRaises(ValueError):
+                        holder.reserve(policy, self.root, self.home, 'practice', None)
+                    with self.assertRaises(ValueError):
+                        money.authorize(policy, 'practice', None, self.root, self.home)
+        self.assertEqual(before, {p: p.read_bytes() for p in self.home.rglob('*') if p.is_file()})
 
     def test_failed_practice_manifest_logs_and_preserves_holder_loop(self):
         policy = self.practice_policy()
