@@ -3903,7 +3903,8 @@ writer completion checks to require full-tree identity for unchanged_repair.
 A repair-requested writer that changes search evidence now reaches ordinary G1,
 early checks and stress without another writer call. Ordinary non-extension
 unchanged behavior and exact full-tree terminal proofs stay unchanged.
-Design review round 2 passes. Implementation and focused evidence tests are in
-progress; full suite and fresh diff review remain required. No Murphy rows close.
+Design review round 2 passes. Implementation is 655b5f0; all 18 focused tests
+pass and the full suite passes 174 scripts / 0 failures. Fresh diff review remains
+required. No Murphy rows close.
 The six remaining slices, ownership and estimates are in that design's table;
 package increment 2 and All diagnosis outcomes stay unchecked.
