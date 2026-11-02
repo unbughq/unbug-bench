@@ -290,6 +290,7 @@ def stress(c, r, records):
     report = c.work / 'attacks' / f"round-{records.row['round']}.json"
     completed = receipt.get('review_completed', {})
     if (receipt.get('actor') != 'stress_tester' or receipt.get('phase') != 'validated' or
+            receipt.get('review_pending') is not False or
             receipt.get('round') != records.row['round'] or receipt.get('report') != report.name or
             receipt.get('round_limit') != records.row['round'] or not report.is_file() or
             completed.get('attempt') != receipt.get('review_attempt') or
@@ -301,13 +302,16 @@ def stress(c, r, records):
         refuse('extension_comparison_pending')
     result = r.attack_report(report)
     if result is None: refuse()
-    if result.get('freshness_review') or result.get('freshness_review_malformed'):
+    findings = [item for item in r.freshness_only_clearance(result)['blocking']
+                if item.strip().lower() != 'review incomplete']
+    if not findings and (result.get('freshness_review') or result.get('freshness_review_malformed')):
         from late_recovery import cleared_stress
         try: result, _ = cleared_stress(c, receipt, report, result)
         except (OSError, ValueError, KeyError, TypeError): refuse('extension_execution_pending')
-    if (not result['complete'] or result['unfinished_validation'] or r.attack_diagnostic_unfinished(c, records.row['round'])):
+    if not findings and (not result['complete'] or result['blocking'] or result['unfinished_validation']
+                         or r.attack_diagnostic_unfinished(c, records.row['round'])):
         refuse('extension_execution_pending')
-    ok = not result['blocking']
+    ok = not findings
     if ok and receipt.get('next_phase') != 'extension_comparison': refuse()
     if not ok and not (receipt.get('exhausted') is True and receipt.get('stop_reason') == 'rounds_exhausted'):
         refuse()
