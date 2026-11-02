@@ -164,8 +164,9 @@ critical-path money check and O9's timing re-plan below must pass first.
 Settlement requests still precede replacement work. In beta-fixed, the carried
 5c replacement precedes 5d original resume; 7b precedes 7a and 6b precedes 6a
 when both child and root are ready, following batch_service.ordered_queue.
-Do not add a manifest priority override. All requested replacement-before-diagnosis
-priorities remain ordinary B behavior.
+Do not add a manifest priority override. Replacement admission/queueing precedes diagnosis under ordinary B priority,
+except O3's explicit scenario-5 release-readiness guard for LAUNCH eligibility,
+not admission. It never permits skipping a ready replacement.
 
 Every row reserves up to **$0.40 lifecycle infrastructure**, including creation,
 boot, install, execution, minimum billing and delayed deletion/storage exposure.
@@ -418,8 +419,11 @@ Preparation cost $0, one document/review increment. Rough remaining effort is
 13–22 owner-days including O9 planning/review; with A/B/D/E working in parallel,
 the dependent B admission/import -> D qualification hooks -> timing/manifest
 integration path is roughly 8–10 working days, subject to merged-source status
-and provider contract availability. This is an engineering estimate, NOT an
-approved live deadline or a promise of affordability. One fresh design review,
+and provider contract availability. The estimate assumes co-owned B work can
+overlap with other lanes: B's serialized share alone can reach roughly 6–9 days
+before O9. A single B implementer serializing O2/O3/O4/O6/O8/O9 needs an updated
+critical path and may exceed that calendar estimate. This is an engineering
+estimate, NOT an approved live deadline or a promise of affordability. One fresh design review,
 maximum two rounds; remaining round-2 blocker goes back to parent. No full suite
 or live action for this documentation-only task. Hand back design SHA, review,
 remaining sized gaps and explicit unproved inputs/feasibility limits.

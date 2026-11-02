@@ -28,7 +28,7 @@ I did not edit, run tests, call models or do anything live. I worked read-only i
   - `extension_package.py:334`
   - `runtime_revision`, which lives in `bin/run_validity.py:48–56`, not in `factory/`
   - the gate-cache, diagnosis and `job-money` files
-  
+
   `subsequent_entry` really is the only producer of the current comparison (`extension_package.py:590`), and `propose()` writes nothing durable. So Q2 followed by a G4 change does force a fresh comparison in 6e.
 - **Journal semantics in 6e/6f:** the retry key is `{identity(ext id, case hashes, versions), runtime_revision}` (`run_validity.py:66`). A hashed plumbing fix in 6f therefore resets the attempt allowance while keeping the same identity directory and committed records. That matches what lines 211–215 claim.
 - **Murphy rows:** the current-comparison row is open, and the checklist appears in both docs. No row closes.
@@ -51,7 +51,7 @@ I did not edit, run tests, call models or do anything live. I worked read-only i
   - Y diagnosis;
   - the 6f comparison resume;
   - and the 6b child's work, because the window is "shared across ALL slots".
-  
+
   6a's single worker is also capped at a 2-hour lifetime against a historical 148-minute gate run.
 - **No sub-allocation:** nothing stops a child (5c, 6b, 7b), which runs to its terminal stop, from using up the shared window before the root's later slots.
 - Line 235 says runtimes that cannot fit "block admission and require a revised plan". So by the plan's own rule, runs 7, 8 and 15–20 cannot be admitted, yet the document presents the 70-minute, 8-hour and 2-hour figures as if they hold.
@@ -59,7 +59,7 @@ I did not edit, run tests, call models or do anything live. I worked read-only i
   1. Add a gap O9: re-derive the windows and the worker lifetime from the pinned G10/G16/G17/writer caps and the measured serial G10 overhead, with a per-slot split of each window between root and child.
   2. Say which cap scenario 4's "capped" means.
   3. State that the current 8-hour total is known to be insufficient, and that revising it needs a fresh review (and founder sign-off on the deadline, if that is a founder parameter).
-  
+
   No implementation is needed.
 
 ## Majors
