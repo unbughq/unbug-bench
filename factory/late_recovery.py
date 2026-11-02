@@ -95,10 +95,10 @@ def freshness_proof(c, attack, report, proof):
 
 def cleared_stress(c, attack, report, original):
     """A freshness-only request may be cleared only by its completed independent review."""
-    from diagnosis import _input_bytes
+    from restore_ledger import read_object
     from run import attack_report, freshness_only_clearance
     path = report.with_suffix('.clearance.json')
-    proof = json.loads(_input_bytes(path, c.work))
+    proof = read_object(path)
     snapshot, blocked = freshness_proof(c, attack, report, proof)
     require(not blocked and not snapshot.freshness_confirmed_hits, 'unverified stress freshness clearance')
     resolved = report.with_name(report.stem + '-writer.json')

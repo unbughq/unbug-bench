@@ -97,6 +97,65 @@ class PublicMatchTests(unittest.TestCase):
         self.assertEqual(self.calls, calls); self.assertEqual(self.ledger.read_bytes(), ledger)
         self.assertEqual(extensions.tree(self.work/'extension-snapshots/1/outcome'), retained)
 
+    def test_package_recovers_and_next_diagnosis_retires_without_evaluator(self):
+        self.confirm()
+        calls, ledger = list(self.calls), self.ledger.read_bytes()
+        with patch.object(run, 'write_and_attack', side_effect=AssertionError('paid writer/stress')), \
+             patch.object(run, 'run_gates', side_effect=AssertionError('gates')), \
+             patch.object(extension_evaluator, 'Evaluator', side_effect=AssertionError('paid comparison')), \
+             patch.object(freshness_retrieval, 'fetch', side_effect=AssertionError('retrieval')):
+            for _ in range(2):
+                with self.assertRaisesRegex(budget.BudgetError, '^extension_incomplete$'):
+                    package.run(self.c, run, self.prev, 1)
+                package.completed_route(self.c, extensions.read(self.c)[-1])
+            self.c.stopped = True
+            self.c.exhaustion_occurred = True
+            self.c.card['terminal_stop'] = 'extension_incomplete'
+            run.finalize_accounting(self.c)
+            state = copy.deepcopy(self.c.card['diagnosis_state'])
+            run.finalize_accounting(self.c)
+            self.assertEqual(self.c.card['diagnosis_state'], state)
+            self.assertEqual(state['status'], 'pending')
+            self.diagnosis()
+            with self.assertRaisesRegex(budget.BudgetError, '^retired_no_progress$'):
+                package.subsequent_entry(self.c, run)
+        self.assertEqual(self.calls, calls)
+        # finalize_accounting may publish accounting, but replays bought no work.
+        self.assertEqual(budget.case_spending(json.loads(self.ledger.read_text()))['total_spent_usd'], self.before)
+
+    def test_live_confirmation_is_captured_by_package_before_terminal_stop(self):
+        # Resume directly at the real freshness callback after the saved stress
+        # receipt; this controls only the writer/stress handoff timing.
+        def handoff(*args, **kwargs):
+            return REAL_FRESHNESS(self.c, run.attack_report(self.report), self.report)
+        self.c.card['gate_continuation'] = {'stale': True}
+        registry.atomic_json(self.work/'gate-continuation.json', {'stale': True})
+        with patch.object(run, 'write_and_attack', side_effect=handoff), \
+             patch.object(run, 'run_gates', side_effect=AssertionError('gates after match')):
+            with self.assertRaisesRegex(budget.BudgetError, '^extension_incomplete$'):
+                package.run(self.c, run, self.prev, 1)
+        row = extensions.read(self.c)[-1]
+        self.assertTrue(public.verified(self.c, run, row))
+        self.assertNotIn('gate_continuation', self.c.card)
+        self.assertFalse((self.work/'gate-continuation.json').exists())
+        self.assertEqual(len(self.reviews), 1)
+
+    def test_intent_before_confirmation_kill_reuses_completed_reviewer_receipt(self):
+        original = registry.atomic_json
+        def killed(path, value):
+            if path == self.work/'freshness-verdict.json': raise runtime.Killed()
+            return original(path, value)
+        with public.capture(self.c, run, self.row), patch.object(registry, 'atomic_json', side_effect=killed):
+            with self.assertRaises(runtime.Killed):
+                REAL_FRESHNESS(self.c, run.attack_report(self.report), self.report)
+        self.assertFalse(public.complete(self.c, run, self.row))
+        self.assertEqual(len(self.reviews), 1)
+        # The normal interrupted-call checkpoint retains the verdict location.
+        registry.atomic_json(self.work/'scorecard.json', self.c.card)
+        self.confirm()
+        self.complete()
+        self.assertEqual(len(self.reviews), 1)
+
     def test_intent_without_confirmation_stays_open(self):
         with public.capture(self.c, run, self.row):
             self.c.extension_public_match_recorder(self.c, [self.rows[0]], self.report)
@@ -172,6 +231,23 @@ class PublicMatchTests(unittest.TestCase):
             REAL_FRESHNESS(self.c, run.attack_report(self.report), self.report)
         self.assertFalse(public.complete(self.c, run, self.row))
         self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
+
+    def test_mixed_confirmed_and_unresolved_rows_preserve_open_history(self):
+        self.rows[1].update(hit=True, url='https://example.com/unresolved-public-reference')
+        (self.case/'freshness.jsonl').write_text('\n'.join(map(json.dumps, self.rows)))
+        def mixed(c, chain, text, directory, name, out, *args, **kwargs):
+            self.reviews.append(name)
+            hits = [dict(url=row['url'], app_version=row['app_version'], resolved=index == 0,
+                retrieved=True, same_bug=True if index == 0 else None,
+                version_scope='Authored applicability control', why='Authored mixed judgment')
+                for index, row in enumerate(row for row in self.rows if row['hit'])]
+            registry.atomic_json(out, {'hits': hits})
+        with patch.object(run, 'retained_answer', side_effect=mixed):
+            self.confirm()
+        self.assertFalse((self.work/'freshness-verdict.json').exists())
+        self.assertFalse(public.complete(self.c, run, self.row))
+        self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
+        self.assertEqual(self.c.card['loop_freshness']['outcome'], 'public_match')
 
     def test_capture_is_scoped_and_different_rows_cannot_rewrite_intent(self):
         with public.capture(self.c, run, self.row):

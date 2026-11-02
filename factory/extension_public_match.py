@@ -12,7 +12,6 @@ from types import SimpleNamespace
 from budget import BudgetError
 import extension_compare as comparison
 import extensions
-import gate_state
 import job_authority
 from registry import atomic_json
 
@@ -131,7 +130,7 @@ def _confirmed(c, r, row, intent, report):
     if not snapshot.freshness_confirmed_hits: return None
     if len(blocked) != snapshot.freshness_confirmed_hits: return None
     result = r.attack_report(report)
-    freshness = dict(rows=len(intent['rows']), requested=len(dict.fromkeys(result['freshness_review'])),
+    freshness = dict(rows=len(intent['rows']), requested=len(dict.fromkeys(result.get('freshness_review', []))),
         verdict_path=confirmation['verdict_path'], outcome='public_match', reason='same_bug')
     return {'confirmed_public_match': True, 'freshness': freshness}
 
