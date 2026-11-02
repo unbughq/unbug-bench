@@ -159,7 +159,6 @@ class ReturnTargetTests(unittest.TestCase):
         self.assertEqual(extensions.tree(self.original_parent), original)
         self.assertEqual(self.ledger.read_bytes(), before)
         self.assertEqual(len(self.calls), 2)
-        self.assertEqual(run.writer_feedback(self.c, self.held), None)
 
     def test_kill_after_admission_before_card_clear_reuses_admission(self):
         self.hold()
@@ -213,6 +212,17 @@ class ReturnTargetTests(unittest.TestCase):
         # Authored snapshot, not scientific package proof. Control only the
         # completed_route seam to isolate the dispatch identity contract.
         extensions.complete(self.c, extension_tests.ExtensionTests.snapshot(self, 2))
+        # Real extension history/ledger/snapshot validation with authored
+        # scientific snapshots. This does not prove subsequent_entry execution.
+        root = self.parent / 'inputs'
+        before = copy.deepcopy(self.c.card)
+        self.assertEqual(diagnosis._extension_resume_state(self.c, root), self.original_state)
+        self.assertEqual(self.c.card, before)
+        record = self.target.read_bytes()
+        self.target.unlink()
+        with self.assertRaisesRegex(diagnosis.FactoryBugHeldWait, '^extension_resume_target_invalid$'):
+            diagnosis._extension_resume_state(self.c, root)
+        self.target.write_bytes(record)
         self.resume()
         with patch.object(extension_package, 'completed_route') as completed:
             self.assertEqual(self.replay(), row['extension_id'])

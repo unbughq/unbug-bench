@@ -37,7 +37,13 @@ gate. This is a parent decision, not an inferred waiver from the recheck.
 Queued repeat cancelled BEFORE tests started (empty log, lockf had no child):
 docs/reports/stream-d-return-target-suite-20261102T165202Z-96b8c840.json/.log.
 Command termination -15 is a cancellation, not a test-suite verdict.
-Fresh diff review is running; no implementation approval claimed yet.
+Diff round 1: implementation PASS, no blockers; one Major focused-test gap fixed
+by adding positive and missing-live-record checks with real non-empty extension
+history to the existing completed-successor test (authored scientific snapshots,
+not subsequent_entry proof). Expanded focused file: 13 tests OK in 21.638s.
+The tautological feedback assertion was removed and plain-stop ordering was
+documented. Production code remains unchanged since 9cd1a66. Final diff review
+round 2 is pending; the parent merge suite remains the delivery gate.
 
 Murphy new-stream-d-current-comparison-1 remains OPEN, no rows closed.
 Item 8 now explicitly requires:

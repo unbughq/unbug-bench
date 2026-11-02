@@ -46,7 +46,10 @@ after its existing history/receipt/completed_route checks, before scorecard
 publication and integer return. atomic_json plus a directory fsync publishes
 the record before any entry or writer. Same record preserves its bytes; a new
 validated X replaces the old record. A malformed existing record refuses
-extension_resume_target_invalid rather than being silently replaced. Record even
+extension_resume_target_invalid rather than being silently replaced. During
+selection/replay this check follows the existing completed_route side effects;
+its refusal is a plain evidence stop, not a factory-bug held wait. The held-wait
+mapping below applies only inside factory-bug admission. Record even
 empty-history selection: the existing apply then recovers any successor already
 admitted under X without buying another writer.
 
