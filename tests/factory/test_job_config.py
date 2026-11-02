@@ -112,6 +112,10 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(json.loads((self.work / 'job-money.json').read_text()), self.channel)
         self.assertEqual(self.c.batch_id, 'practice'); self.assertEqual(self.c.job_id, 'a')
         self.assertIsNone(self.c.source_generation)
+        import model_router
+        with patch.dict(os.environ, FACTORY_BATCH_ID='forged', FACTORY_JOB_ID='forged',
+                        FACTORY_BATCH_DEADLINE='2000-01-01T00:00:00Z'):
+            self.assertEqual(model_router.metadata(self.c), ('practice', 'a', 4070908800))
         self.c.job_money['committed_total_usd'] = '99.000000000'
         with self.assertRaises(BudgetError): job_authority.for_case(self.c)
 

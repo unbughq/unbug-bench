@@ -77,7 +77,7 @@ class ManifestTests(unittest.TestCase):
         expected_worker = {n for n in build['source_sha256'] if n.startswith('factory/')}
         expected_worker -= {'factory/README.md', 'factory/IMPROVEMENTS.md',
                             'factory/apply_free_model_cutover.py', 'factory/free_model_patch.py'}
-        expected_worker |= {'factory/launch_manifest.py', 'factory/restore_sync.py',
+        expected_worker |= {'factory/worker_secrets.py', 'factory/launch_manifest.py', 'factory/restore_sync.py',
                             'factory/runner_supervisor.py', 'factory/batch.py',
                             'factory/model_router.py', 'factory/model_call_gate.py', 'factory/job_authority.py', 'factory/diagnosis.py', 'factory/extensions.py',
                             'factory/diagnosis_dispatch.py', 'factory/diagnosis_task.py', 'factory/extension_compare.py', 'factory/extension_package.py', 'factory/extension_public_match.py', 'factory/extension_evaluator.py', 'factory/factory_waste.py',

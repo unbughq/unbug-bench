@@ -351,12 +351,11 @@ def unchanged_outcome(c, r, row):
     return True
 
 
-def complete_unchanged(c, r, row, *, after_stop=False):
+def complete_unchanged(c, r, row):
     receipt = extensions.writer_receipt(c)
     if not unchanged_receipt(c, r, row, receipt): return False
     entry = row['entry']
     if extensions.digest(extensions.tree(c.case)) != entry['case_sha256']:
-        if after_stop and receipt['repair_requested']: refuse()
         return False
     if entry['frontier'] == len(entry['stages']): refuse()
     extensions._verify_case(c, row['extension_id'], 'entry', entry)
@@ -429,7 +428,7 @@ def run(c, r, previous, number):
                 if public.complete(c, r, row): public.stop(c, extensions.read(c)[-1])
                 raise
             if str(error) == 'stress_review_unresolved:unchanged_repair':
-                if complete_unchanged(c, r, row, after_stop=True): stop_unchanged(c, row)
+                if complete_unchanged(c, r, row): stop_unchanged(c, row)
                 raise
             if str(error) not in ('extension_comparison_pending', 'stress_review_unresolved:rounds_exhausted'):
                 raise

@@ -12,6 +12,7 @@ import tempfile
 
 from batch_money import check_manifest, amount
 from registry import atomic_json
+from worker_secrets import SECRETS
 
 FACTORY = Path(__file__).resolve().parent
 
@@ -185,7 +186,7 @@ def main():
         if a.op == 'check':
             host_check(a.path, a.sha256, a.case, a.generation or None, a.release)
         else:
-            deliver(sys.stdin.buffer.read(65537), a.sha256, Path('/dev/shm/secrets/factory-job.json'))
+            deliver(sys.stdin.buffer.read(65537), a.sha256, SECRETS / 'factory-job.json')
     except (OSError, ValueError, KeyError, TypeError):
         print('job configuration refused', file=sys.stderr)
         return 1

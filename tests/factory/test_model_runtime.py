@@ -25,7 +25,8 @@ class ModelRuntimeTests(unittest.TestCase):
         self.addCleanup(offline_router()[0].close)
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
-            c = types.SimpleNamespace(work=root, case=root / 'case', card={})
+            c = types.SimpleNamespace(work=root, case=root / 'case', card={},
+                model_env={"FACTORY_ROUTER_TOKEN":"public-case-router-sentinel"})
             runtime = model_runtime.ModelRuntime(root, mock.Mock(), mock.Mock(),
                 lambda path, sudo=False: shutil.rmtree(path), lambda user: root / user)
             # argv/env and isolation only: no CLI or model process starts.
@@ -36,8 +37,10 @@ class ModelRuntimeTests(unittest.TestCase):
             home = c.work / "codex-home"; home.mkdir()  # the boat VM's config shape
             (home / "config.toml").write_text('model_provider = "boat-openai"\n[mcp_servers.computer]\ncommand = "x"\n'
                                               '[model_providers.boat-openai]\nbase_url = "https://relay/v1"\n')
-            fake_env = {"OPENAI_API_KEY": "x", "ANTHROPIC_API_KEY": "x", "CODEX_HOME": str(home), "PATH": os.environ["PATH"]}
+            fake_env = {"FACTORY_ROUTER_TOKEN":"public-router-sentinel", "FACTORY_ROUTER_URL":"https://router.invalid", "FACTORY_ROUTER_CA_FILE":"/public/ca", "OPENAI_API_KEY": "x", "ANTHROPIC_API_KEY": "x", "CODEX_HOME": str(home), "PATH": os.environ["PATH"]}
             def budgeted(cmd, cwd, env, *a, **k):
+                self.assertFalse(any(k.startswith("FACTORY_ROUTER_") for k in env))
+                self.assertNotIn("public-case-router-sentinel", str(env))
                 seen.append((cmd, env, k["driver"], (pathlib.Path(env.get("CODEX_HOME", "/nonexistent")) / "config.toml").read_text() if k["driver"] == "codex" else ""))
                 return subprocess.CompletedProcess(cmd, 0)
             with mock.patch.dict(os.environ, fake_env, clear=True), mock.patch.object(model_runtime, "pinned_cli", lambda kind: kind), \
@@ -82,6 +85,7 @@ class ModelRuntimeTests(unittest.TestCase):
             roles = {'stress_tester': {'model': source, 'effort': 'default', 'family': 'deepseek'}}
             c = types.SimpleNamespace(work=root, case=root / 'case', case_id='synthetic',
                 card={'roles': roles}, ledger=root / 'ledger.json',
+                model_env={'FACTORY_ROUTER_TOKEN':'public-case-router-sentinel'},
                 args=argparse.Namespace(agent_timeout=3, max_cost=5, max_role_calls=10,
                     max_total_calls=20, no_progress_minutes=1, max_zero_tokens=3, resume=None))
             runtime = model_runtime.ModelRuntime(root, mock.Mock(), mock.Mock(), mock.Mock(), mock.Mock())
@@ -96,6 +100,7 @@ class ModelRuntimeTests(unittest.TestCase):
                     env.clear(); env.update(clean)
                 yield cancel
             def budgeted(cmd, cwd, env, *args, **kwargs):
+                self.assertFalse(any(k.startswith('FACTORY_ROUTER_') for k in env))
                 if cmd[cmd.index('-m') + 1] == source:
                     raise model_runtime.BudgetError('provider_limit:' + source)
                 counter[0] += 1

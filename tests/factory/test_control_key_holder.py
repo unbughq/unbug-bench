@@ -33,7 +33,7 @@ class ControlKeyHolderTests(unittest.TestCase):
         self.root = Path(self.tmp.name).resolve()
         for name in ('factory', 'bin', 'home', 'sealed'):
             (self.root/name).mkdir()
-        for name in ('key_holder.py', 'recovery.py', 'control_resume.py', 'launch.sh', 'account_handoff.py', 'codex_login.py', 'launch_manifest.py'):
+        for name in ('worker_secrets.py', 'key_holder.py', 'recovery.py', 'control_resume.py', 'launch.sh', 'account_handoff.py', 'codex_login.py', 'launch_manifest.py'):
             shutil.copyfile(HERE/name, self.root/'factory'/name)
         shutil.copyfile(HERE.parent/'bin/setup-secrets', self.root/'bin/setup-secrets')
         setup = self.root/'bin/setup-secrets'

@@ -808,6 +808,8 @@ def dispatch(policy, root, home, identity, identity_bytes):
                        FACTORY_ACCOUNT_STATE=json.dumps(accounts))
             import practice
             if practice.active(policy, root): env['UNBUG_PRACTICE_BATCH'] = practice.BATCH
+            if 'UNBUG_ROUTER_CLIENT_FILE' in os.environ:
+                env['UNBUG_ROUTER_CLIENT_FILE'] = os.environ['UNBUG_ROUTER_CLIENT_FILE']
             if account is not None: env['OPENCODE_SECRET_NAME'] = OPENCODE_ACCOUNTS[account]
             with money.locked(home, record['id']):
                 ops = _operations(directory, record, policy)

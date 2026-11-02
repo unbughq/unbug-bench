@@ -4,6 +4,7 @@ Real G1 diagnostics and comparison receipts; stress pass and no-op writer are
 labelled external-output controls. No live worker, model or network calls.
 """
 import copy
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -147,11 +148,85 @@ class UnchangedTests(unittest.TestCase):
         self.assertEqual(self.calls, ['attacker-9']); self.g1.assert_called()
         self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
 
-    def test_freshness_only_repair_keeps_evidence_stop_and_open_history(self):
+    def test_freshness_only_repair_reaches_g1_and_stress(self):
         self.prepare(); self.search = True
-        with self.assertRaisesRegex(budget.BudgetError, '^extension_snapshot_changed$'): self.package()
+        with patch.object(package, 'stress', side_effect=budget.BudgetError('test_stress_handoff')):
+            with self.assertRaisesRegex(budget.BudgetError, '^test_stress_handoff$'): self.package()
+        self.assertEqual(self.calls, ['builder-9', 'attacker-9'])
+        self.g1.assert_called(); self.early.assert_called(); self.fresh.assert_called()
         self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
-        self.g1.assert_not_called()
+        self.assertFalse((self.work / 'extension-snapshots/1/outcome').exists())
+
+    def test_completed_freshness_only_repair_reaches_stress_without_writer(self):
+        self.prepare()
+        with (self.case / 'freshness.jsonl').open('a') as f:
+            f.write('\n' + json.dumps({'authored_search_control': True}) + '\n')
+        run.complete_writer(self.c, self.saved(), self.work / 'attack-state.json')
+        with patch.object(package, 'stress', side_effect=budget.BudgetError('test_stress_handoff')):
+            with self.assertRaisesRegex(budget.BudgetError, '^test_stress_handoff$'): self.package()
+        self.assertEqual(self.calls, ['attacker-9']); self.g1.assert_called()
+        self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
+        self.assertFalse((self.work / 'extension-snapshots/1/outcome').exists())
+
+    def test_done_writer_freshness_only_repair_reaches_stress_without_writer(self):
+        self.prepare()
+        with (self.case / 'freshness.jsonl').open('a') as f:
+            f.write('\n' + json.dumps({'authored_search_control': True}) + '\n')
+        # External final-usage acknowledgement only; completion and resume are real.
+        with patch.object(run, 'writer_call_done', return_value=True), \
+                patch.object(package, 'stress', side_effect=budget.BudgetError('test_stress_handoff')):
+            with self.assertRaisesRegex(budget.BudgetError, '^test_stress_handoff$'): self.package()
+        self.assertEqual(self.calls, ['attacker-9']); self.g1.assert_called()
+        self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
+        self.assertFalse((self.work / 'extension-snapshots/1/outcome').exists())
+
+    def test_real_g2_consumes_new_freshness_hit_after_unchanged_hash_writer(self):
+        import freshness_retrieval
+        import test_scientific_receipts as artifacts
+        self.prepare()
+        http = artifacts.fixture('invalid-runs-http.json.gz')
+        self.assertEqual(hashlib.sha256(http['body'].encode()).hexdigest(), http['sha256'])
+        rows = [json.loads(line) for line in (self.case / 'freshness.jsonl').read_text().splitlines() if line]
+        for row in rows:
+            row.update(at=datetime.now(timezone.utc).isoformat(), hit=False, ambiguous=False)
+        new = {**rows[0], 'url': http['url'] + '?freshness-only-writer=1', 'hit': True}
+        rows.append(new)
+        (self.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+        run.complete_writer(self.c, self.saved(), self.work / 'attack-state.json')
+        receipt = self.saved()
+        self.assertTrue(receipt['repair_requested'])
+        self.assertEqual(receipt['output_sha256'], receipt['before_repair_sha256'])
+        self.assertFalse(package.complete_unchanged(self.c, run, self.row))
+        # Authored external transports over saved HTTP bytes; real G2 validators.
+        answer = dict(url=new['url'], app_version=new['app_version'], resolved=True,
+                      retrieved=True, same_bug=False,
+                      version_scope='Different behavior in the pinned practice release',
+                      why='The retrieved page describes a different behavior')
+        def fetch(url, **kwargs):
+            return {'url': url, 'final_url': url, 'status': 200}, http['body'].encode()
+        supplied = []
+        def review(c, chain, text, directory, name, out, *args, **kwargs):
+            supplied.append(text)
+            registry.atomic_json(out, {'hits': [answer]})
+        records = package.Records(self.c, run, self.row)
+        with patch.object(freshness_retrieval, 'fetch', side_effect=fetch), \
+                patch.object(run, 'retained_answer', side_effect=review):
+            result = records.capture(self.c, 'G2', lambda: run.g2(self.c))
+        self.assertTrue(result[0], result)
+        self.assertEqual(result[1]['flagged_hits'], 1)
+        self.assertEqual(len(supplied), 1)
+        self.assertIn(new['url'], supplied[0])
+        names = records.load('G2')['support']
+        for suffix in ('/verdict.json', '/retrieval/receipts.json'):
+            paths = [self.work / name for name in names if name.endswith(suffix)]
+            self.assertTrue(paths, suffix)
+            self.assertTrue(any(new['url'] in path.read_text() for path in paths), suffix)
+        public = [self.work / name for name in names if name.endswith('/public-search.json')]
+        self.assertEqual(len(public), 1)
+        self.assertIn('\"flagged_hits\": 1', public[0].read_text())
+        bodies = [self.work / name for name in names if name.endswith('.body')]
+        self.assertTrue(bodies)
+        self.assertTrue(all(path.read_bytes() == http['body'].encode() for path in bodies))
 
     def test_history_before_card_routes_completed_terminal_without_stress(self):
         self.prepare(); lagging = copy.deepcopy(self.c.card['extension_history'])

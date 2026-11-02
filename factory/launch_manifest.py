@@ -9,7 +9,7 @@ import json
 
 CHECKED_HELPERS = ('bin/qualified-release.py', 'tools/boat_readiness.py')
 HASH_FILE = 'factory/launcher-sha256.json'
-TRUSTED_FILES = ('factory/practice.py', 'factory/practice_cleanup.py', 'factory/boat_lifecycle.py',
+TRUSTED_FILES = ('factory/worker_secrets.py', 'factory/router_delivery.py', 'factory/practice.py', 'factory/practice_cleanup.py', 'factory/boat_lifecycle.py',
  'control/unbug-practice-cleanup@.service', 'tools/practice-fault.py',
  'tools/qualify-batch-inputs.py', 'factory/control_resume.py',
  'factory/key_holder.py',
@@ -54,7 +54,7 @@ TRUSTED_FILES = ('factory/practice.py', 'factory/practice_cleanup.py', 'factory/
 # Preserve the holder's boundary: worker code is qualified separately.
 HOST_FILES = TRUSTED_FILES + ('factory/run.py', 'factory/worker_release.py')
 
-REQUIRED_RELEASE = ('factory/model_runtime.py',
+REQUIRED_RELEASE = ('factory/worker_secrets.py', 'factory/model_runtime.py',
  'factory/model_router.py',
  'factory/token_prices.py',
  'factory/model_call_gate.py',
@@ -142,6 +142,7 @@ def worker_files(root):
     for pattern in WORKER_GLOBS:
         paths.update(p.relative_to(root).as_posix() for p in root.glob(pattern)
                      if not p.name.startswith('test_'))
+    paths.discard('factory/router_delivery.py')  # Host-only credential packer.
     return sorted(paths)
 
 

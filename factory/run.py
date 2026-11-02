@@ -27,7 +27,8 @@ COMPOSE = ["docker", "compose", "-f", str(BENCH / "projects/medusa/compose.yaml"
 PROMPTS = pathlib.Path(__file__).resolve().parent / "prompts"
 SEALED = HOME / "sealed"
 STATEMENTS = HOME / "statements"
-STATEMENTS_KEY = pathlib.Path("/dev/shm/secrets/statements-key")
+from worker_secrets import SECRETS
+STATEMENTS_KEY = SECRETS / "statements-key"
 STATEMENTS_RECIPIENT = PROMPTS.parent / "statements-recipient.txt"
 FOUNDER_RECIPIENT = "age13u0yesmknrnw9z2ff2nnmlk5lf8r2hutrt5mv0lh7nal8jfdkq4qewh0fy"
 GATES = ["G1", "G2", "G3", "G4", "G5", "G16", "G8", "G9", "G6", "G13", "G14", "G15", "G7", "G10", "G17", "G11"]  # cheap rejectors first
@@ -1364,8 +1365,8 @@ def write_and_attack(c, prev, *, extension_id=None):
                 # Completion checkpoints precede validation, including this refusal.
                 # Check before retained findings can trigger freshness/model work.
                 if (receipt['before_repair_sha256'] == receipt['output_sha256'] and
-                        (receipt['repair_requested'] or (extension is not None and
-                         extensions.digest(extensions.tree(c.case)) == extension['entry']['case_sha256']))):
+                        (extensions.digest(extensions.tree(c.case)) == extension['entry']['case_sha256']
+                         if extension is not None else receipt['repair_requested'])):
                     attack_unresolved(c, 'unchanged_repair')
             problems = receipt.get('validation_problems') or receipt.get('input_problems')
             source = receipt.get('findings_report')
@@ -1523,8 +1524,8 @@ def write_and_attack(c, prev, *, extension_id=None):
                          precheck_problems=problems)), c.case, f"builder-{n}")
             c.card["builder_rounds"] = n
             if (case_hash(c) == before_repair and
-                    (repair_requested or (extension is not None and
-                     extensions.digest(extensions.tree(c.case)) == extension['entry']['case_sha256']))):
+                    (extensions.digest(extensions.tree(c.case)) == extension['entry']['case_sha256']
+                     if extension is not None else repair_requested)):
                 attack_unresolved(c, "unchanged_repair")
             # Invalid cases go straight back to the builder; never spend an attack on them.
             problems = g1(c)[1]["problems"] or None

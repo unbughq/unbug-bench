@@ -1,7 +1,7 @@
 # $25 plumbing practice — stop before live action
 
 Prove one fresh worker can publish and be deleted without the Mac. Success needs
-real account-2 usage, publication records and verified deletion. An abort is not
+publication records and verified deletion; account-2 attribution remains unproven. An abort is not
 a pass. One worker, concurrency one; diagnosis, replacement and helper comparison
 off. Empty-input authentication establishes prior spend $0; case authority $19.99.
 Item 8, queued-child creation and multi-worker carry remain separate work and pins.
@@ -15,18 +15,17 @@ time or extend the deadline on restart. Refuse incompatible timings at admission
 |---|---|---|
 | 0. Pin offline | After this reviewed change merges, run `python3 -B tools/pin-practice.py --output /ABS/NEW`. Clean HEAD must equal available factory-simplify. Verify generated hashes; do not wait for lane 2. | $0 |
 | 1. Live entry | **Founder decisions (2026-11-02):** "Provider bound ACCEPTED: Boat's prepaid credit balance (below $5, no auto top-up) together with the 60-minute TTL auto-delete is the accepted $5 infrastructure cap. A hard provider-side cap is not required." "Legacy launch b275ffccd6134a33833853ad1d31ed16 is WRITTEN OFF as having created nothing, based on the empty Boat inventory plus no unexplained billing. Any later charge traced to it goes on the infra-waste line." **Launch disposition: disposed (founder write-off).** Read the live Boat credit balance and verify auto top-up is off; abort if balance is above $5, auto top-up is on, or either check cannot be completed. Retain all legacy files; fabricate no completion markers. | $0 |
-| 2. Accounts/deploy | Privately authenticate accounts 1 and 2 as distinct provider identities, not different token bytes. Account 2 is `claude-factory-token-2`, never exam `claude-token-2`. Record only labels, UTC, `distinct_accounts:true` and operator confirmation. Install pinned code/policy, host tools and cleanup unit (also its source copy under control/), plus the generated holder drop-in. Drain old paid clients; install router before clients. Verify common ledger, credit-reader schema, R2 access, hashes and existing founder acknowledgement for router keys in RAM. | $0 |
+| 2. Accounts/deploy | **Superseding founder decision (2026-11-02): "Use existing token."** Use both `claude-token` and the existing `claude-factory-token-2` unchanged, as the pinned policy expects. Record `distinct_accounts: "unverified (founder accepted)"`; account-2 attribution and natural 2→1→2 handoff are unproven. Invalid, expired or refused token-2 is an ordinary stop under this plan. Install pinned code/policy, host tools and cleanup unit (also its source copy under control/), plus the generated holder drop-in. Drain old paid clients; install router before clients. Verify common ledger, credit-reader schema, R2 access and hashes. **Founder acknowledgement (2026-11-02):** the OpenRouter API key may be in control-VM router RAM only, for read-only credit checks and capped calls; never write it to disk, print it or persist it. | $0 |
 | 3. Admit/arm | Run `tools/qualify-batch-inputs.py --policy POLICY --home CONTROL_HOME --job practice`. Enable only the hash-authenticated practice policy. Reserve once through the existing key-holder interface. Start `unbug-practice-cleanup@OP.service`; record active PID, readiness binding and operation/launch/reservation IDs before dispatch. | $0 |
 | 4. Worker | Record creation ID, worker-start timestamp and 60-minute TTL. Disconnect the Mac; restart the holder once. Require the same operation and worker. No relaunch or second worker. | $5, shared with deletion |
-| 5. Model work | Use all five explicit roles in the pinned manifest: MiniMax writer/easy calibrator, DeepSeek stress, MiMo reviewer, Claude Opus4.5 compact strong calibrator. Every route has a pinned maximum; no unbounded Codex route. Start Claude account 2; account 1 only on genuine current exhaustion. Correlate lease/invocation IDs and UTC receipts with private account-2 usage, excluding builder traffic. Natural 2→1→2 absent means unexercised. OpenRouter stays within the existing shared min($11.63, observed credit), with no top-up. | $19.99 total list-equivalent, including waste and unknown holds |
+| 5. Model work | Use all five explicit roles in the pinned manifest: MiniMax writer/easy calibrator, DeepSeek stress, MiMo reviewer, Claude Opus4.5 compact strong calibrator. Every route has a pinned maximum; no unbounded Codex route. **Superseding founder decision (2026-11-02): "Use existing token."** Keep pinned initial account 2 and allowed accounts [2,1], using both existing labels. Account distinctness is "unverified (founder accepted)"; account-2 attribution and natural 2→1→2 handoff remain unproven. Invalid, expired or refused token-2 is an ordinary stop. Builders share account 1; a Claude rate limit is an ordinary cap/refusal stop. OpenRouter stays within the existing shared min($11.63, observed credit), with no top-up. | $19.99 total list-equivalent, including waste and unknown holds |
 | 6. Publish/delete | In the operator shell, first run `export UNBUG_PRACTICE_BATCH=b-plumbing-practice`. Once before collection, arm `python3 -B tools/practice-fault.py --policy POLICY --operation OP`. First publication fails before transport/ACK; ordinary replay must publish the same generation. Normal collection precedes deletion; the independent watchdog still deletes positively owned disposable workers at its deadline if collection fails. If the controller dies before writing `.started`, no watchdog deadline can be computed: the provider TTL is the backstop and uncertainty remains. Require deletion request ID, exact target, kind=sandbox, completed status/stage, timezone-aware completion time, and full hasMore=false inventory proving absence. Run holder reconcile; retain generation, ACK/pointer and money records, or explicit failure. | Included in $5 |
 | 7. Close | Disable practice admission. Stop cleanup only after verified completion or terminal non-dispatch. Retain settlement or unknown holds; never reset the infrastructure ledger. | $0 |
 
 Total reserved: **$19.99 model + $0.01 unused + $5 infrastructure = $25**.
 There is no separate probe, subscription purchase or additional allowance.
 
-Abort before creation for stale pins, unqualified/duplicate accounts, missing
-account 2, Boat credit above $5 or auto top-up on (or unverified), failed cleanup arming, stale or
+Abort before creation for stale pins, missing required Claude labels, Boat credit above $5 or auto top-up on (or unverified), failed cleanup arming, stale or
 depleted paid ledger, failed empty-input proof or missing deployment acknowledgement.
 After creation, stop model admission on cap/refusal, unknown settlement, duplicate
 creation, lost ownership, late output after cancellation, failed publication,
@@ -34,3 +33,6 @@ identity mismatch or deadline. Keep cleanup until verified deletion; unknown
 creation/deletion permits reconciliation only, never another worker or fake proof.
 The provider-bound and legacy-debt prerequisites are resolved by the founder decisions.
 Live credit/top-up, deployment, account and lifecycle checks still govern this run.
+
+The account-1-only routing hold is superseded by the decision to use both existing
+labels. Keep source `3a50896` and its original pins; no code change or repin.
