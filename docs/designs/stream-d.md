@@ -3886,7 +3886,9 @@ freshness-only changes retain the deferred evidence-stop behavior.
 
 Design: `stream-d-unchanged-writer-outcome.md`, parent-approved after design round
 2 (B2 full-tree identity/fallthrough, N3 unknown-frontier acceptance, N4 all-pass
-refusal). Implementation and focused tests are in progress; full suite and fresh
-diff review are required before handback. No Murphy row closes. Package increment
+refusal). Implementation is complete at f00b673; 15 new focused tests and 27
+existing execution tests pass. The full suite passed 173 scripts / 0 failures
+at 3def7d9 after a recorded transient isolation failure and unchanged-code rerun.
+Fresh diff review is required before handback. No Murphy row closes. Package increment
 2 remains open for rejected writer and public-match outcomes, partial first-entry
 capture and the post-extension factory-bug return target. Activation stays off.

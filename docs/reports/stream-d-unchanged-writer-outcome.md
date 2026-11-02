@@ -28,3 +28,10 @@ then the full isolation script both passed with no code changes; retained in
 `stream-d-unchanged-isolation-rechecks.json` and its two logs. This does not waive
 the full-suite requirement; a full rerun follows. All new terminal tests and
 existing Stream D comparison/dispatch/execution/retry tests passed in that run.
+
+Full-suite retry PASSED at 3def7d9 (production code f00b673 unchanged):
+173 scripts / 0 failures, exit 0. Record:
+`stream-d-unchanged-writer-suite-20261102T045856Z-485f42af.json` and adjacent log.
+The previously failing isolation script passed in this complete run. No test
+assertions or code were changed between the two full runs. Fresh diff review
+round 1 is the remaining handback gate.
