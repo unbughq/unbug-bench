@@ -25,3 +25,19 @@ Validation: test_practice_readiness exercises authenticated old-policy rejection
 through holder reserve and legacy authorize under both environment IDs, unchanged
 state bytes, exact ceilings, and agreement of the activation configurations.
 Full-suite and fresh review records follow after the source commit.
+
+## Validation
+
+Targeted scripts passed: practice readiness 15 tests, batch holder 60 tests,
+batch money 5 tests. While strengthening the new regression, its explicit
+manifest-authentication assertion caught a fixture path mismatch; the fixture
+now derives the manifest path from the supplied record ID and seeds a retained
+terminal preflight through real holder APIs before checking byte preservation.
+
+Source 26ec10afd493f6fcfb0d893c8cf255e0678f88c6, tree
+4d4dc878805694255dee9c7ca7be0d78f6f34b13 passed the full suite under
+`lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py`:
+176 scripts, 0 failed, exit 0. UTC 2026-11-02T14:04:22Z–14:41:53Z.
+Record: practice-fresh-admission-suite-20261102T140422Z-9a04062c.json;
+compressed full log has the same stem with .log.gz. The record includes both
+log hashes and source provenance. No live actions were taken in this increment.
