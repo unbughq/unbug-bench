@@ -1,0 +1,18 @@
+Scored blocking stress outcome, lane 1 slice 2.
+
+Implementation is complete and the required serialized full suite passes; fresh diff review pending. No merge-readiness claim before that review.
+
+Baseline factory-simplify 02f3bc9 is merged. Only production change: factory/extension_package.py::stress (7 insertions, 3 deletions). Authenticated completed-call defects now complete a stress-failure outcome even when coverage, validation or a diagnostic remains unfinished. The helper computes surviving findings through the existing freshness_only_clearance projection. It requires clearance only when clearance could change the verdict, so excluded URL requests with an independent defect no longer require a nonexistent clearance file. Original detail remains unchanged on the defect path. The receipt/pending/hash/binding, exhaustion, pass-phase and explicit invalid-execution checks remain in force. No new model call, extension, allowance, schema or money/launch path. Diagnosis remains disabled.
+
+Fourteen tests use real saved practice/5813be case and ledger admission, real category aggregation/publication/completion and package/accountant paths; CLI answers, G1/early controls, diagnostic state and checkpoint ACK are explicitly authored controls. Tests cover scored incomplete work, real loop_freshness exclusion with no clearance, clean legacy blocking, two replay/kill windows, one diagnosis ID, untouched ledger on replay, partial timeout bytes, malformed/hash/pending/exhaustion/invalid-execution boundaries, legacy unfinished and sentinel stops, and the deliberate request-only holds. All 14 pass before and after the baseline merge and in the full run. No live qualification or Murphy closure claimed.
+
+Required full command: `lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py`.
+Result: 177 test scripts run; 0 failed; exit 0. Source 978ea2a4b0ba69fc1485210964575d4461bd1a03. Committed record: `stream-d-blocking-stress-suite-20261102T114355Z-bc324e14.json` and `.log`; elapsed command time includes shared-lock wait. Controller-resume passes in this run. No source changed while queued/running.
+
+The earlier locked attempt on c1304cd was stopped after the parent published 02f3bc9, before merging that source; `stream-d-blocking-stress-suite-20261102T112920Z-d266d0c2.json` records interrupted=True and verdict=null. It is not a pass or failure verdict. Only this lane's superseded guard/descendants were stopped; the parent suite was not touched.
+
+Design reviews: `docs/reviews/stream-d-blocking-stress-outcome-design-1.md` (B1 accepted) and `-design-2.md` (PASS, no blockers). The unavailable ENOTFOUND attempt is separately recorded and is not approval. Round-2 M1/N1–N3 corrections are explicit in the design and tests.
+
+Known scope limit: exact request-only blockers with missing or empty freshness metadata deliberately become an unscored extension_execution_pending hold, rather than the previous scored failure. That stop is not a diagnosis trigger, so this is an un-diagnosed hold, not a completed recovery route. The writer loop/evaluator remain unchanged; this divergence and its unmeasured frequency are documented in the passing design. Do not claim this increment resolves every stress stop.
+
+No rows closed. Lane 1 slice 3 (post-extension factory-bug return to package/comparison target, new-stream-d-current-comparison-1) remains; lane 2 owns rejected-writer, partial/legacy first-entry and final all-outcomes integration. Freshness-only continuation and the previously accepted public-match route are inherited from 02f3bc9 and were not taken over.
