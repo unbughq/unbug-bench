@@ -36,7 +36,7 @@ Validation uses retained collection/creation artifacts with authored bindings;
 systemd/provider transports and pin containers are explicit doubles. Existing
 isolation and holder tests pass; thirteen new contracts pass, including timing,
 wrong ready PID/hash/launch, fault replay, unknown deletion holds, and stale pins.
-Full-suite record and a fresh diff review follow.
+Full-suite records are below; a fresh diff review is required before handback.
 
 First full suite: a61b705, 172 scripts, 9 failed. The unique source-bound JSON
 and compressed log are retained (20261102T015856Z-68d9ba0b). Fixes restore
@@ -57,3 +57,11 @@ commit-built pin smoke also passes at 08d7228 with the same explicitly substitut
 merged-head identity check; the temporary bundle was removed. The refreshed
 preflight names that source commit and still refuses uncut final pins. Production
 pinning remains one command after the reviewed merge; no lane-2 dependency.
+
+Final implementation validation: `uv run --with numpy --with scipy python -B
+tests/run.py` passed at 6e67efa33f089a8e4277591b0a0cbd2acbac1d05: **172 scripts,
+0 failed**, exit 0. The source tree, timestamps and compressed/uncompressed hashes
+are in practice-readiness-suite-20261102T024431Z-8ee060ec.json; its .log.gz is
+committed beside it. This supersedes the failed first run as implementation
+validation. The full launch-guard scenarios also passed separately (450 seconds,
+no real Boat calls). No code or test changed after the passing suite source commit.
