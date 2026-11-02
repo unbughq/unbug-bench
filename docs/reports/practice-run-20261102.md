@@ -79,3 +79,17 @@
 - Practice spend: models $0; infrastructure $0.
 - Worker IDs: none; no pending creation, no cleanup unit armed, no deletion required.
 - Deployment mutation: none; no decrypted credentials persisted or emitted.
+
+## Router acknowledgement and consolidated offline dependency scan
+
+- Founder acknowledgement (2026-11-02): approved placing the OpenRouter API key in the control-VM router's RAM only, for read-only credit checks and capped calls. It must never be written to disk, printed or persisted.
+- Acknowledgement recorded UTC: 2026-11-02T06:01:24.238439+00:00; receipt recording time, not an inferred time of the private decision.
+- Previous missing-acknowledgement abort: resolved by this acknowledgement.
+- Scope scanned offline: practice steps 2–7; activation/admission/cleanup validators; holder dispatch; account handoff; worker launcher; router transport/configuration; service units; pin and input qualifier.
+- No additional account identity confirmation is required: distinct_accounts remains "unverified (founder accepted)"; account-2 attribution and natural handoff remain unproven.
+- Known operator action: step-4 Mac-disconnect pause, retained.
+- Remaining handback item: resolve worker-to-router configuration delivery before deployment. model_router._rpc requires FACTORY_ROUTER_URL and FACTORY_ROUTER_TOKEN; batch_holder.dispatch constructs an environment without either; launch.sh does not deliver them to the worker and rejects unrecognized secret labels. The shared router service configuration alone does not configure worker clients. TLS trust must also be supplied through a supported deployment path. No existing pinned delivery path was found in this offline scan; no live image fallback was assumed.
+- Required resolution: identify an already-supported pinned deployment path, or authorize a separately reviewed offline delivery fix and new pins. No mid-run code edit or invented credential path.
+- Other planned actions are agent-executable under existing authorization: public deployment, noninteractive administrative unit installation, ledger/credit/R2/hash checks, cleanup arming, holder restart, publication-fault arming and reconciliation/disable. They remain unverified live checks, not additional founder approvals. Any failure still aborts.
+- Status: STOP before live deployment; consolidated handback under the no-code-change rule.
+- Practice spend: models $0; infrastructure $0. Worker IDs: none; no pending creation or cleanup required.
