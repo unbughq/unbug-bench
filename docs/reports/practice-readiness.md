@@ -49,3 +49,11 @@ for changed code under an unchanged manifest. No provider calls were involved.
 The real commit-built pin artifact smoke test passed at a61b705 with only the
 merged-head identity check substituted for this unmerged branch; it was temporary
 and removed, never production pins. The CLI guard itself is tested for rejection.
+
+Packaging-fix validation: all 24 controller-resume and 16 account-handoff tests
+pass with the canonical suite BENCH environment; all 6 batch-launch integration
+tests pass. The pin, inventory, TTL and gate-smoke contracts pass. The real
+commit-built pin smoke also passes at 08d7228 with the same explicitly substituted
+merged-head identity check; the temporary bundle was removed. The refreshed
+preflight names that source commit and still refuses uncut final pins. Production
+pinning remains one command after the reviewed merge; no lane-2 dependency.
