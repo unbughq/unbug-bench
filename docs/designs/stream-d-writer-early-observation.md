@@ -171,3 +171,18 @@ scientific_version removes the numeric bench_workers setting, dependency_files
 MEASURE, so their version still changes between one and multiple workers. The
 existing reduced-worker test must use real scientific_version, not a fixed mock.
 This slice deliberately does not alter normal versions or cache fingerprints.
+
+## Round-2 clarifications
+
+The round-1 binding amendment overrides the earlier replay-hold wording: package
+entry restores the verified observation and directly raises extension_execution_pending,
+without entering or rewriting the writer loop. Place this check after
+complete_unchanged and public.complete, immediately before public.capture.
+Keep the shared helper at entry and writer_early as reviewed; the latter normally
+finds nothing after entry checked it, and does not create another launch route.
+
+Terminal completion must strengthen validated-receipt consistency before trusting
+the observation: next_phase writer, validation_problems equal retained feedback,
+and exhausted/rounds_exhausted when claiming the terminal publication window.
+This capture-only slice does not claim that stronger authentication or publish
+an outcome from an inconsistent state. It remains an explicit next-slice obligation.
