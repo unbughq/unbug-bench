@@ -93,3 +93,45 @@
 - Other planned actions are agent-executable under existing authorization: public deployment, noninteractive administrative unit installation, ledger/credit/R2/hash checks, cleanup arming, holder restart, publication-fault arming and reconciliation/disable. They remain unverified live checks, not additional founder approvals. Any failure still aborts.
 - Status: STOP before live deployment; consolidated handback under the no-code-change rule.
 - Practice spend: models $0; infrastructure $0. Worker IDs: none; no pending creation or cleanup required.
+
+## Authorized resume — merged release, steps 0–3
+
+- Status: PAUSED before step 4; Mac remains connected.
+- Source commit: 02f3bc917d846134174b768cc9f5c5fb16575ec8.
+- Step 0: PASS; fast-forwarded branch, clean HEAD equalled factory-simplify before pinning.
+- Pin bundle label: unbug-practice-20261102-02f3bc9; new bundle, previous 3a50896 pins obsolete under parent resume authorization.
+- Release ID: c55484c4fb2e27fb17dbb5a255b0a4804fa19faa5842de2be75a4baf010c2734.
+- Pin verification UTC: 2026-11-02T11:41:50.713072+00:00; generated hashes, release and policy verified.
+- Initial balance wrapper invocation: unsupported argument; no provider mutation. Corrected read-only observation follows.
+- Step 1: PASS; Boat balance $4.17157 at 2026-11-02T11:42:14.015839+00:00.
+- Auto top-up: OFF, prior founder operator confirmation retained.
+- Provider cap: founder-accepted prepaid credit plus 60-minute TTL; infrastructure ceiling $5.
+- Legacy launch b275ffccd6134a33833853ad1d31ed16: disposed by founder write-off; files retained, no completion markers fabricated.
+- Step 2: PASS; pinned public host/release/policy hashes verified on control VM; cleanup unit and generated practice drop-in installed.
+- Credential labels: claude-token; existing claude-factory-token-2; no exam label deployed.
+- distinct_accounts: "unverified (founder accepted)".
+- Account-2 attribution and natural 2→1→2 handoff: unproven.
+- Router RAM acknowledgement: prior founder acknowledgement retained.
+- Router credentials and TLS key: control-VM RAM only; founder private key remained on Mac.
+- Router service: active; authenticated TLS verified internally and certificate trust verified externally; router endpoint firewall configured.
+- Canonical shared router ledger: absent before deployment, initialized by pinned service; no historical ledger reset.
+- OpenRouter credit schema: verified; available $11.3637556 at 2026-11-02T11:44:07.550400+00:00; no model call, no top-up.
+- R2 access: verified at 2026-11-02T11:45:46.129667+00:00.
+- Router authenticated TLS observation UTC: 2026-11-02T11:46:52.060027+00:00.
+- Step 3: PASS; empty-input qualifier eligible, admission new, batch absent; prior spend $0.
+- Holder credential availability: Claude labels 1 and 2 present; label 3 absent.
+- Reservation operation ID: e88e8368-4edc-5f00-a7e7-0672bf5574cc.
+- Launch ID: 0d25466ae06349778895f00cfb1b55b9.
+- Reservation state: pending; reserved once through key-holder interface.
+- Pause ordering: holder stopped while cleanup still unarmed, then cleanup armed; prevents automatic dispatch across the mandatory step-4 pause.
+- Cleanup readiness: authenticated policy/operation/launch/timing binding verified; active PID 233956.
+- Cleanup observation UTC: 2026-11-02T11:49:34.492015+00:00.
+- Dispatch started: false. Worker ID: none.
+- Final observation UTC: 2026-11-02T11:50:12.961752+00:00.
+- Boat balance: $4.17157; full inventory hasMore=false, worker count 0.
+- Router active leases: 0; paid total $0.000000000; paid outstanding $0.000000000.
+- Practice spend: models $0; infrastructure $0; no practice worker created. Existing control-VM running costs are not claimed to be zero.
+- Cleanup: armed and running, waiting; no deletion required or claimed verified. Holder inactive at pause; resume timer inactive.
+- Remaining operator action: mandatory step-4 Mac-disconnect handback. No other deployment gap observed.
+- Factory code changes during live run: none.
+- Evidence recorded UTC: 2026-11-02T11:51:06.137343+00:00.
