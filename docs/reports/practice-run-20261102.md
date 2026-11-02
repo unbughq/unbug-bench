@@ -170,3 +170,41 @@
 - Deletion: not required, no worker created; no deletion proof or completion marker fabricated.
 - First fix: align the installed Boat CLI with the pinned 1.0.85 requirement and include that live version check in deployment qualification before another authorized attempt.
 - Evidence recorded UTC: 2026-11-02T13:42:43.654930+00:00.
+
+## Same-run resumption — Boat aligned to existing pin
+
+- Parent decision: install exact pinned CLI; same run, same existing founder "Go" and 60-minute disconnect window.
+- Original installer download endpoint: version query returned latest 1.0.88; candidate discarded, never installed.
+- Exact release: original installer redirect's official boat-cli-v1.0.85 Linux asset; installed to original account binary location.
+- Installed version: boat 1.0.85. Binary SHA-256: 5d7933a238dcea0446bbbee0e2506692961d16537b9960003e4ece9ecb1ec498.
+- Installation and live pinned-list verification UTC: 2026-11-02T13:45:38.313574+00:00.
+- Auto-update suppression: CLI-supported BOAT_NO_UPDATE=1, already enforced by pinned wrapper and services; added to account shell and user environment configuration and verified through login shell.
+- Deployment qualification now includes: exact live boat --version match and successful pinned bin/boat-call list with complete inventory.
+- Requalification UTC: 2026-11-02T13:46:29.960430+00:00.
+- Deployment hashes: verified. Cleanup: armed. Empty-input admission: same-operation replay; no new reservation.
+- Boat balance: $4.17157. OpenRouter available credit: $11.3637556. Paid total and outstanding: $0.000000000.
+- Holder start UTC: 2026-11-02T13:47:02.244373+00:00.
+- Replacement restart timer: unbug-practice-holder-restart-v185.timer; one VM-local restart after 900 seconds. Previous timer remains cancelled.
+- No factory source or release-pin change.
+
+## Same-run launcher abort — Codex login lifetime guard
+
+- Status: ABORT before provider creation.
+- Refusal observed UTC: 2026-11-02T13:47:26.621700+00:00.
+- Fixed launcher diagnostic: codex_login_expired. Pinned offline login validation could not prove coverage of worker TTL plus margin; no provider identity call or model call used to diagnose it.
+- This pinned launcher guard is unconditional before fresh launch, even though practice roles include no Codex route.
+- Operation ID: e88e8368-4edc-5f00-a7e7-0672bf5574cc. Launch ID: 0d25466ae06349778895f00cfb1b55b9.
+- Operation count: 1. State: failed. Dispatch started: true. Dispatch exit: 1. Incident: preflight_refused. Worker ID: none.
+- Publication fault: armed after dispatch began, unconsumed; publication and replay unexercised.
+- Abort stop UTC: 2026-11-02T13:48:27.695854+00:00. Holder inactive; restart timer unbug-practice-holder-restart-v185.timer cancelled before firing.
+- Cleanup remains armed and active; no fabricated retirement/completion or deleted evidence.
+- Final evidence UTC: 2026-11-02T13:49:51.397367+00:00.
+- Creation records: 0. Worker-start records: 0. Monitor absent. Full provider inventory hasMore=false, worker count 0.
+- Boat balance: $4.17157, unchanged. Practice infrastructure spend: $0.
+- Active model leases: 0. Paid total: $0.000000000. Paid outstanding: $0.000000000. Practice model spend: $0.
+- Accounts used for model work: none. Account distinctness remains unverified (founder accepted); account-2 attribution and handoff unproven.
+- Deletion: unnecessary; no practice worker created. No deletion verification claimed.
+- Disconnect window: not entered; no verified worker start.
+- First fix: refresh the host-owned Codex login through the approved secret setup path and verify its lifetime before another authorized attempt. Do not weaken or bypass the pinned guard; do not reset this failed operation ad hoc.
+- Factory source/release pins: unchanged. No relaunch, second reservation, second worker, top-up or paid call.
+- Evidence recorded UTC: 2026-11-02T13:50:38.403877+00:00.
