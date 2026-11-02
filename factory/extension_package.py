@@ -393,6 +393,8 @@ def completed_route(c, row):
     """Validate package proof before routing a committed outcome's lagging card."""
     import run as r
     if unchanged_outcome(c, r, row): return
+    import extension_public_match as public
+    if public.verified(c, r, row): return
     data = Records(c, r, row).load('stress', check_version=False)
     if data is None: refuse('extension_outcome_changed')
 
@@ -406,11 +408,21 @@ def run(c, r, previous, number):
     if unchanged_outcome(c, r, row):
         if extensions.digest(extensions.tree(c.case)) != row['entry']['case_sha256']: refuse()
         stop_unchanged(c, row)
+    import extension_public_match as public
+    if public.verified(c, r, row):
+        if extensions.digest(extensions.tree(c.case)) != row['outcome']['case_sha256']: refuse()
+        public.stop(c, row)
     records = Records(c, r, row)
     if not records.completed and records.load('stress') is None:
         if complete_unchanged(c, r, row): stop_unchanged(c, row)
-        try: r.write_and_attack(c, previous, extension_id=number)
+        if public.complete(c, r, row): public.stop(c, extensions.read(c)[-1])
+        try:
+            with public.capture(c, r, row):
+                r.write_and_attack(c, previous, extension_id=number)
         except BudgetError as error:
+            if str(error) == 'freshness_public_match':
+                if public.complete(c, r, row): public.stop(c, extensions.read(c)[-1])
+                raise
             if str(error) == 'stress_review_unresolved:unchanged_repair':
                 if complete_unchanged(c, r, row): stop_unchanged(c, row)
                 raise
@@ -572,6 +584,8 @@ def subsequent_entry(c, r):
     row = history[-1]
     if extensions.digest(extensions.tree(c.case)) != row['outcome']['case_sha256']: refuse()
     if unchanged_outcome(c, r, row): refuse('retired_no_progress')
+    import extension_public_match as public
+    if public.verified(c, r, row): refuse('retired_no_progress')
     number = row['extension_id']
     def selected():
         pair, valid, retained = comparison.current_pair(c, number, r.BENCH, execution=EXECUTION)

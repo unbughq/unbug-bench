@@ -146,7 +146,7 @@ def _load(w, row, evidence):
         return None
 
 
-def _save(w, stage, version, ok, detail, paths):
+def _save(w, stage, version, ok, detail, paths, *, execution=None):
     # Normalize first: neither non-JSON results nor mutable callback references
     # can enter a receipt. Each stage owns copies of its supporting evidence.
     detail = json.loads(json.dumps(detail, allow_nan=False))
@@ -162,11 +162,19 @@ def _save(w, stage, version, ok, detail, paths):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(source.read_bytes())
         support[target_name] = gate_state.digest(target)
+    if execution is None: execution = _execution(w)
+    elif (not isinstance(execution, dict) or set(execution) != {
+            'seed', 'slot', 'bench_workers', 'concurrent_roles', 'slot_environment'} or
+            type(execution['seed']) is not int or type(execution['slot']) is not int or
+            type(execution['bench_workers']) is not int or execution['bench_workers'] < 1 or
+            type(execution['concurrent_roles']) is not bool or
+            (execution['slot_environment'] is not None and not isinstance(execution['slot_environment'], str))):
+        raise ValueError('invalid terminal execution')
     binding = _binding(w, stage, version)
     record = dict(schema_version=2, stage=stage, scientific_version=version,
         binding_sha256=binding, case_sha256=_case(w), status='pass' if ok else 'fail',
         detail=detail, support=support,
-        calibration_identity=_calibration(w, stage), execution=_execution(w))
+        calibration_identity=_calibration(w, stage), execution=copy.deepcopy(execution))
     name = _receipt_name(stage)
     (w.work / name).parent.mkdir(parents=True, exist_ok=True)
     atomic_json(w.work / name, record)
