@@ -1,0 +1,11 @@
+LOCAL_TIMING key_holder:0 timeout_cleanup_seconds=5.121
+LOCAL_TIMING batch_holder:0 timeout_cleanup_seconds=5.113
+LOCAL_TIMING coordinator_inventory:0 timeout_cleanup_seconds=5.121
+LOCAL_TIMING coordinator_inventory:1 timeout_cleanup_seconds=5.134
+LOCAL_TIMING batch_status:0 timeout_cleanup_seconds=5.130
+LOCAL_TIMING ttl_continuation:0 timeout_cleanup_seconds=5.123
+.
+----------------------------------------------------------------------
+Ran 1 test in 31.985s
+
+OK

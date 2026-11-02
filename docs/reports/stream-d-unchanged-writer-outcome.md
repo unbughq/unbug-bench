@@ -19,3 +19,12 @@ queued input capture and diagnosis answer validation over the worker layout.
 No paid/live calls, workers or qualification. Focused checks pass: 15 new terminal-outcome tests and 27 existing admitted-execution
 tests. Full suite pending.
 Fresh diff review pending. No Murphy rows closed; package increment 2 remains open.
+
+First full suite at f00b673: 173 scripts / 1 failed script, recorded in
+`stream-d-unchanged-writer-suite-20261102T041847Z-cc0cea58.json` and adjacent log.
+Only test_isolation_outer_callers failed (six descendant-heartbeat assertions).
+Its test and production paths are unchanged from 6599e95. The isolated test and
+then the full isolation script both passed with no code changes; retained in
+`stream-d-unchanged-isolation-rechecks.json` and its two logs. This does not waive
+the full-suite requirement; a full rerun follows. All new terminal tests and
+existing Stream D comparison/dispatch/execution/retry tests passed in that run.

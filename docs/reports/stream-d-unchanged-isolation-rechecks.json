@@ -1,0 +1,18 @@
+{
+  "head": "f00b673a303f66d7fd81e34f3bbf6b4e69adc3f5",
+  "checks": [
+    {
+      "command": "uv run --with numpy --with scipy python -B tests/factory/test_isolation_outer_callers.py OuterCallerTests.test_six_callers_wait_for_slow_cleanup_after_inherited_deadline",
+      "log": "docs/reports/stream-d-unchanged-isolation-recheck-focused.log",
+      "sha256": "483fcda943742b923868d1b7c68c3ed8c3bbe94b4ce3f9ca7d643c7668c2ca40",
+      "exit_code": 0
+    },
+    {
+      "command": "uv run --with numpy --with scipy python -B tests/factory/test_isolation_outer_callers.py",
+      "log": "docs/reports/stream-d-unchanged-isolation-recheck-script.log",
+      "sha256": "6fad27bed1c4951391b86d2808949d1e4941a67312f9696c0ec551bc77de4b41",
+      "exit_code": 0
+    }
+  ],
+  "notes": "Original full suite: 173 scripts, 1 failed (six inherited-deadline descendant-heartbeat assertions in test_isolation_outer_callers.py). This test and its production transport/caller paths are byte-identical to 6599e95. Both reruns passed without code changes; original failure retained. A complete suite retry is required."
+}
