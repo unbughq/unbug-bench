@@ -119,3 +119,12 @@ The founder requested these decisions in the same M1 commit while its suite was
 running. Only practice-run.md and this report were amended; runtime and test
 bytes are unchanged. Suite provenance records both the initial source commit and
 the final doc-only amendment, with the changed paths verified.
+
+M1 full-suite validation passed: **172 scripts, 0 failed**, exit 0, using
+`uv run --with numpy --with scipy python -B tests/run.py`. The committed record is
+`practice-readiness-m1-suite-20261102T033207Z-0c21fe85.json`, with its hashed
+`.log.gz`. The run began at e4715b760b63e18091b2a6938a76a5f37df6cc2e;
+fd92c3d10b07b28d35a6be840fb5dd935bcd5bf1 amended only the two decision documents.
+The JSON retains both source commits/trees and the verified changed paths. No
+runtime or test bytes changed during or after this passing run. The scoped fresh
+Claude re-check is diff round 2 of 2; nits 2, 5, 6 and 7 remain open.
