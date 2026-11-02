@@ -135,3 +135,38 @@
 - Remaining operator action: mandatory step-4 Mac-disconnect handback. No other deployment gap observed.
 - Factory code changes during live run: none.
 - Evidence recorded UTC: 2026-11-02T11:51:06.137343+00:00.
+
+## Founder-approved step 4
+
+- Founder approval (2026-11-02): "Go".
+- Approval receipt recorded UTC: 2026-11-02T13:38:14.747032+00:00.
+- Disconnect window: confirmed, 60 minutes after verified worker start.
+- During window: all Mac-to-VM sessions closed; no VM or provider connections.
+- VM-local holder restart: authorized once; no relaunch or second worker.
+
+## Step-4 entry abort — pinned Boat CLI mismatch
+
+- Status: ABORT before worker creation.
+- Holder start requested UTC: 2026-11-02T13:38:37.968821+00:00.
+- VM-local one-shot restart timer: unbug-practice-holder-restart.timer; scheduled delay 900 seconds, cancelled before firing.
+- CLI observation UTC: 2026-11-02T13:40:46.848203+00:00.
+- Installed CLI label: boat 1.0.87. Required pinned CLI label: boat 1.0.85.
+- Abort condition: deployment prerequisite failed; pinned boat-call list refuses the installed version. No pin weakened, binary changed, code edited or relaunch attempted.
+- Correction to step-2 PASS above: public host/release hashes and router checks passed, but the installed Boat executable version was not checked then. That deployment qualification was incomplete.
+- Abort stop verified UTC: 2026-11-02T13:41:35.367012+00:00.
+- Holder: inactive and disabled. Resume timer: inactive and disabled. Scheduled holder-restart timer: inactive, cancelled before restart.
+- Cleanup unit: active, waiting; retained armed. Operation remains pending and is not falsely marked complete or retired.
+- Final abort evidence UTC: 2026-11-02T13:42:03.334106+00:00.
+- Pinned CLI refusal: verified.
+- Reservation operation ID: e88e8368-4edc-5f00-a7e7-0672bf5574cc.
+- Launch ID: 0d25466ae06349778895f00cfb1b55b9.
+- Operation count: 1. Dispatch started: false. Dispatch exit: none. Worker ID: none.
+- Creation records: 0. Worker-start records: 0. Full provider inventory hasMore=false; worker count 0.
+- Publication fault: not armed; pinned arming requires dispatch_started=true. Publication/replay: unexercised.
+- Disconnect window: not entered; no verified worker start.
+- Boat balance: $4.17157, unchanged. Practice infrastructure spend: $0.
+- Model active leases: 0. Paid total: $0.000000000. Paid outstanding: $0.000000000. Practice model spend: $0.
+- Accounts used for model work: none. distinct_accounts remains "unverified (founder accepted)"; account-2 attribution and handoff unproven.
+- Deletion: not required, no worker created; no deletion proof or completion marker fabricated.
+- First fix: align the installed Boat CLI with the pinned 1.0.85 requirement and include that live version check in deployment qualification before another authorized attempt.
+- Evidence recorded UTC: 2026-11-02T13:42:43.654930+00:00.
