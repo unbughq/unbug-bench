@@ -3860,9 +3860,9 @@ and item-7 checkbox remain open; activation and live qualification are unchanged
 The isolated comparison producer and subsequent-entry reconstruction are implemented
 in `stream-d-current-comparison.md`, including the explicitly replaced pending-pair
 routing boundary. Fresh design review 5 passes. Full suite passes at 0224014 (170 scripts, zero
-failures), including diff-round-1 blocker fixes; fresh diff review round 2 is
-still required before handback. Package increment
-2 stays unchecked.
+failures), including diff-round-1 blocker fixes. Fresh Claude diff review round 2
+passes with no blockers (`docs/reviews/stream-d-current-comparison-diff-2.md`).
+This increment is complete for handback; package increment 2 stays unchecked.
 
 Remaining item-7 work after this slice: rejected/unchanged writer outcomes,
 confirmed-public-match terminal package outcomes, partial first-entry captures

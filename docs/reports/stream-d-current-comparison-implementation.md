@@ -20,7 +20,7 @@ Full suite passed at `4d19cff`: 170 scripts, zero failures. Record:
 `stream-d-current-comparison-suite-20261101T210113Z-a57565ff.json` and adjacent
 log. The first run at `7689557` found only the missing new-module expectation in
 the worker upload test; its failure record is retained and the expectation was
-updated explicitly. Independent diff review is pending. The Linux-only tests must run
+updated explicitly. The initial diff review and subsequent fixes are recorded below. The Linux-only tests must run
 on a qualified Linux test host before activation; no Linux execution is claimed
 from this Mac. Remaining implementation is listed in the item-7 checklist.
 
@@ -39,6 +39,9 @@ The same fix forces final pair publication before scratch cleanup, checks curren
 versions before invocation and replay, and documents the accounting-root provider
 wait seam. Full suite for these fixes passes at `0224014`: 170 scripts, zero failures.
 Record: `stream-d-current-comparison-suite-20261101T220115Z-11ab3a7f.json` and
-adjacent log. Fresh diff review round 2 is pending.
+adjacent log. Fresh Claude diff review round 2 passed with no blockers; see
+`docs/reviews/stream-d-current-comparison-diff-2.md`. Optional findings remain
+recorded there. No code changed after the tested revision; this increment is ready
+for handback. No Murphy rows close.
 Linux activation must exercise the entire real Evaluator start/fork/ready/receive/
 close/subreaper-restore path; the two isolated Linux exams alone are insufficient.
