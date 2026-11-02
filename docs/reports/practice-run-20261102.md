@@ -18,3 +18,19 @@
 - Legacy launch disposition: founder write-off retained; files unchanged; no completion markers fabricated.
 - Next prerequisite: privately verify auto top-up is off; no automatic retry or continuation.
 - Evidence recorded UTC: 2026-11-02T04:55:06.058436+00:00.
+
+## Authorized restart — step 1
+
+- Operator confirmation recorded UTC: 2026-11-02T05:38:48.121859+00:00.
+- Founder confirmation: "Auto top up is off"; checked privately in Boat → Billing. Exact private-check time was not supplied; the UTC above is receipt recording time.
+- Restart authorization: founder, 2026-11-02; same approved plan, ceilings and mandatory pauses.
+- Live balance observation UTC: 2026-11-02T05:38:51.144216+00:00.
+- Boat credit balance: $4.17157; verified, at or below $5.
+- Step 1: PASS; live balance plus operator-confirmed auto top-up off.
+- Current status: PAUSED at step 2 for mandatory operator account-distinctness confirmation.
+- Account 1 label: claude-token.
+- Account 2 label: claude-factory-token-2; not claude-token-2.
+- distinct_accounts: unconfirmed; no assertion of true yet.
+- Deployment, reservation and creation: not started.
+- Practice spend across both entry attempts: models $0; infrastructure $0.
+- Cleanup: no practice worker or pending creation; no deletion required; no cleanup unit armed.
