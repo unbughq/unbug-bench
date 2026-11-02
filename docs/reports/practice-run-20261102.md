@@ -208,3 +208,18 @@
 - First fix: refresh the host-owned Codex login through the approved secret setup path and verify its lifetime before another authorized attempt. Do not weaken or bypass the pinned guard; do not reset this failed operation ad hoc.
 - Factory source/release pins: unchanged. No relaunch, second reservation, second worker, top-up or paid call.
 - Evidence recorded UTC: 2026-11-02T13:50:38.403877+00:00.
+
+## Refreshed Codex credential handoff — stopped before admission
+
+- Founder reported Codex login refresh: 2026-11-02, approximately 13:52 UTC.
+- Transfer attempt: only the existing refreshed age ciphertext crossed the Mac-to-control connection; plaintext credential and founder identity were not sent from the Mac.
+- Refreshed bundle decryption with existing control identity: FAIL.
+- Diagnostic observation UTC: 2026-11-02T13:55:19.798735+00:00.
+- Codex lifetime guard: NOT RUN on refreshed credential; the transfer failed before validation. The earlier combined transfer/validation result labelled fail at 2026-11-02T13:54:18.610886+00:00 was not evidence of a failed refreshed-login lifetime check.
+- Control encrypted bundle: unchanged; no credential replacement completed. No decrypted credentials written or printed.
+- Existing operation e88e8368-4edc-5f00-a7e7-0672bf5574cc: terminal failed/preflight_refused under existing pins. Same batch/job/source/release derives the same operation ID; reserve returns the retained failed operation, and reconcile excludes it.
+- Practice manifest: one allowlisted job, replacement disabled, exact manifest matching required. No approved second job or reset path under current pins. No journal reset, release substitution or extra authority attempted.
+- Status: STOP; need refreshed ciphertext decryptable by the existing control identity and an approved fresh-admission disposition before proceeding. Founder private key must remain on the Mac.
+- Holder/restart timer remain stopped; no launch or provider request made during this handoff. Cleanup retained armed from prior abort.
+- Practice spend remains models $0 and infrastructure $0; no worker created. Disconnect window not entered.
+- Evidence recorded UTC: 2026-11-02T13:56:55.393173+00:00.
