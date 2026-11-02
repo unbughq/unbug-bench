@@ -3396,7 +3396,8 @@ item 7 and item 8 qualification obligations above remain open; no row closes.
 Updated offline on 2026-11-02. The detailed evidence inventory, live order,
 per-run ceilings and sized gaps are in
 [stream-d-item8-offline-preparation.md](stream-d-item8-offline-preparation.md).
-That amendment supersedes stale prerequisite status and scenario 6 packing below;
+That amendment supersedes stale prerequisite status, scenarios 5/6 packing,
+ready-child ordering and timing/affordability gates below;
 historical item-7 increment notes later in this document are not readiness claims.
 
 The founder approved **USD 100 all-in within existing Claude/Codex subscription
@@ -3446,26 +3447,32 @@ account routing, ownership, receipts, counters or cumulative money authority.
 
 Use immutable release/batch pairs in this fixed order: alpha (scenarios 1–4,
 diagnosis/replacement off), beta-fault (scenario 5 fault and diagnosis), beta-fixed
-(scenario 5 resume, then scenario 7, then initial scenario 6), beta-plumbing (scenario 6 plumbing replay),
+(scenario 5 child then fixed original, then scenario 7 and initial scenario 6), beta-plumbing (scenario 6 plumbing replay),
 beta-science-fault (scenario 6 one-gate comparison infrastructure fault) and
 beta-science-fixed (the same scientific vector, hashed transport fix/resume). All beta releases have diagnosis and
 replacement enabled only under separately approved qualification authority; the
 faulty and fixed releases are both included. Beta-fixed removes scenario 5's injected fault;
-scenario 7 and initial scenario 6 never run under beta-fault. The later 6e uses
-only the separately reviewed comparison fault in beta-science-fault. Scenario 5's queued replacement
+scenario 7 and initial scenario 6 never run under beta-fault. The later 6d uses the separately reviewed comparison fault and 6e diagnoses its
+retained pending generation, both on beta-science-fault. Scenario 5 first publishes the faulted pending generation on 5a, then restores
+it on 5b for real diagnosis under beta-fault. Its queued replacement
 is carried to beta-fixed alongside the original via B's reviewed carry-over,
 including its own $7.50 allocation and prior spend/reservations; it is not launched
 under the fault or given fresh authority. B's carry-over scope must cover both. Each release change needs its
 own batch because holder bindings are immutable. All beta batches together share
 one $50 NEW-spend envelope, not $50 each; alpha has $40 NEW spend. Each transition uses authenticated checkpoint carry-over after verified deletion;
 worker identity changes while ownership and cumulative accounting remain intact.
-Run scenario 7 to terminal collection before admitting scenario 6 at all.
+On beta-fixed run the carried 5c child before 5d original resume, and ready
+7b/6b children before their 7a/6a originals, under normal replacement priority.
+The reviewed O3 guard must keep 5's child release-ineligible while queued under
+beta-fault and allow only 5b's diagnosis restore there; without that guard, the
+four-slot packing is infeasible. Run scenario 7 to terminal collection before
+admitting scenario 6 at all.
 Its worker deletion is verified and usage settled or conservatively retained first.
 Scenario 6 then completes fixed-release work and its plumbing/science replays
 without an intervening scenario. Finish its replacement on beta-fixed (terminal
 collection under its bound, not necessarily sealing); only the original carries
 forward through B's reviewed carry-over to the plumbing/science-fault/science-fixed
-releases. Exact six-slot packing and the retained X2→factory_bug→comparison
+releases. Exact six-slot packing and the retained X2→comparison exhaustion→later factory_bug diagnosis→comparison
 resume exam are in the offline-preparation amendment; no extra slots or money.
 
 For each admitted candidate let S be its authenticated carried-in settled lifetime
@@ -3590,8 +3597,10 @@ at a release change. Unattributed/unknown charges stay reserved.
 
 The manifest assigns worker slots by scenario: 1=3 (initial plus two restores),
 2=2 (timeout and restore), 3=1 (in-process retrieval/repair), 4=2 (two guard
-attempts), 5=4 (fault, fixed original, replacement, replay), 6=6 (diagnosis plus extension together, replacement, offline idempotence check plus next
-real diagnosis, plumbing replay, science-fault comparison, fixed comparison resume), 7=2 (retire/boundary replay and replacement). Slots are ceilings,
+attempts), 5=4 (fault/pending, actual diagnosis restore, fixed child, fixed
+original; idempotence is offline), 6=6 (replacement, initial diagnosis plus extension together, next diagnosis plus
+plumbing check, science-fault comparison, later real factory_bug diagnosis,
+fixed comparison resume; idempotence check is offline), 7=2 (retire/boundary replay and replacement). Slots are ceilings,
 not a claim these paths finish in that many launches; every additional launch,
 including provider handoff or retry, consumes a slot. If the manifest needs more
 than its assigned slots, revise the plan before approval; runtime exhaustion
@@ -3600,8 +3609,8 @@ Per-scenario model plus worker ceilings are respectively USD 11.20, 10.80, 5.40,
 15.80, 16.60, 27.40 and 10.80 (USD 98 total); the shared USD 2 makes USD 100.
 No unused slot buys extra model authority.
 Scenario 6 must continue its initial diagnosis into the first extension in the
-same worker. Its former spare continuation slot is now the fixed-comparison
-resume, not spare recovery authority; an extra required launch exceeds its cap. Scenario 2 injects both call timeouts on its first worker, retaining each
+same worker. The next diagnosis and plumbing check share one worker, freeing the slot
+for actual diagnosis AFTER comparison exhaustion; no spare recovery slot remains; an extra required launch exceeds its cap. Scenario 2 injects both call timeouts on its first worker, retaining each
 attempt's partial/pending evidence, then restores unfinished coverage on the
 second. Scenario 4 runs G16/G17 against each retained attempt in that attempt's
 worker before deletion. If the reviewed implementation cannot run that packing,
@@ -3625,28 +3634,26 @@ to reach a desired diagnosis or submitted capped guard is a failed qualification
 not authority to coerce the agent or buy more attempts. Account-2 evidence rides
 on the already-needed Claude writer call in scenario 1 and strong-calibrator call in scenario 4, using separate correlated windows, never an extra paid probe.
 
-Timeline: retain execution budgets of at most 10 minutes each for scenarios
-1, 2 and 4; 5 minutes each for scenarios 3 and 7; and 15 minutes each for
-scenarios 5 and 6 (70 minutes total). Reserve up to 15 minutes per worker for
-creation/boot/release installation and verified cleanup (300 minutes for N=20),
-plus 110 minutes shared slack: at most eight hours wall time for the entire run.
-These are abort deadlines, not demonstrated completion times. Each worker has
-a maximum two-hour creation-through-deletion lifetime, shortened if pricing or
-the remaining global deadline requires. All batches share the same absolute UTC
-end; restart, new worker and release changes never extend it. B/E must measure
-installation and cleanup bounds and arm deletion early enough to finish within
-both lifetime and cost reservations. A failure to bound cleanup blocks launch.
-If measured creation/boot/installation/verified-cleanup overhead exceeds 15 minutes
-for any planned worker, revise the timeline before approval; shared slack does
-not waive this admission check. Execution time is budgeted separately above.
-Scenario 6's replays share its 15-minute execution allowance; installation and
-cleanup use the separate lifecycle allowance. Existing G10 caps or writer
-runtimes may exceed the execution windows: leave the scenario unproved rather
-than shorten a scientific cap. A/B feasibility evidence must show the selected
-inputs/routes fit before approval. Replacement 'immediate' means queued
-immediately at higher admission priority; concurrency one means it cannot run
-alongside the original. Its worker starts only after predecessor deletion is
-verified, and its allocated money and carried receipts survive that handoff.
+Timing feasibility is now an explicit BLOCKER O9 in the offline-preparation
+amendment. The old 70-minute execution / eight-hour total and two-hour worker
+limits are known insufficient, not an executable deadline. Scenario 4 means
+actual unchanged 30-minute time_limit attempts, not a smaller call/zero-token/
+money cap. Two alone need at least 60 minutes plus G16/G17/reset/judging.
+Uncached serial G10 can allocate 180 calibration minutes before other work.
+
+Before ANY live admission, re-derive all 20 root/child per-slot execution and
+collection windows, lifecycle/billing bounds and the aggregate absolute deadline
+from pinned caps and measured serial overhead. Children get separate windows
+and cannot consume the original's later slots. Longer live deadlines/lifetimes
+need a fresh timing review and founder sign-off; this amendment supplies none.
+If normal execution and cleanup cannot fit $0.40 per lifecycle / $100 overall,
+return an infeasible plan for revised approval, never truncate scientific caps.
+
+Scenario 6 also needs a BEFORE-LAUNCH sum of all planned honest invocation
+maxima through 6f to fit the original's shared $12.50, independently of its
+child's $12.50. Current Codex maxima/reuse/call-count gaps make that check fail;
+it is not an authorized late-stranding experiment. The runtime next-call checks
+remain necessary but cannot stand in for full-critical-path feasibility.
 
 The exact release-specific CLI commands, authenticated input generation hashes,
 route profiles, job reservations, absolute deadline, fault injection points and
@@ -3680,12 +3687,13 @@ and no-submission evidence plus usage settlement and G16/G17 replay tests.
 Items 2–5's already-closed rows 8, 10, 11, 12, 15 and 21 retain their saved-artifact
 scope; add the live evidence above for transport/crash, actual cap enforcement,
 collection, settlement and per-gate version behavior. Within scenario 6 alone, change a plumbing-only release and then only G4's
-scientific version. Its real subsequent_entry pair attempts must exhaust under
-the reviewed transport fault, retain a factory_bug hold, then return via B to the
+scientific version. Its real subsequent_entry pair attempts exhaust under
+the reviewed transport fault; the next worker obtains actual factory_bug and
+retains its hold, then a fixed-release worker returns via B to the
 same comparison after a hashed plumbing fix with unchanged scientific vector.
 Unchanged passes survive, only affected stages rerun, invalid work stays unscored
 and no writer starts before the comparison/progress decision. The new Murphy
-row stays open until the retained 6a/6c/6e/6f chain proves it.
+row stays open until the retained 6a/6c/6d/6e/6f chain proves it.
 Row 13 report closure does not waive its live timeout/diagnosis scenario.
 
 Archive the encrypted input/output generations and public evidence manifest,
