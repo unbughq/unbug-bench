@@ -7,6 +7,9 @@ failure so a restart cannot lose it or evaluate it again after publication.
 Today write_and_attack stores only validation_problems in its mutable writer
 receipt. The extension's Records collector begins after stress, which this case
 never reaches. That leaves no bound G1 evidence for terminal outcome completion.
+Re-running G1 only at terminal completion would use current settings/version and
+could contradict the earlier rejection; retain the observation that rejected the
+writer, including failures caused by run settings rather than case content.
 
 This is the first, independently testable increment of rejected-writer outcomes:
 durable failed G1 observations only. It does not complete the history, infer a
@@ -25,6 +28,9 @@ retains precisely the existing ordinary behavior. The package passes a callback
 bound to its already-created Records object; no context attribute or global
 monkeypatch is installed. This removes the gap between the package collector and
 the validation it owns, without adding another validation or retry loop.
+The binding is `lambda c: records.writer_g1(c, lambda: r.g1(c))`, resolving r.g1
+at invocation time. The extension path does not set precheck_problems today;
+the callback nevertheless preserves G1's existing shortcut behavior unchanged.
 
 Add Records.writer_g1(c, invoke), scoped solely to these checks. First load G1
 using the existing digest/support/case/version validation. A present record must
@@ -48,9 +54,12 @@ check, as today. No scored failure is silently deleted or replaced.
 
 Records already bind writer_operation_id, round, case_hash, scientific_version,
 actual info, supporting case bytes and inputs. G1 does not consume freshness.jsonl;
-this is the existing G1 identity, not a new identity rule. Version drift refuses
-with the existing extension_comparison_pending label; this slice does not resolve
-that already-deferred route. Missing/tampered/symlink support refuses through the
+this is the existing G1 identity, not a new identity rule. Direct writer_g1 version
+drift refuses with extension_comparison_pending. Through package.run that label
+is caught by the existing handoff, then stress refuses extension_execution_pending
+because the receipt is still a writer. Test these labels at their respective
+layers; this slice does not resolve that already-deferred route.
+Missing/tampered/symlink support refuses through the
 existing Records validator. Do not reconstruct legacy G1 observations from
 validation_problems: an already validated/exhausted receipt with no record keeps
 its current stop, for the later reconstruction/terminal slices.
@@ -65,7 +74,9 @@ terminal producer, rather than assigning a result to an unperformed stress stage
 Tests live in tests/factory/test_stream_d_writer_g1.py. Reuse saved practice bytes
 and the 5813be ledger from test_stream_d_execution/runtime, real extension
 admission, reservation and complete_writer, and REAL_G1 from execution. The saved
-practice case has real contract diagnostics; the authored writer changes draft.txt
+practice case has the real G1 failure `case.json source differs from the run argument`;
+assert that exact problem list, without calling it a case-content defect. The
+authored writer changes draft.txt
 so it is not the unchanged-writer terminal case. Set manifest0 from the real bench
 manifest. Author only external writer completion, as existing execution tests do;
 no stress, gate model, Docker worker or network call is permitted.
