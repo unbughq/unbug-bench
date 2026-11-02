@@ -46,7 +46,7 @@ round/round-limit, report hash, review-attempt, binding and scientific-identity
 checks. Add review_pending is False to the existing receipt refusal condition;
 pending/inconsistent review state cannot authorize a score.
 
-Immediately after attack_report/classify, calculate once:
+After attack_report/classify and the existing result-is-None refusal, calculate once:
 findings = [item for item in r.freshness_only_clearance(result)['blocking']
             if item.strip().lower() != 'review incomplete'].
 Reuse the existing exact request-line projection, not a new text classifier.
@@ -73,9 +73,11 @@ Delete the unconditional unfinished-work refusal. Refuse
 extension_execution_pending only when findings is empty AND any of these holds:
 not result.complete; nonempty result.blocking (the incomplete-review sentinel);
 nonempty result.unfinished_validation; attack_diagnostic_unfinished(c, round).
-Set ok = not findings. The extra result.blocking condition also keeps exact
-request-only blockers without verified clearance and 'review incomplete' alone
-pending, even if complete was asserted.
+Set ok = not findings. The extra result.blocking condition deliberately changes
+an exact request-only blocker with no freshness metadata from today's scored
+failure into an unscored extension_execution_pending hold. It also refuses a
+review-incomplete sentinel without a real finding. No unresolved request becomes
+a scored defect just because complete was asserted.
 
 Keep BOTH downstream guards unchanged: a pass still needs
 next_phase='extension_comparison'; a failure still needs receipt.exhausted=True
@@ -93,12 +95,14 @@ No completed-phase-only fallback, new allowance or direct history writer.
 | Scientific binding differs | Existing extension_comparison_pending |
 | Malformed parsed report or missing exhaustion proof for a failure | Existing snapshot refusal; no outcome |
 | Unresolved/unverified freshness when clearance could decide the verdict | Existing extension_execution_pending; no scored outcome |
+| Request-only blocker, freshness_review absent or [], complete True, exhausted | Deliberately extension_execution_pending/no outcome; previously stress fail |
 | Provider/money/cancel stop, raised freshness stop or InvalidInfra/explicit invalid execution detail | Existing refusal/exception; no scored outcome |
 
 ## Retention, replay and accounting
 
 Reuse Records.save and comparison.snapshot, then extensions.complete. Detail is
-the exact parsed/cleared report, retaining complete=False, unfinished_validation,
+the original parsed report whenever findings exist; the cleared report only
+on the no-findings path. Retain complete=False, unfinished_validation,
 coverage and status as supplied. Never rewrite it to claim complete coverage.
 Existing stress sources retain attack-state, category state/answers and partial
 bytes. A diagnostic claim outside those sources is not needed to prove a failure:
@@ -164,6 +168,17 @@ must continue propagating without an outcome. For legacy validation-unfinished
 labels, assert the real category engine invoked completed() and the receipt has
 a completion marker, while the parsed report has no defect and history stays
 open: a raw status='scored' cannot authorize a package result.
+Direct producer negatives call package.stress with the authenticated receipt and
+expect extension_execution_pending for no-defect legacy labels, sentinel-only or
+unfinished diagnostics. Separately, package.run must propagate the actual writer
+stops: legacy label only -> stress_review_unresolved:unfinished_validation;
+sentinel-only legacy report -> stress_review_unresolved:interrupted_review;
+no-defect unfinished diagnostic -> stress_validation_exhausted. Category aggregate
+filters review-incomplete scaffolding, so use the labelled legacy single-call
+transport for the sentinel package-run control, retaining real pending_call and
+completion. Always assert history open. Explicitly test complete=True exhausted
+request-only reports with freshness_review absent and [], through direct
+package.stress: extension_execution_pending and no outcome.
 Existing genuine clean-pass/gate-traversal and public-match tests remain green.
 Reuse existing execution/runtime infrastructure/provider/money regression files
 rather than duplicating entire test classes in the new file.
@@ -185,3 +200,13 @@ case defect; completion/hash/pending/exhaustion negative tests guard it. Payoff:
 valid failed work reaches automatic diagnosis instead of an infrastructure hold.
 One small increment, estimated 2–3 hours including one serialized suite and
 reviews, excluding shared-lock wait, outages and unrelated suite failures.
+
+Final design review corrections: the request-only/no-metadata producer behavior
+is intentionally stricter than the current writer loop and comparison evaluator.
+This un-diagnosed hold is not a completed automatic recovery route: the existing
+exhausted receipt repeats it without model work, and extension_execution_pending
+is not a diagnosis trigger. Its frequency is unmeasured. Do not hide that risk or
+claim the slice removes every stress hold; resolving that missing-metadata route
+is outside this slice. Mixed-report detail may still contain request lines even
+if a separate clearance exists: retaining the authenticated original on the
+real-defect path avoids inventing a rewritten scientific result.
