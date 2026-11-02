@@ -23,7 +23,12 @@ M1/M2 and all nits are incorporated. Full suite under the shared lock passed
 177 scripts / 0 failures at fdfab00 (tree 599910529c71285ef3a8d5e5c98371739c0d96c9).
 Record: stream-d-writer-g1-suite-20261102T114057Z-086295fe.json and matching log.
 Log SHA-256: 72871d6e79848e72f9e290dc252cd00198a032500c37eec50bce45c3888447a2.
-Elapsed 2160.8 seconds. Fresh diff review remains required. No Murphy rows close. No terminal outcome/progress/retirement is claimed:
+Elapsed 2160.8 seconds. Fresh Claude diff review round 1 PASS:
+docs/reviews/stream-d-writer-g1-observation-diff-1.md. The reviewer independently
+ran the new tests plus execution, runtime, unchanged and public-match tests.
+No production/test changes follow review. factory-simplify was already up to date
+on the final merge check. No Murphy rows close.
+No terminal outcome/progress/retirement is claimed:
 the current extension_execution_pending hold remains for rejected writers.
 
 Remaining lane 2 rejected-writer work: early-gate/saved-cheat observations, then
