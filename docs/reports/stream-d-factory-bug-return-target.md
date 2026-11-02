@@ -30,9 +30,14 @@ All stream-D tests passed, including the new 13; control_resume passed 24.
 The exact failing method passed in a targeted process recheck, 1 test / exit 0:
 docs/reports/stream-d-return-target-isolation-20261102T165025Z-7497c83b.json/.log.
 This was not a quiet-host qualification (recorded load roughly 14–15). Isolation
-code/tests are unchanged in this diff. Do not waive the failed full suite from
-this recheck. A second locked full suite on unchanged code is queued; its final
-result and fresh diff review are still required before delivery.
+code/tests are unchanged in this diff. The parent subsequently identified this as a known timing flake in other lanes
+and directed cancellation of the queued repeat; the parent's merge suite is the
+gate. This is a parent decision, not an inferred waiver from the recheck.
+
+Queued repeat cancelled BEFORE tests started (empty log, lockf had no child):
+docs/reports/stream-d-return-target-suite-20261102T165202Z-96b8c840.json/.log.
+Command termination -15 is a cancellation, not a test-suite verdict.
+Fresh diff review is running; no implementation approval claimed yet.
 
 Murphy new-stream-d-current-comparison-1 remains OPEN, no rows closed.
 Item 8 now explicitly requires:
@@ -41,3 +46,14 @@ close new-stream-d-current-comparison-1 with a real decision → extension → s
 Retained-record corruption/missing evidence permanently holds until its original
 evidence is repaired; another batch cannot guess it. Unchanged hashed runtime/
 scientific versions preserve exhausted retry journals. Diagnosis stays disabled.
+
+## Parent delivery decision
+
+"Cancel your queued repeat full suite. The only failure (the key_holder heartbeat
+isolation test) is a known flaky timing test; it has flaked before in other lanes
+and passed your targeted recheck. My merge suite will be the gate. Let the diff
+review finish and hand back when it passes."
+
+Implemented: only this lane's verified queued lockf process was terminated; no
+review was cancelled and no other lane's suite was touched. No further full
+suite is scheduled by this lane for this source unless the parent requests it.

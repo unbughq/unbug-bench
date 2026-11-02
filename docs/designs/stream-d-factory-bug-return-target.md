@@ -185,3 +185,14 @@ single files, then the required full suite to a unique committed log/result:
 lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py
 Wait for completion, merge newest factory-simplify before review/handback, and get
 fresh diff review. A round-2 blocker is handed back in three lines.
+
+
+## Parent delivery amendment after the locked suite
+
+The locked run at source 9cd1a66 completed 179 scripts with one failure in the
+untouched key_holder heartbeat isolation timing test. The exact method passed
+its targeted recheck. The parent identified the known flake and explicitly
+cancelled the queued repeat before it started: the parent's merge suite is now
+the gate. Preserve both the failing run and cancelled command records. Continue
+the fresh diff review (max two rounds) and hand back when it passes. This does
+not change implementation scope, diagnosis activation or the open Murphy row.
