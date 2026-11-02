@@ -35,3 +35,9 @@ Full-suite retry PASSED at 3def7d9 (production code f00b673 unchanged):
 The previously failing isolation script passed in this complete run. No test
 assertions or code were changed between the two full runs. Fresh diff review
 round 1 is the remaining handback gate.
+
+Fresh Claude diff review round 1 PASSED with no blockers or majors:
+`docs/reviews/stream-d-unchanged-writer-outcome-diff-1.md`. The reviewer reran
+all 15 new tests and verified the passing suite head/tree/log hash. Optional
+nits remain in that record. No production or test edits follow review.
+This increment is complete for handback. No Murphy rows close.

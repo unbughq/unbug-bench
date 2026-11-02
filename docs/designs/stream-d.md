@@ -3889,6 +3889,8 @@ Design: `stream-d-unchanged-writer-outcome.md`, parent-approved after design rou
 refusal). Implementation is complete at f00b673; 15 new focused tests and 27
 existing execution tests pass. The full suite passed 173 scripts / 0 failures
 at 3def7d9 after a recorded transient isolation failure and unchanged-code rerun.
-Fresh diff review is required before handback. No Murphy row closes. Package increment
+Fresh Claude diff review round 1 passes with no blockers or majors:
+`docs/reviews/stream-d-unchanged-writer-outcome-diff-1.md`. This slice is complete
+for handback. No Murphy row closes. Package increment
 2 remains open for rejected writer and public-match outcomes, partial first-entry
 capture and the post-extension factory-bug return target. Activation stays off.
