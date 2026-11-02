@@ -45,7 +45,7 @@ class RouterTests(unittest.TestCase):
         self.store = router.Store(self.root / 'router.sqlite', clock=lambda: self.now[0])
 
     def acquire(self, model, *, identity=None, accounts=router.ACCOUNTS):
-        return self.store.rpc('acquire', dict(id=identity or uuid.uuid4().hex, model=model,
+        return self.store.rpc('acquire', dict(paid_protocol=1,id=identity or uuid.uuid4().hex, model=model,
             accounts=list(accounts), role='writer', deadline=self.now[0] + 86400))
 
     def finish(self, lease, outcome='done'):
@@ -128,7 +128,7 @@ class RouterTests(unittest.TestCase):
     def test_excluded_second_account_is_not_rate_evidence(self):
         model = next(c['terminal_stop'].split(':', 1)[1] for c in LIMITS
                      if c['terminal_stop'].startswith('provider_limit:claude/'))
-        wait = self.store.rpc('acquire', dict(id=uuid.uuid4().hex, model=model,
+        wait = self.store.rpc('acquire', dict(paid_protocol=1,id=uuid.uuid4().hex, model=model,
             accounts=list(router.ACCOUNTS), role='writer', deadline=self.now[0] + 86400,
             excluded_lanes=['claude-factory-token-2/' + model]))
         self.assertEqual(wait['kind'], 'wait')
@@ -216,7 +216,7 @@ class RouterTests(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
         self.addCleanup(server.server_close); self.addCleanup(server.shutdown)
         env = {'FACTORY_ROUTER_URL': 'http://127.0.0.1:' + str(server.server_port), 'FACTORY_ROUTER_TOKEN': 'synthetic-batch-token'}
-        request = dict(id=uuid.uuid4().hex, model='codex/gpt-6.1-sol', accounts=list(router.ACCOUNTS), role='reviewer', deadline=time.time() + 3600)
+        request = dict(paid_protocol=1,id=uuid.uuid4().hex, model='codex/gpt-6.1-sol', accounts=list(router.ACCOUNTS), role='reviewer', deadline=time.time() + 3600)
         with patch.dict(os.environ, env):
             first = router._rpc('acquire', request)
             self.assertEqual(first, router._rpc('acquire', request))
@@ -266,6 +266,22 @@ class RouterTests(unittest.TestCase):
         (secrets / 'codex-auth.json').write_text(json.dumps(auth))
         self.store = router.Store(self.root / 'runtime.sqlite')
         return c, secrets, auth
+
+    def test_shared_paid_refusal_defers_with_flag_off_after_one_cli(self):
+        c, secrets, _ = self.context()
+        c.card['roles']['writer']['model'] = 'openrouter/deepseek/deepseek-v4.1-flash'
+        runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(), Mock(), Mock())
+        error = budget.BudgetError('shared_paid_spend_wait')
+        error.provider_failure = dict(reason='credit', model='openrouter/deepseek/deepseek-v4.1-flash', shared_paid=True)
+        with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT':'0'}), patch.object(router, '_rpc', self.store.rpc), \
+             patch.object(router, 'SECRETS', secrets), patch.object(router, 'observe') as observe, \
+             patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=error) as execute:
+            with self.assertRaises(router.ProviderWait) as caught:
+                runtime.call(c, ['openrouter/deepseek/deepseek-v4.1-flash'], '', c.case, 'builder-1')
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(caught.exception.wait.reason, 'credit')
+        observe.assert_not_called()
+        self.assertEqual(self.store.rpc('status', {})['leases'], [])
 
     def test_all_roles_use_admission_and_preserve_real_ledger(self):
         c, secrets, _ = self.context()
@@ -409,7 +425,7 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
         before = c.ledger.read_bytes(); rounds = c.card.get('builder_rounds')
         model = c.card['roles']['writer']['model']
         for _ in range(2):
-            lease = self.store.rpc('acquire', dict(id=uuid.uuid4().hex,model=model,accounts=list(router.ACCOUNTS),role='writer',deadline=time.time()+86400))
+            lease = self.store.rpc('acquire', dict(paid_protocol=1,id=uuid.uuid4().hex,model=model,accounts=list(router.ACCOUNTS),role='writer',deadline=time.time()+86400))
             self.store.rpc('observe',dict(lease_id=lease['lease_id'],reason='quota',observation_id=lease['lease_id'],reset_at=time.time()+3600))
             self.store.rpc('finish',dict(lease_id=lease['lease_id'],outcome='interrupted',receipt=None))
         runtime = model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock()); callback=Mock()
@@ -643,7 +659,7 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
                  patch.object(model_runtime.ModelRuntime,'_invoke',side_effect=execute):
                 with self.assertRaises(router.ProviderWait):runtime.call(c,[model],'',c.case,'builder-errors')
             self.assertEqual(self.store.rpc('status',{})['health'],{})
-            peer=self.store.rpc('acquire',dict(id=uuid.uuid4().hex,model=model,accounts=list(router.ACCOUNTS),
+            peer=self.store.rpc('acquire',dict(paid_protocol=1,id=uuid.uuid4().hex,model=model,accounts=list(router.ACCOUNTS),
                 role='writer',deadline=time.time()+86400))
             self.assertEqual(peer['kind'],'lease');self.finish(peer,'denied')
 

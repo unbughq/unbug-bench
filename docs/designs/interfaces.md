@@ -1,5 +1,18 @@
 # Cross-stream interfaces
 
+> Shared paid-spend supersession (2026-11-01):
+> [router-shared-paid-spend.md](router-shared-paid-spend.md) replaces the per-batch
+> router configuration/database/token contract. One control-VM-wide service uses
+> the service account's ~/.unbug-control/router/factory.sqlite3; production rejects
+> database config and UNBUG_CONTROL_HOME overrides. All batches pin the same global
+> accounts/capacities/config/service identity. B3 owns config/RAM delivery and
+> drain/restart rotation. Server upgrades precede clients; paid_protocol=1 and
+> per-request paid authorization are mandatory. No existing practice pins activate
+> this code. New placement of openrouter-key in router RAM for read-only credit
+> observations requires founder acknowledgement before deployment. This offline
+> implementation supplies no credential and performs no activation.
+
+
 This file is the contract between workstreams A–E. Each stream codes against
 it. A change to it needs a goldfish review, like any other design. Reviews
 are kept in `docs/reviews/interfaces-design-<n>.md`.

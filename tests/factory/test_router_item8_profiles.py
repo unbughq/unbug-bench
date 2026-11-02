@@ -224,7 +224,9 @@ class WireTests(unittest.TestCase):
             XDG_DATA_HOME='/synthetic/data',XDG_CACHE_HOME='/synthetic/cache',
             OPENCODE_CONFIG_CONTENT='untrusted',HTTPS_PROXY='untrusted')
         cap={}
-        with patch.object(gate.sys,'platform','linux'),gate.enforce(core.lease(MINIMAX),env,cap,5) as active:
+        from test_router_paid_spend import authority
+        actual = core.lease(MINIMAX)
+        with authority(actual), patch.object(gate.sys,'platform','linux'),gate.enforce(actual,env,cap,5) as active:
             options=json.loads(env['OPENCODE_CONFIG_CONTENT'])['provider']['openrouter']['options']
             self.assertNotIn('OPENROUTER_API_KEY',env);self.assertNotIn('HTTPS_PROXY',env)
             raw=json.dumps(dict(model='minimax/minimax-m3.1-flash',messages=[dict(role='user',content='synthetic')],stream=True))
