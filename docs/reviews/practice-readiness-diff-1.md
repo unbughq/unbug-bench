@@ -58,3 +58,12 @@ none is represented as live qualification or a closed Murphy row.
 No source or test changed after the passing suite at 6e67efa. This commit records
 review evidence and the handback only.
 
+
+## Parent follow-up (M1)
+
+Parent required M1 fixed before merge and one scoped Claude re-check (round 2).
+The activation check now logs a fixed label and returns on refusal, with a real
+manifest-mismatch regression and successful following scan. Nit 1 uses five
+runtime lines to label an authenticated pre-creation wait; creation evidence
+still means uncertainty. Step 6 documents nits 3 and 4. Nits 2, 5, 6 and 7 remain
+open. These changes await the full suite and independent scoped re-check.

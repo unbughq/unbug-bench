@@ -440,7 +440,10 @@ def batch_tick(policy, children, waits, spawn):
     """One holder scan. A refused operation or file is logged by label and never stops the holder."""
     if 'batch' not in policy: return
     import batch_holder
-    if not batch_holder.active(policy, ROOT): return
+    try:
+        if not batch_holder.active(policy, ROOT): return
+    except Exception:
+        print('batch activation refused', file=sys.stderr); return
     for operation, (action, child) in list(children.items()):
         code = child.poll()
         if code is None: continue

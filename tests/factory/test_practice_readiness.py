@@ -6,6 +6,7 @@ retained cards/ciphertexts with authored batch bindings from HolderTests.
 from copy import deepcopy
 from datetime import datetime, timezone
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "factory"))
@@ -85,6 +86,24 @@ class PracticeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "request_refused"):
                 key_holder.batch_request(policy, dict(op="launch", batch=practice.BATCH))
 
+    def test_failed_practice_manifest_logs_and_preserves_holder_loop(self):
+        policy = self.practice_policy()
+        manifest = self.root / preflight.MANIFEST
+        saved = manifest.read_bytes()
+        manifest.write_text('{}')  # Real manifest authentication fails; active is not mocked.
+        children, waits, spawn, log = {}, {}, Mock(), io.StringIO()
+        with patch.object(holder, 'HOLDER_ENABLED', False), patch.object(key_holder, 'ROOT', self.root), patch.dict(os.environ, UNBUG_PRACTICE_BATCH=practice.BATCH), patch.object(sys, 'stderr', log):
+            for _ in range(2):
+                key_holder.batch_tick(policy, children, waits, spawn)
+            self.assertEqual(log.getvalue(), 'batch activation refused\n' * 2)
+            self.assertEqual((children, waits), ({}, {})); spawn.assert_not_called()
+            # The same loop can process the following valid scan without an unlock.
+            manifest.write_bytes(saved)
+            with patch.object(holder, 'reconcile', return_value=[]) as scan, patch.object(holder, 'schedule_waits', return_value=[]), patch.object(holder, 'orphaned', return_value=[]), patch.object(holder, 'unpublished', return_value=[]):
+                key_holder.batch_tick(policy, children, waits, spawn)
+                scan.assert_called_once()
+            self.assertEqual(log.getvalue(), 'batch activation refused\n' * 2)
+
     def test_collection_watchdog_ttl_order_and_invalid_admission(self):
         start = 1730000000
         collect, delete, ttl = practice.deadlines(start)
@@ -137,6 +156,15 @@ class PracticeTests(unittest.TestCase):
             self.assertEqual(delete.call_count, 2)  # helper reconciles; it never repeats a POST.
 
     def test_unknown_creation_start_and_wrong_launch_never_claim_complete(self):
+        op = self.started(self.reserve(), created=False)
+        path = self.home / 'launches' / op['launch_id']
+        self.assertEqual(cleanup.step(self.policy, self.root, self.home, op)['state'], 'waiting')
+        (path / 'ids').unlink()
+        self.assertEqual(cleanup.step(self.policy, self.root, self.home, op)['state'], 'waiting')
+        # Creation intent is uncertainty even if no monitor exists.
+        (path / 'new.1.pending').touch()
+        self.assertEqual(cleanup.step(self.policy, self.root, self.home, op)['state'], 'uncertain')
+        self.setUp()
         op, path, spend = self.cleanup_layout()
         with patch.object(boat_lifecycle, "delete_receipt") as delete:
             (path / (op["worker_id"] + ".started")).unlink()

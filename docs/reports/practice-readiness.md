@@ -19,13 +19,15 @@ reviewed factory-simplify head is then available, with no lane-2 dependency.
 Current preflight reports pins=unpinned; all other offline checks pass. These are
 contract checks, not deployment qualification. No final release pins fabricated.
 
-Live-only list and incremental ceilings: provider bounds plus legacy debt $0;
+Live-only list and incremental ceilings: live Boat credit/top-up verification $0;
 distinct accounts and deployment $0; armed admission $0; one worker through
 verified deletion $5; account-2 model work and settlement $19.99; publication
 replay included, $0 additional. $0.01 remains unused. Total reserved $25.
-Unknown cost/ownership is an abort or retained hold, never a pass or new allowance.
-The likely first result remains a $0 abort if the provider bound or legacy debt
-cannot be resolved. No cloud guarantee can be manufactured by offline tests.
+New-run unknown cost/ownership is an abort or retained hold, never a pass or new
+allowance. The founder decisions below resolve the former provider-bound and
+legacy-debt prerequisites. Live credit/top-up, account, deployment and lifecycle
+checks remain; this is no longer characterized as a likely $0 abort for those
+two superseded prerequisites.
 
 Queued-child creation is OFFLINE item-8 work outside this one-worker plumbing
 practice, as accepted in design review 2; it is not relabeled LIVE or closed.
@@ -75,3 +77,45 @@ its in-memory identity. The reviewer recommends catching it and testing the
 refusal. This is an OFFLINE issue, not a live-only deferral; it is handed back
 explicitly, not rejected or claimed fixed. Seven optional nits remain recorded.
 No source/tests changed after the passing suite, and no Murphy rows closed.
+
+
+Parent follow-up before merge: M1 is implemented by catching activation-check
+failures in batch_tick, logging only `batch activation refused`, and returning.
+One new regression corrupts the authenticated manifest with the practice
+environment set, checks repeated refusal without exceptions, and then checks a
+successful following scan after restoring the manifest. Nit 1 is a five-line
+runtime correction for an authenticated pre-creation wait; creation intent still
+produces uncertainty. Step 6 documents the missing-start TTL backstop and the
+fault-command export (nits 3 and 4). Nits 2, 5, 6 and 7 stay open. Fourteen focused
+practice tests pass. Full-suite validation and the scoped Claude re-check follow.
+No live action or Murphy closure. This obvious-cause fix has fewer than 20 runtime
+lines and uses the ENGINEERING.md small-fix exception, with a fresh diff re-check.
+
+A premature suite start (20261102T033050Z-08be06c5) was stopped after a shell
+quoting error prevented the preceding commit. Its source fields identify only the
+base commit, not the uncommitted patch. The retained record explicitly marks the
+run non-qualifying; it is not used as validation. A new run follows the commit.
+
+## Founder decisions — 2026-11-02
+
+> Provider bound ACCEPTED: Boat's prepaid credit balance (below $5, no auto top-up) together with the 60-minute TTL auto-delete is the accepted $5 infrastructure cap. A hard provider-side cap is not required.
+
+> Legacy launch b275ffccd6134a33833853ad1d31ed16 is WRITTEN OFF as having created nothing, based on the empty Boat inventory plus no unexplained billing. Any later charge traced to it goes on the infra-waste line.
+
+Launch b275ffccd6134a33833853ad1d31ed16 is **disposed by founder write-off**.
+No legacy file is deleted and no completion marker is fabricated. A later charge
+traced to it belongs on the infra-waste line. This records an accepted disposition,
+not a newly observed provider deletion or billing receipt.
+
+Step 1 must read the live Boat credit balance and verify auto top-up is off.
+Abort if balance exceeds $5, auto top-up is on, or those checks cannot be completed.
+No hard provider-side cap or further reconciliation of this disposed launch is
+a prerequisite. These decisions supersede the earlier provider-contract and
+legacy-debt requirements in the readiness design and historical preflight group
+labels. They do not remove the other live entry checks or authorize live action
+in this increment. They are included in the scoped M1 re-check.
+
+The founder requested these decisions in the same M1 commit while its suite was
+running. Only practice-run.md and this report were amended; runtime and test
+bytes are unchanged. Suite provenance records both the initial source commit and
+the final doc-only amendment, with the changed paths verified.

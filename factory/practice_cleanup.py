@@ -71,6 +71,11 @@ def step(policy, root, home, op, now=None):
     path = home / "launches" / op["launch_id"]
     try:
         if service._json(path / "launch.json") != op["launch"]: raise ValueError("launch mismatch")
+        if not (path / "monitor.sh").exists() and not list(path.glob("new.*")):
+            ids_file = path / "ids"
+            if not ids_file.exists(): return result
+            with service._regular(ids_file) as stream:
+                if not stream.read().strip(): return result
         spend = monitor(root, path)
         workers = boat_lifecycle.ids(path, "resolve")
         result["workers"] = workers
