@@ -3916,7 +3916,8 @@ package increment 2 and All diagnosis outcomes stay unchecked.
 Design `stream-d-writer-g1-observation.md` passes fresh review round 1. The package
 now retains real failed post-writer G1 observations before validation-receipt
 publication and replays them across that crash window. Passes are not recorded.
-Ten focused tests pass. Full locked suite and fresh diff review remain required.
+Ten focused tests pass. Implementation fdfab00 passes the shared-lock full suite:
+177 scripts / 0 failures. Fresh diff review remains required.
 This is evidence capture only: terminal completion/progress, early-gate and
 saved-cheat observations remain open, alongside partial/legacy entry reconstruction
 and final all-outcomes integration. Lane 1 public-match completion has landed.
