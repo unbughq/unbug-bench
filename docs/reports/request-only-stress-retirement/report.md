@@ -52,4 +52,8 @@ on an explicit relaunch. Cross-batch export filters remain unchanged. Live
 isolated-UID, actual-CLI cancellation and deployment delegation acceptance remain
 unqualified from O7. None of these is claimed fixed by this package increment.
 
-Fresh diff review pending; no merge or push performed.
+Fresh Claude diff review round 1 PASS, no blockers:
+`docs/reviews/request-only-stress-retirement-diff-1.md`. Optional nits remain,
+including a stale clearance beside a clean same-round re-attempt causing an
+additional unscored hold. Production source is unchanged after testing/review.
+No merge or push performed.
