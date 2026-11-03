@@ -72,6 +72,16 @@ the synthetic worker import/monitor path (25.680 s and 34.851 s).
 
 Parent subsequently required parallel-tests 74dc5c7, removing all pass caching.
 That branch is merged. All cached suite evidence above is historical and is
-superseded by the forthcoming complete cache-free run on the corrected code.
+superseded by the complete cache-free run on corrected head `363fe93`:
+**184 scripts, 0 failed, exit 0**, 1716.391 seconds, no lockf and no cached
+passes (`full-suite.log`). The earlier cached pass is retained separately as
+`full-suite-cached-pass.log`. The final review baseline is `74dc5c7`.
+
+Focused launch guards passed with the new containment receipt check (746.4 s;
+no real Boat calls). The added real archive regression passed: in-place resume's
+existing tar upload contains byte-identical current runner_supervisor.py and
+bin/processes.py, so parked workers receive the helper with the supervisor.
+No production source changed after final suite start. The earlier account-loader
+regression pins the shared supervisor command and its duration/grace environment.
 Pilot admission remains parked until provisioning is handed back. No reviewer
 PASS is claimed for the corrected code yet.

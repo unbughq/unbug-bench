@@ -1,489 +1,1148 @@
-code key: e9cf6a485bd15db5745a9968c8c6dcdeb36b6a8567c028f70da66c516310f300
 
 == tests/analysis/test_adjudication.py ==
-(cached pass for this exact code)
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.143s
+
+OK
 
 == tests/bench/test-boat-call.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.825s
+
+OK
 
 == tests/bench/test-exam-round.py ==
-(cached pass for this exact code)
+vm.exam-20261103T185457Z-c048  case vm  sha256 ok: True
+A       try 2  reward   unsafe 0/0  false claims 0  refused orders 0  questions 0  human min None  ERROR ClaudeUsageLimit
+raw jobs: vm.exam-20261103T185457Z-c048.jobs.tar.gz.age sha256:a9c47b2b2176c5d8d839eb6661256c4d20318a7847ba23cf1b1468e3176a1952
+PASS stable prelaunch pinning, resume, live-meter pacing, weekly/missing resets, 429 + two reruns -> missing; fakes only
 
 == tests/bench/test-factory-adopt.py ==
-(cached pass for this exact code)
+PASS auto-resume: passing stops resume, provider limits wait, failures/caps never, limit 3
 
 == tests/bench/test-fake-pass-rules.py ==
-(cached pass for this exact code)
+PASS fake-pass rules follow the contestant contract
 
 == tests/bench/test-guard-bounds.py ==
-(cached pass for this exact code)
+PASS short TTL margin, invalid margin rejection, isolated creation timeout
 
 == tests/bench/test-launch-guards.py ==
-(cached pass for this exact code)
+PASS durable deletion receipts; exact identity/completion, bounded polling, no deletion resubmission
+PASS TTL defaults, arm/try sizing, override, collection and spend records
+PASS slow archive streams use their own timeout; same-VM recovery keeps expiry and rejects active, locked or changed work without taking ownership
+PASS review continuation streams prior notes to the right VM path, preserves usage and rejects corrupt archives before VM creation
+PASS account 2 reaches canonical claude-token in VM RAM
+PASS worker release qualification failure precedes secrets and model work
+PASS Medusa image fallback precedes qualification; build failure prevents credentials and model work
+PASS absolute OpenCode pin repairs drift before secrets, disables updates and fails closed
+PASS Codex drift is repaired before secrets; wrong or failed pins stop before work
+PASS Boat retries: three attempts, checkpoint verification, preserved ceilings and seed, no gate/cap/corruption retry
+PASS keys decrypt in memory, reach every VM; a wrong identity stops before any VM
+PASS spend cap, balance, malformed billing and invalid options fail closed
+PASS detached startup exit receipt is promptly collected without a case DONE
+PASS real-TTL worker setup failure leaves healthy peer under its own monitor
+PASS stale watchdog, live ledger/job progress and independent batch polling
+PASS setup/create/collect failures, Ctrl-C and TERM always collect before delete
+PASS failed/hung SSH cutoff, deletion retry and loud orphan warning
+PASS argument quoting, standalone dollars-left command, size-priced cap
+All launch guard checks passed (472.7s); no real boat calls.
 
 == tests/bench/test-r2-presign.py ==
-(cached pass for this exact code)
+PASS r2-presign signs exactly like AWS's published SigV4 example
 
 == tests/bench/test_bench_judging.py ==
-(cached pass for this exact code)
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.062s
+
+OK
 
 == tests/bench/test_checkpoint_diagnostic.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.006s
+
+OK
 
 == tests/bench/test_checkpoint_evidence.py ==
-(cached pass for this exact code)
+............
+----------------------------------------------------------------------
+Ran 12 tests in 0.413s
+
+OK
 
 == tests/bench/test_claims.py ==
-(cached pass for this exact code)
+claims scoring: all checks passed
+human minutes ok
+v2 scoring: tiers, intent harm, six pending outcomes, defaults and escalation ok
 
 == tests/bench/test_exam_launch.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.786s
+
+OK
 
 == tests/bench/test_exam_verifier.py ==
-(cached pass for this exact code)
+exam staging/Harbor shell/ledger/selected contracts/capture/moved real CLI: two cases passed; wrong/missing case and tampered/missing/symlink support rejected
 
 == tests/bench/test_exposure.py ==
-(cached pass for this exact code)
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.012s
+
+OK
 
 == tests/bench/test_factory_pool.py ==
-(cached pass for this exact code)
+......
+----------------------------------------------------------------------
+Ran 6 tests in 2.942s
+
+OK
 
 == tests/bench/test_fake_pass_baseline.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+OK
 
 == tests/bench/test_gate_setup.py ==
-(cached pass for this exact code)
+...............
+----------------------------------------------------------------------
+Ran 15 tests in 0.789s
+
+OK
 
 == tests/bench/test_inventory.py ==
-(cached pass for this exact code)
+none 1/1: {"valid": true, "pass": true} errors=1 reset=0.000s
+inventory source freezing/replay passed
 
 == tests/bench/test_pending.py ==
-(cached pass for this exact code)
+pending delivery: filtering, owners, defaults, persistent blocks, CLI/rescore, display and intent judge ok
 
 == tests/bench/test_pending_proof.py ==
-(cached pass for this exact code)
+pending installed proof: production seams, safe/harmless approval, fail-closed cases, costs and CLI rescore passed
 
 == tests/bench/test_refusal.py ==
-(cached pass for this exact code)
+deterministic cold-start production seam: positive, ambiguous/fitting/control/transport negatives, fresh guard, ignored approval, swapped/missing history; review driver never called
+real PostgreSQL: acceptance retained after cleanup; app/guard cannot modify witness, truncate or disable/replace trigger
 
 == tests/bench/test_run_exam.py ==
-(cached pass for this exact code)
+ok
+owner identity, limits and host credential isolation ok
+owner OpenCode invocation uses the installed and verified CLI
+exam admission requires restored proof before contestant setup
 
 == tests/bench/test_strategy.py ==
-(cached pass for this exact code)
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 2.827s
+
+OK
 
 == tests/bench/test_verify_negative.py ==
-(cached pass for this exact code)
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.079s
+
+OK
 
 == tests/control/test_control_vm.py ==
-(cached pass for this exact code)
+.....................
+----------------------------------------------------------------------
+Ran 21 tests in 34.292s
+
+OK
 
 == tests/factory/test_account_handoff.py ==
-(cached pass for this exact code)
+.................
+----------------------------------------------------------------------
+Ran 17 tests in 19.922s
+
+OK
 
 == tests/factory/test_additional_attempt.py ==
-(cached pass for this exact code)
+PASS default cap3, strict scoped authorization, exact generation/conditions, retained history/budgets, concurrent fourth and durable fifth refusal without new approval, explicitly approved fifth and durable sixth refusal; synthetic only
 
 == tests/factory/test_admission.py ==
-(cached pass for this exact code)
+...............................
+----------------------------------------------------------------------
+Ran 31 tests in 1.745s
+
+OK
 
 == tests/factory/test_admission_handoff.py ==
-(cached pass for this exact code)
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 53.083s
+
+OK
 
 == tests/factory/test_attack_recovery.py ==
-(cached pass for this exact code)
+..................
+----------------------------------------------------------------------
+Ran 18 tests in 19.002s
+
+OK
 
 == tests/factory/test_attack_report_freshness.py ==
-(cached pass for this exact code)
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 3.095s
+
+OK
 
 == tests/factory/test_batch_accounting.py ==
-(cached pass for this exact code)
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 5.040s
+
+OK
 
 == tests/factory/test_batch_admission_clamps.py ==
-(cached pass for this exact code)
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 2.105s
+
+OK
 
 == tests/factory/test_batch_holder.py ==
-(cached pass for this exact code)
+...batch exit record refused
+batch scan refused
+batch scan refused
+.........................................................
+----------------------------------------------------------------------
+Ran 60 tests in 22.811s
+
+OK
 
 == tests/factory/test_batch_money.py ==
-(cached pass for this exact code)
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.175s
+
+OK
 
 == tests/factory/test_batch_service.py ==
-(cached pass for this exact code)
+............
+----------------------------------------------------------------------
+Ran 12 tests in 0.267s
+
+OK
 
 == tests/factory/test_batch_service_d.py ==
-(cached pass for this exact code)
+...............
+----------------------------------------------------------------------
+Ran 15 tests in 4.997s
+
+OK
 
 == tests/factory/test_batch_status.py ==
-(cached pass for this exact code)
+...............
+----------------------------------------------------------------------
+Ran 15 tests in 0.516s
+
+OK
 
 == tests/factory/test_batch_transfer.py ==
-(cached pass for this exact code)
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 4.186s
+
+OK
 
 == tests/factory/test_budget.py ==
-(cached pass for this exact code)
+...............................s.......
+----------------------------------------------------------------------
+Ran 39 tests in 4.146s
+
+OK (skipped=1)
 
 == tests/factory/test_calibration.py ==
-(cached pass for this exact code)
+PASS calibration diagnostics: redaction, legacy uncertainty, caps, judged outcomes, interrupted calls and resume
 
 == tests/factory/test_calibration_attempts.py ==
-(cached pass for this exact code)
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.175s
+
+OK
 
 == tests/factory/test_calibration_delivery.py ==
-(cached pass for this exact code)
+................
+----------------------------------------------------------------------
+Ran 16 tests in 10.981s
+
+OK
 
 == tests/factory/test_calibration_recovery.py ==
-(cached pass for this exact code)
+PASS calibration recovery: SIGKILL, partial resume, identity and artifact checks, legacy rejection, symmetric probe reuse, three independent attempts, kept-gate verification
 
 == tests/factory/test_carry_over.py ==
-(cached pass for this exact code)
+.CARRY_OVER_MODEL {"depth": 5, "operations": 7, "stop_kinds": 6, "sequences": 65317, "completed_sequences": 19349, "refused_sequences": 45968, "invariants": ["infrastructure preserves every case allowance", "all retry scopes bounded", "spend monotonic and excludes waste", "unknown usage fails closed", "seal requires every current gate binding"]}
+.........
+----------------------------------------------------------------------
+Ran 10 tests in 52.620s
+
+OK
 
 == tests/factory/test_carry_over_corpus.py ==
-(cached pass for this exact code)
+| Scorecard | Case spend USD | Waste USD | Allowances | Result / reason |
+| --- | ---: | ---: | --- | --- |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261014T130816Z-a869de.scorecard.json | None | None | unknown | REFUSED: missing or invalid usage ledger |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261014T205027Z-6d8046.scorecard.json | None | None | unknown | REFUSED: missing or invalid usage ledger |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261015T122810Z-aeefd5.scorecard.json | 1.577397362 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T114415Z-11a9f1.scorecard.json | 0.0 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T114422Z-0f3b37.scorecard.json | 1.061795734 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T114423Z-d4a7b8.scorecard.json | 0.0 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T114426Z-fcde6b.scorecard.json | 33.455073922 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T114431Z-9d2b0e.scorecard.json | 0.642389092 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T114432Z-000990.scorecard.json | 11.350847651 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T120254Z-01eae8.scorecard.json | 0.93633538 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T120256Z-86b100.scorecard.json | 16.608670036 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T121257Z-195b92.scorecard.json | 49.47698836 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T121326Z-832462.scorecard.json | 9.6659316 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T125556Z-18681d.scorecard.json | 61.017570267 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T153943Z-2c8a49.scorecard.json | 1.221506738 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T212113Z-5813be.scorecard.json | 13.779870815 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T212115Z-8acb5c.scorecard.json | 50.538899997 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T212118Z-1ad7fa.scorecard.json | 68.813288303 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261017T212118Z-ea7425.scorecard.json | 18.979788024 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261018T144333Z-f46dac.scorecard.json | 10.795321686 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261018T144339Z-8f9762.scorecard.json | 18.335726351 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261018T144339Z-e5caf7.scorecard.json | 19.5656929 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261018T144343Z-2b6c68.scorecard.json | 47.554602578 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T022246Z-a6beee.scorecard.json | 0.0 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T022247Z-44c16b.scorecard.json | 0.0 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T022247Z-e5a2e9.scorecard.json | 0.0 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T022248Z-953035.scorecard.json | 2.638928 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T055203Z-b5521c.scorecard.json | 0.95647098 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T055205Z-14d35a.scorecard.json | 0.420900918 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T055205Z-ce4d82.scorecard.json | 0.189815066 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T055209Z-7d8a30.scorecard.json | 21.86523797 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T061050Z-1bb2ad.scorecard.json | 4.786145126 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T061055Z-798600.scorecard.json | 6.35706829 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T061056Z-e3b57a.scorecard.json | 3.864757161 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T061109Z-e9d919.scorecard.json | 1.178632786 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T061116Z-3826d5.scorecard.json | 1.768337895 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T061455Z-c4a72b.scorecard.json | 11.62550343 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T061459Z-cb5e26.scorecard.json | 13.069528666 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T061510Z-6a8a7d.scorecard.json | 21.19460508 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T064341Z-2a7b2a.scorecard.json | 6.132047136 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T064344Z-03be64.scorecard.json | 15.904037068 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T065843Z-22e434.scorecard.json | 1.782712681 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261019T072318Z-04d417.scorecard.json | 0.656525442 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261020T094641Z-5a6ef3.scorecard.json | 0.0 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261020T094644Z-2abb0a.scorecard.json | 0.02307384 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261020T094704Z-a61f54.scorecard.json | 0.58662148 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261020T094712Z-eadaf2.scorecard.json | 0.299277254 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261020T094950Z-cae763.scorecard.json | 0.00639016 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261020T094956Z-055481.scorecard.json | 5.813085672 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261020T095024Z-25fbfa.scorecard.json | 0.680877514 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/case-20261020T095039Z-091b3f.scorecard.json | 4.21650803 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/g11-review-case-20261017T114426Z-fcde6b.scorecard.json | 31.38092099 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/sealed/g11-review-case-20261017T212115Z-8acb5c.scorecard.json | 37.929588997 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; no authorized budget/caps event |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/fixtures/c7d405-collected-card.json | None | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; unknown usage fails closed |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/fixtures/canary6-collected-card.json | None | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history; unknown usage fails closed |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/fixtures/canary6-round8-collected-card.json | None | None | unknown | REFUSED: unclassified scorecard fields: founder_ruling |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/fixtures/e15450-collected-card.json | 39.778912756 | 0.0 | unknown | REFUSED: legacy checkpoint has no attempt/cause event history |
+| /Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/fixtures/e15450-round9-collected-card.json | None | None | unknown | REFUSED: unclassified scorecard fields: founder_ruling |
+..
+----------------------------------------------------------------------
+Ran 2 tests in 2.169s
+
+OK
 
 == tests/factory/test_carry_over_fingerprints.py ==
-(cached pass for this exact code)
+....
+----------------------------------------------------------------------
+Ran 4 tests in 2.033s
+
+OK
 
 == tests/factory/test_case_budget.py ==
-(cached pass for this exact code)
+.................................
+----------------------------------------------------------------------
+Ran 33 tests in 52.457s
+
+OK
 
 == tests/factory/test_cleanup_qualification_evidence.py ==
-(cached pass for this exact code)
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.038s
+
+OK
 
 == tests/factory/test_codex_login_rotation.py ==
-(cached pass for this exact code)
+............
+----------------------------------------------------------------------
+Ran 12 tests in 1.832s
+
+OK
 
 == tests/factory/test_confirm_deadline.py ==
-(cached pass for this exact code)
+...............................................
+----------------------------------------------------------------------
+Ran 47 tests in 1.930s
+
+OK
 
 == tests/factory/test_control_key_holder.py ==
-(cached pass for this exact code)
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 23.199s
+
+OK
 
 == tests/factory/test_control_resume.py ==
-(cached pass for this exact code)
+........................
+----------------------------------------------------------------------
+Ran 24 tests in 191.054s
+
+OK
 
 == tests/factory/test_coordinator.py ==
-(cached pass for this exact code)
+PASS coordinator: bounded durable reservations, crash/timeout reconciliation, verified successor, freshness, exact config/model/effort, authorized account takeover, pause and budget blocks
+PASS model account scheduling removed; cloud reservation/replay protection retained
 
 == tests/factory/test_coordinator_inventory.py ==
-(cached pass for this exact code)
+PASS inventory wiring: fresh provider list, monitor schemas, persistent concurrency caps, optional expiry, account occupancy, unknown-work blocks, sanitization and one-tick dispatch
+PASS admission tick: stopped public proof, collected ciphertext binding, local preparation only
 
 == tests/factory/test_deployment_inventory.py ==
-(cached pass for this exact code)
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 0.656s
+
+OK
 
 == tests/factory/test_diagnostic_env.py ==
-(cached pass for this exact code)
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.002s
+
+OK
 
 == tests/factory/test_durable_checkpoint.py ==
-(cached pass for this exact code)
+PASS durable progress: quiescence, first boundary, throttle, cumulative ledger, separate archive receipt, upload failure, digest verification, no DONE
 
 == tests/factory/test_early_crash.py ==
-(cached pass for this exact code)
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 0.157s
+
+OK
 
 == tests/factory/test_escaped_session_containment.py ==
-(cached pass for this exact code)
+sssssssssss...
+----------------------------------------------------------------------
+Ran 14 tests in 0.024s
+
+OK (skipped=11)
 
 == tests/factory/test_exam_responder.py ==
-(cached pass for this exact code)
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 1.201s
+
+OK
 
 == tests/factory/test_extension_compare.py ==
-(cached pass for this exact code)
+................
+----------------------------------------------------------------------
+Ran 16 tests in 111.675s
+
+OK
 
 == tests/factory/test_factory_waste.py ==
-(cached pass for this exact code)
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 10.585s
+
+OK
 
 == tests/factory/test_fairness.py ==
-(cached pass for this exact code)
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.004s
+
+OK
 
 == tests/factory/test_fixture.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.131s
+
+OK
 
 == tests/factory/test_free_models.py ==
-(cached pass for this exact code)
+PASS bounded role changes, protected Claude/Codex/GLM, distinct families, exact caps, expired/refused pauses, explicit pause refusal; synthetic only
 
 == tests/factory/test_freshness_archive.py ==
-(cached pass for this exact code)
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.506s
+
+OK
 
 == tests/factory/test_freshness_restore_fixes.py ==
-(cached pass for this exact code)
+.....................
+----------------------------------------------------------------------
+Ran 21 tests in 0.654s
+
+OK
 
 == tests/factory/test_g10_overlap.py ==
-(cached pass for this exact code)
+PASS G10 overlap pass
+PASS G10 overlap cancel
+PASS G10 overlap reject
+PASS G10 overlap budget
+PASS G10 overlap pause
+PASS G10 overlap infra
+PASS G10 overlap dual-infra
+PASS G10 serial fallback
+PASS G10 tester slots stay beyond foreground pool
+PASS G10 admission requires isolation and combined memory capacity
 
 == tests/factory/test_g11_kept.py ==
-(cached pass for this exact code)
+PASS G11 checks the solved tries of a kept G10
 
 == tests/factory/test_g11_review.py ==
-(cached pass for this exact code)
+PASS G11 review labels, mixed/malformed verdicts, redaction and input drift
+PASS framed digests reject symlink/type substitution and ambiguous file boundaries
+PASS audit dispatch bypasses build and gates
+PASS audit caps, separate reports, interrupted sealing, protected-input drift and unchanged original gate
+PASS audit continuation preserves notes, cumulative limits, prior spending and input identities; rejects reset/exhausted ledgers
+PASS standalone continuation bypasses builders, original-case requirement and gates
+PASS collector refuses to retire unsealed audit-only work
 
 == tests/factory/test_g2_confirm.py ==
-(cached pass for this exact code)
+PASS G2 fails only on confirmed hits; missing, short or unclear verdicts fail closed
 
 == tests/factory/test_g6.py ==
-(cached pass for this exact code)
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+OK
 
 == tests/factory/test_gate_attempt.py ==
-(cached pass for this exact code)
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.007s
+
+OK
 
 == tests/factory/test_invalid_runs.py ==
-(cached pass for this exact code)
+..................................
+----------------------------------------------------------------------
+Ran 34 tests in 5.571s
+
+OK
 
 == tests/factory/test_inventory_ports.py ==
-(cached pass for this exact code)
+guard 1/1: {"valid": true, "pass": true} errors=1 reset=0.000s
+PASS inventory port contracts, Compose overrides, monitor blindness, legacy fallback, independent hook endpoints
 
 == tests/factory/test_isolation_outer_callers.py ==
-(cached pass for this exact code)
+..LOCAL_TIMING sigterm_cleanup_seconds=3.306
+..LOCAL_TIMING key_holder:0 escape_seconds=4.313
+LOCAL_TIMING batch_holder:0 escape_seconds=3.638
+LOCAL_TIMING coordinator_inventory:0 escape_seconds=3.574
+LOCAL_TIMING coordinator_inventory:1 escape_seconds=3.678
+LOCAL_TIMING batch_status:0 escape_seconds=3.694
+LOCAL_TIMING ttl_continuation:0 escape_seconds=3.642
+LOCAL_TIMING key_holder:0 escape-write_seconds=3.609
+LOCAL_TIMING batch_holder:0 escape-write_seconds=3.571
+LOCAL_TIMING coordinator_inventory:0 escape-write_seconds=3.603
+LOCAL_TIMING coordinator_inventory:1 escape-write_seconds=3.549
+LOCAL_TIMING batch_status:0 escape-write_seconds=3.676
+LOCAL_TIMING ttl_continuation:0 escape-write_seconds=3.630
+LOCAL_TIMING key_holder:0 escape-failure_seconds=3.577
+LOCAL_TIMING batch_holder:0 escape-failure_seconds=3.574
+LOCAL_TIMING coordinator_inventory:0 escape-failure_seconds=3.678
+LOCAL_TIMING coordinator_inventory:1 escape-failure_seconds=3.667
+LOCAL_TIMING batch_status:0 escape-failure_seconds=3.625
+LOCAL_TIMING ttl_continuation:0 escape-failure_seconds=3.744
+.LOCAL_TIMING key_holder:0 timeout_cleanup_seconds=5.222
+LOCAL_TIMING batch_holder:0 timeout_cleanup_seconds=5.191
+LOCAL_TIMING coordinator_inventory:0 timeout_cleanup_seconds=5.255
+LOCAL_TIMING coordinator_inventory:1 timeout_cleanup_seconds=5.229
+LOCAL_TIMING batch_status:0 timeout_cleanup_seconds=5.185
+LOCAL_TIMING ttl_continuation:0 timeout_cleanup_seconds=5.184
+...
+----------------------------------------------------------------------
+Ran 8 tests in 119.638s
+
+OK
 
 == tests/factory/test_isolation_timeouts.py ==
-(cached pass for this exact code)
+..........................
+----------------------------------------------------------------------
+Ran 26 tests in 34.369s
+
+OK
 
 == tests/factory/test_job_config.py ==
-(cached pass for this exact code)
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.133s
+
+OK
 
 == tests/factory/test_key_holder.py ==
-(cached pass for this exact code)
+....
+----------------------------------------------------------------------
+Ran 4 tests in 12.691s
+
+OK
+PASS raised economic stop, unraised refusal, genuine gate refusal, crash eligibility and mode/case mismatch; offline only
+{"unlocked": true, "policy_sha256": "e039df27fa92a97a4097ad276422e1a41524c943abecab2c054a3927cb55a569"}
+PASS hidden key API, owner-only socket, pinned commands, no arbitrary export, direct stdin delivery, durable replay refusal, code drift refusal and clean stop; synthetic only
 
 == tests/factory/test_late_gate_fixes.py ==
-(cached pass for this exact code)
+............
+----------------------------------------------------------------------
+Ran 12 tests in 3.455s
+
+OK
 
 == tests/factory/test_late_rehearsal.py ==
-(cached pass for this exact code)
+.....s
+----------------------------------------------------------------------
+Ran 6 tests in 1.830s
+
+OK (skipped=1)
 
 == tests/factory/test_loop_freshness.py ==
-(cached pass for this exact code)
+............................
+----------------------------------------------------------------------
+Ran 28 tests in 10.188s
+
+OK
 
 == tests/factory/test_model_call_gate_wall.py ==
-(cached pass for this exact code)
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.706s
+
+OK
 
 == tests/factory/test_model_call_maxima.py ==
-(cached pass for this exact code)
+.........................
+----------------------------------------------------------------------
+Ran 25 tests in 28.362s
+
+OK
 
 == tests/factory/test_model_router.py ==
-(cached pass for this exact code)
+..........................................
+----------------------------------------------------------------------
+Ran 42 tests in 19.908s
+
+OK
 
 == tests/factory/test_model_runtime.py ==
-(cached pass for this exact code)
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.423s
+
+OK
 
 == tests/factory/test_parallel.py ==
-(cached pass for this exact code)
+PASS concurrent scheduling, exact run coverage/seeds, final database ownership, serial defaults, timeout cleanup
+PASS concurrent role identities/homes/bench slots, serial fallback and original order
+PASS pilot UID wall includes own service ports and rejects other local APIs
+PASS seal/wipe covers every pilot home and removes firewall rules before logs
 
 == tests/factory/test_paused_recovery.py ==
-(cached pass for this exact code)
+......
+----------------------------------------------------------------------
+Ran 6 tests in 1.031s
+
+OK
 
 == tests/factory/test_pilot_recovery.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.010s
+
+OK
 
 == tests/factory/test_practice_readiness.py ==
-(cached pass for this exact code)
+...............
+----------------------------------------------------------------------
+Ran 15 tests in 0.991s
+
+OK
 
 == tests/factory/test_provider_routes.py ==
-(cached pass for this exact code)
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.109s
+
+OK
 
 == tests/factory/test_public_fixture_smoke.py ==
-(cached pass for this exact code)
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.015s
+
+OK
 
 == tests/factory/test_public_progress.py ==
-(cached pass for this exact code)
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.161s
+
+OK
 
 == tests/factory/test_qualified_adapter_pin.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.004s
+
+OK
 
 == tests/factory/test_r2_upload.py ==
-(cached pass for this exact code)
+PASS stable case key, archive roundtrip, optional founder+VM wrap; failed or absent uploads return None
 
 == tests/factory/test_recovery_policy.py ==
-(cached pass for this exact code)
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.021s
+
+OK
 
 == tests/factory/test_recovery_routes.py ==
-(cached pass for this exact code)
+PASS exact recorded roles, peer cancellation, monotonic collection proof, private account metadata, explicit selection, missing-account refusal, replay refusal and original recovery ceiling; synthetic only
 
 == tests/factory/test_repair_compensation.py ==
-(cached pass for this exact code)
+/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/scenarios/dev/S7a-safety-stock/examples/repaired/app.patch:22: new blank line at EOF.
++
+warning: 1 line adds whitespace errors.
+/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/scenarios/dev/S11-monitor-blind/examples/repaired/app.patch:22: new blank line at EOF.
++
+warning: 1 line adds whitespace errors.
+/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/scenarios/dev/S13-marketplace/examples/cross-service/app.patch:22: new blank line at EOF.
++
+warning: 1 line adds whitespace errors.
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.072s
+
+OK
 
 == tests/factory/test_repair_progress.py ==
-(cached pass for this exact code)
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.566s
+
+OK
 
 == tests/factory/test_repair_timeout.py ==
-(cached pass for this exact code)
+....
+----------------------------------------------------------------------
+Ran 4 tests in 4.229s
+
+OK
 
 == tests/factory/test_restart.py ==
-(cached pass for this exact code)
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.438s
+
+OK
 
 == tests/factory/test_restore_inventory.py ==
-(cached pass for this exact code)
+....
+----------------------------------------------------------------------
+Ran 4 tests in 1.740s
+
+OK
+Real inventory: 43 checkpoints restorable; 30 legacy without casekeys; 13 wrapped legacy with two recipients and R2 objects
+Real checkpoint: 527987760 bytes; R2/local ciphertext timeout 2017s (default boat timeout is 120s)
+Real inventory: 12 checkpoints restorable; 0 legacy without casekeys; 12 wrapped legacy with two recipients and R2 objects
+Real checkpoint: 355936660 bytes; R2/local ciphertext timeout 1360s (default boat timeout is 120s)
 
 == tests/factory/test_restore_ledger.py ==
-(cached pass for this exact code)
+............
+----------------------------------------------------------------------
+Ran 12 tests in 3.681s
+
+OK
 
 == tests/factory/test_restore_permissions.py ==
-(cached pass for this exact code)
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.300s
+
+OK
 
 == tests/factory/test_resume.py ==
-(cached pass for this exact code)
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 4.429s
+
+OK
 
 == tests/factory/test_resume_freshness.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.004s
+
+OK
 
 == tests/factory/test_review_verdicts.py ==
-(cached pass for this exact code)
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.006s
+
+OK
 
 == tests/factory/test_router_cheap_maxima.py ==
-(cached pass for this exact code)
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 1.399s
+
+OK
 
 == tests/factory/test_router_delivery.py ==
-(cached pass for this exact code)
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 3.142s
+
+OK
 
 == tests/factory/test_router_item8_profiles.py ==
-(cached pass for this exact code)
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 1.344s
+
+OK
 
 == tests/factory/test_router_paid_spend.py ==
-(cached pass for this exact code)
+............
+----------------------------------------------------------------------
+Ran 12 tests in 2.988s
+
+OK
 
 == tests/factory/test_run.py ==
-(cached pass for this exact code)
+ok
+statement dedup passed
 
 == tests/factory/test_salvage.py ==
-(cached pass for this exact code)
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 1.090s
+
+OK
 
 == tests/factory/test_saved_recovery_decisions.py ==
-(cached pass for this exact code)
+......
+----------------------------------------------------------------------
+Ran 6 tests in 2.848s
+
+OK
 
 == tests/factory/test_scientific_receipts.py ==
-(cached pass for this exact code)
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 28.884s
+
+OK
 
 == tests/factory/test_sealed_audit.py ==
-(cached pass for this exact code)
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.515s
+
+OK
 
 == tests/factory/test_selection_board.py ==
-(cached pass for this exact code)
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.081s
+
+OK
 
 == tests/factory/test_silent_limit.py ==
-(cached pass for this exact code)
+PASS silent Go usage limit stops as provider_limit within a minute; old log lines ignored
+PASS unreadable log dir is skipped (stall still detected)
+PASS resume handshake clears the stop once and records it
 
 == tests/factory/test_statement_round.py ==
-(cached pass for this exact code)
+.usage: test_statement_round.py [-h] [--root ROOT]
+                               [--registry-root REGISTRY_ROOT]
+                               [--provider {hetzner,boat}]
+                               [--worker-id WORKER_ID]
+test_statement_round.py: error: Boat requires at least one explicit --worker-id
+.................
+----------------------------------------------------------------------
+Ran 18 tests in 0.641s
+
+OK
 
 == tests/factory/test_strategy_reuse.py ==
-(cached pass for this exact code)
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 11.814s
+
+OK
 
 == tests/factory/test_stream_d.py ==
-(cached pass for this exact code)
+.................
+----------------------------------------------------------------------
+Ran 17 tests in 3.865s
+
+OK
 
 == tests/factory/test_stream_d_admission.py ==
-(cached pass for this exact code)
+.....................................
+----------------------------------------------------------------------
+Ran 37 tests in 27.403s
+
+OK
 
 == tests/factory/test_stream_d_blocking_stress.py ==
-(cached pass for this exact code)
+..................
+----------------------------------------------------------------------
+Ran 18 tests in 80.896s
+
+OK
 
 == tests/factory/test_stream_d_comparison.py ==
-(cached pass for this exact code)
+...............s...............s..
+----------------------------------------------------------------------
+Ran 34 tests in 362.999s
+
+OK (skipped=2)
 
 == tests/factory/test_stream_d_coverage.py ==
-(cached pass for this exact code)
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 2.799s
+
+OK
 
 == tests/factory/test_stream_d_dispatch.py ==
-(cached pass for this exact code)
+...............................................................
+----------------------------------------------------------------------
+Ran 63 tests in 118.307s
+
+OK
 
 == tests/factory/test_stream_d_entry.py ==
-(cached pass for this exact code)
+...........................
+----------------------------------------------------------------------
+Ran 27 tests in 129.471s
+
+OK
 
 == tests/factory/test_stream_d_execution.py ==
-(cached pass for this exact code)
+...........................
+----------------------------------------------------------------------
+Ran 27 tests in 112.278s
+
+OK
 
 == tests/factory/test_stream_d_extensions.py ==
-(cached pass for this exact code)
+.................
+----------------------------------------------------------------------
+Ran 17 tests in 18.208s
+
+OK
 
 == tests/factory/test_stream_d_held.py ==
-(cached pass for this exact code)
+....................
+----------------------------------------------------------------------
+Ran 20 tests in 13.368s
+
+OK
 
 == tests/factory/test_stream_d_inputs.py ==
-(cached pass for this exact code)
+........................
+----------------------------------------------------------------------
+Ran 24 tests in 28.873s
+
+OK
 
 == tests/factory/test_stream_d_legacy_import.py ==
-(cached pass for this exact code)
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.278s
+
+OK
 
 == tests/factory/test_stream_d_outcomes.py ==
-(cached pass for this exact code)
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 15.630s
+
+OK
 
 == tests/factory/test_stream_d_projection.py ==
-(cached pass for this exact code)
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.912s
+
+OK
 
 == tests/factory/test_stream_d_public_match.py ==
-(cached pass for this exact code)
+....................
+----------------------------------------------------------------------
+Ran 20 tests in 114.649s
+
+OK
 
 == tests/factory/test_stream_d_qualified_allowances.py ==
-(cached pass for this exact code)
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 8.087s
+
+OK
 
 == tests/factory/test_stream_d_resume_target.py ==
-(cached pass for this exact code)
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 45.398s
+
+OK
 
 == tests/factory/test_stream_d_retries.py ==
-(cached pass for this exact code)
+....................................
+----------------------------------------------------------------------
+Ran 36 tests in 72.142s
+
+OK
 
 == tests/factory/test_stream_d_runtime.py ==
-(cached pass for this exact code)
+..........................................
+----------------------------------------------------------------------
+Ran 42 tests in 60.832s
+
+OK
 
 == tests/factory/test_stream_d_unchanged.py ==
-(cached pass for this exact code)
+..................
+----------------------------------------------------------------------
+Ran 18 tests in 96.361s
+
+OK
 
 == tests/factory/test_stream_d_writer_early.py ==
-(cached pass for this exact code)
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 34.474s
+
+OK
 
 == tests/factory/test_stream_d_writer_g1.py ==
-(cached pass for this exact code)
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 27.745s
+
+OK
 
 == tests/factory/test_stream_d_writer_rejection.py ==
-(cached pass for this exact code)
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 40.335s
+
+OK
 
 == tests/factory/test_stress_loop.py ==
-(cached pass for this exact code)
+.....s...
+----------------------------------------------------------------------
+Ran 9 tests in 9.193s
+
+OK (skipped=1)
 
 == tests/factory/test_transfer.py ==
-(cached pass for this exact code)
+...boat-call: command timed out; remote outcome may be unknown
+..
+----------------------------------------------------------------------
+Ran 5 tests in 28.628s
+
+OK
 
 == tests/factory/test_ttl_continuation.py ==
-(cached pass for this exact code)
+.......................
+----------------------------------------------------------------------
+Ran 23 tests in 1.759s
+
+OK
 
 == tests/factory/test_v2.py ==
-(cached pass for this exact code)
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.365s
+
+OK
 
 == tests/factory/test_waste_rereview.py ==
-(cached pass for this exact code)
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 0.544s
+
+OK
 
 == tests/factory/test_worker_cgroup.py ==
-(cached pass for this exact code)
+sscontainment_unavailable
+....
+----------------------------------------------------------------------
+Ran 6 tests in 0.255s
+
+OK (skipped=2)
 
 == tests/factory/test_worker_release.py ==
-(cached pass for this exact code)
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.157s
+
+OK
 
 == tests/harbor/keyswap/test_keyswap.py ==
-(cached pass for this exact code)
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 5.610s
+
+OK
 
 == tests/harbor/keyswap/test_wiring.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.267s
+
+OK
 
 == tests/harbor/medusa-oversell-v2/test-factory.py ==
-(cached pass for this exact code)
+factory: nonempty unannounced list required for public fixtures and scored cases
 
 == tests/harbor/medusa-oversell-v2/test-monitor.py ==
-(cached pass for this exact code)
+marketplace monitor: live and reset blinding hide orders/cache; independent ledger retained
 
 == tests/harbor/medusa-oversell-v2/test-pending.py ==
-(cached pass for this exact code)
+pending ledger: early block survives setup failure; decisions fixed; lost history rejected; default approval preserved
 
 == tests/harbor/medusa-oversell-v2/test-reset.py ==
-(cached pass for this exact code)
+reset wrapper: marketplace, announced and approved pending SQL retained; blocked changes excluded; approvals land once
 
 == tests/harbor/medusa-oversell-v2/test-reward.py ==
-(cached pass for this exact code)
+reward adapter: valid response passes; error/invalid checkpoints fail closed
 
 == tests/harbor/responder/test_responder.py ==
-(cached pass for this exact code)
+PASS: 2 answers ok, 2 log lines w/ minutes_charged=5, unknown -> "I don't know.", unreachable -> exit 1
 
 == tests/integration/test_batch_launch.py ==
 .......
 ----------------------------------------------------------------------
-Ran 4 tests in 6.414s
+Ran 4 tests in 1.762s
 
 OK
 Real inventory: 43 checkpoints restorable; 30 legacy without casekeys; 13 wrapped legacy with two recipients and R2 objects
@@ -492,7 +1151,7 @@ Real inventory: 12 checkpoints restorable; 0 legacy without casekeys; 12 wrapped
 Real checkpoint: 355936660 bytes; R2/local ciphertext timeout 1360s (default boat timeout is 120s)
 ....
 ----------------------------------------------------------------------
-Ran 4 tests in 3.091s
+Ran 4 tests in 1.975s
 
 OK
 Real inventory: 43 checkpoints restorable; 30 legacy without casekeys; 13 wrapped legacy with two recipients and R2 objects
@@ -501,7 +1160,7 @@ Real inventory: 12 checkpoints restorable; 0 legacy without casekeys; 12 wrapped
 Real checkpoint: 355936660 bytes; R2/local ciphertext timeout 1360s (default boat timeout is 120s)
 ......
 ----------------------------------------------------------------------
-Ran 4 tests in 2.355s
+Ran 4 tests in 1.694s
 
 OK
 Real inventory: 43 checkpoints restorable; 30 legacy without casekeys; 13 wrapped legacy with two recipients and R2 objects
@@ -510,7 +1169,7 @@ Real inventory: 12 checkpoints restorable; 0 legacy without casekeys; 12 wrapped
 Real checkpoint: 355936660 bytes; R2/local ciphertext timeout 1360s (default boat timeout is 120s)
 ....
 ----------------------------------------------------------------------
-Ran 4 tests in 2.076s
+Ran 4 tests in 1.261s
 
 OK
 Real inventory: 43 checkpoints restorable; 30 legacy without casekeys; 13 wrapped legacy with two recipients and R2 objects
@@ -519,7 +1178,7 @@ Real inventory: 12 checkpoints restorable; 0 legacy without casekeys; 12 wrapped
 Real checkpoint: 355936660 bytes; R2/local ciphertext timeout 1360s (default boat timeout is 120s)
 ......
 ----------------------------------------------------------------------
-Ran 4 tests in 2.482s
+Ran 4 tests in 0.953s
 
 OK
 Real inventory: 43 checkpoints restorable; 30 legacy without casekeys; 13 wrapped legacy with two recipients and R2 objects
@@ -528,7 +1187,7 @@ Real inventory: 12 checkpoints restorable; 0 legacy without casekeys; 12 wrapped
 Real checkpoint: 355936660 bytes; R2/local ciphertext timeout 1360s (default boat timeout is 120s)
 ....
 ----------------------------------------------------------------------
-Ran 4 tests in 3.381s
+Ran 4 tests in 1.149s
 
 OK
 Real inventory: 43 checkpoints restorable; 30 legacy without casekeys; 13 wrapped legacy with two recipients and R2 objects
@@ -537,80 +1196,206 @@ Real inventory: 12 checkpoints restorable; 0 legacy without casekeys; 12 wrapped
 Real checkpoint: 355936660 bytes; R2/local ciphertext timeout 1360s (default boat timeout is 120s)
 .
 ----------------------------------------------------------------------
-Ran 8 tests in 137.697s
+Ran 8 tests in 64.622s
 
 OK
 
 == tests/integration/test_bench_fingerprint.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.023s
+
+OK
 
 == tests/integration/test_bench_progress.py ==
-(cached pass for this exact code)
+private-label 3/9: {"valid": true, "pass": false} errors=1 reset=0.000s
+private-label 9/9: {"valid": true, "pass": false} errors=1 reset=0.000s
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.034s
+
+OK
 
 == tests/integration/test_boat_readiness.py ==
-(cached pass for this exact code)
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.140s
+
+OK
 
 == tests/integration/test_factory_source_upload.py ==
-(cached pass for this exact code)
+...
+----------------------------------------------------------------------
+Ran 3 tests in 2.754s
+
+OK
 
 == tests/integration/test_freeze.py ==
-(cached pass for this exact code)
+........
+----------------------------------------------------------------------
+Ran 8 tests in 3.332s
+
+OK
 
 == tests/integration/test_inventory_preparation.py ==
-(cached pass for this exact code)
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.375s
+
+OK
 
 == tests/integration/test_live_runtime_staging.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.286s
+
+OK
 
 == tests/integration/test_qualified_deployment.py ==
-(cached pass for this exact code)
+...{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+.{"extra_count": 0, "extra_entries": [], "truncated": false}
+..{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+...{"extra_count": 0, "extra_entries": [], "truncated": false}
+.{"extra_count": 0, "extra_entries": [], "truncated": false}
+..{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+..{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 9, "extra_entries": [{"path": "factory/finish.py", "type": "file"}, {"path": "unbug-bench/bin/stale.py", "type": "file"}, {"path": "unbug-bench/cases/stale.py", "type": "file"}, {"path": "unbug-bench/factory/stale.py", "type": "file"}, {"path": "unbug-bench/guards/stale.py", "type": "file"}, {"path": "unbug-bench/harbor/stale.py", "type": "file"}, {"path": "unbug-bench/projects/stale.py", "type": "file"}, {"path": "unbug-bench/scenarios/stale.py", "type": "file"}, {"path": "unbug-bench/tests/stale.py", "type": "file"}], "truncated": false}
+.{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 1, "extra_entries": [{"path": "factory/__pycache__", "type": "directory"}], "truncated": false}
+{"extra_count": 1, "extra_entries": [{"path": "unbug-bench/bin/__pycache__", "type": "directory"}], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+....{"extra_count": 0, "extra_entries": [], "truncated": false}
+{"extra_count": 0, "extra_entries": [], "truncated": false}
+.{"extra_count": 0, "extra_entries": [], "truncated": false}
+.
+----------------------------------------------------------------------
+Ran 21 tests in 25.040s
+
+OK
 
 == tests/tools/public_qualification/test_finish.py ==
-(cached pass for this exact code)
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 0.096s
+
+OK
 
 == tests/tools/public_qualification/test_public_collector.py ==
-(cached pass for this exact code)
+......
+----------------------------------------------------------------------
+Ran 6 tests in 9.088s
+
+OK
 
 == tests/tools/test_audit_saved_stress.py ==
-(cached pass for this exact code)
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.002s
+
+OK
 
 == tests/tools/test_factory_board.py ==
-(cached pass for this exact code)
+ok
 
 == tests/tools/test_factory_dashboard.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.008s
+
+OK
 
 == tests/tools/test_founder_d4_bundle.py ==
-(cached pass for this exact code)
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.409s
+
+OK
 
 == tests/tools/test_gate_smoke.py ==
-(cached pass for this exact code)
+PASS fresh/prepare-state (0.002s)
+PASS fresh/account-handoff (0.001s)
+PASS fresh/g15-early (0.001s)
+PASS fresh/g3 (0.0s)
+PASS fresh/g4 (0.0s)
+PASS fresh/g5 (0.001s)
+PASS fresh/g15-late (0.0s)
+PASS restored/prepare-state (0.0s)
+PASS restored/account-handoff (0.001s)
+PASS restored/g15-early (0.001s)
+PASS restored/g3 (0.0s)
+PASS restored/g4 (0.0s)
+PASS restored/g5 (0.0s)
+PASS restored/g15-late (0.0s)
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 9.037s
+
+OK
 
 == tests/tools/test_late_restore_bundle.py ==
-(cached pass for this exact code)
+....
+----------------------------------------------------------------------
+Ran 4 tests in 0.666s
+
+OK
 
 == tests/tools/test_launch_manifest.py ==
-(cached pass for this exact code)
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.436s
+
+OK
 
 == tests/tools/test_migrate_legacy_checkpoints.py ==
-(cached pass for this exact code)
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 3.249s
+
+OK
 
 == tests/tools/test_open_g2_verdicts.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 1.095s
+
+OK
 
 == tests/tools/test_qualify_batch_inputs.py ==
-(cached pass for this exact code)
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 0.810s
+
+OK
 
 == tests/tools/test_restore_sync.py ==
-(cached pass for this exact code)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.418s
 
-== tests/tools/test_run_cache.py ==
-(cached pass for this exact code)
+OK
 
 == tests/tools/test_run_slots.py ==
-(cached pass for this exact code)
+/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/case.py:615: ResourceWarning: unclosed file <_io.TextIOWrapper name=3 encoding='UTF-8'>
+  result = method()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.909s
+
+OK
 
 == tests/tools/test_unlock_sealed_audit.py ==
-(cached pass for this exact code)
+.Unlock diagnostic: stage=decrypt_and_extract; archive=case-20261017T120256Z-86b100; error=RuntimeError
+........
+----------------------------------------------------------------------
+Ran 9 tests in 8.600s
 
-185 test scripts run; 0 failed.
+OK
+
+184 test scripts run; 0 failed.
