@@ -1,5 +1,6 @@
 """Shared durable Boat identity and asynchronous deletion proof, used by both owners."""
 import datetime
+from decimal import Decimal, Inexact, localcontext
 import fcntl
 import json
 import math
@@ -11,6 +12,162 @@ import subprocess
 import sys
 import tempfile
 import time
+
+
+def unique_object(pairs):
+    obj = {}
+    for key, value in pairs:
+        if key in obj: raise ValueError('duplicate key')
+        obj[key] = value
+    return obj
+
+
+def reject_constant(value):
+    raise ValueError('invalid number')
+
+
+def loads(data):
+    return json.loads(data, parse_float=Decimal, parse_constant=reject_constant,
+                      object_pairs_hook=unique_object)
+
+
+def regular(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, 'rb') as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode): raise ValueError('not regular')
+        return stream.read()
+
+
+def number(value):
+    if isinstance(value, bool) or not isinstance(value, (str, int, Decimal)):
+        raise ValueError('invalid number')
+    value = Decimal(value)
+    if not value.is_finite() or value < 0: raise ValueError('invalid number')
+    digits = value.as_tuple()
+    if len(digits.digits) > 32 or not -18 <= digits.exponent <= 18:
+        raise ValueError('invalid number')
+    return value
+
+
+def total(values):
+    with localcontext() as context:
+        context.prec = 80
+        context.traps[Inexact] = True
+        return sum(values, Decimal(0))
+
+
+def timestamp(value):
+    if not isinstance(value, str): raise ValueError('invalid timestamp')
+    if datetime.datetime.fromisoformat(value.replace('Z', '+00:00')).tzinfo is None:
+        raise ValueError('timestamp lacks timezone')
+
+
+def worker_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', value):
+        raise ValueError('invalid worker')
+    return value
+
+
+def completion(operation, worker, operation_id):
+    if (not isinstance(operation, dict) or operation.get('id') != operation_id or
+            not isinstance(operation_id, str) or not operation_id or
+            operation.get('targetId') != worker or operation.get('kind') != 'sandbox' or
+            operation.get('status') != 'completed' or operation.get('stage') != 'completed'):
+        raise ValueError('invalid completion')
+    timestamp(operation.get('completedAt'))
+    return operation
+
+
+def settlement_amount(row):
+    """Validate durable authority, shared by admission and the inventory reader."""
+    proof = row['settlement']
+    if (not isinstance(proof, dict) or set(proof) !=
+            {'schema', 'state_path', 'settled_at', 'basis', 'workers'} or
+            type(proof['schema']) is not int or proof['schema'] != 1 or
+            proof['state_path'] != row['state_path'] or
+            not isinstance(proof['state_path'], str) or not pathlib.Path(proof['state_path']).is_absolute()):
+        raise ValueError('invalid settlement')
+    timestamp(proof['settled_at'])
+    for key in ('vms', 'ttl_seconds'):
+        if type(row[key]) is not int or row[key] < 1: raise ValueError('invalid envelope')
+    number(row['max_spend_usd'])
+    workers = proof['workers']
+    if not isinstance(workers, list): raise ValueError('invalid workers')
+    if proof['basis'] not in ('no_creation', 'deleted_lifetime_usage'):
+        raise ValueError('invalid basis')
+    if (proof['basis'] == 'no_creation') != (not workers): raise ValueError('invalid basis')
+    names, amounts = [], []
+    for item in workers:
+        if not isinstance(item, dict) or set(item) != {'id', 'deletion_operation_id', 'completed_at', 'seconds', 'dollars'}:
+            raise ValueError('invalid worker settlement')
+        names.append(worker_id(item['id']))
+        if not isinstance(item['deletion_operation_id'], str) or not item['deletion_operation_id']:
+            raise ValueError('missing deletion identity')
+        timestamp(item['completed_at'])
+        if type(item['seconds']) is not int or item['seconds'] < 0: raise ValueError('invalid seconds')
+        if not isinstance(item['dollars'], str): raise ValueError('invalid dollars')
+        amounts.append(number(item['dollars']))
+    if names != sorted(set(names)) or len(names) > row['vms']: raise ValueError('invalid workers')
+    if not isinstance(row['actual_spend_usd'], str): raise ValueError('invalid total')
+    amount = total(amounts)
+    if number(row['actual_spend_usd']) != amount: raise ValueError('invalid total')
+    return amount
+
+
+def settlement_workers(state, row):
+    """Strict read-only creation proof; tolerant recovery ids() is not authority."""
+    state = pathlib.Path(state)
+    if state.is_symlink() or not state.is_dir(): raise ValueError('invalid state')
+    names = regular(state / 'ids').decode().split()
+    if len(names) != len(set(names)): raise ValueError('duplicate worker')
+    for name in names: worker_id(name)
+    created, serials = [], []
+    for path in state.iterdir():
+        if not path.name.startswith('new.'): continue
+        if not re.fullmatch(r'new\.[1-9][0-9]*', path.name): raise ValueError('creation unknown')
+        events = [loads(line) for line in regular(path).decode().splitlines() if line.strip()]
+        if not all(isinstance(e, dict) for e in events): raise ValueError('invalid creation')
+        found = [worker_id(e.get('id')) for e in events if e.get('event') == 'created']
+        if len(found) != 1: raise ValueError('creation unknown')
+        created.extend(found); serials.append(int(path.name.split('.')[1]))
+    if sorted(created) != sorted(names) or len(names) > row['vms']:
+        raise ValueError('creation identity mismatch')
+    if row['status'] == 'reserved' and (not names or sorted(serials) != list(range(1, row['vms'] + 1))):
+        raise ValueError('creation still possible')
+    if not names and row['status'] != 'finished': raise ValueError('creation still possible')
+    return sorted(names)
+
+
+def settlement_proof(spend, state, row, query):
+    workers = settlement_workers(state, row)
+    receipts = {}
+    for worker in workers:
+        directory = pathlib.Path(spend).with_suffix('.deletions') / worker
+        if directory.is_symlink() or directory.parent.is_symlink(): raise ValueError('invalid evidence')
+        request = loads(regular(directory / 'deletion-request.json'))
+        done = loads(regular(directory / 'deletion-completion.json'))
+        if not isinstance(request, dict) or request.get('targetId') != worker or request.get('kind') != 'sandbox':
+            raise ValueError('wrong deletion request')
+        receipts[worker] = completion(done, worker, request.get('id'))
+    inventory = query('list', '--json')
+    listed = [worker_id(item['id']) for item in inventory['sandboxes']]
+    if inventory['pageInfo']['hasMore'] is not False or len(listed) != len(set(listed)) or set(workers).intersection(listed):
+        raise ValueError('inventory incomplete')
+    result = []
+    for worker in workers:
+        usage = query('usage', worker, '--json')
+        if (not isinstance(usage, dict) or usage.get('running') is not False or
+                type(usage.get('seconds')) is not int or usage['seconds'] < 0 or
+                type(usage.get('dollars')) not in (int, Decimal)):
+            raise ValueError('usage unavailable')
+        if any(usage[key] != worker for key in ('id', 'sandboxId') if key in usage):
+            raise ValueError('usage identity mismatch')
+        dollars = number(usage['dollars'])
+        done = receipts[worker]
+        result.append(dict(id=worker, deletion_operation_id=done['id'], completed_at=done['completedAt'],
+                           seconds=usage['seconds'], dollars=format(dollars, 'f')))
+    return dict(schema=1, state_path=str(state), settled_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                basis='deleted_lifetime_usage' if workers else 'no_creation', workers=result)
 
 
 def ids(state, mode='print'):
@@ -123,19 +280,13 @@ def _delete(root, spend, worker, ids_path, timeout):
     save('deletion-request.json', operation)
     if completed.exists():
         done = identity(json.loads(completed.read_text()), operation_id)
-        if done['status'] != 'completed' or done['stage'] != 'completed' or not isinstance(done['completedAt'], str) or datetime.datetime.fromisoformat(done['completedAt'].replace('Z', '+00:00')).tzinfo is None:
-            raise ValueError('invalid completion')
-        return done
+        return completion(done, worker, operation_id)
     while True:
         operation = identity(query('deletion', 'status', operation_id, '--json'), operation_id)
         save('deletion-completion-query.json', operation)
         if time.monotonic() >= deadline: raise TimeoutError()
         if operation['status'] == 'completed':
-            if operation['stage'] != 'completed': raise ValueError('completion stage mismatch')
-            value = operation['completedAt']
-            if not isinstance(value, str) or not value: raise ValueError('missing completion timestamp')
-            if datetime.datetime.fromisoformat(value.replace('Z', '+00:00')).tzinfo is None:
-                raise ValueError('completion timestamp lacks timezone')
+            completion(operation, worker, operation_id)
             save('deletion-completion.json', operation)
             return operation
         if (operation['status'] not in ('pending', 'processing') or

@@ -27,7 +27,7 @@ def prepare(slots, *, previous_slots=1, fresh=False, execute=None):
     """Own extra-shop retirement, readiness and serial preparation before trials.
 
     execute is the logged factory command adapter. Without it, the pool uses
-    subprocesses. Only explicit fresh=True (G3) discards and seeds slot zero.
+    subprocesses. Explicit fresh=True (startup and G3) discards and seeds slot zero.
     A failed main setup returns False; extra-shop failures raise, as in G3.
     """
     import bench

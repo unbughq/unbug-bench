@@ -11,9 +11,9 @@ model calls. Every stop was a prerequisite that could have been checked before
 step 1. Each was found live, one at a time, and each stopped the run.
 
 Evidence: `docs/reports/practice-run-20261102.md`. On `factory-simplify` the
-report runs through stop 8. Stops 9 and 10 are only on the unmerged
-`t3/batch-service-control-vm` (sections "Deployment diagnosis and repair" and
-"Post-window result").
+report covers all 10 stops; stops 9 and 10 are in the sections "Deployment
+diagnosis and repair" and "Post-window result", merged from
+`t3/batch-service-control-vm` (land17, 5b3cd0b).
 
 | # | Stop | Covered by |
 |---|---|---|
@@ -26,7 +26,7 @@ report runs through stop 8. Stops 9 and 10 are only on the unmerged
 | 7 | Codex login guard fired on a run with no Codex role | conditional gate |
 | 8 | Refreshed bundle not decryptable by the control identity | `credentials` |
 | 9 | Deployment hit an interactive sudo password | `deploy_access`, plus step 2 installs via root SSH |
-| 10 | Docker name clash at worker startup | **not this change**: fix and real-Docker test on `t3/batch-service-control-vm` (`tests/factory/test_practice_startup.py`) |
+| 10 | Docker name clash at worker startup | **not this change**: fix and real-Docker test merged on `factory-simplify` (land17; `tests/factory/test_practice_startup.py`, row `new-practice-startup-1`) |
 
 Today `factory/practice_preflight.py` checks only offline files. Its live items
 are hard-coded `unproved`. The live checks are prose that an agent follows by
@@ -170,8 +170,8 @@ codex driver; that's harmless and left as is.
 ## Cost and timeline
 
 $0 provider spend. About one day of offline implementation, then a diff review
-of at most 2 rounds. It depends on `t3/batch-service-control-vm` merging, for
-stop 10's fix and the stop 9–10 evidence.
+of at most 2 rounds. Its dependency, `t3/batch-service-control-vm` (stop 10's fix
+and the stop 9–10 evidence), merged into `factory-simplify` at land17 (5b3cd0b).
 
 ## Founder questions
 

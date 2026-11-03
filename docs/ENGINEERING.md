@@ -37,10 +37,13 @@ conflicts with an older doc, this file wins.
      `BENCH="$PWD" python3 -B tests/factory/test_x.py`.
    - Run the full suite once, on the exact head you hand back for review:
      `uv run --with numpy --with scipy python -B tests/run.py`.
-   - The suite runs scripts in parallel, one per CPU, so no shared lock is
-     needed. Use `-j 1` only to rule out a parallel-only failure.
+   - The suite runs scripts in parallel. Every suite on the host shares one
+     pool of `TEST_SLOTS` slots, so concurrent suites can't overload it. Do
+     not wrap the suite in `lockf`. Use `-j 1` only to rule out a
+     parallel-only failure.
    - The parent runs one more full suite on the merged tree before landing,
-     unless that tree is identical to the one already tested.
+     unless that tree is identical to the one already tested
+     (`git rev-parse <commit>^{tree}`).
 5. **Diff review.** A fresh goldfish reviews the branch diff against its
    design, using `zoom_out` and `implementation_readiness`. A reviewer from a
    different model family than the writer is preferred.

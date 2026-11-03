@@ -19,6 +19,12 @@ PROBE_ENVIRONMENT = ast.literal_eval(next(node.value for node in
     ast.parse((BASE / 'probe.py').read_text()).body if isinstance(node, ast.Assign)
     and any(isinstance(target, ast.Name) and target.id == 'environment' for target in node.targets)))
 
+# The embedded scanner produced this retained observation before settlement existed.
+SCANNER_SOURCE = ast.literal_eval(ast.parse((BASE / 'probe.py').read_text()).body[0].value)
+PROBE_STATUSES = ast.literal_eval(next(node.value for node in ast.parse(SCANNER_SOURCE).body
+    if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
+    and target.id == 'STATUSES' for target in node.targets)))
+
 UNITS = ('unbug-key-holder.service', 'unbug-resume-launches.timer',
          'unbug-resume-launches.service', 'unbug-model-router.service', 'unbug-batch.service')
 EXIT = ('ok', 'command-failed', 'timeout', 'malformed-output', 'read-failed')
@@ -104,7 +110,7 @@ def validate_scanner(value):
     assert ids == sorted(set(ids))
     ledger = value['ledger']
     keys(ledger, ('state', 'counts', 'reserved_usd', 'expired_reserved', 'malformed_records', 'unknown_statuses'))
-    enum(ledger['state'], ('missing', 'invalid', 'ok')); keys(ledger['counts'], inventory.STATUSES)
+    enum(ledger['state'], ('missing', 'invalid', 'ok')); keys(ledger['counts'], PROBE_STATUSES)
     for v in ledger['counts'].values(): number(v)
     for k in ('expired_reserved', 'malformed_records', 'unknown_statuses'): number(ledger[k])
     if ledger['reserved_usd'] is not None:

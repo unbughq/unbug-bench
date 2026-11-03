@@ -1,6 +1,7 @@
 """Independent cleanup of one authenticated disposable practice operation."""
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import shlex
@@ -61,16 +62,59 @@ def monitor(root, path):
     return spend
 
 
+def bound_spend(home, path):
+    ledger = boat_lifecycle.loads(boat_lifecycle.regular(home / 'boat-reservations.json'))
+    matches = [record for record, row in ledger['reservations'].items()
+               if row.get('state_path') == str(path.resolve())]
+    if len(matches) != 1: raise ValueError('unknown spend binding')
+    return Path(matches[0])
+
+
+def settle(root, home, op, path, spend, result, now):
+    target = location(home, op).with_suffix('.status.json')
+    previous = service._json(target) if target.exists() else {}
+    last = previous.get('settlement_attempted_at')
+    if last is not None and (type(last) not in (int, float) or not math.isfinite(last) or last < 0):
+        raise ValueError('invalid settlement timestamp')
+    result.update(state='settlement_pending', settlement='pending', settlement_attempted_at=last)
+    if last is not None and now < last + 60: return
+    result['settlement_attempted_at'] = now
+    target.parent.mkdir(parents=True, exist_ok=True)
+    atomic_json(target, result)
+    # No output from the provider or arbitrary subprocess diagnostics enters status.
+    try:
+        response = subprocess.run([str(root / 'bin/boat-spend'), '--settle', str(spend), str(path)],
+                                  capture_output=True, timeout=180,
+                                  env={**os.environ, 'UNBUG_CONTROL_HOME': str(home)})
+        if response.returncode == 0: result.update(state='complete', settlement='settled')
+    except (OSError, subprocess.SubprocessError): pass
+
+
 def step(policy, root, home, op, now=None):
     """One observation; absence is never a deletion receipt. No replayed creation."""
     now = time.time() if now is None else now
-    result = dict(schema=1, operation_id=op["operation_id"], deadline=None, state="waiting", workers=[])
+    result = dict(schema=1, operation_id=op["operation_id"], deadline=None, state="waiting", workers=[],
+                  settlement="not_attempted", settlement_attempted_at=None)
+    previous_path = location(home, op).with_suffix('.status.json')
+    if previous_path.exists():
+        try:
+            previous = service._json(previous_path)
+            result['settlement_attempted_at'] = previous.get('settlement_attempted_at')
+        except (OSError, ValueError, TypeError):
+            result['state'] = 'uncertain'
+            return result
     if not op["dispatch_started"]:
         if op["state"] == "failed": result["state"] = "not_dispatched"
         return result
     path = home / "launches" / op["launch_id"]
     try:
         if service._json(path / "launch.json") != op["launch"]: raise ValueError("launch mismatch")
+        if not list(path.glob("new.*")) and (path / 'spend-finished').exists():
+            with service._regular(path / 'spend-finished'): pass
+            with service._regular(path / 'ids') as stream: empty = not stream.read().strip()
+            if empty:
+                settle(root, home, op, path, bound_spend(home, path), result, now)
+                return result
         if not (path / "monitor.sh").exists() and not list(path.glob("new.*")):
             ids_file = path / "ids"
             if not ids_file.exists(): return result
@@ -106,7 +150,7 @@ def step(policy, root, home, op, now=None):
             if inventory["pageInfo"]["hasMore"] is not False or len(listed) != len(set(listed)):
                 raise ValueError("inventory incomplete")
             if not set(workers).intersection(listed) and not list(path.glob("new.*.pending")):
-                result["state"] = "complete"
+                settle(root, home, op, path, spend, result, now)
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
         result["state"] = "uncertain"
     return result

@@ -55,6 +55,23 @@ class SlotTests(unittest.TestCase):
                 pass
             self.assertLess(time.monotonic() - start, 5)
 
+    def test_leaked_child_does_not_hold_the_script_open(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "test_leak.py"
+            script.write_text("import subprocess,sys\nsubprocess.Popen(['sleep','8'])\nprint('bye')\nsys.exit(1)\n")
+            start = time.monotonic()
+            path, code, output = load(tmp, 1).run(script)
+            self.assertLess(time.monotonic() - start, 4)  # judged at exit, not when the leaked sleep closes stdout
+            self.assertEqual((code, output.strip()), (1, b"bye"))
+
+    def test_interrupt_releases_slot_waiters(self):
+        with tempfile.TemporaryDirectory() as slots:
+            module = load(slots, 1)
+            module.STOP.set()
+            with module.machine_slot() as held:
+                self.assertFalse(held)
+            self.assertEqual(module.run(Path("never_started.py"))[1], 130)
+
 
 if __name__ == "__main__":
     unittest.main()
