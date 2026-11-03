@@ -23,13 +23,14 @@ only staged files although the gate result remains available in memory.
 
 Add Records.save_observation(stage, ok, info, before, old_card), used only by
 observe_gate and observe_stress. Ordinary execution invoke stays outside capture
-error handling and executes exactly once. Package/admitted-row save/capture is
+error handling. A capture failure after invoke returns cannot cause another invocation. Package/admitted-row save/capture is
 unchanged. This helper owns at most two evidence-publication attempts, never a
 gate_attempt, provider call or scientific retry.
 
 Before the first attempt require the target stage directory to be absent (also
 reject a symlink, including dangling links). An unexpected existing target is
-not overwritten or removed. Freeze deep copies of info and old_card and pin
+not overwritten or removed: return False without calling save and leave observed[stage]
+False. Freeze deep copies of info and old_card and pin
 case_hash and scientific_version after the gate returns. Before each attempt,
 require the live hash/version still equal these pins. Full case bytes are read
 only by save; later entry_prefix retains its exact case/freshness checks.
@@ -37,19 +38,29 @@ only by save; later entry_prefix retains its exact case/freshness checks.
 Each attempt:
 1. If no target exists, call ordinary save with the same captured result,
    pre-invoke inventory and old_card. Its staging cleanup remains unchanged.
-2. If save raises a CAPTURE_ERRORS exception, do not remove the stage directory.
+2. If save raises an Exception, do not remove the stage directory.
    If a target now exists, load it with the existing digest, support, identity,
-   result-shape and version checks on a copied context (deep-copy args/card),
-   require its ok/info to equal the frozen result, and sync the target tree and
-   parent directory. Mark success only after those syncs return. A corrupt or
+   result-shape and version checks. Construct probe = copy.copy(c), deep-copy its
+   args and card, then Records(probe, r, observation_id=self.root.name,
+   round_number=self.round_number). This is ordinary-observation-only recovery.
+   Require extensions.digest({'ok': ok, 'info': info}) to equal
+   extensions.digest({'ok': data['ok'], 'info': data['info']}); this compares the
+   JSON representation, so tuple/list and JSON key conversions do not cause
+   false inequality. If a result cannot be digested (including NaN), return False.
+   Sync with extensions._sync_tree(target), which already syncs target.parent.
+   Mark success only after that sync returns. A corrupt or
    mismatching published record is never deleted, replaced or rescored.
 3. If the first attempt did not succeed and no target exists, retry save once.
    If a valid target exists but sync failed, the second attempt verifies and
-   syncs it again instead of calling save. Both attempts catch CAPTURE_ERRORS.
+   syncs it again instead of calling save. Both attempts catch Exception (never BaseException).
    Return False after two failed attempts, True after successful publication.
 
-The helper returns a boolean; capture-side failures do not escape into ordinary
-retry or change the gate tuple. Set observed[stage] from that boolean. Keep the
+Everything the helper does, including freezing, pinning, target checks and
+verification, is inside except Exception, returning False on failure. observe_gate
+also catches Exception around all its post-invoke capture work (tuple unpacking,
+pending and case checks included). invoke itself stays outside that try. Thus
+post-invoke capture errors cannot escape into ordinary retry or change the tuple.
+The pre-invoke inventory/projection catch remains CAPTURE_ERRORS as today. Set observed[stage] from that boolean. Keep the
 existing close-marker guards. An intact record remains available to entry even
 if both sync acknowledgements failed: entry validates its bytes, and partial
 entry does not require closed.json. Corrupt published proof remains a refusal.
@@ -65,7 +76,9 @@ Use tests/factory/test_stream_d_entry.py and its saved practice/checkpoint/HTTP
 fixtures; external controls remain labelled. Add no worker/model/network calls.
 - Replace test_capture_failure_after_rename_does_not_retry's pending expectation
   with a snapshot equal to an uninterrupted traversal. Assert one invocation per
-  gate, retained record bytes unchanged, and no save replacement after rename.
+  gate, retained record bytes unchanged, save called once per stage and closed.json
+  absent. The existing persistent sync patch fails for every later stage after
+  G1 appears; all their intact records remain available despite missing ACKs.
 - Real G4/G5 over invalid-runs-real.json.gz: fail one evidence-copy publication
   before rename, then succeed. Same result, entry frontier and support bytes as
   baseline; each real gate runs once, save called twice only for affected stage.
@@ -74,13 +87,18 @@ fixtures; external controls remain labelled. Add no worker/model/network calls.
 - Persistent copy failure preserves the original gate tuple and leaves entry
   pending; exactly two save attempts, no gate retry. Existing capture-error and
   pending-shape exams keep their refusal assertions.
+- RuntimeError from save and from verification: one gate invocation, the original
+  tuple and pending entry when proof is absent or invalid. No ordinary retry.
 - Corrupt or symlinked target after publication, mismatched result, changed case
   or version between publication attempts: no replacement and pending entry.
 - A pre-existing stage target refuses recovery without overwriting bytes.
 - G3 validation uses copied args/card: live workers and card remain unchanged.
 - Kill after a complete rename (BaseException bypassing capture handling), then
-  entry from retained checkpoint artifacts: no evaluator or save call, same
-  snapshot. A partial staging directory alone never becomes scored evidence.
+  raise at _sync_directory(self.root) inside save after G4 is renamed. Entry from
+  retained checkpoint artifacts uses no evaluator or save: stress through G4 pass,
+  frontier = extensions.stages().index('G5'), G5 onward unreached. It is a prefix,
+  not equal to the uninterrupted full traversal. A partial staging directory
+  alone never becomes scored evidence.
 
 Midterm: focused entry tests. Final: full suite under detached plain lockf,
 7200 seconds after lock acquisition (queue excluded), unique log/record committed,
