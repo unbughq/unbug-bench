@@ -261,6 +261,12 @@ def _replacement(facts):
         pending is not None and pending['replacement_eligible'])
 
 
+def _resume_reason(facts, unknown):
+    if facts['pending_projection'] is not None or (facts['exhaustion'] and unknown):
+        return 'settlement' if unknown else 'exhaustion'
+    return None
+
+
 def _enqueue(state, record, entry, card):
     facts = entry['facts']
     job = _lineage(state, record, entry['job'])
@@ -287,9 +293,10 @@ def _enqueue(state, record, entry, card):
             state['derivations'][job['case']] = row
         request('replacement/' + job['case'], 'replacement', child, None, job['case'],
                 'unknown_total' if unknown else 'exhaustion')
-    if facts['pending_projection'] is not None or (facts['exhaustion'] and unknown):
+    reason = _resume_reason(facts, unknown)
+    if reason is not None:
         request('resume/' + job['case'] + '/' + entry['generation'], 'resume', job,
-                entry['generation'], None, 'settlement' if unknown else 'exhaustion')
+                entry['generation'], None, reason)
 
 
 def ordered_queue(state):

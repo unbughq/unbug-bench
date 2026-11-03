@@ -72,6 +72,7 @@ reconcile/dispatch, as it already does.
 
 A scan snapshot is advisory. Add keyword-only `queued_resume=None` to
 holder.reserve and pass it to _admit, preserving all existing calls when absent.
+Pass reserve's existing home argument into _admit; reserve is its only caller.
 The value is an exact row for lookup, not an authorization flag. Inside reserve's
 existing money lock, before any authority mutation, _admit:
 
@@ -105,11 +106,14 @@ existing money lock, before any authority mutation, _admit:
   _config(old_policy, home, producer). Refuse on any mismatch/read error.
   The current planner does not itself create imported-only queue rows.
 - Refuse if the corresponding legacy-retirement marker exists or is a symlink,
+  or if either of its parent directories is a symlink or a non-directory,
   or if card.diagnosis_state is not a dict. This preserves retire_legacy's rule:
   a legacy exhaustion without a recorded diagnosis state cannot acquire a new
   diagnosis resume even if somebody forges a syntactically valid queue row.
 - Recompute facts with the existing pure `service._project(card, diagnosis)`
-  and require exact equality with the authenticated source entry's stored facts.
+  and require exact equality with both the authenticated source entry's and
+  current queue journal entry's stored facts. They are the same entry for local
+  sources; the separate comparison matters for an imported source.
   Recompute the reason from that same card and require it to equal the queue
   reason. Extract the existing two-line reason predicate into
   `service._resume_reason(facts, unknown)`, where unknown is
