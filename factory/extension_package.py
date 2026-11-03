@@ -48,6 +48,20 @@ def project(card):
     return copy.deepcopy({k: v for k, v in card.items() if k not in EXCLUDED})
 
 
+def writer_feedback(stage, data):
+    if data is None or data['ok'] is not False: refuse()
+    info = data['info']
+    if stage == 'G1':
+        feedback = info.get('problems')
+    else:
+        observation = info.get('writer_observation')
+        if (not isinstance(observation, dict) or set(observation) != {'feedback', 'bench_workers'} or
+                type(observation['bench_workers']) is not int or observation['bench_workers'] < 1): refuse()
+        feedback = observation['feedback']
+    if not isinstance(feedback, list) or not feedback or any(not isinstance(p, str) or not p for p in feedback): refuse()
+    return copy.deepcopy(feedback)
+
+
 class Records:
     def __init__(self, c, r, row=None, *, observation_id=None, round_number=None, expected_versions=None):
         self.c, self.r, self.row = c, r, row
@@ -67,6 +81,10 @@ class Records:
         self.observed = {}
 
     def version(self, stage):
+        if stage == 'saved-cheats':
+            return extensions.digest(dict(kind=stage,
+                g6=gate_state.scientific_version(self.c, 'G6', self.r.BENCH),
+                source=gate_state.source_inputs('early_cheat_check')))
         return (self.expected_versions[stage] if self.expected_versions is not None else
                 gate_state.scientific_version(self.c, stage, self.r.BENCH))
 
@@ -184,7 +202,9 @@ class Records:
         try:
             support = {}
             inputs = (gate_state.judge_dependencies(c, r.BENCH) if stage == 'stress'
-                      else gate_state.inputs(c, stage, r.BENCH))
+                      else gate_state.inputs(c, 'G6' if stage == 'saved-cheats' else stage, r.BENCH))
+            if stage == 'saved-cheats':
+                inputs.update(kind=stage, sample_source=gate_state.source_inputs('early_cheat_check'))
             atomic_json(temporary / 'inputs.json', inputs)
             sources = self.sources(stage, before)
             sources['inputs.json'] = temporary / 'inputs.json'
@@ -241,10 +261,96 @@ class Records:
         before = {k: gate_state.digest(p) for k, p in gate_state.inventory(c, self.r.BENCH).items()}
         card, case = project(c.card), self.r.case_hash(c)
         ok, info = invoke()
-        if ok is False and not comparison._pending(ok, info):
+        if (ok is False and not comparison._pending(ok, info) and
+                isinstance(info.get('problems'), list) and info['problems'] and
+                all(isinstance(p, str) and p for p in info['problems'])):
             if self.r.case_hash(c) != case: refuse()
             self.save('G1', ok, info, before, card)
         return ok, info
+
+    def replay_writer_early(self):
+        stages = ('G15', 'G3', 'G4', 'G5', 'saved-cheats')
+        found = [stage for stage in stages if (self.root / stage / 'record.json').exists()
+                 or (self.root / stage / 'record.json').is_symlink()]
+        if not found: return None
+        if len(found) != 1 or (self.root / 'G1/record.json').exists() or (self.root / 'G1/record.json').is_symlink():
+            refuse()
+        c, stage = self.c, found[0]
+        receipt = extensions.writer_receipt(c)
+        if (not isinstance(receipt, dict) or receipt.get('actor') != 'writer' or
+                receipt.get('phase') not in ('completed', 'validated') or
+                receipt.get('repair_pending') is not False or receipt.get('output_sha256') != self.r.case_hash(c)):
+            refuse()
+        probe = copy.copy(c)
+        probe.args, probe.card = copy.deepcopy(c.args), copy.deepcopy(c.card)
+        reader = Records(probe, self.r, self.row)
+        data = reader.load(stage, check_version=False)
+        feedback = writer_feedback(stage, data)
+        observation = data['info']['writer_observation']
+        probe.args.bench_workers = observation['bench_workers']
+        data = reader.load(stage)
+        self.restore(stage, data)
+        c.early = {}
+        if hasattr(c, 'early_hash'): del c.early_hash
+        markers = c.card.setdefault('early_gates', {})
+        if stage == 'saved-cheats':
+            summary = data['info'].get('summary')
+            if summary is None: markers.pop('saved_cheats', None)
+            else: markers['saved_cheats'] = copy.deepcopy(summary)
+        else:
+            markers[stage] = {'ok': False, 'minutes': 0}  # replay, not execution time
+        return feedback
+
+    def writer_early(self, c):
+        retained = self.replay_writer_early()
+        if retained is not None: return retained
+        before = {k: gate_state.digest(p) for k, p in gate_state.inventory(c, self.r.BENCH).items()}
+        card, case = project(c.card), self.r.case_hash(c)
+        def rejected(c, stage, info, problems):
+            if comparison._pending(False, info): return
+            if (stage not in ('G15', 'G3', 'G4', 'G5', 'saved-cheats') or
+                    'writer_observation' in info or not isinstance(problems, list) or not problems or
+                    any(not isinstance(p, str) or not p for p in problems) or
+                    type(c.args.bench_workers) is not int or c.args.bench_workers < 1 or
+                    self.r.case_hash(c) != case):
+                refuse()
+            detail = copy.deepcopy(info)
+            detail['writer_observation'] = dict(feedback=copy.deepcopy(problems), bench_workers=c.args.bench_workers)
+            self.save(stage, False, detail, before, card)
+        return self.r.early_checks(c, on_rejection=rejected)
+
+    def save_observation(self, stage, ok, info, before, old_card):
+        """Retry proof publication, never execution; retain a renamed record."""
+        try:
+            target = self.root / stage
+            if target.exists() or target.is_symlink(): return False
+            info, old_card = copy.deepcopy((info, old_card))
+            result = extensions.digest(dict(ok=ok, info=info))
+            case, version = self.r.case_hash(self.c), self.version(stage)
+            for _ in range(2):
+                try:
+                    if self.r.case_hash(self.c) != case or self.version(stage) != version:
+                        return False
+                    if not target.exists() and not target.is_symlink():
+                        try:
+                            self.save(stage, ok, info, before, old_card)
+                            return True
+                        except Exception:
+                            if not target.exists() and not target.is_symlink(): continue
+                    probe = copy.copy(self.c)
+                    probe.args, probe.card = copy.deepcopy((self.c.args, self.c.card))
+                    records = Records(probe, self.r, observation_id=self.root.name,
+                                      round_number=self.round_number)
+                    data = records.load(stage)
+                    if data is None or extensions.digest(dict(ok=data['ok'], info=data['info'])) != result:
+                        return False
+                    extensions._sync_tree(target)
+                    return True
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return False
 
     def observe_gate(self, c, stage, invoke):
         """Observe ordinary execution without changing its verdict or retry policy."""
@@ -260,12 +366,9 @@ class Records:
             ok, info = result
             if comparison._pending(ok, info): return result
             if case != self.r.case_hash(c): return result
-            self.save(stage, ok, info, before, old_card)
-            self.observed[stage] = True
-        except CAPTURE_ERRORS:
-            # Even a failure after rename cannot authorize entry: no close marker.
-            try: shutil.rmtree(self.root / stage)
-            except OSError: pass
+            self.observed[stage] = self.save_observation(stage, ok, info, before, old_card)
+        except Exception:
+            pass  # Capture must never send a completed gate back through retry.
         return result
 
     def evidence(self, w, stage):
@@ -302,9 +405,26 @@ def stress(c, r, records):
         refuse('extension_comparison_pending')
     result = r.attack_report(report)
     if result is None: refuse()
-    findings = [item for item in r.freshness_only_clearance(result)['blocking']
+    cleared_blocking = r.freshness_only_clearance(result)['blocking']
+    findings = [item for item in cleared_blocking
                 if item.strip().lower() != 'review incomplete']
-    if not findings and (result.get('freshness_review') or result.get('freshness_review_malformed')):
+    clearance = report.with_suffix('.clearance.json')
+    writer_report = report.with_name(report.stem + '-writer.json')
+    has_clearance = clearance.exists() or clearance.is_symlink()
+    if ((result['complete'] or result.get('status') == 'scored') and result['blocking'] and
+            not cleared_blocking and not result.get('freshness_review') and
+            not result.get('freshness_review_malformed') and not result['unfinished_validation'] and
+            not r.attack_diagnostic_unfinished(c, records.row['round']) and
+            receipt.get('exhausted') is True and receipt.get('stop_reason') == 'rounds_exhausted' and
+            not has_clearance and not (writer_report.exists() or writer_report.is_symlink())):
+        if comparison._pending(False, result): raise InvalidInfra('invalid package gate result')
+        for key in ('failed_gate', 'failed_detail', 'infrastructure_gate'):
+            c.card.pop(key, None)
+        c.card.update(gates={}, gate_results={}, status='stopped', terminal_stop='retired_stress_request_only',
+                      stress_review=dict(status='unresolved', reason='request_only_without_metadata',
+                                         round=records.row['round']))
+        refuse('retired_stress_request_only')
+    if not findings and (result.get('freshness_review') or result.get('freshness_review_malformed') or has_clearance):
         from late_recovery import cleared_stress
         try: result, _ = cleared_stress(c, receipt, report, result)
         except (OSError, ValueError, KeyError, TypeError): refuse('extension_execution_pending')
@@ -414,6 +534,8 @@ def completed_route(c, row):
     if unchanged_outcome(c, r, row): return
     import extension_public_match as public
     if public.verified(c, r, row): return
+    import extension_writer_rejection as rejection
+    if rejection.verified(c, r, row): return
     data = Records(c, r, row).load('stress', check_version=False)
     if data is None: refuse('extension_outcome_changed')
 
@@ -431,14 +553,20 @@ def run(c, r, previous, number):
     if public.verified(c, r, row):
         if extensions.digest(extensions.tree(c.case)) != row['outcome']['case_sha256']: refuse()
         public.stop(c, row)
+    import extension_writer_rejection as rejection
+    if rejection.verified(c, r, row):
+        if extensions.digest(extensions.tree(c.case)) != row['outcome']['case_sha256']: refuse()
+        rejection.stop(c, row)
     records = Records(c, r, row)
     if not records.completed and records.load('stress') is None:
         if complete_unchanged(c, r, row): stop_unchanged(c, row)
         if public.complete(c, r, row): public.stop(c, extensions.read(c)[-1])
+        if rejection.complete(c, r, row): rejection.stop(c, extensions.read(c)[-1])
         try:
             with public.capture(c, r, row):
                 r.write_and_attack(c, previous, extension_id=number,
-                    writer_g1=lambda c: records.writer_g1(c, lambda: r.g1(c)))
+                    writer_g1=lambda c: records.writer_g1(c, lambda: r.g1(c)),
+                    writer_early=records.writer_early)
         except BudgetError as error:
             if str(error) == 'freshness_public_match':
                 if public.complete(c, r, row): public.stop(c, extensions.read(c)[-1])
@@ -446,6 +574,8 @@ def run(c, r, previous, number):
             if str(error) == 'stress_review_unresolved:unchanged_repair':
                 if complete_unchanged(c, r, row): stop_unchanged(c, row)
                 raise
+            if str(error) == 'stress_review_unresolved:rounds_exhausted':
+                if rejection.complete(c, r, row): rejection.stop(c, extensions.read(c)[-1])
             if str(error) not in ('extension_comparison_pending', 'stress_review_unresolved:rounds_exhausted'):
                 raise
     result = stress(c, r, records)
@@ -520,11 +650,9 @@ def observe_stress(c, r, records):
             result, _ = cleared_stress(c, receipt, report, result)
         if not result['complete'] or result['blocking'] or result['unfinished_validation']: return
         before = {key: gate_state.digest(path) for key, path in gate_state.inventory(c, r.BENCH).items()}
-        records.save('stress', True, result, before, project(c.card))
-        records.observed['stress'] = True
+        records.observed['stress'] = records.save_observation('stress', True, result, before, project(c.card))
     except CAPTURE_ERRORS:
-        try: shutil.rmtree(records.root / 'stress')
-        except OSError: pass
+        pass
 
 
 def observe(c, r, pipeline):
@@ -552,6 +680,36 @@ def observe(c, r, pipeline):
     return result
 
 
+def entry_prefix(owner, records, card):
+    """Validate recorded evidence before treating a genuinely missing suffix as unreached."""
+    stages = extensions.stages()
+    live = extensions.tree(owner.case)
+    without_freshness = lambda tree: {k: v for k, v in tree.items() if k != 'freshness.jsonl'}
+    retained, hole, ended = [], None, False
+    for index, stage in enumerate(stages):
+        path = records.root / stage / 'record.json'
+        present = path.exists() or path.is_symlink()
+        if ended:
+            if present: refuse()
+            continue
+        data = records.load(stage)
+        if data is None:
+            hole, ended = index, True
+            continue
+        root = records.root / stage / 'support/case'
+        tree = extensions.tree(root)
+        prefix = root.relative_to(owner.work).as_posix() + '/'
+        bound = {k[len(prefix):]: v for k, v in data['support'].items() if k.startswith(prefix)}
+        if tree != bound or without_freshness(tree) != without_freshness(live): refuse()
+        if stage in ('G2', 'G8', 'G9') and tree.get('freshness.jsonl') != live.get('freshness.jsonl'): refuse()
+        retained.append((stage, data, tree))
+        if not data['ok']: ended = True
+    if not retained or retained[0][0] != 'stress' or retained[0][1]['ok'] is not True: refuse()
+    if retained[-1][2].get('freshness.jsonl') != live.get('freshness.jsonl'): refuse()
+    if hole is not None and any(card.get('gates', {}).get(stage) in ('pass', 'fail') for stage in stages[hole:]): refuse()
+    return hole
+
+
 def entry(c, r):
     """Produce the first extension's entry from completed proof, without evaluation."""
     authority = job_authority.for_case(c)
@@ -568,15 +726,26 @@ def entry(c, r):
                 or pointer['case_sha256'] != r.case_hash(owner)):
             refuse()
         records = Records(owner, r, observation_id=pointer['observation_id'], round_number=pointer['round_number'])
-        closed = extensions._writer_json(records.root / 'closed.json', owner.work)
-        if (type(closed.get('schema_version')) is not int or
-                closed != {k: pointer[k] for k in ('schema_version', 'observation_id', 'case_sha256')}): refuse()
+        close_path = records.root / 'closed.json'
+        if close_path.exists() or close_path.is_symlink():
+            closed = extensions._writer_json(close_path, owner.work)
+            if (type(closed.get('schema_version')) is not int or
+                    closed != {k: pointer[k] for k in ('schema_version', 'observation_id', 'case_sha256')}): refuse()
         records.load('G3')  # Restore workers on the copy before pinning the vector.
+        hole = entry_prefix(owner, records, getattr(c, 'checkpoint_card', c.card))
+        versions = comparison._versions(workspace(owner, r))
         for name in ('comparison-receipts', 'comparison-support'):
             target = owner.work / name
             safe_directory(owner, target)
             if target.exists(): shutil.rmtree(target)
-        snapshot = comparison.snapshot(workspace(owner, r), authority.source_generation, records.evidence)
+        snapshot = comparison.snapshot(workspace(owner, r), authority.source_generation, records.evidence, versions=versions)
+        if hole is not None:
+            pending = [i for i, stage in enumerate(snapshot['stages']) if stage['status'] == 'pending']
+            if pending != [hole]: refuse()
+            stage = snapshot['stages'][hole]
+            if stage['binding_sha256'] is not None or stage['evidence_sha256'] is not None: refuse()
+            stage['status'] = 'unreached'
+            extensions.validate_snapshot(snapshot)
         if snapshot['stages'][0]['status'] != 'pass' or any(row['status'] == 'pending' for row in snapshot['stages']):
             refuse('extension_comparison_pending')
         return snapshot
@@ -606,6 +775,8 @@ def subsequent_entry(c, r):
     if unchanged_outcome(c, r, row): refuse('retired_no_progress')
     import extension_public_match as public
     if public.verified(c, r, row): refuse('retired_no_progress')
+    import extension_writer_rejection as rejection
+    if rejection.verified(c, r, row): refuse('retired_no_progress')
     number = row['extension_id']
     def selected():
         pair, valid, retained = comparison.current_pair(c, number, r.BENCH, execution=EXECUTION)

@@ -47,7 +47,7 @@ class BudgetTests(unittest.TestCase):
     def run_script(self, code, **kwargs):
         if kwargs.get('driver') == 'codex': kwargs.setdefault('configured_model', 'codex/fixture')
         return run_budgeted([sys.executable, '-c', code], self.root, os.environ.copy(),
-                            self.transcript, self.ledger, kwargs.pop('timeout', 3), **kwargs)
+                            self.transcript, self.ledger, kwargs.pop('timeout', 3), **{**kwargs, 'containment': False})
 
     def data(self):
         return json.loads(self.ledger.read_text())
@@ -81,7 +81,7 @@ class BudgetTests(unittest.TestCase):
             for step in range(10): code += emit(event(f'{index}-{step}', cost=.01)) * 2
             return run_budgeted([sys.executable, '-c', code], self.root, os.environ.copy(),
                                 self.root / f'transcript-{index}', self.ledger, 5,
-                                concurrent=True, max_cost=10, max_total_calls=1000)
+                                containment=False, concurrent=True, max_cost=10, max_total_calls=1000)
         with ThreadPoolExecutor(max_workers=4) as pool:
             self.assertEqual([r.returncode for r in pool.map(worker, range(4))], [0]*4)
         data = self.data()
@@ -99,7 +99,7 @@ class BudgetTests(unittest.TestCase):
             code = f'import pathlib,time; pathlib.Path({str(ready)!r}).touch(); time.sleep(60)'
             with self.assertRaises(BudgetError):
                 run_budgeted([sys.executable, '-c', code], self.root, os.environ.copy(),
-                             self.root / 'peer-transcript', self.ledger, 5, concurrent=True)
+                             self.root / 'peer-transcript', self.ledger, 5, containment=False, concurrent=True)
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(peer)
             deadline = time.monotonic()+3
@@ -119,7 +119,7 @@ class BudgetTests(unittest.TestCase):
             code = f'import pathlib,time; pathlib.Path({str(ready)!r}).touch(); time.sleep(60)'
             with self.assertRaisesRegex(BudgetError, '^call_limit$'):
                 run_budgeted([sys.executable, '-c', code], self.root, os.environ.copy(),
-                             self.root / 'peer-transcript', self.ledger, 3, concurrent=True)
+                             self.root / 'peer-transcript', self.ledger, 3, containment=False, concurrent=True)
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(peer)
             deadline = time.monotonic() + 2
@@ -143,7 +143,7 @@ class BudgetTests(unittest.TestCase):
                     f'while not pathlib.Path({str(release)!r}).exists(): time.sleep(.001)\n'
                     + emit(event('peer')))
             return run_budgeted([sys.executable, '-c', code], self.root, os.environ.copy(),
-                                self.root / 'peer-transcript', self.ledger, 3, concurrent=True)
+                                self.root / 'peer-transcript', self.ledger, 3, containment=False, concurrent=True)
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(peer)
             try:
@@ -194,7 +194,7 @@ class BudgetTests(unittest.TestCase):
                     'while len(list(root.glob("ready-*"))) < 2: time.sleep(.001)\n'
                     + emit(event(role)))
             return run_budgeted([sys.executable, '-c', code], self.root, os.environ.copy(),
-                                self.root / role, self.ledger, 3, concurrent=True, resume=True)
+                                self.root / role, self.ledger, 3, containment=False, concurrent=True, resume=True)
         with patch('budget.fcntl.flock', side_effect=non_atomic_conversion):
             with ThreadPoolExecutor(max_workers=2) as pool:
                 futures = [pool.submit(worker, role) for role in ('first', 'second')]

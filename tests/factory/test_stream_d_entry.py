@@ -110,12 +110,13 @@ class EntryTests(unittest.TestCase):
         self.assertGreater(record['card']['counts']['scenarios'], 0)
         self.assertTrue(any(name.endswith('/case/base/app.patch') for name in record['support']))
 
-    def test_real_g4_g5_saved_executions_and_rejection(self):
+    def saved_execution_controls(self):
         (self.case / 'case.json').write_text(json.dumps(artifacts.REAL['suffix-case']['files']['case.json']))
         self.stress()
         control = self.pipeline.check
         def check(c, stage):
-            if stage not in ('G4', 'G5'): return control(c, stage)
+            if stage not in ('G4', 'G5') or stage == self.crash: return control(c, stage)
+            self.executed.append(stage)
             # G5 observes the actual plain-app broken checkpoint as a bad fix.
             saved = artifacts.execution('plain')
             def checkpoint(*a, **kw):
@@ -125,11 +126,86 @@ class EntryTests(unittest.TestCase):
             with patch.object(run, 'checkpoint', side_effect=checkpoint):
                 return getattr(run, stage.lower())(c)
         self.pipeline.check = check
+
+    def test_real_g4_g5_saved_executions_and_rejection(self):
+        self.saved_execution_controls()
         run.run_gates(self.c)
         snapshot = package.entry(self.c, run)
         self.assertEqual(next(row for row in snapshot['stages'] if row['stage'] == 'G5')['status'], 'fail')
         self.assertFalse(self.records().load('G5')['ok'])
         self.assertTrue(self.records().load('G4')['ok'])
+
+    def test_real_partial_prefix_never_evaluates_and_preserves_caller(self):
+        self.saved_execution_controls()
+        self.crash = 'G5'
+        with self.assertRaisesRegex(budget.BudgetError, 'money_wait'): run.run_gates(self.c)
+        records = self.records()
+        self.assertTrue(records.load('G4')['ok'])
+        self.assertFalse((records.root / 'closed.json').exists())
+        leftover = records.root / '.stage-x'; leftover.mkdir()
+        (leftover / 'record.json').write_text('incomplete staging')
+        before = {p: p.read_bytes() for root in (records.root, self.case) for p in root.rglob('*') if p.is_file()}
+        caller = copy.deepcopy((vars(self.c.args), self.c.card, self.c.models))
+        def forbidden(*a, **kw): self.fail('entry evaluated or spent')
+        with patch.object(self.pipeline, 'check', side_effect=forbidden), \
+                patch.object(run, 'checkpoint', side_effect=forbidden), \
+                patch.object(run, 'g3', side_effect=forbidden), \
+                patch.object(run, 'retained_answer', side_effect=forbidden), \
+                patch.object(self.pipeline, 'budget_boundary', side_effect=forbidden):
+            snapshot = package.entry(self.c, run)
+            self.assertEqual(snapshot, package.entry(self.c, run))
+        self.assertEqual(snapshot['frontier'], extensions.stages().index('G5'))
+        self.assertTrue(all(row['status'] == 'unreached' for row in snapshot['stages'][snapshot['frontier']:]))
+        self.assertEqual(caller, (vars(self.c.args), self.c.card, self.c.models))
+        self.assertEqual(before, {p: p.read_bytes() for p in before})
+
+    def test_checkpoint_scores_cannot_be_discarded_at_a_hole(self):
+        self.crash = 'G4'
+        with self.assertRaisesRegex(budget.BudgetError, 'money_wait'): run.run_gates(self.c)
+        for stage in ('G4', 'G5'):
+            for status in ('pass', 'fail'):
+                self.c.checkpoint_card = {'gates': {stage: status}}
+                self.pending()
+        self.c.checkpoint_card = {'gates': {'G4': 'invalid-infra'}}
+        self.assertEqual(package.entry(self.c, run)['frontier'], extensions.stages().index('G4'))
+        later = self.records().root / 'G5'; later.mkdir()
+        (later / 'record.json').write_text('{}'); self.pending()
+
+    def test_missing_g3_is_unreached_but_corrupt_g3_is_not(self):
+        self.c.args.bench_workers = 2
+        self.crash = 'G3'
+        with self.assertRaisesRegex(budget.BudgetError, 'money_wait'): run.run_gates(self.c)
+        snapshot = package.entry(self.c, run)
+        self.assertEqual(snapshot['frontier'], extensions.stages().index('G3'))
+        self.assertEqual(self.c.args.bench_workers, 2)
+        path = self.records().root / 'G3'; path.mkdir()
+        (path / 'record.json').write_text('{}'); self.pending()
+
+    def test_g2_freshness_topup_closed_partial_and_interrupted(self):
+        original = (self.case / 'freshness.jsonl').read_bytes()
+        control = self.pipeline.check
+        for stop in (None, 'G5', 'G2'):
+            with self.subTest(stop=stop):
+                (self.case / 'freshness.jsonl').write_bytes(original)
+                self.c.card['gates'] = {}; self.c.card.pop('failed_gate', None)
+                self.crash = stop
+                self.stress()
+                def check(c, stage):
+                    if stage == 'G2':
+                        # Authored derived-evidence mutation, no external fetch.
+                        with (self.case / 'freshness.jsonl').open('a') as f:
+                            f.write('\n' + json.dumps({'authored': 'G2 topup'}) + '\n')
+                    return control(c, stage)
+                self.pipeline.check = check
+                if stop:
+                    with self.assertRaisesRegex(budget.BudgetError, 'money_wait'): run.run_gates(self.c)
+                else: run.run_gates(self.c)
+                if stop == 'G2': self.pending(); continue
+                snapshot = package.entry(self.c, run)
+                self.assertEqual(snapshot['stages'][0]['status'], 'pass')
+                self.assertEqual(snapshot['stages'][extensions.stages().index('G5')]['status'], 'unreached' if stop else 'fail')
+                with (self.case / 'freshness.jsonl').open('a') as f: f.write('post-stop change')
+                self.pending()
 
     def test_real_g16_inconclusive_is_one_review_and_bound_failure(self):
         import fairness
@@ -175,22 +251,223 @@ class EntryTests(unittest.TestCase):
                 self.pending()
 
     def test_capture_failure_after_rename_does_not_retry(self):
+        identity = uuid.uuid4()
+        initial_card, initial_args = copy.deepcopy((self.c.card, self.c.args))
+        with patch.object(package.uuid, 'uuid4', return_value=identity): run.run_gates(self.c)
+        baseline = package.entry(self.c, run)
+        for name in ('entry-records', 'comparison-receipts', 'comparison-support'):
+            shutil.rmtree(self.work / name, ignore_errors=True)
+        self.c.card, self.c.args = initial_card, initial_args
+        self.executed.clear()
+        original, save = extensions._sync_directory, package.Records.save
+        calls, published = [], {}
+        def saving(records, stage, *args):
+            calls.append(stage)
+            return save(records, stage, *args)
+        def sync(path):
+            record = path / 'G1/record.json'
+            if record.exists() and not published:
+                published[record] = record.read_bytes()
+                raise OSError('one post-rename ACK lost')
+            return original(path)
+        with patch.object(package.uuid, 'uuid4', return_value=identity), \
+                patch.object(package.Records, 'save', saving), patch.object(extensions, '_sync_directory', sync):
+            run.run_gates(self.c)
+        self.assertEqual(len(calls), len(set(calls)))
+        self.assertEqual(len(self.executed), len(set(self.executed)))
+        self.assertEqual({p: p.read_bytes() for p in published}, published)
+        self.assertTrue((self.records().root / 'closed.json').exists())
+        snapshot = package.entry(self.c, run)
+        self.assertEqual(snapshot['frontier'], extensions.stages().index('G5'))
+        self.assertEqual(snapshot['stages'][snapshot['frontier']]['status'], 'fail')
+        self.assertEqual(snapshot, baseline)
+        self.assertEqual(snapshot, package.entry(self.c, run))
+
+    def test_persistent_sync_failure_retains_g1_but_holds_missing_later_proof(self):
+        original, save = extensions._sync_directory, package.Records.save
+        calls, published = [], {}
+        def saving(records, stage, *args):
+            calls.append(stage)
+            return save(records, stage, *args)
+        def sync(path):
+            record = path / 'G1/record.json'
+            if record.exists():
+                published.setdefault(record, record.read_bytes())
+                raise OSError('persistent parent sync failure')
+            return original(path)
+        with patch.object(package.Records, 'save', saving), patch.object(extensions, '_sync_directory', sync):
+            run.run_gates(self.c)
+        self.assertEqual(calls.count('G1'), 1)
+        for stage in self.executed:
+            self.assertEqual(self.executed.count(stage), 1)
+            if stage != 'G1': self.assertEqual(calls.count(stage), 2)
+        self.assertEqual({p: p.read_bytes() for p in published}, published)
+        self.assertFalse((self.records().root / 'closed.json').exists())
+        self.pending()
+
+    def test_real_g4_g5_copy_retry_keeps_single_execution_and_proof(self):
+        self.saved_execution_controls()
+        original = package.Records.save
+        calls = []
+        def save(records, stage, *args):
+            calls.append(stage)
+            if stage == 'G4' and calls.count(stage) == 1: raise OSError('authored copy fault')
+            return original(records, stage, *args)
+        with patch.object(package.Records, 'save', save): run.run_gates(self.c)
+        self.assertEqual(calls.count('G4'), 2)
+        self.assertEqual(self.executed.count('G4'), 1)
+        self.assertEqual(self.executed.count('G5'), 1)
+        snapshot = package.entry(self.c, run)
+        self.assertEqual(snapshot['frontier'], extensions.stages().index('G5'))
+        self.assertTrue(self.records().load('G4')['ok'])
+        self.assertFalse(self.records().load('G5')['ok'])
+        for stage in ('G4', 'G5'):
+            saved = self.records().root / stage / 'support/work/gate-details' / (stage + '-saved.json')
+            self.assertEqual(json.loads(saved.read_text()), artifacts.execution('plain'))
+            for name, sha in self.records().load(stage)['support'].items():
+                self.assertEqual(gate_state.digest(self.work / name), sha)
+
+    def test_stress_ack_failure_recovers_without_revalidating_stress(self):
+        original = extensions._sync_directory
+        fired = []
+        def sync(path):
+            if (path / 'stress/record.json').exists() and not fired:
+                fired.append(True)
+                raise OSError('stress ACK lost')
+            return original(path)
+        with patch.object(run, 'attack_report', wraps=run.attack_report) as reports, \
+                patch.object(extensions, '_sync_directory', sync):
+            run.run_gates(self.c)
+        self.assertEqual(len(fired), 1)
+        self.assertEqual(reports.call_count, 2)  # gate_marker plus observe_stress; publication adds none.
+        self.assertTrue((self.records().root / 'closed.json').exists())
+        self.assertEqual(package.entry(self.c, run)['stages'][0]['status'], 'pass')
+
+    def test_capture_runtime_error_never_retries_execution(self):
+        original = package.Records.save
+        calls = []
+        def save(records, stage, *args):
+            if stage == 'stress': return original(records, stage, *args)
+            calls.append(stage)
+            raise RuntimeError('authored publication failure')
+        with patch.object(package.Records, 'save', save): run.run_gates(self.c)
+        for stage in self.executed:
+            self.assertEqual(self.executed.count(stage), 1)
+            self.assertEqual(calls.count(stage), 2)
+        self.assertEqual(self.c.card['gates']['G5'], 'fail')
+        self.assertEqual(self.c.card['gate_results']['G5'], {'authored_stage_control': 'G5'})
+        self.pending()
+
+    def test_verification_runtime_error_keeps_original_gate_result(self):
+        original_save, original_load = package.Records.save, package.Records.load
+        calls = []
+        def save(records, stage, *args):
+            calls.append(stage)
+            data = original_save(records, stage, *args)
+            if stage == 'G1':
+                (records.root / stage / 'record.json').write_text('{}')
+                raise OSError('authored invalid publication')
+            return data
+        def load(records, stage, **kw):
+            if stage == 'G1': raise RuntimeError('authored verification failure')
+            return original_load(records, stage, **kw)
+        with patch.object(package.Records, 'save', save), patch.object(package.Records, 'load', load):
+            run.run_gates(self.c)
+        self.assertEqual(self.executed.count('G1'), 1)
+        self.assertEqual(calls.count('G1'), 1)
+        self.assertEqual(self.c.card['gate_results']['G1'], {'authored_stage_control': 'G1'})
+        self.assertEqual(self.c.card['gates']['G1'], 'pass')
+        self.pending()
+
+    def test_kill_after_g4_rename_admits_only_retained_prefix(self):
+        class Killed(BaseException): pass
         original = extensions._sync_directory
         def sync(path):
-            if (path / 'G1/record.json').exists(): raise OSError('after rename')
+            if (path / 'G4/record.json').exists(): raise Killed()
             return original(path)
-        with patch.object(extensions, '_sync_directory', side_effect=sync): run.run_gates(self.c)
-        self.assertEqual(self.executed.count('G1'), 1)
-        self.pending()
+        with patch.object(extensions, '_sync_directory', sync), self.assertRaises(Killed):
+            run.run_gates(self.c)
+        with patch.object(package.Records, 'save', side_effect=AssertionError('entry saved')), \
+                patch.object(self.pipeline, 'check', side_effect=AssertionError('entry evaluated')):
+            snapshot = package.entry(self.c, run)
+        frontier = extensions.stages().index('G5')
+        self.assertEqual(snapshot['frontier'], frontier)
+        self.assertTrue(all(s['status'] == 'pass' for s in snapshot['stages'][:frontier]))
+        self.assertTrue(all(s['status'] == 'unreached' for s in snapshot['stages'][frontier:]))
+
+    def test_observation_recovery_validates_json_and_isolates_g3_context(self):
+        records = package.Records(self.c, run, observation_id=str(uuid.uuid4()), round_number=8)
+        self.c.card['bench_workers_effective'] = self.c.args.bench_workers
+        original_sync, original_load = extensions._sync_directory, package.Records.load
+        fired, probes = [], []
+        def sync(path):
+            if (path / 'G3/record.json').exists() and not fired:
+                fired.append(True)
+                raise OSError('G3 ACK')
+            return original_sync(path)
+        def load(probe, stage, **kw):
+            data = original_load(probe, stage, **kw)
+            probes.append(probe.c)
+            probe.c.args.bench_workers = 42
+            probe.c.card['probe_only'] = True
+            return data
+        before = copy.deepcopy((vars(self.c.args), self.c.card))
+        # Authored tuple and integer key exercise JSON normalization on real save/load.
+        with patch.object(extensions, '_sync_directory', sync), patch.object(package.Records, 'load', load):
+            self.assertTrue(records.save_observation('G3', True, {'values': (1, 2), 'mapping': {1: 'one'}}, {}, {}))
+        self.assertEqual(before, (vars(self.c.args), self.c.card))
+        self.assertTrue(probes)
+        self.assertTrue(all(p is not self.c for p in probes))
+        data = records.load('G3')
+        self.assertEqual(data['info'], {'values': [1, 2], 'mapping': {'1': 'one'}})
+
+    def test_observation_recovery_refuses_invalid_or_preexisting_proof(self):
+        original = package.Records.save
+        for fault in ('preexisting', 'symlink', 'corrupt', 'different_result', 'verification_runtime',
+                      'case_drift', 'version_drift', 'nan'):
+            with self.subTest(fault=fault):
+                records = package.Records(self.c, run, observation_id=str(uuid.uuid4()), round_number=8)
+                target = records.root / 'G1'
+                if fault == 'preexisting':
+                    target.mkdir(parents=True); (target / 'record.json').write_text('existing bytes')
+                calls = []
+                def save(owner, stage, *args):
+                    calls.append(stage)
+                    if fault == 'case_drift':
+                        (self.case / 'capture-drift.txt').write_text('changed after invoke')
+                        raise OSError('before rename')
+                    if fault == 'version_drift':
+                        raise OSError('before rename')
+                    data = original(owner, stage, *args)
+                    if fault == 'symlink':
+                        retained = records.root / 'retained'; target.rename(retained); target.symlink_to(retained)
+                    elif fault == 'corrupt': (target / 'record.json').write_text('{}')
+                    elif fault == 'different_result':
+                        path = target / 'record.json'; value = json.loads(path.read_text())
+                        value['record']['info'] = {'different': True}
+                        value['sha256'] = extensions.digest(value['record']); registry.atomic_json(path, value)
+                    raise OSError('ACK lost')
+                load = patch.object(package.Records, 'load', side_effect=RuntimeError('verification')) if fault == 'verification_runtime' else patch.object(run, 'checkpoint')
+                version = patch.object(records, 'version', side_effect=['a', 'a', 'b']) if fault == 'version_drift' else patch.object(run, 'g3')
+                with patch.object(package.Records, 'save', save), load, version:
+                    self.assertFalse(records.save_observation('G1', False, {'value': float('nan')} if fault == 'nan' else {'problems': ['authored fail']}, {}, {}))
+                self.assertEqual(len(calls), 0 if fault in ('preexisting', 'nan') else 1)
+                if fault == 'preexisting': self.assertEqual((target / 'record.json').read_text(), 'existing bytes')
+                if fault == 'corrupt': self.assertEqual((target / 'record.json').read_text(), '{}')
+                if fault == 'symlink': self.assertTrue(target.is_symlink())
+                if fault == 'case_drift': (self.case / 'capture-drift.txt').unlink()
 
     def test_new_pointer_prevents_old_traversal_filling_interruption(self):
         run.run_gates(self.c); old = self.records().root
         for stage in ('G1', 'G4'):
             self.crash = stage
             self.c.card.pop('failed_gate', None)
+            self.c.card['gates'] = {}
             with self.assertRaisesRegex(budget.BudgetError, 'money_wait'): run.run_gates(self.c)
             self.assertFalse(old.exists())
-            self.pending()
+            snapshot = package.entry(self.c, run)
+            self.assertEqual(snapshot['frontier'], extensions.stages().index(stage))
+            self.assertTrue(all(row['status'] == 'unreached' for row in snapshot['stages'][snapshot['frontier']:]))
             old = self.records().root
         self.crash = None
         run.run_gates(self.c)
@@ -201,7 +478,13 @@ class EntryTests(unittest.TestCase):
         self.pipeline.check = lambda *a: (_ for _ in ()).throw(InfrastructureExhausted('authored outage'))
         run.run_gates(self.c)
         self.assertEqual(self.c.card['terminal_stop'], 'infrastructure_exhausted')
-        self.pending()
+        self.assertEqual(self.c.card['gates']['G1'], 'invalid-infra')
+        self.assertTrue(self.c.card['infrastructure_gate']['exhausted'])
+        snapshot = package.entry(self.c, run)
+        self.assertEqual(snapshot['frontier'], 1)
+        self.assertTrue(all(row['status'] == 'unreached' for row in snapshot['stages'][1:]))
+        self.diagnosis()
+        extensions.verify_proposal(self.c, extensions.propose(self.c, snapshot))
 
     def test_bad_stress_proof_does_not_change_ordinary_gates(self):
         original = (self.work / 'attack-state.json').read_bytes()
@@ -262,7 +545,13 @@ class EntryTests(unittest.TestCase):
         pointer.write_text('{}'); self.pending(); pointer.write_bytes(original)
         closed = self.records().root / 'closed.json'
         original_close = closed.read_bytes()
-        closed.unlink(); self.pending(); closed.write_bytes(original_close)
+        snapshot = package.entry(self.c, run)
+        closed.unlink(); self.assertEqual(package.entry(self.c, run), snapshot)
+        closed.write_text('{}'); self.pending()
+        marker = json.loads(original_close); marker['case_sha256'] = '0' * 64
+        registry.atomic_json(closed, marker); self.pending()
+        closed.unlink(); closed.symlink_to(pointer); self.pending(); closed.unlink()
+        closed.write_bytes(original_close)
         g3 = self.records().root / 'G3'
         shutil.rmtree(g3); self.pending()
 

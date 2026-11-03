@@ -667,12 +667,16 @@ class ModelRuntime:
                                   configured_model=model, resume=(bool(getattr(c.args, "resume", None)) and not getattr(c, "budget_resumed", False))
                                   or getattr(c, "force_budget_resume", False),
                                   concurrent=factory_job(c) or getattr(c.args, "concurrent_roles", False), cancel=gate,
-                                  case_budget=getattr(c.args, 'case_budget', 50.0), role=role, invocation_name=name, **factory_kwargs)
+                                  case_budget=getattr(c.args, 'case_budget', 50.0), role=role, invocation_name=name,
+                                  containment=not user, **factory_kwargs)
             update_case_budget(c)
             c.budget_resumed = True; c.force_budget_resume = False
             self.progress(c, 'role:' + progress_role, 'completed' if result.returncode == 0 else 'failed',
                             time.monotonic() - progress_started)
-        except BudgetError:
+        except BudgetError as error:
+            if str(error) in ('containment_unavailable', 'cancellation_failed'):
+                c.card.setdefault('cleanup_errors', []).append(
+                    {'stage': 'model_containment', 'error': str(error)})
             self.progress(c, 'role:' + progress_role, 'interrupted', time.monotonic() - progress_started)
             raise
         except Exception as error:

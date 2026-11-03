@@ -21,6 +21,27 @@ _ROUTING = offline_router()
 
 
 class ModelRuntimeTests(unittest.TestCase):
+    def test_containment_errors_stop_routing_and_reach_card(self):
+        self.addCleanup(offline_router()[0].close)
+        for label in ('containment_unavailable', 'cancellation_failed'):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                root = pathlib.Path(temporary); (root / 'transcripts').mkdir()
+                c = types.SimpleNamespace(work=root, case=root / 'case', card={}, model_env={},
+                    ledger=root / 'ledger.json', args=argparse.Namespace(agent_timeout=3,
+                    max_cost=5, max_role_calls=10, max_total_calls=20,
+                    no_progress_minutes=1, max_zero_tokens=3))
+                runtime = model_runtime.ModelRuntime(root, mock.Mock(), mock.Mock(),
+                    lambda path, sudo=False: shutil.rmtree(path), mock.Mock())
+                with mock.patch.object(model_runtime, 'pinned_cli', return_value='synthetic'), \
+                     mock.patch.object(model_runtime, 'run_budgeted',
+                                       side_effect=model_runtime.BudgetError(label)) as process:
+                    with self.assertRaisesRegex(model_runtime.BudgetError, label):
+                        runtime.call(c, ['claude/claude-opus-5-5'], 'synthetic', root, 'builder-1',
+                                     user='' if label == 'containment_unavailable' else None)
+                self.assertEqual(process.call_count, 1)
+                self.assertTrue(process.call_args.kwargs['containment'])
+                self.assertIn({'stage': 'model_containment', 'error': label}, c.card['cleanup_errors'])
+
     def test_subscription_execution_contract(self):
         self.addCleanup(offline_router()[0].close)
         with tempfile.TemporaryDirectory() as temporary:
@@ -116,7 +137,7 @@ class ModelRuntimeTests(unittest.TestCase):
                         'input': 1000000, 'output': 1000000, 'reasoning': 0,
                         'cache': {'read': 0, 'write': 0}}}}
                 return run_budgeted([sys.executable, '-c', 'print(' + repr(json.dumps(receipt)) + ')'],
-                                    cwd, env, *args, **kwargs)
+                                    cwd, env, *args, **{**kwargs, 'containment': False})
             with mock.patch.object(model_runtime, '_opencode_flags', return_value=()), \
                  mock.patch.object(model_runtime, 'run_budgeted', side_effect=budgeted), \
                  mock.patch.object(model_call_gate, 'enforce', config_only):

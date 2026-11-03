@@ -137,7 +137,7 @@ class ModelInterruptionTests(unittest.TestCase):
                     payload = ''.join(json.dumps(e) + '\n' for e in events).encode()
                     budget.run_budgeted([sys.executable, '-c', f'import os; os.write(1, {payload!r})'],
                         root, os.environ.copy(), c.work / ('transcript-' + str(len(calls))), c.ledger, 3,
-                        driver='codex', configured_model='codex/gpt-6.1-sol',
+                        containment=False, driver='codex', configured_model='codex/gpt-6.1-sol',
                         max_calls=1 if len(calls) == 1 else 10,
                         resume=call_context.force_budget_resume, concurrent=True)
                     call_context.budget_resumed = True

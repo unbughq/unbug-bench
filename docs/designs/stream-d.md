@@ -3405,6 +3405,8 @@ not a price prediction or permission to raise a failed scenario's cap.
 
 ### Prerequisites and shared practice infrastructure
 
+- [ ] close new-stream-d-current-comparison-1 with a real decision → extension → subsequent_entry comparison exhaustion → factory-bug hold/resume chain on retained artifacts
+
 Use `docs/reports/stream-b-activation-practice-plan-20261031.md` as the launch,
 identity, publication, collection and cleanup contract. B must first finish its
 reviewed practice and resolve its listed bootstrap, authenticated checkpoint,
@@ -3924,3 +3926,79 @@ This is evidence capture only: terminal completion/progress, early-gate and
 saved-cheat observations remain open, alongside partial/legacy entry reconstruction
 and final all-outcomes integration. Lane 1 public-match completion has landed.
 No Murphy rows close; package increment 2 and All diagnosis outcomes stay open.
+
+
+### Item 7 early writer rejection observation slice
+
+Design `stream-d-writer-early-observation.md` passes fresh review round 2. The
+implementation retains failed early gate and private saved-cheat observations;
+replay precedes G1 and every early check and never creates a full G6 result.
+Terminal completion/progress remains separate. Implementation caba7e6 passes the
+locked full suite: 179 scripts / 0 failures. Fresh Claude diff review round 1
+PASS: `docs/reviews/stream-d-writer-early-observation-diff-1.md`. Observation
+slice complete; terminal completion/progress and item 7 remain open.
+No Murphy row closes. Lane 1 public-match and blocking-stress
+outcomes are now merged; post-extension factory-bug return remains lane 1.
+
+
+### Item 7 rejected writer terminal completion slice
+
+Design stream-d-writer-rejection-terminal.md passes fresh review round 2. The
+implementation completes retained G1/early/saved-cheat rejections without stress
+or gate rerolls, with all package stages unreached and private terminal proof.
+Subsequent close-to-passing retires through the verified no-progress branch before
+comparison/admission. Implementation 108e65f passes the locked full suite: 181
+scripts / 0 failures. Fresh Claude diff review round 1 PASS:
+`docs/reviews/stream-d-writer-rejection-terminal-diff-1.md`. This terminal slice is
+complete for handback; item 7 remains open. No Murphy
+rows close. Partial/legacy first-entry reconstruction and final all-outcomes
+integration (including successful irrelevant-edit progress checks) remain open.
+Lane 1 factory-bug return target is merged in ff31d87. Founder has replaced item 8
+with a 3-case real pilot immediately after item 7; no pilot is started by this slice.
+
+
+### Item 7 recorded partial first-entry slice
+
+Design stream-d-partial-entry.md passes fresh review round 2. Entry retains a
+verified prefix after a budget/infrastructure interruption without requiring a
+close marker; missing proof for a known score still holds. G2 freshness topups
+are bound to the last record and freshness-consuming stages. No evaluation or
+score is invented. Focused entry tests: 19 passed. Implementation e70949c, integrated with upstream
+7dbdc58 at 502b15b, passes the full locked suite: 182 scripts / 0 failures. The
+parent-approved two-hour timeout starts after lock acquisition; queue time does
+not count. Fresh diff review round 1 passes with no blockers (stream-d-partial-entry-diff-1.md). No Murphy rows close. Legacy evidence adapters and final all-outcomes
+integration remain open before the founder's three-case pilot.
+
+### Item 7 reconstruction scope after land14
+
+The parent confirms that the founder retired the old cases: pre-schema cases
+retire and never resume, and the three-case pilot starts fresh cases only.
+Adapters whose only consumers are those retired/pre-schema cases are therefore
+out of scope; do not add a migration or resume route for them.
+
+The remaining reconstruction obligation is not exclusively pre-schema. On an
+activated fresh traversal, Records.observe_gate deliberately returns the ordinary
+gate result even when evidence capture raises. The checkpoint can consequently
+contain a pass/fail label without the corresponding entry record. In particular,
+test_capture_failure_after_rename_does_not_retry in test_stream_d_entry.py models
+a save acknowledgement failure after publication; observe_gate removes the stage
+directory, and entry then holds. test_pending_shape_and_capture_errors_do_not_retry_or_change_gate_result
+also covers capture-side failures with a retained scored card. These are current
+schema paths, independent of retired cases or an older gate version.
+
+Keep the fresh-case missing-evidence recovery slice before final all-outcomes
+integration, as the parent's conditional scope instruction requires. Its design
+must distinguish recoverable bound artifacts from genuinely absent proof; no
+card-only score reconstruction, paid reroll, or legacy-case resumption is
+authorized by this scope note. Neither increment is complete here.
+
+### Item 7 fresh-case capture publication recovery
+
+Parent scope 72ca08f keeps current-schema missing-proof recovery and excludes
+retired-only adapters. stream-d-capture-recovery.md has the parent's approval
+after design round 2 (B3 one-shot ACK exam plus separate persistent failure).
+The implementation retries proof publication only, at most twice, and preserves
+intact renamed records. It never reconstructs card-only scores or reruns gates.
+Permanent absent/corrupt proof remains held. Implementation 32235e9 passes the
+full locked suite (182 scripts / 0 failures); fresh diff review round 1 passes
+(stream-d-capture-recovery-diff-1.md). No Murphy rows close; final all-outcomes integration follows.
