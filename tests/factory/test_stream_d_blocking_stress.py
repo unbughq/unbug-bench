@@ -273,9 +273,8 @@ class BlockingStressTests(unittest.TestCase):
         self.assertIn('1 retired', text); self.assertIn('0 rejected', text)
         self.assertIn('stress reviewer request lacks freshness metadata', text)
         self.assertNotIn('unknown stop', text)
-        import batch_service
         import diagnosis_dispatch
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), \
+        with runtime.diagnosis_policy(self.c), \
                 patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=AssertionError('paid resume')):
             number = diagnosis_dispatch.apply(self.c, self.work,
                 {'exhaustion_id': self.row['exhaustion_id']}, {'outcome': 'close_to_passing'}, resume=True)
@@ -308,8 +307,7 @@ class BlockingStressTests(unittest.TestCase):
                     card.pop('failed_gate', None); card.pop('failed_detail', None)
                     card['case_budget'] = {'total_spent_usd': total}
                     f.write_card(card); f.collect()
-                    with patch.object(service, 'DIAGNOSIS_ENABLED', True):
-                        result = service.plan(f.policy, f.root, f.home, card['case'], card['sha256'])
+                    result = service.plan(f.policy, f.root, f.home, card['case'], card['sha256'])
                     self.assertFalse(result['facts']['exhaustion'])
                     self.assertIsNone(result['facts']['pending_projection']); self.assertEqual(result['queue'], [])
                     after = json.loads(money_path.read_text())

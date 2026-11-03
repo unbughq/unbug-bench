@@ -8,7 +8,6 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
-import batch_service
 import budget
 import diagnosis
 import diagnosis_dispatch
@@ -169,7 +168,7 @@ class TerminalTests(unittest.TestCase):
     def test_history_before_card_and_new_diagnosis_route_never_evaluate(self):
         self.capture(); lagging = copy.deepcopy(self.c.card['extension_history'])
         row = self.finish(); self.c.card['extension_history'] = lagging
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), \
+        with runtime.diagnosis_policy(self.c), \
                 patch.object(extensions, 'writer_receipt', side_effect=AssertionError('receipt')):
             self.assertEqual(diagnosis_dispatch.apply(self.c, self.work,
                 {'exhaustion_id': row['exhaustion_id']}, {'outcome': 'close_to_passing'}, resume=True), 1)
@@ -181,7 +180,7 @@ class TerminalTests(unittest.TestCase):
         self.finish(); run.finalize_accounting(self.c)
         self.assertEqual(self.c.card['diagnosis_state'], pending)
         self.c.factory_slot = 9
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), \
+        with runtime.diagnosis_policy(self.c), \
                 patch.object(gate_state, 'scientific_version', side_effect=AssertionError('version evaluation')), \
                 patch.object(comparison, 'current_pair', side_effect=AssertionError('comparison')), \
                 patch.object(extension_evaluator, 'Evaluator', side_effect=AssertionError('evaluator')), \

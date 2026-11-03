@@ -121,3 +121,14 @@ This is a delivery gate, not a code fix to this increment. It should not be hidd
 ## Elephant disposition
 
 Implementation PASS accepted. Merge blocker I1 accepted in full: rebase this branch onto factory-simplify 7dbdc58, migrate all four new test contexts to the manifest-policy controls, re-grep all executable references, run the locked full suite on the combined tree, then obtain a fresh round-2 diff review. This is a real semantic integration conflict despite the clean textual merge; no blocker is rejected or self-verified. N-a/N-b/N-c are deferred as optional nits; no production change is needed for them. No Murphy row closes.
+
+## Parent-approved merge gate after round 1
+
+Parent accepted the code PASS and I1. Instruction: "Do the rebase or merge onto
+7dbdc58 and migrate the four test contexts exactly as the reviewer specified."
+"Skip the round-2 diff review. This is a mechanical test migration the reviewer
+fully specified, and the merged-tree suite is the gate (parent-approved)."
+If any production change beyond these test contexts is needed, stop/report.
+No additional review is started. Rebase completed cleanly onto 7dbdc58; the only
+post-rebase implementation edits are the four specified controls and unused
+imports. Final combined-tree locked suite remains the delivery gate.

@@ -77,3 +77,13 @@ DIAGNOSIS_ENABLED symbol. Those controls need the same manifest-policy migration
 when integrating; flag this explicitly in the fresh review and handoff. No
 production caller/drain code is added in this opt-in increment. Fresh diff
 review round 1 is pending. No Murphy row closes; no batch is opted in.
+
+Parent approved after diff round 1: code PASS and I1 accepted. Rebased cleanly
+onto factory-simplify 7dbdc58. Apply exactly the four reviewer-specified test
+migrations: three runtime.diagnosis_policy(self.c) contexts and one direct
+service.plan call using ServiceTests' already pinned enabled policy. Remove
+unused batch_service imports. No production edits. Re-grep expects only the
+job-config environment spoof. One plain-lockf full suite on the combined tree
+is the parent-approved merge gate; round-2 review is explicitly skipped.
+Final passing commit subject must contain "pass". Next increment: production
+batch_service.plan caller; no O5b, pilot admission or Boat settlement work.
