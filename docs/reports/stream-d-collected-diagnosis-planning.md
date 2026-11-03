@@ -44,3 +44,13 @@ batch_tick could swallow. All findings accepted; recorder/assertion guards,
 scan-to-plan depth coverage and journal byte assertion fixed in tests only.
 Fresh final diff review pending.
 
+
+
+## Parent runner correction
+
+Parent requested parallel-tests 74dc5c7 for handback after removing its pass
+cache. Merged as 5ffb0c2. This changes only the separately reviewed suite runner
+and its docs/tests; the planning production source is still 3e35280.
+A new handback full suite on that runner is required by this explicit correction,
+without lockf. Wait for the focused controller recheck to finish before starting
+it; keep the earlier 185/1 record unchanged.

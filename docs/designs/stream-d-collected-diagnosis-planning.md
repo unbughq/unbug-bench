@@ -156,7 +156,7 @@ the in-lock check must refuse. Patch money.locked with a contextmanager depth co
 BEFORE calling the original lock. Exercise both direct plan with published_operation
 and plan_collections, asserting maximum depth exactly one; no assumed suite timeout.
 
-Only touched tests run during implementation. Merge parallel-tests (89934c9 or later) before the handback full suite. Use a
+Only touched tests run during implementation. Merge parallel-tests 74dc5c7 (parallel runner without a pass cache) before the handback full suite. Use a
 function-local import of _planning_source in service.plan. Patch monotonic only
 around tick calls so the global time module is not changed during setup.
 
