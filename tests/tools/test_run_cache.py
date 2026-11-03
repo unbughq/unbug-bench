@@ -43,12 +43,35 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(self.runs(), 1)                 # first run executes
         self.assertEqual(self.runs(), 1)                 # identical code: reused
         (self.repo / "docs" / "note.md").write_text("two\n"); self.commit()
-        self.assertEqual(self.runs(), 1)                 # docs-only commit: still reused
+        self.assertEqual(self.runs(), 1)                 # prose-only commit: still reused
+        (self.repo / "docs" / "note.md").write_text("three\n")
+        self.assertEqual(self.runs(), 1)                 # uncommitted prose: still reused
+        self.git("checkout", "--", "docs/note.md")
+        (self.repo / "docs" / "reports").mkdir()
+        (self.repo / "docs" / "reports" / "data.json").write_text("{}\n"); self.commit()
+        self.assertEqual(self.runs(), 2)                 # docs data file can feed tests: reruns
+        self.assertEqual(self.runs(), 2)
         (self.repo / "code.py").write_text("A = 2\n"); self.commit()
-        self.assertEqual(self.runs(), 2)                 # code changed: reruns
+        self.assertEqual(self.runs(), 3)                 # code changed: reruns
         (self.repo / "code.py").write_text("A = 3\n")    # uncommitted code change
-        self.assertEqual(self.runs(), 3)                 # dirty tree: never reused
-        self.assertEqual(self.runs(), 4)
+        self.assertEqual(self.runs(), 4)                 # dirty tree: never reused
+        self.assertEqual(self.runs(), 5)
+
+    def test_skipped_pass_is_never_cached(self):
+        (self.repo / "tests" / "tools" / "test_a.py").write_text(
+            f"open({str(self.count)!r}, 'a').write('x'); print('OK (skipped=1)')\n"); self.commit()
+        self.assertEqual(self.runs(), 1)
+        self.assertEqual(self.runs(), 2)
+
+    def test_commit_during_run_caches_nothing(self):
+        (self.repo / "tests" / "tools" / "test_a.py").write_text(
+            f"import subprocess; open({str(self.count)!r}, 'a').write('x')\n"
+            "open('code.py', 'a').write('#\\n')\n"
+            "subprocess.run(['git', '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qam', 'mid'], check=True)\n")
+        self.commit()
+        self.assertEqual(self.runs(), 1)
+        self.git("reset", "-q", "--hard", "HEAD~1")      # back to the code the run started on
+        self.assertEqual(self.runs(), 2)                 # that run saw changed code mid-run: nothing was cached
 
     def test_failure_is_never_cached(self):
         (self.repo / "tests" / "tools" / "test_a.py").write_text(

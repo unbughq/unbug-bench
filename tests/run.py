@@ -7,6 +7,7 @@ import fcntl
 import hashlib
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -36,29 +37,36 @@ def machine_slot():
         time.sleep(0.2)
 
 
+def prose(path):
+    """Markdown under docs/ (designs, reviews) never affects tests; docs/reports data files can."""
+    return path.startswith("docs/") and path.endswith(".md")
+
+
 def code_key():
-    """Hash of every tracked file outside docs/, or None if anything outside docs/ is uncommitted.
-    Passes are reused only for byte-identical code, so docs-only commits never force a rerun."""
+    """Hash of every tracked file except docs/*.md, or None if any such file is uncommitted or untracked.
+    Passes are reused only for byte-identical code, so review and design notes never force a rerun."""
     # ponytail: whole-tree key, so any code change reruns all scripts; per-script import tracing if that bites.
     git = lambda *a: subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True)
-    status, tree = git("status", "--porcelain", "--", ".", ":(exclude)docs"), git("ls-tree", "-r", "HEAD")
-    if status.returncode or tree.returncode or status.stdout.strip():
+    status, tree = git("status", "--porcelain", "--untracked-files=normal"), git("ls-tree", "-r", "HEAD")
+    if status.returncode or tree.returncode:
         return None
-    code = [line for line in tree.stdout.splitlines() if not line.split("\t", 1)[1].startswith("docs/")]
+    dirty = [p for line in status.stdout.splitlines() for p in line[3:].split(" -> ")]
+    if any(not prose(p.strip('"')) for p in dirty):
+        return None
+    code = [line for line in tree.stdout.splitlines() if not prose(line.split("\t", 1)[1])]
     return hashlib.sha256("\n".join([sys.version, *code]).encode()).hexdigest()
 
 
 def run(path, key):
     marker = key and CACHE / key / (str(path.relative_to(ROOT)) + ".pass")
     if marker and marker.exists():
-        return path, 0, b"(cached pass for this exact code)\n"
+        return path, 0, b"(cached pass for this exact code)\n", False
     with machine_slot():
         result = subprocess.run([sys.executable, "-B", str(path)], cwd=ROOT, env={**os.environ, "BENCH": str(ROOT)},
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    if marker and result.returncode == 0:
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.touch()
-    return path, result.returncode, result.stdout
+    # A pass that skipped tests depends on tools or env vars that may differ next time: never reuse it.
+    fresh = result.returncode == 0 and not re.search(rb"skipped|\bSKIP", result.stdout)
+    return path, result.returncode, result.stdout, fresh
 
 
 def main():
@@ -80,14 +88,24 @@ def main():
         return 0
     key = None if args.no_cache else code_key()
     print("code key: " + (key or "none (uncommitted changes or --no-cache; nothing reused)"), flush=True)
-    failures = []
+    failures, passed = [], []
     # Output is buffered per script and printed in order, so logs read like a serial run.
-    with ThreadPoolExecutor(max(1, args.jobs)) as pool:
-        for path, code, output in pool.map(lambda p: run(p, key), scripts):
+    pool = ThreadPoolExecutor(max(1, args.jobs))
+    try:
+        for path, code, output, fresh in pool.map(lambda p: run(p, key), scripts):
             print("\n== " + str(path.relative_to(ROOT)) + " ==", flush=True)
             sys.stdout.buffer.write(output)
             if code:
                 failures.append(path.relative_to(ROOT))
+            elif fresh:
+                passed.append(path)
+    finally:
+        pool.shutdown(cancel_futures=True)
+    if key and key == code_key():  # code changed mid-run: cache nothing
+        for path in passed:
+            marker = CACHE / key / (str(path.relative_to(ROOT)) + ".pass")
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.touch()
     print(f"\n{len(scripts)} test scripts run; {len(failures)} failed.", flush=True)
     for path in failures:
         print("FAILED: " + str(path))
