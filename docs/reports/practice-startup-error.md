@@ -118,3 +118,11 @@ remain open. No live qualification or accounting release is claimed.
 Round-1 fixes targeted validation: tests/factory/test_practice_startup.py ran
 4 tests, all passed in 20.426 seconds, including real Docker (not skipped).
 The changes await their own locked suite and final diff review round 2 of 2.
+
+The 20261103T155412Z run at 0ee9831 is retained as non-qualifying (exit 143).
+After the parent retired the suite lock, only this worktree's verified suite
+process tree was stopped. Its one observed failure was the old calibration
+test expecting provider_limit in the public skipped message. That assertion now
+expects BudgetError, matching the type-only privacy contract; resume-flag and
+no-completed-receipt assertions remain unchanged. The replacement full run uses
+the parent's parallel-tests runner without lockf.
