@@ -3968,3 +3968,26 @@ score is invented. Focused entry tests: 19 passed. Implementation e70949c, integ
 parent-approved two-hour timeout starts after lock acquisition; queue time does
 not count. Fresh diff review round 1 passes with no blockers (stream-d-partial-entry-diff-1.md). No Murphy rows close. Legacy evidence adapters and final all-outcomes
 integration remain open before the founder's three-case pilot.
+
+### Item 7 reconstruction scope after land14
+
+The parent confirms that the founder retired the old cases: pre-schema cases
+retire and never resume, and the three-case pilot starts fresh cases only.
+Adapters whose only consumers are those retired/pre-schema cases are therefore
+out of scope; do not add a migration or resume route for them.
+
+The remaining reconstruction obligation is not exclusively pre-schema. On an
+activated fresh traversal, Records.observe_gate deliberately returns the ordinary
+gate result even when evidence capture raises. The checkpoint can consequently
+contain a pass/fail label without the corresponding entry record. In particular,
+test_capture_failure_after_rename_does_not_retry in test_stream_d_entry.py models
+a save acknowledgement failure after publication; observe_gate removes the stage
+directory, and entry then holds. test_pending_shape_and_capture_errors_do_not_retry_or_change_gate_result
+also covers capture-side failures with a retained scored card. These are current
+schema paths, independent of retired cases or an older gate version.
+
+Keep the fresh-case missing-evidence recovery slice before final all-outcomes
+integration, as the parent's conditional scope instruction requires. Its design
+must distinguish recoverable bound artifacts from genuinely absent proof; no
+card-only score reconstruction, paid reroll, or legacy-case resumption is
+authorized by this scope note. Neither increment is complete here.
