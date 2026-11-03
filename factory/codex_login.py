@@ -9,6 +9,7 @@ import re
 import sys
 import tarfile
 import time
+from types import SimpleNamespace
 
 REFRESH_WINDOW = 300  # login/src/auth/manager.rs at rust-v0.162.1
 LAUNCH_MARGIN = 1800  # provisioning, clock skew and collection
@@ -57,10 +58,51 @@ def worker_auth(auth):
     return result
 
 
-def main():
+class _JobParser(argparse.ArgumentParser):
+    def error(self, message): raise ValueError()
+
+
+def job_parser():
+    """run.py's role flags only (run.py is unpinned worker code); other job flags are ignored."""
+    p = _JobParser(add_help=False)
+    p.add_argument('--rotation-slot', type=int, choices=range(1, 9))
+    p.add_argument('--rotation-table', choices=['rotation.json', 'rotation-3writers.json'])
+    for flags in (('--builder', '--writer'), ('--attacker', '--stress-tester'), ('--reviewer1',), ('--reviewer2',),
+                  ('--strong-calibrator', '--pilot')):
+        p.add_argument(*flags, default=None)
+    p.add_argument('--easy-calibrator', default='opencode/glm-5.3-flash-free')
+    for role in ('builder', 'attacker', 'reviewer1', 'reviewer2', 'strong-calibrator', 'easy-calibrator'):
+        p.add_argument('--' + role + '-effort', default=None)
+    return p
+
+
+def codex_role(job_args):
+    """True when the resolved roles include codex/, or when the args do not resolve."""
+    try:
+        import model_runtime
+        a, _ = job_parser().parse_known_args(job_args)
+        # As practice_preflight.roles(): a factory job skips the free-model cohort, which never changes a Codex role.
+        a.batch_release_sha256 = 'resolution-only'
+        c = SimpleNamespace(args=a, card={})
+        model_runtime.select_models(c, log=lambda *_: None)
+        return any(role['model'].startswith('codex/') for role in c.card['roles'].values())
+    except Exception:
+        return True
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    job = None
+    if '--job-args' in argv:
+        index = argv.index('--job-args')
+        if argv[index + 1:index + 2] != ['--']: return 2
+        argv, job = argv[:index], argv[index + 2:]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ttl-hours', required=True, type=float)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if job is not None and not codex_role(job):
+        sys.stdin.buffer.read()  # drain the bundle pipe; no Codex role needs this login
+        return 0
     try:
         with tarfile.open(fileobj=sys.stdin.buffer, mode='r|*') as archive:
             matches = [json.load(archive.extractfile(m)) for m in archive
