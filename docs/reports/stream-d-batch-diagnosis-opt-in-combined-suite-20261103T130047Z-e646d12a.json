@@ -1,0 +1,18 @@
+{
+  "command": "lockf /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py",
+  "timeout_ms": 7200000,
+  "attempt": 1,
+  "merged_base": "7dbdc58f93656b2345c392765ed0c3491ac5f6e6",
+  "head": "f63c1ff35919bbf5117d601663a29d13be7c5129",
+  "parent_approved_gate": "Round-1 code PASS; exact I1 test migration; no round-2 review",
+  "requested_at": "2026-11-03T13:00:47.210763+00:00",
+  "log": "docs/reports/stream-d-batch-diagnosis-opt-in-combined-suite-20261103T130047Z-e646d12a.log",
+  "exit_code": 124,
+  "finished_at": "2026-11-03T15:00:47.271925+00:00",
+  "suite_started": true,
+  "verdict": null,
+  "interrupted": true,
+  "reason": "Outer 7200-second harness deadline included lock wait and interrupted partial suite; no completed suite verdict",
+  "completed_unittest_files": 99,
+  "logged_completed_unittest_seconds": 1556.6
+}

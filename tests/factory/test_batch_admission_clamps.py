@@ -38,6 +38,7 @@ class AdmissionTests(unittest.TestCase):
 
     def practice(self, child=True):
         h = self.h
+        h.record['diagnosis_policy'] = dict(schema=1, enabled=True)
         h.record['practice_admission'] = dict(schema=1, jobs={
             'j': allocation('1000.000000000'), 'k': allocation('1000.000000000')})
         if child: h.record['practice_admission']['jobs']['j-r1'] = allocation('7.500000000')
@@ -113,7 +114,7 @@ class AdmissionTests(unittest.TestCase):
         self.practice(); h = self.h
         card = h.stopped()
         # Plan a replacement, then let the real holder create its money row.
-        with patch.object(service, 'DIAGNOSIS_ENABLED', True), patch.dict(sys.modules,
+        with patch.dict(sys.modules,
                 diagnosis=h.answers(pending=dict(schema_version=1, status='pending', replacement_eligible=True))):
             service.plan(h.policy, h.root, h.home, card['case'], card['sha256'])
         self.assertNotIn('j-r1', h.money()['jobs'])

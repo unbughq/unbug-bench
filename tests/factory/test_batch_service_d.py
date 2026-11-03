@@ -19,9 +19,15 @@ import diagnosis
 
 class RealDTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = fixtures.ServiceTests(); self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
+        self.fixture = self.new_fixture()
         self.saved = deepcopy(next(r['card'] for r in d.cards() if r['card']['case'].endswith('5813be')))
+
+    def new_fixture(self, *, enabled=True):
+        fixture = fixtures.ServiceTests(); fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.record['diagnosis_policy']['enabled'] = enabled
+        fixture.freeze()  # Pin before collection; never change a running journal.
+        return fixture
 
     def card(self, *, known=True, state='pending', stop='infrastructure_exhausted', provenance=True):
         card = self.saved.copy()
@@ -104,6 +110,8 @@ class RealDTests(unittest.TestCase):
         self.assertEqual(self.fixture.state()['queue'], {})
 
     def check_unexhausted_plan(self, stop):
+        self.fixture.record['diagnosis_policy']['enabled'] = False
+        self.fixture.freeze()  # This disabled batch has no collected generations yet.
         card = self.card(stop=stop, provenance=False)
         diagnosis.record_exhaustion(card)
         self.assertNotIn('diagnosis_state', card)
@@ -113,6 +121,10 @@ class RealDTests(unittest.TestCase):
                               card['case'], card['sha256'])
         self.assertEqual(result['status'], 'diagnosis_unavailable')
         self.assertEqual(self.fixture.journal.read_bytes(), before)
+        self.assertFalse((self.fixture.journal.parent / 'retirements').exists())
+        # A separate pinned enabled batch replaces the former global-toggle phase.
+        self.fixture = self.new_fixture()
+        card = self.card(stop=stop, provenance=False)
         result = self.plan(card)
         self.assertEqual(result['status'], 'planned')
         self.assertFalse(result['facts']['exhaustion'])
@@ -189,8 +201,20 @@ class RealDTests(unittest.TestCase):
 
     def test_disabled_adapter_blocks_stored_facts_replay(self):
         card = self.card(); self.plan(card)
+        enabled = self.fixture.state()
+        # Authored stored-projection control from real D, copied into an independently
+        # pinned disabled fixture. This is not a live manifest toggle or carry proof.
+        self.fixture = self.new_fixture(enabled=False)
+        card = self.card()
+        disabled = self.fixture.state()
+        key = card['case'] + '/' + card['sha256']
+        disabled['entries'][key]['facts'] = deepcopy(enabled['entries'][key]['facts'])
+        disabled['queue'] = deepcopy(enabled['queue'])
+        disabled['next_sequence'] = enabled['next_sequence']
+        service.atomic_json(self.fixture.journal, disabled)
         before = self.fixture.journal.read_bytes()
-        result = service.plan(self.fixture.policy, self.fixture.root, self.fixture.home, card['case'], card['sha256'])
+        with patch.object(service, '_project', side_effect=AssertionError('disabled projection')):
+            result = service.plan(self.fixture.policy, self.fixture.root, self.fixture.home, card['case'], card['sha256'])
         self.assertEqual(result, dict(status='diagnosis_unavailable', facts=None, queue=[]))
         self.assertEqual(before, self.fixture.journal.read_bytes())
 

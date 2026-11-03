@@ -618,12 +618,13 @@ EVIDENCE_STOPS = {'extension_reservation_mismatch', 'extension_snapshot_changed'
 
 
 def observation_enabled(c):
-    import batch_service
+    import job_config
     import model_runtime
-    return (batch_service.DIAGNOSIS_ENABLED is True and model_runtime.factory_job(c)
+    return (model_runtime.factory_job(c)
             and not any(getattr(c.args, name, False) for name in
                         ('dry_run', 'rehearse_only', 'audit_fairness', 'late_gate_rehearsal'))
-            and not hasattr(c, 'audit_source') and not hasattr(c, 'audit_gates'))
+            and not hasattr(c, 'audit_source') and not hasattr(c, 'audit_gates')
+            and job_config.diagnosis_enabled(c))
 
 
 def safe_directory(c, path):

@@ -557,7 +557,6 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(self.executed, gates + ['G3', 'G17', 'G11'])
 
     def test_dispatch_recovers_history_committed_before_card(self):
-        import batch_service
         import diagnosis_dispatch
         self.pipeline()
         lagging = copy.deepcopy(self.c.card['extension_history'])
@@ -566,13 +565,13 @@ class PackageTests(unittest.TestCase):
         self.c.card['extension_history'] = lagging
         self.assertIsNone(self.c.card['extension_history'][-1]['outcome_sha256'])
         manifest = {'exhaustion_id': self.row['exhaustion_id']}
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), \
+        with runtime.diagnosis_policy(self.c), \
                 patch.object(extensions, 'writer_receipt', side_effect=AssertionError('completed row is not writer work')):
             result = diagnosis_dispatch.apply(self.c, self.work, manifest,
                                              {'outcome': 'close_to_passing'}, resume=True)
         self.assertEqual(result, self.row['extension_id'])
         self.c.card['diagnosis_state']['exhaustion_id'] = 'different-exhaustion'
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), \
+        with runtime.diagnosis_policy(self.c), \
                 patch.object(extensions, 'writer_receipt', side_effect=AssertionError('old writer work')):
             with self.assertRaisesRegex(budget.BudgetError, '^extension_comparison_pending$'):
                 diagnosis_dispatch.apply(self.c, self.work, {'exhaustion_id': 'different-exhaustion'},

@@ -1,0 +1,6 @@
+error: Request failed after 3 retries in 8.2s
+  Caused by: Failed to fetch: `https://pypi.org/simple/scipy/`
+  Caused by: error sending request for url (https://pypi.org/simple/scipy/)
+  Caused by: client error (Connect)
+  Caused by: dns error
+  Caused by: failed to lookup address information: nodename nor servname provided, or not known

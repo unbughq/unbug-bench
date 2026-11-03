@@ -15,7 +15,6 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
-import batch_service
 import budget
 import extension_package as package
 import extensions
@@ -41,7 +40,7 @@ class EntryTests(unittest.TestCase):
         self.c.args.no_early_probe = True
         self.c.args.bench_workers = 1
         (self.work / 'logs').mkdir()
-        self.patch(batch_service, 'DIAGNOSIS_ENABLED', True)
+        self.c.authenticated_batch_manifest['diagnosis_policy'] = dict(schema=1, enabled=True)
         # Version hashing remains real, cached only by identical source bytes.
         self.patch(gate_state, 'source_inputs', cached_source_inputs)
         self.pipeline = run._gate_pipeline()
@@ -586,6 +585,19 @@ class EntryTests(unittest.TestCase):
             with self.assertRaisesRegex(budget.BudgetError, '^extension_history_invalid$'):
                 package.entry(self.c, run)
 
+    def test_expired_enabled_policy_refuses_before_observation_or_gate_work(self):
+        expired = {**self.c.job_money, 'batch_deadline': '2000-01-01T00:00:00Z'}
+        with patch.object(self.c, 'job_money', expired), patch.object(
+                self.c, 'authenticated_job_config', {'job_money': copy.deepcopy(expired)}), \
+                patch.object(self.pipeline, 'run') as invoke, patch.object(package, 'observe') as observe:
+            with self.assertRaisesRegex(budget.BudgetError, '^retired_batch_bound$'):
+                run.run_gates(self.c)
+            invoke.assert_not_called(); observe.assert_not_called()
+            # Mode exclusions run before policy/authority and therefore stay cheap.
+            self.c.args.rehearse_only = True
+            self.assertFalse(package.observation_enabled(self.c))
+            self.c.args.rehearse_only = False
+
     def test_exact_activation_and_mode_exclusions(self):
         for name in ('dry_run', 'rehearse_only', 'audit_fairness', 'late_gate_rehearsal'):
             with self.subTest(mode=name):
@@ -597,7 +609,7 @@ class EntryTests(unittest.TestCase):
         self.c.args.skip_build = True
         self.assertTrue(package.observation_enabled(self.c))
         overlap = self.pipeline.overlap_reason
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', False), \
+        with runtime.diagnosis_policy(self.c, False), \
                 patch.object(self.pipeline, 'run') as invoke, \
                 patch.object(package, 'observe', side_effect=AssertionError('capture while off')):
             run.run_gates(self.c); invoke.assert_called_once()

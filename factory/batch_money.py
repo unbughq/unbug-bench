@@ -32,6 +32,17 @@ def deadline(value):
         raise MoneyWait('money_wait') from None
 
 
+def diagnosis_enabled(record):
+    """Only a release-authenticated manifest may opt its batch into diagnosis."""
+    if 'diagnosis_policy' not in record: return False
+    policy = record['diagnosis_policy']
+    if (not isinstance(policy, dict) or set(policy) != {'schema', 'enabled'} or
+            type(policy['schema']) is not int or policy['schema'] != 1 or
+            type(policy['enabled']) is not bool):
+        raise MoneyWait('money_wait')
+    return policy['enabled']
+
+
 def check_manifest(record, *, _ancestors=True):
     try:
         if record['schema'] != 1 or type(record['schema']) is not int: raise ValueError()
@@ -43,6 +54,7 @@ def check_manifest(record, *, _ancestors=True):
         for key in ('max_concurrency', 'target_slots'):
             if type(record[key]) is not int or record[key] < 1: raise ValueError()
         if not re.fullmatch('age1[0-9a-z]{58}', record['restore_recipient']): raise ValueError()
+        diagnosis_enabled(record)
         if 'replacement_policy' in record:
             replacement = record['replacement_policy']
             if (not isinstance(replacement, dict) or set(replacement) != {'schema', 'enabled'} or
