@@ -18,7 +18,7 @@ import uuid
 
 import batch_money as money
 import batch_service as service
-from batch_accounting import collection_facts
+from batch_accounting import card_total, collection_facts
 from job_config import read_file
 from registry import atomic_json
 from transfer import digest
@@ -28,6 +28,7 @@ TEMPFAIL = 75  # Dispatch exit: transient wait, the operation stays pending.
 RETRY_LIMIT = 5  # Resume/publish respawns before a terminal incident.
 # Process-local delay only; no authorization or durable consumption state.
 _PLAN_RETRY_AFTER = {}
+_RESUME_RETRY_AFTER = {}
 FIELDS = {'operation_id', 'launch_id', 'job', 'case', 'source_generation',
           'release_sha256', 'config_sha256', 'authority', 'state', 'pending_since',
           'worker_id', 'dispatch_started', 'dispatch_exit', 'output_generation',
@@ -227,7 +228,8 @@ def empty_input(root, directory, case):
         raise ValueError('request_refused')
 
 
-def _admit(directory, record, policy, root, ops, state, name, source_generation, provider_wait=False):
+def _admit(directory, record, policy, root, home, ops, state, name, source_generation, provider_wait=False,
+           *, queued_resume=None):
     """Shared decision; only supplied in-memory state changes. Caller owns lock."""
     import practice
     if record['id'] == practice.BATCH:
@@ -237,9 +239,22 @@ def _admit(directory, record, policy, root, ops, state, name, source_generation,
     carried = record.get('carry_from', {}).get('jobs', {})
     if name not in carried and any(re.fullmatch(re.escape(name) + r'-r[1-9][0-9]*', child) for child in carried):
         raise ValueError('template-only imported root')
-    service._lineage(service._load(directory, record, policy['batch']['manifest_sha256']), record, name)
+    journal = service._load(directory, record, policy['batch']['manifest_sha256'])
+    service._lineage(journal, record, name)
     if source_generation is not None and not money._sha(source_generation):
         raise ValueError('request_refused')
+    if queued_resume is not None:
+        if (provider_wait or source_generation is None or not isinstance(queued_resume, dict) or
+                not money.diagnosis_enabled(record)):
+            raise ValueError('request_refused')
+        key = 'resume/' + resolved['case'] + '/' + source_generation
+        if (journal['queue'].get(key) != queued_resume or
+                (queued_resume.get('kind'), queued_resume.get('job'), queued_resume.get('owner_job'),
+                 queued_resume.get('case'), queued_resume.get('source_generation')) !=
+                ('resume', name, name, resolved['case'], source_generation) or
+                (queued_resume.get('reason') == 'exhaustion' and
+                 record.get('replacement_policy', {}).get('enabled'))):
+            raise ValueError('request_refused')
     if money.deadline(record['batch_deadline']) <= datetime.now(timezone.utc).timestamp():
         raise money.MoneyWait('retired_batch_bound')
     if provider_wait and source_generation is None: raise ValueError('request_refused')
@@ -268,10 +283,37 @@ def _admit(directory, record, policy, root, ops, state, name, source_generation,
             any(o['job'] == name and o['state'] in ('pending', 'launched') and o['retirement'] is None
                 for o in ops.values())): raise money.MoneyWait('money_wait')
     if source_generation is not None:
-        ack, _, card = _source(directory, record, policy, ops, state, name, source_generation)
+        ack, entry, card = _source(directory, record, policy, ops, state, name, source_generation)
         if provider_wait:
             if ops[ack['operation_id']]['incident'] is not None: raise ValueError('request_refused')
             _wait_due(card, record)
+        if queued_resume is not None:
+            source_directory = directory
+            if row.get('imported', {}).get('generation') == source_generation:
+                from batch_transfer import predecessor, read_import
+                old_policy, _ = predecessor(record)
+                producer = read_import(directory, record)['snapshot']['operations'][ack['operation_id']]
+                _config(old_policy, home, producer)
+                source_directory = home / 'batches' / old_policy['batch']['id']
+            else:
+                producer = ops[ack['operation_id']]
+                if producer['incident'] is not None: raise ValueError('request_refused')
+                _config(policy, home, producer)
+            for base in (directory, source_directory):
+                parent = base / 'retirements'
+                case_dir = parent / resolved['case']
+                if any(path.is_symlink() or (path.exists() and not path.is_dir())
+                       for path in (parent, case_dir)):
+                    raise ValueError('request_refused')
+                retired = case_dir / (source_generation + '.json')
+                if retired.exists() or retired.is_symlink(): raise ValueError('request_refused')
+            if not isinstance(card.get('diagnosis_state'), dict): raise ValueError('request_refused')
+            import diagnosis
+            facts = service._project(card, diagnosis)
+            if (facts != entry['facts'] or
+                    facts != journal['entries'][resolved['case'] + '/' + source_generation]['facts'] or
+                    service._resume_reason(facts, card_total(card) is None) != queued_resume['reason']):
+                raise ValueError('request_refused')
         if row['authority']['source_generation'] != source_generation:
             money.advance_locked(state, record, name, source_generation, ack)
         elif row.get('imported', {}).get('generation') == source_generation:
@@ -284,7 +326,7 @@ def _admit(directory, record, policy, root, ops, state, name, source_generation,
     return money.authorize_locked(state, record, name, source_generation)
 
 
-def reserve(policy, root, home, name, source_generation, *, provider_wait=False):
+def reserve(policy, root, home, name, source_generation, *, provider_wait=False, queued_resume=None):
     enabled(policy, root)
     from batch_transfer import prepare
     prepare(policy, root, home)
@@ -293,7 +335,8 @@ def reserve(policy, root, home, name, source_generation, *, provider_wait=False)
     with money.locked(home, record['id']) as directory:
         ops = _operations(directory, record, policy)
         state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
-        authority = _admit(directory, record, policy, root, ops, state, name, source_generation, provider_wait)
+        authority = _admit(directory, record, policy, root, home, ops, state, name, source_generation,
+                           provider_wait, queued_resume=queued_resume)
         if identity in ops:
             _save(directory, record, policy, ops)  # repair journal after lost reply
             return deepcopy(ops[identity])
@@ -507,6 +550,33 @@ def plan_collections(policy, root, home):
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             # ponytail: one retry per minute per refused generation; restart clears it.
             _PLAN_RETRY_AFTER[key] = time.monotonic() + 60
+    return []
+
+
+def drain_resumes(policy, root, home):
+    """Reserve eligible queued resumes; reconcile remains the only dispatch source."""
+    enabled(policy, root); record = money.manifest(policy, root)
+    if not money.diagnosis_enabled(record): return []
+    with money.locked(home, record['id']) as directory:
+        ops = _operations(directory, record, policy)
+        journal = service._load(directory, record, policy['batch']['manifest_sha256'])
+        queue = service.ordered_queue(journal)
+    for row in queue:
+        if row['kind'] != 'resume' or (row['reason'] == 'exhaustion' and
+                                      record.get('replacement_policy', {}).get('enabled')):
+            continue
+        identity = operation_id(policy, row['job'], row['source_generation'])
+        key = (str(home.resolve()), policy['batch']['manifest_sha256'], row['job'], row['source_generation'])
+        if identity in ops:
+            _RESUME_RETRY_AFTER.pop(key, None)
+            continue
+        if _RESUME_RETRY_AFTER.get(key, 0) > time.monotonic(): continue
+        try:
+            reserve(policy, root, home, row['job'], row['source_generation'], queued_resume=row)
+            _RESUME_RETRY_AFTER.pop(key, None)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            # ponytail: one retry per minute per refused generation; restart clears it.
+            _RESUME_RETRY_AFTER[key] = time.monotonic() + 60
     return []
 
 
