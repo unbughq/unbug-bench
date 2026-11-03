@@ -1,0 +1,48 @@
+{
+  "read_only": true,
+  "worker_never_mutated": "bx_sk2p68qq",
+  "observed_at": "2026-11-03T23:26:20.301876+00:00",
+  "pinned_cli": "boat 1.0.85",
+  "stop_status_argv": [
+    "stop",
+    "bx_sk2p68qq",
+    "--status",
+    "stop_cf0b665fb2ed2957",
+    "--json"
+  ],
+  "stop_status_response": {
+    "id": "bx_sk2p68qq",
+    "stop": {
+      "endedAt": "2026-10-14T10:22:47.338Z",
+      "error": null,
+      "forced": false,
+      "id": "stop_cf0b665fb2ed2957",
+      "lastAttemptAt": "2026-10-14T10:22:47.338Z",
+      "requestedAt": "2026-10-14T10:22:45.749Z",
+      "status": "completed"
+    }
+  },
+  "info_projection": {
+    "sandbox": {
+      "id": "bx_sk2p68qq",
+      "state": "stopped",
+      "stop": {
+        "endedAt": "2026-10-14T10:22:47.338Z",
+        "error": null,
+        "forced": false,
+        "id": "stop_cf0b665fb2ed2957",
+        "lastAttemptAt": "2026-10-14T10:22:47.338Z",
+        "requestedAt": null,
+        "status": "completed"
+      }
+    }
+  },
+  "usage_argv": [
+    "usage",
+    "bx_sk2p68qq",
+    "--json"
+  ],
+  "usage_raw_public_json": "{\"billingMultiplier\":1,\"dollars\":0.00672,\"running\":false,\"sandboxId\":\"bx_sk2p68qq\",\"sandboxType\":\"default\",\"seconds\":672,\"secondsPerDollar\":100000,\"since\":\"2026-10-14T10:11:32.640Z\",\"until\":\"2026-11-03T23:26:20.742Z\"}\n",
+  "usage_sha256": "5b86308172b6f2d0796e1d176f60f105869368d88104d8f7040dae8466fd6b16",
+  "limitations": "Info is an allowlisted public projection. Exact stop-status and usage are real public provider responses; no new stop or other mutation was issued. Pending/failing/superseded/forced variants in future tests are authored."
+}
