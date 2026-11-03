@@ -87,7 +87,7 @@ Locked single-file command (BENCH matches tests/run.py's environment):
 `BENCH="$PWD" lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/factory/test_control_resume.py`.
 
 Tested source is 29cad10; subsequent evidence/review commits change only docs.
-Fresh diff review is pending. Logs use the
+Fresh Claude diff review PASSED with no blockers: docs/reviews/escaped-session-containment-diff-1.md. The reviewer accepted the timing-only rerun evidence and the narrow Murphy closure. No executable changes followed review. Logs use the
 escaped-session-containment prefix; their hashes/source hashes are in the final
 evidence JSON. The suite waited for other agents and did not run concurrently
 outside the lock. No timing limit was weakened.

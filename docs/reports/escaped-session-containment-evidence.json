@@ -49,5 +49,5 @@
   "unlocked_timing_rerun": "24 tests; 4 failures and 1 error at unchanged readiness/completion timeouts while full suite active",
   "locked_timing_rerun": "24 tests; 0 failures; 113.585s; unchanged 10/20-second guards",
   "locked_timing_rerun_exit": 0,
-  "diff_review": "pending"
+  "diff_review": "PASS, no blockers: docs/reviews/escaped-session-containment-diff-1.md"
 }
