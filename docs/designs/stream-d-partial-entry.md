@@ -2,6 +2,7 @@
 
 ## Problem and bounded increment
 
+Keep the checks a case already finished when its run was interrupted.
 A case stopped by budget or infrastructure can retain useful completed checks,
 but today a missing closed.json makes first-entry admission wait forever. Use the
 completed records without rerunning them and preserve the interruption as an
@@ -30,49 +31,63 @@ Require the stress record exists, is a non-pending pass, and passes normal versi
 identity, support and case validation. Missing/failed stress stays held in this
 increment. No ordinary stress failure or freshness result is inferred here.
 
-For each existing record require the retained support/case file map equals the
-live full extensions.tree(case), including freshness.jsonl. Require support hashes
-cover exactly that tree: compare the support mapping under support/case/ as well
-as the on-disk tree. This closes the gap left by case_hash ignoring freshness.
-Do not treat a changed freshness row as the same observed input. No repair,
-refresh, retrieval, or model work is allowed during entry construction.
+For every retained record, require the support/case mapping to cover exactly its
+on-disk case copy, then compare that tree with the live tree excluding only
+freshness.jsonl. G2 legitimately rewrites that derived evidence during traversal,
+so stress/G1 may retain an earlier freshness file. Require the live freshness.jsonl
+hash (including absence) equals the copy in the last retained record AND each
+retained G2/G8/G9 record, the gates that consume freshness evidence. Stress is not
+required to match the later live freshness file: its completed report/clearance
+has its own historical evidence bound in the stress record; we never re-evaluate
+stress against newly appended search rows. Its other case files must match.
+A stop during G2 topup before G2's record is saved stays held if freshness changed:
+the last retained record still has the earlier file. A change after the stop also
+refuses. No repair, refresh, retrieval or model work runs in entry construction.
 
 The scientific prefix is contiguous. Walk in runner order, preserving valid
 records until the first failure or missing record. A scored fail ends the prefix;
-all later stages are unreached. At a missing record, do not call _save with a
-malformed result and do not generate a pending scientific result. Instead retain
-only the verified prefix and set that stage and every later one unreached.
+all later stages are unreached. At a prevalidated missing record, retain only
+the verified prefix and return that stage and every later one as unreached,
+using the existing snapshot normalization described below.
 
-A hole is safe only when no score is lost. Inspect the preserved checkpoint card
+A hole must not discard a score known to the retained evidence. Inspect the preserved checkpoint card
 (c.checkpoint_card if present, otherwise the live card) and any on-disk records at
 and beyond the missing stage. If any later record exists, or card.gates marks the
 missing/later stage pass or fail, refuse extension_comparison_pending. These are
 missing-proof cases, not an unexecuted suffix. A stale infrastructure_gate marker
-or gate marked crashed does not claim a scientific result and may be unreached.
+or gate marked 'invalid-infra' does not claim a scientific result and may be
+unreached. Only 'pass' and 'fail' labels at/after the hole refuse.
 No gate_results or failed_detail text is converted into evidence. When a record
 itself is present it must validate; never skip a corrupt record as a missing one.
 An actual retained failure may have carried old downstream card fields; the
 ordinary pipeline stops there, so only records beyond that failure are conflicts,
-not old card labels. This does not discard a completed result from this traversal.
+not old card labels. If capture failed and the last published card predates the
+result, the result is unavailable and is treated as unreached. This does not claim
+it passed or failed: the next round must get beyond that frontier under the existing
+progress rule. Conversely, stale pass/fail card labels may conservatively hold a
+new partial traversal; resolving that missing-proof case is legacy reconstruction,
+not permission to drop a known score here.
 
 ## Snapshot construction without a second scoring implementation
 
-Reuse comparison.snapshot and Records.evidence for the observed prefix. Add an
-optional keyword-only reached_stages to comparison.snapshot, default None. When
-provided it must be a prefix of extensions.stages(), and only those stages may
-call evaluate/_save. Every later row is constructed as unreached by the existing
-row initializer; stop traversal at the prefix boundary. The default path remains
-byte-for-byte equivalent in behavior for packages/comparisons. Do not change
-_pending, _save, receipt schema, versions or generic progress.
+Leave comparison.snapshot and its API unchanged. entry prevalidates the prefix
+and identifies at most one missing-record boundary. Pin versions explicitly with
+comparison._versions(workspace(owner, r)) after the G3 preload. If G3 has no record,
+unreached later stages use the current requested worker count, with no setup.
+Invoke snapshot with Records.evidence and those pinned versions. At the known
+hole Records.evidence returns None; snapshot creates one pending row then leaves
+the rest unreached. Require that this is the sole pending row, at exactly the
+prevalidated hole, with null binding/evidence hashes; then change only its status
+to unreached and call extensions.validate_snapshot again. Never normalize a
+pending-shaped existing record, InvalidInfra or any other malformed evidence.
+With no hole, require there are no pending rows and leave the snapshot unchanged.
+No change to _pending, _save, receipts, versions or generic progress.
 
-entry pre-validates/selects the prefix, then invokes snapshot with reached_stages
-and the pinned versions. A missing first gate after stress produces frontier 1;
-a recorded pass prefix produces its first missing gate as frontier; a recorded
-failure remains fail with the ordinary bound comparison receipt. No later pass
-is fabricated and no new G3 setup runs. Require no pending rows in the result.
-Existing complete-observation entries still use the same path and produce the
-same snapshot as before. All-pass snapshots remain valid inputs to the existing
-propose checks; this slice adds no special admission rule.
+A missing first gate after stress produces frontier 1; a pass prefix ends at the
+missing gate; a recorded failure remains fail with the ordinary bound receipt.
+No later pass is fabricated and no G3 setup runs. Complete-observation entries
+produce the same snapshot as before, including a legitimate G2 freshness topup.
+All-pass snapshots remain subject to existing propose checks; no new admission rule.
 
 Only clear/rewrite comparison-receipts and comparison-support after input proof
 validation, using existing safe_directory. Never modify entry-records, live case,
@@ -95,8 +110,8 @@ Records as proof. Tests:
    closed.json absent, pointer/records durable. Entry returns stress/G1 through G4
    observed, G5 onward unreached. Forbid every evaluator, money boundary, setup,
    checkpoint/model/HTTP call during entry; assert caller fields/bytes unchanged.
-2. Same at a real infrastructure-crash boundary with gate status crashed and a
-   valid infrastructure marker; no scientific fail is invented. First-entry
+2. Same at a real infrastructure-crash boundary with gate status 'invalid-infra'
+   and infrastructure_gate.exhausted True; no scientific fail is invented. First-entry
    proposal succeeds under real authenticated close-to-passing diagnosis and
    preserves frontier, with no writer until admission's existing pending_call.
 3. Completed observation entry before and after removal of closed.json yields
@@ -108,12 +123,24 @@ Records as proof. Tests:
 5. Reduced G3 workers 1/resume requested2 uses real scientific_version and keeps
    live args2. No G3 record/no G3 score may leave the suffix unreached after stress;
    a present malformed G3 record refuses. No implicit worker setup.
-6. comparison.snapshot default behavior unchanged; reached_stages validation rejects
-   a gap, wrong order or unknown stage. Prefix boundary never calls evaluate beyond
-   the prefix, preserves failure stopping and keeps normal receipt validation.
-7. Existing full capture, legacy/no-pointer, failed-stress and malformed-history
-   tests retain their hold assertions. Only partial-capture expectations change.
-   Subsequent-entry, attribution, retry and route tests remain unchanged.
+6. An authored G2 control appends a labelled freshness row during real pipeline
+   traversal; both closed and interrupted later captures produce entries. Appending
+   another row after stop refuses. A G2 control that appends then raises money_wait
+   before its record is saved stays held. No HTTP/model call is needed for this
+   derived-evidence mutation control; existing G1/G4/G5 use real saved artifacts.
+7. Exact existing-test updates:
+   - test_malformed_pointer_close_and_missing_g3_hold: deleting closed.json now
+     produces the same snapshot. Malformed close/pointer and a missing G3 with later
+     records still assert ^extension_comparison_pending$.
+   - test_infrastructure_has_no_close_marker: stress pass, frontier 1, remaining
+     stages unreached instead of pending; retain the invalid-infra marker assertion.
+   - test_new_pointer_prevents_old_traversal_filling_interruption: reset gates before
+     each fresh traversal. G1 interruption yields frontier 1; G4 interruption yields
+     stress/G1–G3 observed, frontier at G4. Old traversal roots cannot fill the hole.
+     Add a separate stale-card pass/fail test that asserts the conservative hold.
+   - Legacy/no-pointer, failed-stress, malformed-history and corrupted proof retain
+     exact ^extension_comparison_pending$ refusals where currently mapped by entry.
+     Subsequent-entry, attribution, retry and route assertions remain unchanged.
 
 Midterm is the real interrupted-prefix entry with evaluator calls forbidden.
 Final is the focused exams, full locked suite and fresh diff review. Full suite:
