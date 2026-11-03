@@ -11,6 +11,8 @@ import tempfile
 import unittest
 
 SOURCE = Path(__file__).resolve().parents[2]
+# boat-cli-v1.0.85 boat-linux-x64, installed and hashed on the control VM (docs/reports/practice-run-20261102.md).
+BOAT_SHA256 = '5d7933a238dcea0446bbbee0e2506692961d16537b9960003e4ece9ecb1ec498'
 FAKE = r'''#!/usr/bin/env python3
 import hashlib, json, os, pathlib, shutil, sys
 root = pathlib.Path(os.environ['FAKE_ROOT'])
@@ -235,7 +237,7 @@ class ControlVMTests(unittest.TestCase):
                 unit = (self.repo / ('control/' + name + '.service')).read_text()
                 self.assertIn('BOAT_NO_UPDATE=1', unit)
 
-    def run_setup_phase(self, phase, **extra):
+    def run_setup_phase(self, phase, *, accept_fake_boat=True, **extra):
         # Execute the actual shell branches with VM filesystem paths relocated.
         vm = self.root / 'vm'
         home = vm / 'home/user'
@@ -246,6 +248,10 @@ class ControlVMTests(unittest.TestCase):
         script = (self.repo / 'control/setup.sh').read_text()
         for prefix in ('/home/user', '/usr/local/bin', '/etc/', '/root/.ssh'):
             script = script.replace(prefix, str(vm) + prefix)
+        if accept_fake_boat:
+            # The fake curl writes this fake; only its digest stands in for the pinned 1.0.85 asset.
+            self.assertEqual(script.count(BOAT_SHA256), 1)
+            script = script.replace(BOAT_SHA256, hashlib.sha256(FAKE.encode()).hexdigest())
         target = self.root / 'setup-fixture.sh'; target.write_text(script)
         # holder check and policy/bundle prerequisites are synthetic public fixtures.
         repo = home / 'unbug-bench'
@@ -263,19 +269,20 @@ class ControlVMTests(unittest.TestCase):
                               capture_output=True, text=True,
                               env={**self.env, 'HOME':str(home), **extra})
 
-    def test_setup_downloads_official_boat_for_vm_arch_and_records_version(self):
-        for arch, platform in (('x86_64', 'x64'), ('aarch64', 'arm64'), ('arm64', 'arm64')):
+    def test_setup_downloads_pinned_boat_for_vm_arch_and_records_version(self):
+        for arch, platform in (('x86_64', 'x64'),):
             with self.subTest(arch=arch):
                 p = self.run_setup_phase('bootstrap', FAKE_ARCH=arch)
                 self.assertEqual(p.returncode, 0, p.stderr)
                 calls = self.calls('curl')
                 self.assertTrue(calls, 'bootstrap must install Boat')
                 args = calls[-1]['args']
-                self.assertIn('https://boat.dev/api/boat/cli/download?platform=linux-' + platform + '&channel=prod', args)
+                self.assertIn('https://github.com/ariana-dot-dev/agent-server/releases/download/boat-cli-v1.0.85/boat-linux-' + platform, args)
                 self.assertIn('-fsSL', args)
                 home = self.root / 'vm/home/user'
                 boat = home / '.ascii/bin/boat'
-                self.assertEqual(args[args.index('-o') + 1], str(boat))
+                self.assertEqual(args[args.index('-o') + 1], str(boat) + '.download')
+                self.assertFalse((home / '.ascii/bin/boat.download').exists())
                 self.assertEqual(boat.stat().st_mode & 0o777, 0o755)
                 self.assertTrue(any(r['args'] == ['user:user', str(boat)] for r in self.calls('chown')))
                 self.assertEqual(json.loads((home / '.config/ascii/boat/config.json').read_text()),
@@ -289,9 +296,25 @@ class ControlVMTests(unittest.TestCase):
                                  '$nrconf{override_rc}{qr(^unbug-)} = 0;\n')
 
     def test_setup_refuses_unknown_boat_arch_before_download(self):
-        p = self.run_setup_phase('bootstrap', FAKE_ARCH='riscv64')
+        # arm64 too: only the x64 1.0.85 asset has a recorded SHA-256.
+        for arch in ('riscv64', 'aarch64', 'arm64'):
+            with self.subTest(arch=arch):
+                p = self.run_setup_phase('bootstrap', FAKE_ARCH=arch)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertEqual(self.calls('curl'), [])
+
+    def test_setup_refuses_boat_sha256_mismatch(self):
+        # Real setup.sh pin; the download is replaced by a file that is not the 1.0.85 asset.
+        self.assertIn('boat_sha256=' + BOAT_SHA256, (SOURCE / 'control/setup.sh').read_text())
+        p = self.run_setup_phase('bootstrap', accept_fake_boat=False)
         self.assertNotEqual(p.returncode, 0)
-        self.assertEqual(self.calls('curl'), [])
+        self.assertIn('Boat CLI SHA-256 mismatch; not installed', p.stderr)
+        self.assertEqual(len(self.calls('curl')), 1)
+        bin_dir = self.root / 'vm/home/user/.ascii/bin'
+        self.assertFalse((bin_dir / 'boat').exists())
+        self.assertFalse((bin_dir / 'boat.download').exists())
+        self.assertEqual(self.calls('boat'), [])
+        self.assertNotIn('Installed Boat CLI:', p.stdout + p.stderr)
 
     def test_setup_refuses_unrunnable_boat_download(self):
         p = self.run_setup_phase('bootstrap', FAIL_VERSION='1')
