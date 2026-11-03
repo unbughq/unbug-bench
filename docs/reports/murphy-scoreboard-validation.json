@@ -1,0 +1,33 @@
+{
+  "at": "2026-11-03T20:21:52.429658+00:00",
+  "unique_issue_count": 79,
+  "merged_rows": 73,
+  "merged_closed": 31,
+  "merged_open": 42,
+  "pending_branch_rows": 6,
+  "all_evidence_anchors_resolve": true,
+  "markdown_json_row_fields_match": "independently verified",
+  "formal_merged_statuses_unchanged": "independently verified",
+  "html_desktop_width": 728,
+  "html_mobile_width": 390,
+  "html_console_errors": [],
+  "html_filter_checks": [
+    "search",
+    "stream",
+    "show_closed",
+    "implementation"
+  ],
+  "review": "docs/reviews/murphy-scoreboard-diff-1.md",
+  "review_status": "PASS",
+  "factory_source_changed": false,
+  "full_factory_suite_rerun": false,
+  "full_suite_reason": "documentation-only; no factory code, policy or test behavior changed",
+  "deployed": false,
+  "workers_created": 0,
+  "files_sha256": {
+    "docs/reports/murphy-scoreboard.md": "e82ccb4c0d9999c740a00a9ed9021db63e0332369a9c4938a88361ac4b9e0f11",
+    "docs/reports/murphy-scoreboard.json": "f746aadf5cf5a4381ab91e82074c6fb099ae1c10950c8804ec6b2e8dd374d8ec",
+    "docs/reports/murphy-scoreboard.html": "64fc6d4f3635eb745d5f6671a94e7aff34894d647c534d7e1eae6b017f0b891d",
+    "docs/murphy-register.md": "311d949df7046b4b63d567c844074ead9b517015ffbe8a1aa23ce72e23c704d0"
+  }
+}
