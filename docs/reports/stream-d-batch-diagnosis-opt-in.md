@@ -27,3 +27,9 @@ First locked attempt: ...T063326Z-320e3f27, command exit 2 before tests;
 uv could not resolve pypi.org for scipy. This is not a suite result. Cached
 numpy/scipy imports succeed with UV_OFFLINE=1; retry uses that environment
 setting with the unchanged locked suite command. Both records are retained.
+
+Parent follow-up: DNS is restored; run the normal locked command on d7250f9's
+implementation tree, timeout 7200000 ms, retry once only for DNS failure, then
+fresh diff review (cap 2). Rebase onto land12 only if it conflicts. The queued
+cached-dependency attempt ...T075852Z-f5e16073 was cancelled before it spawned
+any suite child, not counted as a suite result. No duplicate suite was launched.
