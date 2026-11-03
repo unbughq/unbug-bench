@@ -37,6 +37,7 @@ def validate(record):
                      '--ttl-continuation', '--continue-g11-review', '--probe', '--skip-build', '--statement-only'}
         for job in record['jobs'].values():
             args = job['args']
+            if not isinstance(args, list) or any(not isinstance(a, str) for a in args): raise ValueError()
             if args[:1] != ['1'] or any(a.split('=', 1)[0] in forbidden for a in args): raise ValueError()
             for flag, expected in (('--ttl-hours', Decimal(1)), ('--max-spend', Decimal(cap) / 10**9)):
                 positions = [i for i, a in enumerate(args) if a.split('=', 1)[0] == flag]

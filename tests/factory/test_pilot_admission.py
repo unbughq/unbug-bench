@@ -115,6 +115,17 @@ class PilotTests(unittest.TestCase):
         path.write_text('{}')
         with self.assertRaises(ValueError): holder.active(self.policy, self.root)
 
+    def test_policy_startup_rejects_missing_pin_and_authenticates_matching_pin(self):
+        self.policy.update(root=str(self.root), code_sha256='fingerprint')
+        path = self.home / 'policy.json'; self.home.mkdir(exist_ok=True)
+        service.atomic_json(path, self.policy)
+        with patch.object(key_holder, 'ROOT', self.root), patch.object(key_holder, 'fingerprint', return_value='fingerprint'):
+            with patch.dict(os.environ, UNBUG_PILOT_PIN=''), self.assertRaises(ValueError): key_holder.policy_load(path)
+            self.assertEqual(key_holder.policy_load(path), self.policy)
+        # A release hash change invalidates the pin before any legacy/global fallback.
+        changed = deepcopy(self.policy); changed['batch']['sha256'] = 'b' * 64
+        self.assertFalse(holder.active(changed, self.root))
+
     def test_shape_and_caps_are_parameterized(self):
         pilot.validate(self.record)
         bad = []
@@ -255,11 +266,21 @@ class PilotTests(unittest.TestCase):
         self.policy.update(code_sha256='fingerprint', path='/usr/bin:/bin', recipient='founder-public')
         target = cleanup.location(self.home, new).with_suffix('.ready.json'); target.parent.mkdir(parents=True)
         service.atomic_json(target, cleanup.ready(self.policy, new, 42))
+        late_hold = [False]
         def run(argv, **kwargs):
             if argv[0] == 'age-keygen': return SimpleNamespace(stdout=self.record['restore_recipient'].encode())
             if argv[0] == 'systemctl': return SimpleNamespace(stdout='ActiveState=active\nSubState=running\nExecMainPID=42\n')
+            if late_hold[0]:
+                late_hold[0] = False
+                path = self.home / 'launches' / old['launch_id']
+                self.ledger({'/late-reservation.json': dict(status='reserved', usd='0.036', expires_at=9999999999,
+                    state_path=str(path.resolve()), vms=1, ttl_seconds=3600, max_spend_usd='4')})
             return SimpleNamespace(stdout=b'{"sandboxes":[],"pageInfo":{"hasMore":false}}')
         with patch.object(key_holder, 'fingerprint', return_value='fingerprint'), patch.object(key_holder, 'secret_labels', return_value={'claude-token'}), patch.object(account_handoff, 'launch_accounts', return_value=(None, 1, {})), patch.object(cleanup, 'digest', return_value='a'), patch.object(holder.subprocess, 'run', side_effect=run), patch.object(holder.subprocess, 'Popen') as launch:
+            self.assertEqual(holder.dispatch(self.policy, self.root, self.home, new['operation_id'], b'authored identity'), holder.TEMPFAIL)
+            launch.assert_not_called()
+            self.assertFalse(self.ops()[new['operation_id']]['dispatch_started'])
+            self.ledger(); late_hold[0] = True
             self.assertEqual(holder.dispatch(self.policy, self.root, self.home, new['operation_id'], b'authored identity'), holder.TEMPFAIL)
             launch.assert_not_called()
             self.assertFalse(self.ops()[new['operation_id']]['dispatch_started'])
@@ -312,6 +333,19 @@ guard_init
         with ThreadPoolExecutor(2) as pool: outcomes = list(pool.map(attempt, ('j', 'k')))
         self.assertEqual(sum(o is not None for o in outcomes), 1)
         self.assertEqual(len(self.ops()), 1)
+
+    def test_restart_prioritizes_live_worker_before_retained_terminal_revalidation(self):
+        old, _ = self.failed(); self.ledger()
+        cleanup.observe_batch(self.policy, self.root, self.home, self.ops(), set())
+        new = self.started(self.reserve('k'))
+        calls = []; real = cleanup.preflight_clear
+        def clear(home, op):
+            calls.append(op['operation_id'])
+            return real(home, op)
+        status = dict(schema=1, operation_id=new['operation_id'], state='waiting')
+        with patch.object(cleanup, 'preflight_clear', side_effect=clear), patch.object(cleanup, 'step', return_value=status):
+            cleanup.observe_batch(self.policy, self.root, self.home, self.ops(), set())
+        self.assertEqual(calls, [new['operation_id'], old['operation_id']])
 
     def test_cap_and_ready_marker_mutations_are_detected(self):
         import tempfile
