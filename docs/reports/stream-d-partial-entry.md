@@ -20,3 +20,8 @@ rejected-writer work. Full locked suite and fresh diff review remain required.
 No Murphy rows close. Legacy evidence adapters (4–7h) and all-outcomes integration
 (4–6h, including irrelevant-edit progress checks) remain separate increments.
 No activation or three-case pilot is performed here.
+
+First locked run was interrupted safely before its outer deadline after about
+88 minutes in the shared-lock queue. Record adca5675 retains exit 70, null final
+counts and the complete partial log; it is not claimed as a pass. The suite tree
+was stopped before lock release, and a fresh full locked run follows.
