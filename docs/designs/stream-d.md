@@ -3771,16 +3771,20 @@ admission/recovery is done. Each line is one intended reviewable increment.
 - [ ] **Package increment 2: stress/gate/outcome completion — large.** Join unfinished
   stress recovery to one gate traversal; retain entry/outcome receipts, complete
   history, and compare current versions without rerolling or extra author work.
-- [ ] **All diagnosis outcomes — large.** Admit proposed extensions after comparison;
+- [x] **All diagnosis outcomes — large.** Admit proposed extensions after comparison;
   execute factory-bug hold/fix/resume (three maximum), extension progress/limit
   decisions (five maximum), and retirement through ordinary launch/checkpoints.
 - [x] **Qualified-path legacy allowance deletion — medium.** Remove remaining
   recovery/final-fix/diagnostic allowance branches from the qualified path; prove
   only cumulative batch money/deadline and scientific round rules govern it.
 
-Item 8 remains separate: integrated retained-artifact and authorized live A/B/E
-qualification, crash/wait/money coverage, and activation. No row closes by a
-checklist entry alone. The current design is `stream-d-admitted-execution.md`.
+The outcome-route check is for current-schema fresh cases in the offline lifecycle
+driver; it does not qualify real VM boot, encrypted archive restore or live work.
+The package line remains open for the broader no-reroll claim: an irrelevant
+writer edit may rerun gates without pass caches, and the integration exam proves
+no progress only under fixed gate outcomes. The founder replaced the former item 8
+with a three-case real pilot after item 7 acceptance. No row closes by a checklist
+entry alone. The current design is `stream-d-admitted-execution.md`.
 
 
 The admitted-execution implementation, full offline suite and fresh diff review
@@ -4033,3 +4037,15 @@ full locked suite (182 scripts / 0 failures); fresh diff review round 1 passes
 (stream-d-capture-recovery-diff-1.md). No Murphy rows close; final all-outcomes integration follows.
 
 Batch diagnosis integration clarification (parent-approved after round 2): in batch jobs, gate budget checks give `money_wait`, never `budget_exhausted`, so money pressure waits rather than triggering diagnosis. That's by design.
+
+### Item 7 fresh-case all-outcomes integration
+
+The fresh-case offline route exam in `stream-d-all-outcomes-integration.md`
+passes its full suite at `dc20f2b` (184 scripts / 0 failures) and fresh diff
+review round 1 (`stream-d-all-outcomes-integration-diff-1.md`). It covers the
+seven current-schema retirement labels, hold/resume and extension limits,
+rejected writers, partial entry and capture recovery. No Murphy row closes.
+Retired/pre-schema adapters remain excluded; permanently missing or corrupt
+proof remains a hold. The in-process exam does not qualify VM/archive/Linux or
+live behavior, and the irrelevant-edit reroll limitation above remains open.
+The founder's three-case real pilot follows parent acceptance.

@@ -1,7 +1,7 @@
 # Fresh-batch all-outcomes integration
 
-Implementation and the full suite have passed. Fresh diff review remains
-required; no review approval is claimed yet.
+Implementation, the full suite and fresh diff review round 1 passed. The review
+found no blockers; its optional findings are retained in the review record.
 
 The new `tests/factory/test_stream_d_all_outcomes.py` joins real installed batch
 policy, ordinary capture, infrastructure exhaustion, accounting finalization,
@@ -24,18 +24,22 @@ the exact seven current-schema `retired_*` labels. Missing scored proof, corrupt
 support and interrupted freshness mutation are explicit negative branches.
 
 The model CLI, router lease transport, initial ordinary stress response, UID/pilot
-operations, checkpoint encryption/upload and comparison IPC are authored
-boundaries. Real G4/G5 consume saved plain/reference executions on the suffix-case
+operations, checkpoint encryption/upload, comparison IPC and the interrupted-G2
+`money_wait` raise are authored boundaries. Real G4/G5 consume saved plain/reference executions on the suffix-case
 contract. Real G1 consumes the saved practice contract and copied bench project.
 Public-match confirmation uses retained HTTP bytes. Other gate answers are
 labelled controls; no real worker, model or network call is launched.
 
 Each resume serializes a new checkpoint card, imports its ledger/scorecard through
 `restore_ledger.install`, delivers and installs the hash-bound job config, inherits
-recovery history and selects models through the runner functions. Cross-batch
+recovery history and selects models through the runner functions. The driver calls
+`job_config.install` before `inherit_recovery_history`; main uses the reverse order.
+The reviewer checked the difference has no effect on these fixtures. Cross-batch
 money histories and factory-bug admissions are produced by the real installers
 and diagnosis code, never seeded. Retirement guards forbid writer admission and
-evaluation; replay checks proof/decision bytes, reservations and diagnosis state.
+evaluation; retirement replay checks reservation equality. Completed-package
+replay checks proof bytes and diagnosis state, requires settled reservations, and
+forbids writer, stress and evaluator work; it does not compare reservation lists.
 
 ## Limits of the evidence
 
@@ -61,9 +65,8 @@ focused checks, not a qualifying full-suite pass. The original 1200-second
 whole-exam estimate was too low; the final complete exam is timed within the
 locked full suite to avoid duplicating this expensive chain.
 
-Pending the detached plain-lockf full suite and fresh diff review (maximum two
-rounds). The suite timeout is 7200 seconds after lock acquisition; queue time is
-excluded.
+The detached plain-lockf full suite passed and fresh diff review round 1 passed.
+The suite timeout was 7200 seconds after lock acquisition; queue time was excluded.
 
 ### Qualifying full suite
 
@@ -80,3 +83,9 @@ excluded.
   was accidentally killed by the parent's host-wide pkill. Both records are
   non-qualifying interruptions, not test failures.
 - Parent explicitly accepted this runner/head without merging `281bf20`.
+
+### Fresh diff review
+
+`docs/reviews/stream-d-all-outcomes-integration-diff-1.md` is a PASS with no
+blocking findings. The reviewer recorded six optional findings; no code or test
+changes followed the review, consistent with the immediate-handback instruction.
