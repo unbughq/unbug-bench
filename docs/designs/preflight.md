@@ -78,11 +78,15 @@ that one decryption.
   a 0600 config file and makes one `status` RPC. The packed output is thrown
   away. Also check that `status['paid']` is well-formed with
   `outstanding_usd == 0`, which replaces step 2's hand-run "ledger" check.
-- `openrouter`: `model_router.available_credit()` with the bundle's
-  `openrouter-key`. `None` fails. The effective paid ceiling is
+- `openrouter`: `model_router.available_credit(token)` with the bundle's
+  `openrouter-key`. Add an optional `token` argument; the default still reads
+  `OPENROUTER_API_KEY`, so existing callers are unchanged and the key never
+  enters `os.environ`. `None` fails. The effective paid ceiling is
   min(`LIVE` cap, credit), per `practice-run.md:21`.
-- `r2`: one read-only HEAD on the batch's R2 prefix, with the bundle's
-  `r2-env`, using the client `factory/r2_upload.py` already uses.
+- `r2`: `bin/r2-presign`'s `presign("GET", …)` with the bundle's `r2-env`
+  for a fixed key that never exists (`preflight/absent`), then one GET.
+  404 passes because the credentials were accepted; 401/403 or a transport
+  error fails. It reads only and writes nothing.
 
 `boat_cli` is not repeated, because `dispatch` already runs `boat-call list`
 through its version guard (`:792`). A mismatch already returns `TEMPFAIL`, with
