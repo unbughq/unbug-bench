@@ -262,3 +262,19 @@
 - Publication fault armed for this operation through the existing tool before collection.
 - Last VM observation/disconnect UTC: 2026-11-03T08:37:06.083820+00:00. All task SSH sessions exited. No VM/provider connections permitted until 2026-11-03T09:36:43+00:00.
 - Cleanup remains armed. Model and infrastructure totals await post-window evidence; no zero-spend claim after creation.
+
+## Post-window result — ABORT
+
+- First reconnect UTC: 2026-11-03T09:37:07.012056+00:00, after the required 2026-11-03T09:36:43+00:00 boundary. No task VM/provider connection occurred during the disconnect window.
+- VM-local holder restart verified from systemd timestamps: stopped 2026-11-03T08:51:35.228440+00:00; started 2026-11-03T08:51:35.239779+00:00. Same single operation and worker retained. Worker had already exited before this restart; restart-after-live-worker recovery is not proved.
+- Abort condition: accounting_refused / invalid_accounting_input. Collected terminal stop: runner_error:RuntimeError; error label RuntimeError. Continuation-budget ledger absent. The underlying RuntimeError message was not retained in the public scorecard; root cause remains to be diagnosed offline. No factory code changed during the run.
+- Fault marker consumed. Replay reached the same retained generation 686d6b7df4c9f840105330aaa190b878850877c98ba7737f8126034f2eb67057 but accounting refused it. Outbox remains pending, ACK count 0, current pointer absent. Publication is not a pass; no repeated manual publication or fabricated ACK.
+- Worker bx_z4wktrbn deletion request ID: bdop_4b49a239228240fb8af4ab9efd1037da. Exact target and kind sandbox verified in both receipts; completion status and stage completed; completion UTC 2026-11-03T08:39:51.866Z.
+- Deletion receipt validation passed through the pinned holder validator; stored retirement matches. Full inventory at reconnect: hasMore=false, no workers. Pending creation absent in completed cleanup evidence. One operation, one worker; no relaunch or second worker.
+- Spend record: credit before $4.17157, after $4.16967. Observed infrastructure wallet debit $0.00190. This is a wallet observation, not attributed settlement: actual_spend_usd remains null, reservation/unknown liability retained.
+- Final billing observation UTC: 2026-11-03T09:39:05.419099+00:00. Boat credit $4.16967; auto top-up false. No top-ups.
+- Models: router request count 0, paid total $0.000000000, paid outstanding $0.000000000, active leases 0. No model work recorded; model spend $0.
+- Provider-account labels in card: Claude 2, OpenCode 1; account handoffs 0. These are selected account labels, not evidence of model use. Accounts used for model work: none. Distinct accounts unverified (founder accepted); account-2 attribution and natural handoff unproven.
+- Reconciliation verification UTC: 2026-11-03T09:40:01.618426+00:00. Holder stopped; practice activation drop-in cleared and daemon configuration reloaded. Restart timer had already fired and was absent; no new timer arranged. Cleanup complete, verified, then explicitly stopped. Router retained; all ledgers, old/new operations and encrypted artifacts retained.
+- Final result: ABORT; models $0; observed infrastructure debit $0.00190, unsettled; deletion verified; no account performed model work.
+- First fix: diagnose the runner RuntimeError before model admission and its missing accounting record; do not bypass accounting refusal or reset the retained liability. New source/review/approval is required before another live attempt.
