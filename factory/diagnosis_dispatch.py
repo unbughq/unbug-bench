@@ -253,6 +253,7 @@ def apply(c, parent, manifest, result, *, resume=False, comparison_route=False):
                     from extension_package import completed_route
                     completed_route(c, row)
             if batch_service.DIAGNOSIS_ENABLED is True:
+                d.retain_extension_resume(c, state)
                 atomic_json(c.work / 'scorecard.json', c.card)
                 return row['extension_id'] if row is not None else 0
         atomic_json(c.work / 'scorecard.json', c.card)
@@ -309,7 +310,11 @@ def _dispatch(c, r, *, comparison_route=False):
     if previous.get('terminal_stop') in INVALID: stop(c, previous['terminal_stop'])
     job_authority.for_case(c)
     if d._state(c.card, d.extension_history(c.card)) is None: invalid(c)
-    if d.resume_factory_bug(c, r): return False
+    if d.resume_factory_bug(c, r):
+        state = c.card.get('diagnosis_state')
+        if not state or (state['status'], state['outcome']) != ('completed', 'close_to_passing'):
+            return False
+        previous = copy.deepcopy(c.card)
     model_runtime.prepare_dispatch(c)
     with c.model_dispatch_lock:
         if c.active_model_calls: raise BudgetError('usage_reconciliation_while_active')

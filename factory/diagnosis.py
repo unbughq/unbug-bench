@@ -459,6 +459,59 @@ def _resume_bindings(c):
     return bindings
 
 
+def _read_extension_resume(c, path, base):
+    from carry_over import digest
+    value = json.loads(_input_bytes(path, base))
+    record = value['record']
+    if (set(value) != {'record', 'sha256'} or not isinstance(record, dict) or
+            set(record) != {'schema_version', 'case', 'diagnosis_state'} or
+            type(record['schema_version']) is not int or record['schema_version'] != 1 or
+            record['case'] != c.case_id or value['sha256'] != digest(record)):
+        raise ValueError('invalid extension resume record')
+    state = record['diagnosis_state']
+    card = {**c.card, 'diagnosis_state': state}
+    if (not isinstance(state, dict) or state.get('status') != 'completed' or
+            state.get('outcome') != 'close_to_passing' or
+            _state(card, extension_history(card)) is None):
+        raise ValueError('invalid extension resume state')
+    return value
+
+
+def retain_extension_resume(c, state):
+    """Retain the existing decision, never a second routing authority."""
+    from carry_over import digest
+    path = Path(c.work) / 'extension-resume.json'
+    record = dict(schema_version=1, case=c.case_id, diagnosis_state=copy.deepcopy(state))
+    value = dict(record=record, sha256=digest(record))
+    try:
+        if path.exists() or path.is_symlink():
+            if _read_extension_resume(c, path, c.work) == value: return
+        if _state({**c.card, 'diagnosis_state': state}, extension_history(c.card)) is None or (
+                state['status'], state['outcome']) != ('completed', 'close_to_passing'):
+            raise ValueError('invalid extension resume state')
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        raise BudgetError('extension_resume_target_invalid') from None
+    atomic_json(path, value)
+
+
+def _extension_resume_state(c, evidence_root):
+    """Compare immutable held evidence before either a new or reused admission."""
+    import extensions
+    from types import SimpleNamespace
+    live = Path(c.work) / 'extension-resume.json'
+    frozen = evidence_root / 'work/extension-resume.json'
+    try:
+        observed = SimpleNamespace(work=c.work, ledger=c.ledger, case_id=c.case_id, card=copy.deepcopy(c.card))
+        history = extensions.read(observed)
+        if not any(p.exists() or p.is_symlink() for p in (live, frozen)) and not history:
+            return None
+        if _input_bytes(live, c.work) != _input_bytes(frozen, evidence_root):
+            raise ValueError('changed extension resume record')
+        return copy.deepcopy(_read_extension_resume(observed, live, c.work)['record']['diagnosis_state'])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, BudgetError):
+        raise FactoryBugHeldWait('extension_resume_target_invalid') from None
+
+
 def resume_factory_bug(c, r=None):
     """One lifetime admission after verified installation, before diagnosis replay."""
     state = c.card.get('diagnosis_state')
@@ -506,6 +559,8 @@ def resume_factory_bug(c, r=None):
                 c.stopped = True
                 atomic_json(Path(c.work) / 'scorecard.json', c.card)
                 raise BudgetError('retired_factory_bug_limit')
+        resume_state = _extension_resume_state(c, path.parent / 'inputs')
+        if admission is None:
             admission = dict(schema_version=1, resume_id=str(uuid.uuid4()), finding_id=finding['finding_id'],
                 case=c.case_id, held_batch_id=finding['held_batch_id'], batch_id=authority.batch,
                 job_id=authority.job, reservation_id=authority.reservation_id,
@@ -540,6 +595,7 @@ def resume_factory_bug(c, r=None):
         for key in ('factory_bug', 'diagnosis_state', 'infrastructure_gate', 'terminal_stop', 'failed_gate', 'factory_bug_wait_reason'):
             admitted_card.pop(key, None)
         admitted_card.update(status='running', factory_bug_resume_count=len(history))
+        if resume_state is not None: admitted_card['diagnosis_state'] = resume_state
         atomic_json(Path(c.work) / 'scorecard.json', admitted_card)
         c.card.clear(); c.card.update(admitted_card)
         c.stopped = False
@@ -691,7 +747,7 @@ def _write_input_tree(c, bench, root, card, state):
         prefix, base = ('work/bench-results/', bench / 'results') if kind == 'bench' else ('work/', c.work)
         add(prefix + name, _input_bytes(path, base))
     names = ('bench-results', 'attack-state.json', 'attacks', 'gate-continuation.json',
-             'late-defect.json', 'extension-history.json', 'extension-snapshots', 'comparison-diagnostics', 'transcripts',
+             'late-defect.json', 'extension-history.json', 'extension-resume.json', 'extension-snapshots', 'comparison-diagnostics', 'transcripts',
              'usage-receipts', 'factory-failures', 'factory-replays', 'job-money.json', 'job-money-history.json', 'infra-attempts.json', 'strong_calibrator', 'easy_calibrator',
              'early_probe', 'fixes', 'evidence', 'history', 'verdict.json', 'prototype.json',
              'public-search.json', 'idea-realism.json', 'audit-baseline.json', 'delivery-provenance.json')

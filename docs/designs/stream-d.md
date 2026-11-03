@@ -3405,6 +3405,8 @@ not a price prediction or permission to raise a failed scenario's cap.
 
 ### Prerequisites and shared practice infrastructure
 
+- [ ] close new-stream-d-current-comparison-1 with a real decision → extension → subsequent_entry comparison exhaustion → factory-bug hold/resume chain on retained artifacts
+
 Use `docs/reports/stream-b-activation-practice-plan-20261031.md` as the launch,
 identity, publication, collection and cleanup contract. B must first finish its
 reviewed practice and resolve its listed bootstrap, authenticated checkpoint,
