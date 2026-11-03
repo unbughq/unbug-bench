@@ -1,0 +1,19 @@
+PASS durable deletion receipts; exact identity/completion, bounded polling, no deletion resubmission
+PASS TTL defaults, arm/try sizing, override, collection and spend records
+PASS slow archive streams use their own timeout; same-VM recovery keeps expiry and rejects active, locked or changed work without taking ownership
+PASS review continuation streams prior notes to the right VM path, preserves usage and rejects corrupt archives before VM creation
+PASS account 2 reaches canonical claude-token in VM RAM
+PASS worker release qualification failure precedes secrets and model work
+PASS Medusa image fallback precedes qualification; build failure prevents credentials and model work
+PASS absolute OpenCode pin repairs drift before secrets, disables updates and fails closed
+PASS Codex drift is repaired before secrets; wrong or failed pins stop before work
+PASS Boat retries: three attempts, checkpoint verification, preserved ceilings and seed, no gate/cap/corruption retry
+PASS keys decrypt in memory, reach every VM; a wrong identity stops before any VM
+PASS spend cap, balance, malformed billing and invalid options fail closed
+PASS detached startup exit receipt is promptly collected without a case DONE
+PASS real-TTL worker setup failure leaves healthy peer under its own monitor
+PASS stale watchdog, live ledger/job progress and independent batch polling
+PASS setup/create/collect failures, Ctrl-C and TERM always collect before delete
+PASS failed/hung SSH cutoff, deletion retry and loud orphan warning
+PASS argument quoting, standalone dollars-left command, size-priced cap
+All launch guard checks passed (409.6s); no real boat calls.

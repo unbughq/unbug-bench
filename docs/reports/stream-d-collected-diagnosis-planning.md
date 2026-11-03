@@ -108,3 +108,22 @@ the retention message but stderr was "boat-spend: accounting unavailable".
 This test, factory/launch.sh and bin/boat-spend are unchanged in b80929a..31579a0.
 No production or test source change is being made; one focused recheck uses
 the full runner's BENCH environment. No additional full suite is queued.
+
+
+## Final handback
+
+Code review PASS: stream-d-collected-diagnosis-planning-diff-2.md, no blockers.
+The only final-suite failure passed its focused recheck unchanged:
+stream-d-collected-diagnosis-planning-launch-guards-recheck-20261103T192339Z-7fe32ba9.json/.log,
+exit 0, all launch guard checks passed (408.3 seconds), no real Boat calls.
+Retain the final full-suite result as 184 scripts / 1 failed (183 passed),
+never 184/0. This is supporting evidence for the parent's existing unrelated
+failure/recheck rule; the parent owns the merged-tree gate. No production or
+test source changes followed the independent final diff review.
+
+The current factory-simplify tip is already an ancestor. Parallel runner
+281bf20 is included. Work is ready for parent merge review; no suite remains
+queued. This increment supplies only the authenticated production plan caller.
+Next increment must drain resume rows through the existing holder.reserve/
+reconcile/dispatch path; no production diagnosis cycle is claimed yet.
+No Murphy rows closed, no pilot activation, no live workers, no push.
