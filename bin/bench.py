@@ -12,6 +12,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "factory"))
 from case_permissions import normalize_case_tree
 APP = ROOT / "projects/medusa"
+COMPOSE_PROJECT = "unbug-bench"
 COMPOSE = ["docker", "compose", "-f", str(APP / "compose.yaml")]
 IDS = APP / "seed-ids.json"
 RESULTS = ROOT / "results"
@@ -358,10 +359,15 @@ def factory_slot_ready(results, slot):
 
 
 def prepare_factory_main():
-    """Fresh G3 shop; called only while factory_pool owns the root bench lock."""
+    """Fresh startup/G3 shop; factory_pool owns the root bench lock."""
     if FACTORY_SLOT:
         raise ValueError("main preparation requires slot zero")
     stop_inventory_services()
+    # Baked containers can retain fixed names without adoptable Compose labels.
+    # Release their named volumes BEFORE down -v, or seeding reuses the old DB.
+    with contextlib.suppress(RuntimeError):
+        command(["docker", "rm", "-f", *[f"{COMPOSE_PROJECT}-{name}-1"
+                 for name in ("postgres", "redis", "medusa", "medusa-b")]])
     dc("down", "-v")
     # setup owns stale seed-container removal, diagnostics and baseline checks.
     # The parent holds .bench.lock across this subprocess and all extra slots.

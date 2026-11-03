@@ -142,12 +142,34 @@ def public_progress(c, stage, status, elapsed_seconds=None, reused=False):
         c.card['public_progress_error'] = type(error).__name__
 
 
+def command_error_tail(path, start, env):
+    """Bounded diagnostic for encrypted evidence, never the public scorecard."""
+    with path.open('rb') as stream:
+        stream.seek(0, os.SEEK_END)
+        offset = max(start, stream.tell() - 4096)
+        stream.seek(offset)
+        raw = stream.read(4096)
+    if offset > start:
+        raw = raw.partition(b'\n')[2]  # Drop a truncated line, including partial credentials.
+    text = raw.decode(errors='replace')
+    for name, value in sorted(env.items(), key=lambda item: len(item[1]), reverse=True):
+        if len(value) >= 8 and re.search(r'TOKEN|SECRET|PASSWORD|KEY|AUTH', name, re.I):
+            text = text.replace(value, '[redacted]')
+    text = re.sub(r'-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----', '[redacted]', text, flags=re.S)
+    if offset > start and re.search(r'-----END [^-]*PRIVATE KEY-----', text):
+        text = re.sub(r'^.*?-----END [^-]*PRIVATE KEY-----', '[redacted]', text, count=1, flags=re.S)
+    text = re.sub(r'(?i)\bBearer\s+\S+|\bsk-[A-Za-z0-9_-]+|AGE-SECRET-KEY-[A-Z0-9]+', '[redacted]', text)
+    return re.sub(r'https?://\S+', '[URL redacted]', text).strip()
+
+
 def sh(c, cmd, *, capture=False, timeout=None, input=None, cwd=None, check=False, env=None):
     """Run a command; its output goes to the sealed log (and is returned when capture=True)."""
     if env is None and hasattr(c, "factory_slot"):
         env = {**os.environ, "UNBUG_FACTORY_SLOT": str(c.factory_slot)}
     log(c, "$", " ".join(map(str, cmd))[:400])
-    with open(c.work / "logs/commands.log", "a") as out:
+    output_path = c.work / "logs/commands.log"
+    with output_path.open("a") as out:
+        start = os.fstat(out.fileno()).st_size
         import processes
         try:
             p = processes.run(list(map(str, cmd)), cwd=cwd, env=env, input=input, text=True,
@@ -158,7 +180,10 @@ def sh(c, cmd, *, capture=False, timeout=None, input=None, cwd=None, check=False
         except processes.Cancelled:
             raise BudgetError('cancelled') from None
         if capture: out.write(p.stdout)
-    if check and p.returncode: raise RuntimeError(f"exit {p.returncode}")
+    if check and p.returncode:
+        # ponytail: concurrent commands can interleave in this encrypted log tail.
+        tail = command_error_tail(output_path, start, os.environ if env is None else env)
+        raise RuntimeError(f"{pathlib.Path(str(cmd[0])).name}: exit {p.returncode}\n{tail}")
     return p if capture else p.returncode
 
 
@@ -3384,7 +3409,9 @@ def main():
                 sh(c, ["age-keygen", "-o", c.keyfile], check=True)
             c.recipient = sh(c, ["age-keygen", "-y", c.keyfile], capture=True, check=True).stdout.strip()
         sh(c, ["find", BENCH, "-name", "._*", "-delete"])  # macOS AppleDouble junk in the snapshot breaks bin/checkpoint
-        sh(c, COMPOSE + ["up", "-d", "--wait", "postgres", "redis"], check=True)
+        import factory_pool
+        factory_pool.prepare(1, fresh=True,
+                             execute=lambda cmd, **kw: sh(c, cmd, **{**kw, 'check': True}))
         c.manifest0 = bench_manifest()
         if a.dry_run:
             if not (a.resume and (c.case / "case.json").exists()): build_fixture(c)  # a resumed dry run keeps its fixture
@@ -3431,6 +3458,7 @@ def main():
     except Exception as error:
         log(c, traceback.format_exc())
         c.card["error"] = type(error).__name__
+        c.card['error_evidence'] = 'logs/runner.log'
         c.stopped = True
         from run_validity import InfrastructureExhausted
         c.card['terminal_stop'] = ('infrastructure_exhausted' if isinstance(error, InfrastructureExhausted)
