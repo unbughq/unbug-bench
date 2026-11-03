@@ -13,7 +13,10 @@ environment and uses the supervisor's normal 14400-second duration and
 720-second grace defaults (explicit existing environment values are preserved).
 Before any runner subprocess, call processes.prepare_model_containment.
 The existing in-place upload includes bin/processes.py with factory/ so parked
-workers receive the helper together with the new supervisor.
+workers receive the helper together with the new supervisor. Extraction installs
+factory/ at home and bin/processes.py under ${BENCH:-$HOME/unbug-bench}, the
+existing supervisor import location. The archive regression stages an old helper
+there, executes the extraction line, and imports the staged supervisor.
 On Linux, a privileged helper mode in the already shipped bin/processes.py creates
 /sys/fs/cgroup/unbug-models-<uid> and its runner leaf. Verify cgroup-v2 controls,
 delegate the directory and cgroup.procs/subtree_control/threads to the runner UID

@@ -141,7 +141,9 @@ The tests use real artifacts: the retained -2 manifest and policy, upgraded to
 - A batch-mode dry run writes `<case>.casekey.age`, and `batch_service._card`
   accepts the collected card.
 - No -2 string remains in the cleanup unit, `DROPIN` or `practice.py`.
-- Local: real `run.py --dry-run` startup against local Docker reaches G1, with
+- Local (explicit qualification only, `UNBUG_LOCAL_DOCKER_SMOKE=1` on a quiet
+  daemon; excluded from the concurrent offline suite): real `run.py --dry-run`
+  startup against local Docker reaches G1, with
   the stop-10 fix merged. That proves the dry-run path locally, though not the
   Boat image.
 

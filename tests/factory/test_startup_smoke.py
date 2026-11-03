@@ -202,9 +202,12 @@ class SmokeTests(unittest.TestCase):
             self.assertNotIn('b-plumbing-practice-2', text)
             self.assertIn('b-plumbing-practice-3', text)
 
+    @unittest.skipUnless(os.environ.get('UNBUG_LOCAL_DOCKER_SMOKE') == '1',
+                         'explicit local qualification: UNBUG_LOCAL_DOCKER_SMOKE=1; shared Docker project')
     def test_local_real_dry_run_startup_reaches_g1(self):
         """Real run.py --dry-run against local Docker, stopped just after a real G1.
 
+        Run explicitly on a quiet daemon, outside concurrent offline suites.
         Uses the real unbug-bench Compose project and ports on the local daemon,
         as a worker does, and removes it afterwards. The Medusa build uses the
         local deps image for this lock, so it needs no network.

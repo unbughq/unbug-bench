@@ -249,6 +249,31 @@ class AccountHandoffTests(unittest.TestCase):
         with tarfile.open(self.root / 'factory.tgz') as archive:
             for name in ('factory/runner_supervisor.py', 'bin/processes.py'):
                 self.assertEqual(archive.extractfile(name).read(), (ROOT / name).read_bytes())
+        home = self.root / 'worker'; bench = home / 'unbug-bench'
+        (bench / 'bin').mkdir(parents=True)
+        (bench / 'bin/processes.py').write_text("raise AssertionError('stale helper imported')\n")
+        shutil.copy2(self.root / 'factory.tgz', home / 'factory.tgz')
+        extraction = next(line for line in (ROOT / 'factory/resume-in-place.sh').read_text().splitlines()
+                          if line.startswith('rm -rf ~/factory && tar '))
+        # Decode the remote double-quoted shell string; execute its real staging line.
+        extraction = extraction.replace('\\$', '$').replace('\\"', '"')
+        env = {**os.environ, 'HOME': str(home), 'BENCH': str(bench)}
+        handoff.subprocess.run(['/bin/sh', '-c', extraction], check=True, env=env, capture_output=True)
+        code = """import runpy
+from pathlib import Path
+from unittest.mock import patch
+s=runpy.run_path('factory/runner_supervisor.py'); p=s['processes']
+with patch.object(p, 'prepare_model_containment', side_effect=p.ContainmentError('containment_unavailable')) as prepare:
+ assert s['supervise'](['must-not-run'], Path.home(), 10) == 78
+ prepare.assert_called_once_with(Path.home())
+print(p.__file__)
+"""
+        result = handoff.subprocess.run([sys.executable, '-I', '-c', code], cwd=home, env=env,
+                                       check=True, capture_output=True, text=True)
+        self.assertEqual(Path(result.stdout.strip()), bench / 'bin/processes.py')
+        status = json.loads((home / 'sealed/runner-status.json').read_text())
+        self.assertEqual((status['attempt'], status['reason']), (0, 'containment_unavailable'))
+        self.assertEqual((bench / 'bin/processes.py').read_bytes(), (ROOT / 'bin/processes.py').read_bytes())
 
     def test_parked_failure_status_reaches_entrypoint(self):
         with patch.object(sys, 'argv', ['handoff', 'parked', '--policy', 'policy', '--job', 'canary', '--worker', 'owned']), \
