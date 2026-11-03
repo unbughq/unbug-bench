@@ -132,3 +132,11 @@ Touched tests on the merged tree passed: calibration_attempts (9 tests) and
 practice_startup (4 tests, 34.782s). The real Docker exam ran, including fresh
 volume marker removal and repeated role/template SQL, without a skip.
 The next qualifying suite uses the parallel runner without lockf.
+
+Parallel run 20261103T173952Z at 6785aa7 completed 186 scripts, one failed.
+Only test_parallel.py failed: a second old assertion expected provider_limit
+inside the public early-probe message. It now expects the exact BudgetError
+type; its label and non-stopping behaviour checks are unchanged. A repository
+search found no further provider_limit/skipped assertions. The real Docker
+startup exam passed all four tests in 45.964s in that full run. This failed run
+is retained as non-qualifying; no production change was needed.
