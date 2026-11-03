@@ -59,6 +59,14 @@ directory or lock is ever created. It does not modify
 existing non-pilot or practice manifests. Future code that activates a pilot
 under another ID must add an equivalent reviewed admission contract first.
 
+Implementation clarification after review 2: with the holder disabled a plain
+batch can fall through to the legacy `batch_money.authorize` path. That path
+must refuse `b-real-pilot` unconditionally, including a malformed manifest without
+`practice_admission`, so the pilot cannot bypass the holder's role checks.
+Test the real legacy authorizer with an authenticated pilot manifest; unrelated
+legacy batches retain existing behaviour. This adds `factory/batch_money.py` to
+the scoped files and does not activate the pilot.
+
 This is the existing B admission path, not another launcher or ledger. Remove
 no path: the problematic default is overridden only for the pilot, not deleted
 from existing non-pilot rotations. The old Codex batch refusal remains. The

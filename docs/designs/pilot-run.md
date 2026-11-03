@@ -23,7 +23,7 @@ S=config/small seam, M=bounded increment, L=integrated lifecycle work. Timeline:
 | Cleanup/deployment / B | M | Generalize practice_cleanup's hard-coded batch/timing binding on the same path. Authenticate PID/policy/operation/launch readiness before each dispatch; persist per-case checkpoint/diagnosis and total creation limits plus absolute deadline. |
 | Manifest/routes / B config; route owners/headroom code | S config + M headroom | Three ordinary jobs, fresh IDs/S=0, $20 each/$60 batch. Reuse batch.build/verify and qualify-batch-inputs with pilot pins, not practice's exact manifest. Pin all five roles AND diagnosis to enforced maxima; reserve diagnosis headroom before initial work using those maxima. |
 | Escaped-session containment / E | prerequisite O7 | Qualify selected routes against new-isolation-settlement-1 before live pilot; subscription billing does not waive containment. |
-B builds settlement first, then admission/cleanup, then S config. Review/test each increment with locked suite and fresh review. Supersede full item-8
+B builds settlement first, then admission/cleanup, then S config. Review/test each increment with the parallel full suite and fresh review. Supersede full item-8
 matrix/manual activation; keep journals/evidence. No parallel launcher, no row closures.
 The proposed batch ID is `b-real-pilot`. Every job must explicitly pin builder
 to `openrouter/minimax/minimax-m3.1-flash`, attacker and easy calibrator to

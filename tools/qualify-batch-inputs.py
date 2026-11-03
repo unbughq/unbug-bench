@@ -42,7 +42,9 @@ def qualify(policy, root, home, job, checkpoint=None):
             else:
                 report['admission'] = 'new'
             report['eligible'] = True
-    except (OSError, ValueError, KeyError, TypeError, IndexError):
+    except ValueError as error:
+        if str(error) == holder.PILOT_ROLE_ERROR: report['observation'] = holder.PILOT_ROLE_ERROR
+    except (OSError, KeyError, TypeError, IndexError):
         pass  # Never export arbitrary exception text or private state.
     return report
 
