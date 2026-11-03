@@ -47,12 +47,16 @@ class PlanningTests(unittest.TestCase):
             return holder.plan_collections(self.policy, self.root, self.home)
 
     def tick(self):
+        spawned = []
         with patch.multiple(key_holder, ROOT=self.root, CONTROL_HOME=self.home), \
              patch.dict(sys.modules, diagnosis=self.api), \
-             patch.object(holder, 'reserve', side_effect=AssertionError('no reservation')), \
-             patch.object(holder, 'dispatch', side_effect=AssertionError('no dispatch')):
+             patch.object(holder, 'reserve') as reserve, \
+             patch.object(holder, 'dispatch') as dispatch:
             key_holder.batch_tick(self.policy, {}, {},
-                                  lambda *a: self.fail('no child'))
+                                  lambda op, action: spawned.append((op, action)) or op)
+        self.assertEqual(spawned, [])
+        reserve.assert_not_called()
+        dispatch.assert_not_called()
 
     def state(self): return service._load(self.directory, self.record, self.policy['batch']['manifest_sha256'])
 
@@ -155,6 +159,7 @@ class PlanningTests(unittest.TestCase):
                 elif fault == 'export': (self.directory / 'export.json').write_text('{}')
                 elif fault == 'successor': self.reserve(source=card['sha256'])
                 before = self.protected()
+                journal = (self.directory / 'journal.json').read_bytes()
                 with patch.object(service, '_snapshot', side_effect=AssertionError('cheap refusal')):
                     if fault == 'aggregate':
                         with patch.object(money, 'aggregate', return_value=money.amount('3001.000000000')):
@@ -168,6 +173,7 @@ class PlanningTests(unittest.TestCase):
                         with self.assertRaises(money.MoneyWait): self.scan()
                     else: self.scan()
                 self.assert_unplanned()
+                self.assertEqual((self.directory / 'journal.json').read_bytes(), journal)
                 self.assertEqual(self.protected(), before)
 
     def test_selection_is_reauthenticated_inside_plan_lock(self):
@@ -261,9 +267,10 @@ class PlanningTests(unittest.TestCase):
                     yield directory
             finally: depth -= 1
         with patch.object(money, 'locked', side_effect=single), patch.dict(sys.modules, diagnosis=self.api):
+            self.scan()
+            self.assertEqual(len(self.state()['queue']), 1)
             service.plan(self.policy, self.root, self.home, card['case'], card['sha256'],
                          published_operation=op['operation_id'])
-            self.scan()
         self.assertEqual(maximum, 1)
 
 

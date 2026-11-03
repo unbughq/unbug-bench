@@ -31,7 +31,16 @@ Only test_control_resume.py failed: five deadline failures at existing 10/20-sec
 controller windows. That test, factory/control_resume.py and factory/launch.sh
 are unchanged in b80929a..3e35280. All 11 planning tests and all 60 holder tests
 passed in the full suite. No timeout was weakened and no source fix was made.
-A focused recheck of the sole failed file is running; it is not a replacement
-full suite. No repeat full suite is queued.
-Fresh diff review: pending.
+The first focused recheck exited 1 (24 tests, nine failures). Its command
+omitted BENCH, unlike tests/run.py, and its detached supervisor failures are
+not comparable to the full-suite result: runner_supervisor uses BENCH to locate
+bin imports. This was an invocation mistake. The exact suite environment is
+being used for a corrected focused recheck; no source change or timeout change.
+At 2026-11-03T18:30:33Z the host load averages were 44.86/56.35/74.06;
+this observation alone does not prove the full-suite failure was load-only.
+No repeat full suite is queued.
+Diff round 1: production has no findings; code NOT PASS on a test guard that
+batch_tick could swallow. All findings accepted; recorder/assertion guards,
+scan-to-plan depth coverage and journal byte assertion fixed in tests only.
+Fresh final diff review pending.
 
