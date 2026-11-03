@@ -1,5 +1,6 @@
-"""Independent cleanup of one authenticated disposable practice operation."""
+"""Independent cleanup on the existing practice/pilot operation path."""
 import argparse
+import fcntl
 import json
 import math
 import os
@@ -13,14 +14,16 @@ import batch_money as money
 import batch_service as service
 import boat_lifecycle
 import practice
+import pilot
 from registry import atomic_json
 from transfer import digest
 
 UNIT = "unbug-practice-cleanup@.service"
+PILOT_UNIT = "unbug-pilot-cleanup.service"
 
 
 def location(home, op):
-    return home / "batches" / practice.BATCH / "cleanup" / op["operation_id"]
+    return home / "batches" / op["authority"]["batch"] / "cleanup" / op["operation_id"]
 
 
 def ready(policy, op, pid):
@@ -29,14 +32,31 @@ def ready(policy, op, pid):
                 timing=practice.TIMING, policy_sha256=policy_digest(policy), pid=pid)
 
 
-def armed(policy, root, home, op):
-    if not practice.active(policy, root): return
-    practice.admission(money.manifest(policy, root))
+def armed(policy, root, home, op, operations=None):
+    is_pilot = pilot.active(policy, root)
+    if not is_pilot and not practice.active(policy, root): return
+    record = money.manifest(policy, root)
+    if is_pilot:
+        pilot.admission(record)
+        pilot.history(record, operations)
+        for other in operations.values():
+            if other['operation_id'] == op['operation_id'] or not other['dispatch_started']: continue
+            if preflight_clear(home, other): continue
+            try:
+                status = service._json(location(home, other).with_suffix('.status.json'))
+                if (type(status['schema']) is not int or status['schema'] != 1 or
+                        status['operation_id'] != other['operation_id'] or
+                        status['state'] != 'complete'): raise ValueError()
+            except (OSError, ValueError, KeyError, TypeError):
+                raise money.MoneyWait('cleanup not settled') from None
+    else: practice.admission(record)
+    unit = PILOT_UNIT if is_pilot else UNIT
+    instance = unit if is_pilot else 'unbug-practice-cleanup@' + op['operation_id'] + '.service'
     try:
         if os.environ.get("UNBUG_CLOUD") != "boat": raise ValueError()
-        if digest(Path("/etc/systemd/system") / UNIT) != digest(root / "control" / UNIT): raise ValueError()
+        if digest(Path("/etc/systemd/system") / unit) != digest(root / "control" / unit): raise ValueError()
         marker = service._json(location(home, op).with_suffix(".ready.json"))
-        response = subprocess.run(["systemctl", "show", "unbug-practice-cleanup@" + op["operation_id"] + ".service",
+        response = subprocess.run(["systemctl", "show", instance,
                                    "--property=ActiveState,SubState,ExecMainPID"], capture_output=True,
                                   text=True, check=True, timeout=10)
         status = dict(line.split("=", 1) for line in response.stdout.splitlines())
@@ -62,12 +82,47 @@ def monitor(root, path):
     return spend
 
 
-def bound_spend(home, path):
-    ledger = boat_lifecycle.loads(boat_lifecycle.regular(home / 'boat-reservations.json'))
+def bound_spend(home, path, *, absent_ok=False):
+    # Missing ledger is unknown. Never let read_ledger's admission default prove absence.
+    ledger_path = home / 'boat-reservations.json'
+    ledger = boat_lifecycle.read_ledger(ledger_path, missing_ok=False)
     matches = [record for record, row in ledger['reservations'].items()
                if row.get('state_path') == str(path.resolve())]
+    if not matches and absent_ok: return None
     if len(matches) != 1: raise ValueError('unknown spend binding')
     return Path(matches[0])
+
+
+def preflight_clear(home, op):
+    """Prove no creation and no reservation, never infer deletion from absence."""
+    if not (op['dispatch_started'] and op['state'] == 'failed' and
+            op.get('incident') == 'preflight_refused' and op.get('worker_id') is None): return False
+    path = home / 'launches' / op['launch_id']
+    directory = home / 'batches' / op['authority']['batch']
+    try:
+        with holder.operation_lock(directory, op['operation_id']):
+            if path.is_symlink() or not path.is_dir(): return False
+            # _reconcile_one fences a launch that never reached control_resume by
+            # creating its empty directory while holding this same operation lock.
+            entries = list(path.iterdir())
+            if entries:
+                if service._json(path / 'launch.json') != op['launch']: return False
+                with service._regular(path / 'controller.lock') as controller:
+                    fcntl.flock(controller, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    if list(path.glob('new.*')): return False
+                    try: ids = boat_lifecycle.regular(path / 'ids').strip()
+                    except FileNotFoundError: ids = b''
+                    if ids: return False
+                    return no_reservation(home, path)
+            return no_reservation(home, path)
+    except (OSError, ValueError, KeyError, TypeError): return False
+
+
+def no_reservation(home, path):
+    # Existing lock only: an absent ledger/lock does not establish clearance.
+    with service._regular(home / 'boat-reservations.lock') as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        return bound_spend(home, path, absent_ok=True) is None
 
 
 def settle(root, home, op, path, spend, result, now):
@@ -156,24 +211,65 @@ def step(policy, root, home, op, now=None):
     return result
 
 
+def observe_batch(policy, root, home, operations, terminal):
+    """Arm all identities first, then service live workers before retained proof."""
+    for op in operations.values():
+        target = location(home, op)
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        atomic_json(target.with_suffix('.ready.json'), ready(policy, op, os.getpid()))
+    def order(op):
+        if op['operation_id'] in terminal: return 3
+        try:
+            retained = service._json(location(home, op).with_suffix('.status.json'))
+            if (retained.get('schema') == 1 and retained.get('operation_id') == op['operation_id'] and
+                    retained.get('state') in ('complete', 'not_dispatched', 'window_closed')): return 3
+        except (OSError, ValueError, TypeError): pass
+        if op['dispatch_started']: return 0 if op['retirement'] is None else 1
+        return 2
+    for op in sorted(operations.values(), key=order):
+        identity = op['operation_id']
+        if identity in terminal: continue
+        if preflight_clear(home, op):
+            status = dict(schema=1, operation_id=identity, deadline=None, workers=[],
+                          state='not_dispatched', basis='preflight_no_reservation')
+        else:
+            status = step(policy, root, home, op)
+            if not op['dispatch_started'] and status['state'] == 'waiting':
+                record = money.manifest(policy, root)
+                try: pilot.admission(record)
+                except money.MoneyWait: status['state'] = 'window_closed'
+        atomic_json(location(home, op).with_suffix('.status.json'), status)
+        if status['state'] in ('complete', 'not_dispatched', 'window_closed'): terminal.add(identity)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--operation", required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--operation')
+    mode.add_argument('--batch', action='store_true')
     a = parser.parse_args()
     from key_holder import policy_load, ROOT, CONTROL_HOME
-    if os.environ.get("UNBUG_CLOUD") != "boat": raise ValueError("request_refused")
-    policy = policy_load(CONTROL_HOME / "policy.json")
-    if not practice.active(policy, ROOT): raise ValueError("request_refused")
+    if os.environ.get('UNBUG_CLOUD') != 'boat': raise ValueError('request_refused')
+    policy = policy_load(CONTROL_HOME / 'policy.json')
+    if not (pilot.active(policy, ROOT) if a.batch else practice.active(policy, ROOT)):
+        raise ValueError('request_refused')
+    record = money.manifest(policy, ROOT)
+    terminal = set()
     while True:
-        # Read the validated full operation under its lock.
-        with money.locked(CONTROL_HOME, practice.BATCH) as directory:
-            op = holder._operations(directory, money.manifest(policy, ROOT), policy)[a.operation]
-        target = location(CONTROL_HOME, op)
-        target.parent.mkdir(mode=0o700, exist_ok=True)
-        atomic_json(target.with_suffix(".ready.json"), ready(policy, op, os.getpid()))
-        status = step(policy, ROOT, CONTROL_HOME, op)
-        atomic_json(target.with_suffix(".status.json"), status)
-        if status["state"] in ("complete", "not_dispatched"): return 0
+        # Cloud/subprocess work occurs after releasing the existing batch lock.
+        with money.locked(CONTROL_HOME, record['id']) as directory:
+            operations = holder._operations(directory, record, policy)
+        if a.batch:
+            pilot.history(record, operations)
+            observe_batch(policy, ROOT, CONTROL_HOME, operations, terminal)
+        else:
+            op = operations[a.operation]
+            target = location(CONTROL_HOME, op)
+            target.parent.mkdir(mode=0o700, exist_ok=True)
+            atomic_json(target.with_suffix('.ready.json'), ready(policy, op, os.getpid()))
+            status = step(policy, ROOT, CONTROL_HOME, op)
+            atomic_json(target.with_suffix('.status.json'), status)
+            if status['state'] in ('complete', 'not_dispatched'): return 0
         time.sleep(5)
 
 

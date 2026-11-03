@@ -240,7 +240,7 @@ guard_init
         self.assertEqual(self.finish().returncode,0)
         self.assertEqual(self.row()['status'],'finished')
         (self.state/'spend-finished').touch()
-        op=dict(operation_id='op',launch_id='test',dispatch_started=True,launch={},state='failed')
+        op=dict(operation_id='op',launch_id='test',dispatch_started=True,launch={},state='failed',authority={'batch':'b-plumbing-practice-2'})
         (self.state/'launch.json').write_text('{}')
         with patch.dict(os.environ,self.env):
             first=cleanup.step({},ROOT,self.home,op,100)

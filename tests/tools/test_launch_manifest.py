@@ -86,7 +86,7 @@ class ManifestTests(unittest.TestCase):
                             'factory/batch_transfer.py',
                             'factory/batch_status.py', 'factory/batch_accounting.py', 'factory/batch_holder.py',
                             'factory/deployment_inventory.py', 'factory/boat_lifecycle.py',
-                            'factory/practice.py', 'factory/practice_cleanup.py', 'factory/practice_preflight.py',
+                            'factory/pilot.py', 'factory/practice.py', 'factory/practice_cleanup.py', 'factory/practice_preflight.py',
                             'factory/control-recipient.txt',
                             'factory/collection.py', 'factory/freshness_retrieval.py',
                             'factory/ordinary_retry.py', 'factory/ordinary_freshness.py', 'factory/stress_progress.py',
