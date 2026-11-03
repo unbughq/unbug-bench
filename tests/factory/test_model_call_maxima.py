@@ -81,6 +81,34 @@ class MaximaTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
 
+    def test_codex_batch_call_currently_waits_unbounded(self):
+        # Real batch authority, runtime and router; no CLI/provider call.
+        deadline = float(int(time.time()) + 3600)
+        channel = dict(schema=1, batch='synthetic', job='job', case='case-synthetic',
+            reservation_id=str(uuid.uuid4()), revision=1, source_generation=None,
+            committed_total_usd='50.000000000', batch_deadline=router.utc(deadline))
+        path = self.root / 'ledger.json'
+        path.write_text(json.dumps({'cost': 0, 'calls': 0, 'events': []}))
+        model = 'codex/gpt-6.1-sol'
+        c = SimpleNamespace(work=self.root, case=self.root, ledger=path,
+            args=run.argument_parser().parse_args(['--source', 'hunt']),
+            card={'roles': {'strong_calibrator': {'model': model}}},
+            case_id=channel['case'], batch_id=channel['batch'], job_id=channel['job'],
+            batch_deadline=deadline, source_generation=None, job_money=copy.deepcopy(channel),
+            authenticated_job_config={'job_money': copy.deepcopy(channel)},
+            router_accounts=('codex-auth.json',))
+        store = router.Store(self.root / 'router.sqlite')
+        runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(), Mock(), Mock())
+        with patch.dict(os.environ, {'UNBUG_PROVIDER_WAIT': '1'}), \
+             patch.object(router, '_rpc', store.rpc), patch.object(router, 'WAIT_SECONDS', 0), \
+             patch.object(router, 'SECRETS', self.root / 'empty'), \
+             patch.object(model_runtime.ModelRuntime, '_invoke') as invoke:
+            with self.assertRaises(router.ProviderWait) as caught:
+                runtime.call(c, [model], 'synthetic', self.root, 'strong-calibrator-1')
+        self.assertEqual(caught.exception.wait.reason, 'unbounded_route')
+        invoke.assert_not_called()
+        self.assertEqual(store.rpc('status', {})['leases'], [])
+
     def test_real_routes_fail_closed_except_exact_qualified_profiles(self):
         store = router.Store(self.root/'router.sqlite')
         from token_prices import GATED_OPENROUTER

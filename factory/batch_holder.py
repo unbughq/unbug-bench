@@ -29,6 +29,14 @@ RETRY_LIMIT = 5  # Resume/publish respawns before a terminal incident.
 # Process-local delay only; no authorization or durable consumption state.
 _PLAN_RETRY_AFTER = {}
 _RESUME_RETRY_AFTER = {}
+PILOT_ROLE_ERROR = 'pilot roles must use pinned bounded routes'
+PILOT_ROLES = {
+    '--builder': 'openrouter/minimax/minimax-m3.1-flash',
+    '--attacker': 'openrouter/deepseek/deepseek-v4.1-flash',
+    '--reviewer1': 'openrouter/xiaomi/mimo-v2.6-pro',
+    '--strong-calibrator': 'claude/claude-opus-4-5-20251101:compact',
+    '--easy-calibrator': 'openrouter/deepseek/deepseek-v4.1-flash',
+}
 FIELDS = {'operation_id', 'launch_id', 'job', 'case', 'source_generation',
           'release_sha256', 'config_sha256', 'authority', 'state', 'pending_since',
           'worker_id', 'dispatch_started', 'dispatch_exit', 'output_generation',
@@ -228,6 +236,25 @@ def empty_input(root, directory, case):
         raise ValueError('request_refused')
 
 
+def _pilot_roles(args):
+    from model_router import route_maximum
+    if not isinstance(args, list) or any(not isinstance(arg, str) for arg in args):
+        raise ValueError(PILOT_ROLE_ERROR)
+    targets = (*PILOT_ROLES, '--writer', '--stress-tester', '--pilot', '--reviewer2')
+    seen = set()
+    for index, arg in enumerate(args):
+        if arg in PILOT_ROLES:
+            if arg in seen or index + 1 == len(args) or args[index + 1] != PILOT_ROLES[arg]:
+                raise ValueError(PILOT_ROLE_ERROR)
+            seen.add(arg)
+        elif arg.startswith('--'):
+            option = arg.split('=', 1)[0]
+            if option == '--' or any(target.startswith(option) for target in targets):
+                raise ValueError(PILOT_ROLE_ERROR)
+    if seen != PILOT_ROLES.keys() or any(route_maximum(route) is None for route in PILOT_ROLES.values()):
+        raise ValueError(PILOT_ROLE_ERROR)
+
+
 def _admit(directory, record, policy, root, home, ops, state, name, source_generation, provider_wait=False,
            *, queued_resume=None):
     """Shared decision; only supplied in-memory state changes. Caller owns lock."""
@@ -235,7 +262,11 @@ def _admit(directory, record, policy, root, home, ops, state, name, source_gener
     if record['id'] == practice.BATCH:
         if not practice.matches(record): raise ValueError('request_refused')
         practice.admission(record)
+    if record['id'] == money.PILOT_BATCH:
+        if len(record['jobs']) != 3: raise ValueError(PILOT_ROLE_ERROR)
+        for job in record['jobs'].values(): _pilot_roles(job.get('args'))
     resolved = service.resolve_job(record, name)
+    if record['id'] == money.PILOT_BATCH: _pilot_roles(resolved['template'].get('args'))
     carried = record.get('carry_from', {}).get('jobs', {})
     if name not in carried and any(re.fullmatch(re.escape(name) + r'-r[1-9][0-9]*', child) for child in carried):
         raise ValueError('template-only imported root')
