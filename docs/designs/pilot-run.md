@@ -25,6 +25,14 @@ S=config/small seam, M=bounded increment, L=integrated lifecycle work. Timeline:
 | Escaped-session containment / E | prerequisite O7 | Qualify selected routes against new-isolation-settlement-1 before live pilot; subscription billing does not waive containment. |
 B builds settlement first, then admission/cleanup, then S config. Review/test each increment with locked suite and fresh review. Supersede full item-8
 matrix/manual activation; keep journals/evidence. No parallel launcher, no row closures.
+The proposed batch ID is `b-real-pilot`. Every job must explicitly pin builder
+to `openrouter/minimax/minimax-m3.1-flash`, attacker and easy calibrator to
+`openrouter/deepseek/deepseek-v4.1-flash`, reviewer1 to
+`openrouter/xiaomi/mimo-v2.6-pro`, and strong calibrator to
+`claude/claude-opus-4-5-20251101:compact`. No reviewer2 or Codex role. B checks
+all templates before any pilot admission as designed in `pilot-bounded-roles.md`;
+the easy calibrator differs from the writer for statement dedup. The Codex
+request gate remains a separately reviewed follow-up after the pilot.
 Murphy 9 remains open; new-batch-service-4 matters for later held-case recovery.
 new-stream-d-current-comparison-1 applies only after extension then factory-bug resume;
 that is unlikely here and must not be exercised unless lane 2 qualifies it.
