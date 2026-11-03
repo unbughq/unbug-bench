@@ -430,13 +430,14 @@ row needs the 6a/6c/6d/6e/6f chain and real-artifact regression; the waste row n
 reviewed fix/evidence commit, never from this plan, an authored fixture, inventory
 absence alone or a request to an agent to choose the desired answer.
 
-After ALL prerequisites and acceptance evidence, a fresh review must approve the
-results/rows and the exact activation release. Normal DIAGNOSIS_ENABLED stays
-False. Future beta qualification releases may set it True only under separately
-reviewed isolated qualification policy; normal activation remains a separate
-reviewed commit with founder-approved live batch money/deadline. Rollback pins
-False, stops new admissions, preserves paid work/ownership and collects/deletes
-through B. No flag is flipped here.
+After the current pilot prerequisites, a fresh review must approve the exact
+activation release and batch manifest, with founder-approved money/deadline.
+Diagnosis defaults off when diagnosis_policy is absent or false. Opt-in belongs
+to the authenticated manifest, not a global flag or restored card. A journal is
+pinned to its manifest SHA: never edit a running batch's manifest in place.
+Rollback stops new B admissions and uses a separately reviewed default-off batch
+or release; it preserves paid work/ownership and collects/deletes through B.
+No batch is opted in by this preparation.
 
 This preparation deletes stale “no profile exists” and “outer-wall rows open”
 claims and the obsolete spare-slot wording; it adds no runtime mechanism.

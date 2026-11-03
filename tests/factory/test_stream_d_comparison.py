@@ -30,6 +30,7 @@ import recovery
 import run
 from run_validity import InvalidInfra
 import test_extension_compare as comparison_tests
+import test_stream_d_runtime as runtime
 
 REAL_PUBLIC_PROGRESS = run.public_progress
 REAL_START_CHILD = evaluator.Evaluator.start_child
@@ -314,11 +315,10 @@ class ComparisonTests(unittest.TestCase):
                     instance(self.workspace(), 'G1')
 
     def test_pending_pair_routes_to_producer_before_writer_admission(self):
-        import batch_service
         import diagnosis_dispatch
         self.ready()
         manifest = dict(exhaustion_id=self.c.card['diagnosis_state']['exhaustion_id'])
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), \
+        with runtime.diagnosis_policy(self.c), \
                 patch.object(extensions, 'comparison_pair', return_value=None), \
                 patch.object(extensions, 'writer_receipt', side_effect=AssertionError('writer before comparison')):
             with self.assertRaisesRegex(budget.BudgetError, '^extension_comparison_pending$'):

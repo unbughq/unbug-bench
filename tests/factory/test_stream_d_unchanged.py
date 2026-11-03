@@ -15,7 +15,6 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
-import batch_service
 import budget
 import diagnosis
 import diagnosis_dispatch
@@ -231,7 +230,7 @@ class UnchangedTests(unittest.TestCase):
     def test_history_before_card_routes_completed_terminal_without_stress(self):
         self.prepare(); lagging = copy.deepcopy(self.c.card['extension_history'])
         row = self.complete(); self.c.card['extension_history'] = lagging
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), \
+        with runtime.diagnosis_policy(self.c), \
                 patch.object(extensions, 'writer_receipt', side_effect=AssertionError('old writer')):
             result = diagnosis_dispatch.apply(self.c, self.work, {'exhaustion_id': row['exhaustion_id']},
                                              {'outcome': 'close_to_passing'}, resume=True)

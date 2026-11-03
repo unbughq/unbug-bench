@@ -70,6 +70,24 @@ def verified_config(path, digest, case, release_sha, *, generation=...):
     return current, record
 
 
+def diagnosis_enabled(c):
+    """Current installed manifest only; checkpoints and cards grant no opt-in."""
+    from batch_money import diagnosis_enabled as enabled, MoneyWait
+    from budget import BudgetError
+    from job_authority import for_case
+    record = getattr(c, 'authenticated_batch_manifest', None)
+    if record is None: return False
+    try:
+        if not isinstance(record, dict): raise ValueError()
+        if not enabled(record): return False
+        authority = for_case(c)
+        if (record['id'], record['batch_deadline']) != (authority.batch, authority.batch_deadline):
+            raise ValueError()
+        return True
+    except (MoneyWait, KeyError, TypeError, ValueError):
+        raise BudgetError('money_wait') from None
+
+
 def install(c, args):
     """Must run after restore authentication and before any D/model admission."""
     from budget import BudgetError
@@ -78,6 +96,7 @@ def install(c, args):
             raise BudgetError('money_wait')
         return
     c.authenticated_job_config = {}
+    c.authenticated_batch_manifest = None
     c.batch_id = c.job_id = c.batch_deadline = c.source_generation = None
     try:
         from job_authority import read

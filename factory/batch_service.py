@@ -17,10 +17,6 @@ from launch_manifest import collection_files
 from registry import atomic_json
 from transfer import digest
 
-# Enable only in a reviewed D + collection/holder integration increment.
-DIAGNOSIS_ENABLED = False
-
-
 def resolve_job(manifest, job_id):
     """Resolve the frozen root template; this pure function grants no admission."""
     batch_money.check_manifest(manifest)
@@ -338,7 +334,7 @@ def plan(policy, root, home, case, generation, now=None):
         card = _snapshot(directory, entry, record, policy['batch']['sha256'])
         if retire_legacy(directory, entry, card):
             return dict(status='retired', reason='legacy_retire', facts=None, queue=[])
-        if not DIAGNOSIS_ENABLED: return dict(status='diagnosis_unavailable', facts=None, queue=[])
+        if not batch_money.diagnosis_enabled(record): return dict(status='diagnosis_unavailable', facts=None, queue=[])
         if entry['facts'] is None:
             if batch_money.deadline(record['batch_deadline']) <= (time.time() if now is None else now):
                 raise ValueError('retired_batch_bound')

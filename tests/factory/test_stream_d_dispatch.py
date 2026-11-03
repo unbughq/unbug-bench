@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
 import test_stream_d_inputs as inputs
 from router_test_support import synthetic_maximum
-import batch_service
+import job_config
 import budget
 from carry_over import digest
 import diagnosis
@@ -70,7 +70,7 @@ class DispatchTests(unittest.TestCase):
                     if entry.is_dir(): entry.chmod(0o700)
             remove(path)
         self.patch(task, '_remove', side_effect=unprivileged_remove)
-        self.patch(batch_service, 'DIAGNOSIS_ENABLED', False)
+        self.c.authenticated_batch_manifest['diagnosis_policy'] = dict(schema=1, enabled=False)
         self.pilots = self.patch(run, 'make_pilots')
         self.dispose = self.patch(run, 'dispose_diagnosis_pilot')
         self.qualify = self.patch(worker_release, 'verify_selected_drivers', return_value={})
@@ -116,7 +116,7 @@ class DispatchTests(unittest.TestCase):
             budget.release_uninvoked(c.ledger, lease.lease_id)
 
     def stopped(self, label):
-        if label == 'extension_comparison_pending' and batch_service.DIAGNOSIS_ENABLED is True:
+        if label == 'extension_comparison_pending' and job_config.diagnosis_enabled(self.c):
             self.assertEqual(dispatch.dispatch(self.c, run), 0)
         else:
             with self.assertRaisesRegex(budget.BudgetError, '^' + label + '$'):
@@ -178,19 +178,21 @@ class DispatchTests(unittest.TestCase):
         card['batch_release_sha256'] = self.c.args.batch_release_sha256
         atomic_json(self.work / 'scorecard.json', card)
         control = self.work / 'authored-control.json'
-        atomic_json(control, {key: getattr(self.c, key) for key in ('job_money', 'authenticated_job_config',
+        atomic_json(control, {key: getattr(self.c, key) for key in ('job_money', 'authenticated_job_config', 'authenticated_batch_manifest',
             'batch_id', 'job_id', 'batch_deadline', 'source_generation')})
         code = r'''
 import json, pathlib, sys
 from unittest.mock import patch
 sys.path[:0]=[sys.argv[1], sys.argv[2]]
-import run, job_config, founder_ruling, free_models, diagnosis_task, model_router, batch_service, worker_release
+import run, job_config, founder_ruling, free_models, diagnosis_task, model_router, worker_release
 home, case, release, source, bench, fault = sys.argv[3:]
 run.HOME=pathlib.Path(home); run.SEALED=run.HOME/'sealed'; run.BENCH=pathlib.Path(bench)
 job_config.FACTORY=pathlib.Path(source); diagnosis_task.ROOT=run.HOME/'tasks'
 run.bench_manifest=lambda: 'authored-clean-bench'
 def install(c,a):
  for k,v in json.loads((c.work/'authored-control.json').read_text()).items(): setattr(c,k,v)
+ if fault in ('execute', 'admit', 'admit-money', 'admit-comparison', 'qualification') or fault.startswith('mode:'):
+  c.authenticated_batch_manifest['diagnosis_policy'] = dict(schema=1, enabled=True)
  if fault.startswith('mode:'):
   name=fault.split(':')[1]
   if name == 'audit_source': c.audit_source='authored audit'
@@ -205,7 +207,6 @@ run.seal=seal
 run.pilot_homes=lambda: []
 founder_ruling.context=lambda c: None
 job_config.install=install
-if fault in ('execute', 'admit', 'admit-money', 'admit-comparison') or fault.startswith('mode:'): batch_service.DIAGNOSIS_ENABLED=True
 if fault in ('execute', 'admit', 'admit-money', 'admit-comparison'):
  run.sh=lambda *a,**k: None
  run.pick_models=lambda c: {'builder':['claude/claude-opus-5-5']}
@@ -250,7 +251,6 @@ if fault.startswith('held:'):
   raise diagnosis.FactoryBugHeldWait(fault.split(':',1)[1])
  diagnosis_dispatch.dispatch=held
 if fault == 'qualification':
- batch_service.DIAGNOSIS_ENABLED=True
  def unavailable(*a,**k): raise ValueError('authored CLI version mismatch')
  worker_release.verify_selected_drivers=unavailable
 with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resume-bench-sha','authored-clean-bench',
@@ -285,12 +285,39 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         if fault in ('execute', 'admit'): self.assertTrue(published['execution_test_entered'])
         return published
 
+    def test_deadline_after_durable_decision_replays_without_a_second_call(self):
+        from datetime import datetime, timezone
+        class Expired(datetime):
+            @classmethod
+            def now(cls, tz=None): return cls(2100, 1, 1, tzinfo=timezone.utc)
+        self.answer = 'close_to_passing'
+        expiry = patch.object(job_authority, 'datetime', Expired)
+        real = dispatch.decision
+        def saved_then_expired(*args, **kwargs):
+            result = real(*args, **kwargs)
+            expiry.start()
+            return result
+        try:
+            with runtime.diagnosis_policy(self.c), patch.object(dispatch, 'decision', side_effect=saved_then_expired):
+                with self.assertRaisesRegex(budget.BudgetError, '^retired_batch_bound$'):
+                    dispatch.dispatch(self.c, run)
+        finally: expiry.stop()
+        path = self.parent / 'decision.json'
+        retained, calls, ledger = path.read_bytes(), len(self.calls), self.ledger.read_bytes()
+        self.assertEqual(calls, 1)
+        self.resume()
+        with runtime.diagnosis_policy(self.c), patch.object(run, 'opencode', side_effect=AssertionError('second diagnosis')):
+            self.assertEqual(dispatch.dispatch(self.c, run), 0)
+        self.assertEqual(path.read_bytes(), retained)
+        self.assertEqual(len(self.calls), calls)
+        self.assertEqual(self.ledger.read_bytes(), ledger)
+
     def test_all_outcomes_replay_after_unknown_total_and_preserve_id(self):
         # Separate contexts because each outcome is immutable.
         for outcome in ('factory_bug', 'close_to_passing', 'not_converging'):
             with self.subTest(outcome=outcome):
                 self.answer = outcome
-                with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+                with runtime.diagnosis_policy(self.c):
                     self.stopped(dispatch.STOPS[outcome])
                 saved = copy.deepcopy(self.c.card['diagnosis_state'])
                 calls = len(self.calls)
@@ -335,7 +362,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
 
     def prepare_active_launch(self):
         self.answer = 'close_to_passing'
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+        with runtime.diagnosis_policy(self.c):
             self.stopped('extension_comparison_pending')
         row = self.admit_active_control(1)
         # Emulate the public count lagging the durable admission.
@@ -355,7 +382,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
 
     def test_enabled_replay_returns_verified_extension_identity(self):
         row = self.prepare_active_launch()
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+        with runtime.diagnosis_policy(self.c):
             self.assertEqual(dispatch.dispatch(self.c, run), row['extension_id'])
         self.assertEqual(json.loads((self.work / 'attack-state.json').read_text()), self.admitted_receipt)
         self.pilots.assert_not_called()
@@ -368,13 +395,13 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
 
     def test_fresh_decision_cleans_pilot_and_replay_returns_zero_without_model(self):
         self.answer = 'close_to_passing'
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+        with runtime.diagnosis_policy(self.c):
             self.assertEqual(dispatch.dispatch(self.c, run), 0)
         self.dispose.assert_called_once()
         self.assertIsNone(getattr(self.c, 'model_operation_id', None))
         calls = len(self.calls)
         self.resume()
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+        with runtime.diagnosis_policy(self.c):
             self.assertEqual(dispatch.dispatch(self.c, run), 0)
         self.assertEqual(len(self.calls), calls)
         self.assertIsNone(diagnosis.pending_projection(self.c.card))
@@ -382,7 +409,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
     def test_comparison_opt_in_reaches_fresh_replay_and_valid_journal_apply(self):
         self.answer = 'close_to_passing'
         original = dispatch.apply
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), \
+        with runtime.diagnosis_policy(self.c), \
                 patch.object(dispatch, 'apply', wraps=original) as applied:
             self.assertEqual(dispatch.dispatch(self.c, run, comparison_route=True), 0)
             self.assertTrue(applied.call_args.kwargs['comparison_route'])
@@ -399,7 +426,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
 
     def test_main_converts_zero_before_package_and_money_refusal_checkpoints(self):
         self.answer = 'close_to_passing'
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+        with runtime.diagnosis_policy(self.c):
             self.assertEqual(dispatch.dispatch(self.c, run), 0)
         self.c.checkpoint_card = copy.deepcopy(self.c.card)
         self.main_resume('admit')
@@ -407,7 +434,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
 
     def test_main_routes_zero_to_pending_producer_before_any_writer_call(self):
         self.answer = 'close_to_passing'
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+        with runtime.diagnosis_policy(self.c):
             self.assertEqual(dispatch.dispatch(self.c, run, comparison_route=True), 0)
         self.c.checkpoint_card = copy.deepcopy(self.c.card)
         published = self.main_resume('admit-comparison')
@@ -516,7 +543,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             self.c.card['diagnosis_state']['stop'] = origin
         self.c.checkpoint_card = copy.deepcopy(self.c.card)
         self.install_receipt()
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+        with runtime.diagnosis_policy(self.c):
             self.stopped('extension_comparison_pending')
         if origin == 'extension_incomplete':
             self.admit_active_control(1)
@@ -528,7 +555,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             self.parent = self.work / 'diagnosis' / self.c.card['diagnosis_state']['exhaustion_id']
             self.c.checkpoint_card = copy.deepcopy(self.c.card)
             self.install_receipt()
-            with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+            with runtime.diagnosis_policy(self.c):
                 self.stopped('extension_comparison_pending')
         self.admit_active_control(2 if origin == 'extension_incomplete' else 1)
         saved = copy.deepcopy(self.c.card)
@@ -566,7 +593,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.check_active_dispatch('extension_incomplete')
 
     def test_valid_journal_without_decision_finishes_before_gate(self):
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'decision', side_effect=Crash):
+        with runtime.diagnosis_policy(self.c), patch.object(dispatch, 'decision', side_effect=Crash):
             with self.assertRaises(Crash): dispatch.dispatch(self.c, run)
         self.assertFalse((self.parent / 'decision.json').exists())
         self.assertEqual(json.loads((self.parent / 'attempts.json').read_text())['attempts'][-1]['status'], 'valid')
@@ -578,14 +605,14 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
 
     def test_valid_close_journal_publishes_decision_without_another_paid_call(self):
         self.answer = 'close_to_passing'
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'decision', side_effect=Crash):
+        with runtime.diagnosis_policy(self.c), patch.object(dispatch, 'decision', side_effect=Crash):
             with self.assertRaises(Crash): dispatch.dispatch(self.c, run)
         self.assertFalse((self.parent / 'decision.json').exists())
         self.assertEqual(json.loads((self.parent / 'attempts.json').read_text())['attempts'][-1]['status'], 'valid')
         calls = len(self.calls)
         self.pilots.reset_mock(); self.qualify.reset_mock(); self.helper_calls.clear()
         self.resume()
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+        with runtime.diagnosis_policy(self.c):
             self.assertEqual(dispatch.dispatch(self.c, run), 0)
         self.assertTrue((self.parent / 'decision.json').is_file())
         self.assertEqual(len(self.calls), calls)
@@ -593,7 +620,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.assertEqual(self.helper_calls, [])
 
     def test_missing_valid_raw_is_input_invalid_before_gate(self):
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'decision', side_effect=Crash):
+        with runtime.diagnosis_policy(self.c), patch.object(dispatch, 'decision', side_effect=Crash):
             with self.assertRaises(Crash): dispatch.dispatch(self.c, run)
         next(self.parent.glob('raw-bytes-*')).unlink()
         self.resume(); self.stopped('diagnosis_input_invalid')
@@ -609,7 +636,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
                 manifest = json.loads((self.parent / 'input.json').read_text())
                 (cwd / 'result.json').write_text(json.dumps(self.result(manifest)))
         self.answer = answer
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('factory_bug_held')
+        with runtime.diagnosis_policy(self.c): self.stopped('factory_bug_held')
         first, repair = self.calls
         self.assertEqual(first[1], repair[1]); self.assertNotEqual(first[2], repair[2])
         self.assertTrue(repair[0].endswith('-repair-1'))
@@ -618,7 +645,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
 
     def test_changed_decision_cannot_disagree_with_its_valid_raw_answer(self):
         self.answer = 'close_to_passing'
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('extension_comparison_pending')
+        with runtime.diagnosis_policy(self.c): self.stopped('extension_comparison_pending')
         path = self.parent / 'decision.json'; value = json.loads(path.read_text())
         value['diagnosis']['reason'] = 'different but schema-valid authored reason'
         atomic_json(path, value)
@@ -642,7 +669,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
                 self.assertEqual(response['status'], 'ok')
                 response['inputs_sha256'] = 'f' * 64
             return response, raw
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'helper', side_effect=helper):
+        with runtime.diagnosis_policy(self.c), patch.object(dispatch, 'helper', side_effect=helper):
             self.stopped('diagnosis_input_invalid')
         self.assertEqual(len(self.calls), 1)
         self.assertFalse((self.parent / 'decision.json').exists())
@@ -674,7 +701,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             if raw: raise OSError('authored disk failure')
             return audit(c, identity, response, raw)
         self.answer = answer
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'audit', side_effect=failed_audit):
+        with runtime.diagnosis_policy(self.c), patch.object(dispatch, 'audit', side_effect=failed_audit):
             with self.assertRaises(dispatch.DiagnosisTaskCleanupError): dispatch.dispatch(self.c, run)
         output = task.ROOT / self.c.case_id / self.parent.name / 'output/result.json'
         self.assertEqual(output.read_text(), 'interrupted bytes')
@@ -684,7 +711,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
     def retry_after(self, fault, expected=OSError):
         import recovery
         identity = self.parent.name
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), fault:
+        with runtime.diagnosis_policy(self.c), fault:
             with self.assertRaises(expected) as raised: dispatch.dispatch(self.c, run)
         # The unchanged runner handler publishes this exact infrastructure label.
         label = 'runner_error:' + type(raised.exception).__name__
@@ -695,7 +722,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         run.finalize_accounting(self.c)
         self.assertEqual(self.c.card['diagnosis_state']['exhaustion_id'], identity)
         self.resume()
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('factory_bug_held')
+        with runtime.diagnosis_policy(self.c): self.stopped('factory_bug_held')
         self.assertEqual(self.c.card['diagnosis_state']['exhaustion_id'], identity)
 
     def test_driver_qualification_failure_is_retryable(self):
@@ -724,7 +751,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.retry_after(patch.object(dispatch, 'helper', side_effect=helper), RuntimeError)
 
     def test_raw_answer_permission_failure_is_retryable(self):
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('factory_bug_held')
+        with runtime.diagnosis_policy(self.c): self.stopped('factory_bug_held')
         self.resume()
         read = diagnosis._input_bytes
         def unreadable(path, base):
@@ -734,7 +761,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.assertEqual(len(self.calls), 1)
 
     def test_decision_permission_failure_is_retryable(self):
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('factory_bug_held')
+        with runtime.diagnosis_policy(self.c): self.stopped('factory_bug_held')
         self.resume()
         read = diagnosis._input_bytes
         def unreadable(path, base):
@@ -744,7 +771,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.assertEqual(len(self.calls), 1)
 
     def test_history_permission_failure_is_retryable(self):
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('factory_bug_held')
+        with runtime.diagnosis_policy(self.c): self.stopped('factory_bug_held')
         self.resume()
         read = Path.read_text
         def unreadable(path, *args, **kwargs):
@@ -813,7 +840,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
 
     def test_model_free_publication_failure_is_retryable_before_the_gate(self):
         import errno
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'decision', side_effect=Crash):
+        with runtime.diagnosis_policy(self.c), patch.object(dispatch, 'decision', side_effect=Crash):
             with self.assertRaises(Crash): dispatch.dispatch(self.c, run)
         state = copy.deepcopy(self.c.card['diagnosis_state'])
         for file, module in (('decision.json', dispatch), ('scorecard.json', diagnosis)):
@@ -868,7 +895,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             if len(self.calls) == 1: result['evidence'][0]['path'] = 'x' * 300
             (cwd / 'result.json').write_text(json.dumps(result))
         self.answer = answer
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('factory_bug_held')
+        with runtime.diagnosis_policy(self.c): self.stopped('factory_bug_held')
         rows = json.loads((self.parent / 'attempts.json').read_text())['attempts']
         self.assertEqual([(r['kind'], r['status'], r['error']) for r in rows],
                          [('judgment', 'malformed', 'schema'), ('repair', 'valid', None)])
@@ -902,7 +929,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             (cwd / 'result.json').write_text('partial output')
             raise Crash()
         self.answer = interrupt
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+        with runtime.diagnosis_policy(self.c):
             with self.assertRaises(Crash): dispatch.dispatch(self.c, run)
         operation = self.calls[0][2]
         identity = self.parent.name
@@ -915,13 +942,13 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.resume(); self.stopped('diagnosis_pending')
         self.assertEqual(self.parent.name, self.c.card['diagnosis_state']['exhaustion_id'])
         self.answer = 'factory_bug'
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('factory_bug_held')
+        with runtime.diagnosis_policy(self.c): self.stopped('factory_bug_held')
         self.assertEqual(self.calls[-1][2], operation)
         self.assertEqual({p.name for p in (task.ROOT / self.c.case_id).iterdir()}, {'.lock'})
 
     def test_all_malformed_routes_retire_without_new_model_on_false_gate(self):
         self.answer = lambda c, cwd, callback: (cwd / 'result.json').write_text('malformed')
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('retired_diagnosis_malformed')
+        with runtime.diagnosis_policy(self.c): self.stopped('retired_diagnosis_malformed')
         count = len(self.calls)
         self.assertEqual(count, 2 * len({r['route'] for r in model_router.routes(self.c.card['roles']['reviewer']['model'])}))
         self.assertEqual(self.c.card['diagnosis_state']['status'], 'pending')
@@ -929,7 +956,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
         self.assertEqual(len(self.calls), count)
 
     def test_schema_contract_roll_waits_without_relabelling_input_corruption(self):
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(dispatch, 'decision', side_effect=Crash):
+        with runtime.diagnosis_policy(self.c), patch.object(dispatch, 'decision', side_effect=Crash):
             with self.assertRaises(Crash): dispatch.dispatch(self.c, run)
         state = copy.deepcopy(self.c.card['diagnosis_state'])
         with patch.object(diagnosis, 'RESULT_SCHEMA', {'new': 'unsupported schema'}):
@@ -963,11 +990,11 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             # Authored root-side corruption; a pilot lacks this permission.
             exposed.chmod(0o640); exposed.write_bytes(b'changed copy')
         self.answer = answer
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('diagnosis_input_invalid')
+        with runtime.diagnosis_policy(self.c): self.stopped('diagnosis_input_invalid')
         self.assertTrue((self.parent / 'inputs/ledger.json').exists())
 
     def test_cleanup_visits_prior_ids_and_replays_held_after_infrastructure_failure(self):
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True): self.stopped('factory_bug_held')
+        with runtime.diagnosis_policy(self.c): self.stopped('factory_bug_held')
         identity = self.parent.name
         state = copy.deepcopy(self.c.card['diagnosis_state'])
         old = str(uuid.uuid4())
@@ -992,7 +1019,7 @@ with patch.object(sys,'argv',['run.py','--source','hunt','--resume',case,'--resu
             self.assertTrue(list(self.parent.glob('audit-bytes-*')))
             raise Crash()
         self.answer = answer
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+        with runtime.diagnosis_policy(self.c):
             with self.assertRaises(Crash): dispatch.dispatch(self.c, run)
         self.resume(); self.stopped('diagnosis_pending')
         self.assertFalse((self.parent / 'decision.json').exists())

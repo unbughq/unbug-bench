@@ -43,6 +43,22 @@ class MoneyTests(unittest.TestCase):
     def authorize(self, name='a', source=None, **kwargs):
         return money.authorize(self.policy, name, source, self.root, self.home, **kwargs)
 
+    def test_diagnosis_policy_shape_default_and_manifest_pin(self):
+        self.assertFalse(money.diagnosis_enabled(money.check_manifest(self.record)))
+        for enabled in (False, True):
+            record = {**self.record, 'diagnosis_policy': dict(schema=1, enabled=enabled)}
+            self.assertIs(money.diagnosis_enabled(money.check_manifest(record)), enabled)
+        for policy in (None, [], {}, {'schema': 1}, {'enabled': True},
+                       dict(schema=True, enabled=True), dict(schema=2, enabled=True),
+                       dict(schema=1, enabled=1), dict(schema=1, enabled='true'),
+                       dict(schema=1, enabled=True, extra=0)):
+            with self.subTest(policy=policy), self.assertRaisesRegex(money.MoneyWait, '^money_wait$'):
+                money.check_manifest({**self.record, 'diagnosis_policy': policy})
+        # A file edit without both release pins is not an opt-in.
+        self.path.write_text(json.dumps({**self.record, 'diagnosis_policy': dict(schema=1, enabled=True)}))
+        with self.assertRaisesRegex(money.MoneyWait, '^money_wait$'):
+            money.manifest(self.policy, self.root)
+
     def test_fresh_replay_capacity_and_source_refusals(self):
         first = self.authorize()
         self.assertEqual(self.authorize(), first)

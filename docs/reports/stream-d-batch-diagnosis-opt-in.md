@@ -1,0 +1,24 @@
+# Authenticated batch diagnosis opt-in — increment 1
+
+This increment replaces the global diagnosis switch with the optional pinned
+manifest policy diagnosis_policy={schema:1, enabled:true}. Host planning and
+worker diagnosis/extension capture use the same strict policy shape; the worker
+also checks current money authority and its batch/deadline binding. No tracked
+batch opts in, and no worker or live call was launched.
+
+The existing worker config schema and authenticated manifest installation are
+reused. Cards, checkpoints and environment variables cannot activate diagnosis.
+Cheap observation exclusions run first. A deadline after a durable diagnosis
+decision refuses safely; replay consumes that exact decision without a new call.
+The historical preparation preflight and rollback instructions are updated.
+
+Design review: docs/reviews/stream-d-batch-diagnosis-opt-in-design-1.md, PASS.
+Four Majors and four Nits accepted and addressed. Full-suite record and fresh
+diff review follow below when complete. No Murphy row closes.
+
+Still required: production collection-to-plan wiring, then durable resume queue
+draining through existing holder reserve/reconcile/dispatch with ACK, retirement
+and money checks. B retains pilot admission, cleanup and Boat settlement.
+O7 is paused/assigned elsewhere with no lane-1 O7 design or implementation.
+The founder replacement pilot decision is recorded without deleting historical
+item-8 analysis; this code grants no pilot spend or launch authority.

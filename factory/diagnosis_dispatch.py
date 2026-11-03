@@ -8,7 +8,6 @@ from pathlib import Path
 import subprocess
 import uuid
 
-import batch_service
 from batch_accounting import card_total
 from budget import BudgetError, reconcile_reservations
 from carry_over import digest
@@ -231,6 +230,7 @@ def apply(c, parent, manifest, result, *, resume=False, comparison_route=False):
         state.update(status='completed', outcome=result['outcome'])
         c.card.update(status='stopped', terminal_stop=STOPS[result['outcome']])
         if result['outcome'] == 'close_to_passing':
+            enabled = job_config.diagnosis_enabled(c)
             import extensions
             row = extensions.active(c)
             if row is None:
@@ -239,7 +239,7 @@ def apply(c, parent, manifest, result, *, resume=False, comparison_route=False):
                     prior = history[-1]
                     versions = [stage['version'] for stage in prior['outcome']['stages']]
                     pair = extensions.comparison_pair(prior, versions)
-                    if (not (comparison_route and batch_service.DIAGNOSIS_ENABLED is True) and
+                    if (not (comparison_route and enabled) and
                             (pair is None or extensions.progress(pair['entry'], pair['outcome']) == 'pending')):
                         stop(c, 'extension_comparison_pending')
                 row = (history[-1] if history and
@@ -252,7 +252,7 @@ def apply(c, parent, manifest, result, *, resume=False, comparison_route=False):
                 else:
                     from extension_package import completed_route
                     completed_route(c, row)
-            if batch_service.DIAGNOSIS_ENABLED is True:
+            if enabled:
                 d.retain_extension_resume(c, state)
                 atomic_json(c.work / 'scorecard.json', c.card)
                 return row['extension_id'] if row is not None else 0
@@ -347,7 +347,7 @@ def _dispatch(c, r, *, comparison_route=False):
         if state['status'] == 'completed': invalid(c)
         routes = model_router.routes(model, getattr(c, 'router_accounts', model_router.ACCOUNTS))
         if routes and all(row['route'] in closed_routes(value) for row in routes): stop(c, 'retired_diagnosis_malformed')
-        if batch_service.DIAGNOSIS_ENABLED is not True: stop(c, 'diagnosis_pending')
+        if not job_config.diagnosis_enabled(c): stop(c, 'diagnosis_pending')
         from worker_release import verify_selected_drivers
         c.diagnosis_driver_qualification = verify_selected_drivers({'reviewer': [model]},
             lambda driver: r.pinned_cli(driver) if driver in ('codex', 'claude') else r.OPENCODE_BIN)

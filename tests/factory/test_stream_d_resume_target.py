@@ -15,7 +15,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
-import batch_service
+import test_stream_d_runtime as runtime
 import budget
 import diagnosis
 import diagnosis_dispatch as dispatch
@@ -78,7 +78,7 @@ class ReturnTargetTests(unittest.TestCase):
         self.answer = 'close_to_passing'
 
     def choose(self):
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+        with runtime.diagnosis_policy(self.c):
             self.assertEqual(dispatch.dispatch(self.c, run, comparison_route=True), 0)
         self.original_state = copy.deepcopy(self.c.card['diagnosis_state'])
         self.original_parent = self.parent
@@ -97,7 +97,7 @@ class ReturnTargetTests(unittest.TestCase):
         self.install_receipt()
         self.parent = self.work / 'diagnosis' / self.c.card['diagnosis_state']['exhaustion_id']
         self.answer = 'factory_bug'
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), self.assertRaisesRegex(
+        with runtime.diagnosis_policy(self.c), self.assertRaisesRegex(
                 budget.BudgetError, '^factory_bug_held$'):
             dispatch.dispatch(self.c, run, comparison_route=True)
         self.held = copy.deepcopy(self.c.card)
@@ -106,7 +106,7 @@ class ReturnTargetTests(unittest.TestCase):
                          self.target.read_bytes())
 
     def replay(self):
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), patch.object(
+        with runtime.diagnosis_policy(self.c), patch.object(
                 run, 'opencode', side_effect=AssertionError('extra diagnosis')):
             return dispatch.dispatch(self.c, run, comparison_route=True)
 
@@ -194,7 +194,7 @@ class ReturnTargetTests(unittest.TestCase):
         self.assertEqual(self.replay(), 0)
         # Authored snapshot/CLI controls from DispatchTests; real pending_call
         # commits the writer then dies before attack-state publication.
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+        with runtime.diagnosis_policy(self.c):
             row = self.admit_active_control(1)
         history = (self.work / 'extension-history.json').read_bytes()
         ledger = self.ledger.read_bytes()
@@ -207,7 +207,7 @@ class ReturnTargetTests(unittest.TestCase):
     def test_completed_successor_uses_existing_completed_route(self):
         self.hold()
         self.assertEqual(self.replay(), 0)
-        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True):
+        with runtime.diagnosis_policy(self.c):
             row = self.admit_active_control(1)
         # Authored snapshot, not scientific package proof. Control only the
         # completed_route seam to isolate the dispatch identity contract.
