@@ -110,12 +110,12 @@ class EntryTests(unittest.TestCase):
         self.assertGreater(record['card']['counts']['scenarios'], 0)
         self.assertTrue(any(name.endswith('/case/base/app.patch') for name in record['support']))
 
-    def test_real_g4_g5_saved_executions_and_rejection(self):
+    def saved_execution_controls(self):
         (self.case / 'case.json').write_text(json.dumps(artifacts.REAL['suffix-case']['files']['case.json']))
         self.stress()
         control = self.pipeline.check
         def check(c, stage):
-            if stage not in ('G4', 'G5'): return control(c, stage)
+            if stage not in ('G4', 'G5') or stage == self.crash: return control(c, stage)
             # G5 observes the actual plain-app broken checkpoint as a bad fix.
             saved = artifacts.execution('plain')
             def checkpoint(*a, **kw):
@@ -125,11 +125,86 @@ class EntryTests(unittest.TestCase):
             with patch.object(run, 'checkpoint', side_effect=checkpoint):
                 return getattr(run, stage.lower())(c)
         self.pipeline.check = check
+
+    def test_real_g4_g5_saved_executions_and_rejection(self):
+        self.saved_execution_controls()
         run.run_gates(self.c)
         snapshot = package.entry(self.c, run)
         self.assertEqual(next(row for row in snapshot['stages'] if row['stage'] == 'G5')['status'], 'fail')
         self.assertFalse(self.records().load('G5')['ok'])
         self.assertTrue(self.records().load('G4')['ok'])
+
+    def test_real_partial_prefix_never_evaluates_and_preserves_caller(self):
+        self.saved_execution_controls()
+        self.crash = 'G5'
+        with self.assertRaisesRegex(budget.BudgetError, 'money_wait'): run.run_gates(self.c)
+        records = self.records()
+        self.assertTrue(records.load('G4')['ok'])
+        self.assertFalse((records.root / 'closed.json').exists())
+        leftover = records.root / '.stage-x'; leftover.mkdir()
+        (leftover / 'record.json').write_text('incomplete staging')
+        before = {p: p.read_bytes() for root in (records.root, self.case) for p in root.rglob('*') if p.is_file()}
+        caller = copy.deepcopy((vars(self.c.args), self.c.card, self.c.models))
+        def forbidden(*a, **kw): self.fail('entry evaluated or spent')
+        with patch.object(self.pipeline, 'check', side_effect=forbidden), \
+                patch.object(run, 'checkpoint', side_effect=forbidden), \
+                patch.object(run, 'g3', side_effect=forbidden), \
+                patch.object(run, 'retained_answer', side_effect=forbidden), \
+                patch.object(self.pipeline, 'budget_boundary', side_effect=forbidden):
+            snapshot = package.entry(self.c, run)
+            self.assertEqual(snapshot, package.entry(self.c, run))
+        self.assertEqual(snapshot['frontier'], extensions.stages().index('G5'))
+        self.assertTrue(all(row['status'] == 'unreached' for row in snapshot['stages'][snapshot['frontier']:]))
+        self.assertEqual(caller, (vars(self.c.args), self.c.card, self.c.models))
+        self.assertEqual(before, {p: p.read_bytes() for p in before})
+
+    def test_checkpoint_scores_cannot_be_discarded_at_a_hole(self):
+        self.crash = 'G4'
+        with self.assertRaisesRegex(budget.BudgetError, 'money_wait'): run.run_gates(self.c)
+        for stage in ('G4', 'G5'):
+            for status in ('pass', 'fail'):
+                self.c.checkpoint_card = {'gates': {stage: status}}
+                self.pending()
+        self.c.checkpoint_card = {'gates': {'G4': 'invalid-infra'}}
+        self.assertEqual(package.entry(self.c, run)['frontier'], extensions.stages().index('G4'))
+        later = self.records().root / 'G5'; later.mkdir()
+        (later / 'record.json').write_text('{}'); self.pending()
+
+    def test_missing_g3_is_unreached_but_corrupt_g3_is_not(self):
+        self.c.args.bench_workers = 2
+        self.crash = 'G3'
+        with self.assertRaisesRegex(budget.BudgetError, 'money_wait'): run.run_gates(self.c)
+        snapshot = package.entry(self.c, run)
+        self.assertEqual(snapshot['frontier'], extensions.stages().index('G3'))
+        self.assertEqual(self.c.args.bench_workers, 2)
+        path = self.records().root / 'G3'; path.mkdir()
+        (path / 'record.json').write_text('{}'); self.pending()
+
+    def test_g2_freshness_topup_closed_partial_and_interrupted(self):
+        original = (self.case / 'freshness.jsonl').read_bytes()
+        control = self.pipeline.check
+        for stop in (None, 'G5', 'G2'):
+            with self.subTest(stop=stop):
+                (self.case / 'freshness.jsonl').write_bytes(original)
+                self.c.card['gates'] = {}; self.c.card.pop('failed_gate', None)
+                self.crash = stop
+                self.stress()
+                def check(c, stage):
+                    if stage == 'G2':
+                        # Authored derived-evidence mutation, no external fetch.
+                        with (self.case / 'freshness.jsonl').open('a') as f:
+                            f.write('\n' + json.dumps({'authored': 'G2 topup'}) + '\n')
+                    return control(c, stage)
+                self.pipeline.check = check
+                if stop:
+                    with self.assertRaisesRegex(budget.BudgetError, 'money_wait'): run.run_gates(self.c)
+                else: run.run_gates(self.c)
+                if stop == 'G2': self.pending(); continue
+                snapshot = package.entry(self.c, run)
+                self.assertEqual(snapshot['stages'][0]['status'], 'pass')
+                self.assertEqual(snapshot['stages'][extensions.stages().index('G5')]['status'], 'unreached' if stop else 'fail')
+                with (self.case / 'freshness.jsonl').open('a') as f: f.write('post-stop change')
+                self.pending()
 
     def test_real_g16_inconclusive_is_one_review_and_bound_failure(self):
         import fairness
@@ -188,9 +263,12 @@ class EntryTests(unittest.TestCase):
         for stage in ('G1', 'G4'):
             self.crash = stage
             self.c.card.pop('failed_gate', None)
+            self.c.card['gates'] = {}
             with self.assertRaisesRegex(budget.BudgetError, 'money_wait'): run.run_gates(self.c)
             self.assertFalse(old.exists())
-            self.pending()
+            snapshot = package.entry(self.c, run)
+            self.assertEqual(snapshot['frontier'], extensions.stages().index(stage))
+            self.assertTrue(all(row['status'] == 'unreached' for row in snapshot['stages'][snapshot['frontier']:]))
             old = self.records().root
         self.crash = None
         run.run_gates(self.c)
@@ -201,7 +279,13 @@ class EntryTests(unittest.TestCase):
         self.pipeline.check = lambda *a: (_ for _ in ()).throw(InfrastructureExhausted('authored outage'))
         run.run_gates(self.c)
         self.assertEqual(self.c.card['terminal_stop'], 'infrastructure_exhausted')
-        self.pending()
+        self.assertEqual(self.c.card['gates']['G1'], 'invalid-infra')
+        self.assertTrue(self.c.card['infrastructure_gate']['exhausted'])
+        snapshot = package.entry(self.c, run)
+        self.assertEqual(snapshot['frontier'], 1)
+        self.assertTrue(all(row['status'] == 'unreached' for row in snapshot['stages'][1:]))
+        self.diagnosis()
+        extensions.verify_proposal(self.c, extensions.propose(self.c, snapshot))
 
     def test_bad_stress_proof_does_not_change_ordinary_gates(self):
         original = (self.work / 'attack-state.json').read_bytes()
@@ -262,7 +346,13 @@ class EntryTests(unittest.TestCase):
         pointer.write_text('{}'); self.pending(); pointer.write_bytes(original)
         closed = self.records().root / 'closed.json'
         original_close = closed.read_bytes()
-        closed.unlink(); self.pending(); closed.write_bytes(original_close)
+        snapshot = package.entry(self.c, run)
+        closed.unlink(); self.assertEqual(package.entry(self.c, run), snapshot)
+        closed.write_text('{}'); self.pending()
+        marker = json.loads(original_close); marker['case_sha256'] = '0' * 64
+        registry.atomic_json(closed, marker); self.pending()
+        closed.unlink(); closed.symlink_to(pointer); self.pending(); closed.unlink()
+        closed.write_bytes(original_close)
         g3 = self.records().root / 'G3'
         shutil.rmtree(g3); self.pending()
 

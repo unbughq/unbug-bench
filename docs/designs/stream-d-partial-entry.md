@@ -14,7 +14,7 @@ Final all-outcomes integration is a separate increment.
 
 No new evaluation, model call, worker, allowance, retry or progress rule. No change
 to activation, scientific versions, subsequent-entry comparison or factory-bug
-attribution. Supports Murphy 9/13, closes none. Merge land12 before implementation.
+attribution. Supports Murphy 9/13, closes none. Parent approved implementation before land12 on 2026-11-03: this branch already contains the same rejected-writer work; land12 only merges it.
 
 ## Replace the close-marker prerequisite, retain evidence validation
 
