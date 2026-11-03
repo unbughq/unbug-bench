@@ -1,13 +1,21 @@
 """Live preflight (docs/designs/preflight.md), offline.
 
-Real artifacts: the retained practice manifest (factory/batches/b-plumbing-practice-2.json)
-bound into the HolderTests practice policy and release fixture, the real router
-(router_delivery_support: model_router.Server over verified TLS with a real 0600
-client config), the retained Boat list/billing receipts, and the installed
-`boat 1.0.87` label from docs/reports/practice-run-20261102.md. age bundles are
-encrypted with the real age CLI to an identity made for the test. The Codex JWT
-is AUTHORED for these tests: the practice report kept labels only, no token.
-OpenRouter /credits, R2 and SSH are doubled at their transport edge only.
+Real artifacts:
+- the retained practice manifest (factory/batches/b-plumbing-practice-2.json), for the live
+  report and the Codex gate;
+- for dispatch, the retained practice policy docs/reports/stream-b-practice-policy-20261031.json
+  with its unchanged manifest (factory/batches/b-practice-20261031.json), checked by the real
+  batch.verify against a release commit-built from today's sources. The retained release
+  record cannot verify under today's code, so the release, digest, code fingerprint and
+  recipient are adapted (DispatchHoldTests lists why);
+- the real router (router_delivery_support: model_router.Server over verified TLS with a real
+  0600 client config) and the real router_delivery.pack;
+- the retained Boat list/billing receipts and the installed `boat 1.0.87` label from
+  docs/reports/practice-run-20261102.md.
+AUTHORED: bundle values (labels are real bin/setup-secrets names) and the Codex JWT; the
+practice report kept labels only, no token. age bundles are encrypted with the real age CLI
+to identities made for the test. OpenRouter /credits, R2 and SSH are doubled at their
+transport edge only.
 """
 import base64
 from contextlib import ExitStack
@@ -35,16 +43,16 @@ import codex_login
 import model_router
 import model_runtime
 import practice_preflight as preflight
+import batch
 import key_holder
+import router_delivery
 from router_delivery_support import router
-# Modules, not classes: importing a TestCase class would rerun its tests here.
-import test_batch_holder as holder_tests
-import test_practice_readiness as readiness_tests
 
 FIXTURES = ROOT / 'tests/factory/fixtures/isolation-timeouts'
 REPORT = (ROOT / 'docs/reports/practice-run-20261102.md').read_text()
 INSTALLED = re.search(r'Installed CLI label: (boat [0-9.]+)\.', REPORT).group(1)
 RECORD = json.loads((ROOT / preflight.MANIFEST).read_text())
+POLICY = json.loads((ROOT / 'docs/reports/stream-b-practice-policy-20261031.json').read_text())
 PRACTICE_ARGS = RECORD['jobs']['practice']['args']
 
 
@@ -55,18 +63,21 @@ def jwt(exp):
             'last_refresh': '2026-11-02T00:00:00Z'}
 
 
-def tar(files):
+def tar(files, extra=()):
+    """files: {name: bytes}; extra: further (name, bytes or None for a symlink) members, duplicates allowed."""
     stream = io.BytesIO()
     with tarfile.open(fileobj=stream, mode='w') as archive:
-        for name, data in files.items():
-            member = tarfile.TarInfo(name); member.size = len(data)
-            archive.addfile(member, io.BytesIO(data))
+        for name, data in [*files.items(), *extra]:
+            member = tarfile.TarInfo(name)
+            if data is None: member.type, member.linkname = tarfile.SYMTYPE, 'openrouter-key'
+            else: member.size = len(data)
+            archive.addfile(member, None if data is None else io.BytesIO(data))
     return stream.getvalue()
 
 
 def bundle(**changes):
     files = {'claude-factory-token-2': b'authored', 'claude-token': b'authored', 'opencode-go-key': b'authored',
-             'openrouter-key': b'authored-openrouter\n', 'codex-auth.json': json.dumps(jwt(1)).encode(),
+             'openrouter-key': b'authored-openrouter\n', 'codex-auth.json': json.dumps(jwt(9999999999)).encode(),
              'r2-env': b'R2_ACCOUNT_ID=authored\nR2_ACCESS_KEY_ID=authored\nR2_SECRET_ACCESS_KEY=authored\nR2_BUCKET=authored\n'}
     files.update(changes)
     return {k: v for k, v in files.items() if v is not None}
@@ -74,37 +85,78 @@ def bundle(**changes):
 
 @unittest.skipUnless(shutil.which('age') and shutil.which('openssl'), 'age and openssl required')
 class DispatchHoldTests(unittest.TestCase):
-    """Phase B through the real batch_holder.dispatch, against the retained practice policy."""
-    setUpBase = holder_tests.HolderTests.setUpBase
-    freeze = holder_tests.HolderTests.freeze
-    answers = holder_tests.HolderTests.answers
-    ops = holder_tests.HolderTests.ops
-    practice_policy = readiness_tests.PracticeTests.practice_policy
+    """Phase B through the real batch_holder.dispatch, against the retained practice policy.
+
+    The policy is docs/reports/stream-b-practice-policy-20261031.json, the retained practice
+    policy whose release record is retained byte-exact beside it (sha256 0781679…, built at
+    6ac450e). Its manifest, factory/batches/b-practice-20261031.json, is used unchanged
+    (sha256 90ce53…). The release is built for real, as test_batch_launch does: tracked public
+    sources snapshotted into a fresh commit, then batch.build. money.manifest runs the real
+    batch.verify against it and the test root; nothing about release verification is mocked.
+
+    Adapted policy fields, and why:
+    - batch.release and batch.sha256: the retained release (6ac450e) lists 44 host files;
+      today's launch_manifest.HOST_FILES has 55, so the real batch.verify refuses it. The
+      release is rebuilt from today's sources instead; its digest and path replace these.
+    - code_sha256: the real key_holder.fingerprint of the test root (today's code), not the
+      retained 6ac450e fingerprint, which today's code cannot match.
+    - recipient: the age identity made for the test; the real control identity is private.
+    Everything else (jobs, manifest path and sha256, max_concurrency, path, root) is retained.
+    """
+    @classmethod
+    def setUpClass(cls):
+        if not batch.restore_inventory(ROOT):
+            raise unittest.SkipTest('REAL RESTORE INVENTORY ABSENT: batch.build qualification is unavailable')
+        temp = tempfile.TemporaryDirectory(); cls.addClassCleanup(temp.cleanup)
+        base = Path(temp.name); cls.source = base / 'source'
+        names = subprocess.check_output(['git', 'ls-files', '-z', '--', *batch.BATCH_SOURCE, *batch.HOST_FILES,
+                                         'tools/install_source.py'], cwd=ROOT).decode().split('\0')
+        for name in {*filter(None, names), *batch.HOST_FILES}:
+            target = cls.source / name; target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / name, target)
+        subprocess.run(['git', 'init', '-q', str(cls.source)], check=True)
+        subprocess.run(['git', 'add', '.'], cwd=cls.source, check=True)
+        subprocess.run(['git', '-c', 'user.name=Public test', '-c', 'user.email=public@example.invalid',
+                        'commit', '-qm', 'Public source test snapshot'], cwd=cls.source, check=True)
+        commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=cls.source, text=True).strip()
+        cls.release = base / 'release'
+        cls.release_sha = batch.build(cls.source, commit, cls.release)
 
     def setUp(self):
-        holder_tests.HolderTests.setUp(self)
-        self.policy = self.practice_policy(RECORD)
-        self.directory = self.home / 'batches' / RECORD['id']
-        (self.root / 'bin').mkdir(exist_ok=True)
-        shutil.copy2(ROOT / 'bin/r2-presign', self.root / 'bin/r2-presign')  # the real signer
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name); self.home = self.root / 'control'
+        for name in (*batch.HOST_FILES, POLICY['batch']['manifest_path'], 'factory/control-recipient.txt'):
+            target = self.root / name; target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.source / name, target)  # the real signer bin/r2-presign is a host file
+        gate = patch.object(holder, 'HOLDER_ENABLED', True); gate.start(); self.addCleanup(gate.stop)
         keys = self.root / 'keys'; keys.mkdir()
         for name in ('control', 'other'):
             subprocess.run(['age-keygen', '-o', str(keys / name)], check=True, capture_output=True)
         self.identity = (keys / 'control').read_bytes()
         self.recipient = subprocess.check_output(['age-keygen', '-y', str(keys / 'control')], text=True).strip()
         self.other = subprocess.check_output(['age-keygen', '-y', str(keys / 'other')], text=True).strip()
-        self.policy.update(code_sha256='fingerprint', path='/usr/bin:/bin', recipient=self.recipient)
+        self.policy = json.loads(json.dumps(POLICY))
+        self.policy['batch'].update(release=str(self.release), sha256=self.release_sha)
+        self.policy.update(code_sha256=key_holder.fingerprint(self.root), recipient=self.recipient)
+        self.directory = self.home / 'batches' / POLICY['batch']['id']
         self.secrets = self.root / 'secrets.age'
         self.tls = tempfile.TemporaryDirectory(); self.addCleanup(self.tls.cleanup)
         context = router(self.tls.name); self.client, self.store, _ = context.__enter__()
         self.addCleanup(context.__exit__, None, None, None)
 
-    def write_bundle(self, files, recipient=None):
-        subprocess.run(['age', '-r', recipient or self.recipient, '-o', str(self.secrets)], input=tar(files), check=True)
+    def ops(self): return json.loads((self.directory / 'reservations.json').read_text())['operations']
+
+    def write_bundle(self, files, recipient=None, extra=()):
+        subprocess.run(['age', '-r', recipient or self.recipient, '-o', str(self.secrets)],
+                       input=tar(files, extra), check=True)
 
     def dispatch(self, *, credit=Decimal('11.3637556'), r2=404, client=None):
         op = holder.reserve(self.policy, self.root, self.home, 'practice', None)
         real, real_popen, spawned, probes = subprocess.run, subprocess.Popen, [], []
+        real_request, self.status_rpcs = model_router.router_request, 0
+        def request(url, token, method, *args, **kwargs):
+            self.status_rpcs += method == 'status'
+            return real_request(url, token, method, *args, **kwargs)
         def run(argv, **kwargs):
             if argv[0] in ('age', 'age-keygen'): return real(argv, **kwargs)
             if argv[1:] == ['list', '--json']:
@@ -122,10 +174,11 @@ class DispatchHoldTests(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.dict(os.environ, UNBUG_SECRETS_FILE=str(self.secrets),
                                            UNBUG_ROUTER_CLIENT_FILE=str(client or self.client)))
-            stack.enter_context(patch.object(key_holder, 'fingerprint', return_value='fingerprint'))
             stack.enter_context(patch.object(holder.subprocess, 'run', side_effect=run))
             stack.enter_context(patch.object(holder.subprocess, 'Popen', side_effect=popen))
             stack.enter_context(patch.object(model_router, 'available_credit', side_effect=available))
+            stack.enter_context(patch.object(model_router, 'router_request', side_effect=request))
+            stack.enter_context(patch.object(router_delivery, 'router_request', side_effect=request))
             stack.enter_context(patch.object(preflight, '_status', return_value=r2))
             stack.enter_context(patch.object(sys, 'stderr', log))
             try: result = holder.dispatch(self.policy, self.root, self.home, op['operation_id'], self.identity)
@@ -146,10 +199,17 @@ class DispatchHoldTests(unittest.TestCase):
         self.write_bundle(bundle())
         result, op, spawned, log, probes = self.dispatch()
         self.assertEqual((result, op['dispatch_started'], op['incident']), (0, True, None))
-        self.assertEqual(spawned, ['claude-factory-token-2'])  # the retained manifest's initial account
+        self.assertEqual(spawned, ['claude-factory-token-2'])  # the retained policy's initial account
         self.assertEqual(probes, ['authored-openrouter'])  # the bundle's key, never os.environ
         self.assertNotIn('OPENROUTER_API_KEY', os.environ)
         self.assertEqual(log, '')
+        self.assertEqual(self.status_rpcs, 1)  # pack reuses the router check's status reply
+
+    def test_release_verification_is_real(self):
+        name = next(n for n in batch.HOST_FILES if n not in key_holder.PINNED)  # leaves code_sha256 intact
+        with open(self.root / name, 'a') as stream: stream.write('\n# host drift\n')
+        with self.assertRaises(holder.money.MoneyWait):  # batch.verify: host differs from batch commit
+            holder.reserve(self.policy, self.root, self.home, 'practice', None)
 
     def test_undecryptable_bundle_holds_pending(self):
         self.write_bundle(bundle(), recipient=self.other)  # stop 8: refreshed for a different identity
@@ -185,6 +245,43 @@ class DispatchHoldTests(unittest.TestCase):
     def test_r2_refusal_holds_and_every_failure_is_named(self):
         self.write_bundle(bundle(**{'opencode-go-key': None}))
         self.assertHeld(self.dispatch(credit=None, r2=403), 'credentials: missing opencode-go-key; openrouter; r2')
+
+    def test_expired_codex_login_holds_pending(self):
+        # The retained policy names no roles, so the rotation defaults give it a codex/ role.
+        self.assertTrue(codex_login.codex_role(POLICY['jobs']['practice']['args']))
+        self.write_bundle(bundle(**{'codex-auth.json': json.dumps(jwt(1)).encode()}))
+        self.assertHeld(self.dispatch(), 'preflight hold: login_lifetimes\n')
+
+    # B1 (diff review 1): the bundle is read under launch.sh's selection and router_delivery.pack's
+    # member rules. Each case below would fail the real launcher after dispatch_started.
+    def test_duplicate_credential_member_holds_pending(self):
+        self.write_bundle(bundle(), extra=[('openrouter-key', b'second')])
+        self.assertHeld(self.dispatch(), 'preflight hold: credentials: duplicate member\n')
+
+    def test_non_file_credential_member_holds_pending(self):
+        # statements-key is a real bin/setup-secrets label that launch.sh keeps; pack refuses a symlink.
+        self.write_bundle(bundle(), extra=[('statements-key', None)])
+        self.assertHeld(self.dispatch(), 'preflight hold: credentials: non-file member\n')
+
+    def test_prefixed_appledouble_name_holds_pending(self):
+        # launch.sh's sed drops only ^._, so ./._x is selected and reaches pack as ._x.
+        self.write_bundle(bundle(), extra=[('./._codex-auth.json', b'appledouble')])
+        self.assertHeld(self.dispatch(), 'preflight hold: credentials: unsupported member name\n')
+
+    def test_nested_name_holds_pending(self):
+        self.write_bundle(bundle(), extra=[('keys/statements-key', b'authored')])
+        self.assertHeld(self.dispatch(), 'preflight hold: credentials: unsupported member name\n')
+
+    def test_prefixed_required_label_holds_pending(self):
+        # launch.sh requires the listed name exactly; ./openrouter-key "lacks openrouter-key".
+        self.write_bundle(bundle(**{'openrouter-key': None}), extra=[('./openrouter-key', b'authored-openrouter\n')])
+        self.assertHeld(self.dispatch(), 'preflight hold: credentials: missing openrouter-key\n')
+
+    def test_entries_the_launcher_drops_never_hold(self):
+        # AppleDouble entries and an unselected account (here duplicated) never reach pack.
+        self.write_bundle(bundle(), extra=[('._x', b'appledouble'), ('claude-token', b'second')])
+        result, op, spawned, log, _ = self.dispatch()
+        self.assertEqual((result, op['dispatch_started'], spawned, log), (0, True, ['claude-factory-token-2'], ''))
 
     def test_recipient_mismatch_still_marks_failed(self):
         self.policy['recipient'] = self.other
@@ -224,7 +321,7 @@ class CheckUnitTests(unittest.TestCase):
 
     def test_worker_names_match_launch_selection(self):
         names = ['claude-token', 'claude-factory-token-2', 'claude-token-2', 'opencode-go-key', 'opencode-go-key-2',
-                 'r2-env', '._codex-auth.json', 'codex-auth.json', 'openrouter-key']
+                 'r2-env', '._codex-auth.json', 'codex-auth.json', 'openrouter-key', 'split name']
         self.assertEqual(preflight.worker_names(names, 'claude-factory-token-2', 'opencode-go-key'),
                          ['claude-factory-token-2', 'opencode-go-key', 'codex-auth.json', 'openrouter-key'])
 
@@ -287,7 +384,7 @@ class LiveReportTests(unittest.TestCase):
     SERVER = dict(id=7, public_net={'ipv4': {'ip': '192.0.2.7'}})
 
     def ssh(self, refuse_root=False, installed=INSTALLED, names=None):
-        names = names if names is not None else ['./' + n for n in bundle()]
+        names = names if names is not None else list(bundle())  # bare, as bin/setup-secrets writes them
         calls, real = [], subprocess.run
         def run(argv, **kwargs):
             if argv[0] == 'git': return real(argv, **kwargs)
@@ -314,7 +411,7 @@ class LiveReportTests(unittest.TestCase):
         return report, {r['id']: r for r in report['preflight']}, calls
 
     def test_three_failures_all_reported(self):
-        report, rows, calls = self.live(refuse_root=True, names=['./' + n for n in bundle() if n != 'openrouter-key'])
+        report, rows, calls = self.live(refuse_root=True, names=[n for n in bundle() if n != 'openrouter-key'])
         failed = {k: r['reason'] for k, r in rows.items() if r['status'] == 'fail'}
         self.assertEqual(failed, {'deploy_access': 'root_ssh_refused',
                                   'boat_cli': 'installed boat 1.0.87, pinned boat 1.0.85',

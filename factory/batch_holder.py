@@ -785,7 +785,7 @@ def dispatch(policy, root, home, identity, identity_bytes):
             source = source_directory(policy, root, home, identity)
             card = {} if source is None else service._json(source / (op['case'] + '.scorecard.json'))
             job = bind(policy, op['job'], op['source_generation'], root, home=home, operation=identity)
-            account, accounts, claude_label, opencode_label = preflight.job_labels(card, job, bundle)
+            account, accounts, claude_label, opencode_label = preflight.job_labels(card, job, preflight.listed(bundle))
             client = Path(os.environ.get('UNBUG_ROUTER_CLIENT_FILE', ROUTER_CLIENT))
             preflight.dispatch_checks(root, bundle, claude_label, opencode_label, job['args'], client)
             del bundle

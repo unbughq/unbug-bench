@@ -176,7 +176,7 @@ class HolderTests(unittest.TestCase):
             stack.enter_context(patch.dict(os.environ, environment, clear=True))
             stack.enter_context(patch.object(key_holder, 'fingerprint', return_value='fingerprint'))
             # Phase B live checks have their own real-dispatch tests (test_preflight.py).
-            stack.enter_context(patch.object(preflight, 'decrypt', return_value={'claude-token': b''}))
+            stack.enter_context(patch.object(preflight, 'decrypt', return_value=[(tarfile.TarInfo('claude-token'), b'')]))
             stack.enter_context(patch.object(preflight, 'dispatch_checks'))
             stack.enter_context(patch.object(account_handoff, 'launch_accounts', return_value=(None, 1, {})))
             stack.enter_context(patch.object(holder.subprocess, 'run', side_effect=run))
@@ -455,7 +455,7 @@ class HolderTests(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.object(key_holder, 'fingerprint', return_value='fingerprint'))
             # Phase B live checks have their own real-dispatch tests (test_preflight.py).
-            stack.enter_context(patch.object(preflight, 'decrypt', return_value={'claude-token': b''}))
+            stack.enter_context(patch.object(preflight, 'decrypt', return_value=[(tarfile.TarInfo('claude-token'), b'')]))
             stack.enter_context(patch.object(preflight, 'dispatch_checks'))
             stack.enter_context(patch.object(account_handoff, 'launch_accounts', return_value=(None, 1, {})))
             stack.enter_context(patch.object(holder.subprocess, 'run', side_effect=run))

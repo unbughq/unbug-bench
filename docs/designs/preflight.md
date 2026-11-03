@@ -69,20 +69,25 @@ that one decryption.
   - the OpenCode label, defaulting to `opencode-go-key`;
   - `openrouter-key` and `codex-auth.json`.
 
-  The router names are added by `pack` and are not required in the bundle. The
+  The router names are added by `pack` and are not required in the bundle.
+  Members are read under the launcher's own rules (after diff review 1, B1):
+  names as `tar -tf` lists them, launch.sh's selection, then `pack`'s member
+  rules (regular file, no `/` after a `./` prefix, no leading `.`, no
+  duplicate, no router name). Anything `pack` would refuse holds; entries the
+  launcher drops first (`._*`, unselected accounts, `r2-env`) never do. The
   recipient check (`:781`) and the code-fingerprint check (`:774`) stay terminal.
 - `login_lifetimes`: `codex_login.validate` on the bundle's `codex-auth.json`,
   only when a resolved role is `codex/` (see below).
 - `router`: `router_delivery.pack` on the bundle, filtered as at
   `launch.sh:320-324`, succeeds and yields the three router names. `pack` reads
   a 0600 config file and makes one `status` RPC. The packed output is thrown
-  away. Also check that `status['paid']` is well-formed with
+  away. Also check, on that same reply, that `status['paid']` is well-formed with
   `outstanding_usd == 0`, which replaces step 2's hand-run "ledger" check.
 - `openrouter`: `model_router.available_credit(token)` with the bundle's
   `openrouter-key`. Add an optional `token` argument; the default still reads
   `OPENROUTER_API_KEY`, so existing callers are unchanged and the key never
-  enters `os.environ`. `None` fails. The effective paid ceiling is
-  min(`LIVE` cap, credit), per `practice-run.md:21`.
+  enters `os.environ`. `None` fails. Preflight computes no paid ceiling; the
+  router already enforces the practice's $11.63.
 - `r2`: `bin/r2-presign`'s `presign("GET", …)` with the bundle's `r2-env`
   for a fixed key that never exists (`preflight/absent`), then one GET.
   404 passes because the credentials were accepted; 401/403 or a transport

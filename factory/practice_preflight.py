@@ -40,7 +40,6 @@ LIVE = [("provider_cost_and_legacy_debt", "0.000000000"), ("distinct_accounts_an
 # Founder decisions no API can prove; a new decision changes pins() and means a repin.
 DECISIONS = {practice.BATCH: ("topup_off", "accounts_unverified_accepted", "router_ram_openrouter")}
 WALLET_CAP = Decimal(dict(LIVE)["worker_and_verified_deletion"])
-PAID_CAP = Decimal(dict(LIVE)["account2_model_work_and_settlement"])
 R2_ABSENT = "preflight/absent"  # never written; a 404 proves the R2 credentials were accepted
 VM_REPO = "/home/user/unbug-bench"
 VM_KEY, VM_BUNDLE = "/home/user/.unbug-control/control.key", "/home/user/.config/unbug-bench/secrets.age"
@@ -170,15 +169,20 @@ def boat_version(root):
 
 
 def decrypt(identity, path):
-    """The credential bundle, decrypted once, in memory only: {label: bytes}."""
+    """The credential bundle, decrypted once, in memory only: [(member, bytes, or None for a non-file)]."""
     try:
         result = subprocess.run(["age", "-d", "-i", "/dev/stdin", str(path)], input=identity,
                                 capture_output=True, timeout=10)
         if result.returncode: raise ValueError()
         with tarfile.open(fileobj=io.BytesIO(result.stdout)) as archive:
-            return {m.name.removeprefix("./"): archive.extractfile(m).read() for m in archive if m.isfile()}
+            return [(m, archive.extractfile(m).read() if m.isfile() else None) for m in archive]
     except (OSError, ValueError, tarfile.TarError, subprocess.SubprocessError):
         raise PreflightHold("credentials: bundle not decryptable") from None
+
+
+def listed(bundle):
+    """Member names as launch.sh's `tar -tf` prints them: tarfile drops a directory's trailing slash, tar keeps it."""
+    return [m.name + "/" if m.isdir() else m.name for m, _ in bundle]
 
 
 def missing_labels(names, claude, opencode):
@@ -196,13 +200,28 @@ def job_labels(card, job, names):
 
 
 def worker_names(names, claude, opencode):
-    """launch.sh's selection filter: one account per provider, no R2 keys, no AppleDouble entries."""
+    """launch.sh's selection filter on listed names: one account per provider, no R2 keys, no AppleDouble
+    entries, and no name its unquoted `for s in $secrets` splits apart."""
     def keep(name):
-        if name.startswith("._") or name == "r2-env": return False
+        if name.startswith("._") or name == "r2-env" or set(name) & set(" \t\n"): return False
         if name in ("opencode-go-key", "opencode-go-key-2"): return name == opencode
         if name in ("claude-token", "claude-token-2") or name.startswith("claude-factory-token-"): return name == claude
         return True
     return [n for n in names if keep(n)]
+
+
+def selected(bundle, claude, opencode):
+    """The members launch.sh hands router_delivery.pack, under pack's own member rules: {name: bytes}."""
+    import router_delivery
+    keep, result = set(worker_names(listed(bundle), claude, opencode)), {}
+    for member, data in bundle:
+        if member.name not in keep: continue  # launch.sh selects by tarfile name
+        name = member.name.removeprefix("./")
+        if data is None: raise ValueError("non-file member")
+        if "/" in name or name.startswith(".") or name in router_delivery.NAMES: raise ValueError("unsupported member name")
+        if name in result: raise ValueError("duplicate member")
+        result[name] = data
+    return result
 
 
 def ttl_hours(args):
@@ -214,19 +233,20 @@ def login_lifetimes(bundle, args):
         codex_login.validate(json.loads(bundle["codex-auth.json"]), ttl_hours(args) * 3600)
 
 
-def router(bundle, claude, opencode, client):
-    """pack succeeds and adds the router names; the shared paid ledger is well formed and settled."""
+def router(worker, client):
+    """pack succeeds and adds the router names; the shared paid ledger is well formed and settled. One status RPC."""
     import router_delivery
+    config = router_delivery.read_config(client)
+    status = model_router.router_request(config["url"], config["token"], "status", {}, ca_pem=config["ca_pem"])
     stream = io.BytesIO()
     with tarfile.open(fileobj=stream, mode="w") as archive:
-        for name in worker_names(bundle, claude, opencode):
-            member = tarfile.TarInfo(name); member.size = len(bundle[name]); member.mode = 0o600
-            archive.addfile(member, io.BytesIO(bundle[name]))
-    packed = router_delivery.pack(base64.b64encode(stream.getvalue()), client)
+        for name, data in worker.items():
+            member = tarfile.TarInfo(name); member.size = len(data); member.mode = 0o600
+            archive.addfile(member, io.BytesIO(data))
+    packed = router_delivery.pack(base64.b64encode(stream.getvalue()), client, status)
     with tarfile.open(fileobj=io.BytesIO(base64.b64decode(packed))) as archive:
         if not set(router_delivery.NAMES) <= set(archive.getnames()): raise ValueError()
-    config = router_delivery.read_config(client)
-    paid = model_router.router_request(config["url"], config["token"], "status", {}, ca_pem=config["ca_pem"])["paid"]
+    paid = status["paid"]
     if set(paid) != {"total_usd", "outstanding_usd", "ceiling_usd", "available_credit_usd"}: raise ValueError()
     for key, value in paid.items():
         if not (value is None and key in ("ceiling_usd", "available_credit_usd")) and (
@@ -252,23 +272,23 @@ def r2(root, env):
 
 
 def dispatch_checks(root, bundle, claude, opencode, args, client):
-    """Phase B, run inside dispatch before dispatch_started. Every check runs; one hold names each failure.
-
-    Returns the effective practice paid ceiling, min(LIVE cap, OpenRouter credit)."""
-    failed, credit = [], None
-    missing = missing_labels(bundle, claude, opencode)
+    """Phase B, run inside dispatch before dispatch_started. Every check runs; one hold names each failure."""
+    failed, credit, worker = [], None, None
+    missing = missing_labels(listed(bundle), claude, opencode)
     if missing: failed.append("credentials: missing " + " ".join(missing))
+    try: worker = selected(bundle, claude, opencode)
+    except ValueError as error: failed.append("credentials: " + str(error))  # fixed rule names only
+    files = {m.name.removeprefix("./"): data for m, data in bundle if data is not None}
     def run(name, fn):
         try: fn()
         except Exception: failed.append(name)  # fixed names only: never exception or credential text
-    run("login_lifetimes", lambda: login_lifetimes(bundle, args))
-    run("router", lambda: router(bundle, claude, opencode, client))
-    try: credit = model_router.available_credit(bundle["openrouter-key"].decode().rstrip("\n"))
+    run("login_lifetimes", lambda: login_lifetimes(files, args))
+    if worker is not None: run("router", lambda: router(worker, client))
+    try: credit = model_router.available_credit(files["openrouter-key"].decode().rstrip("\n"))
     except (KeyError, UnicodeDecodeError): pass
     if credit is None: failed.append("openrouter")
-    run("r2", lambda: r2(root, bundle["r2-env"].decode()))
+    run("r2", lambda: r2(root, files["r2-env"].decode()))
     if failed: raise PreflightHold("; ".join(failed))
-    return min(PAID_CAP, credit)
 
 
 def live(root, server, record):
@@ -301,9 +321,9 @@ def live(root, server, record):
         if not balance <= WALLET_CAP: return "fail", "balance above " + str(WALLET_CAP)
     job = record["jobs"]["practice"]
     def credentials():
-        listed = vm("bash -c " + shlex.quote("set -o pipefail; age -d -i " + VM_KEY + " " + VM_BUNDLE + " | tar -tf -"))
-        if listed.returncode: return "fail", "bundle not decryptable"
-        names = {n.removeprefix("./") for n in listed.stdout.splitlines()}
+        output = vm("bash -c " + shlex.quote("set -o pipefail; age -d -i " + VM_KEY + " " + VM_BUNDLE + " | tar -tf -"))
+        if output.returncode: return "fail", "bundle not decryptable"
+        names = output.stdout.splitlines()  # as launch.sh lists them
         missing = missing_labels(names, *job_labels({}, job, names)[2:])
         if missing: return "fail", "missing " + " ".join(missing)
     def lifetimes():
