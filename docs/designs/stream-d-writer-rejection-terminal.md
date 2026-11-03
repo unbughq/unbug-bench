@@ -213,3 +213,9 @@ completion helper. The pre-authentication round check also rejects a previous
 round's validated receipt. The no-recovery-write guarantee applies to this
 producer's explicit refusal cases; existing complete_unchanged calls writer_receipt
 earlier in package.run and is not changed by this slice.
+
+Implementation boundary clarification: terminal helpers map malformed proof to
+extension_snapshot_changed. package.run first calls the existing extensions.read,
+whose tree() rejects a symlink with extension_snapshot_invalid before the terminal
+helper runs. Preserve this existing history-reader label; test both layers, with
+no evaluator invoked in either case. No broader error remapping is introduced.

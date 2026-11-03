@@ -80,7 +80,7 @@ class ManifestTests(unittest.TestCase):
         expected_worker |= {'factory/worker_secrets.py', 'factory/launch_manifest.py', 'factory/restore_sync.py',
                             'factory/runner_supervisor.py', 'factory/batch.py',
                             'factory/model_router.py', 'factory/model_call_gate.py', 'factory/job_authority.py', 'factory/diagnosis.py', 'factory/extensions.py',
-                            'factory/diagnosis_dispatch.py', 'factory/diagnosis_task.py', 'factory/extension_compare.py', 'factory/extension_package.py', 'factory/extension_public_match.py', 'factory/extension_evaluator.py', 'factory/factory_waste.py',
+                            'factory/diagnosis_dispatch.py', 'factory/diagnosis_task.py', 'factory/extension_compare.py', 'factory/extension_package.py', 'factory/extension_writer_rejection.py', 'factory/extension_public_match.py', 'factory/extension_evaluator.py', 'factory/factory_waste.py',
                             'factory/prompts/diagnosis.md', 'factory/prompts/diagnosis-repair.md',
                             'factory/batch_money.py', 'factory/job_config.py', 'factory/batch_service.py',
                             'factory/batch_transfer.py',
