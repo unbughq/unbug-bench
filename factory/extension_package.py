@@ -652,6 +652,36 @@ def observe(c, r, pipeline):
     return result
 
 
+def entry_prefix(owner, records, card):
+    """Validate recorded evidence before treating a genuinely missing suffix as unreached."""
+    stages = extensions.stages()
+    live = extensions.tree(owner.case)
+    without_freshness = lambda tree: {k: v for k, v in tree.items() if k != 'freshness.jsonl'}
+    retained, hole, ended = [], None, False
+    for index, stage in enumerate(stages):
+        path = records.root / stage / 'record.json'
+        present = path.exists() or path.is_symlink()
+        if ended:
+            if present: refuse()
+            continue
+        data = records.load(stage)
+        if data is None:
+            hole, ended = index, True
+            continue
+        root = records.root / stage / 'support/case'
+        tree = extensions.tree(root)
+        prefix = root.relative_to(owner.work).as_posix() + '/'
+        bound = {k[len(prefix):]: v for k, v in data['support'].items() if k.startswith(prefix)}
+        if tree != bound or without_freshness(tree) != without_freshness(live): refuse()
+        if stage in ('G2', 'G8', 'G9') and tree.get('freshness.jsonl') != live.get('freshness.jsonl'): refuse()
+        retained.append((stage, data, tree))
+        if not data['ok']: ended = True
+    if not retained or retained[0][0] != 'stress' or retained[0][1]['ok'] is not True: refuse()
+    if retained[-1][2].get('freshness.jsonl') != live.get('freshness.jsonl'): refuse()
+    if hole is not None and any(card.get('gates', {}).get(stage) in ('pass', 'fail') for stage in stages[hole:]): refuse()
+    return hole
+
+
 def entry(c, r):
     """Produce the first extension's entry from completed proof, without evaluation."""
     authority = job_authority.for_case(c)
@@ -668,15 +698,26 @@ def entry(c, r):
                 or pointer['case_sha256'] != r.case_hash(owner)):
             refuse()
         records = Records(owner, r, observation_id=pointer['observation_id'], round_number=pointer['round_number'])
-        closed = extensions._writer_json(records.root / 'closed.json', owner.work)
-        if (type(closed.get('schema_version')) is not int or
-                closed != {k: pointer[k] for k in ('schema_version', 'observation_id', 'case_sha256')}): refuse()
+        close_path = records.root / 'closed.json'
+        if close_path.exists() or close_path.is_symlink():
+            closed = extensions._writer_json(close_path, owner.work)
+            if (type(closed.get('schema_version')) is not int or
+                    closed != {k: pointer[k] for k in ('schema_version', 'observation_id', 'case_sha256')}): refuse()
         records.load('G3')  # Restore workers on the copy before pinning the vector.
+        hole = entry_prefix(owner, records, getattr(c, 'checkpoint_card', c.card))
+        versions = comparison._versions(workspace(owner, r))
         for name in ('comparison-receipts', 'comparison-support'):
             target = owner.work / name
             safe_directory(owner, target)
             if target.exists(): shutil.rmtree(target)
-        snapshot = comparison.snapshot(workspace(owner, r), authority.source_generation, records.evidence)
+        snapshot = comparison.snapshot(workspace(owner, r), authority.source_generation, records.evidence, versions=versions)
+        if hole is not None:
+            pending = [i for i, stage in enumerate(snapshot['stages']) if stage['status'] == 'pending']
+            if pending != [hole]: refuse()
+            stage = snapshot['stages'][hole]
+            if stage['binding_sha256'] is not None or stage['evidence_sha256'] is not None: refuse()
+            stage['status'] = 'unreached'
+            extensions.validate_snapshot(snapshot)
         if snapshot['stages'][0]['status'] != 'pass' or any(row['status'] == 'pending' for row in snapshot['stages']):
             refuse('extension_comparison_pending')
         return snapshot

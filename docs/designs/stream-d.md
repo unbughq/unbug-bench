@@ -3955,3 +3955,16 @@ rows close. Partial/legacy first-entry reconstruction and final all-outcomes
 integration (including successful irrelevant-edit progress checks) remain open.
 Lane 1 factory-bug return target is merged in ff31d87. Founder has replaced item 8
 with a 3-case real pilot immediately after item 7; no pilot is started by this slice.
+
+
+### Item 7 recorded partial first-entry slice
+
+Design stream-d-partial-entry.md passes fresh review round 2. Entry retains a
+verified prefix after a budget/infrastructure interruption without requiring a
+close marker; missing proof for a known score still holds. G2 freshness topups
+are bound to the last record and freshness-consuming stages. No evaluation or
+score is invented. Focused entry tests: 19 passed. Implementation e70949c, integrated with upstream
+7dbdc58 at 502b15b, passes the full locked suite: 182 scripts / 0 failures. The
+parent-approved two-hour timeout starts after lock acquisition; queue time does
+not count. Fresh diff review round 1 passes with no blockers (stream-d-partial-entry-diff-1.md). No Murphy rows close. Legacy evidence adapters and final all-outcomes
+integration remain open before the founder's three-case pilot.
