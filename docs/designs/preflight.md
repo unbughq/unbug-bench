@@ -164,7 +164,9 @@ codex driver; that's harmless and left as is.
 - `new-preflight-1`: Codex login guard stops runs with no Codex role. Closed by
   the gate tests.
 - `new-preflight-2`: Live prerequisites are found one at a time, each stopping
-  the run. Closed by the all-failures and real-`dispatch` hold tests.
+  the run. The all-failures and real-`dispatch` hold tests cover implementation;
+  closure remains open until dispatch replays an independently retained compatible
+  release. The test-generated current release is not that evidence.
 - `new-preflight-3`: Boat auto top-up is not machine-readable. Stays open as an
   attestation only.
 - `new-preflight-4`: A refreshed bundle may not decrypt with the control

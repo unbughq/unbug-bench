@@ -226,6 +226,11 @@ class DispatchHoldTests(unittest.TestCase):
         self.write_bundle(bundle())
         self.assertHeld(self.dispatch(client=bad), 'preflight hold: router\n')
 
+    def test_selected_encoded_bundle_over_launcher_limit_holds_pending(self):
+        # Valid decoded tar below 16 MiB, but its selected base64 input exceeds the CLI bound.
+        self.write_bundle(bundle(**{'statements-key': b'x' * (13 * 1024 * 1024)}))
+        self.assertHeld(self.dispatch(), 'preflight hold: router\n')
+
     def test_none_credit_holds_pending(self):
         self.write_bundle(bundle())
         self.assertHeld(self.dispatch(credit=None), 'preflight hold: openrouter\n')
