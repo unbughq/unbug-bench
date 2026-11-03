@@ -74,3 +74,13 @@ unrelated timing-failure rule; the merged tree remains the parent's gate.
 
 All design and diff review rounds are complete and Code PASS. Start the
 explicitly requested replacement handback full suite on the uncached runner.
+
+
+## Interrupted uncached handback attempt
+
+Uncached suite at 1ebd144 exited 143 after about six minutes, with an empty
+log and no summary. The wrapper did not reach its 7200-second timeout; the
+termination reason is unknown. Record marks interrupted=true, verdict=null
+and suite_started=null (buffered output cannot prove no scripts ran).
+A cwd-scoped process check found no remaining suite process in this worktree.
+Preserve the non-result and restart for one completed uncached handback run.

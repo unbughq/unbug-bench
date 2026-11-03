@@ -1,0 +1,25 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "head": "1ebd144c7f6a6cce5ddb8383cdd7e85656d0a367",
+  "started_at": "2026-11-03T18:37:03.664215+00:00",
+  "log": "docs/reports/stream-d-collected-diagnosis-planning-uncached-suite-20261103T183703Z-1a1064a8.log",
+  "timeout_ms": 7200000,
+  "runner": "parallel-tests 74dc5c7, pass cache removed",
+  "reason": "parent required uncached runner for handback",
+  "load_before": [
+    51.1259765625,
+    53.5517578125,
+    66.0
+  ],
+  "exit_code": 143,
+  "finished_at": "2026-11-03T18:43:26.276347+00:00",
+  "verdict": null,
+  "load_after": [
+    55.935546875,
+    62.18212890625,
+    65.5087890625
+  ],
+  "interrupted": true,
+  "termination": "exit 143 before any script summary; reason unknown; no own suite process remains",
+  "suite_started": null
+}
