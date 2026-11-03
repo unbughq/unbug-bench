@@ -110,8 +110,7 @@ Do not patch resume_factory_bug or install readers.
 
 | Branch | Actual path and observable result |
 | --- | --- |
-| Partial entry, progress and completed replay | Ordinary stress pass and real G4 pass, budget_exhausted at G5's budget_boundary before invoke: no close marker, no G5
-pass/fail label, and finalize_accounting must produce pending diagnosis_state. Close-to-passing diagnosis -> entry prefix -> reserved writer -> stress -> real G5 repaired result -> authored G16 failure. Completed package outcome advances the frontier; next diagnosis admits extension 2. Replay of each completed package uses the same records, no writer/stress/evaluator or extra reservation. |
+| Partial entry, progress and completed replay | Ordinary stress pass and real G4 pass, budget_exhausted at G5's budget_boundary before invoke: no close marker, no G5 pass/fail label, and finalize_accounting must produce pending diagnosis_state. Close-to-passing diagnosis -> entry prefix -> reserved writer -> stress -> real G5 repaired result -> authored G16 failure. Completed package outcome advances the frontier; next diagnosis admits extension 2. Replay of each completed package uses the same records, no writer/stress/evaluator or extra reservation. |
 | Capture recovery | Repeat that initial traversal with one-shot post-rename G1 sync failure; verification succeeds. Entry/dispatch/admission still use real proof; each gate executes once. |
 | Unchanged and irrelevant edit | The second writer leaves the exact tree unchanged: terminal proof, next close-to-passing -> retired_no_progress before another reservation. A separate writer changing BUILD-NOTES.md only retains the same failing frontier under fixed gate controls and likewise retires; no progress is inferred from editing files. |
 | Rejected writer | Separate G1, early G5 and saved-cheat controls through write_and_attack and package.run produce real retained rejection proof. Finalize -> queued diagnosis -> close-to-passing -> retired_no_progress. Replay never reruns the rejecting check; saved cheats are never scored as G6. |
@@ -123,9 +122,7 @@ pass/fail label, and finalize_accounting must produce pending diagnosis_state. C
 | Extension cap | Five genuinely admitted/completed progressing packages, with successive authored late-stage frontiers G16, G8, G9, G6, G13. A sixth close-to-passing reaches retired_extension_limit before entry/writer or reservation. Never synthesize history or lower LIMIT. |
 | Not converging | Validated authored diagnosis -> retired_not_converging, zero writer/package admission. Replay is model-free and preserves decision bytes. |
 | Malformed diagnosis | Invalid external answers on all real selected routes, including the existing schema-repair attempt, -> retired_diagnosis_malformed. Replay makes no further diagnosis or writer call. No journal is seeded. |
-| Batch deadline | After a durable close-to-passing decision, advance the authored clock past the authenticated deadline before resume install:
-real job_config.install -> job_authority.read raises retired_batch_bound before
-dispatch, writer reservation or package. Assert the label at install. Never change the allowance or forge expired authority. |
+| Batch deadline | After a durable close-to-passing decision, advance the authored clock past the authenticated deadline before resume install: real job_config.install -> job_authority.read raises retired_batch_bound before dispatch, writer reservation or package. Assert the label at install. Never change the allowance or forge expired authority. |
 
 Current-schema retired labels are exactly retired_not_converging,
 retired_no_progress, retired_extension_limit, retired_factory_bug_limit,
