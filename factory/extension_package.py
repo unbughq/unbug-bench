@@ -319,6 +319,39 @@ class Records:
             self.save(stage, False, detail, before, card)
         return self.r.early_checks(c, on_rejection=rejected)
 
+    def save_observation(self, stage, ok, info, before, old_card):
+        """Retry proof publication, never execution; retain a renamed record."""
+        try:
+            target = self.root / stage
+            if target.exists() or target.is_symlink(): return False
+            info, old_card = copy.deepcopy((info, old_card))
+            result = extensions.digest(dict(ok=ok, info=info))
+            case, version = self.r.case_hash(self.c), self.version(stage)
+            for _ in range(2):
+                try:
+                    if self.r.case_hash(self.c) != case or self.version(stage) != version:
+                        return False
+                    if not target.exists() and not target.is_symlink():
+                        try:
+                            self.save(stage, ok, info, before, old_card)
+                            return True
+                        except Exception:
+                            if not target.exists() and not target.is_symlink(): continue
+                    probe = copy.copy(self.c)
+                    probe.args, probe.card = copy.deepcopy((self.c.args, self.c.card))
+                    records = Records(probe, self.r, observation_id=self.root.name,
+                                      round_number=self.round_number)
+                    data = records.load(stage)
+                    if data is None or extensions.digest(dict(ok=data['ok'], info=data['info'])) != result:
+                        return False
+                    extensions._sync_tree(target)
+                    return True
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return False
+
     def observe_gate(self, c, stage, invoke):
         """Observe ordinary execution without changing its verdict or retry policy."""
         self.observed[stage] = False
@@ -333,12 +366,9 @@ class Records:
             ok, info = result
             if comparison._pending(ok, info): return result
             if case != self.r.case_hash(c): return result
-            self.save(stage, ok, info, before, old_card)
-            self.observed[stage] = True
-        except CAPTURE_ERRORS:
-            # Even a failure after rename cannot authorize entry: no close marker.
-            try: shutil.rmtree(self.root / stage)
-            except OSError: pass
+            self.observed[stage] = self.save_observation(stage, ok, info, before, old_card)
+        except Exception:
+            pass  # Capture must never send a completed gate back through retry.
         return result
 
     def evidence(self, w, stage):
@@ -620,11 +650,9 @@ def observe_stress(c, r, records):
             result, _ = cleared_stress(c, receipt, report, result)
         if not result['complete'] or result['blocking'] or result['unfinished_validation']: return
         before = {key: gate_state.digest(path) for key, path in gate_state.inventory(c, r.BENCH).items()}
-        records.save('stress', True, result, before, project(c.card))
-        records.observed['stress'] = True
+        records.observed['stress'] = records.save_observation('stress', True, result, before, project(c.card))
     except CAPTURE_ERRORS:
-        try: shutil.rmtree(records.root / 'stress')
-        except OSError: pass
+        pass
 
 
 def observe(c, r, pipeline):
@@ -652,6 +680,36 @@ def observe(c, r, pipeline):
     return result
 
 
+def entry_prefix(owner, records, card):
+    """Validate recorded evidence before treating a genuinely missing suffix as unreached."""
+    stages = extensions.stages()
+    live = extensions.tree(owner.case)
+    without_freshness = lambda tree: {k: v for k, v in tree.items() if k != 'freshness.jsonl'}
+    retained, hole, ended = [], None, False
+    for index, stage in enumerate(stages):
+        path = records.root / stage / 'record.json'
+        present = path.exists() or path.is_symlink()
+        if ended:
+            if present: refuse()
+            continue
+        data = records.load(stage)
+        if data is None:
+            hole, ended = index, True
+            continue
+        root = records.root / stage / 'support/case'
+        tree = extensions.tree(root)
+        prefix = root.relative_to(owner.work).as_posix() + '/'
+        bound = {k[len(prefix):]: v for k, v in data['support'].items() if k.startswith(prefix)}
+        if tree != bound or without_freshness(tree) != without_freshness(live): refuse()
+        if stage in ('G2', 'G8', 'G9') and tree.get('freshness.jsonl') != live.get('freshness.jsonl'): refuse()
+        retained.append((stage, data, tree))
+        if not data['ok']: ended = True
+    if not retained or retained[0][0] != 'stress' or retained[0][1]['ok'] is not True: refuse()
+    if retained[-1][2].get('freshness.jsonl') != live.get('freshness.jsonl'): refuse()
+    if hole is not None and any(card.get('gates', {}).get(stage) in ('pass', 'fail') for stage in stages[hole:]): refuse()
+    return hole
+
+
 def entry(c, r):
     """Produce the first extension's entry from completed proof, without evaluation."""
     authority = job_authority.for_case(c)
@@ -668,15 +726,26 @@ def entry(c, r):
                 or pointer['case_sha256'] != r.case_hash(owner)):
             refuse()
         records = Records(owner, r, observation_id=pointer['observation_id'], round_number=pointer['round_number'])
-        closed = extensions._writer_json(records.root / 'closed.json', owner.work)
-        if (type(closed.get('schema_version')) is not int or
-                closed != {k: pointer[k] for k in ('schema_version', 'observation_id', 'case_sha256')}): refuse()
+        close_path = records.root / 'closed.json'
+        if close_path.exists() or close_path.is_symlink():
+            closed = extensions._writer_json(close_path, owner.work)
+            if (type(closed.get('schema_version')) is not int or
+                    closed != {k: pointer[k] for k in ('schema_version', 'observation_id', 'case_sha256')}): refuse()
         records.load('G3')  # Restore workers on the copy before pinning the vector.
+        hole = entry_prefix(owner, records, getattr(c, 'checkpoint_card', c.card))
+        versions = comparison._versions(workspace(owner, r))
         for name in ('comparison-receipts', 'comparison-support'):
             target = owner.work / name
             safe_directory(owner, target)
             if target.exists(): shutil.rmtree(target)
-        snapshot = comparison.snapshot(workspace(owner, r), authority.source_generation, records.evidence)
+        snapshot = comparison.snapshot(workspace(owner, r), authority.source_generation, records.evidence, versions=versions)
+        if hole is not None:
+            pending = [i for i, stage in enumerate(snapshot['stages']) if stage['status'] == 'pending']
+            if pending != [hole]: refuse()
+            stage = snapshot['stages'][hole]
+            if stage['binding_sha256'] is not None or stage['evidence_sha256'] is not None: refuse()
+            stage['status'] = 'unreached'
+            extensions.validate_snapshot(snapshot)
         if snapshot['stages'][0]['status'] != 'pass' or any(row['status'] == 'pending' for row in snapshot['stages']):
             refuse('extension_comparison_pending')
         return snapshot
