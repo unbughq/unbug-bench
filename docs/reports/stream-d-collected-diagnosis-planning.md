@@ -42,7 +42,13 @@ No repeat full suite is queued.
 Diff round 1: production has no findings; code NOT PASS on a test guard that
 batch_tick could swallow. All findings accepted; recorder/assertion guards,
 scan-to-plan depth coverage and journal byte assertion fixed in tests only.
-Fresh final diff review pending.
+Final diff round 2: Code PASS, no blockers, all round-1 findings independently
+verified fixed. Record: stream-d-collected-diagnosis-planning-diff-2.md.
+Post-fix focused command was BENCH=<own worktree> python3 -B
+tests/factory/test_batch_planning.py, native session 93434, exit 0: 11 tests
+in 15.156s. Run before commit 6bd0515 on its exact test-file content, with
+HEAD then 986d788 and that test edit uncommitted. No production edits followed.
+The uncached replacement handback suite also exercises this final test source.
 
 
 
