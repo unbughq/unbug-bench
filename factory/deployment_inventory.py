@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Observe local deployment metadata. Never authorizes cleanup or activation."""
+import boat_lifecycle
 import datetime
 from decimal import Decimal, Inexact, InvalidOperation, localcontext
 import hashlib
@@ -17,7 +18,7 @@ FILES = ('launch.json', 'controller.lock', 'monitor.sh', 'ids', 'complete',
          'spend-finished', 'cleanup-status.json')
 LABELS = ('intent-only', 'response-and-intent', 'response-without-marker')
 TYPES = ('file', 'directory', 'symlink', 'other')
-STATUSES = ('reserved', 'finished', 'reconciled_expired')
+STATUSES = ('reserved', 'finished', 'reconciled_expired', 'settled')
 
 
 def kind(mode):
@@ -154,7 +155,7 @@ def scan_launches(path):
 
 
 def empty_ledger(state):
-    return dict(state=state, counts=dict.fromkeys(STATUSES, 0), reserved_usd=None,
+    return dict(state=state, counts=dict.fromkeys(STATUSES, 0), reserved_usd=None, settled_usd=None,
                 expired_reserved=0, malformed_records=0, unknown_statuses=0)
 
 
@@ -198,6 +199,7 @@ def scan_ledger(path, observed):
             context.prec = 64 + len(str(LIMIT))
             context.traps[Inexact] = True
             total = Decimal(0)
+            settled = Decimal(0)
             for record in ledger['reservations'].values():
                 if not isinstance(record, dict):
                     result['malformed_records'] += 1
@@ -213,12 +215,16 @@ def scan_ledger(path, observed):
                 except (ValueError, InvalidOperation):
                     result['malformed_records'] += 1
                     continue
+                if status == 'settled':
+                    try: settled += boat_lifecycle.settlement_amount(record)
+                    except (ValueError, KeyError, TypeError, InvalidOperation):
+                        result['malformed_records'] += 1
                 if status == 'reserved':
                     total += usd
                     if expiry < observed:
                         result['expired_reserved'] += 1
             if not result['malformed_records'] and not result['unknown_statuses']:
-                result.update(state='ok', reserved_usd=format(total, 'f'))
+                result.update(state='ok', reserved_usd=format(total, 'f'), settled_usd=format(settled, 'f'))
     except (ValueError, InvalidOperation, Inexact, RecursionError):
         pass
     return result

@@ -12,10 +12,11 @@ No worker, provider request, paid call, pin, practice-state edit or activation h
 Cost: $0 provider/model spend; local CPU plus subscription review only. Timeline:
 one implementation/review cycle (estimate 1–2 working days), then a live gate.
 Dependency: after merge, parent must re-cut practice release AND policy pins before
-any practice admission. The current b75c9b4 offline pin lacks this binding too
+any practice admission. The recorded live 02f3bc9 pin and parent-reported b75c9b4 offline pin lack this binding too
 (the older 3a50896 report is historical). An old-pin reservation without binding
 remains unsettleable: STOP to parent, no reset or inferred migration. Do not
 resume practice on existing pins; this document does not change its paused state.
+The recorded abort at launch.sh:150 preceded guard_init, so it created no ledger row.
 
 Retained contract: `docs/reports/stream-b-provider-contract-20261031/billing.md`
 §Per-sandbox usage documents `boat usage ID --json`, lifetime when no dates are
@@ -37,7 +38,7 @@ Extend Boat `--check VMS TTL MAX RECORD [STATE]`; guards supply their existing s
 path as the final argument ONLY when UNBUG_LAUNCH_STATE is nonempty.
 Old callers without STATE keep working but cannot
 settle automatically. Bind canonical STATE into the reservation at admission;
-refuse a changed binding on replay. Non-batch exam-launch/run-gate-smoke keep
+refuse a changed binding on replay or a second reservation for the same STATE. Non-batch exam-launch/run-gate-smoke keep
 today's unsettleable/blocking behavior: their temporary state has no monitor and
 may be deleted. They do not receive STATE and are outside automatic reuse.
 Persist vms, ttl_seconds and max_spend_usd in each new reservation. Existing rows
@@ -54,9 +55,9 @@ No manual dollar input. Refusals print only `infrastructure settlement unavailab
 Validation before querying usage:
 - Reservation exists, STATE equals its bound canonical path, spend record is allowed
   Boat with matching count/TTL/cap; row is reserved or finished (settled replay below).
-- Read regular files without following symlinks, including monitor and evidence;
-  parse duplicate-free JSON. Parse monitor via shlex, never source shell. Its
-  spend_file resolves to RECORD. ids must be unique validated Boat IDs.
+- Read regular files without following symlinks and parse duplicate-free JSON.
+  Ledger STATE binding is the ownership authority: settlement does not require
+  monitor.sh at all. Keep its parser only for practice timing. IDs must be unique.
 - Validate creation evidence read-only in the new helper, not ids()'s tolerant
   parser: lstat every directory entry named new.* (including dangling symlinks).
   Reject pending/unknown names or nonregular files. Each new.N must be UTF-8 JSONL
@@ -109,15 +110,21 @@ returns existing finish success with a fixed warning so publication is not lost.
 The independent cleanup owner calls --settle directly; it never fabricates an exit
 code or calls --finish. Reserved rows can settle only with the complete creation
 and deletion proof above; no-creation requires finished. --finish later adds actual
-exit metadata without downgrading settled authority or rewriting its debit.
+exit metadata without downgrading settled authority or rewriting its debit;
+settlement and actual_spend_usd mirrors remain intact or are repaired from ledger.
 Explicitly edit practice_cleanup.py here for settlement only, not pilot generalization.
 Its status gains settlement ("not_attempted"|"pending"|"settled") and
 settlement_attempted_at (UTC epoch seconds or null). After verified absence it uses
 state="settlement_pending" until --settle exits 0; only then state="complete".
+An empty STATE with regular empty ids, no new.* entries and spend-finished also
+enters settlement_pending, even without monitor.sh. Locate its unique bound record
+by reading the existing ledger; --settle validates it again under its lock.
 Persist the attempt timestamp atomically in the existing status path BEFORE the
-subprocess; pass UNBUG_CONTROL_HOME=home explicitly. Read it on restart to enforce
-at least 60 seconds between attempts; a future timestamp refuses another attempt.
-The existing five-second loop continues while pending; deletion checks continue,
+subprocess; pass UNBUG_CONTROL_HOME=home explicitly. Read it on EVERY iteration (including restart) to enforce
+at least 60 seconds between attempts; if the clock moves backwards, wait until
+now >= previous timestamp + 60, never freeze permanently.
+The --settle subprocess has a 180-second timeout; the five-second loop blocks
+during it. The existing loop continues while pending; deletion checks continue,
 but no settlement provider calls occur inside the 60-second interval. main() exits
 only on complete/not_dispatched as today. Guard finish replay preserves settled
 rows; guard markers remain guard-owned. No new cleanup service or scheduler.
@@ -130,8 +137,11 @@ factory/launch_manifest.py TRUSTED_FILES (boat_lifecycle is already included).
 Tests: new tests/factory/test_boat_settlement.py; existing test_isolation_timeouts.py,
 test_control_resume.py, test_deployment_inventory.py, test_practice_readiness.py,
 tests/bench/test-launch-guards.py and integration/test_batch_launch.py as needed.
-Factor monitor's spend-file parser into boat_lifecycle; practice retains timing
-validation. Extract deletion completion validation there too, reuse in _delete.
+Keep monitor parsing in practice_cleanup for timing only. Extract deletion
+completion validation into boat_lifecycle and reuse it in _delete.
+Phases: helper/schema/inventory tests; settlement/admission; finish/guards; cleanup.
+Do not run Boat exam-launch/run-gate-smoke on this home: their unbound reservation
+permanently blocks reuse under this policy. Use no new home to evade that outcome.
 
 New reservation fields (in addition to today's usd/expires_at/status): state_path
 (canonical absolute string or null), vms (positive int), ttl_seconds (positive int),
@@ -151,7 +161,8 @@ is a pre-existing qualification limitation, not permission to fake actual usage.
 
 Use duplicate-free json.loads(parse_float=Decimal, parse_constant=reject), validate
 numbers with deployment_inventory.number's existing bounds; sum under precision 80
-with Inexact trapped (no rounding). Decimal monetary strings use format(value,'f').
+with Inexact trapped (no rounding). Provider dollars must be a numeric JSON token,
+not a string or bool; persisted decimal strings remain allowed. Decimal monetary strings use format(value,'f').
 Scan inventory accepts settled and validates settlement via the same helper; add
 settled_usd decimal string (null on invalid/missing), keep reserved_usd unchanged.
 Tests must update the scanner's exact schemas. No scanner output grants admission.
