@@ -813,12 +813,13 @@ def collect(policy, root, home, identity, transport=None):
 
 def dispatch(policy, root, home, identity, identity_bytes):
     """One preflight owner, then the existing shell controller. No new launcher."""
+    import practice_preflight as preflight
     enabled(policy, root); record = money.manifest(policy, root)
     directory = home / 'batches' / record['id']
     with operation_lock(directory, identity):
         try:
-            from key_holder import fingerprint, secret_labels, OPENCODE_ACCOUNTS, CLAUDE_ACCOUNTS
-            from account_handoff import launch_accounts
+            from key_holder import fingerprint, OPENCODE_ACCOUNTS
+            from router_delivery import DEFAULT as ROUTER_CLIENT
             from control_resume import ENVIRONMENT
             from batch import bind
             if fingerprint(root) != policy['code_sha256']: raise ValueError('request_refused')
@@ -832,13 +833,14 @@ def dispatch(policy, root, home, identity, identity_bytes):
                                        capture_output=True, check=True, timeout=10).stdout.decode().strip()
             if recipient not in (record['restore_recipient'], policy['recipient']): raise ValueError('request_refused')
             secrets = Path(os.environ.get('UNBUG_SECRETS_FILE', str(Path.home() / '.config/unbug-bench/secrets.age')))
-            labels = secret_labels(identity_bytes, secrets)
+            bundle = preflight.decrypt(identity_bytes, secrets)  # PreflightHold, never a terminal refusal
             source = source_directory(policy, root, home, identity)
             card = {} if source is None else service._json(source / (op['case'] + '.scorecard.json'))
             job = bind(policy, op['job'], op['source_generation'], root, home=home, operation=identity)
-            account, claude, accounts = launch_accounts(card, job, {}, labels)
-            if ((account is not None and OPENCODE_ACCOUNTS[account] not in labels) or
-                    CLAUDE_ACCOUNTS[claude] not in labels): raise ValueError('request_refused')
+            account, accounts, claude_label, opencode_label = preflight.job_labels(card, job, preflight.listed(bundle))
+            client = Path(os.environ.get('UNBUG_ROUTER_CLIENT_FILE', ROUTER_CLIENT))
+            preflight.dispatch_checks(root, bundle, claude_label, opencode_label, job['args'], client)
+            del bundle
             import practice_cleanup
             practice_cleanup.armed(policy, root, home, op)
             fleet = subprocess.run([str(root / 'bin/boat-call'), 'list', '--json'],
@@ -855,7 +857,7 @@ def dispatch(policy, root, home, identity, identity_bytes):
             env = dict(PATH=policy['path'], HOME=str(Path.home()), USER=os.environ.get('USER', ''), LANG='en_US.UTF-8',
                        BOAT_COMMAND_TIMEOUT_SECONDS='120', UNBUG_CLOUD='boat', BOAT_TYPE='default',
                        UNBUG_SECRETS_FILE=str(secrets), UNBUG_CONTROL_HOME=str(home), UNBUG_LAUNCH_ID=op['launch_id'],
-                       UNBUG_BATCH_OPERATION=identity, CLAUDE_SECRET_NAME=CLAUDE_ACCOUNTS[claude],
+                       UNBUG_BATCH_OPERATION=identity, CLAUDE_SECRET_NAME=claude_label,
                        FACTORY_ACCOUNT_POLICY=json.dumps({p + '_accounts': job.get(p + '_accounts', []) for p in ('opencode', 'claude')}),
                        FACTORY_ACCOUNT_STATE=json.dumps(accounts))
             import practice
@@ -881,6 +883,9 @@ def dispatch(policy, root, home, identity, identity_bytes):
             return child.wait()
         except (money.MoneyWait, subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError):
             return TEMPFAIL  # A batch freeze or transient I/O is not a refusal of this operation.
+        except preflight.PreflightHold as hold:
+            print('preflight hold: ' + str(hold), file=sys.stderr)  # the per-spawn log; key_holder retries in 60 s
+            return TEMPFAIL
         except Exception:
             with money.locked(home, record['id']):
                 ops = _operations(directory, record, policy); op = ops[identity]
