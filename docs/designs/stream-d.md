@@ -3991,3 +3991,13 @@ integration, as the parent's conditional scope instruction requires. Its design
 must distinguish recoverable bound artifacts from genuinely absent proof; no
 card-only score reconstruction, paid reroll, or legacy-case resumption is
 authorized by this scope note. Neither increment is complete here.
+
+### Item 7 fresh-case capture publication recovery
+
+Parent scope 72ca08f keeps current-schema missing-proof recovery and excludes
+retired-only adapters. stream-d-capture-recovery.md has the parent's approval
+after design round 2 (B3 one-shot ACK exam plus separate persistent failure).
+The implementation retries proof publication only, at most twice, and preserves
+intact renamed records. It never reconstructs card-only scores or reruns gates.
+Permanent absent/corrupt proof remains held. Full suite and fresh diff review
+remain required. No Murphy rows close; final all-outcomes integration follows.

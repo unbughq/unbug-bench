@@ -74,11 +74,12 @@ in this increment. Missing known proof after two failed copies stays pending.
 
 Use tests/factory/test_stream_d_entry.py and its saved practice/checkpoint/HTTP
 fixtures; external controls remain labelled. Add no worker/model/network calls.
-- Replace test_capture_failure_after_rename_does_not_retry's pending expectation
-  with a snapshot equal to an uninterrupted traversal. Assert one invocation per
-  gate, retained record bytes unchanged, save called once per stage and closed.json
-  absent. The existing persistent sync patch fails for every later stage after
-  G1 appears; all their intact records remain available despite missing ACKs.
+- Replace test_capture_failure_after_rename_does_not_retry with a one-shot
+  post-rename G1 parent-sync failure: fire only when G1/record.json exists and
+  the patch has not fired. Verification sync succeeds. Assert the unchanged
+  snapshot, one save per stage, one invocation per gate and closed.json present.
+- Keep the persistent patch separately: G1 bytes retained, two save attempts
+  per G2+ stage, one gate invocation each, closed.json absent and entry pending.
 - Real G4/G5 over invalid-runs-real.json.gz: fail one evidence-copy publication
   before rename, then succeed. Same result, entry frontier and support bytes as
   baseline; each real gate runs once, save called twice only for affected stage.
@@ -93,8 +94,7 @@ fixtures; external controls remain labelled. Add no worker/model/network calls.
   or version between publication attempts: no replacement and pending entry.
 - A pre-existing stage target refuses recovery without overwriting bytes.
 - G3 validation uses copied args/card: live workers and card remain unchanged.
-- Kill after a complete rename (BaseException bypassing capture handling), then
-  raise at _sync_directory(self.root) inside save after G4 is renamed. Entry from
+- Simulate one kill (BaseException bypassing capture handling) at _sync_directory(self.root) inside save only when G4/record.json exists after rename. Entry from
   retained checkpoint artifacts uses no evaluator or save: stress through G4 pass,
   frontier = extensions.stages().index('G5'), G5 onward unreached. It is a prefix,
   not equal to the uninterrupted full traversal. A partial staging directory
@@ -114,3 +114,12 @@ card as evidence or erase corrupt proof. Estimate 2–4 engineering hours plus s
 queue and reviews. This supports Murphy 9 and 13; closes none. After this slice,
 all-outcomes integration must explicitly account for genuinely absent/corrupt
 proof and persistent disk failures; this design does not claim to repair them.
+
+## Parent-approved after round 2
+
+The parent accepts B3 option (b), with the exact one-shot G1 post-rename test
+above, plus option (a) as the separate persistent-failure test. O1 is applied:
+the crash is one event, guarded by the published G4 record's existence. O2:
+the record card is the live post-invoke card; a retried save reads it again,
+while old_card and the result are frozen. O3 (pre-invoke RuntimeError remains
+under ordinary retry before any invocation) is accepted as scoped. No round 3.

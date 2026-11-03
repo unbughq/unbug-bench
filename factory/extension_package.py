@@ -319,6 +319,39 @@ class Records:
             self.save(stage, False, detail, before, card)
         return self.r.early_checks(c, on_rejection=rejected)
 
+    def save_observation(self, stage, ok, info, before, old_card):
+        """Retry proof publication, never execution; retain a renamed record."""
+        try:
+            target = self.root / stage
+            if target.exists() or target.is_symlink(): return False
+            info, old_card = copy.deepcopy((info, old_card))
+            result = extensions.digest(dict(ok=ok, info=info))
+            case, version = self.r.case_hash(self.c), self.version(stage)
+            for _ in range(2):
+                try:
+                    if self.r.case_hash(self.c) != case or self.version(stage) != version:
+                        return False
+                    if not target.exists() and not target.is_symlink():
+                        try:
+                            self.save(stage, ok, info, before, old_card)
+                            return True
+                        except Exception:
+                            if not target.exists() and not target.is_symlink(): continue
+                    probe = copy.copy(self.c)
+                    probe.args, probe.card = copy.deepcopy((self.c.args, self.c.card))
+                    records = Records(probe, self.r, observation_id=self.root.name,
+                                      round_number=self.round_number)
+                    data = records.load(stage)
+                    if data is None or extensions.digest(dict(ok=data['ok'], info=data['info'])) != result:
+                        return False
+                    extensions._sync_tree(target)
+                    return True
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return False
+
     def observe_gate(self, c, stage, invoke):
         """Observe ordinary execution without changing its verdict or retry policy."""
         self.observed[stage] = False
@@ -333,12 +366,9 @@ class Records:
             ok, info = result
             if comparison._pending(ok, info): return result
             if case != self.r.case_hash(c): return result
-            self.save(stage, ok, info, before, old_card)
-            self.observed[stage] = True
-        except CAPTURE_ERRORS:
-            # Even a failure after rename cannot authorize entry: no close marker.
-            try: shutil.rmtree(self.root / stage)
-            except OSError: pass
+            self.observed[stage] = self.save_observation(stage, ok, info, before, old_card)
+        except Exception:
+            pass  # Capture must never send a completed gate back through retry.
         return result
 
     def evidence(self, w, stage):
@@ -620,11 +650,9 @@ def observe_stress(c, r, records):
             result, _ = cleared_stress(c, receipt, report, result)
         if not result['complete'] or result['blocking'] or result['unfinished_validation']: return
         before = {key: gate_state.digest(path) for key, path in gate_state.inventory(c, r.BENCH).items()}
-        records.save('stress', True, result, before, project(c.card))
-        records.observed['stress'] = True
+        records.observed['stress'] = records.save_observation('stress', True, result, before, project(c.card))
     except CAPTURE_ERRORS:
-        try: shutil.rmtree(records.root / 'stress')
-        except OSError: pass
+        pass
 
 
 def observe(c, r, pipeline):
