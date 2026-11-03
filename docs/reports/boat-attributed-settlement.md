@@ -30,9 +30,12 @@ unsupported verb or incomplete result is a STOP; no balance-delta workaround exi
 Snapshot/proxy exclusions, credit and top-up checks remain live requirements.
 
 ## Targeted checks
-New settlement script: 13 tests passed. Existing inventory: 10 passed; isolation
+New settlement script: 14 tests passed (including unchanged Hetzner behavior). Existing inventory: 10 passed; isolation
 timeouts: 26 passed; practice readiness: 15 passed; batch launch integration: 8 passed.
 A standalone control-resume invocation omitted BENCH and failed 8 tests because the
 synthetic worker could not import processes. A diagnostic exposed ModuleNotFoundError;
 no production fix or limit change was made for that invocation. Rerun uses the suite's
-BENCH setting. Full-suite provenance and fresh diff review will follow below.
+BENCH setting: all 24 passed. Launch guard checks also passed (306.5 seconds).
+The 064855Z suite record is non-qualifying: its lock waiter was cancelled before
+execution (empty log) to correct the Hetzner compatibility edge. Full-suite
+provenance and fresh diff review will follow below.

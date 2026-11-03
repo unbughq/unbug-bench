@@ -257,6 +257,19 @@ guard_init
         (self.base/'usage').write_text(json.dumps(dict(id=WORKER,seconds=1,dollars=.1,running=False)))
         self.assertHeld()
 
+    def test_hetzner_existing_record_behavior_unchanged(self):
+        hcloud=self.base/'hcloud'
+        price=json.dumps(dict(prices=[dict(location='fsn1',price_hourly=dict(gross='0.01'))]))
+        hcloud.write_text('#!/usr/bin/env python3\nprint('+repr(price)+')\n')
+        hcloud.chmod(0o755)
+        env={**self.env,'BOAT_CMD':'hcloud-boat','HCLOUD_PLACES':'cx33@fsn1',
+             'PATH':str(self.base)+os.pathsep+self.env['PATH']}
+        for _ in range(2):
+            result=subprocess.run([str(ROOT/'bin/boat-spend'),'--check','1','1','5',str(self.record)],
+                                  env=env,capture_output=True,text=True,timeout=30)
+            self.assertEqual(result.returncode,0,result.stderr)
+        self.assertFalse((self.home/'boat-reservations.json').exists())
+
     def test_concurrent_successors_only_one_admits(self):
         self.admit(); self.assertEqual(self.finish().returncode,0)
         ps=[subprocess.Popen([str(ROOT/'bin/boat-spend'),'--check','1','1','5',str(self.base/f'new-{i}.json'),str(self.state.parent/f'new-{i}')],

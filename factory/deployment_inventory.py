@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Observe local deployment metadata. Never authorizes cleanup or activation."""
 import boat_lifecycle
+from boat_lifecycle import unique_object, reject_constant, number
 import datetime
 from decimal import Decimal, Inexact, InvalidOperation, localcontext
 import hashlib
@@ -157,31 +158,6 @@ def scan_launches(path):
 def empty_ledger(state):
     return dict(state=state, counts=dict.fromkeys(STATUSES, 0), reserved_usd=None, settled_usd=None,
                 expired_reserved=0, malformed_records=0, unknown_statuses=0)
-
-
-def unique_object(pairs):
-    obj = {}
-    for key, value in pairs:
-        if key in obj:
-            raise ValueError('duplicate-key')
-        obj[key] = value
-    return obj
-
-
-def reject_constant(value):
-    raise ValueError('invalid-number')
-
-
-def number(value):
-    if isinstance(value, bool) or not isinstance(value, (str, int, Decimal)):
-        raise ValueError('invalid-number')
-    value = Decimal(value)
-    if not value.is_finite() or value < 0:
-        raise ValueError('invalid-number')
-    digits = value.as_tuple()
-    if len(digits.digits) > 32 or not -18 <= digits.exponent <= 18:
-        raise ValueError('invalid-number')
-    return value
 
 
 def scan_ledger(path, observed):

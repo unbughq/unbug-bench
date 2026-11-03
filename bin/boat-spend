@@ -197,7 +197,7 @@ def accounting(ledger_path):
             refusal = 'infrastructure liability unsettled'
         elif previous is None and state is not None and any(r.get('state_path') == state for r in holds.values()):
             refusal = 'reservation state already bound'
-        elif previous is None and os.path.lexists(path):
+        elif not HETZNER and previous is None and os.path.lexists(path):
             refusal = 'unledgered spend record exists'
         else:
             before = None if HETZNER else balance(query)
