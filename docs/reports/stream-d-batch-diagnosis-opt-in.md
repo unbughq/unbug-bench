@@ -22,3 +22,8 @@ and money checks. B retains pilot admission, cleanup and Boat settlement.
 O7 is paused/assigned elsewhere with no lane-1 O7 design or implementation.
 The founder replacement pilot decision is recorded without deleting historical
 item-8 analysis; this code grants no pilot spend or launch authority.
+
+First locked attempt: ...T063326Z-320e3f27, command exit 2 before tests;
+uv could not resolve pypi.org for scipy. This is not a suite result. Cached
+numpy/scipy imports succeed with UV_OFFLINE=1; retry uses that environment
+setting with the unchanged locked suite command. Both records are retained.
