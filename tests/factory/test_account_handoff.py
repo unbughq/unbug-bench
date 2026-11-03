@@ -241,6 +241,15 @@ class AccountHandoffTests(unittest.TestCase):
         self.assertEqual(json.loads(env['FACTORY_ACCOUNT_STATE']), state)
         self.assertEqual(argv[-4:], ['--case-budget', '70', '--rounds', '9'])
 
+    def test_in_place_upload_carries_matching_supervisor_and_process_helper(self):
+        command = next(line for line in (ROOT / 'factory/resume-in-place.sh').read_text().splitlines()
+                       if line.startswith('COPYFILE_DISABLE=1 tar '))
+        handoff.subprocess.run(['/bin/sh', '-c', command], check=True, capture_output=True,
+                               env={**os.environ, 'root': str(ROOT), 'tmp': str(self.root)})
+        with tarfile.open(self.root / 'factory.tgz') as archive:
+            for name in ('factory/runner_supervisor.py', 'bin/processes.py'):
+                self.assertEqual(archive.extractfile(name).read(), (ROOT / name).read_bytes())
+
     def test_parked_failure_status_reaches_entrypoint(self):
         with patch.object(sys, 'argv', ['handoff', 'parked', '--policy', 'policy', '--job', 'canary', '--worker', 'owned']), \
              patch.object(handoff, 'parked', return_value=7):

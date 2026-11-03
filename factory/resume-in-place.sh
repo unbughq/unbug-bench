@@ -24,7 +24,7 @@ if [ "${FACTORY_PARKED_HANDOFF_READY:-}" != 1 ]; then
   case $stop in provider_limit:*) echo 'provider-limited parked restore requires --policy FILE --job NAME and identity on stdin for bounded account handoff' >&2; exit 1 ;; esac
 fi
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' 0
-COPYFILE_DISABLE=1 tar --no-xattrs -C "$root" --exclude __pycache__ -czf "$tmp/factory.tgz" factory
+COPYFILE_DISABLE=1 tar --no-xattrs -C "$root" --exclude __pycache__ -czf "$tmp/factory.tgz" factory bin/processes.py
 "$BOAT_CMD" scp "$tmp/factory.tgz" "$id:/home/user/factory.tgz" >/dev/null
 quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 account_state_arg=""
