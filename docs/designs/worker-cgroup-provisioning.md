@@ -7,7 +7,11 @@ claim live CLI/isolated-UID acceptance. Parent requested a short note and one
 diff review, without another design-review cycle. Baseline land13 7dbdc58.
 
 Use the existing runner_supervisor entry shared by fresh and same-worker resume
-launches. Before any runner subprocess, call processes.prepare_model_containment.
+launches. Route the remaining account_handoff.worker_resume direct invocation
+through that supervisor too. It preserves the runner arguments and credential
+environment and uses the supervisor's normal 14400-second duration and
+720-second grace defaults (explicit existing environment values are preserved).
+Before any runner subprocess, call processes.prepare_model_containment.
 On Linux, a privileged helper mode in the already shipped bin/processes.py creates
 /sys/fs/cgroup/unbug-models-<uid> and its runner leaf. Verify cgroup-v2 controls,
 delegate the directory and cgroup.procs/subtree_control/threads to the runner UID
@@ -30,6 +34,11 @@ kill and enrollment as the runner user. Failure produces runner-status.json with
 phase startup, reason containment_unavailable, exit 78, attempt 0, plus only that
 fixed label on stderr. Do not retry or start the runner. Successful starts inherit
 UNBUG_MODEL_CGROUP_ROOT through the supervisor's existing explicit environment.
+The launch probe recognizes containment_unavailable as STARTUP_FAILED so the
+existing guard promptly collects and retires the worker. Collection accepts
+attempt 0 only for the exact startup/containment_unavailable/78 preflight tuple
+and preserves that public receipt on the control side. A launch-guards exam
+drives this tuple through both real readers using the authored transport edge.
 
 No launch.sh duplication, bake-image requirement, opt-out, cgroup reset or fallback.
 Both processes.py and runner_supervisor.py are already bound in worker upload and
@@ -51,3 +60,7 @@ Parent testing update: the shared suite lock is retired. Merge `parallel-tests`
 (`89934c9`) and use `uv run --with numpy --with scipy python -B tests/run.py`
 without lockf. The merged test runner limits host-wide script concurrency and
 reuses passes for identical code. This supersedes the locked command above.
+Parent subsequently removed the pass cache: merge parallel-tests at 74dc5c7
+and rerun every script without lockf. No cached evidence qualifies the final
+head. Diff round 1 found the status-reader and in-place resume gaps above;
+both are accepted and fixed, with no rejected finding.

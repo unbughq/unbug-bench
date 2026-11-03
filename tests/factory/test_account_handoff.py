@@ -231,6 +231,10 @@ class AccountHandoffTests(unittest.TestCase):
             handoff.worker_resume(self.card['case'], 'a' * 64, ['--case-budget', '70', '--rounds', '9'], json.dumps(state))
         argv = spawn.call_args.args[0]; env = spawn.call_args.kwargs['env']
         self.assertEqual(argv[0], 'python3')
+        self.assertEqual(argv[1:5], [str(home / 'factory/runner_supervisor.py'), '--',
+                                   'python3', str(home / 'factory/run.py')])
+        self.assertEqual(env['FACTORY_RUNNER_SECONDS'], os.environ.get('FACTORY_RUNNER_SECONDS', '14400'))
+        self.assertEqual(env['FACTORY_RUNNER_GRACE_SECONDS'], os.environ.get('FACTORY_RUNNER_GRACE_SECONDS', '720'))
         self.assertFalse(any('synthetic-' in arg for arg in argv))
         self.assertEqual(env['OPENCODE_API_KEY'], 'synthetic-opencode-go-key-2')
         self.assertEqual(env['OPENCODE_SECRET_NAME'], 'opencode-go-key-2')

@@ -61,5 +61,17 @@ is kernel-tested with a root helper and a nonroot child. No live worker, provide
 or model call was made. Live VM provisioning, actual-CLI cancellation and
 isolated-UID acceptance remain unqualified. No Murphy row is closed here.
 
-One fresh Claude diff review follows the suite, as requested. Pilot admission
-implementation remains parked until this increment is handed back.
+The requested Claude diff review is recorded verbatim in
+`docs/reviews/worker-cgroup-provisioning-diff-1.md`: BLOCKED, two findings.
+Both were accepted: launch probing and collection now recognize/preserve the
+attempt-0 containment startup failure, and account_handoff.worker_resume now
+starts the shared supervisor rather than run.py directly. The design and focused
+tests cover these corrections. Account-handoff focused tests passed 16/16 with
+BENCH set as documented (41.968 s); two earlier invocations without BENCH failed
+the synthetic worker import/monitor path (25.680 s and 34.851 s).
+
+Parent subsequently required parallel-tests 74dc5c7, removing all pass caching.
+That branch is merged. All cached suite evidence above is historical and is
+superseded by the forthcoming complete cache-free run on the corrected code.
+Pilot admission remains parked until provisioning is handed back. No reviewer
+PASS is claimed for the corrected code yet.
