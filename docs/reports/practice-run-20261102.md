@@ -240,3 +240,16 @@
 - Deployment refusal occurred before a verified completion result; service transitions were not reverified after refusal. No journal or ledger reset was attempted. The old failed launch remains retained.
 - Status: STOP at deployment refusal. Models $0; infrastructure $0; no new worker or admission.
 - Parent stop rule applied: no further live calls after deployment refusal. New operation/worker IDs: none. Models $0; infrastructure $0; no new deletion required or claimed.
+
+## Deployment diagnosis and repair — 2026-11-03
+
+- Observation UTC: 2026-11-03T08:22:57.701474+00:00. Original deployment failed because user administrative escalation required a password; router and old cleanup were active, policy unchanged, backup and new pin directory absent.
+- Subsequent public upload retry stopped after service shutdown. Observation UTC: 2026-11-03T08:31:36.296762+00:00: router, holder and old cleanup inactive; old policy retained, no backup or new pin directory. No admission or worker occurred.
+- Used existing root-SSH administration, restored router, and uploaded exact b75c9b45b020e2ba4996ef83ee834c183d38c35f public source. No factory code change.
+- Pin hashes, batch.verify and holder fingerprint: pass. Old policy backed up; new b-plumbing-practice-2 policy installed. Router restarted active; old terminal cleanup stopped with its evidence retained.
+- Observation UTC: 2026-11-03T08:34:16.794397+00:00. Control decryption and Codex lifetime guard: pass. R2 access: pass. Router leases empty, paid total/outstanding both $0.
+- Observation UTC: 2026-11-03T08:35:05.510634+00:00. Router RAM credit key matches bundle: pass. OpenRouter credit $11.3637556; no top-up or paid call. Boat entry balance remains the observed $4.17157; exact boat 1.0.85 check passed before deployment.
+- Empty-input qualification: eligible, new admission, prior spend $0.
+- Reservation UTC: 2026-11-03T08:35:22.406227+00:00. Operation b1448c27-9065-5d2a-bbc2-e752dfba2cc7; launch 872f258ad1764f73829e33303d35fdf5. One reservation only; prior failed operation retained.
+- Cleanup armed UTC: 2026-11-03T08:35:58.012225+00:00. PID 241980; readiness operation/launch/policy binding passed. Run cap 1800 seconds, collection grace 900 seconds, provider TTL 3600 seconds. Dispatch not started at this observation.
+- Founder Go and confirmed 60-minute disconnect window remain authorized. Distinct accounts unverified (founder accepted); attribution/handoff unproven.
