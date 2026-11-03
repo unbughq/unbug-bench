@@ -146,6 +146,8 @@ def bind(policy, name, checkpoint, root, *, home=None, operation=None):
     from batch_service import resolve_job
     import batch_holder
     record = manifest(policy, root)
+    import pilot
+    if pilot.managed(policy) and not pilot.active(policy, root): raise ValueError('request_refused')
     if not batch_holder.active(policy, root) and ('carry_from' in record or re.search(r'-r[0-9]+$', name)):
         raise ValueError('request_refused')
     resolved = resolve_job(record, name)

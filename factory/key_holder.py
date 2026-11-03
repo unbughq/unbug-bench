@@ -461,6 +461,7 @@ def batch_tick(policy, children, waits, spawn):
         del children[operation]
     pending = []
     for action, scan in (('dispatch', batch_holder.reconcile), (None, batch_holder.plan_collections),
+                         (None, batch_holder.drain_resumes),
                          (None, batch_holder.schedule_waits),
                          ('resume', batch_holder.orphaned),
                          ('publish', batch_holder.unpublished)):
@@ -477,8 +478,8 @@ def batch_request(policy, req):
     if 'batch' not in policy or req.get('op') not in ('launch', 'operation') or 'batch' not in req: return None
     import batch_holder
     if not batch_holder.active(policy, ROOT):
-        import practice
-        if policy['batch']['id'] == practice.BATCH: raise ValueError('request_refused')
+        import practice, pilot
+        if pilot.managed(policy) or policy['batch']['id'] == practice.BATCH: raise ValueError('request_refused')
         return None
     if req['batch'] != policy['batch']['id']: raise ValueError('request_refused')
     if set(req) == {'op', 'batch', 'job', 'checkpoint'} and req['op'] == 'launch':

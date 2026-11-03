@@ -9,7 +9,7 @@ import json
 
 CHECKED_HELPERS = ('bin/qualified-release.py', 'tools/boat_readiness.py')
 HASH_FILE = 'factory/launcher-sha256.json'
-TRUSTED_FILES = ('factory/worker_secrets.py', 'factory/router_delivery.py', 'factory/practice.py', 'factory/practice_cleanup.py', 'factory/boat_lifecycle.py',
+TRUSTED_FILES = ('factory/pilot.py', 'control/unbug-pilot-cleanup.service', 'factory/worker_secrets.py', 'factory/router_delivery.py', 'factory/practice.py', 'factory/practice_cleanup.py', 'factory/boat_lifecycle.py',
  'control/unbug-practice-cleanup@.service', 'tools/practice-fault.py',
  'tools/qualify-batch-inputs.py', 'factory/control_resume.py',
  'factory/key_holder.py',
@@ -47,6 +47,8 @@ TRUSTED_FILES = ('factory/worker_secrets.py', 'factory/router_delivery.py', 'fac
  'factory/token_prices.py',
  'factory/model_call_gate.py',
  'factory/codex_login.py',
+ 'factory/practice_preflight.py',  # dispatch preflight runs in the holder
+ 'factory/model_runtime.py',  # codex_login resolves roles with select_models
  'factory/launch_manifest.py',
  'factory/transfer.py',
  'bin/factory-adopt',

@@ -1,6 +1,6 @@
 """Shared durable Boat identity and asynchronous deletion proof, used by both owners."""
 import datetime
-from decimal import Decimal, Inexact, localcontext
+from decimal import DecimalException, Decimal, Inexact, localcontext
 import fcntl
 import json
 import math
@@ -294,6 +294,34 @@ def _delete(root, spend, worker, ids_path, timeout):
                 operation['completedAt'] is not None):
             raise ValueError('failed or inconsistent operation')
         time.sleep(min(2, max(0, deadline - time.monotonic())))
+
+
+def read_ledger(path, *, missing_ok=True):
+    try:
+        ledger = (loads(regular(path)) if path and (not missing_ok or path.exists())
+                  else {'version': 1, 'reservations': {}})
+        if (not isinstance(ledger, dict) or type(ledger.get('version')) is not int or
+                ledger['version'] != 1 or not isinstance(ledger.get('reservations'), dict)):
+            raise ValueError()
+        for key, row in ledger['reservations'].items():
+            if (not isinstance(key, str) or not isinstance(row, dict) or
+                    row.get('status') not in ('reserved', 'finished', 'reconciled_expired', 'settled') or
+                    type(row.get('usd')) not in (str, int, Decimal)):
+                raise ValueError()
+            amount = Decimal(str(row['usd']))
+            if not amount.is_finite() or amount < 0: raise ValueError()
+            if 'state_path' in row:
+                if row['state_path'] is not None and (not isinstance(row['state_path'], str) or not pathlib.Path(row['state_path']).is_absolute()):
+                    raise ValueError()
+                for field in ('vms', 'ttl_seconds'):
+                    if type(row[field]) is not int or row[field] < 1: raise ValueError()
+                number(row['max_spend_usd'])
+            if row['status'] == 'settled': settlement_amount(row)
+        return ledger
+    except (ValueError, TypeError, KeyError, DecimalException):
+        raise ValueError('invalid reservation ledger') from None
+
+
 
 if __name__ == '__main__':
     try:

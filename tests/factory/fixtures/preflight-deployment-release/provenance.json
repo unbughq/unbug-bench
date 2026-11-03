@@ -1,0 +1,26 @@
+{
+  "purpose": "Retained copy of the candidate deployment release, frozen before regression replay; not built by test setup. Inactive, not founder-unlocked.",
+  "source_commit": "8a5c38fea414fe56e4152e58a53e65d4a457e811",
+  "record_sha256": "7bcbbd3da07673da71e7a49ebdf55750fa18b26802663d17028a122c854f4bc9",
+  "built_from_clean_checkout": "/Users/bugsincode/Developer/ub-pilot-release-source-20261103",
+  "original_deployment_release": "/Users/bugsincode/Developer/unbug-bench/results/infrastructure/2026-11-03-pilot-deployment/release-8a5c38f",
+  "retained_at": "2026-11-03T22:31:59.398651+00:00",
+  "policy_origin": "docs/reports/stream-b-practice-policy-20261031.json",
+  "policy_adaptations": [
+    "batch.release relocatable path",
+    "batch.sha256 for actual new deployment package",
+    "code_sha256 for frozen integrated host"
+  ],
+  "manifest_path": "factory/batches/b-practice-20261031.json",
+  "manifest_sha256": "90ce53cabe2504d6cac69eb23b6a4fcd002a85f8484e6d85c7e9c1bed401e928",
+  "host_count": 57,
+  "files_sha256": {
+    "source-manifest.json": "534a55f14a9eea75af54f7fc421082fdcade412c66d93218a371061b0e84a37f",
+    "public-source.tar.gz": "23b5d6e6f1685031b56baeae778893edab066f3fadb9622bef47c34026b4c396",
+    "deploy.py": "0fbe2217b36929f3faf7c7f39b79e4a7a7146de270c7a52270975a3924c3fd7b",
+    "batch-release.json": "7bcbbd3da07673da71e7a49ebdf55750fa18b26802663d17028a122c854f4bc9",
+    "install-source.py": "b561a11fa8958806ff970902bd5fb6e8f9fb92248819dc5e99fee3d245d363ea",
+    "worker-release-manifest.json": "5ed92230fe5498498a03076c7203892297ecee410d6d282458d42fdce8ae53cc",
+    "retained-policy.json": "051a3c6fd44d077c536b9b8536cc7665f2dec39052d19a06a9e62af9416af730"
+  }
+}

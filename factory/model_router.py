@@ -179,9 +179,9 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs): return None
 
 
-def available_credit():
+def available_credit(token=None):
     """Read-only, bounded observation. Never expose credentials/provider diagnostics."""
-    token = os.environ.get('OPENROUTER_API_KEY')
+    if token is None: token = os.environ.get('OPENROUTER_API_KEY')
     if not token: return None
     request = urllib.request.Request('https://openrouter.ai/api/v1/credits',
         headers={'Authorization': 'Bearer ' + token})

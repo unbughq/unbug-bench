@@ -40,6 +40,12 @@ def supervise(command, home, seconds):
 
     previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGINT)}
     try:
+        try:
+            processes.prepare_model_containment(home)
+        except processes.ContainmentError:
+            save(0, 'startup', 'containment_unavailable', 78)
+            print('containment_unavailable', file=sys.stderr)
+            return 78
         for attempt in range(1, 4):
             ready = sealed / ('runner-ready-' + str(attempt))
             ready.unlink(missing_ok=True)

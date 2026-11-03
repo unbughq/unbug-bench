@@ -18,7 +18,7 @@ import uuid
 
 import batch_money as money
 import batch_service as service
-from batch_accounting import collection_facts
+from batch_accounting import card_total, collection_facts
 from job_config import read_file
 from registry import atomic_json
 from transfer import digest
@@ -28,6 +28,15 @@ TEMPFAIL = 75  # Dispatch exit: transient wait, the operation stays pending.
 RETRY_LIMIT = 5  # Resume/publish respawns before a terminal incident.
 # Process-local delay only; no authorization or durable consumption state.
 _PLAN_RETRY_AFTER = {}
+_RESUME_RETRY_AFTER = {}
+PILOT_ROLE_ERROR = 'pilot roles must use pinned bounded routes'
+PILOT_ROLES = {
+    '--builder': 'openrouter/minimax/minimax-m3.1-flash',
+    '--attacker': 'openrouter/deepseek/deepseek-v4.1-flash',
+    '--reviewer1': 'openrouter/xiaomi/mimo-v2.6-pro',
+    '--strong-calibrator': 'claude/claude-opus-4-5-20251101:compact',
+    '--easy-calibrator': 'openrouter/deepseek/deepseek-v4.1-flash',
+}
 FIELDS = {'operation_id', 'launch_id', 'job', 'case', 'source_generation',
           'release_sha256', 'config_sha256', 'authority', 'state', 'pending_since',
           'worker_id', 'dispatch_started', 'dispatch_exit', 'output_generation',
@@ -37,7 +46,8 @@ INCIDENTS = (None, 'creation_unknown', 'accounting_refused', 'legacy_retire',
 
 
 def active(policy, root):
-    import practice
+    import practice, pilot
+    if pilot.managed(policy): return pilot.active(policy, root)
     return HOLDER_ENABLED or practice.active(policy, root)
 
 
@@ -227,19 +237,59 @@ def empty_input(root, directory, case):
         raise ValueError('request_refused')
 
 
-def _admit(directory, record, policy, root, ops, state, name, source_generation, provider_wait=False):
+def _pilot_roles(args):
+    from model_router import route_maximum
+    if not isinstance(args, list) or any(not isinstance(arg, str) for arg in args):
+        raise ValueError(PILOT_ROLE_ERROR)
+    targets = (*PILOT_ROLES, '--writer', '--stress-tester', '--pilot', '--reviewer2')
+    seen = set()
+    for index, arg in enumerate(args):
+        if arg in PILOT_ROLES:
+            if arg in seen or index + 1 == len(args) or args[index + 1] != PILOT_ROLES[arg]:
+                raise ValueError(PILOT_ROLE_ERROR)
+            seen.add(arg)
+        elif arg.startswith('--'):
+            option = arg.split('=', 1)[0]
+            if option == '--' or any(target.startswith(option) for target in targets):
+                raise ValueError(PILOT_ROLE_ERROR)
+    if seen != PILOT_ROLES.keys() or any(route_maximum(route) is None for route in PILOT_ROLES.values()):
+        raise ValueError(PILOT_ROLE_ERROR)
+
+
+def _admit(directory, record, policy, root, home, ops, state, name, source_generation, provider_wait=False,
+           *, queued_resume=None):
     """Shared decision; only supplied in-memory state changes. Caller owns lock."""
-    import practice
+    import practice, pilot
+    if pilot.managed(policy):
+        pilot.admission(record)
+        pilot.history(record, ops, operation_id(policy, name, source_generation), name)
     if record['id'] == practice.BATCH:
         if not practice.matches(record): raise ValueError('request_refused')
         practice.admission(record)
+    if record['id'] == money.PILOT_BATCH:
+        if len(record['jobs']) != 3: raise ValueError(PILOT_ROLE_ERROR)
+        for job in record['jobs'].values(): _pilot_roles(job.get('args'))
     resolved = service.resolve_job(record, name)
+    if record['id'] == money.PILOT_BATCH: _pilot_roles(resolved['template'].get('args'))
     carried = record.get('carry_from', {}).get('jobs', {})
     if name not in carried and any(re.fullmatch(re.escape(name) + r'-r[1-9][0-9]*', child) for child in carried):
         raise ValueError('template-only imported root')
-    service._lineage(service._load(directory, record, policy['batch']['manifest_sha256']), record, name)
+    journal = service._load(directory, record, policy['batch']['manifest_sha256'])
+    service._lineage(journal, record, name)
     if source_generation is not None and not money._sha(source_generation):
         raise ValueError('request_refused')
+    if queued_resume is not None:
+        if (provider_wait or source_generation is None or not isinstance(queued_resume, dict) or
+                not money.diagnosis_enabled(record)):
+            raise ValueError('request_refused')
+        key = 'resume/' + resolved['case'] + '/' + source_generation
+        if (journal['queue'].get(key) != queued_resume or
+                (queued_resume.get('kind'), queued_resume.get('job'), queued_resume.get('owner_job'),
+                 queued_resume.get('case'), queued_resume.get('source_generation')) !=
+                ('resume', name, name, resolved['case'], source_generation) or
+                (queued_resume.get('reason') == 'exhaustion' and
+                 record.get('replacement_policy', {}).get('enabled'))):
+            raise ValueError('request_refused')
     if money.deadline(record['batch_deadline']) <= datetime.now(timezone.utc).timestamp():
         raise money.MoneyWait('retired_batch_bound')
     if provider_wait and source_generation is None: raise ValueError('request_refused')
@@ -268,10 +318,37 @@ def _admit(directory, record, policy, root, ops, state, name, source_generation,
             any(o['job'] == name and o['state'] in ('pending', 'launched') and o['retirement'] is None
                 for o in ops.values())): raise money.MoneyWait('money_wait')
     if source_generation is not None:
-        ack, _, card = _source(directory, record, policy, ops, state, name, source_generation)
+        ack, entry, card = _source(directory, record, policy, ops, state, name, source_generation)
         if provider_wait:
             if ops[ack['operation_id']]['incident'] is not None: raise ValueError('request_refused')
             _wait_due(card, record)
+        if queued_resume is not None:
+            source_directory = directory
+            if row.get('imported', {}).get('generation') == source_generation:
+                from batch_transfer import predecessor, read_import
+                old_policy, _ = predecessor(record)
+                producer = read_import(directory, record)['snapshot']['operations'][ack['operation_id']]
+                _config(old_policy, home, producer)
+                source_directory = home / 'batches' / old_policy['batch']['id']
+            else:
+                producer = ops[ack['operation_id']]
+                if producer['incident'] is not None: raise ValueError('request_refused')
+                _config(policy, home, producer)
+            for base in (directory, source_directory):
+                parent = base / 'retirements'
+                case_dir = parent / resolved['case']
+                if any(path.is_symlink() or (path.exists() and not path.is_dir())
+                       for path in (parent, case_dir)):
+                    raise ValueError('request_refused')
+                retired = case_dir / (source_generation + '.json')
+                if retired.exists() or retired.is_symlink(): raise ValueError('request_refused')
+            if not isinstance(card.get('diagnosis_state'), dict): raise ValueError('request_refused')
+            import diagnosis
+            facts = service._project(card, diagnosis)
+            if (facts != entry['facts'] or
+                    facts != journal['entries'][resolved['case'] + '/' + source_generation]['facts'] or
+                    service._resume_reason(facts, card_total(card) is None) != queued_resume['reason']):
+                raise ValueError('request_refused')
         if row['authority']['source_generation'] != source_generation:
             money.advance_locked(state, record, name, source_generation, ack)
         elif row.get('imported', {}).get('generation') == source_generation:
@@ -284,7 +361,7 @@ def _admit(directory, record, policy, root, ops, state, name, source_generation,
     return money.authorize_locked(state, record, name, source_generation)
 
 
-def reserve(policy, root, home, name, source_generation, *, provider_wait=False):
+def reserve(policy, root, home, name, source_generation, *, provider_wait=False, queued_resume=None):
     enabled(policy, root)
     from batch_transfer import prepare
     prepare(policy, root, home)
@@ -293,7 +370,8 @@ def reserve(policy, root, home, name, source_generation, *, provider_wait=False)
     with money.locked(home, record['id']) as directory:
         ops = _operations(directory, record, policy)
         state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
-        authority = _admit(directory, record, policy, root, ops, state, name, source_generation, provider_wait)
+        authority = _admit(directory, record, policy, root, home, ops, state, name, source_generation,
+                           provider_wait, queued_resume=queued_resume)
         if identity in ops:
             _save(directory, record, policy, ops)  # repair journal after lost reply
             return deepcopy(ops[identity])
@@ -429,7 +507,7 @@ def _reconcile_one(directory, root, home, op, state):
         try:
             with operation_lock(directory, op['operation_id']):
                 if not path.exists():
-                    path.mkdir(mode=0o700)  # Fence any late control_resume for this launch id.
+                    path.mkdir(mode=0o700, parents=True)  # Fence any late control_resume for this launch id.
                     op.update(state='failed', incident='preflight_refused'); return
                 if service._json(path / 'launch.json') != op['launch']: return
                 with service._regular(path / 'controller.lock') as lock:
@@ -507,6 +585,33 @@ def plan_collections(policy, root, home):
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             # ponytail: one retry per minute per refused generation; restart clears it.
             _PLAN_RETRY_AFTER[key] = time.monotonic() + 60
+    return []
+
+
+def drain_resumes(policy, root, home):
+    """Reserve eligible queued resumes; reconcile remains the only dispatch source."""
+    enabled(policy, root); record = money.manifest(policy, root)
+    if not money.diagnosis_enabled(record): return []
+    with money.locked(home, record['id']) as directory:
+        ops = _operations(directory, record, policy)
+        journal = service._load(directory, record, policy['batch']['manifest_sha256'])
+        queue = service.ordered_queue(journal)
+    for row in queue:
+        if row['kind'] != 'resume' or (row['reason'] == 'exhaustion' and
+                                      record.get('replacement_policy', {}).get('enabled')):
+            continue
+        identity = operation_id(policy, row['job'], row['source_generation'])
+        key = (str(home.resolve()), policy['batch']['manifest_sha256'], row['job'], row['source_generation'])
+        if identity in ops:
+            _RESUME_RETRY_AFTER.pop(key, None)
+            continue
+        if _RESUME_RETRY_AFTER.get(key, 0) > time.monotonic(): continue
+        try:
+            reserve(policy, root, home, row['job'], row['source_generation'], queued_resume=row)
+            _RESUME_RETRY_AFTER.pop(key, None)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            # ponytail: one retry per minute per refused generation; restart clears it.
+            _RESUME_RETRY_AFTER[key] = time.monotonic() + 60
     return []
 
 
@@ -813,12 +918,13 @@ def collect(policy, root, home, identity, transport=None):
 
 def dispatch(policy, root, home, identity, identity_bytes):
     """One preflight owner, then the existing shell controller. No new launcher."""
+    import practice_preflight as preflight
     enabled(policy, root); record = money.manifest(policy, root)
     directory = home / 'batches' / record['id']
     with operation_lock(directory, identity):
         try:
-            from key_holder import fingerprint, secret_labels, OPENCODE_ACCOUNTS, CLAUDE_ACCOUNTS
-            from account_handoff import launch_accounts
+            from key_holder import fingerprint, OPENCODE_ACCOUNTS
+            from router_delivery import DEFAULT as ROUTER_CLIENT
             from control_resume import ENVIRONMENT
             from batch import bind
             if fingerprint(root) != policy['code_sha256']: raise ValueError('request_refused')
@@ -832,15 +938,16 @@ def dispatch(policy, root, home, identity, identity_bytes):
                                        capture_output=True, check=True, timeout=10).stdout.decode().strip()
             if recipient not in (record['restore_recipient'], policy['recipient']): raise ValueError('request_refused')
             secrets = Path(os.environ.get('UNBUG_SECRETS_FILE', str(Path.home() / '.config/unbug-bench/secrets.age')))
-            labels = secret_labels(identity_bytes, secrets)
+            bundle = preflight.decrypt(identity_bytes, secrets)  # PreflightHold, never a terminal refusal
             source = source_directory(policy, root, home, identity)
             card = {} if source is None else service._json(source / (op['case'] + '.scorecard.json'))
             job = bind(policy, op['job'], op['source_generation'], root, home=home, operation=identity)
-            account, claude, accounts = launch_accounts(card, job, {}, labels)
-            if ((account is not None and OPENCODE_ACCOUNTS[account] not in labels) or
-                    CLAUDE_ACCOUNTS[claude] not in labels): raise ValueError('request_refused')
+            account, accounts, claude_label, opencode_label = preflight.job_labels(card, job, preflight.listed(bundle))
+            client = Path(os.environ.get('UNBUG_ROUTER_CLIENT_FILE', ROUTER_CLIENT))
+            preflight.dispatch_checks(root, bundle, claude_label, opencode_label, job['args'], client)
+            del bundle
             import practice_cleanup
-            practice_cleanup.armed(policy, root, home, op)
+            practice_cleanup.armed(policy, root, home, op, ops)
             fleet = subprocess.run([str(root / 'bin/boat-call'), 'list', '--json'],
                                    capture_output=True, check=True,
                                    env={**os.environ, 'BOAT_CAPTURE_OUTPUT': '1', 'BOAT_COMMAND_TIMEOUT_SECONDS': '25'})
@@ -855,11 +962,13 @@ def dispatch(policy, root, home, identity, identity_bytes):
             env = dict(PATH=policy['path'], HOME=str(Path.home()), USER=os.environ.get('USER', ''), LANG='en_US.UTF-8',
                        BOAT_COMMAND_TIMEOUT_SECONDS='120', UNBUG_CLOUD='boat', BOAT_TYPE='default',
                        UNBUG_SECRETS_FILE=str(secrets), UNBUG_CONTROL_HOME=str(home), UNBUG_LAUNCH_ID=op['launch_id'],
-                       UNBUG_BATCH_OPERATION=identity, CLAUDE_SECRET_NAME=CLAUDE_ACCOUNTS[claude],
+                       UNBUG_BATCH_OPERATION=identity, CLAUDE_SECRET_NAME=claude_label,
                        FACTORY_ACCOUNT_POLICY=json.dumps({p + '_accounts': job.get(p + '_accounts', []) for p in ('opencode', 'claude')}),
                        FACTORY_ACCOUNT_STATE=json.dumps(accounts))
             import practice
             if practice.active(policy, root): env['UNBUG_PRACTICE_BATCH'] = practice.BATCH
+            import pilot
+            if pilot.active(policy, root): env['UNBUG_PILOT_PIN'] = pilot.pin(policy)
             if 'UNBUG_ROUTER_CLIENT_FILE' in os.environ:
                 env['UNBUG_ROUTER_CLIENT_FILE'] = os.environ['UNBUG_ROUTER_CLIENT_FILE']
             if account is not None: env['OPENCODE_SECRET_NAME'] = OPENCODE_ACCOUNTS[account]
@@ -869,7 +978,7 @@ def dispatch(policy, root, home, identity, identity_bytes):
                 current = _post(directory, record, policy, home, ops, state, identity)
                 if current['state'] != 'pending' or current['dispatch_started'] or current['incident'] is not None: return
                 if current['source_generation'] is None: empty_input(root, directory, current['case'])
-                practice_cleanup.armed(policy, root, home, current)
+                practice_cleanup.armed(policy, root, home, current, ops)
                 current['launch'] = dict(argv=argv, environment={k: env[k] for k in ENVIRONMENT if k in env})
                 current['dispatch_started'] = True
                 _save(directory, record, policy, ops)
@@ -881,6 +990,9 @@ def dispatch(policy, root, home, identity, identity_bytes):
             return child.wait()
         except (money.MoneyWait, subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError):
             return TEMPFAIL  # A batch freeze or transient I/O is not a refusal of this operation.
+        except preflight.PreflightHold as hold:
+            print('preflight hold: ' + str(hold), file=sys.stderr)  # the per-spawn log; key_holder retries in 60 s
+            return TEMPFAIL
         except Exception:
             with money.locked(home, record['id']):
                 ops = _operations(directory, record, policy); op = ops[identity]

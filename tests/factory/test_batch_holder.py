@@ -23,6 +23,7 @@ from contextlib import ExitStack
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
 import batch_holder as holder
+import practice_preflight as preflight
 import batch_money as money
 import batch_service as service
 import batch_status as status
@@ -174,7 +175,9 @@ class HolderTests(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.dict(os.environ, environment, clear=True))
             stack.enter_context(patch.object(key_holder, 'fingerprint', return_value='fingerprint'))
-            stack.enter_context(patch.object(key_holder, 'secret_labels', return_value={'claude-token'}))
+            # Phase B live checks have their own real-dispatch tests (test_preflight.py).
+            stack.enter_context(patch.object(preflight, 'decrypt', return_value=[(tarfile.TarInfo('claude-token'), b'')]))
+            stack.enter_context(patch.object(preflight, 'dispatch_checks'))
             stack.enter_context(patch.object(account_handoff, 'launch_accounts', return_value=(None, 1, {})))
             stack.enter_context(patch.object(holder.subprocess, 'run', side_effect=run))
             stack.enter_context(patch.object(holder.subprocess, 'Popen', side_effect=popen))
@@ -451,7 +454,9 @@ class HolderTests(unittest.TestCase):
             return SimpleNamespace(stdin=io.BytesIO(), wait=lambda: 0)
         with ExitStack() as stack:
             stack.enter_context(patch.object(key_holder, 'fingerprint', return_value='fingerprint'))
-            stack.enter_context(patch.object(key_holder, 'secret_labels', return_value={'claude-token'}))
+            # Phase B live checks have their own real-dispatch tests (test_preflight.py).
+            stack.enter_context(patch.object(preflight, 'decrypt', return_value=[(tarfile.TarInfo('claude-token'), b'')]))
+            stack.enter_context(patch.object(preflight, 'dispatch_checks'))
             stack.enter_context(patch.object(account_handoff, 'launch_accounts', return_value=(None, 1, {})))
             stack.enter_context(patch.object(holder.subprocess, 'run', side_effect=run))
             stack.enter_context(patch.object(holder.subprocess, 'Popen', side_effect=popen))

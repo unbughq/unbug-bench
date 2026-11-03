@@ -141,8 +141,11 @@ secrets_file=${UNBUG_SECRETS_FILE:-$HOME/.config/unbug-bench/secrets.age}
 identity=$(cat)  # in memory only: opens credentials and the small wrapped case key
 secrets_b64=$(printf '%s\n' "$identity" | age -d -i /dev/stdin "$secrets_file" | base64) || true
 [ -n "$secrets_b64" ] || { echo "could not decrypt $secrets_file (run bin/setup-secrets?)" >&2; exit 1; }
+# Enforced unless the run.py args resolve to no codex/ role; unparseable args enforce it.
 codex_login_gate() {
-  printf '%s' "$secrets_b64" | base64 -d | python3 -B "$here/codex_login.py" --ttl-hours "${1:-$ttl_hours}"
+  gate_ttl=${1:-$ttl_hours}
+  eval "set -- $args"
+  printf '%s' "$secrets_b64" | base64 -d | python3 -B "$here/codex_login.py" --ttl-hours "$gate_ttl" --job-args -- "$@"
 }
 # Before restores, guard ownership or any paid worker operation. Recheck each
 # creation too: provisioning a large batch consumes part of the safe lifetime.
@@ -468,7 +471,7 @@ import json
 status = home + "/sealed/runner-status.json"
 if os.path.isfile(home + "/sealed/DONE"):
     print("DONE")
-elif os.path.isfile(status) and (lambda s: s.get('reason') == 'startup_failed' or s.get('phase') in ('finished', 'stopped'))(json.load(open(status))):
+elif os.path.isfile(status) and (lambda s: s.get('reason') in ('startup_failed', 'containment_unavailable') or s.get('phase') in ('finished', 'stopped'))(json.load(open(status))):
     print("STARTUP_FAILED")
 else:
     paths = [home + "/.boat-launch-start"] + glob.glob(home + "/sealed/*.continuation-budget.json")

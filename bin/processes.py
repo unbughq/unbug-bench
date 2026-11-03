@@ -24,6 +24,60 @@ class ContainmentError(RuntimeError):
     """Safe labels only; never include a command or its environment."""
 
 
+def delegate_model_cgroup(pid, uid, gid):
+    """Privileged worker setup; keep old scopes intact for restart refusal."""
+    if sys.platform != 'linux' or os.geteuid() != 0 or min(pid, uid, gid) < 0 or pid == 0:
+        raise ContainmentError('containment_unavailable')
+    status = dict(line.split(':', 1) for line in Path(f'/proc/{pid}/status').read_text().splitlines())
+    if any(int(value) != uid for value in status['Uid'].split()):
+        raise ContainmentError('containment_unavailable')
+    mount = Path('/sys/fs/cgroup')
+    if not (mount / 'cgroup.controllers').is_file():
+        raise ContainmentError('containment_unavailable')
+    root = mount / f'unbug-models-{uid}'
+    root.mkdir(exist_ok=True)
+    runner = root / 'runner'
+    runner.mkdir(exist_ok=True)
+    for directory in (root, runner):
+        if directory.is_symlink() or not (directory / 'cgroup.kill').is_file():
+            raise ContainmentError('containment_unavailable')
+        os.chown(directory, uid, gid)
+        os.chmod(directory, 0o700)
+        for name in ('cgroup.procs', 'cgroup.threads', 'cgroup.subtree_control'):
+            os.chown(directory / name, uid, gid)
+    (runner / 'cgroup.procs').write_text(str(pid))
+
+
+def probe_model_containment(home):
+    """Exercise real membership and cleanup before any runner/model admission."""
+    call = ContainedCall(Path(home) / 'sealed' / '.containment-preflight')
+    child = None
+    try:
+        child = call.launch([sys.executable, '-I', '-S', '-c', 'pass'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if child.wait(timeout=5) != 0: raise ContainmentError('containment_unavailable')
+    finally:
+        call.stop()
+        if child is not None: child.wait(timeout=5)
+
+
+def prepare_model_containment(home):
+    try:
+        if sys.platform != 'linux': raise ContainmentError('containment_unavailable')
+        pid, uid, gid = os.getpid(), os.getuid(), os.getgid()
+        if os.geteuid() == 0:
+            delegate_model_cgroup(pid, uid, gid)
+        else:
+            subprocess.run(['sudo', '-n', sys.executable, '-I', str(Path(__file__).resolve()),
+                            '--delegate-model-cgroup', str(pid), str(uid), str(gid)],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, check=True, timeout=10)
+        os.environ['UNBUG_MODEL_CGROUP_ROOT'] = f'/sys/fs/cgroup/unbug-models-{uid}'
+        probe_model_containment(home)
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError, ContainmentError):
+        raise ContainmentError('containment_unavailable') from None
+
+
 @contextlib.contextmanager
 def _containment_scope(ledger):
     root = os.environ.get('UNBUG_MODEL_CGROUP_ROOT')
@@ -282,6 +336,12 @@ async def shell(command, *, timeout=120, cwd=None):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ['--delegate-model-cgroup']:
+        try:
+            delegate_model_cgroup(*(int(value) for value in sys.argv[2:]))
+        except (OSError, ValueError, KeyError, TypeError, ContainmentError):
+            sys.exit('containment_unavailable')
+        sys.exit(0)
     # Isolated Python startup and a private pipe prevent pre-enrollment execution.
     descriptor = int(sys.argv[1])
     admitted = os.read(descriptor, 1) == b"1"

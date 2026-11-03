@@ -35,6 +35,8 @@ class ControlResumeTests(unittest.TestCase):
             shutil.copyfile(HERE.parent / 'bin' / name, f.root / 'bin' / name)
             (f.root / 'bin' / name).chmod(0o755)
         shutil.copyfile(HERE / 'runner_supervisor.py', f.remote / 'factory/runner_supervisor.py')
+        supervisor = f.remote / 'factory/runner_supervisor.py'
+        supervisor.write_text(supervisor.read_text().replace('processes.prepare_model_containment(home)', 'None  # authored provisioning edge'))
         guards=f.root/'bin/boat-launch-guards.sh'
         guards.write_text(guards.read_text().replace('guard_delete_receipt() {',
             'guard_delete_receipt() {\n  "$root/bin/boat-call" test-gate before-delete',1).replace(

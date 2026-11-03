@@ -16,6 +16,9 @@ class MoneyWait(ValueError):
     """No authenticated authority; caller queues without starting a worker."""
 
 
+PILOT_BATCH = 'b-real-pilot'
+
+
 def amount(value):
     """Exact integer nanodollars; channel encoding remains decimal USD to 9 places."""
     if not isinstance(value, str) or not re.fullmatch(r'(?:0|[1-9][0-9]*)\.[0-9]{9}', value):
@@ -169,7 +172,7 @@ def authorize(policy, name, source_generation, root, home, *, now=None):
     exists. A persisted grant is retained even if projection/delivery later fails.
     """
     record = manifest(policy, root)
-    if 'practice_admission' in record or 'carry_from' in record or re.search(r'-r[0-9]+$', name):
+    if record['id'] == PILOT_BATCH or 'practice_admission' in record or 'carry_from' in record or re.search(r'-r[0-9]+$', name):
         raise MoneyWait('money_wait')
     if deadline(record['batch_deadline']) <= (time.time() if now is None else now):
         raise MoneyWait('retired_batch_bound')

@@ -89,21 +89,19 @@ class PracticeTests(unittest.TestCase):
 
     def test_previous_practice_id_refused_and_ceilings_unchanged(self):
         record = json.loads((ROOT / preflight.MANIFEST).read_text())
-        self.assertEqual(practice.BATCH, 'b-plumbing-practice-2')
-        self.assertEqual(record['jobs']['practice']['case'], 'case-b-plumbing-practice-2-practice')
+        self.assertEqual(practice.BATCH, 'b-plumbing-practice-3')
+        self.assertEqual(record['jobs']['practice']['case'], 'case-b-plumbing-practice-3-practice')
         self.assertEqual(record['money_limit_usd'], '19.990000000')
-        self.assertEqual(record['jobs']['practice']['requested_total_usd'], '19.990000000')
+        self.assertEqual(record['jobs']['practice']['requested_total_usd'], '19.980000000')
         self.assertEqual(record['practice_admission']['jobs']['practice'],
-                         dict(baseline_usd='0.000000000', incremental_usd='19.990000000'))
+                         dict(baseline_usd='0.000000000', incremental_usd='19.980000000'))
         args = record['jobs']['practice']['args']
         self.assertEqual(args[args.index('--max-spend') + 1], '5')
         self.assertEqual(args[args.index('--ttl-hours') + 1], '1')
         self.assertIn('UNBUG_PRACTICE_BATCH=' + practice.BATCH + '\n', preflight.DROPIN)
         self.assertIn('UNBUG_PRACTICE_BATCH=' + practice.BATCH + '\n',
                       (ROOT / 'control' / cleanup.UNIT).read_text())
-        old = deepcopy(record)
-        old['id'] = 'b-plumbing-practice'
-        old['jobs']['practice']['case'] = 'case-b-plumbing-practice-practice'
+        old = json.loads((ROOT / 'factory/batches/b-plumbing-practice-2.json').read_text())  # Retained -2.
         policy = self.practice_policy(old)  # Authenticated old manifest, not a missing-file refusal.
         self.assertFalse(practice.matches(old))
         self.assertEqual(money.manifest(policy, self.root), old)
@@ -241,7 +239,7 @@ class PracticeTests(unittest.TestCase):
         self.assertEqual([r["id"] for r in report["offline"] if r["status"] == "fail"], ["pins"])
         self.assertFalse(report["launch_ready"])
         self.assertEqual(preflight.code(report), 1)
-        self.assertEqual(sum(float(r["ceiling_usd"]) for r in report["live"]), 24.99)
+        self.assertEqual(sum(float(r["ceiling_usd"]) for r in report["live"]), 24.98)
 
     def test_unarmed_and_wrong_unit_refuse_before_query(self):
         op = self.reserve()

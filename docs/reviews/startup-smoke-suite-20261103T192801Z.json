@@ -1,0 +1,8 @@
+{
+ "command": "uv run --with numpy --with scipy python -B tests/run.py",
+ "head": "9b6a893f171f23b589656b3c86d7bcbd25e7d820",
+ "started_at": "2026-11-03T19:28:01Z",
+ "finished_at": "2026-11-03T19:37:37Z",
+ "exit_code": 1,
+ "note": "1 failure: test_codex_login_rotation (finalize_accounting context without args); fixed in the next commit"
+}

@@ -50,6 +50,7 @@ class PlanningTests(unittest.TestCase):
         spawned = []
         with patch.multiple(key_holder, ROOT=self.root, CONTROL_HOME=self.home), \
              patch.dict(sys.modules, diagnosis=self.api), \
+             patch.object(holder, 'drain_resumes', return_value=[]), \
              patch.object(holder, 'reserve') as reserve, \
              patch.object(holder, 'dispatch') as dispatch:
             key_holder.batch_tick(self.policy, {}, {},
