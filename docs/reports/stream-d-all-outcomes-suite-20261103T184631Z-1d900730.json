@@ -1,0 +1,23 @@
+{
+  "tag": "stream-d-all-outcomes-suite-20261103T184631Z-1d900730",
+  "queued_at": "2026-11-03T18:46:31.657525+00:00",
+  "pid": 67497,
+  "head": "dc20f2bebde9ab0db290d9b3205554fd7e9a096d",
+  "tree": "f3d5f816709ac5c6694f2c7aa9cac3fdc0cc4af6",
+  "log": "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-4ac6b632/docs/reports/stream-d-all-outcomes-suite-20261103T184631Z-1d900730.log",
+  "runtime": "/tmp/stream-d-all-outcomes-suite-20261103T184631Z-1d900730-runtime.json",
+  "runner": "/tmp/stream-d-all-outcomes-suite-20261103T184631Z-1d900730-runner.py",
+  "command": "nohup lockf /tmp/unbug-suite.lock sh -c 'python3 /tmp/stream-d-all-outcomes-suite-20261103T184631Z-1d900730-runner.py > /Users/bugsincode/.t3/worktrees/unbug-bench/t3-4ac6b632/docs/reports/stream-d-all-outcomes-suite-20261103T184631Z-1d900730.log 2>&1; echo \"exit $?\" >> /Users/bugsincode/.t3/worktrees/unbug-bench/t3-4ac6b632/docs/reports/stream-d-all-outcomes-suite-20261103T184631Z-1d900730.log'",
+  "timeout_scope": "after_lock_acquisition",
+  "timeout_seconds": 7200,
+  "active_start": "2026-11-03T18:46:31.972810+00:00",
+  "active_end": "2026-11-03T19:29:11.119455+00:00",
+  "run_seconds": 2559.1,
+  "exit_code": 0,
+  "qualification": "pass",
+  "scripts": 184,
+  "failures": 0,
+  "log_sha256": "ed4c228d6b26873e5be9a0d4a7ff5cafe876fc8f8e87a335f67f7cf57f3ad9d0",
+  "integration_seconds": 1031.829,
+  "queue_seconds": 0.3
+}
