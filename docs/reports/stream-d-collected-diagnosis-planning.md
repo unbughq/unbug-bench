@@ -115,14 +115,18 @@ the full runner's BENCH environment. No additional full suite is queued.
 Code review PASS: stream-d-collected-diagnosis-planning-diff-2.md, no blockers.
 The only final-suite failure passed its focused recheck unchanged:
 stream-d-collected-diagnosis-planning-launch-guards-recheck-20261103T192339Z-7fe32ba9.json/.log,
-exit 0, all launch guard checks passed (408.3 seconds), no real Boat calls.
+exit 0, all launch guard checks passed (409.6 seconds), no real Boat calls.
 Retain the final full-suite result as 184 scripts / 1 failed (183 passed),
 never 184/0. This is supporting evidence for the parent's existing unrelated
 failure/recheck rule; the parent owns the merged-tree gate. No production or
 test source changes followed the independent final diff review.
 
-The current factory-simplify tip is already an ancestor. Parallel runner
-281bf20 is included. Work is ready for parent merge review; no suite remains
+factory-simplify advanced to 5b3cd0b (land17) during the work; it is not an
+ancestor of this handback. git merge-tree --write-tree HEAD factory-simplify
+completed with exit 0 (tree 535062834c4510ad062dfa3d1655241de8b81ab7), and that
+branch adds no changes to the three planning production files since the common
+base. No textual conflicts are predicted; the parent owns integrated validation.
+Parallel runner 281bf20 is included. Work is ready for parent merge review; no suite remains
 queued. This increment supplies only the authenticated production plan caller.
 Next increment must drain resume rows through the existing holder.reserve/
 reconcile/dispatch path; no production diagnosis cycle is claimed yet.
