@@ -885,6 +885,7 @@ class WaitSchedulingTests(unittest.TestCase):
 
     def test_tick_future_due_restart_and_single_successor(self):
         import key_holder
+        self.record['diagnosis_policy']['enabled'] = False; self.freeze()
         op, card = self.waiting()
         self.assertNotIn('diagnosis_state', card)
         clock = self.clock('2026-12-31T23:59:59Z')

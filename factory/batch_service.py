@@ -325,13 +325,17 @@ def retire_legacy(directory, entry, card):
     return True
 
 
-def plan(policy, root, home, case, generation, now=None):
+def plan(policy, root, home, case, generation, now=None, *, published_operation=None):
     record = batch_money.manifest(policy, root)
     with batch_money.locked(home, record['id']) as directory:
         state = _load(directory, record, policy['batch']['manifest_sha256'])
         entry = state['entries'].get(case + '/' + generation)
         if entry is None: raise ValueError('uncollected generation')
-        card = _snapshot(directory, entry, record, policy['batch']['sha256'])
+        if published_operation is None:
+            card = _snapshot(directory, entry, record, policy['batch']['sha256'])
+        else:
+            from batch_holder import _planning_source
+            card = _planning_source(directory, record, policy, root, home, published_operation, case, generation)
         if retire_legacy(directory, entry, card):
             return dict(status='retired', reason='legacy_retire', facts=None, queue=[])
         if not batch_money.diagnosis_enabled(record): return dict(status='diagnosis_unavailable', facts=None, queue=[])

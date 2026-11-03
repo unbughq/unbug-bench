@@ -156,7 +156,11 @@ the in-lock check must refuse. Patch money.locked with a contextmanager depth co
 BEFORE calling the original lock. Exercise both direct plan with published_operation
 and plan_collections, asserting maximum depth exactly one; no assumed suite timeout.
 
-Only touched tests run during implementation. Final exam is one full
+Only touched tests run during implementation. Merge parallel-tests (89934c9 or later) before the handback full suite. Use a
+function-local import of _planning_source in service.plan. Patch monotonic only
+around tick calls so the global time module is not changed during setup.
+
+Final exam is one full
 `uv run --with numpy --with scipy python -B tests/run.py` at the handback code,
 without lockf (parent retired the suite lock). Commit unique log and structured
 record. Then fresh diff review; at most two design and two diff rounds.
