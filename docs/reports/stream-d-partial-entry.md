@@ -36,7 +36,9 @@ from the implementation; upstream integration precedes the qualifying run.
 ## Review and scope
 
 Design review rounds 1 and 2 are retained in docs/reviews/stream-d-partial-entry-design-{1,2}.md;
-round 2 passes. Fresh diff review remains required. The exact three prior hold
+round 2 passes. Fresh diff review round 1 passes with no blockers; saved verbatim in
+`docs/reviews/stream-d-partial-entry-diff-1.md`. Its four optional findings remain
+recorded as non-blocking follow-ups. No code changed after review. The exact three prior hold
 expectations change as the approved design specifies. Existing outcome-route,
 attribution and retry assertions are unchanged by this slice.
 

@@ -3966,5 +3966,5 @@ are bound to the last record and freshness-consuming stages. No evaluation or
 score is invented. Focused entry tests: 19 passed. Implementation e70949c, integrated with upstream
 7dbdc58 at 502b15b, passes the full locked suite: 182 scripts / 0 failures. The
 parent-approved two-hour timeout starts after lock acquisition; queue time does
-not count. Fresh diff review remains pending. No Murphy rows close. Legacy evidence adapters and final all-outcomes
+not count. Fresh diff review round 1 passes with no blockers (stream-d-partial-entry-diff-1.md). No Murphy rows close. Legacy evidence adapters and final all-outcomes
 integration remain open before the founder's three-case pilot.
