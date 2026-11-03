@@ -65,8 +65,8 @@ In batch_money add diagnosis_enabled(record): validate that optional subobject
 and return its bool, with absence returning False. check_manifest calls this
 helper. It imports no worker budget or diagnosis module (host accounting
 isolation is retained). batch_service.plan uses it on its freshly authenticated
-record at the current global gate location, after retire_legacy and before any
-D import/projection/enqueue. Disabled plans keep diagnosis_unavailable.
+record at the current global gate location, after retire_legacy and before
+projection/enqueue. Disabled plans keep diagnosis_unavailable.
 Legacy retirement remains independent of activation.
 
 In job_config add diagnosis_enabled(c): use only the installed
@@ -157,3 +157,24 @@ suite, fresh diff review (at most two rounds each). No Murphy row closes:
 row 9 needs the later real production queue-to-diagnosis cycle; the
 current-comparison row remains open. No live activation until the remaining
 increments, B prerequisites, item 7 and founder pilot conditions are met.
+
+## Design-round-1 dispositions (binding)
+
+Review passes. Apply evaluates the worker policy once on its close_to_passing
+branch and reuses that bool locally. Separate dispatch/invocation and apply
+boundaries revalidate current authority; a deadline expiring after decision.json
+is durable intentionally refuses with retired_batch_bound. The in-memory card
+may already be completed, but replay must consume the same retained decision
+without another diagnosis call. Add that explicit regression.
+
+observation_enabled runs its cheap factory/mode/audit guards first, then policy.
+An enabled-policy BudgetError propagates from run_gates before observe or
+pipeline.run. Add an expired-authority regression at that actual boundary.
+
+Reset authenticated_batch_manifest to None alongside authenticated_job_config
+at install entry. Migrate test_batch_admission_clamps too. The main subprocess
+control serializes authenticated_batch_manifest and selects per-fault policy
+inside its authored install function. Update docs/practice/b3/preflight.py to
+check its pinned manifest policy instead of the deleted global. Update the
+item-8 rollback paragraph: absent/false policy in a new reviewed release/batch,
+or stop B admissions; a pinned journal cannot be toggled in place.
