@@ -68,3 +68,21 @@ launch.sh, runner, preparation owner and TLS router, with authored Docker/app
 edges. Its seed-ID double was extended for the now-executed checker path. A failed
 exam decrypts only its throwaway archive to expose the retained traceback. This
 is offline delivery coverage, not a real application build or cloud qualification.
+
+## First locked full suite
+
+The 20261103T121120Z-fa16c8ee run at source 8f4aafb completed all 180 scripts:
+3 failed, so its record is qualifying=false. Dispatch, qualified-allowance and
+runtime main-path tests had four stale sh doubles returning None or an object
+without returncode. The new real pool owner exposed that invalid adapter contract
+(AttributeError: NoneType has no attribute returncode, or the equivalent object).
+The correction returns status 0 for successful non-capture calls and preserves
+capture stdout with returncode=0. No assertion, budget or timing limit changed,
+and production source is unchanged. All other scripts passed, including the
+real Docker startup/volume/seed exam and the full worker-command integration.
+The failed log and hashes are retained; they are not claimed as validation.
+
+Corrected adapter targeted runs: dispatch 63/0 (80.491s), qualified allowances
+10/0 (8.275s), runtime 42/0 (84.475s), using the same uv Python/dependencies as
+the full suite. Original assertions are intact. A second locked full suite
+follows; no production file changed after 8f4aafb.

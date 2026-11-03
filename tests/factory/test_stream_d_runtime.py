@@ -204,7 +204,7 @@ mode, previous_id = sys.argv[4:6]
 root.mkdir(); run.HOME = root; run.SEALED = root / 'out'
 run.Ctx = lambda: types.SimpleNamespace(job_money={})
 run.bench_manifest = lambda: 'public-practice-control'
-run.sh = lambda *a, **kw: types.SimpleNamespace(stdout='authored recipient')
+run.sh = lambda *a, **kw: types.SimpleNamespace(stdout='authored recipient', returncode=0) if kw.get('capture') else 0
 run.build_fixture = lambda c: shutil.copytree(practice, c.case)
 def fail(c):
     c.ledger.parent.mkdir(exist_ok=True)
@@ -459,7 +459,7 @@ root.mkdir(); run.HOME = root; run.SEALED = root / 'out'
 release = b'authored batch release configuration'
 (root / 'batch-release.json').write_bytes(release)
 run.bench_manifest = lambda: 'public-practice-control'
-run.sh = lambda *a, **kw: types.SimpleNamespace(stdout='authored recipient')
+run.sh = lambda *a, **kw: types.SimpleNamespace(stdout='authored recipient', returncode=0) if kw.get('capture') else 0
 run.build_fixture = lambda c: shutil.copytree(practice, c.case)
 job_config.install = lambda c, a: None  # authored installer; money authority is tested separately
 def record(c):
