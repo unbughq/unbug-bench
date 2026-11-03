@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory() as d:
         cmd = ['sh', '-c', (f'sleep 1; echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%S.000Z) level=ERROR usage limit exceeded" >> {log}/new.log; ' if write else '') + 'sleep 30']
         t = time.monotonic()
         try: run_budgeted(cmd, d, {**os.environ, 'XDG_DATA_HOME': str(d)}, d / 't', d / f'ledger{write}.json', 60,
-                          progress_timeout=4, configured_model='opencode-go/x'); return 'none', 0
+                          containment=False, progress_timeout=4, configured_model='opencode-go/x'); return 'none', 0
         except BudgetError as e: return str(e), time.monotonic() - t
     stop, took = run(True); assert stop == 'provider_limit:opencode-go/x' and took < 10, (stop, took)
     stop, _ = run(False); assert stop != 'provider_limit:opencode-go/x', stop  # an old log line is not news
@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory() as d:
     d = pathlib.Path(d); (d / 'opencode/log').mkdir(parents=True); os.chmod(d / 'opencode', 0)
     try:
         run_budgeted(['sh', '-c', 'sleep 30'], d, {**os.environ, 'XDG_DATA_HOME': str(d)}, d / 't', d / 'l.json', 60,
-                     progress_timeout=4, configured_model='opencode-go/x'); raise AssertionError('expected a stall')
+                     containment=False, progress_timeout=4, configured_model='opencode-go/x'); raise AssertionError('expected a stall')
     except BudgetError as e: assert str(e) == 'stalled', e
     finally: os.chmod(d / 'opencode', 0o700)
 print('PASS unreadable log dir is skipped (stall still detected)')

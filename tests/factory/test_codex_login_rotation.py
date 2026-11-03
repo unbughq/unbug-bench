@@ -138,7 +138,7 @@ class LoginTests(unittest.TestCase):
                 with self.assertRaisesRegex(budget.BudgetError, '^codex_login_expired$'):
                     budget.run_budgeted([sys.executable, '-c', 'print(' + repr(message) + ')'],
                         folder, os.environ.copy(), folder/'transcript', folder/'ledger', 5,
-                        driver='codex', configured_model='codex/gpt-6.1-sol')
+                        containment=False, driver='codex', configured_model='codex/gpt-6.1-sol')
                 self.assertEqual(json.loads((folder/'ledger').read_text())['terminal_stop'], 'codex_login_expired')
 
     def test_preflight_retains_login_reason_and_deliberate_restore_is_allowed(self):
@@ -187,7 +187,7 @@ guard_exit "$primary"
                     budget.run_budgeted([sys.executable,'-c',
                         'import time; print("401 Unauthorized",flush=True); time.sleep(5)'],
                         root,os.environ.copy(),root/'transcript',root/'ledger',10,
-                        driver='codex',configured_model='codex/gpt-6.1-sol')
+                        containment=False, driver='codex',configured_model='codex/gpt-6.1-sol')
             ledger=json.loads((root/'ledger').read_text())
             self.assertEqual(ledger['terminal_stop'],'codex_login_expired')
             self.assertEqual(ledger['cleanup_errors'],[{'stage':'process_cancellation','error':'OSError'}])

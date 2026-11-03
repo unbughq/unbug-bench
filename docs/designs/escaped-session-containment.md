@@ -13,9 +13,9 @@ For every `ModelRuntime` invocation with `user=None`, require a fresh Linux
 cgroup v2 below an explicitly configured delegated `UNBUG_MODEL_CGROUP_ROOT`.
 No process-group fallback: missing delegation, missing cgroup.kill, unsupported
 platform, or failed enrollment prevents the command from executing. Isolated UID
-calls retain their current cleanup and are not qualified here. Direct synthetic
-budget emitters retain their existing API default; ModelRuntime explicitly asks
-run_budgeted for containment. The option is not a CLI/environment opt-out.
+calls retain their current cleanup and are not qualified here. Containment is on
+by default; synthetic emitters explicitly opt out in tests. The option is not a
+CLI/environment opt-out.
 
 Put the small containment owner in bin/processes.py (already released). A private
 per-invocation directory owns membership independently of sessions and parentage.
@@ -31,16 +31,15 @@ cgroup and allowing invocation cleanup/settlement to finish. This replaces group
 cleanup for the contained call; it does not supplement ancestry polling. Keep a
 bounded cleanup wait (five seconds, matching current budget cleanup); a failure
 raises cancellation_failed and durably records cleanup_errors, never success.
-A failed nonempty cgroup remains retained for diagnosis; later model dispatch in
-that process must refuse after any containment cleanup failure. No inferred
+A failed cgroup remains retained for diagnosis; later dispatch in any process
+must refuse after containment cleanup failure. No inferred
 process death, deleted work, retry or reusable containment directory on failure.
 The group-kill boundary includes nested cgroups. Concurrent calls get separate
 random directories and cannot cancel each other.
 
 The delegated root is runner-owned deployment configuration, not model input.
-This addresses descendants using setsid/setpgid/double-fork, not a hostile
-administrator deliberately migrating tasks through writable cgroupfs or remote
-daemon-owned workloads. The pilot must provision delegation before any model
+This addresses descendants using setsid/setpgid/double-fork, not same-UID tool descendants deliberately migrating tasks through writable
+cgroupfs or remote daemon-owned workloads. The pilot must provision delegation before any model
 call; no provisioning or cloud/live worker action belongs to this change. Missing
 support on macOS refuses non-isolated CLI dispatch. Existing synthetic runtime
 tests may replace only containment enrollment; they cannot qualify O7.
@@ -99,22 +98,11 @@ Ownership is scoped by SHA-256 of the canonical absolute ledger path, under the
 configured root. That path is stable for a case resumed into the same work
 directory. A new host cannot retain the old host's processes; changing the
 ledger path on the same host is not a supported cleanup/recovery operation.
-Different cases have separate scopes; no root-wide sweep ever runs. Acquire an
-exclusive nonblocking flock on `<ledger>.containment.lock` for the lifetime of
-the owning Python process; concurrent calls in that process share a mutex and
-scope owner. A second process for the same ledger refuses while the owner lives.
-On first acquisition, ANY leftover invocation directory in that scope refuses
-dispatch with `containment_unavailable`, before Popen. Do not auto-sweep: retained
-processes require explicit recovery, and cannot silently coexist with a resumed
-call. Empty scope directories are harmless. The lock must be non-inheritable;
-forked children must not reuse the parent's in-memory owner (bind it to getpid).
-
-A cleanup failure poisons the in-memory scope before throwing, leaves the call
-directory in place even if it is empty, and appends a safe cleanup error to the
-budget ledger. The runtime also records the containment error on the card and
-propagates it as a hard stop, not outage/quota/credential routing. A fresh process
-finds the leftover directory, including when resume_ledger clears terminal_stop.
-No successful dispatch after failure is permitted merely by resetting a budget.
+Different cases have separate scopes; no root-wide sweep ever runs. Ownership
+uses per-call locks as specified in the parent decision below. Retained processes
+require explicit recovery and cannot silently coexist with a resumed call.
+Empty scope directories are harmless. Cleanup errors reach both ledger and card;
+resetting a budget never overrides containment refusal.
 
 The public run_budgeted containment keyword defaults ON. Only isolated-UID
 runtime calls explicitly disable it (their existing UID sweep still applies).
@@ -166,3 +154,41 @@ with a no-op; no runtime flag or committed bypass. Record patch and failing test
 Local feasibility probe succeeded: Docker python:3.12-slim with --network none,
 --privileged and --cgroupns private can create a real v2 cgroup with cgroup.kill
 and cgroup.events. No cloud worker or model call was involved.
+
+
+## Parent-approved after round 2
+
+The parent resolved B3 with option (a); there is no design review round 3.
+Each call locks its cgroup directory with flock for the entire call. A short
+scope mutex (`<ledger>.containment.lock`) serializes checks, directory creation
+plus lock acquisition, and directory removal; it is never held during execution.
+A leftover is a call directory whose lock can be acquired. Live calls in other
+processes are allowed. On cleanup failure create a `.poisoned` child directory
+as a durable marker; all processes refuse while it exists. Release the failed
+call's ownership lock so the directory is also detectable as a leftover if
+marker creation fails. Keep that directory until explicit recovery. Forks occur
+only with no call live: extension_evaluator.start_child already waits for one
+thread and no active_model_calls. Test a parent call, then a successful forked
+child call on the same ledger, then a child-created leftover found by the parent.
+
+M7 option (i): every run_budgeted entry, including isolated-UID calls, and
+resume_ledger checks leftovers whenever UNBUG_MODEL_CGROUP_ROOT is configured.
+Do not clear ledger stop state before that check. Contained entry still requires
+the root; missing configuration is not permission to launch a non-isolated CLI.
+
+M8: the admission shim argv is `[sys.executable, '-I', absolute_processes_path,
+read_fd, '--', *cmd]`, with pass_fds=(read_fd,), close_fds=True and
+start_new_session=True. Isolated Python prevents cwd/PYTHONPATH/site-user hooks
+running before enrollment. The shim closes the pipe and execvpe's the command
+with its inherited CLI environment only after the admission byte.
+
+M9: recovery is manual and scope-only, with all case activity stopped: write 1
+to cgroup.kill in each retained call, wait for populated 0, remove directories
+bottom-up, and record the recovery in the case card. Never remove populated
+state, sweep siblings, or rename the ledger to evade refusal. No recovery tool
+is built in this increment.
+
+N4: stale default-off and process-only refusal wording has been removed. N5:
+runtime card entries are {'stage': 'model_containment', 'error': label}, for
+containment_unavailable or cancellation_failed. These labels hard-stop routing.
+The parent authorizes implementation and at most two fresh diff review rounds.

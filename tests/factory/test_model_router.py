@@ -398,7 +398,7 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
         with self.assertRaises(budget.BudgetError) as failure:
             budget.run_budgeted([sys.executable,'-c','print('+repr(json.dumps(event))+')'],
                 self.root, os.environ.copy(), self.root/'transcript', self.root/'ledger',10,
-                configured_model=model)
+                containment=False, configured_model=model)
         ledger = json.loads((self.root/'ledger').read_text())
         self.assertEqual(ledger['calls'],0)
         self.assertEqual(ledger['provider_failure']['reason'],'credit')
@@ -533,7 +533,7 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
                     events[-1]['result']=text
                     events.insert(0,{'type':'system','subtype':'api_retry','retry_delay_ms':500,'error_status':529})
                 budget.run_budgeted([sys.executable,'-c',''.join(emit(e) for e in events)],directory,os.environ.copy(),
-                    directory/'transcript',directory/'ledger',10,driver=driver,configured_model=model)
+                    directory/'transcript',directory/'ledger',10,containment=False, driver=driver,configured_model=model)
                 ledger=json.loads((directory/'ledger').read_text())
                 self.assertEqual(ledger['terminal_stop'],'complete')
                 self.assertNotIn('provider_failure',ledger)
@@ -652,7 +652,7 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
             c.card['roles']['writer']['model']=model
             def execute(context,models,*args,**kwargs):
                 return budget.run_budgeted([sys.executable,'-c',emit(event)],c.case,os.environ.copy(),
-                    c.work/'error-transcript',c.ledger,5,driver=driver,configured_model=models[0],resume=True,
+                    c.work/'error-transcript',c.ledger,5,containment=False, driver=driver,configured_model=models[0],resume=True,
                     case_budget=1000,max_cost=100,max_total_calls=10000).returncode
             with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
                  patch.object(router,'SECRETS',secrets),patch.object(router,'WAIT_SECONDS',0), \
@@ -687,7 +687,7 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
             if len(seen)==1:
                 event={'type':'system','subtype':'api_retry','error_status':429,'message':'rate limit'}
                 return budget.run_budgeted([sys.executable,'-c',emit(event)*2],c.case,os.environ.copy(),
-                    c.work/'retry-transcript',c.ledger,5,driver='claude',configured_model=models[0],resume=True,
+                    c.work/'retry-transcript',c.ledger,5,containment=False, driver='claude',configured_model=models[0],resume=True,
                     case_budget=1000,max_cost=100,max_total_calls=10000).returncode
             return 0
         with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
@@ -700,7 +700,7 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
         c,secrets,_=self.context();model='codex/gpt-6.1-sol';c.card['roles']['writer']['model']=model
         def execute(context,models,*args,**kwargs):
             return budget.run_budgeted([sys.executable,'-c',"print('workspace routing discovery unauthorized (401)')"],
-                c.case,os.environ.copy(),c.work/'expiry-transcript',c.ledger,5,driver='codex',configured_model=model,resume=True,
+                c.case,os.environ.copy(),c.work/'expiry-transcript',c.ledger,5,containment=False, driver='codex',configured_model=model,resume=True,
                 case_budget=1000,max_cost=100,max_total_calls=10000).returncode
         runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
         with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
