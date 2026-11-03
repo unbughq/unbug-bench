@@ -1,0 +1,24 @@
+{
+  "base": "ff31d87542e404cdcbf16740e4baa10c603b4b88",
+  "source_sha256": {
+    "bin/processes.py": "ad36483428568ba496e74b5c0bbe9e4c482c191a029f13706cd3fbc9296c57a3",
+    "factory/budget.py": "bc200f5aacbd9b057a25b4991fd0e8e1ca6424a62088c2a7016e6a381192a0f9",
+    "factory/model_runtime.py": "a5b2fd23b87e7b9e5cd27d80ac97f248661171b944d0d8b574489c8e9b423a3a",
+    "tests/factory/test_escaped_session_containment.py": "ba55b5cbc09ce9260ffde08624d1cb5fffd1effb4e55ec0617a236ee89150bc3",
+    "tests/factory/test_model_runtime.py": "3ff223f22c95baec2a9f52620e827d777b92c81f4aedea0f5999472c0b0ade3e",
+    "tests/factory/test_model_call_maxima.py": "948e7d1e3f8db407c5e209ff89b988b5a00fb02b6bb0824a66b76e17759e0d62"
+  },
+  "kernel_command": "docker run --rm --network none --privileged --cgroupns private -v \"$PWD:/repo:ro\" -w /repo -e O7_TEST_CGROUP_ROOT=/sys/fs/cgroup python:3.12-slim python -B -W ignore::ResourceWarning tests/factory/test_escaped_session_containment.py",
+  "kernel_result": "14 tests passed (11 kernel, 3 refusal/wiring)",
+  "negative_control": "Temporary source copy: replace only ContainedCall.stop cgroup.kill write with no-op; cancellation test fails with cancellation_failed instead of cancelled; independent kernel cleanup retained.",
+  "full_suite_command": "lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py",
+  "full_suite_result": "waiting for shared lock",
+  "logs_sha256": {
+    "docs/reports/escaped-session-containment-case-budget-20261103.log": "213be36f2f73d1bb2ae6538b829135969f4a90d779b5f6a6f609919567a5a957",
+    "docs/reports/escaped-session-containment-kernel-20261103.log": "bedb8286127eb1fe997595cc667c2c2f06727056b3f5e1b74a44e50f7723684b",
+    "docs/reports/escaped-session-containment-kernel-final-20261103.log": "5d6b8a606bc654cafba72ee7cf85ae4f09a81f8d45ca6c2ca40aac4e804cc192",
+    "docs/reports/escaped-session-containment-kernel-preflight-20261103.log": "fe50076028bbf6467799009de783a7558fcf2d01c834947fabf5c2ae9499e84b",
+    "docs/reports/escaped-session-containment-negative-20261103.log": "b4c891f94c69423f48e72ff62d947388d5ef478b3803e63e88ef773e798e57e5"
+  },
+  "live_acceptance": "Not performed: actual CLI, isolated UID, deployed delegation."
+}

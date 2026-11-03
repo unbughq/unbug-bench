@@ -81,6 +81,8 @@ class ContainedCall:
                            ('cgroup.kill', 'cgroup.events', 'cgroup.procs')):
                     self.path.rmdir()
                     raise ContainmentError('containment_unavailable')
+                # Probe kill support/permission while empty, before admission.
+                with (self.path / 'cgroup.kill').open('w') as control: control.write('1')
                 self.fd = os.open(self.path, os.O_RDONLY | os.O_DIRECTORY)
                 fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
