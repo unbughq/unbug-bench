@@ -106,7 +106,7 @@ class RunArtifacts:
                             if getattr(c.args, 'batch_release_sha256', None) else None)
             if getattr(c.args, 'batch_release_sha256', None) and not vm_recipient:
                 raise RuntimeError('batch checkpoint requires VM restore recipient')
-            case_key = None if c.args.dry_run else r2_upload.case_recipient(
+            case_key = None if c.args.dry_run and not vm_recipient else r2_upload.case_recipient(
                 work, self.sealed, c.case_id, c.recipient,
                 **({'restore_recipient': vm_recipient} if vm_recipient else {}))
         except (OSError, subprocess.CalledProcessError):
