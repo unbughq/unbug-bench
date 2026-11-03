@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline practice checks. Exit 3 means live evidence remains unproved."""
+"""Practice checks: offline, plus --live prerequisites. Exit 0 all pass, 1 any fail, 3 unproved or needs_founder."""
 import argparse
 import json
 from pathlib import Path
@@ -10,7 +10,13 @@ import practice_preflight as preflight
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--bundle", type=Path)
+    p.add_argument("--live", action="store_true", help="also the read-only live checks over root SSH; exit 0 only if all pass")
+    p.add_argument("--name", default="unbug-control", help="control server name, as bin/control-vm")
     a = p.parse_args()
-    result = preflight.check(ROOT, a.bundle)
+    server = False
+    if a.live:
+        try: server = preflight._load(ROOT / "bin/control-vm", "control_vm").selected(a.name)
+        except Exception: server = None  # every SSH check then fails, and is reported
+    result = preflight.check(ROOT, a.bundle, server)
     print(json.dumps(result, indent=2, sort_keys=True))
     raise SystemExit(preflight.code(result))

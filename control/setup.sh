@@ -26,17 +26,22 @@ EOF
     usermod -L user
     install -d -m 700 -o user -g user /home/user/.ssh "$repo" "$state" "$state/launches"
     install -m 600 -o user -g user /root/.ssh/authorized_keys /home/user/.ssh/authorized_keys
-    # Use the official installer's prod binary/config contract without running
-    # its shell-profile edits, self-update or interactive onboarding.
+    # Use the official installer's binary/config contract without running its shell-profile
+    # edits, self-update or interactive onboarding. The prod download endpoint serves the
+    # latest CLI (1.0.88 on 2026-11-02), so install the exact asset bin/boat-call pins.
+    # Only the x64 asset's SHA-256 is recorded (docs/reports/practice-run-20261102.md).
     case $(uname -m) in
-      x86_64) arch=x64 ;;
-      aarch64|arm64) arch=arm64 ;;
+      x86_64) arch=x64; boat_sha256=5d7933a238dcea0446bbbee0e2506692961d16537b9960003e4ece9ecb1ec498 ;;
       *) echo 'Unsupported Boat CLI architecture' >&2; exit 1 ;;
     esac
     install -d -m 700 -o user -g user /home/user/.config
     install -d -m 700 -o user -g user /home/user/.ascii/bin /home/user/.config/ascii/boat /home/user/.config/unbug-bench
     boat=/home/user/.ascii/bin/boat
-    curl -fsSL "https://boat.dev/api/boat/cli/download?platform=linux-$arch&channel=prod" -o "$boat"
+    curl -fsSL "https://github.com/ariana-dot-dev/agent-server/releases/download/boat-cli-v1.0.85/boat-linux-$arch" -o "$boat.download"
+    if [ "$(sha256sum "$boat.download" | cut -d ' ' -f 1)" != "$boat_sha256" ]; then
+      rm -f "$boat.download"; echo 'Boat CLI SHA-256 mismatch; not installed' >&2; exit 1
+    fi
+    mv "$boat.download" "$boat"
     chmod 755 "$boat"
     chown user:user "$boat"
     config=/home/user/.config/ascii/boat/config.json
