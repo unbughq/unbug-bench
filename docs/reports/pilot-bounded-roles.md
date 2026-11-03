@@ -44,3 +44,12 @@ Record: pilot-bounded-roles-suite-20261103T195437Z-7b2839a0.json and .log.gz.
 The source tree and compressed/uncompressed log hashes were checked. No lockf,
 pass-cache reuse, test-limit changes, live calls, workers, or credentials.
 The fresh diff review is the remaining gate.
+
+Fresh diff review round 1 passed with no blockers or majors; saved verbatim in
+`docs/reviews/pilot-bounded-roles-diff-1.md`. Claude and the free OpenCode model
+were rate-limited, so the approved fresh Codex gpt-6.1-sol fallback reviewed the
+gpt-6.1-terra writer. One optional test nit remains open: duplicate identical
+role pins are rejected by production, as the reviewer checked, but the committed
+duplicate test uses a different route and does not isolate that condition.
+No Murphy row closes. The separate practice preflight branch must land before
+any re-pin or retry, and a bounded Codex gate remains follow-up work.
