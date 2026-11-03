@@ -115,3 +115,19 @@ This suggests a transient process-state assertion; it does not waive the 182/1
 result or prove a quiet-host full suite. Structured recheck record is retained.
 No production or test source changed. Retry the plain-lockf combined-tree gate
 with the same two-hour execution budget after acquisition. No extra review.
+
+FINAL PARENT ACCEPTANCE: parent accepted code PASS and the combined 181/182
+result with the unchanged cancellation-state assertion passing its exact
+recheck. Parent is merging 770e327 and owns one merged-tree suite gate. The
+queued retry ...T172507Z-f7f3a9d6 was cancelled before any suite child existed,
+after matching only this worktree cwd. No raw result is relabelled 182/0.
+No further opt-in suite or review is required. I1's four test migrations are
+complete, and no additional production change was made. No batch is opted in.
+
+New process: retire the shared suite lock. While implementing the next increment,
+run only touched tests; run one full tests/run.py on the handback head without
+lockf. Next increment is the production batch_service.plan caller for pilot
+manifests, with normal design/review/implementation/full-suite/diff-review flow
+and two-round review caps. O5b remains stream E; B owns pilot admission and Boat
+settlement. This opt-in increment is accepted; the production caller is not yet
+implemented.

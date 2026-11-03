@@ -1,0 +1,18 @@
+{
+  "command": "lockf /tmp/unbug-suite.lock /opt/homebrew/opt/python@3.14/bin/python3.14 -B -c 'import datetime,json,os,signal,subprocess,sys\nfrom pathlib import Path\nnow=lambda:datetime.datetime.now(datetime.timezone.utc).isoformat()\npath=Path(sys.argv[1])\nrecord=json.loads(path.read_text())\nrecord['\"'\"'lock_acquired_at'\"'\"']=now()\npath.write_text(json.dumps(record,indent=2)+'\"'\"'\\n'\"'\"')\nprocess=subprocess.Popen(sys.argv[2:],start_new_session=True)\ntry:\n    code=process.wait(timeout=7200)\nexcept subprocess.TimeoutExpired:\n    try: os.killpg(process.pid,signal.SIGTERM)\n    except ProcessLookupError: pass\n    try: process.wait(timeout=15)\n    except subprocess.TimeoutExpired:\n        os.killpg(process.pid,signal.SIGKILL);process.wait()\n    code=124\nrecord=json.loads(path.read_text())\nrecord.update(execution_exit_code=code,execution_finished_at=now())\npath.write_text(json.dumps(record,indent=2)+'\"'\"'\\n'\"'\"')\nraise SystemExit(code)\n' /Users/bugsincode/.t3/worktrees/unbug-bench/t3-21bef30c/docs/reports/stream-d-batch-diagnosis-opt-in-combined-suite-20261103T172507Z-f7f3a9d6.json uv run --with numpy --with scipy python -B tests/run.py",
+  "suite_command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "execution_timeout_ms": 7200000,
+  "lock_wait_timeout_ms": null,
+  "attempt": 1,
+  "merged_base": "7dbdc58f93656b2345c392765ed0c3491ac5f6e6",
+  "head": "770e32754872b02183748a0d20b028c9eb1e77ed",
+  "parent_approved_gate": "Round-1 code PASS; exact I1 test migration; no round-2 review",
+  "reason": "Parent accepted prior181/182 timing-only failure plus exact recheck; cancelled only cwd-matched queued lockf with no suite child",
+  "requested_at": "2026-11-03T17:25:07.915510+00:00",
+  "log": "docs/reports/stream-d-batch-diagnosis-opt-in-combined-suite-20261103T172507Z-f7f3a9d6.log",
+  "exit_code": -15,
+  "finished_at": "2026-11-03T17:30:26.460780+00:00",
+  "suite_started": false,
+  "verdict": null,
+  "cancelled": true
+}
