@@ -32,8 +32,15 @@ conflicts with an older doc, this file wins.
 3. **Design review.** A goldfish reviews the design using `zoom_out`,
    `design_critic` and `implementation_readiness`.
 4. **Implement and test.** Commit on the change branch, as often as you
-   like. The full suite must pass:
-   `uv run --with numpy --with scipy python -B tests/run.py`.
+   like.
+   - While working, run only the test files your change touches, for example
+     `BENCH="$PWD" python3 -B tests/factory/test_x.py`.
+   - Run the full suite once, on the exact head you hand back for review:
+     `uv run --with numpy --with scipy python -B tests/run.py`.
+   - The suite runs scripts in parallel, one per CPU, so no shared lock is
+     needed. Use `-j 1` only to rule out a parallel-only failure.
+   - The parent runs one more full suite on the merged tree before landing,
+     unless that tree is identical to the one already tested.
 5. **Diff review.** A fresh goldfish reviews the branch diff against its
    design, using `zoom_out` and `implementation_readiness`. A reviewer from a
    different model family than the writer is preferred.
