@@ -143,12 +143,12 @@ class AdmissionTests(unittest.TestCase):
         for debit, allowed in [('0.000000001', True), ('0.000000002', False)]:
             state = dict(jobs={}, incidents={}, carried_debit_usd=debit)
             if allowed:
-                auth = holder._admit(directory, h.record, h.policy, h.root, {}, state, 'j', None)
+                auth = holder._admit(directory, h.record, h.policy, h.root, h.home, {}, state, 'j', None)
                 self.assertEqual(money.aggregate(state), money.amount(h.record['money_limit_usd']))
                 self.assertEqual(auth['committed_total_usd'], '1000.000000000')
             else:
                 before = deepcopy(state)
-                with self.assertRaises(ValueError): holder._admit(directory, h.record, h.policy, h.root, {}, state, 'j', None)
+                with self.assertRaises(ValueError): holder._admit(directory, h.record, h.policy, h.root, h.home, {}, state, 'j', None)
                 self.assertEqual(state, before)
 
     def test_saved_ledger_overrun_refuses_replay_and_new_admission(self):

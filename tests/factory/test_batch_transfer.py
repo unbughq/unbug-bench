@@ -337,7 +337,7 @@ class TransferTests(unittest.TestCase):
             state = self.target_state(record, policy)
             before = deepcopy(state)
             with self.assertRaisesRegex(ValueError, 'template-only'):
-                holder._admit(directory, record, policy, self.root, ops, state, 'j', None)
+                holder._admit(directory, record, policy, self.root, self.home, ops, state, 'j', None)
             self.assertEqual(state, before)
 
     def test_queued_child_with_any_operation_refuses(self):

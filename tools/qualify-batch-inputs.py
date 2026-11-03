@@ -32,7 +32,7 @@ def qualify(policy, root, home, job, checkpoint=None):
                 report['observation'] = 'batch_absent'
             ops = holder._operations(directory, record, policy)
             state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
-            holder._admit(directory, record, policy, root, ops, state, job, checkpoint)
+            holder._admit(directory, record, policy, root, home, ops, state, job, checkpoint)
             identity = holder.operation_id(policy, job, checkpoint)
             if identity in ops:
                 op = ops[identity]

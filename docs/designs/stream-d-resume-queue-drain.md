@@ -72,7 +72,10 @@ reconcile/dispatch, as it already does.
 
 A scan snapshot is advisory. Add keyword-only `queued_resume=None` to
 holder.reserve and pass it to _admit, preserving all existing calls when absent.
-Pass reserve's existing home argument into _admit; reserve is its only caller.
+Pass the existing home argument into _admit. Its direct callers are reserve,
+the read-only tools/qualify-batch-inputs.py consumer, and three regression files:
+test_batch_admission_clamps.py, test_batch_transfer.py and
+test_qualify_batch_inputs.py. Migrate each caller and verify those tests.
 The value is an exact row for lookup, not an authorization flag. Inside reserve's
 existing money lock, before any authority mutation, _admit:
 

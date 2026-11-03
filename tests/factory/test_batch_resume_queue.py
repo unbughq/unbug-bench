@@ -244,7 +244,7 @@ class ResumeQueueTests(unittest.TestCase):
     def test_ack_retirement_source_and_config_faults_refuse(self):
         for fault in ('ack', 'retirement', 'outbox', 'pointer', 'stale_pointer',
                       'producer_incident', 'producer_config', 'snapshot', 'legacy_marker',
-                      'marker_symlink', 'parent_symlink', 'case_symlink'):
+                      'marker_symlink', 'parent_symlink', 'case_symlink', 'parent_file', 'case_file'):
             with self.subTest(fault=fault):
                 self.setUp()
                 op, card = self.exhausted()
@@ -277,9 +277,14 @@ class ResumeQueueTests(unittest.TestCase):
                     else: path.symlink_to(self.root / 'absent-marker')
                 elif fault == 'parent_symlink':
                     (self.directory / 'retirements').symlink_to(self.root / 'absent-retirements')
-                else:
+                elif fault == 'case_symlink':
                     path = self.directory / 'retirements' / op['case']
                     path.parent.mkdir(parents=True); path.symlink_to(self.root / 'absent-case')
+                elif fault == 'parent_file':
+                    (self.directory / 'retirements').write_text('not a directory')
+                else:
+                    path = self.directory / 'retirements' / op['case']
+                    path.parent.mkdir(parents=True); path.write_text('not a directory')
                 before = self.bytes_before()
                 self.assertEqual(self.drain(), [])
                 self.unchanged(*before)
@@ -412,7 +417,7 @@ class ResumeQueueTests(unittest.TestCase):
                 self.assertEqual(len(self.ops()), 1)
 
     def test_imported_source_checks_retained_producer_config(self):
-        for fault in ('none', 'producer_config', 'current_facts'):
+        for fault in ('none', 'producer_config', 'current_facts', 'predecessor_facts'):
             with self.subTest(fault=fault):
                 fixture = transfer_fixtures.TransferTests(
                     'test_saved_card_launch_keeps_spend_owner_lineage_and_freezes_source')
@@ -448,10 +453,22 @@ class ResumeQueueTests(unittest.TestCase):
                 if fault == 'producer_config':
                     path = fixture.directory / 'configs' / (op['config_sha256'] + '.json')
                     path.write_text('{}')
+                elif fault == 'predecessor_facts':
+                    old_path = fixture.directory / 'journal.json'
+                    old_journal = service._json(old_path)
+                    facts = old_journal['entries'][op['case'] + '/' + card['sha256']]['facts']
+                    facts['actual_model_work'] = not facts['actual_model_work']
+                    facts['pending_projection']['replacement_eligible'] = False
+                    atomic_json(old_path, old_journal)
+                before_money = (target / 'money.json').read_bytes()
+                before_journal = (target / 'journal.json').read_bytes()
                 holder.drain_resumes(policy, fixture.root, fixture.home)
                 operations = holder._operations(target, record, policy)
                 identity = holder.operation_id(policy, 'j', card['sha256'])
-                if fault != 'none': self.assertNotIn(identity, operations)
+                if fault != 'none':
+                    self.assertNotIn(identity, operations)
+                    self.assertEqual((target / 'money.json').read_bytes(), before_money)
+                    self.assertEqual((target / 'journal.json').read_bytes(), before_journal)
                 else:
                     self.assertIn(identity, operations)
                     self.assertEqual(operations[identity]['authority']['source_generation'], card['sha256'])

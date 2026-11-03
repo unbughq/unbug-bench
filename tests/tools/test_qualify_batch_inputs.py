@@ -74,7 +74,7 @@ class InputTests(unittest.TestCase):
         del ops[successor['operation_id']]
         state['jobs']['j']['sources'][-2] = 'f' * 64
         with self.assertRaises(ValueError):
-            holder._admit(h.directory, record, h.policy, h.root, ops, state, 'j', card['sha256'])
+            holder._admit(h.directory, record, h.policy, h.root, h.home, ops, state, 'j', card['sha256'])
 
     def test_all_exact_names_and_namespaces_refuse_empty_without_money(self):
         h = self.h; case = h.record['jobs']['j']['case']
