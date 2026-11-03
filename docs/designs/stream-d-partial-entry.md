@@ -36,10 +36,14 @@ on-disk case copy, then compare that tree with the live tree excluding only
 freshness.jsonl. G2 legitimately rewrites that derived evidence during traversal,
 so stress/G1 may retain an earlier freshness file. Require the live freshness.jsonl
 hash (including absence) equals the copy in the last retained record AND each
-retained G2/G8/G9 record, the gates that consume freshness evidence. Stress is not
+retained G2/G8/G9 record, which consume freshness during execution (G2 does not
+include that file in scientific_version). Stress is not
 required to match the later live freshness file: its completed report/clearance
 has its own historical evidence bound in the stress record; we never re-evaluate
 stress against newly appended search rows. Its other case files must match.
+When stress is the only retained record, it is also the last record, so its
+freshness copy MUST match live; the stress exception applies only when later
+records exist.
 A stop during G2 topup before G2's record is saved stays held if freshness changed:
 the last retained record still has the earlier file. A change after the stop also
 refuses. No repair, refresh, retrieval or model work runs in entry construction.
