@@ -99,3 +99,22 @@ ran rather than skipping. All three corrected runner-path files and the full
 worker-command integration pass. No production source changed after 8f4aafb.
 Fresh diff review is the remaining gate. Settlement 0292abc predates this repair
 and still needs its own diff review; this repair does not qualify live reuse.
+
+## Diff round 1 corrections
+
+B1: early_probe now publishes only the exception type, closing the newly exposed
+path from rich command exceptions to the public card. The regression drives a
+real failing sh command through early_probe calibration, using the retained
+conflict plus an authored private-SQL marker. The command log retains both while
+the card excludes both. M1: startup mode tests now omit check at the execute call,
+as fresh factory_pool does; the runner adapter must supply check=True.
+The Docker exam also pins COMPOSE_PROJECT to the compose file's name.
+All URLs are redacted (not just userinfo/query). The G3 repeat uses the newly
+adopted container; startup is the unadopted-conflict phase. The 15.875s measurement
+above is the original targeted run, not the full-suite file duration.
+Optional N2 (overlong single-line tail omitted) and N4 (historical AST position)
+remain open. No live qualification or accounting release is claimed.
+
+Round-1 fixes targeted validation: tests/factory/test_practice_startup.py ran
+4 tests, all passed in 20.426 seconds, including real Docker (not skipped).
+The changes await their own locked suite and final diff review round 2 of 2.

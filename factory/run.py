@@ -2837,7 +2837,7 @@ def early_probe(c):
         r["label"] = "solvable" if r["solved"] else "likely_hard"
     except Exception as error:  # Provider waits are plumbing, even for this optional probe.
         if str(error) in ("provider_wait", "model_call_cap"): raise
-        r = {"skipped": f"{type(error).__name__}: {error}"[:200]}
+        r = {"skipped": type(error).__name__}  # Command diagnostics stay in encrypted logs.
     finally:
         home = pilot_home("pilot")
         if home.exists():  # G10 creates the pilot user afresh

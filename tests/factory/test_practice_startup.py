@@ -46,6 +46,26 @@ class Diagnostics(unittest.TestCase):
             with self.assertRaises(RuntimeError) as caught: run.sh(c,[sys.executable,script],check=True)
             self.assertIn('last error',str(caught.exception)); self.assertLess(len(str(caught.exception)),4200)
 
+    def test_early_probe_keeps_real_command_output_out_of_public_card(self):
+        with tempfile.TemporaryDirectory() as d:
+            c=SimpleNamespace(work=Path(d),card={},args=SimpleNamespace(agent_timeout=10,bench_workers=1))
+            (c.work/'logs').mkdir()
+            private='PRIVATE_CASE_SQL: SELECT hidden_scenario_answer;'
+            script=c.work/'fail.py'
+            script.write_text('import sys\nprint('+repr(private)+',file=sys.stderr)\nprint('+repr(CONFLICT)+',file=sys.stderr)\nsys.exit(1)\n')
+            def calibrate(*args,**kwargs):
+                return run.sh(c,[sys.executable,script],check=True)
+            with patch.object(run,'g10_overlap_reason',return_value='serial'), \
+                 patch.object(run,'make_pilots'), patch.object(run,'pilot_home',return_value=c.work/'absent-pilot'), \
+                 patch('calibration.isolated_attempt_context',side_effect=lambda *a,**kw:contextlib.nullcontext(c)), \
+                 patch.object(run,'calibrate',side_effect=calibrate):
+                run.early_probe(c)
+            self.assertEqual(c.card['early_probe']['skipped'],'RuntimeError')
+            public=json.dumps(c.card)
+            self.assertNotIn(private,public);self.assertNotIn(CONFLICT,public)
+            retained=(c.work/'logs/commands.log').read_text()
+            self.assertIn(private,retained);self.assertIn(CONFLICT,retained)
+
     def test_every_startup_mode_uses_checked_owner_and_retains_real_error(self):
         if not shutil.which('age'): self.skipTest('real age absent: encrypted runner evidence exam unavailable')
         bootstrap=r'''
@@ -68,9 +88,8 @@ script=root/'fail.py';script.write_text('import sys,os\nprint('+repr(message)+',
 def prepare(slots,*,previous_slots=1,fresh=False,execute=None):
  assert slots==1 and previous_slots==1 and fresh is True
  (root/'startup-called').write_text(mode)
- # Explicit check reproduces the duplicate-key hazard in the required adapter.
- execute([sys.executable,str(script)],check=True)
- raise AssertionError('failed startup did not raise')
+ # Match fresh factory_pool: no check keyword; the runner adapter must force it.
+ return execute([sys.executable,str(script)],cwd=root,timeout=3600) == 0
 factory_pool.prepare=prepare
 args=['run.py','--source','port']
 if mode=='dry-run':args+=['--dry-run']
@@ -109,6 +128,7 @@ os.environ['TEST_TOKEN']='public-runner-error-sentinel';sys.argv=args;run.main()
 
 class RealDocker(unittest.TestCase):
     def test_unadopted_container_volume_is_fresh_at_startup_and_g3(self):
+        self.assertIn('name: '+bench.COMPOSE_PROJECT, (ROOT/'projects/medusa/compose.yaml').read_text().splitlines())
         if not shutil.which('docker'): self.skipTest('Docker absent: real volume/seed exam must run on the handback Mac')
         def docker(*args,check=True,**kw):
             p=subprocess.run(['docker',*args],capture_output=True,text=True,timeout=60,**kw)

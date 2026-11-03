@@ -95,3 +95,8 @@ G3's generic InvalidInfra message is unchanged and outside this repair. Full set
 is repeated at startup and G3; production startup duration is not yet measured.
 The offline Docker ownership/seed exam runs in about 16 seconds on this Mac;
 that excludes application build/migration and is not a production-time estimate.
+
+Diff-review correction: early_probe stores only the exception type in its public
+card; a real sh failure through calibration proves case output stays in encrypted
+commands.log. The startup mode double calls execute without check, just as fresh
+factory_pool does, so removing the adapter's forced check fails the regression.
