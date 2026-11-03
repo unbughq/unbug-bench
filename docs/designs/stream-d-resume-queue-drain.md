@@ -89,11 +89,19 @@ existing money lock, before any authority mutation, _admit:
   _source at its existing location before money.advance_locked. This checks the
   current pointer, R2-publication outbox ACK, exact frozen generation, producing
   operation and retirement proof, money authority and immutable card. For local
-  sources require operations[ack.operation_id].incident is None. For an
-  imported source (row.imported.generation == source_generation), _source's
-  batch_transfer.source verifies its immutable predecessor snapshot, whose
-  batch_transfer.snapshot already requires every operation's incident None.
-  This increment's planner does not itself create imported-only queue rows.
+  sources obtain producer = operations[ack.operation_id], require producer.incident
+  is None, and call _config(policy, home, producer), even when the owner has
+  already advanced to this source after a crash. Do NOT use
+  _current_operation for the producer: it requires the old authority to remain
+  current and would break that recovery window.
+  For an imported source (row.imported.generation == source_generation),
+  _source's batch_transfer.source verifies its immutable predecessor snapshot,
+  whose batch_transfer.snapshot requires every operation's incident None.
+  Load the already-authenticated import via batch_transfer.read_import(directory,
+  record), select producer by ack.operation_id from receipt.snapshot.operations,
+  obtain old_policy via batch_transfer.predecessor(record), and call
+  _config(old_policy, home, producer). Refuse on any mismatch/read error.
+  The current planner does not itself create imported-only queue rows.
 - Refuse if the corresponding legacy-retirement marker exists or is a symlink,
   or if card.diagnosis_state is not a dict. This preserves retire_legacy's rule:
   a legacy exhaustion without a recorded diagnosis state cannot acquire a new
@@ -144,6 +152,13 @@ reservations files, never a new cursor. Test the scan-to-reserve interleaving,
 including a row removed between the two reads. Duplicate scans may race; reserve
 serializes them and returns the same ID. The process-local retry map has one
 entry per refused generation per holder process (small for the three-case pilot).
+Ordering is snapshot-local: the holder's existing singleton lock permits one
+production tick owner, but a higher-priority row arriving after this scan was
+read is considered on the next tick, not retroactively before an already
+admitted operation. A row whose blocker clears remains ineligible to this scan
+until its 60-second deadline, or until a holder restart clears the map. FIFO is
+only among eligible rows in each observed snapshot; no concurrent-admission
+barrier or preemption is claimed.
 
 ## Tests and evidence
 
@@ -151,32 +166,64 @@ Add `tests/factory/test_batch_resume_queue.py`. Reuse methods from
 `test_batch_holder.HolderTests` with the `locals().update` non-test-method
 pattern used by WaitSchedulingTests, not class inheritance or duplicate tests.
 Use its saved card, opaque retained ciphertext and saved creation event, plus
-authored batch, retirement and transport controls. Create a real pending state
-by calling `diagnosis.record_exhaustion` on an authored exhausted variant,
-then use the real plan_collections, diagnosis projection, collect, ACK,
-retirement, reserve and reconcile. Clearly label authored inputs and controls;
-no live worker, paid model, cloud call or real outcome is claimed.
+authored batch, retirement and transport controls. HolderTests.output installs
+diagnosis_state={}; before publication remove that placeholder, set status to
+stopped, gates to {} and terminal_stop to budget_exhausted, call the real
+diagnosis.record_exhaustion(card), then write this card to
+home/launches/<launch_id>/collected/<case>.scorecard.json before publish.
+The producer creates the UUID and pending state; exhaustion stop and bindings
+are authored. Then use real plan_collections, diagnosis projection, collect,
+ACK, retirement, reserve and reconcile. Clearly label authored inputs and
+controls; no live worker, paid model, cloud call or real outcome is claimed.
 
 - Main exam: real tick plans and drains the enabled replacement-off fixture;
   assert exact queued key, unchanged cumulative bound, same reservation_id,
   correct source and revision, one pending operation, then next tick requests
-  one existing dispatch child. Feed that ID to HolderTests.preflight, which
-  executes real holder.dispatch with only identity/credential labels, Boat and
-  Popen as authored doubles. Assert the restored case and source, durable
-  dispatch_started, exactly one creator and no second creator on replay.
-- Null-total settlement: use HolderTests.accountant().unknown() and its real
-  covered ledger; assert same revision, same held commitment and settlement
-  priority. Two-job test queues a known exhaustion first and unknown settlement
-  second, then proves the settlement reserves first with capacity one. Separate
-  test proves a refused row does not block a valid later row.
+  one existing dispatch child. Feed self.ops()[identity] (an operation dict,
+  not the ID) to HolderTests.preflight. It executes real holder.dispatch with
+  identity, fingerprint, account selection, credential labels, Boat and Popen
+  as authored doubles; inherited batch.release verification is also a double.
+  Assert the --restore case and --checkpoint-sha256 source arguments (not
+  execution of an actual restore), durable dispatch_started, one Popen creator
+  and no second creator on replay.
+- Null-total, two legs: use HolderTests.accountant().unknown() and its covered
+  ledger in the first exhausted card above. Plan/collect/ACK/retire, drain the
+  settlement row and assert the same reservation_id, revision, held commitment
+  and exhaustion_id. Start the settlement operation with HolderTests.started.
+  Write helper.receipt(lease, [('streamed', 3)], final=True), then call real
+  budget.reconcile_reservations(helper.work, helper.path); require
+  budget.case_spending(helper.ledger())['total_spent_usd'] is known. Build a
+  distinct next archive using test_batch_service.KEY as payload via
+  HolderTests.output(settlement_op, ledger=helper.ledger(), payload=KEY).
+  Replace its placeholder diagnosis_state with the first pending state and set
+  terminal_stop=diagnosis_pending, status=stopped, gates={}; write that authored
+  worker-boundary card into the new collected directory, then publish/ACK/retire.
+  Run real planner + drain again and assert the same reservation owner, unchanged
+  held commitment, preserved exhaustion_id, next revision one greater, a
+  different deterministic operation_id, and no duplicate dispatch on replay.
+  The accounting transition and holder paths are real; the diagnosis_pending
+  worker exit and transport payload are authored controls, not proof of an
+  actual worker lifecycle or Murphy closure.
+  Also use an authored completed factory_bug/infrastructure state with an unknown
+  covered ledger to queue settlement, and assert diagnosis.require_model_work
+  raises factory_bug_held for that same-batch card. This is a direct guard
+  assertion, not a claimed invocation of a diagnosis model.
+  Two-job test queues a known exhaustion first and unknown settlement second,
+  then proves the settlement reserves first with capacity one. Separate test
+  proves a refused row does not block a valid later row.
 - Negative matrix: off policy/holder, replacement-enabled known exhaustion,
   missing ACK/pointer/outbox/retirement, changed current generation or card,
   legacy marker, forged/replaced/removed queue row, forged facts/reason, sealed
   and retired cards, budget incident/overrun, full capacity, expired deadline,
-  export. Assert no money/operation grant, no spawn, and unchanged queue bytes.
+  export. After a successful real plan but before drain, corrupt the *producer's*
+  config and assert no advance or successor; restore it and verify retry after
+  backoff. Assert no money/operation grant, no spawn, and unchanged queue bytes.
 - Interruption matrix: crash at config, reservations.json, journal.json and
-  lost reply; retry with original UUID5 and authority, one operation and no
-  duplicate dispatch. Cover two concurrent drains and the same existing
+  lost reply; clear _RESUME_RETRY_AFTER to simulate a holder restart before
+  retrying, or patch monotonic only around scans and advance by 60 seconds.
+  Assert original UUID5 and authority, one operation and no duplicate dispatch.
+  Separately test that refusal skips retries before 60 seconds and permits one
+  at the boundary. Cover two concurrent drains and the same existing
   failed/uncertain identity. Check lock depth <=1 before taking the real lock.
 - Modify PlanningTests.tick in test_batch_planning.py to patch the new
   drain_resumes scan to [] while testing the **planner in isolation**; keep its
