@@ -4,7 +4,6 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import contextlib
 import fcntl
-import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -16,7 +15,6 @@ TESTS = ROOT / "tests"
 SUITES = ("factory", "bench", "tools", "control", "integration", "analysis", "harbor")
 SLOTS = Path(os.environ.get("TEST_SLOT_DIR", "/tmp/unbug-test-slots"))
 SLOT_COUNT = int(os.environ.get("TEST_SLOTS", os.cpu_count() or 1))
-CACHE = Path(os.environ.get("TEST_CACHE_DIR", Path.home() / ".cache" / "unbug-tests"))
 
 
 @contextlib.contextmanager
@@ -36,28 +34,10 @@ def machine_slot():
         time.sleep(0.2)
 
 
-def code_key():
-    """Hash of every tracked file outside docs/, or None if anything outside docs/ is uncommitted.
-    Passes are reused only for byte-identical code, so docs-only commits never force a rerun."""
-    # ponytail: whole-tree key, so any code change reruns all scripts; per-script import tracing if that bites.
-    git = lambda *a: subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True)
-    status, tree = git("status", "--porcelain", "--", ".", ":(exclude)docs"), git("ls-tree", "-r", "HEAD")
-    if status.returncode or tree.returncode or status.stdout.strip():
-        return None
-    code = [line for line in tree.stdout.splitlines() if not line.split("\t", 1)[1].startswith("docs/")]
-    return hashlib.sha256("\n".join([sys.version, *code]).encode()).hexdigest()
-
-
-def run(path, key):
-    marker = key and CACHE / key / (str(path.relative_to(ROOT)) + ".pass")
-    if marker and marker.exists():
-        return path, 0, b"(cached pass for this exact code)\n"
+def run(path):
     with machine_slot():
         result = subprocess.run([sys.executable, "-B", str(path)], cwd=ROOT, env={**os.environ, "BENCH": str(ROOT)},
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    if marker and result.returncode == 0:
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.touch()
     return path, result.returncode, result.stdout
 
 
@@ -67,7 +47,6 @@ def main():
     parser.add_argument("--list", action="store_true", help="List selected scripts without running them")
     parser.add_argument("-j", "--jobs", type=int, default=int(os.environ.get("TEST_JOBS", os.cpu_count() or 1)),
                         help="Scripts to run at once (default: CPU count, or TEST_JOBS)")
-    parser.add_argument("--no-cache", action="store_true", help="Rerun scripts that already passed on identical code")
     args = parser.parse_args()
     selected = args.suites or SUITES
     unknown = set(selected) - set(SUITES)
@@ -78,16 +57,17 @@ def main():
         for path in scripts:
             print(path.relative_to(ROOT))
         return 0
-    key = None if args.no_cache else code_key()
-    print("code key: " + (key or "none (uncommitted changes or --no-cache; nothing reused)"), flush=True)
     failures = []
     # Output is buffered per script and printed in order, so logs read like a serial run.
-    with ThreadPoolExecutor(max(1, args.jobs)) as pool:
-        for path, code, output in pool.map(lambda p: run(p, key), scripts):
+    pool = ThreadPoolExecutor(max(1, args.jobs))
+    try:
+        for path, code, output in pool.map(run, scripts):
             print("\n== " + str(path.relative_to(ROOT)) + " ==", flush=True)
             sys.stdout.buffer.write(output)
             if code:
                 failures.append(path.relative_to(ROOT))
+    finally:
+        pool.shutdown(cancel_futures=True)
     print(f"\n{len(scripts)} test scripts run; {len(failures)} failed.", flush=True)
     for path in failures:
         print("FAILED: " + str(path))
