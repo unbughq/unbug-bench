@@ -3393,15 +3393,30 @@ item 7 and item 8 qualification obligations above remain open; no row closes.
 
 ## Item 8: live qualification and switch-on
 
-Stream E local hardening in `docs/designs/isolation-item8-prereqs.md` is only a
-first increment. Open `new-isolation-outer-wall-2` (escaped capture-pipe holder)
-blocks Item 8 activation alongside cancellation/settlement and verified cloud
-cleanup exposure; local process cleanup is not a provider deletion receipt.
+**Superseded by founder decision, 2026-11-02:** qualification is now a small real
+pilot of three fresh cases, diagnosis on, under a money cap, after item 7 and the
+USD 25 practice pass. See the governing decision in
+[stream-d-item8-offline-preparation.md](stream-d-item8-offline-preparation.md).
+The detailed program below is preserved historical analysis, not launch authority.
 
-Design only, 2026-10-31. No code, model call, worker creation or spend is
-authorized by this plan. Request **USD 100 all-in additional approval**, separate
-from the founder's USD 25 stream-B plumbing practice. The USD 100 is a ceiling,
-not a price prediction or permission to raise a failed scenario's cap.
+
+Updated offline on 2026-11-02. The detailed evidence inventory, live order,
+per-run ceilings and sized gaps are in
+[stream-d-item8-offline-preparation.md](stream-d-item8-offline-preparation.md).
+That amendment supersedes stale prerequisite status, scenarios 5/6 packing,
+ready-child ordering and timing/affordability gates below;
+historical item-7 increment notes later in this document are not readiness claims.
+
+The founder approved **USD 100 all-in within existing Claude/Codex subscription
+limits**, separate from the USD 25 stream-B plumbing practice; OpenRouter may use
+only existing credit, with no top-ups (authority in batch-practice-manifest.md).
+This task is DESIGN ONLY: no code, model call, provider query, worker creation,
+deployment or spend is authorized now. The cap does not guarantee qualification.
+
+E's outer-wall rows are closed for their offline scope. Escaped non-isolated
+sessions (new-isolation-settlement-1), actual CLI cancellation/settlement and
+verified cloud cleanup/billing exposure remain prerequisites; local cleanup is
+not a provider deletion receipt.
 
 ### Prerequisites and shared practice infrastructure
 
@@ -3413,12 +3428,14 @@ reviewed practice and resolve its listed bootstrap, authenticated checkpoint,
 legacy ownership, release installation, router transport, money admission and
 independent deletion blockers. Read its subsequent evidence, not just the old
 preparation claims. Item 7 must be merged and pass its fresh diff/full suite;
-item 8 cannot invent missing continuation adapters. In particular, require the
-'Item 7 first increment: admitted extension writer continuation' section's
-remaining routing work, including stress/gates/factory-bug/retire joins. A/E must qualify invocation
-bounds, process cancellation and settlement on the selected routes. E must resolve
-`new-isolation-outer-wall-1` with evidence that outer callers cannot stop cleanup
-early. B must qualify the post-migration store under `new-single-path-1`; historical
+item 8 cannot invent missing continuation adapters. Lane 1's public-match,
+scored-blocking-stress and post-extension factory-bug
+return slices are accepted (c3ee6d9); land11 merge evidence and lane 2's remaining
+rejected-writer/partial-entry/all-outcomes work are still required. A/E must qualify
+invocation bounds, process cancellation and settlement on selected routes.
+Preserve the closed offline scope of E's outer-wall tests without claiming actual
+provider/escaped-session cleanup. B must qualify the post-migration store under
+`new-single-path-1`; historical
 inventory shapes do not establish current restore eligibility.
 
 Use sequential throwaway workers, concurrency one, on the control VM and R2;
@@ -3437,23 +3454,33 @@ account routing, ownership, receipts, counters or cumulative money authority.
 
 Use immutable release/batch pairs in this fixed order: alpha (scenarios 1–4,
 diagnosis/replacement off), beta-fault (scenario 5 fault and diagnosis), beta-fixed
-(scenario 5 resume and scenarios 6–7), beta-plumbing (scenario 6 plumbing replay),
-beta-science (scenario 6 one-gate replay). All beta releases have diagnosis and
+(scenario 5 child then fixed original, then scenario 7 and initial scenario 6), beta-plumbing (scenario 6 plumbing replay),
+beta-science-fault (scenario 6 one-gate comparison infrastructure fault) and
+beta-science-fixed (the same scientific vector, hashed transport fix/resume). All beta releases have diagnosis and
 replacement enabled only under separately approved qualification authority; the
-faulty and fixed releases are both included. Beta-fixed removes the injected fault;
-scenarios 6–7 never run under the faulty release. Scenario 5's queued replacement
+faulty and fixed releases are both included. Beta-fixed removes scenario 5's injected fault;
+scenario 7 and initial scenario 6 never run under beta-fault. The later 6d uses the separately reviewed comparison fault and 6e diagnoses its
+retained pending generation, both on beta-science-fault. Scenario 5 first publishes the faulted pending generation on 5a, then restores
+it on 5b for real diagnosis under beta-fault. Its queued replacement
 is carried to beta-fixed alongside the original via B's reviewed carry-over,
 including its own $7.50 allocation and prior spend/reservations; it is not launched
 under the fault or given fresh authority. B's carry-over scope must cover both. Each release change needs its
 own batch because holder bindings are immutable. All beta batches together share
 one $50 NEW-spend envelope, not $50 each; alpha has $40 NEW spend. Each transition uses authenticated checkpoint carry-over after verified deletion;
 worker identity changes while ownership and cumulative accounting remain intact.
-Run scenario 7 to terminal collection before admitting scenario 6 at all.
+On beta-fixed run the carried 5c child before 5d original resume, and ready
+7b/6b children before their 7a/6a originals, under normal replacement priority.
+The reviewed O3 guard must keep 5's child release-ineligible while queued under
+beta-fault and allow only 5b's diagnosis restore there; without that guard, the
+four-slot packing is infeasible. Run scenario 7 to terminal collection before
+admitting scenario 6 at all.
 Its worker deletion is verified and usage settled or conservatively retained first.
 Scenario 6 then completes fixed-release work and its plumbing/science replays
 without an intervening scenario. Finish its replacement on beta-fixed (terminal
 collection under its bound, not necessarily sealing); only the original carries
-forward through B's reviewed carry-over to the two replay releases.
+forward through B's reviewed carry-over to the plumbing/science-fault/science-fixed
+releases. Exact six-slot packing and the retained X2→comparison exhaustion→later factory_bug diagnosis→comparison
+resume exam are in the offline-preparation amendment; no extra slots or money.
 
 For each admitted candidate let S be its authenticated carried-in settled lifetime
 spend, and E be its incremental scenario allocation. A root's commitment is S+E,
@@ -3492,17 +3519,15 @@ Alpha stress exhaustion records pending evidence; beta exercises real dispatch.
 Prefer approved free/cheap capped routes within each role's required family.
 A route change cannot stand in for a Claude/account-2 acceptance check. Pin actual
 request/token/tool maxima, model prices and job commitments in the run manifest;
-validate next-call reservations fit each scenario before any dispatch. The current
-USD 50 Claude maximum fits none of these caps. **A owns a mandatory separate
-reviewed smaller enforced Claude profile**, including request/token/tool limits,
-proxy refusal at the bound, honest route_maximum, interruption settlement and
-real writer/strong-calibrator feasibility tests. Target at most $5 per invocation
-(and smaller when settled spend leaves less than $5); maximum must fit both
-spent+pending+next-call and beta's root half-commitment. There is no such profile
-in this release. Strong G10 can use Anthropic/OpenAI only; currently OpenAI lacks
-an enforced maximum, so an arbitrary cheap route cannot replace this prerequisite.
-A must demonstrate the smaller profile still permits a submitted guard and useful
-writer work. The observed $15.05 writer call shows that success at $5 is NOT
+validate next-call reservations fit each scenario before any dispatch. Bare Claude remains $50; 5.5 small/medium reserve $10/$15.
+Bounded 4.5 compact/small profiles now reserve $3/$5. A/D/B must qualify compatible
+immutable role/model bindings and useful Linux writer/strong-calibrator/diagnosis
+work before adopting them; never relabel an old candidate to fit a cap. Target
+at most $5 per invocation (smaller when less remains), fitting both honest
+spent+pending+next-call and beta's root half-commitment. Strong G10 can use
+Anthropic/OpenAI only; Codex/OpenAI still lacks an enforced maximum. Other-family
+cheap routes cannot replace it. A must demonstrate the chosen profile permits a
+submitted guard and useful writing within the existing scientific caps. The observed $15.05 writer call shows that success at $5 is NOT
 established. The prerequisite table below records which scenarios depend on this evidence. If infeasible, revise the cost proposal
 for fresh founder approval; never lower a reported maximum without enforcement. Paid charges, subscription list equivalents,
 infrastructure waste and unknown reserved usage all count against the bounds.
@@ -3579,9 +3604,10 @@ at a release change. Unattributed/unknown charges stay reserved.
 
 The manifest assigns worker slots by scenario: 1=3 (initial plus two restores),
 2=2 (timeout and restore), 3=1 (in-process retrieval/repair), 4=2 (two guard
-attempts), 5=4 (fault, fixed original, replacement, replay), 6=6 (diagnosis,
-extension continuation, replacement, idempotence replay, plumbing replay,
-scientific replay), 7=2 (retire/boundary replay and replacement). Slots are ceilings,
+attempts), 5=4 (fault/pending, actual diagnosis restore, fixed child, fixed
+original; idempotence is offline), 6=6 (replacement, initial diagnosis plus extension together, next diagnosis plus
+plumbing check, science-fault comparison, later real factory_bug diagnosis,
+fixed comparison resume; idempotence check is offline), 7=2 (retire/boundary replay and replacement). Slots are ceilings,
 not a claim these paths finish in that many launches; every additional launch,
 including provider handoff or retry, consumes a slot. If the manifest needs more
 than its assigned slots, revise the plan before approval; runtime exhaustion
@@ -3589,9 +3615,9 @@ leaves the scenario unproved and stops admissions, never bypasses deletion.
 Per-scenario model plus worker ceilings are respectively USD 11.20, 10.80, 5.40,
 15.80, 16.60, 27.40 and 10.80 (USD 98 total); the shared USD 2 makes USD 100.
 No unused slot buys extra model authority.
-Scenario 6 normally continues diagnosis into extension in the same worker; its
-extension-continuation slot is spare unless an ordinary checkpoint restore is
-needed. Scenario 2 injects both call timeouts on its first worker, retaining each
+Scenario 6 must continue its initial diagnosis into the first extension in the
+same worker. The next diagnosis and plumbing check share one worker, freeing the slot
+for actual diagnosis AFTER comparison exhaustion; no spare recovery slot remains; an extra required launch exceeds its cap. Scenario 2 injects both call timeouts on its first worker, retaining each
 attempt's partial/pending evidence, then restores unfinished coverage on the
 second. Scenario 4 runs G16/G17 against each retained attempt in that attempt's
 worker before deletion. If the reviewed implementation cannot run that packing,
@@ -3604,7 +3630,7 @@ revise slots and costs before approval rather than omit an observation.
 | 3. Retrieval and malformed output | $5 | Induce a real transport timeout at the runner retrieval boundary, then recover; preserve retained HTTP/search receipts. Exercise schema repair of a retained malformed answer without inventing scientific decisions, then equivalent-route exhaustion if needed using explicitly labeled injected output at the live boundary. Record exact injection, real invocation/receipt chain, retry counters, no writer-round consumption, and no false G2 clearance. Items 4/rows 12 and 15; injected content is not represented as naturally observed provider output. |
 | 4. G10 capped submitted guard and no-submission | $15 | Run an authorized ordinary G10 calibrator on a real saved case which submits a guard BEFORE reaching its existing time/call cap AND then ends with the cap stop_reason. Do not weaken a cap, gate or scientific threshold to force success. Also retain a capped no-submission attempt. Keep original results.json attempt, guard bytes, execution.json, stop_reason/capped metadata, transcripts, lease/usage events, reservation and final settlement. Replay through real G16/G17: capped failed or absent guard stays inconclusive/pending, never demonstrated wrong_fix. A submitted guard is executed/scored under ordinary rules. If no natural cap-with-guard appears within $15, row 39 stays open; no fabricated receipt substitutes. |
 | 5. Diagnosis: factory bug | $15 | Exhaust an admitted case with a controlled, documented infrastructure fault, queue exactly one eligible replacement immediately without waiting for diagnosis, then obtain the real diagnosis agent's factory_bug decision and independent review required by the implementation. Remove the injected fault via reviewed release, resume original through B's checkpoint adapter, preserve owner/history and charge waste once. Prove original/replacement both remain eligible if they seal, and replay cannot duplicate replacement or resume; preserve cap counters. B cross-release/cross-batch hold support is a mandatory prerequisite. Ledger event IDs and per-invocation settlement entries must prove waste is charged once. No forged verdict. |
-| 6. Diagnosis: extension | $25 | Use a saved near-pass real candidate with complete stress and an ordinary rounds/money exhaustion trigger. Obtain actual diagnosis proposing extension; replacement admission precedes diagnosis/extension. Admit one writer + stress + gate traversal with isolated common-version before/after receipts. Prove progress and no regression, one extension counter increment, replay idempotence, cumulative commitment enforcement and no reopening of exhausted ordinary money. Its $25 cap also includes the plumbing-only and one-gate scientific-version replay described below; preserve rejection evidence if diagnosis disagrees; scenario remains unproved instead of overriding it. |
+| 6. Diagnosis: extension | $25 | Use a saved near-pass real candidate with complete stress and an ordinary rounds/money exhaustion trigger. Obtain actual diagnosis proposing extension; replacement admission precedes diagnosis/extension. Admit one writer + stress + gate traversal with isolated common-version before/after receipts. Prove progress and no regression, one extension counter increment, replay idempotence (offline, retained artifacts), cumulative commitment enforcement and no reopening of exhausted ordinary money. Its $25 cap also includes plumbing replay, one-gate scientific comparison exhaustion, actual factory_bug diagnosis and fixed-release return to that comparison; see the exact six-slot amendment. Preserve rejection evidence if either diagnosis disagrees; the scenario remains unproved instead of overriding it. |
 | 7. Diagnosis: retire and limit refusal | $10 | Obtain actual retire diagnosis on a real nonconverging exhausted candidate. Verify terminal collection, settled usage and replacement semantics without resurrecting original. Replay real retained lifetime counters at five extensions/three factory-bug resumes and at batch money/deadline limits: no further paid call; invalid comparisons remain pending and never progress. If these boundary states are replay inputs, label them rather than claiming five paid extensions occurred. |
 
 The $90 sum includes every model call needed for the scenarios, independent
@@ -3615,28 +3641,26 @@ to reach a desired diagnosis or submitted capped guard is a failed qualification
 not authority to coerce the agent or buy more attempts. Account-2 evidence rides
 on the already-needed Claude writer call in scenario 1 and strong-calibrator call in scenario 4, using separate correlated windows, never an extra paid probe.
 
-Timeline: retain execution budgets of at most 10 minutes each for scenarios
-1, 2 and 4; 5 minutes each for scenarios 3 and 7; and 15 minutes each for
-scenarios 5 and 6 (70 minutes total). Reserve up to 15 minutes per worker for
-creation/boot/release installation and verified cleanup (300 minutes for N=20),
-plus 110 minutes shared slack: at most eight hours wall time for the entire run.
-These are abort deadlines, not demonstrated completion times. Each worker has
-a maximum two-hour creation-through-deletion lifetime, shortened if pricing or
-the remaining global deadline requires. All batches share the same absolute UTC
-end; restart, new worker and release changes never extend it. B/E must measure
-installation and cleanup bounds and arm deletion early enough to finish within
-both lifetime and cost reservations. A failure to bound cleanup blocks launch.
-If measured creation/boot/installation/verified-cleanup overhead exceeds 15 minutes
-for any planned worker, revise the timeline before approval; shared slack does
-not waive this admission check. Execution time is budgeted separately above.
-Scenario 6's replays share its 15-minute execution allowance; installation and
-cleanup use the separate lifecycle allowance. Existing G10 caps or writer
-runtimes may exceed the execution windows: leave the scenario unproved rather
-than shorten a scientific cap. A/B feasibility evidence must show the selected
-inputs/routes fit before approval. Replacement 'immediate' means queued
-immediately at higher admission priority; concurrency one means it cannot run
-alongside the original. Its worker starts only after predecessor deletion is
-verified, and its allocated money and carried receipts survive that handoff.
+Timing feasibility is now an explicit BLOCKER O9 in the offline-preparation
+amendment. The old 70-minute execution / eight-hour total and two-hour worker
+limits are known insufficient, not an executable deadline. Scenario 4 means
+actual unchanged 30-minute time_limit attempts, not a smaller call/zero-token/
+money cap. Two alone need at least 60 minutes plus G16/G17/reset/judging.
+Uncached serial G10 can allocate 180 calibration minutes before other work.
+
+Before ANY live admission, re-derive all 20 root/child per-slot execution and
+collection windows, lifecycle/billing bounds and the aggregate absolute deadline
+from pinned caps and measured serial overhead. Children get separate windows
+and cannot consume the original's later slots. Longer live deadlines/lifetimes
+need a fresh timing review and founder sign-off; this amendment supplies none.
+If normal execution and cleanup cannot fit $0.40 per lifecycle / $100 overall,
+return an infeasible plan for revised approval, never truncate scientific caps.
+
+Scenario 6 also needs a BEFORE-LAUNCH sum of all planned honest invocation
+maxima through 6f to fit the original's shared $12.50, independently of its
+child's $12.50. Current Codex maxima/reuse/call-count gaps make that check fail;
+it is not an authorized late-stranding experiment. The runtime next-call checks
+remain necessary but cannot stand in for full-critical-path feasibility.
 
 The exact release-specific CLI commands, authenticated input generation hashes,
 route profiles, job reservations, absolute deadline, fault injection points and
@@ -3669,9 +3693,14 @@ checkpoint resume. Row 39 closes only with scenario 4's genuine capped-submissio
 and no-submission evidence plus usage settlement and G16/G17 replay tests.
 Items 2–5's already-closed rows 8, 10, 11, 12, 15 and 21 retain their saved-artifact
 scope; add the live evidence above for transport/crash, actual cap enforcement,
-collection, settlement and per-gate version behavior. Within scenario 6 alone, change
-a plumbing-only release and then one gate's scientific version: unchanged gate
-passes survive, only affected gates rerun, and invalid execution stays pending.
+collection, settlement and per-gate version behavior. Within scenario 6 alone, change a plumbing-only release and then only G4's
+scientific version. Its real subsequent_entry pair attempts exhaust under
+the reviewed transport fault; the next worker obtains actual factory_bug and
+retains its hold, then a fixed-release worker returns via B to the
+same comparison after a hashed plumbing fix with unchanged scientific vector.
+Unchanged passes survive, only affected stages rerun, invalid work stays unscored
+and no writer starts before the comparison/progress decision. The new Murphy
+row stays open until the retained 6a/6c/6d/6e/6f chain proves it.
 Row 13 report closure does not waive its live timeout/diagnosis scenario.
 
 Archive the encrypted input/output generations and public evidence manifest,

@@ -460,7 +460,8 @@ def batch_tick(policy, children, waits, spawn):
             print('batch exit record refused', file=sys.stderr); continue
         del children[operation]
     pending = []
-    for action, scan in (('dispatch', batch_holder.reconcile), (None, batch_holder.schedule_waits),
+    for action, scan in (('dispatch', batch_holder.reconcile), (None, batch_holder.plan_collections),
+                         (None, batch_holder.schedule_waits),
                          ('resume', batch_holder.orphaned),
                          ('publish', batch_holder.unpublished)):
         try: pending += [(operation, action) for operation in scan(policy, ROOT, CONTROL_HOME)]

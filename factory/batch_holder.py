@@ -1,4 +1,4 @@
-"""Gated host operation/collection composition. No diagnosis or live activation."""
+"""Gated host operation/collection composition and authenticated planning."""
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -26,6 +26,8 @@ from transfer import digest
 HOLDER_ENABLED = False
 TEMPFAIL = 75  # Dispatch exit: transient wait, the operation stays pending.
 RETRY_LIMIT = 5  # Resume/publish respawns before a terminal incident.
+# Process-local delay only; no authorization or durable consumption state.
+_PLAN_RETRY_AFTER = {}
 FIELDS = {'operation_id', 'launch_id', 'job', 'case', 'source_generation',
           'release_sha256', 'config_sha256', 'authority', 'state', 'pending_since',
           'worker_id', 'dispatch_started', 'dispatch_exit', 'output_generation',
@@ -166,7 +168,7 @@ def _source(directory, record, policy, operations, state, name, generation):
     return ack, entry, card
 
 
-def _post(directory, record, policy, home, operations, state, identity):
+def _current_operation(directory, record, policy, home, operations, state, identity):
     if (directory / 'export.json').exists() or (directory / 'export.json').is_symlink():
         raise ValueError('batch_exported')
     op = operations[identity]
@@ -177,6 +179,12 @@ def _post(directory, record, policy, home, operations, state, identity):
     if row['overrun'] or row['authority'] != op['authority'] or row['sources'][-1] != op['source_generation']:
         raise money.MoneyWait('money_wait')
     _config(policy, home, op)
+    return op
+
+
+def _post(directory, record, policy, home, operations, state, identity):
+    op = _current_operation(directory, record, policy, home, operations, state, identity)
+    row = state['jobs'][op['job']]
     if op['source_generation'] is not None:
         ack, _, _ = _source(directory, record, policy, operations, state, op['job'], op['source_generation'])
         if row.get('imported', {}).get('generation') == op['source_generation']:
@@ -184,6 +192,22 @@ def _post(directory, record, policy, home, operations, state, identity):
         elif ack['authority']['source_generation'] != row['sources'][-2]: raise ValueError('request_refused')
     elif row['sources'] != [None]: raise ValueError('request_refused')
     return op
+
+
+def _planning_source(directory, record, policy, root, home, identity, case, generation):
+    """Authenticate a published source under plan's existing money lock."""
+    enabled(policy, root)
+    if not money.diagnosis_enabled(record): raise ValueError('request_refused')
+    operations = _operations(directory, record, policy)
+    state = money.load_locked(directory, record, policy['batch']['manifest_sha256'])
+    op = _current_operation(directory, record, policy, home, operations, state, identity)
+    if (op['state'] != 'launched' or op['incident'] is not None or op['retirement'] is None or
+            op['case'] != case or op['output_generation'] != generation or
+            operation_id(policy, op['job'], generation) in operations):
+        raise ValueError('request_refused')
+    _, entry, card = _source(directory, record, policy, operations, state, op['job'], generation)
+    if (entry['case'], entry['generation']) != (case, generation): raise ValueError('request_refused')
+    return card
 
 
 def empty_input(root, directory, case):
@@ -456,6 +480,34 @@ def reconcile(policy, root, home):
             with operation_lock(directory, op['operation_id']): ready.append(op['operation_id'])
         except BlockingIOError: pass
     return ready
+
+
+def plan_collections(policy, root, home):
+    """Queue authenticated retired collections; never reserve or spawn a worker."""
+    enabled(policy, root); record = money.manifest(policy, root)
+    if not money.diagnosis_enabled(record): return []
+    with money.locked(home, record['id']) as directory:
+        ops = _operations(directory, record, policy)
+        journal = service._load(directory, record, policy['batch']['manifest_sha256'])
+    for op in ops.values():
+        generation = op['output_generation']
+        if (op['state'] != 'launched' or op['incident'] is not None or
+                op['retirement'] is None or generation is None or
+                operation_id(policy, op['job'], generation) in ops):
+            continue
+        key = (str(home.resolve()), policy['batch']['manifest_sha256'], op['case'], generation)
+        if _PLAN_RETRY_AFTER.get(key, 0) > time.monotonic(): continue
+        try:
+            entry = journal['entries'][op['case'] + '/' + generation]
+            retired = directory / 'retirements' / op['case'] / (generation + '.json')
+            if entry['facts'] is not None or retired.exists() or retired.is_symlink(): continue
+            service.plan(policy, root, home, op['case'], generation,
+                         published_operation=op['operation_id'])
+            _PLAN_RETRY_AFTER.pop(key, None)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            # ponytail: one retry per minute per refused generation; restart clears it.
+            _PLAN_RETRY_AFTER[key] = time.monotonic() + 60
+    return []
 
 
 def _wait_due(card, record):

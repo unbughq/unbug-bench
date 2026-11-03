@@ -62,13 +62,87 @@ class ConfigTests(unittest.TestCase):
         self.deliver()
 
     def deliver(self):
-        value = dict(schema=1, batch_id='practice', job_id='a', case_id=self.case,
+        value = dict(schema=1, batch_id=self.channel['batch'], job_id='a', case_id=self.case,
                      batch_deadline=self.channel['batch_deadline'], source_generation=self.channel['source_generation'],
                      batch_release_sha256=self.release_sha, manifest_sha256=self.manifest_sha,
                      job_money=dict(self.channel))
         raw = json.dumps(value).encode(); pin = hashlib.sha256(raw).hexdigest()
         config.deliver(raw, pin, self.path)
         self.args.factory_job_config_sha256 = pin
+
+    def pin_manifest(self, record):
+        """Authored release/manifest envelopes; actual hash and install checks."""
+        relative = 'factory/batches/' + record['id'] + '.json'
+        raw = json.dumps(record).encode()
+        (self.home / relative).write_bytes(raw)
+        self.manifest_sha = hashlib.sha256(raw).hexdigest()
+        worker = json.dumps({'files': {relative: self.manifest_sha}}).encode()
+        (self.home / 'worker-release-manifest.json').write_bytes(worker)
+        release = json.dumps({'files': {'worker-release-manifest.json': hashlib.sha256(worker).hexdigest()}}).encode()
+        (self.home / 'batch-release.json').write_bytes(release)
+        self.release_sha = hashlib.sha256(release).hexdigest()
+        self.args.batch_release_sha256 = self.release_sha
+        self.deliver()
+
+    def test_policy_comes_only_from_current_verified_manifest(self):
+        self.assertFalse(config.diagnosis_enabled(self.c))
+        config.install(self.c, self.args)
+        record = json.loads((self.factory / 'batches/practice.json').read_text())
+        self.c.card['diagnosis_policy'] = dict(schema=1, enabled=True)
+        self.c.checkpoint_card = {'diagnosis_policy': dict(schema=1, enabled=True)}
+        with patch.dict(os.environ, DIAGNOSIS_ENABLED='true'):
+            self.assertFalse(config.diagnosis_enabled(self.c))
+        del self.c.checkpoint_card  # Spoofed public policy is not a restored release receipt.
+        self.args.resume = self.case
+        record['diagnosis_policy'] = dict(schema=1, enabled=True)
+        self.pin_manifest(record)
+        config.install(self.c, self.args)
+        self.assertTrue(config.diagnosis_enabled(self.c))
+        self.assertNotIn('diagnosis_policy', self.c.authenticated_job_config)
+        record['diagnosis_policy']['enabled'] = False
+        self.pin_manifest(record)
+        config.install(self.c, self.args)
+        self.assertFalse(config.diagnosis_enabled(self.c))
+        # Pin drift refuses install and clears the previously installed policy.
+        record['diagnosis_policy']['enabled'] = True
+        (self.factory / 'batches/practice.json').write_text(json.dumps(record))
+        with self.assertRaisesRegex(BudgetError, '^money_wait$'): config.install(self.c, self.args)
+        self.assertIsNone(self.c.authenticated_batch_manifest)
+        self.assertFalse(config.diagnosis_enabled(self.c))
+
+    def test_two_independent_batch_installations_do_not_share_activation(self):
+        record = json.loads((self.factory / 'batches/practice.json').read_text())
+        record['diagnosis_policy'] = dict(schema=1, enabled=True)
+        self.pin_manifest(record); config.install(self.c, self.args)
+        # Independent authenticated release/config, a different batch, default off.
+        other = ConfigTests()
+        other.setUp(); self.addCleanup(other.doCleanups)
+        record = json.loads((other.factory / 'batches/practice.json').read_text())
+        record.update(id='other')
+        other.case = other.c.case_id = 'case-other-a'
+        other.channel.update(batch='other', case=other.case)
+        record['jobs']['a']['case'] = other.case
+        other.pin_manifest(record); config.install(other.c, other.args)
+        self.assertFalse(config.diagnosis_enabled(other.c))
+        self.assertTrue(config.diagnosis_enabled(self.c))
+
+    def test_enabled_policy_rechecks_current_authority_and_shape(self):
+        record = json.loads((self.factory / 'batches/practice.json').read_text())
+        record['diagnosis_policy'] = dict(schema=1, enabled=True)
+        self.pin_manifest(record); config.install(self.c, self.args)
+        from copy import deepcopy
+        for field, value in (('id', 'other'), ('batch_deadline', '2098-01-01T00:00:00Z'),
+                             ('diagnosis_policy', dict(schema=1, enabled=1))):
+            bad = {**self.c.authenticated_batch_manifest, field: value}
+            with self.subTest(field=field), patch.object(self.c, 'authenticated_batch_manifest', bad):
+                with self.assertRaisesRegex(BudgetError, '^money_wait$'): config.diagnosis_enabled(self.c)
+        for binding in ({}, {'job_money': {**self.channel, 'source_generation': 'f' * 64}}):
+            with patch.object(self.c, 'authenticated_job_config', binding):
+                with self.assertRaisesRegex(BudgetError, '^money_wait$'): config.diagnosis_enabled(self.c)
+        expired = {**self.channel, 'batch_deadline': '2000-01-01T00:00:00Z'}
+        with patch.object(self.c, 'job_money', expired), patch.object(
+                self.c, 'authenticated_job_config', {'job_money': deepcopy(expired)}):
+            with self.assertRaisesRegex(BudgetError, '^retired_batch_bound$'): config.diagnosis_enabled(self.c)
 
     def restored(self, total=1):
         # Authored transport receipt; genuine importer validation is tested separately.

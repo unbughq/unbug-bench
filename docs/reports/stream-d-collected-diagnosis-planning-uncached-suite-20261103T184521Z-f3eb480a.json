@@ -1,0 +1,25 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "head": "cfc8815d73b5d9990af1adb18f3721e01692247e",
+  "started_at": "2026-11-03T18:45:21.738896+00:00",
+  "log": "docs/reports/stream-d-collected-diagnosis-planning-uncached-suite-20261103T184521Z-f3eb480a.log",
+  "timeout_ms": 7200000,
+  "runner": "parallel-tests 74dc5c7, no pass cache",
+  "reason": "restart after exit143 interrupted handback attempt without test verdict",
+  "load_before": [
+    56.12353515625,
+    60.40625,
+    64.39111328125
+  ],
+  "exit_code": 143,
+  "finished_at": "2026-11-03T18:46:30.697197+00:00",
+  "verdict": null,
+  "load_after": [
+    57.4921875,
+    59.6337890625,
+    63.7802734375
+  ],
+  "interrupted": true,
+  "termination": "own cwd-matched uv process group stopped to apply parent-requested runner 281bf20",
+  "suite_started": null
+}

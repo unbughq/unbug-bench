@@ -30,7 +30,7 @@ def main():
     sys.path.insert(0, str(root / 'factory'))
     import batch
     import batch_holder
-    import batch_service
+    import batch_money
     import key_holder
     require(key_holder.ROOT.resolve() == root, 'import root differs from checkout')
     load = lambda name: json.loads((here / name).read_text())
@@ -49,8 +49,8 @@ def main():
     manifest_path = root / 'factory/batches/b-practice-20261031.json'
     require(sha(manifest_path) == pins['manifest_sha256'], 'pins stale: manifest changed')
     require(key_holder.fingerprint(root) == pins['trusted_code_sha256'], 'pins stale: trusted code changed')
-    require(not batch_holder.HOLDER_ENABLED and not batch_service.DIAGNOSIS_ENABLED, 'preparation flags changed')
     manifest = json.loads(manifest_path.read_text())
+    require(not batch_holder.HOLDER_ENABLED and not batch_money.diagnosis_enabled(manifest), 'preparation flags changed')
     require('--dry-run' in manifest['jobs']['practice']['args'] and not manifest['replacement_policy']['enabled'], 'preparation job changed')
     policy_path = here / 'practice-policy.json'
     policy = load('practice-policy.json')

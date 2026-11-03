@@ -1,0 +1,15 @@
+{
+  "command": "lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py",
+  "environment": {
+    "UV_OFFLINE": "1"
+  },
+  "head": "341e3c3ec9946dbbb04b45df034987fc39def81a",
+  "requested_at": "2026-11-03T07:58:52.155653+00:00",
+  "log": "docs/reports/stream-d-batch-diagnosis-opt-in-suite-20261103T075852Z-f5e16073.log",
+  "exit_code": -15,
+  "finished_at": "2026-11-03T08:08:33.636936+00:00",
+  "cancelled": true,
+  "suite_started": false,
+  "verdict": null,
+  "reason": "Parent requested normal DNS-enabled rerun with 7200000 ms timeout; cancelled queued process before suite child existed"
+}

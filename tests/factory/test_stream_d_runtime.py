@@ -44,6 +44,13 @@ from router_test_support import offline_router, synthetic_maximum
 from test_stream_d import cards
 
 
+def diagnosis_policy(c, enabled=True):
+    """Authored installed policy control; real installation is in test_job_config."""
+    record = copy.deepcopy(c.authenticated_batch_manifest)
+    record['diagnosis_policy'] = dict(schema=1, enabled=enabled)
+    return patch.object(c, 'authenticated_batch_manifest', record)
+
+
 class Killed(BaseException): pass
 
 
@@ -76,6 +83,7 @@ class RuntimeTests(unittest.TestCase):
                                                              (writer, stress, reviewer, strong))}},
             models={'builder': [writer], 'attacker': [stress], 'reviewers': [[reviewer]], 'strong_calibrator': [strong]},
             job_money=self.channel, authenticated_job_config={'job_money': copy.deepcopy(self.channel), 'batch_release_sha256': args.batch_release_sha256},
+            authenticated_batch_manifest={'id': self.channel['batch'], 'batch_deadline': self.channel['batch_deadline']},
             batch_id=self.channel['batch'], job_id=self.channel['job'], batch_deadline=self.channel['batch_deadline'],
             source_generation=self.channel['source_generation'])
         # These tests isolate writer/accounting receipt behavior. Category coverage

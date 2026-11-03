@@ -41,7 +41,7 @@ class ServiceTests(unittest.TestCase):
         self.record = dict(schema=1, id='practice', jobs=jobs, money_limit_usd='3.000000000',
                            batch_deadline='2099-01-01T00:00:00Z', max_concurrency=1,
                            target_slots=1, restore_recipient=recipient.strip(),
-                           replacement_policy=dict(schema=1, enabled=True))
+                           replacement_policy=dict(schema=1, enabled=True), diagnosis_policy=dict(schema=1, enabled=True))
         self.release = self.root / 'release'; self.release.mkdir()
         self.policy = dict(jobs=jobs, batch=dict(id='practice', release=str(self.release),
                            sha256='a' * 64, max_concurrency=1, manifest_path='factory/batches/practice.json'))
@@ -96,13 +96,23 @@ class ServiceTests(unittest.TestCase):
         return service.collect(self.policy, self.root, self.home, job, self.source)
 
     def plan(self, card, api=None, **kwargs):
-        with patch.object(service, 'DIAGNOSIS_ENABLED', True), patch.dict(sys.modules, diagnosis=api or self.api):
+        with patch.dict(sys.modules, diagnosis=api or self.api):
             return service.plan(self.policy, self.root, self.home, card['case'], card['sha256'], **kwargs)
 
     def generation(self, card):
         return self.home / 'batches/practice/generations' / card['case'] / card['sha256']
 
+    def test_explicit_false_policy_never_projects_or_enqueues(self):
+        self.record['diagnosis_policy']['enabled'] = False; self.freeze()
+        card = self.input(); self.collect()
+        with patch.dict(sys.modules, diagnosis=self.api):
+            result = service.plan(self.policy, self.root, self.home, card['case'], card['sha256'])
+        self.assertEqual(result['status'], 'diagnosis_unavailable')
+        self.assertEqual(self.api_calls, [])
+        self.assertEqual(self.state()['queue'], {})
+
     def test_verified_immutable_copy_and_gate_off_never_imports_d(self):
+        self.record.pop('diagnosis_policy'); self.freeze()
         card = self.input()
         before = {p.name: p.read_bytes() for p in self.source.iterdir()}
         self.collect()

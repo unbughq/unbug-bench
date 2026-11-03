@@ -1,0 +1,15 @@
+{
+  "command": "lockf /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py",
+  "timeout_ms": 7200000,
+  "attempt": 1,
+  "production_implementation": "d7250f9098fedb40f5748c1e0107fa936718986f",
+  "head": "cf3415aff1f2ff8c687e1ff49557a8b36a31d2a7",
+  "requested_at": "2026-11-03T11:17:04.851975+00:00",
+  "log": "docs/reports/stream-d-batch-diagnosis-opt-in-suite-20261103T111704Z-83f1739e.log",
+  "exit_code": 0,
+  "finished_at": "2026-11-03T12:47:52.911646+00:00",
+  "suite_started": true,
+  "verdict": "pass",
+  "test_scripts": 180,
+  "failed_scripts": 0
+}
