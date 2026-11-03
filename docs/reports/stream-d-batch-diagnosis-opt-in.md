@@ -33,3 +33,10 @@ implementation tree, timeout 7200000 ms, retry once only for DNS failure, then
 fresh diff review (cap 2). Rebase onto land12 only if it conflicts. The queued
 cached-dependency attempt ...T075852Z-f5e16073 was cancelled before it spawned
 any suite child, not counted as a suite result. No duplicate suite was launched.
+
+The parent-requested normal attempt ...T080941Z-4e1f7d59 exited 75 after
+7000 seconds waiting for the shared lock (lockf: already locked). No tests
+started, so there is no suite verdict and no DNS retry was used. Requeue the
+same locked command with the same 7200000 ms per-attempt timeout; retain this
+admission failure instead of labelling it a test run or a pass. Source remains
+byte-identical to d7250f9 under factory/tests/bin/tools.
