@@ -8,13 +8,16 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = ROOT / "tests"
 SUITES = ("factory", "bench", "tools", "control", "integration", "analysis", "harbor")
 SLOTS = Path(os.environ.get("TEST_SLOT_DIR", "/tmp/unbug-test-slots"))
-SLOT_COUNT = int(os.environ.get("TEST_SLOTS", os.cpu_count() or 1))
+SLOT_COUNT = max(1, int(os.environ.get("TEST_SLOTS", os.cpu_count() or 1)))
+STOP = threading.Event()  # set on interrupt so threads still waiting for a slot give up
 
 
 @contextlib.contextmanager
@@ -22,23 +25,28 @@ def machine_slot():
     """Hold one of SLOT_COUNT machine-wide slots, shared by every suite on this host.
     flock releases on process exit, so a killed suite never leaks a slot."""
     SLOTS.mkdir(exist_ok=True)
-    while True:
+    while not STOP.is_set():
         for i in range(SLOT_COUNT):
             with open(SLOTS / f"{i}.lock", "w") as lock:
                 try:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
                     continue
-                yield
+                yield True
                 return
         time.sleep(0.2)
+    yield False
 
 
 def run(path):
-    with machine_slot():
-        result = subprocess.run([sys.executable, "-B", str(path)], cwd=ROOT, env={**os.environ, "BENCH": str(ROOT)},
-                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    return path, result.returncode, result.stdout
+    # Output goes to a file, not a pipe: a pipe would wait for any child the script leaked, not for the script.
+    with machine_slot() as held, tempfile.TemporaryFile() as out:
+        if not held:
+            return path, 130, b"interrupted before start\n"
+        code = subprocess.run([sys.executable, "-B", str(path)], cwd=ROOT, env={**os.environ, "BENCH": str(ROOT)},
+                              stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT).returncode
+        out.seek(0)
+        return path, code, out.read()
 
 
 def main():
@@ -67,6 +75,7 @@ def main():
             if code:
                 failures.append(path.relative_to(ROOT))
     finally:
+        STOP.set()
         pool.shutdown(cancel_futures=True)
     print(f"\n{len(scripts)} test scripts run; {len(failures)} failed.", flush=True)
     for path in failures:
