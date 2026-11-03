@@ -23,6 +23,15 @@ Controls are explicitly labelled: retained ciphertext/card/creation event with
 authored bindings, retirement proof and diagnosis API projection. No real
 diagnosis eligibility or live qualification is claimed.
 
-Full suite: pending, one run without lockf on the committed implementation.
+Full suite: 185 scripts, 1 failed (184 passed), exit 1 at implementation
+3e3528081d1ccf0ffbd126bb292370a8875b2368. Command:
+uv run --with numpy --with scipy python -B tests/run.py (no lockf).
+Record: stream-d-collected-diagnosis-planning-suite-20261103T174906Z-80c52ba9.json/.log.
+Only test_control_resume.py failed: five deadline failures at existing 10/20-second
+controller windows. That test, factory/control_resume.py and factory/launch.sh
+are unchanged in b80929a..3e35280. All 11 planning tests and all 60 holder tests
+passed in the full suite. No timeout was weakened and no source fix was made.
+A focused recheck of the sole failed file is running; it is not a replacement
+full suite. No repeat full suite is queued.
 Fresh diff review: pending.
 
