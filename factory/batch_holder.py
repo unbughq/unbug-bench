@@ -37,7 +37,8 @@ INCIDENTS = (None, 'creation_unknown', 'accounting_refused', 'legacy_retire',
 
 
 def active(policy, root):
-    import practice
+    import practice, pilot
+    if pilot.managed(policy): return pilot.active(policy, root)
     return HOLDER_ENABLED or practice.active(policy, root)
 
 
@@ -229,7 +230,10 @@ def empty_input(root, directory, case):
 
 def _admit(directory, record, policy, root, ops, state, name, source_generation, provider_wait=False):
     """Shared decision; only supplied in-memory state changes. Caller owns lock."""
-    import practice
+    import practice, pilot
+    if pilot.managed(policy):
+        pilot.admission(record)
+        pilot.history(record, ops, operation_id(policy, name, source_generation), name)
     if record['id'] == practice.BATCH:
         if not practice.matches(record): raise ValueError('request_refused')
         practice.admission(record)
@@ -429,7 +433,7 @@ def _reconcile_one(directory, root, home, op, state):
         try:
             with operation_lock(directory, op['operation_id']):
                 if not path.exists():
-                    path.mkdir(mode=0o700)  # Fence any late control_resume for this launch id.
+                    path.mkdir(mode=0o700, parents=True)  # Fence any late control_resume for this launch id.
                     op.update(state='failed', incident='preflight_refused'); return
                 if service._json(path / 'launch.json') != op['launch']: return
                 with service._regular(path / 'controller.lock') as lock:
@@ -840,7 +844,7 @@ def dispatch(policy, root, home, identity, identity_bytes):
             if ((account is not None and OPENCODE_ACCOUNTS[account] not in labels) or
                     CLAUDE_ACCOUNTS[claude] not in labels): raise ValueError('request_refused')
             import practice_cleanup
-            practice_cleanup.armed(policy, root, home, op)
+            practice_cleanup.armed(policy, root, home, op, ops)
             fleet = subprocess.run([str(root / 'bin/boat-call'), 'list', '--json'],
                                    capture_output=True, check=True,
                                    env={**os.environ, 'BOAT_CAPTURE_OUTPUT': '1', 'BOAT_COMMAND_TIMEOUT_SECONDS': '25'})
@@ -860,6 +864,8 @@ def dispatch(policy, root, home, identity, identity_bytes):
                        FACTORY_ACCOUNT_STATE=json.dumps(accounts))
             import practice
             if practice.active(policy, root): env['UNBUG_PRACTICE_BATCH'] = practice.BATCH
+            import pilot
+            if pilot.active(policy, root): env['UNBUG_PILOT_PIN'] = pilot.pin(policy)
             if 'UNBUG_ROUTER_CLIENT_FILE' in os.environ:
                 env['UNBUG_ROUTER_CLIENT_FILE'] = os.environ['UNBUG_ROUTER_CLIENT_FILE']
             if account is not None: env['OPENCODE_SECRET_NAME'] = OPENCODE_ACCOUNTS[account]
@@ -869,7 +875,7 @@ def dispatch(policy, root, home, identity, identity_bytes):
                 current = _post(directory, record, policy, home, ops, state, identity)
                 if current['state'] != 'pending' or current['dispatch_started'] or current['incident'] is not None: return
                 if current['source_generation'] is None: empty_input(root, directory, current['case'])
-                practice_cleanup.armed(policy, root, home, current)
+                practice_cleanup.armed(policy, root, home, current, ops)
                 current['launch'] = dict(argv=argv, environment={k: env[k] for k in ENVIRONMENT if k in env})
                 current['dispatch_started'] = True
                 _save(directory, record, policy, ops)
