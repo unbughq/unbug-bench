@@ -1,4 +1,4 @@
-"""Provider/VM edges for the real worker command; no runtime monkeypatches."""
+"""Provider/VM and cgroup-provisioning edges for the real worker command."""
 import json
 from pathlib import Path
 import os
@@ -52,6 +52,13 @@ def guard(event,args):
    raise RuntimeError('real worker RAM/shared temporary path accessed')
 sys.addaudithook(guard)
 if sys.argv[0].endswith('/runner_supervisor.py'):
+ import processes
+ def prepare_cgroup(home):
+  # Synthetic VM on the host has no delegated kernel tree. Real provisioning
+  # and nonroot migration/kill run in test_worker_cgroup's disposable Linux VM.
+  root=home/'authored-cgroup-root'; root.mkdir(exist_ok=True)
+  os.environ['UNBUG_MODEL_CGROUP_ROOT']=str(root)
+ processes.prepare_model_containment=prepare_cgroup
  try:
   import json
   assert os.environ.get('FACTORY_ROUTER_TOKEN')=='public-offline-router-sentinel'
@@ -68,6 +75,9 @@ if sys.argv[0].endswith('/runner_supervisor.py'):
   assert all((ram/name).is_file() for name in ('factory-job.json','codex-auth.json','statements-key'))
   Path(os.environ['HOME'],'worker-inputs.json').write_text(json.dumps({'router':True,'tls':True,'selected_secrets':True,'r2_excluded':True,'ram_isolated':True}))
  except Exception: os._exit(95)
+if sys.argv[0].endswith('/run.py'):
+ assert os.environ['UNBUG_MODEL_CGROUP_ROOT']==str(Path.home()/'authored-cgroup-root')
+ Path.home().joinpath('runner-cgroup-environment').touch()
 """)
 
 
@@ -124,6 +134,7 @@ def verify_exam(test,base,root,cloud,config,store,digest,results,runtime):
     vm=cloud/'vm-1'
     test.assertTrue((vm/'deleted').exists())
     test.assertTrue(all(json.loads((vm/'worker-inputs.json').read_text()).values()))
+    test.assertTrue((vm/'runner-cgroup-environment').is_file())
     if sys.platform == 'linux': test.assertTrue(list(vm.rglob('model-edge.json')),logs)
     else: test.assertEqual(card['provider_preflight'][0]['reason'],'route_feature_unsupported')
     test.assertFalse((vm/'ram/secrets/r2-env').exists())
