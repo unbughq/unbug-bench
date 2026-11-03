@@ -265,6 +265,8 @@ class SupervisorTests(unittest.TestCase):
                 factory.mkdir()
                 for path in (ROOT / 'factory').glob('*.py'):
                     shutil.copy2(path, factory / path.name)
+                supervisor = factory / 'runner_supervisor.py'
+                supervisor.write_text(supervisor.read_text().replace('processes.prepare_model_containment(home)', 'None  # authored provisioning edge; real kernel covered separately'))
                 self.assertEqual((factory / 'run.py').read_bytes(), (ROOT / 'factory/run.py').read_bytes())
                 target = factory / dependency
                 if ready:
@@ -279,7 +281,7 @@ class SupervisorTests(unittest.TestCase):
                 while i < len(args):
                     if args[i] in ('--resume', '--resume-bench-sha'): i += 2
                     else: fresh.append(args[i]); i += 1
-                result = subprocess.run([sys.executable, str(ROOT / 'factory/runner_supervisor.py'), '--',
+                result = subprocess.run([sys.executable, str(supervisor), '--',
                     sys.executable, '-B', str(factory / 'run.py'), *fresh, '--dry-run'],
                     env={**os.environ,'HOME':str(home),'FACTORY_RUNNER_SECONDS':str(HANG_GUARD_SECONDS)},
                     capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
@@ -296,7 +298,10 @@ class SupervisorTests(unittest.TestCase):
         self.home = Path(self.tmp.name)
         if prior_work:
             (self.home / 'work' / option('--restore')).mkdir(parents=True)
-        command = [sys.executable, str(ROOT / 'factory/runner_supervisor.py'), '--', sys.executable, '-c', code,
+        supervisor = self.home / 'runner_supervisor.py'
+        supervisor.write_text((ROOT / 'factory/runner_supervisor.py').read_text().replace(
+            'processes.prepare_model_containment(home)', 'None  # authored provisioning edge; real kernel covered separately'))
+        command = [sys.executable, str(supervisor), '--', sys.executable, '-c', code,
                    *worker_args()]  # real saved worker arguments; injected interpreter ignores them
         return subprocess.run(command, env={**os.environ, 'HOME': str(self.home),
             'FACTORY_RUNNER_SECONDS': str(seconds)}, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)

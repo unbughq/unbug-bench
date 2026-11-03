@@ -28,9 +28,12 @@ raw = sys.stdin.read(16385)
 if not raw.strip(): sys.exit(0)
 if len(raw) > 16384: sys.exit(1)
 d = json.loads(raw)
-if (d.get("schema") != 1 or type(d.get("attempt")) is not int or not 1 <= d["attempt"] <= 3 or
+preflight = (d.get("attempt") == 0 and d.get("phase") == "startup" and
+             d.get("reason") == "containment_unavailable" and d.get("exit_status") == 78)
+if (d.get("schema") != 1 or type(d.get("attempt")) is not int or not (preflight or 1 <= d["attempt"] <= 3) or
+    (d.get("reason") == "containment_unavailable" and not preflight) or
     d.get("phase") not in ("running", "startup", "finished", "stopped") or
-    d.get("reason") not in ("running", "startup_retry", "startup_failed", "finished", "cancelled", "timeout") or
+    d.get("reason") not in ("running", "startup_retry", "startup_failed", "finished", "cancelled", "timeout", "containment_unavailable") or
     (d.get("exit_status") is not None and type(d["exit_status"]) is not int) or
     type(d.get("observed_at")) not in (int, float) or not math.isfinite(d["observed_at"])): sys.exit(1)
 print(json.dumps({k:d[k] for k in ("schema", "attempt", "phase", "reason", "exit_status", "observed_at")}))

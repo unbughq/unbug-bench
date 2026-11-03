@@ -43,6 +43,10 @@ class AdmissionHandoffTests(unittest.TestCase):
                      'calibration.py', 'free_models.py', 'collect.sh', 'collection.py', 'transfer.py'):
             shutil.copyfile(HERE / name, self.root / 'factory' / name)
         shutil.copyfile(HERE / 'runner_supervisor.py', self.remote / 'factory/runner_supervisor.py')
+        # This local transport fixture has no Linux cgroupfs; provisioning is
+        # independently exercised against the real kernel in test_worker_cgroup.
+        supervisor = self.remote / 'factory/runner_supervisor.py'
+        supervisor.write_text(supervisor.read_text().replace('processes.prepare_model_containment(home)', 'None  # authored provisioning edge'))
         self.worker = 'worker-owned'; self.case = 'case-selected'
         case_dir = self.remote / 'work' / self.case / 'case'; case_dir.mkdir(parents=True)
         statement = 'synthetic freshly selected candidate'

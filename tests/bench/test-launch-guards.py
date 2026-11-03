@@ -92,6 +92,9 @@ elif cmd == "exec":
     if mode == 'startup-crash':
         (vm / 'sealed/runner-status.json').write_text(json.dumps(dict(schema=1, attempt=3,
             phase='startup', reason='startup_failed', exit_status=1, observed_at=time.time())))
+    if mode == 'containment-unavailable':
+        (vm / 'sealed/runner-status.json').write_text(json.dumps(dict(schema=1, attempt=0,
+            phase='startup', reason='containment_unavailable', exit_status=78, observed_at=time.time())))
     for dest in ("sealed", "exam-out"):
         (vm / dest / "result.scorecard.txt").write_text("fake scorecard\n")
         (vm / dest / "result.jobs.tar.gz.age").write_text("fake sealed bytes")
@@ -708,6 +711,11 @@ exit "$status"
         assert code != 0 and 'runner startup failed' in err and 'STALLED' not in err, err
         receipt = json.loads((bench / 'sealed/vm-1.runner-status.json').read_text())
         assert receipt['reason'] == 'startup_failed' and receipt['exit_status'] == 1
+        code, _, err, calls, _ = run(mode='containment-unavailable')
+        assert code != 0 and 'runner startup failed' in err and 'STALLED' not in err, err
+        receipt = json.loads((bench / 'sealed/vm-1.runner-status.json').read_text())
+        assert (receipt['attempt'], receipt['phase'], receipt['reason'], receipt['exit_status']) == (
+            0, 'startup', 'containment_unavailable', 78)
         print('PASS detached startup exit receipt is promptly collected without a case DONE')
         # The failed second setup must return to monitoring the healthy first worker.
         real = json.loads((ROOT / 'tests/factory/fixtures/isolation-timeouts/monitor.json').read_text())

@@ -231,11 +231,24 @@ class AccountHandoffTests(unittest.TestCase):
             handoff.worker_resume(self.card['case'], 'a' * 64, ['--case-budget', '70', '--rounds', '9'], json.dumps(state))
         argv = spawn.call_args.args[0]; env = spawn.call_args.kwargs['env']
         self.assertEqual(argv[0], 'python3')
+        self.assertEqual(argv[1:5], [str(home / 'factory/runner_supervisor.py'), '--',
+                                   'python3', str(home / 'factory/run.py')])
+        self.assertEqual(env['FACTORY_RUNNER_SECONDS'], os.environ.get('FACTORY_RUNNER_SECONDS', '14400'))
+        self.assertEqual(env['FACTORY_RUNNER_GRACE_SECONDS'], os.environ.get('FACTORY_RUNNER_GRACE_SECONDS', '720'))
         self.assertFalse(any('synthetic-' in arg for arg in argv))
         self.assertEqual(env['OPENCODE_API_KEY'], 'synthetic-opencode-go-key-2')
         self.assertEqual(env['OPENCODE_SECRET_NAME'], 'opencode-go-key-2')
         self.assertEqual(json.loads(env['FACTORY_ACCOUNT_STATE']), state)
         self.assertEqual(argv[-4:], ['--case-budget', '70', '--rounds', '9'])
+
+    def test_in_place_upload_carries_matching_supervisor_and_process_helper(self):
+        command = next(line for line in (ROOT / 'factory/resume-in-place.sh').read_text().splitlines()
+                       if line.startswith('COPYFILE_DISABLE=1 tar '))
+        handoff.subprocess.run(['/bin/sh', '-c', command], check=True, capture_output=True,
+                               env={**os.environ, 'root': str(ROOT), 'tmp': str(self.root)})
+        with tarfile.open(self.root / 'factory.tgz') as archive:
+            for name in ('factory/runner_supervisor.py', 'bin/processes.py'):
+                self.assertEqual(archive.extractfile(name).read(), (ROOT / name).read_bytes())
 
     def test_parked_failure_status_reaches_entrypoint(self):
         with patch.object(sys, 'argv', ['handoff', 'parked', '--policy', 'policy', '--job', 'canary', '--worker', 'owned']), \
