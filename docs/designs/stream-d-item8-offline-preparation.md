@@ -13,8 +13,8 @@ specific cap and launch authority must come from that plan and founder approval.
 Drop O1, O2 except the pilot's actual role requirements, O3, O4 and O6 as pilot
 prerequisites. Preserve their analysis below. O7 escaped-session containment is
 assigned to a separate agent: lane 1 has committed no O7 design or implementation.
-O5b request-only stress disposition remains deferred while the critical diagnosis
-scheduling path is wired. The previous row-closure scenario is historical
+O5b request-only stress disposition belongs to stream E on t3/isolation-o5b.
+Lane 1 focuses on the critical diagnosis scheduling path. The previous row-closure scenario is historical
 analysis; no Murphy row is closed by this replacement.
 
 On 2026-11-03 the parent prioritized the missing production diagnosis path:

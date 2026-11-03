@@ -53,3 +53,12 @@ The manifest policy is immutable instead. Fix the test controls to use separatel
 pinned enabled/disabled fixtures; retain the real D projection in the stored-facts
 negative, explicitly labelled as an authored control. No production change.
 Run this file, then a fresh full suite under plain lockf (no -t), per parent.
+
+Parent scope clarification: O5b request-only stress disposition belongs to stream
+E on t3/isolation-o5b. Lane 1 takes no O5b code. After this authenticated batch
+opt-in increment passes, finish production diagnosis scheduling: authenticated
+collected generations to batch_service.plan, then resume requests through the
+existing holder reserve/reconcile/dispatch path. The pilot uses pinned manifest
+opt-in; the old global DIAGNOSIS_ENABLED switch is removed by this increment.
+B retains pilot admission and Boat settlement. This first increment alone does
+not yet provide the production plan/drain caller.
