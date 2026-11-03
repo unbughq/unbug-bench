@@ -30,7 +30,11 @@ test_batch_transfer.py 14/14, and test_qualify_batch_inputs.py 11/11.
 Additional predecessor-facts and non-directory-marker tests cover the review nits.
 Final fresh diff review: PASS, no blockers, Majors or nits; record
 stream-d-resume-queue-drain-diff-2.md. The direct-caller fix and coverage are
-independently verified. One full no-lockf suite on this reviewed code follows.
+independently verified. The one full handback suite passed: 187 scripts,
+0 failed, exit 0, at 1fb45caa95d73dd7a0e7c2eb334118adb227f9f1. Command:
+uv run --with numpy --with scipy python -B tests/run.py (no lockf/cache).
+Record: stream-d-resume-queue-drain-suite-20261103T201940Z-d18df5b9.json/.log.
+Production and test files are unchanged from final reviewed source d84abe7.
 No Murphy row closes; item 9 and new-stream-d-current-comparison-1 retain their
 real-artifact/live integration requirements. B retains pilot admission, lifecycle
 limits, cleanup and Boat settlement. Known-total diagnosis resumes in
