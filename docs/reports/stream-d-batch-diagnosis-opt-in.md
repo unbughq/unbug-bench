@@ -38,5 +38,18 @@ The parent-requested normal attempt ...T080941Z-4e1f7d59 exited 75 after
 7000 seconds waiting for the shared lock (lockf: already locked). No tests
 started, so there is no suite verdict and no DNS retry was used. Requeue the
 same locked command with the same 7200000 ms per-attempt timeout; retain this
-admission failure instead of labelling it a test run or a pass. Source remains
+admission timeout instead of labelling it a test run or a pass. Source remains
 byte-identical to d7250f9 under factory/tests/bin/tools.
+
+Parent clarification: exit 75 from lockf -t is only a lock-wait timeout, not a
+test result, failure or blocker. It has no suite verdict. If it recurs, requeue
+immediately with plain lockf /tmp/unbug-suite.lock (no -t). The current requeued
+run acquired the lock and was already running tests at this clarification.
+
+Actual locked suite on d7250f9 production/tests: 180 scripts, 1 failed (exit 1),
+...T100805Z-12f8ac07. Only test_batch_service_d.py failed: four assertions still
+assumed returning from an enabled helper would restore the old global-off gate.
+The manifest policy is immutable instead. Fix the test controls to use separately
+pinned enabled/disabled fixtures; retain the real D projection in the stored-facts
+negative, explicitly labelled as an authored control. No production change.
+Run this file, then a fresh full suite under plain lockf (no -t), per parent.
