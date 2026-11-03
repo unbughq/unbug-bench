@@ -126,3 +126,9 @@ test expecting provider_limit in the public skipped message. That assertion now
 expects BudgetError, matching the type-only privacy contract; resume-flag and
 no-completed-receipt assertions remain unchanged. The replacement full run uses
 the parent's parallel-tests runner without lockf.
+
+Parent-directed runner merge: parallel-tests 89934c9 merged at 3804bba.
+Touched tests on the merged tree passed: calibration_attempts (9 tests) and
+practice_startup (4 tests, 34.782s). The real Docker exam ran, including fresh
+volume marker removal and repeated role/template SQL, without a skip.
+The next qualifying suite uses the parallel runner without lockf.
