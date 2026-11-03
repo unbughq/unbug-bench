@@ -140,3 +140,15 @@ type; its label and non-stopping behaviour checks are unchanged. A repository
 search found no further provider_limit/skipped assertions. The real Docker
 startup exam passed all four tests in 45.964s in that full run. This failed run
 is retained as non-qualifying; no production change was needed.
+
+## Final review-fix validation
+
+Source b7f6a974417a91911387eb67705a52cc00d78a10 passed the parallel full suite:
+186 scripts, zero failed, exit 0, from 2026-11-03T18:21:59Z to 18:39:06Z.
+Record: practice-startup-error-suite-20261103T182159Z-a587d574.json and its
+.log.gz. The recorded tree and both hashes were checked. The real Docker
+conflict/volume/seed exam ran and passed, not skipped. Both corrected public
+message assertions pass. This run uses no lockf and no test-limit changes.
+Fresh diff review round 2 of 2 is the remaining startup gate. Earlier failed
+and interrupted runs remain non-qualifying evidence; settlement still awaits
+its own separate review. No live state was changed.
