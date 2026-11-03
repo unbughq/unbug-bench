@@ -3136,7 +3136,8 @@ def finalize_accounting(c):
             c.card.setdefault('cleanup_errors', []).append({'stage': 'usage_reconciliation', 'error': type(error).__name__})
     for stage, action in (
             ('budget_summary', lambda: update_case_budget(c)),
-            ('budget_snapshot', lambda: c.card.update(continuation_budget=jload(c.ledger))),
+            ('budget_snapshot', lambda: c.card.update(continuation_budget=jload(
+                c.ledger, {'cost': 0, 'calls': 0, 'events': []} if getattr(c.args, 'dry_run', False) else None))),
             ('budget_checkpoint', lambda: (c.work / 'continuation-budget.json').write_text(
                 json.dumps(c.card['continuation_budget'], indent=2))
                 if c.card.get('continuation_budget') is not None else None)):
