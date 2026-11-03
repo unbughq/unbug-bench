@@ -105,7 +105,9 @@ Use the EXISTING state/WORKER.deletion.lock inode for both paths:
   Integrate at bin/boat-call, inside its existing timeout scope. With validated
   UNBUG_LAUNCH_STATE, match owned IDs (including ID:scp paths) for ssh, exec, scp,
   prompt, resume, restart/reboot/resize/type-change, extend, fork, snapshot, new
-  from that ID, stop and delete. read-only info/usage/list/deletion-status/stop-status
+  from that ID and stop; ordinary delete requires the exclusive-owner FD below.
+  The only exception is the exact deadline-authorized DELETE protocol in section3.
+  read-only info/usage/list/deletion-status/stop-status
   do not mutate. Unknown commands targeting an owned ID refuse after fencing.
   Standalone provider administration outside this owned execution is not authorized
   during retirement; this is the same trusted-owner boundary as existing deletion.
@@ -118,7 +120,9 @@ Use the EXISTING state/WORKER.deletion.lock inode for both paths:
 - While exclusive, the lifecycle passes its actual lock FD with pass_fds to its
   own boat-call stop/status/usage/delete children. A numeric environment FD is
   not authority by itself: the wrapper fstats it against this worker's regular,
-  no-symlink deletion.lock inode and verifies that the inherited FD holds EX/NB.
+  no-symlink deletion.lock inode and verifies an existing WRITE/FLOCK record in
+  /proc/self/fdinfo/FD. Do not upgrade an SH descriptor into EX as a check.
+  Missing kernel proof or an unrelated/read-only FD refuses this owner exception.
   This avoids reacquiring SH against its parent's EX. No boolean bypass flag.
   The provider executable need not inherit the FD: the parent retains EX.
 
@@ -192,22 +196,76 @@ with the same bounded read-only budget; they may not submit another DELETE.
 It cannot prove an exact cost on this path, so its reservation remains held.
 Provider TTL is still the backstop, not proof of a completed deletion.
 
-If EX is busy at the safety deadline, the safety owner does NOT block behind a
-meter or another cancellation. It fsyncs WORKER.metering-bypassed and enters the
-SAME _delete/atomic-intent protocol without metering. That file permanently
-invalidates any concurrent meter proof for settlement. The .retiring marker still
-blocks new mutations, while an old in-flight call may make the outcome uncertain.
-Deletion still needs exact target/operation completion; no false success from an
-empty inventory. A busy lock alone never authorizes a duplicate delete.
+#### Delete-only command authorization and the unique intent winner
 
-Both normal and emergency callers arbitrate the existing WORKER.deletion-attempted
-creation with exclusive-create/fsync. Exactly one may submit the provider request.
-The loser only reads the persisted request/status inside its remaining budget.
-If there is a preexisting attempted marker but no persisted operation ID, do NOT
-submit another request: preserve the existing uncertainty and TTL backstop. The
-exam asserts a timely unique attempt when no prior intent exists; it explicitly
-does not promise a new RPC after a crash left the old attempt uncertain. Kernel
-starvation or an unreachable provider cannot be turned into a completed receipt.
+The emergency exception is enforced INSIDE bin/boat-call; it is not a caller's
+boolean bypass and does not require the busy EX lock. For a fenced launch the
+only accepted destructive argv is exactly `delete WORKER --yes --json`. No extra
+flags, aliases, org/URL overrides, second worker or other operation can use it.
+
+Before permitting this command without EX, the wrapper independently validates:
+1. UNBUG_LAUNCH_STATE is the canonical managed launch directory. The exact worker
+   is in its validated IDs and unique retained new.N creation response; no pending
+   creation mismatch. Use the same regular/no-symlink proof readers, not missing
+   inventory. The bound spend row is reserved/finished, state_path is this directory,
+   and its immutable envelope agrees with the retained spend file.
+2. The retiring marker's worker/state/spend/launch/creation/generation bindings
+   equal these independently read facts. .started is the existing positive durable
+   start. The activated bounded practice/pilot context supplies its authenticated
+   timing, and recomputed D=started+2700 equals marker.delete_due_utc. No fresh
+   environment timeout or caller timestamp may extend or advance that policy D.
+3. Current UTC is at or after that exact D. A future D never permits the emergency
+   exception. This is policy deadline authority for a positively owned disposable
+   worker, not an arbitrary request to bypass the lock. Missing/malformed/foreign
+   facts refuse the API call and retain uncertainty/TTL; they cannot authorize
+   deleting a different worker.
+
+After these checks the wrapper skips SH/EX acquisition for THIS DELETE only and
+caps its existing version/API command budget at5s (+70s cancellation allowance).
+It checks the exact pinned executable version before any irreversible intent.
+The EX-owner path before D still requires the validated inherited WRITE-lock FD;
+all other mutations still require SH and fail on the durable retiring marker.
+Read-only deletion-status polls remain available without either bypass.
+
+Move the new protocol's existing .deletion-attempted exclusive-create/fsync to
+this wrapper boundary, immediately before invoking the provider DELETE. The
+lifecycle _delete helper MUST NOT pre-create it for a fenced protocol. This
+removes the contradictory caller-owned preclaim; no extra authorization file,
+nonce, token, transport or ledger is needed. Legacy no-fence deletion retains its
+old intent placement/behavior and cannot invoke this new emergency exception.
+
+Both ordinary EX-owner and deadline callers perform the SAME wrapper O_EXCL
+claim on state/WORKER.deletion-attempted. Only the creator may reach the provider.
+If the file exists, the wrapper refuses another DELETE even if a request ID was
+not saved; it never reopens or deletes the intent. The lifecycle loser can only
+read a saved request ID and poll its status inside its remaining read-only budget,
+or preserve no-ID uncertainty. Version-check failure before the atomic claim has
+not consumed a delete attempt. A crash after claim (including before the provider
+saw it) is the same deliberate uncertainty already accepted by the protocol.
+
+An emergency winner then fsyncs WORKER.metering-bypassed BEFORE invoking DELETE.
+That marker invalidates any concurrent meter proof. A loser writes no bypass
+marker: it must not invalidate a good early meter while an already-accepted
+ordinary DELETE is merely awaiting its saved response. If the winner crashes
+between its claim and bypass/submit, no deletion completion exists to settle;
+unknown state remains held and TTL is the backstop. Root never claims that an
+intent or an API invocation is a completed deletion.
+
+If another process is holding EX during a metering/cancellation stage, this
+wrapped deadline DELETE can therefore reach the provider without acquiring it.
+Any inflight old mutation or late meter may make accounting unknown, but cannot
+turn that safety deletion into a valid meter settlement. New resume/entry calls
+remain fenced. Deletion still requires exact target/operation completion.
+
+The controlled-clock/real-wrapper contention exam holds the worker EX lock in
+one process, invokes two deadline DELETE wrappers through the real bin/boat-call
+against the authored provider executable, and asserts exactly ONE provider DELETE
+was invoked within the stated tick/local bound. It checks persistent intent and
+bypass, no wait for EX, and no settlement from the invalidated meter. Negative
+controls use a future deadline, wrong ownership/envelope/worker, extra DELETE
+flags, resume/SSH and an invented FD; none may invoke a provider mutation. Replay
+with intent but no saved request ID must invoke zero further DELETEs. The fixture
+provider is authored; this is not another live resource or a paid qualification.
 
 ### 4. Exact durable proof and replay (Major 4)
 
@@ -298,7 +356,7 @@ label them explicitly. Before implementation, red regressions must cover:
 3. Controlled-clock hung stop/usage,70s cancellation, EX contention and an already
    overdue entry bypass metering and attempt a unique delete within the stated
    tick/local bound; receipt remains unknown. Collection before D is not shortened.
-4. All crash cuts around raw writes, proof commit, delete intent, provider accept,
+4. All crash cuts around raw writes, proof commit, wrapper intent claim, provider accept,
    request-ID fsync, deletion completion and ledger/mirror commit; exact saved-ID
    poll replay versus deliberate no-ID uncertainty; never a duplicate request.
 5. Wrong worker/stop/creation/generation/config, resumed info, late/negative/nonfinite
