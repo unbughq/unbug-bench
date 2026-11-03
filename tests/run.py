@@ -4,10 +4,8 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import contextlib
 import fcntl
-import hashlib
 import os
 from pathlib import Path
-import re
 import subprocess
 import sys
 import time
@@ -17,7 +15,6 @@ TESTS = ROOT / "tests"
 SUITES = ("factory", "bench", "tools", "control", "integration", "analysis", "harbor")
 SLOTS = Path(os.environ.get("TEST_SLOT_DIR", "/tmp/unbug-test-slots"))
 SLOT_COUNT = int(os.environ.get("TEST_SLOTS", os.cpu_count() or 1))
-CACHE = Path(os.environ.get("TEST_CACHE_DIR", Path.home() / ".cache" / "unbug-tests"))
 
 
 @contextlib.contextmanager
@@ -37,36 +34,11 @@ def machine_slot():
         time.sleep(0.2)
 
 
-def prose(path):
-    """Markdown under docs/ (designs, reviews) never affects tests; docs/reports data files can."""
-    return path.startswith("docs/") and path.endswith(".md")
-
-
-def code_key():
-    """Hash of every tracked file except docs/*.md, or None if any such file is uncommitted or untracked.
-    Passes are reused only for byte-identical code, so review and design notes never force a rerun."""
-    # ponytail: whole-tree key, so any code change reruns all scripts; per-script import tracing if that bites.
-    git = lambda *a: subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True)
-    status, tree = git("status", "--porcelain", "--untracked-files=normal"), git("ls-tree", "-r", "HEAD")
-    if status.returncode or tree.returncode:
-        return None
-    dirty = [p for line in status.stdout.splitlines() for p in line[3:].split(" -> ")]
-    if any(not prose(p.strip('"')) for p in dirty):
-        return None
-    code = [line for line in tree.stdout.splitlines() if not prose(line.split("\t", 1)[1])]
-    return hashlib.sha256("\n".join([sys.version, *code]).encode()).hexdigest()
-
-
-def run(path, key):
-    marker = key and CACHE / key / (str(path.relative_to(ROOT)) + ".pass")
-    if marker and marker.exists():
-        return path, 0, b"(cached pass for this exact code)\n", False
+def run(path):
     with machine_slot():
         result = subprocess.run([sys.executable, "-B", str(path)], cwd=ROOT, env={**os.environ, "BENCH": str(ROOT)},
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    # A pass that skipped tests depends on tools or env vars that may differ next time: never reuse it.
-    fresh = result.returncode == 0 and not re.search(rb"skipped|\bSKIP", result.stdout)
-    return path, result.returncode, result.stdout, fresh
+    return path, result.returncode, result.stdout
 
 
 def main():
@@ -75,7 +47,6 @@ def main():
     parser.add_argument("--list", action="store_true", help="List selected scripts without running them")
     parser.add_argument("-j", "--jobs", type=int, default=int(os.environ.get("TEST_JOBS", os.cpu_count() or 1)),
                         help="Scripts to run at once (default: CPU count, or TEST_JOBS)")
-    parser.add_argument("--no-cache", action="store_true", help="Rerun scripts that already passed on identical code")
     args = parser.parse_args()
     selected = args.suites or SUITES
     unknown = set(selected) - set(SUITES)
@@ -86,26 +57,17 @@ def main():
         for path in scripts:
             print(path.relative_to(ROOT))
         return 0
-    key = None if args.no_cache else code_key()
-    print("code key: " + (key or "none (uncommitted changes or --no-cache; nothing reused)"), flush=True)
-    failures, passed = [], []
+    failures = []
     # Output is buffered per script and printed in order, so logs read like a serial run.
     pool = ThreadPoolExecutor(max(1, args.jobs))
     try:
-        for path, code, output, fresh in pool.map(lambda p: run(p, key), scripts):
+        for path, code, output in pool.map(run, scripts):
             print("\n== " + str(path.relative_to(ROOT)) + " ==", flush=True)
             sys.stdout.buffer.write(output)
             if code:
                 failures.append(path.relative_to(ROOT))
-            elif fresh:
-                passed.append(path)
     finally:
         pool.shutdown(cancel_futures=True)
-    if key and key == code_key():  # code changed mid-run: cache nothing
-        for path in passed:
-            marker = CACHE / key / (str(path.relative_to(ROOT)) + ".pass")
-            marker.parent.mkdir(parents=True, exist_ok=True)
-            marker.touch()
     print(f"\n{len(scripts)} test scripts run; {len(failures)} failed.", flush=True)
     for path in failures:
         print("FAILED: " + str(path))
