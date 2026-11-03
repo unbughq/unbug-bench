@@ -87,3 +87,18 @@ job-config environment spoof. One plain-lockf full suite on the combined tree
 is the parent-approved merge gate; round-2 review is explicitly skipped.
 Final passing commit subject must contain "pass". Next increment: production
 batch_service.plan caller; no O5b, pilot admission or Boat settlement work.
+
+Combined-tree attempt ...T130047Z-e646d12a was interrupted at the outer 7200-second
+harness deadline (exit 124), which included waiting for the shared lock. It
+stopped during test_stream_d_execution.py; there is no full-suite verdict.
+The log contains 99 completed unittest files (1556.6 logged seconds) and no
+reported unittest FAIL/ERROR lines before the cutoff. The migrated blocking-
+stress tests passed 18/18. Retain the partial record honestly; do not call it
+a test assertion failure or a pass.
+
+Retry operational change only: plain lockf still owns the shared lock, with
+unbounded admission wait. Start the same 7200000-ms execution deadline AFTER
+acquisition, around the unchanged uv suite command. Record acquisition time and
+the exact Python timeout wrapper in the JSON for audit. No production or test
+source changes; parent-approved mechanical migration remains exactly four
+contexts and unused-import cleanup. No round-2 review is started.
