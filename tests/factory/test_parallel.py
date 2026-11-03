@@ -131,7 +131,7 @@ with tempfile.TemporaryDirectory() as tmp:
         with mock.patch.object(run, 'sh'), mock.patch.object(run, 'pilot_wall'), mock.patch.object(run, 'shred_tree'), \
              mock.patch.object(run, 'calibrate', fake):
             run.early_probe(c)
-        assert c.card['early_probe'].get('label') == want and (want or 'provider_limit' in c.card['early_probe']['skipped'])
+        assert c.card['early_probe'].get('label') == want and (want or c.card['early_probe']['skipped'] == 'BudgetError')
     assert run.GATES == ['G1', 'G2', 'G3', 'G4', 'G5', 'G16', 'G8', 'G9', 'G6', 'G13', 'G14', 'G15', 'G7', 'G10', 'G17', 'G11']
     # Early review: findings go back to the writer; a pass is reused; a changed case is reviewed again.
     verdicts = iter([{'fairness': {'approve': False, 'findings': ['unstated rule']}, 'realism': {'approve': True}},

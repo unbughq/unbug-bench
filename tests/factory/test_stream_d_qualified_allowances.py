@@ -109,7 +109,7 @@ if mode == 'crash':
 def forbidden(*a,**kw): raise AssertionError('legacy rescue invoked')
 founder_ruling.context=founder_ruling.feedback_allowed=restart.raised_limits=run.restore_gate_crash=free_models.apply=forbidden
 run.bench_manifest=lambda:'saved-practice-bench'
-run.sh=lambda *a,**kw:None
+run.sh=lambda *a,**kw:0  # Successful non-capture sh returns an exit status.
 run.stop_pilot=lambda *a:False
 run.pilot_homes=lambda:[]
 run.seal=lambda *a,**kw:None

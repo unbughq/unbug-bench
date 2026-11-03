@@ -30,7 +30,11 @@ PY
   )
   unreachable=$(python3 -c 'import math,sys; print(max(1,math.ceil(float(sys.argv[1]))))' "$unreachable")
   spend_file="$root/results/spend/$(date -u +%Y%m%dT%H%M%SZ)-$$-$label.json"
-  ttl_seconds=$("$root/bin/boat-spend" --check "$n" "$ttl_hours" "$max_spend" "$spend_file")
+  if [ -n "${UNBUG_LAUNCH_STATE:-}" ]; then
+    ttl_seconds=$("$root/bin/boat-spend" --check "$n" "$ttl_hours" "$max_spend" "$spend_file" "$state")
+  else
+    ttl_seconds=$("$root/bin/boat-spend" --check "$n" "$ttl_hours" "$max_spend" "$spend_file")
+  fi
   # Collect before boat's own TTL: --no-snapshots VMs are erased when it fires.
   margin=${BOAT_TTL_MARGIN_SECONDS:-1800}  # room for checkpoint collection before expiry
   margin=$(python3 - "$margin" "$ttl_seconds" <<'PYCODE'
