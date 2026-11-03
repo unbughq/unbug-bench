@@ -1,0 +1,23 @@
+{
+  "tag": "stream-d-all-outcomes-suite-20261103T184135Z-c5c27e65",
+  "queued_at": "2026-11-03T18:41:35.574149+00:00",
+  "pid": 17577,
+  "head": "bfe2a191e1fb6eb1acbc479869c4b9d8484aa02c",
+  "tree": "23d24e76812233e2abee2979aa6a83027e555a11",
+  "log": "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-4ac6b632/docs/reports/stream-d-all-outcomes-suite-20261103T184135Z-c5c27e65.log",
+  "runtime": "/tmp/stream-d-all-outcomes-suite-20261103T184135Z-c5c27e65-runtime.json",
+  "runner": "/tmp/stream-d-all-outcomes-suite-20261103T184135Z-c5c27e65-runner.py",
+  "command": "nohup lockf /tmp/unbug-suite.lock sh -c 'python3 /tmp/stream-d-all-outcomes-suite-20261103T184135Z-c5c27e65-runner.py > /Users/bugsincode/.t3/worktrees/unbug-bench/t3-4ac6b632/docs/reports/stream-d-all-outcomes-suite-20261103T184135Z-c5c27e65.log 2>&1; echo \"exit $?\" >> /Users/bugsincode/.t3/worktrees/unbug-bench/t3-4ac6b632/docs/reports/stream-d-all-outcomes-suite-20261103T184135Z-c5c27e65.log'",
+  "timeout_scope": "after_lock_acquisition",
+  "timeout_seconds": 7200,
+  "active_start": "2026-11-03T18:41:35.885857+00:00",
+  "active_end": "2026-11-03T18:43:26.124942+00:00",
+  "run_seconds": 110.2,
+  "exit_code": 143,
+  "qualification": "non-qualifying",
+  "interruption_reason": "Parent confirmed an accidental host-wide pkill of tests/run.py. Not a code or test failure; superseded by the passing retry.",
+  "scripts": null,
+  "failures": null,
+  "log_sha256": "e55d5e90c4a84d29acf2f9741b027790a0be9960826145a08e3c943f05379edf",
+  "queue_seconds": 0.3
+}
