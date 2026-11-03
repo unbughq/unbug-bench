@@ -1,0 +1,17 @@
+{
+  "command": "lockf /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py",
+  "environment": {
+    "UV_OFFLINE": "1"
+  },
+  "source_commit": "8f4aafba599a2622a544bbc6d1493ceb204f649b",
+  "source_tree": "d9a6ae7142a3fc1640438ef3526c0c9f43713651",
+  "started_at": "2026-11-03T12:11:20Z",
+  "finished_at": "2026-11-03T13:32:38Z",
+  "exit_code": 1,
+  "qualifying": false,
+  "test_scripts": 180,
+  "failed_scripts": 3,
+  "log_path": "docs/reports/practice-startup-error-suite-20261103T121120Z-fa16c8ee.log.gz",
+  "log_sha256": "ba0276987955bbd0c04566fa25d4b22f89cd124181744a322426fa7accc54641",
+  "compressed_log_sha256": "8b9847191983b2237a2e8a6f082d2533489bdfc51d1f7084ab31a23860686b92"
+}

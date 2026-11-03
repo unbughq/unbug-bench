@@ -187,7 +187,7 @@ class ModelInterruptionTests(unittest.TestCase):
             receipt = c.work / folder / "results.json"
             if reason == "provider_limit":
                 self.assertFalse(receipt.exists(), "interruption is not a completed failed attempt")
-                if probe: self.assertIn("provider_limit", c.card["early_probe"]["skipped"])
+                if probe: self.assertEqual("BudgetError", c.card["early_probe"]["skipped"])
             else:
                 rows = json.loads(receipt.read_text())
                 self.assertEqual(len(rows), 2 if real_budget else 1)

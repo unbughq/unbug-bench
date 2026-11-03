@@ -1,0 +1,14 @@
+{
+  "command": "lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py",
+  "source_commit": "0292abc596e0e1feb946c41367e537497ae18630",
+  "source_tree": "717ded192e9bdc5ccde726890a22f2513129979c",
+  "started_at": "2026-11-03T06:51:27Z",
+  "finished_at": "2026-11-03T07:29:56Z",
+  "exit_code": 2,
+  "qualifying": false,
+  "test_scripts": null,
+  "failed_scripts": null,
+  "log_path": "docs/reports/boat-attributed-settlement-suite-20261103T065127Z-93a5ee71.log.gz",
+  "log_sha256": "610e89b505a78701c00989b8a5dd790dad3cbd2225a347804546eb3b924132f1",
+  "compressed_log_sha256": "a5a25679935e90e6c5a2a6cb74746668544ba9c4568c43eec58d4799d7f0f0d4"
+}

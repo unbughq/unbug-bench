@@ -340,7 +340,11 @@ The command returns nonzero for missing trials, launch failures or interruption.
 
 ## What runs on the VM
 
-1. Preflight: install `age` if missing, `docker compose ... up -d --wait postgres redis`, hash the bench files.
+1. Preflight: install `age` if missing; prepare a fresh seeded shop under the
+   existing bench lock before model admission, then hash the bench files. Fixed
+   factory containers are removed before Compose down deletes their old volumes.
+   Startup command failures retain a bounded diagnostic in encrypted
+   `logs/runner.log`; the public card contains only that relative evidence pointer.
 2. Builder phase (`--rounds`, default 1): the rotation slot's writer builds
    in `~/work/<case>/case`. A different family stress-tests: writes cheat guards and scores them
    with `bin/checkpoint`, re-checks plain app, reference and keys, searches for the bug, reviews

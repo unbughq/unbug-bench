@@ -223,3 +223,58 @@
 - Holder/restart timer remain stopped; no launch or provider request made during this handoff. Cleanup retained armed from prior abort.
 - Practice spend remains models $0 and infrastructure $0; no worker created. Disconnect window not entered.
 - Evidence recorded UTC: 2026-11-02T13:56:55.393173+00:00.
+
+## Parent-authorized rewrapped bundle resumption
+
+- Parent confirmation: rewrapped bundle has two recipients; mode 600.
+- Observation UTC: 2026-11-03T08:12:56.143767+00:00.
+- Bundle decryption: pass.
+- Codex lifetime guard (60-minute TTL plus pinned margin): pass.
+- Live entry observation UTC: 2026-11-03T08:15:07.951138+00:00.
+- Step 1: pass; auto top-up OFF remains founder-confirmed.
+- Boat credit: $4.17157.
+- Pin/router check UTC: 2026-11-03T08:18:10.251384+00:00.
+- New practice pin hashes: pass; router check: pass.
+- Deployment observation UTC: 2026-11-03T08:20:18.034758+00:00.
+- Approved pinned deployment: refused; source b75c9b45b020e2ba4996ef83ee834c183d38c35f.
+- Deployment refusal occurred before a verified completion result; service transitions were not reverified after refusal. No journal or ledger reset was attempted. The old failed launch remains retained.
+- Status: STOP at deployment refusal. Models $0; infrastructure $0; no new worker or admission.
+- Parent stop rule applied: no further live calls after deployment refusal. New operation/worker IDs: none. Models $0; infrastructure $0; no new deletion required or claimed.
+
+## Deployment diagnosis and repair — 2026-11-03
+
+- Observation UTC: 2026-11-03T08:22:57.701474+00:00. Original deployment failed because user administrative escalation required a password; router and old cleanup were active, policy unchanged, backup and new pin directory absent.
+- Subsequent public upload retry stopped after service shutdown. Observation UTC: 2026-11-03T08:31:36.296762+00:00: router, holder and old cleanup inactive; old policy retained, no backup or new pin directory. No admission or worker occurred.
+- Used existing root-SSH administration, restored router, and uploaded exact b75c9b45b020e2ba4996ef83ee834c183d38c35f public source. No factory code change.
+- Pin hashes, batch.verify and holder fingerprint: pass. Old policy backed up; new b-plumbing-practice-2 policy installed. Router restarted active; old terminal cleanup stopped with its evidence retained.
+- Observation UTC: 2026-11-03T08:34:16.794397+00:00. Control decryption and Codex lifetime guard: pass. R2 access: pass. Router leases empty, paid total/outstanding both $0.
+- Observation UTC: 2026-11-03T08:35:05.510634+00:00. Router RAM credit key matches bundle: pass. OpenRouter credit $11.3637556; no top-up or paid call. Boat entry balance remains the observed $4.17157; exact boat 1.0.85 check passed before deployment.
+- Empty-input qualification: eligible, new admission, prior spend $0.
+- Reservation UTC: 2026-11-03T08:35:22.406227+00:00. Operation b1448c27-9065-5d2a-bbc2-e752dfba2cc7; launch 872f258ad1764f73829e33303d35fdf5. One reservation only; prior failed operation retained.
+- Cleanup armed UTC: 2026-11-03T08:35:58.012225+00:00. PID 241980; readiness operation/launch/policy binding passed. Run cap 1800 seconds, collection grace 900 seconds, provider TTL 3600 seconds. Dispatch not started at this observation.
+- Founder Go and confirmed 60-minute disconnect window remain authorized. Distinct accounts unverified (founder accepted); attribution/handoff unproven.
+
+## Single worker and disconnect window
+
+- VM-local holder restart scheduled before dispatch: unbug-practice-holder-restart-p2, 900 seconds after scheduling. Founder Go retained; no additional admission.
+- Operation b1448c27-9065-5d2a-bbc2-e752dfba2cc7 launched; creation ID bx_z4wktrbn. Launch 872f258ad1764f73829e33303d35fdf5. One creation record, new.1; no pending creation observed.
+- Verified worker-start UTC: 2026-11-03T08:36:43+00:00. Provider TTL 3600 seconds; normal collection at start +1800 seconds; watchdog at start +2700 seconds.
+- Publication fault armed for this operation through the existing tool before collection.
+- Last VM observation/disconnect UTC: 2026-11-03T08:37:06.083820+00:00. All task SSH sessions exited. No VM/provider connections permitted until 2026-11-03T09:36:43+00:00.
+- Cleanup remains armed. Model and infrastructure totals await post-window evidence; no zero-spend claim after creation.
+
+## Post-window result — ABORT
+
+- First reconnect UTC: 2026-11-03T09:37:07.012056+00:00, after the required 2026-11-03T09:36:43+00:00 boundary. No task VM/provider connection occurred during the disconnect window.
+- VM-local holder restart verified from systemd timestamps: stopped 2026-11-03T08:51:35.228440+00:00; started 2026-11-03T08:51:35.239779+00:00. Same single operation and worker retained. Worker had already exited before this restart; restart-after-live-worker recovery is not proved.
+- Abort condition: accounting_refused / invalid_accounting_input. Collected terminal stop: runner_error:RuntimeError; error label RuntimeError. Continuation-budget ledger absent. The underlying RuntimeError message was not retained in the public scorecard; root cause remains to be diagnosed offline. No factory code changed during the run.
+- Fault marker consumed. Replay reached the same retained generation 686d6b7df4c9f840105330aaa190b878850877c98ba7737f8126034f2eb67057 but accounting refused it. Outbox remains pending, ACK count 0, current pointer absent. Publication is not a pass; no repeated manual publication or fabricated ACK.
+- Worker bx_z4wktrbn deletion request ID: bdop_4b49a239228240fb8af4ab9efd1037da. Exact target and kind sandbox verified in both receipts; completion status and stage completed; completion UTC 2026-11-03T08:39:51.866Z.
+- Deletion receipt validation passed through the pinned holder validator; stored retirement matches. Full inventory at reconnect: hasMore=false, no workers. Pending creation absent in completed cleanup evidence. One operation, one worker; no relaunch or second worker.
+- Spend record: credit before $4.17157, after $4.16967. Observed infrastructure wallet debit $0.00190. This is a wallet observation, not attributed settlement: actual_spend_usd remains null, reservation/unknown liability retained.
+- Final billing observation UTC: 2026-11-03T09:39:05.419099+00:00. Boat credit $4.16967; auto top-up false. No top-ups.
+- Models: router request count 0, paid total $0.000000000, paid outstanding $0.000000000, active leases 0. No model work recorded; model spend $0.
+- Provider-account labels in card: Claude 2, OpenCode 1; account handoffs 0. These are selected account labels, not evidence of model use. Accounts used for model work: none. Distinct accounts unverified (founder accepted); account-2 attribution and natural handoff unproven.
+- Reconciliation verification UTC: 2026-11-03T09:40:01.618426+00:00. Holder stopped; practice activation drop-in cleared and daemon configuration reloaded. Restart timer had already fired and was absent; no new timer arranged. Cleanup complete, verified, then explicitly stopped. Router retained; all ledgers, old/new operations and encrypted artifacts retained.
+- Final result: ABORT; models $0; observed infrastructure debit $0.00190, unsettled; deletion verified; no account performed model work.
+- First fix: diagnose the runner RuntimeError before model admission and its missing accounting record; do not bypass accounting refusal or reset the retained liability. New source/review/approval is required before another live attempt.
