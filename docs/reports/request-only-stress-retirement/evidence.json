@@ -1,0 +1,17 @@
+{
+  "tested_source_commit": "e3cd178",
+  "full_suite": {
+    "scripts": 182,
+    "failures": 0,
+    "exit": 0,
+    "elapsed_including_lock_seconds": 2847.271
+  },
+  "sha256": {
+    "factory/extension_package.py": "ad9319b436970ec27a39788940d78da806a3bb66a7f69244838eb22c3c8efe2c",
+    "factory/batch_status.py": "d542d305508dfbedbf1b90004e06fa3c1e3668a2605d22d2ad2f909d4cbc5b6b",
+    "tests/factory/test_stream_d_blocking_stress.py": "cd6aed5aac84689af4f71b37bb7f82bd833d717e342f99db40851701cf363406",
+    "docs/reports/request-only-stress-retirement/full-suite.log": "5742e03b9484a440fd7911db81ef6f025ffb1273315c9eb420125dd043abc0ed",
+    "docs/reports/request-only-stress-retirement/negative-control.log": "2351cb4feb2f147331842d8d7f97c31b5f1bda5d21d6ced6004afd146aa1f533",
+    "docs/reports/request-only-stress-retirement/focused.log": "3117ce4e664b6d2dac2bc4fdcf496b93d7556cb6d4f85c20c9c1c38743affe0b"
+  }
+}

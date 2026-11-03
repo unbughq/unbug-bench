@@ -375,9 +375,26 @@ def stress(c, r, records):
         refuse('extension_comparison_pending')
     result = r.attack_report(report)
     if result is None: refuse()
-    findings = [item for item in r.freshness_only_clearance(result)['blocking']
+    cleared_blocking = r.freshness_only_clearance(result)['blocking']
+    findings = [item for item in cleared_blocking
                 if item.strip().lower() != 'review incomplete']
-    if not findings and (result.get('freshness_review') or result.get('freshness_review_malformed')):
+    clearance = report.with_suffix('.clearance.json')
+    writer_report = report.with_name(report.stem + '-writer.json')
+    has_clearance = clearance.exists() or clearance.is_symlink()
+    if ((result['complete'] or result.get('status') == 'scored') and result['blocking'] and
+            not cleared_blocking and not result.get('freshness_review') and
+            not result.get('freshness_review_malformed') and not result['unfinished_validation'] and
+            not r.attack_diagnostic_unfinished(c, records.row['round']) and
+            receipt.get('exhausted') is True and receipt.get('stop_reason') == 'rounds_exhausted' and
+            not has_clearance and not (writer_report.exists() or writer_report.is_symlink())):
+        if comparison._pending(False, result): raise InvalidInfra('invalid package gate result')
+        for key in ('failed_gate', 'failed_detail', 'infrastructure_gate'):
+            c.card.pop(key, None)
+        c.card.update(gates={}, gate_results={}, status='stopped', terminal_stop='retired_stress_request_only',
+                      stress_review=dict(status='unresolved', reason='request_only_without_metadata',
+                                         round=records.row['round']))
+        refuse('retired_stress_request_only')
+    if not findings and (result.get('freshness_review') or result.get('freshness_review_malformed') or has_clearance):
         from late_recovery import cleared_stress
         try: result, _ = cleared_stress(c, receipt, report, result)
         except (OSError, ValueError, KeyError, TypeError): refuse('extension_execution_pending')
