@@ -1,6 +1,7 @@
 # Startup smoke: a no-model job on the real worker, ahead of the practice job
 
-Revision 2, after `docs/reviews/startup-smoke-design-1.md`.
+Revision 3, after `docs/reviews/startup-smoke-design-1.md` and `-2.md`. Round 2 was
+the final round. The parent accepted both of its blockers, which are fixed below.
 
 ## Problem
 
@@ -29,13 +30,14 @@ calls, the practice case as the fixture, and a throwaway key
 > and prepare (Compose, the stop-10 line) → G1 → (G3 if time allows) → seal →
 > collection → publication → deletion
 
-The operator dispatches `smoke` first. Because `max_concurrency: 1` holds
-`practice` until the smoke worker's deletion is verified
-(`batch_holder.py:242-245`), the order is enforced by existing code.
+The operator reserves and dispatches `smoke` first. `max_concurrency: 1`
+(`batch_holder.py:242-245`) only stops the two jobs from overlapping. Running
+smoke first, and requiring it to pass before practice, are operator steps in
+the runbook below.
 
 **Smoke pass:** all of the following hold.
 - The card is collected and published.
-- `terminal_stop` is neither `runner_error` nor `money_wait`.
+- `terminal_stop` neither starts with `runner_error` (it can be `runner_error:<Type>`, `run.py:3145`) nor is `money_wait`.
 - Startup and prepare completed, and G1 passed.
 - Deletion of the worker is verified.
 
@@ -45,7 +47,7 @@ Boat image, and the 1800 s run cap may be hit mid-gate. When that happens,
 
 ### Money (B1)
 
-`batch_money.py:51` and `:65` refuse $0 jobs, and `budget.py:716` would stop a
+`batch_money.py:55` and `:72` refuse $0 jobs, `:74` caps the sum,, and `budget.py:716` would stop a
 $0 job before G1. So the jobs get these allocations:
 
 | Job | `requested_total_usd` / `incremental_usd` |
@@ -62,8 +64,8 @@ its $0.01 is never spent. It only satisfies the job-budget check.
 Collection requires `card['continuation_budget']` to be a dict
 (`batch_accounting.py:95-114`). In `finalize_accounting` (`run.py:3139`), a dry
 run uses the empty default ledger: `jload(c.ledger, EMPTY if c.args.dry_run else
-None)`, with `EMPTY = {'cost': 0, 'calls': 0, 'events': []}`, the `budget.py:113`
-default. Collection then accounts the smoke at $0, which review 1 traced
+None)`, where `EMPTY` is a fresh dict literal `{'cost': 0, 'calls': 0, 'events': []}`, the
+`budget.py:113` default, built per call and not a shared constant. Collection then accounts the smoke at $0, which review 1 traced
 through `collection_facts`. Non-dry jobs keep today's refusal of a missing
 ledger.
 
@@ -84,21 +86,28 @@ Every hard-coded -2 site moves to -3:
 - `factory/batches/b-plumbing-practice-3.json`, which is new (-2 is kept, because
   its operations are retained);
 - `control/unbug-practice-cleanup@.service:9`;
-- `factory/practice_preflight.py:18` (`DROPIN`);
-- `tests/factory/test_practice_readiness.py:92-93`.
+- `factory/practice_preflight.py:19` (`DROPIN`), and `LIVE` at `:22`, whose
+  practice ceiling becomes 19.98;
+- `tests/factory/test_practice_readiness.py:92-97`, covering the id and the
+  practice amount, plus `old['id']` at `:105-106`, which becomes the -2 id.
 
-Deployment then reinstalls the cleanup unit and the holder drop-in on the
-control VM. With either one left at -2, cleanup refuses and dispatch would hold
+Deployment then rebuilds the control-VM `policy.json` and the release and pins
+bundle for -3 (`manifest()` checks the release's `source-manifest.json`, and the
+pins include `practice.conf`). It also reinstalls the cleanup unit and the
+holder drop-in. With either one left at -2, cleanup refuses and dispatch would hold
 for ever.
 
-## Practice-run steps (replacing steps 4–6 for the first worker)
+## Practice-run steps (replacing steps 3–6)
 
-1. Start `unbug-practice-cleanup@<smoke-op>.service` and verify its readiness
-   binding.
-2. Dispatch `smoke`, then wait for it to be collected, published and its
-   deletion verified.
-3. If the smoke passes, start `unbug-practice-cleanup@<practice-op>.service` and
-   dispatch `practice` with the existing step-4 disconnect and Go rules.
+1. Run `tools/qualify-batch-inputs.py --policy POLICY --home CONTROL_HOME --job smoke`,
+   reserve `smoke` once, then start `unbug-practice-cleanup@<smoke-op>.service`
+   and verify its readiness binding.
+2. Dispatch `smoke`. Wait for collection, publication and verified deletion.
+   There is no disconnect window and no fault arm for the smoke.
+3. If the smoke passes, run `qualify-batch-inputs.py --job practice`, reserve
+   `practice`, start `unbug-practice-cleanup@<practice-op>.service`, and
+   continue with the existing step 4 (disconnect and Go), step 5 and step 6
+   (`practice-fault.py` arm). These apply to the practice operation only.
 4. If the smoke fails, stop. No model money has been spent. Diagnose from the
    collected card.
 
@@ -125,9 +134,10 @@ The tests use real artifacts: the retained -2 manifest and policy, upgraded to
   `gate_pipeline.py:178` / `budget.py:716` check before G1.
 - `finalize_accounting` in dry-run mode yields a card that `collection_facts`
   accounts at 0.000000000. A non-dry card without a ledger is still refused.
-  This uses the real 11-03 card shape from
-  `tests/factory/fixtures/practice-startup-conflict-20261103.json`, which exists
-  on `t3/batch-service-control-vm`.
+  The input is a real collected batch card,
+  `tests/factory/fixtures/canary6-collected-card.json` from
+  `t3/batch-service-control-vm`, with its ledger removed. That fixture is a
+  scorecard. `practice-startup-conflict-20261103.json` is only log excerpts.
 - A batch-mode dry run writes `<case>.casekey.age`, and `batch_service._card`
   accepts the collected card.
 - No -2 string remains in the cleanup unit, `DROPIN` or `practice.py`.
