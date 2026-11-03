@@ -1,0 +1,7 @@
+{
+ "command": "uv run --with numpy --with scipy python -B tests/run.py",
+ "head": "281bf201c927f2a8ca1fdf0c3e20b71a216d6e21",
+ "started_at": "2026-11-03T18:44:40Z",
+ "finished_at": "2026-11-03T19:20:09Z",
+ "exit_code": 0
+}
