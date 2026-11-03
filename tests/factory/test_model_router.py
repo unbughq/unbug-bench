@@ -580,7 +580,7 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
         original=budget.run_budgeted;before=json.loads(c.ledger.read_text())['calls']
         def execute(cmd,cwd,env,transcript,ledger,timeout,**kwargs):
             return original([sys.executable,'-c',emit(event('cancelled-peer',cost=.01))+'import time;time.sleep(30)'],
-                cwd,env,transcript,ledger,5,**kwargs)
+                cwd,env,transcript,ledger,5,**{**kwargs, 'containment': False})
         runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
         with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
              patch.object(router,'SECRETS',secrets),patch.object(model_runtime,'_opencode_flags',return_value=()), \
