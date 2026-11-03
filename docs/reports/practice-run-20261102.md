@@ -253,3 +253,12 @@
 - Reservation UTC: 2026-11-03T08:35:22.406227+00:00. Operation b1448c27-9065-5d2a-bbc2-e752dfba2cc7; launch 872f258ad1764f73829e33303d35fdf5. One reservation only; prior failed operation retained.
 - Cleanup armed UTC: 2026-11-03T08:35:58.012225+00:00. PID 241980; readiness operation/launch/policy binding passed. Run cap 1800 seconds, collection grace 900 seconds, provider TTL 3600 seconds. Dispatch not started at this observation.
 - Founder Go and confirmed 60-minute disconnect window remain authorized. Distinct accounts unverified (founder accepted); attribution/handoff unproven.
+
+## Single worker and disconnect window
+
+- VM-local holder restart scheduled before dispatch: unbug-practice-holder-restart-p2, 900 seconds after scheduling. Founder Go retained; no additional admission.
+- Operation b1448c27-9065-5d2a-bbc2-e752dfba2cc7 launched; creation ID bx_z4wktrbn. Launch 872f258ad1764f73829e33303d35fdf5. One creation record, new.1; no pending creation observed.
+- Verified worker-start UTC: 2026-11-03T08:36:43+00:00. Provider TTL 3600 seconds; normal collection at start +1800 seconds; watchdog at start +2700 seconds.
+- Publication fault armed for this operation through the existing tool before collection.
+- Last VM observation/disconnect UTC: 2026-11-03T08:37:06.083820+00:00. All task SSH sessions exited. No VM/provider connections permitted until 2026-11-03T09:36:43+00:00.
+- Cleanup remains armed. Model and infrastructure totals await post-window evidence; no zero-spend claim after creation.
