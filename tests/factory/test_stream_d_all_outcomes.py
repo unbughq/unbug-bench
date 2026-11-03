@@ -542,7 +542,8 @@ class AllOutcomesTests(unittest.TestCase):
             elif name in ('public', 'blocking', 'request-only'):
                 if name == 'public': f.stress_kind = 'public'
                 else: f.stress_control(name)
-                f.resume()
+                with patch.object(run, 'run_gates', side_effect=AssertionError('gates after terminal stress')):
+                    f.resume()
                 if name == 'request-only':
                     f.label('retired_stress_request_only')
                     f.replay_retirement('retired_stress_request_only')
@@ -593,6 +594,8 @@ class AllOutcomesTests(unittest.TestCase):
                     else:
                         f.completed(f.frontier)
                         self.assertEqual(f.c.card['factory_bug_resume_count'], index + 1)
+                    print('all-outcomes factory-bug finding:', index + 1,
+                          'resume count:', f.c.card['factory_bug_resume_count'], flush=True)
                     self.assertEqual({phase: extensions.tree(f.work / 'extension-snapshots/1' / phase)
                                       for phase in ('entry', 'outcome')}, original)
             elif name == 'ordinary-factory-bug':
@@ -607,7 +610,10 @@ class AllOutcomesTests(unittest.TestCase):
                 self.assertNotIn('diagnosis_state', f.c.card)
             elif name.startswith('rejected-'):
                 f.reject = name.removeprefix('rejected-')
-                f.resume(); f.label('extension_incomplete')
+                with patch.object(run, 'run_gates', side_effect=AssertionError('gates after rejected writer')):
+                    f.resume()
+                f.label('extension_incomplete')
+                self.assertEqual(f.model_calls, ['builder-9'])
                 row = extensions.read(f.c)[-1]
                 self.assertTrue(all(s['status'] == 'unreached' for s in row['outcome']['stages']))
                 self.assertEqual(f.c.card.get('failed_gate'), None if f.reject == 'saved-cheats' else f.reject)

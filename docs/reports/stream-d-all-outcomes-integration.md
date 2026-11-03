@@ -53,6 +53,14 @@ money pressure waits with `money_wait`; it does not trigger diagnosis.
 
 ## Validation
 
-Pending the complete timed integration run, detached plain-lockf full suite and
-fresh diff review (maximum two rounds). The suite timeout is 7200 seconds after
-lock acquisition; queue time is excluded.
+Focused development checks passed all branches across the timed run and the
+follow-up checks. The final cap check admitted three real cross-batch resumes
+and retired the fourth finding; it took 1198.75 seconds. The factory-bug return
+check took 172.9 seconds. The host load was about 85 at completion. These are
+focused checks, not a qualifying full-suite pass. The original 1200-second
+whole-exam estimate was too low; the final complete exam is timed within the
+locked full suite to avoid duplicating this expensive chain.
+
+Pending the detached plain-lockf full suite and fresh diff review (maximum two
+rounds). The suite timeout is 7200 seconds after lock acquisition; queue time is
+excluded.

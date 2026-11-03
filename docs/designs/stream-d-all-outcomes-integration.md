@@ -195,3 +195,11 @@ gate attempt. The negative G2 freshness budget interruption is `money_wait`: it
 queues no diagnosis. After authenticated restore, the read-only entry consumer
 refuses the inconsistent freshness proof; this negative branch makes no claim
 that money pressure enters dispatch or admission.
+
+### Measured integration cost
+
+The focused cap branch took 1198.75 seconds, and the separate factory-bug return
+branch took 172.9 seconds under high shared-host load. The 1200-second whole-exam
+target was an underestimate. Record the complete method timing during the locked
+full suite; retain the parent-approved 7200-second suite timeout after acquisition.
+No cap, admission or evidence assertion is reduced to meet the estimate.
