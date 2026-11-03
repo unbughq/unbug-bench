@@ -88,10 +88,12 @@ existing money lock, before any authority mutation, _admit:
 - For a genuinely new operation, obtain (ACK, entry, card) through the existing
   _source at its existing location before money.advance_locked. This checks the
   current pointer, R2-publication outbox ACK, exact frozen generation, producing
-  operation and retirement proof, money authority and immutable card. Require
-  the producing operation's incident to be None. For imported sources use the
-  existing batch_transfer.source branch and its proof; this increment's planner
-  does not itself create imported-only queue rows.
+  operation and retirement proof, money authority and immutable card. For local
+  sources require operations[ack.operation_id].incident is None. For an
+  imported source (row.imported.generation == source_generation), _source's
+  batch_transfer.source verifies its immutable predecessor snapshot, whose
+  batch_transfer.snapshot already requires every operation's incident None.
+  This increment's planner does not itself create imported-only queue rows.
 - Refuse if the corresponding legacy-retirement marker exists or is a symlink,
   or if card.diagnosis_state is not a dict. This preserves retire_legacy's rule:
   a legacy exhaustion without a recorded diagnosis state cannot acquire a new
