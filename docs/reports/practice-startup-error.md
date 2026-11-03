@@ -86,3 +86,16 @@ Corrected adapter targeted runs: dispatch 63/0 (80.491s), qualified allowances
 10/0 (8.275s), runtime 42/0 (84.475s), using the same uv Python/dependencies as
 the full suite. Original assertions are intact. A second locked full suite
 follows; no production file changed after 8f4aafb.
+
+## Qualifying locked suite
+
+Source c3a1f6d (tree 2fa1264db2fe026b90d98c0175f173b10ee4bd2b):
+180 scripts, 0 failed, exit 0. Record and compressed log:
+`practice-startup-error-suite-20261103T133626Z-742d551b.{json,log.gz}`.
+Command: `lockf /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py`
+with UV_OFFLINE=1. Recorded command duration includes the shared-lock queue.
+The log contains the real Docker conflict/volume/seed success marker; the exam
+ran rather than skipping. All three corrected runner-path files and the full
+worker-command integration pass. No production source changed after 8f4aafb.
+Fresh diff review is the remaining gate. Settlement 0292abc predates this repair
+and still needs its own diff review; this repair does not qualify live reuse.
