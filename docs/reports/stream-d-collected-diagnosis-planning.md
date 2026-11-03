@@ -96,3 +96,15 @@ No other worktree was touched. That interrupted record has no verdict.
 Merged 281bf20 (exit-based grading, interruptible slot waiting); planning source
 and the independently reviewed fixed tests are unchanged. Run one full suite
 on this updated runner as explicitly requested. No lockf, no cache, no live action.
+
+
+## Final uncached suite on round-2 runner
+
+stream-d-collected-diagnosis-planning-final-suite-20261103T184702Z-cdf4bd80.json/.log:
+184 scripts, 1 failed, exit 1 at 31579a0; 183 scripts passed. No cache or lockf.
+All fixed planning tests (11), holder tests (60), and controller tests (24) passed.
+The only failure was tests/bench/test-launch-guards.py: collect-fail expected
+the retention message but stderr was "boat-spend: accounting unavailable".
+This test, factory/launch.sh and bin/boat-spend are unchanged in b80929a..31579a0.
+No production or test source change is being made; one focused recheck uses
+the full runner's BENCH environment. No additional full suite is queued.
