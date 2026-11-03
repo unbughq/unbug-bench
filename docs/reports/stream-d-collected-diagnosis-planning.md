@@ -84,3 +84,15 @@ termination reason is unknown. Record marks interrupted=true, verdict=null
 and suite_started=null (buffered output cannot prove no scripts ran).
 A cwd-scoped process check found no remaining suite process in this worktree.
 Preserve the non-result and restart for one completed uncached handback run.
+
+
+## Parent round-2 runner correction
+
+Parent explained that the first uncached interruption came from their accidental
+host-wide suite termination, not a code failure. Parent then required 281bf20.
+The restart at cfc8815 was still active; only its uv process group 49614 was
+SIGTERMed after verifying cwd was this worktree and group leader was that uv.
+No other worktree was touched. That interrupted record has no verdict.
+Merged 281bf20 (exit-based grading, interruptible slot waiting); planning source
+and the independently reviewed fixed tests are unchanged. Run one full suite
+on this updated runner as explicitly requested. No lockf, no cache, no live action.
