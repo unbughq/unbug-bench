@@ -25,9 +25,21 @@
   "deployed": false,
   "workers_created": 0,
   "files_sha256": {
-    "docs/reports/murphy-scoreboard.md": "e82ccb4c0d9999c740a00a9ed9021db63e0332369a9c4938a88361ac4b9e0f11",
-    "docs/reports/murphy-scoreboard.json": "f746aadf5cf5a4381ab91e82074c6fb099ae1c10950c8804ec6b2e8dd374d8ec",
-    "docs/reports/murphy-scoreboard.html": "64fc6d4f3635eb745d5f6671a94e7aff34894d647c534d7e1eae6b017f0b891d",
+    "docs/reports/murphy-scoreboard.md": "193ad61b6182fe9c1eed981227bd05d9d01e8f729ccdde897df1910e6d9dc044",
+    "docs/reports/murphy-scoreboard.json": "e4cbee816ce0870fc9efb3e2e4cfcc572ad40bb467df70f2bbec4e866bd1b327",
+    "docs/reports/murphy-scoreboard.html": "bc1fe4911bb10f1bc08fdf75f7a3fcd6fc2c12bf05d154dac0dcaeece85a7364",
     "docs/murphy-register.md": "311d949df7046b4b63d567c844074ead9b517015ffbe8a1aa23ce72e23c704d0"
+  },
+  "stream_d_update": {
+    "at": "2026-11-03T20:29:50.637394+00:00",
+    "source_commit": "a2457680a799257476735f9740bb320c8b0f4a06",
+    "suite_report_verified": true,
+    "review_pass_verified": true,
+    "post_review_changes_docs_only": true,
+    "counts_and_formal_statuses_unchanged": true,
+    "html_embedded_json_matches": true,
+    "review": "docs/reviews/murphy-scoreboard-update-diff-1.md",
+    "review_status": "PASS",
+    "scope": "Data/text update only; prior HTML layout/filter checks inherited, not rerun."
   }
 }
