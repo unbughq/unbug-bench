@@ -15,6 +15,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -113,7 +114,9 @@ class SmokeTests(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.dict(os.environ, {}, clear=True))
             stack.enter_context(patch.object(key_holder, 'fingerprint', return_value='fingerprint'))
-            stack.enter_context(patch.object(key_holder, 'secret_labels', return_value={'claude-token'}))
+            # Phase-B live checks are covered by test_preflight; this exam checks launch argv.
+            stack.enter_context(patch.object(preflight, 'decrypt', return_value=[(tarfile.TarInfo('claude-token'), b'authored')]))
+            stack.enter_context(patch.object(preflight, 'dispatch_checks'))
             stack.enter_context(patch.object(account_handoff, 'launch_accounts', return_value=(None, 1, {})))
             stack.enter_context(patch.object(holder.subprocess, 'run', side_effect=run_))
             stack.enter_context(patch.object(holder.subprocess, 'Popen', side_effect=popen))

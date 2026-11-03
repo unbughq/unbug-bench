@@ -1,0 +1,16 @@
+.E.s...
+======================================================================
+ERROR: test_both_jobs_admit_and_smoke_dispatch_adds_only_dry_run (__main__.SmokeTests.test_both_jobs_admit_and_smoke_dispatch_adds_only_dry_run)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-92468eae/tests/factory/test_startup_smoke.py", line 120, in test_both_jobs_admit_and_smoke_dispatch_adds_only_dry_run
+    self.assertEqual(holder.dispatch(self.policy, self.root, self.home, smoke['operation_id'], b'test identity'), 0)
+                     ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-92468eae/factory/batch_holder.py", line 895, in dispatch
+    raise ValueError('request_refused') from None
+ValueError: request_refused
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.658s
+
+FAILED (errors=1, skipped=1)

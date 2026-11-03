@@ -1,0 +1,7 @@
+test_local_real_dry_run_startup_reaches_g1 (test_startup_smoke.SmokeTests.test_local_real_dry_run_startup_reaches_g1)
+Real run.py --dry-run against local Docker, stopped just after a real G1. ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 103.309s
+
+OK
