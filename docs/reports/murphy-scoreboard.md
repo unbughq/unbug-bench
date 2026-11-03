@@ -2,6 +2,8 @@
 
 Snapshot: 2026-11-03T20:17:58.217996+00:00. Merged baseline: `15a5c6a5bb6d`.
 
+Evidence update: Stream D completion at `a245768` supersedes only its earlier test/review status; all other findings remain at the snapshot above. No Murphy row closes.
+
 ## Decision
 
 **Offline integration: GO. New cloud practice/smoke: NO-GO today. Three-case pilot: NO-GO. Fleet/exam: NO-GO.**
@@ -32,7 +34,7 @@ This is not “only two tasks left”: **20 partial rows still contain implement
 |---|---|---|---|
 | P1 — Finish preflight evidence and integration | BLOCKED | Retain/replay a compatible real release; full validation on corrected code and latest integration; founder decision on fingerprint additions. | `preflight@c93f91e:docs/reviews/preflight-diff-2.md` |
 | P2 — Finish worker provisioning and startup smoke | PENDING REVIEW / VALIDATION | Corrected provisioning needs final diff review; smoke test edit, full suite, independent review and integration after preflight; then real-worker startup check. | `t3/isolation-provisioning@b72ea97; startup-smoke@dd1a22e` |
-| P3 — Complete lifecycle and diagnosis dispatch | PARTIAL / BLOCKED | Land19 merge result; corrected resume-drain suite/final review; pilot admission cleanup deadlock resolution, implementation and qualification; separate Boat settlement diff review and real per-ID usage settlement. | `t3/stream-d-implementation@d84abe7; t3/pilot-admission@963d70d` |
+| P3 — Complete lifecycle and diagnosis dispatch | PARTIAL / BLOCKED | Land19 merge result; integrate the independently reviewed resume drain (187/187 suite PASS); pilot admission cleanup deadlock resolution, implementation and qualification; separate Boat settlement diff review and real per-ID usage settlement. | `t3/stream-d-implementation@a245768; t3/pilot-admission@963d70d` |
 | P4 — Pin pilot policy and obtain specific authority | NOT READY | Merge reviewed bounded roles; prepare fresh three-job manifest, diagnosis opt-in/headroom/creation and timing bounds; obtain approval of money, no-replacement scope and any accepted residuals; refresh actual credit/credential checks. | `docs/designs/pilot-run.md; t3/batch-service-control-vm@e2cc157` |
 | P5 — Prove the deployed practice path | UNPROVED | Successful active-worker control-VM restart/Mac disconnect, model admission, ciphertext/card/key verification, publication-fault replay ACK, exact deletion and cumulative attributed accounting. Prior practice ABORT is not a pass. | `docs/reports/practice-run-20261102.md` |
 
@@ -62,7 +64,7 @@ The proposed pilot is **three fresh cases, concurrency one, no replacements, no 
 | 6 | B | Collection does not automatically publish a fresh batch to the control VM. | open | Merged implementation; qualification still open | P5 | Outbox/ACK replay is implemented; the last practice had ACK=0 after accounting refusal, so replay must pass live. | `factory-simplify@15a5c6a:factory/batch_holder.py` |
 | 7 | B | Parallel admission can turn another pending candidate into an unexportable historical entry. | open | Not fixed on merged path | SERIAL_ONLY | Registry promotion defect remains; concurrency-one pilot avoids parallel candidate admission, not a general fix. | `factory-simplify@15a5c6a:factory/registry.py` |
 | 8 | D | The independent $5 priced-provider cap defeats the larger case budget. | closed | Closed with accepted regression evidence | COVERED | Keep the accepted regression protection. This closure is not a full-batch deployment qualification. | `factory-simplify@15a5c6a:docs/murphy-register.md` |
-| 9 | D | Money and writer-round exhaustion require human authorization. | open | Partial implementation / integration | P3 | Diagnosis/outcome code exists; merge and qualify the production resume-queue drain plus pilot activation. Replacement-priority work is deferred for a no-replacement pilot. | `factory-simplify@15a5c6a:docs/designs/pilot-run.md` |
+| 9 | D | Money and writer-round exhaustion require human authorization. | open | Partial implementation / integration | P3 | Resume drain is implemented, independently reviewed and suite-tested (187/187) on the D branch; merge, integration validation and live qualification plus pilot activation remain. Replacement-enabled batches still defer known-total diagnosis until replacement dispatch is wired; settlement resumes remain eligible. | `t3/stream-d-implementation@a245768:docs/reports/stream-d-resume-queue-drain.md` |
 | 10 | D | An interrupted writer cannot reliably resume. A finished writer can also leave this state. | closed | Closed with accepted regression evidence | COVERED | Keep the accepted regression protection. This closure is not a full-batch deployment qualification. | `factory-simplify@15a5c6a:docs/murphy-register.md` |
 | 11 | D | Short outages exhaust permanent recovery allowances. | closed | Closed with accepted regression evidence | COVERED | Keep the accepted regression protection. This closure is not a full-batch deployment qualification. | `factory-simplify@15a5c6a:docs/murphy-register.md` |
 | 12 | D | G2 evidence ages out during a long case. Search and archive outages become stops. | closed | Closed with accepted regression evidence | COVERED | Keep the accepted regression protection. This closure is not a full-batch deployment qualification. | `factory-simplify@15a5c6a:docs/murphy-register.md` |
@@ -143,7 +145,7 @@ Important distinctions:
 - `c93f91e` fixes the preflight base64-size check; its touched files pass 28 + 5 tests. The old 186-script pass predates it; the round-2 review remains FAIL for retained-release evidence.
 - Settlement code is already on merged source, but `boat-attributed-settlement.md` still requests its own independent diff review and live lifetime-usage proof. The startup repair review is not a substitute for that separate settlement review.
 - Corrected worker provisioning has a cache-free 184-script pass, but no corrected-code final review PASS is recorded at the captured head.
-- The resume queue consumer is now implemented on the captured D branch. Calling it “design only” would be stale; corrected callers still need their complete suite/final review and integration.
+- The resume queue consumer is implemented, independently reviewed and full-suite tested: 187/187 scripts passed on `1fb45ca`; evidence is committed at `a245768`. Review covered code head `d84abe7`; the later changes through `a245768` are documentation/test records only. Integration and live qualification remain. Replacement-enabled batches still defer known-total diagnosis until replacement dispatch is wired; settlement resumes remain eligible.
 - Bounded pilot roles have a passing full suite and diff review on the captured B branch, but the pilot manifest and activation are not delivered by that alone.
 - Startup smoke has a reported 139-second local Docker pass and one uncommitted test edit; neither is cloud qualification.
 
@@ -152,7 +154,7 @@ Important distinctions:
 - `factory-simplify`: `15a5c6a5bb6d33bed214e72ba95c4f7e26c60a8b`
 - `merge/land19`: `c318fa11d139bb403adb9c10077e896b338b5737`
 - `t3/batch-service-control-vm`: `e2cc1574c97af68ff6fb78dc7f07e8fec288853d`
-- `t3/stream-d-implementation`: `d84abe725682e861d20aa84c87549f81ac64759e`
+- `t3/stream-d-implementation`: `a2457680a799257476735f9740bb320c8b0f4a06`
 - `t3/isolation-provisioning`: `b72ea9732ebb41c1926118bb4b1e90f26981e68f`
 - `t3/pilot-admission`: `963d70dbef5621e93012a5ac016c20e2955e8be2`
 - `preflight`: `c93f91eb4ddc98f38d47ee784b47cb3c6aa96d7d`

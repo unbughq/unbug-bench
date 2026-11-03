@@ -13,7 +13,7 @@
     "factory-simplify": "15a5c6a5bb6d33bed214e72ba95c4f7e26c60a8b",
     "merge/land19": "c318fa11d139bb403adb9c10077e896b338b5737",
     "t3/batch-service-control-vm": "e2cc1574c97af68ff6fb78dc7f07e8fec288853d",
-    "t3/stream-d-implementation": "d84abe725682e861d20aa84c87549f81ac64759e",
+    "t3/stream-d-implementation": "a2457680a799257476735f9740bb320c8b0f4a06",
     "t3/isolation-provisioning": "b72ea9732ebb41c1926118bb4b1e90f26981e68f",
     "t3/pilot-admission": "963d70dbef5621e93012a5ac016c20e2955e8be2",
     "preflight": "c93f91eb4ddc98f38d47ee784b47cb3c6aa96d7d",
@@ -62,8 +62,8 @@
       "id": "P3",
       "name": "Complete lifecycle and diagnosis dispatch",
       "status": "PARTIAL / BLOCKED",
-      "remaining": "Land19 merge result; corrected resume-drain suite/final review; pilot admission cleanup deadlock resolution, implementation and qualification; separate Boat settlement diff review and real per-ID usage settlement.",
-      "evidence": "t3/stream-d-implementation@d84abe7; t3/pilot-admission@963d70d"
+      "remaining": "Land19 merge result; integrate the independently reviewed resume drain (187/187 suite PASS); pilot admission cleanup deadlock resolution, implementation and qualification; separate Boat settlement diff review and real per-ID usage settlement.",
+      "evidence": "t3/stream-d-implementation@a245768; t3/pilot-admission@963d70d"
     },
     {
       "id": "P4",
@@ -203,9 +203,9 @@
       "origin_commit": "15a5c6a5bb6d33bed214e72ba95c4f7e26c60a8b",
       "implementation": "partial",
       "pilot_relevance": "P3",
-      "next_action": "Diagnosis/outcome code exists; merge and qualify the production resume-queue drain plus pilot activation. Replacement-priority work is deferred for a no-replacement pilot.",
-      "evidence_path": "docs/designs/pilot-run.md",
-      "evidence_ref": "factory-simplify"
+      "next_action": "Resume drain is implemented, independently reviewed and suite-tested (187/187) on the D branch; merge, integration validation and live qualification plus pilot activation remain. Replacement-enabled batches still defer known-total diagnosis until replacement dispatch is wired; settlement resumes remain eligible.",
+      "evidence_path": "docs/reports/stream-d-resume-queue-drain.md",
+      "evidence_ref": "t3/stream-d-implementation"
     },
     {
       "id": "10",
@@ -1194,5 +1194,17 @@
     "Code present is not code active: global holder default remains off; practice and proposed pilot activation differ.",
     "Conditional pilot exclusions are scope boundaries, not deleted risks or new founder waivers.",
     "The current three-case pilot is deliberately time-limited and may retire/hold cases rather than produce sealed questions. It cannot establish full-case duration or fleet throughput."
+  ],
+  "evidence_updates": [
+    {
+      "component": "Stream D resume queue drain",
+      "evidence_commit": "a2457680a799257476735f9740bb320c8b0f4a06",
+      "tested_head": "1fb45caa95d73dd7a0e7c2eb334118adb227f9f1",
+      "reviewed_code_head": "d84abe7",
+      "scripts_passed": 187,
+      "scripts_failed": 0,
+      "suite_record": "docs/reports/stream-d-resume-queue-drain-suite-20261103T201940Z-d18df5b9.json",
+      "status": "Branch implementation tested and independently reviewed; integration and live qualification still pending."
+    }
   ]
 }
