@@ -12,7 +12,7 @@ Each case gets one initial lifecycle, <=1 checkpoint resume AND <=1 diagnosis re
 <=9 creations total. No extra worker on uncertainty. Extensions must fit these slots.
 Propose a 12h absolute window: 9×1h TTL plus 3h setup/collection/admission margin;
 each admission still requires a full TTL before the deadline. Slot/time exhaustion
-without completed diagnosis is incomplete; the cutoff may prevent a pilot pass.
+while paused is slot-exhausted/incomplete: retain its checkpoint, delete and inventory its VM. Cutoff/pause never triggers diagnosis; incomplete is the likely result.
 S=config/small seam, M=bounded increment, L=integrated lifecycle work. Timeline: unknown until lane-2 merge and practice evidence; separate reviewed increments.
 | Gap / owner | Size | Required change/evidence before activation |
 |---|---|---|
@@ -23,7 +23,7 @@ S=config/small seam, M=bounded increment, L=integrated lifecycle work. Timeline:
 | Cleanup/deployment / B | M | Generalize practice_cleanup's hard-coded batch/timing binding on the same path. Authenticate PID/policy/operation/launch readiness before each dispatch; persist per-case checkpoint/diagnosis and total creation limits plus absolute deadline. |
 | Manifest/routes / B config; route owners/headroom code | S config + M headroom | Three ordinary jobs, fresh IDs/S=0, $20 each/$60 batch. Reuse batch.build/verify and qualify-batch-inputs with pilot pins, not practice's exact manifest. Pin all five roles AND diagnosis to enforced maxima; reserve diagnosis headroom before initial work using those maxima. |
 | Escaped-session containment / E | prerequisite O7 | Qualify selected routes against new-isolation-settlement-1 before live pilot; subscription billing does not waive containment. |
-Review/test each increment with locked suite and fresh review. Supersede full item-8
+B builds settlement first, then admission/cleanup, then S config. Review/test each increment with locked suite and fresh review. Supersede full item-8
 matrix/manual activation; keep journals/evidence. No parallel launcher, no row closures.
 Murphy 9 remains open; new-batch-service-4 matters for later held-case recovery.
 new-stream-d-current-comparison-1 applies only after extension then factory-bug resume;
@@ -34,7 +34,7 @@ retries/unknown holds: 3×$20=$60 list-equivalent, about 40% of historical real 
 docs/designs/stream-d-cost-evidence.json records $51.28–$53.64 cases against $70 limits;
 Murphy 9 gives the $50 default. The old $20 dry-run manifest is NOT real-case authority.
 stream-d.md:626 records a $15.0531879 writer alone: after diagnosis headroom, an
-extension is probably unfundable. Expect budget exhaustion→diagnosis→retire/hold.
+extension is probably unfundable. The only counted diagnosis path needs budget/round exhaustion within the first two lifecycles; that is unproven.
 Propose infrastructure ceiling min($5, measured Boat credit left after practice),
 shared across ALL lifecycles; each draws only remaining authority. No top-ups.
 Thus $65 is the maximum proposal, not a quote or guaranteed usable balance.
@@ -50,7 +50,7 @@ Subscriptions count toward $20/$60. Report actual remaining cash beside proposed
    credential lifetime, router/R2/inputs/cleanup, live Boat credit and auto-top-up OFF.
    Refuse unless credit and cumulative authority cover a conservative full-TTL lifecycle;
    recheck before each creation. Unknown charges, depleted cash or unbounded routes abort.
-3. Admit through key-holder only. Case-budget exhaustion followed by diagnosis is expected;
+3. Admit through key-holder only. Budget/round exhaustion→diagnosis is the only counted diagnosis path;
    accepted routes: retire, factory-bug held, or extension admitted/refused by money.
 4. Stop admissions on batch cap/deadline, duplicate creation, unknown settlement/ownership,
    invalid diagnosis, unsafe cancellation or publication failure; keep cleanup until verified deletion.
