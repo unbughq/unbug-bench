@@ -45,9 +45,11 @@ def read_config(path):
     return value
 
 
-def pack(encoded, path):
+def pack(encoded, path, status=None):
+    """status: a caller's own status reply for this config, so a preflight makes one RPC, not two."""
+    if len(encoded) > LIMIT: raise ValueError()  # shared with main's bounded stdin read
     config = read_config(path)
-    status = router_request(config['url'], config['token'], 'status', {}, ca_pem=config['ca_pem'])
+    if status is None: status = router_request(config['url'], config['token'], 'status', {}, ca_pem=config['ca_pem'])
     if not {'observed_at', 'health', 'leases', 'paid'} <= status.keys(): raise ValueError()
     raw = base64.b64decode(encoded, validate=False)
     if len(raw) > LIMIT: raise ValueError()

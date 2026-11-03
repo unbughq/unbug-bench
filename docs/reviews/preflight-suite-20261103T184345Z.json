@@ -1,0 +1,11 @@
+{
+  "command": "cd /Users/bugsincode/Developer/ub-preflight && uv run --with numpy --with scipy python -B tests/run.py",
+  "started_utc": "2026-11-03T18:43:45Z",
+  "finished_utc": "2026-11-03T19:16:24Z",
+  "exit_code": 0,
+  "head_sha": "cddd8ad0107d92586d186f1da6537c46ecdb90a8",
+  "runner_commit": "74dc5c7 (parallel-tests, merged into preflight)",
+  "result": "184 test scripts run; 0 failed.",
+  "log": "docs/reviews/preflight-suite-20261103T184345Z.log",
+  "scope": "Offline full suite of the preflight implementation (parallel runner, no lock, no -t). An earlier attempt at 2026-11-03T18:43:10Z was killed before any test ran (exit 144, empty log) and was rerun once. No live qualification."
+}

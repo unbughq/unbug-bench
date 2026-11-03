@@ -1,0 +1,13 @@
+{
+  "command": "cd /Users/bugsincode/Developer/ub-preflight && uv run --with numpy --with scipy python -B tests/run.py",
+  "started_utc": "2026-11-03T19:40:09Z",
+  "finished_utc": "2026-11-03T19:54:55Z",
+  "duration_seconds": 886,
+  "exit_code": 0,
+  "head_sha": "b0024a27aec0ebb20d76a12e5ff7d543f14cb6d8",
+  "result": "186 test scripts run; 0 failed.",
+  "log": "docs/reviews/preflight-suite-20261103T194009Z.log",
+  "scope": "Offline full suite on b0024a2, including the authorized merge of factory-simplify 5b3cd0b into preflight (3639f4a). Parallel runner, no lock, no -t. test_preflight.py: 27 tests passed; test_batch_holder.py: 60; test_router_delivery.py: 5; test_practice_readiness.py: 15. No live qualification. The following commit adds only this record and the suite log.",
+  "background_task_id": "bbfvlrkoy",
+  "wait_note": "The suite finished before handback. T3 t3_background_wait was attempted after the provider handoff and returned: This provider cannot mark background work as awaited. Completion was confirmed from the original process exit stamp and full log."
+}
