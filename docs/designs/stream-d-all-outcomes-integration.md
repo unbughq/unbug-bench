@@ -188,3 +188,10 @@ runs inherit_recovery_history and pick_models exactly as main does, then enters
 the real dispatch/admission path. All four cap findings use the returned-extension
 comparison crash. The duplicate progress-publisher instruction is removed.
 No third design review is requested.
+
+Implementation boundary clarification: the authored G5 child-start error is raised
+by the checkpoint transport called by real G5, then counted by the real outer
+gate attempt. The negative G2 freshness budget interruption is `money_wait`: it
+queues no diagnosis. After authenticated restore, the read-only entry consumer
+refuses the inconsistent freshness proof; this negative branch makes no claim
+that money pressure enters dispatch or admission.
