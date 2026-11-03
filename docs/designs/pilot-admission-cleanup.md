@@ -28,7 +28,7 @@ No Murphy row closes; supports rows 17/49/51 without claiming live evidence.
 ## Authenticated opt-in and manifest
 
 Add factory/pilot.py, a small admission policy module. A pilot batch ID must begin
-`b-pilot-` and cannot be a practice ID. Its manifest must have a `pilot_admission`
+`b-real-pilot`, matching the bounded-role and legacy-authorizer checks, and cannot be a practice ID. Its manifest must have a `pilot_admission`
 object with exactly: schema=1, starts_at (UTC), max_lifecycles=6,
 max_lifecycles_per_case=2, infrastructure_limit_usd (positive nine-place USD).
 The ordinary manifest owns money_limit_usd and each job's requested_total_usd;

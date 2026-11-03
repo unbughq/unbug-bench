@@ -8,7 +8,7 @@ import practice
 
 
 def managed(policy):
-    return str(policy.get('batch', {}).get('id', '')).startswith('b-pilot-')
+    return policy.get('batch', {}).get('id') == money.PILOT_BATCH
 
 
 def pin(policy):
@@ -20,7 +20,7 @@ def validate(record):
     try:
         money.check_manifest(record)
         bounds = record['pilot_admission']
-        if (not record['id'].startswith('b-pilot-') or
+        if (record['id'] != money.PILOT_BATCH or
                 set(bounds) != {'schema', 'starts_at', 'max_lifecycles', 'max_lifecycles_per_case', 'infrastructure_limit_usd'} or
                 any(type(bounds[k]) is not int or bounds[k] != v for k, v in
                     (('schema', 1), ('max_lifecycles', 6), ('max_lifecycles_per_case', 2))) or

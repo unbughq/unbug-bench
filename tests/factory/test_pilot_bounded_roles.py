@@ -2,10 +2,12 @@
 import contextlib
 from copy import deepcopy
 from decimal import Decimal
+from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -23,6 +25,7 @@ import diagnosis_dispatch
 import fairness
 import model_router as router
 import model_runtime
+import pilot
 import run
 import test_batch_holder as fixtures
 import token_prices
@@ -70,6 +73,13 @@ class PilotRolesTests(unittest.TestCase):
         h.record['id'] = 'b-real-pilot'
         h.record['replacement_policy']['enabled'] = False
         h.record['money_limit_usd'] = '60.000000000'
+        now = datetime.now(timezone.utc)
+        h.record.update(target_slots=3, max_concurrency=1,
+            batch_deadline=(now + timedelta(hours=5)).isoformat(),
+            pilot_admission=dict(schema=1, starts_at=(now - timedelta(minutes=30)).isoformat(),
+                max_lifecycles=6, max_lifecycles_per_case=2, infrastructure_limit_usd='5.000000000'))
+        environment = patch.dict(os.environ, {})
+        environment.start(); self.addCleanup(environment.stop)
         h.record['jobs']['third'] = deepcopy(h.record['jobs']['j'])
         for name, job in h.record['jobs'].items():
             job.update(case='case-b-real-pilot-' + name, requested_total_usd='20.000000000', args=arguments())
@@ -85,6 +95,7 @@ class PilotRolesTests(unittest.TestCase):
         path.write_text(json.dumps(h.record))
         pin = hashlib.sha256(path.read_bytes()).hexdigest()
         h.policy['batch']['manifest_sha256'] = pin
+        os.environ['UNBUG_PILOT_PIN'] = pilot.pin(h.policy)
         (h.release / 'source-manifest.json').write_text(json.dumps({'files': {h.policy['batch']['manifest_path']: pin}}))
 
     def test_all_roles_resolve_to_real_bounded_leases_and_dedup(self):
@@ -173,8 +184,10 @@ class PilotRolesTests(unittest.TestCase):
             with self.subTest(label=label):
                 h.record = record; self.pin(); before = snapshot(h.home)
                 report = qualifier.qualify(h.policy, h.root, h.home, 'j')
-                self.assertFalse(report['eligible']); self.assertEqual(report['observation'], holder.PILOT_ROLE_ERROR)
-                with self.assertRaisesRegex(ValueError, '^pilot roles must use pinned bounded routes$'):
+                shape_error = label in ('missing args', 'invalid args', 'wrong job count')
+                self.assertFalse(report['eligible'])
+                self.assertEqual(report['observation'], 'journal_absent' if shape_error else holder.PILOT_ROLE_ERROR)
+                with self.assertRaisesRegex(ValueError, '^request_refused$' if shape_error else '^pilot roles must use pinned bounded routes$'):
                     holder.reserve(h.policy, h.root, h.home, 'j', None)
                 self.assertEqual(snapshot(h.home), before)
         h.record = base; self.pin()

@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -25,6 +26,7 @@ import batch_service as service
 import key_holder
 import pilot
 import practice_cleanup as cleanup
+import practice_preflight as preflight
 import test_batch_holder as retained
 import test_batch_service as fixtures
 
@@ -65,7 +67,7 @@ class PilotTests(unittest.TestCase):
     def setUp(self):
         self.setUpBase()
         now = datetime.now(timezone.utc)
-        self.record.update(id='b-pilot-offline', target_slots=3, money_limit_usd='3000.000000000',
+        self.record.update(id=money.PILOT_BATCH, target_slots=3, money_limit_usd='3000.000000000',
             replacement_policy=dict(schema=1, enabled=False),
             batch_deadline=(now + timedelta(hours=5)).isoformat(),
             pilot_admission=dict(schema=1, starts_at=(now - timedelta(minutes=30)).isoformat(),
@@ -74,6 +76,8 @@ class PilotTests(unittest.TestCase):
         for name, job in self.record['jobs'].items():
             job.update(case='case-' + self.record['id'] + '-' + name, requested_total_usd='1000.000000000',
                        args=['1', '--source', 'port', '--rotation-slot', '0', '--ttl-hours', '1', '--max-spend', '4'])
+        for job in self.record['jobs'].values():
+            job['args'][1:1] = [value for pair in holder.PILOT_ROLES.items() for value in pair]
         self.policy['batch']['id'] = self.record['id']
         self.freeze()
         self.objects = {}
@@ -114,6 +118,20 @@ class PilotTests(unittest.TestCase):
         path = self.root / self.policy['batch']['manifest_path']
         path.write_text('{}')
         with self.assertRaises(ValueError): holder.active(self.policy, self.root)
+
+    def test_exact_activation_checks_other_template_roles_before_authority(self):
+        self.assertTrue(holder.active(self.policy, self.root))
+        self.assertFalse(pilot.managed({'batch': {'id': 'b-pilot-unreviewed'}}))
+        with self.assertRaises(money.MoneyWait):
+            money.authorize(self.policy, 'j', None, self.root, self.home)
+        self.record['jobs']['k']['args'] += ['--reviewer2', 'codex/gpt-6.1-sol']
+        self.freeze()
+        with patch.dict(os.environ, UNBUG_PILOT_PIN=pilot.pin(self.policy)):
+            self.assertTrue(holder.active(self.policy, self.root))
+            with self.assertRaisesRegex(ValueError, '^pilot roles must use pinned bounded routes$'):
+                self.reserve()
+        for name in ('reservations.json', 'money.json', 'journal.json'):
+            self.assertFalse((self.directory / name).exists())
 
     def test_policy_startup_rejects_missing_pin_and_authenticates_matching_pin(self):
         self.policy.update(root=str(self.root), code_sha256='fingerprint')
@@ -276,7 +294,7 @@ class PilotTests(unittest.TestCase):
                 self.ledger({'/late-reservation.json': dict(status='reserved', usd='0.036', expires_at=9999999999,
                     state_path=str(path.resolve()), vms=1, ttl_seconds=3600, max_spend_usd='4')})
             return SimpleNamespace(stdout=b'{"sandboxes":[],"pageInfo":{"hasMore":false}}')
-        with patch.object(key_holder, 'fingerprint', return_value='fingerprint'), patch.object(key_holder, 'secret_labels', return_value={'claude-token'}), patch.object(account_handoff, 'launch_accounts', return_value=(None, 1, {})), patch.object(cleanup, 'digest', return_value='a'), patch.object(holder.subprocess, 'run', side_effect=run), patch.object(holder.subprocess, 'Popen') as launch:
+        with patch.object(key_holder, 'fingerprint', return_value='fingerprint'), patch.object(preflight, 'decrypt', return_value=[(tarfile.TarInfo('claude-token'), b'authored')]), patch.object(preflight, 'dispatch_checks'), patch.object(account_handoff, 'launch_accounts', return_value=(None, 1, {})), patch.object(cleanup, 'digest', return_value='a'), patch.object(holder.subprocess, 'run', side_effect=run), patch.object(holder.subprocess, 'Popen') as launch:
             self.assertEqual(holder.dispatch(self.policy, self.root, self.home, new['operation_id'], b'authored identity'), holder.TEMPFAIL)
             launch.assert_not_called()
             self.assertFalse(self.ops()[new['operation_id']]['dispatch_started'])
