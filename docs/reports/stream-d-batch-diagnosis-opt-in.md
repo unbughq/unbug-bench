@@ -62,3 +62,18 @@ existing holder reserve/reconcile/dispatch path. The pilot uses pinned manifest
 opt-in; the old global DIAGNOSIS_ENABLED switch is removed by this increment.
 B retains pilot admission and Boat settlement. This first increment alone does
 not yet provide the production plan/drain caller.
+
+Final locked suite PASS: 180 scripts, 0 failed, exit 0. Record:
+stream-d-batch-diagnosis-opt-in-suite-20261103T111704Z-83f1739e.json and .log.
+Command: lockf /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py.
+Timeout 7200000 ms; no DNS retry needed. Tested head cf3415a; later changes are
+documentation only. Production implementation remains identical to d7250f9.
+The real-D fixture migration is included and all 15 tests pass in the full run.
+
+Landing check: factory-simplify 7dbdc58 (land12 plus E O5b) dry-merges cleanly
+with this branch. Parent requested rebase only for conflicts, so no rebase.
+Its changes since ff31d87 add four test controls that still patch the removed
+DIAGNOSIS_ENABLED symbol. Those controls need the same manifest-policy migration
+when integrating; flag this explicitly in the fresh review and handoff. No
+production caller/drain code is added in this opt-in increment. Fresh diff
+review round 1 is pending. No Murphy row closes; no batch is opted in.
