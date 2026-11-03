@@ -60,3 +60,17 @@ and its docs/tests; the planning production source is still 3e35280.
 A new handback full suite on that runner is required by this explicit correction,
 without lockf. Wait for the focused controller recheck to finish before starting
 it; keep the earlier 185/1 record unchanged.
+
+
+## Corrected controller recheck
+
+stream-d-collected-diagnosis-planning-controller-bench-recheck-20261103T183244Z-c07827b6.json/.log:
+exit 0, all 24 tests OK, with BENCH set exactly as tests/run.py sets it.
+No controller, test, timeout or planning production change was needed.
+Recorded host load was 48.65/53.51/70.40 before and 58.18/54.83/66.95 after;
+this was not claimed to be a quiet-host proof. The earlier full result stays
+185 scripts / 1 failure. The focused pass supports the parent's existing
+unrelated timing-failure rule; the merged tree remains the parent's gate.
+
+All design and diff review rounds are complete and Code PASS. Start the
+explicitly requested replacement handback full suite on the uncached runner.
