@@ -1,0 +1,30 @@
+{
+  "tested_source": "300c1a7e90ca5dd8a520c6658c1440e685857591",
+  "sha256": {
+    "bin/processes.py": "69ebb716e5b91ef32d549081e04f7fccc76f8f186917295a9bbe370e84381d13",
+    "docs/reports/worker-cgroup-provisioning/batch-launch-rerun.log": "923d95b3944361935728a310c88f0ef7fb2223d366080fdf9260d28af8f805a7",
+    "docs/reports/worker-cgroup-provisioning/full-suite-attempt1.log": "6ea7b55e787d288af1649d20b4d3c98203617755435c4519c52c4d4e2cfb534b",
+    "docs/reports/worker-cgroup-provisioning/full-suite-attempt2.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "docs/reports/worker-cgroup-provisioning/full-suite-attempt3.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "docs/reports/worker-cgroup-provisioning/full-suite-first-unlocked.log": "62a5c8d33598ef41b4331451b8eb0bbbe838f6750b0e628b2dff338b4f3448d1",
+    "docs/reports/worker-cgroup-provisioning/full-suite-interrupted.log": "b9fc4c7cd40f442af6674eb6ed05b66c5df0089a52a396b8fb69507bbb7a7d84",
+    "docs/reports/worker-cgroup-provisioning/full-suite.log": "fd658c92df08afa5442f16e8781c2f945e9bd629aac4928b0c30a502e18dbc2b",
+    "docs/reports/worker-cgroup-provisioning/kernel.log": "3310922ad0159b8b40f9266b5c895df49dac42808f65f4e872ab5d94b429de53",
+    "docs/reports/worker-cgroup-provisioning/negative-control.log": "ade5de0923d65de6f029db8232319ed5bd6dd37ecd6c4a7922db9321f60fa7f5",
+    "factory/runner_supervisor.py": "6b9f4aa45575141f45dbb2b8db239e06d9546d12cbd196212db18f611e1de8ee",
+    "tests/factory/test_admission_handoff.py": "a72a3dc6a48c5ab2afb42cf58dfa04460e7c3b02a5ab811c78955d71f9a147f7",
+    "tests/factory/test_control_resume.py": "92366a7b00e91d6cf16e96d3b15eda5a3ca9380d0b56f7ae81a9e56fcd99e17f",
+    "tests/factory/test_isolation_timeouts.py": "59411225aeb9aeb4619907414ccc7e43932630a377a2b9bbcda238b8c4ac9727",
+    "tests/factory/test_worker_cgroup.py": "25f49b457bf7422ae463c654d8a953aff34bb51cd733803e15fe70579e3c7406",
+    "tests/integration/worker_delivery_edge.py": "47319a9aff6b11bc13f4896e5ef009e6cad056699ac7421d0da3f550ff283917",
+    "tests/run.py": "c5624c3ecc7999ac1db340f39328ae7978ca5614e152267dae57069cb9c13903"
+  },
+  "review_base": "89934c9",
+  "suite": {
+    "scripts": 185,
+    "failed": 0,
+    "cached_passes": 184,
+    "exit": 0,
+    "wall_seconds": 542.63151
+  }
+}

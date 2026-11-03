@@ -46,3 +46,8 @@ environment too. Run focused tests, real kernel tests, then plain
 `lockf /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py`.
 One fresh Claude diff review and immediate handback. No live action or paid call;
 no Murphy row closure. Estimated one small offline increment plus suite/review wait.
+
+Parent testing update: the shared suite lock is retired. Merge `parallel-tests`
+(`89934c9`) and use `uv run --with numpy --with scipy python -B tests/run.py`
+without lockf. The merged test runner limits host-wide script concurrency and
+reuses passes for identical code. This supersedes the locked command above.
