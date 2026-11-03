@@ -3963,6 +3963,8 @@ Design stream-d-partial-entry.md passes fresh review round 2. Entry retains a
 verified prefix after a budget/infrastructure interruption without requiring a
 close marker; missing proof for a known score still holds. G2 freshness topups
 are bound to the last record and freshness-consuming stages. No evaluation or
-score is invented. Focused entry tests: 19 passed; locked suite and diff review
-pending. No Murphy rows close. Legacy evidence adapters and final all-outcomes
+score is invented. Focused entry tests: 19 passed. Implementation e70949c, integrated with upstream
+7dbdc58 at 502b15b, passes the full locked suite: 182 scripts / 0 failures. The
+parent-approved two-hour timeout starts after lock acquisition; queue time does
+not count. Fresh diff review remains pending. No Murphy rows close. Legacy evidence adapters and final all-outcomes
 integration remain open before the founder's three-case pilot.
