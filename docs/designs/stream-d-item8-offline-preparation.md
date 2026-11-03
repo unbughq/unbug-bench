@@ -1,5 +1,30 @@
 # Item 8 offline preparation: evidence, sequence and remaining gaps
 
+## Governing founder decision: small real pilot (2026-11-02)
+
+The founder REPLACED the qualification program below with a pilot of **three
+fresh real cases, diagnosis on, under an explicit money cap**, after lane 2
+finishes item 7 and the USD 25 practice run passes. The pilot itself is the
+qualification. The historical USD 100 program and its timing/scenario packing
+below are retained analysis, not the current execution plan or spend authority.
+B owns the pilot manifest, admission and infrastructure settlement; the pilot's
+specific cap and launch authority must come from that plan and founder approval.
+
+Drop O1, O2 except the pilot's actual role requirements, O3, O4 and O6 as pilot
+prerequisites. Preserve their analysis below. O7 escaped-session containment is
+assigned to a separate agent: lane 1 has committed no O7 design or implementation.
+O5b request-only stress disposition remains deferred while the critical diagnosis
+scheduling path is wired. The previous row-closure scenario is historical
+analysis; no Murphy row is closed by this replacement.
+
+On 2026-11-03 the parent prioritized the missing production diagnosis path:
+authenticated collected generations must reach batch_service.plan and its resume
+requests must use existing holder reserve/dispatch, with durable replay identity,
+ACK, retirement and money checks. Activation must be a pinned authenticated
+batch opt-in. This work does not authorize a live pilot or a global switch flip.
+
+## Historical preparation analysis (superseded program)
+
 ## Authority, objective and baseline
 
 Prove that a case can survive interruption, diagnosis, an extra writing round,

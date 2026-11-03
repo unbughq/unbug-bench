@@ -3393,6 +3393,13 @@ item 7 and item 8 qualification obligations above remain open; no row closes.
 
 ## Item 8: live qualification and switch-on
 
+**Superseded by founder decision, 2026-11-02:** qualification is now a small real
+pilot of three fresh cases, diagnosis on, under a money cap, after item 7 and the
+USD 25 practice pass. See the governing decision in
+[stream-d-item8-offline-preparation.md](stream-d-item8-offline-preparation.md).
+The detailed program below is preserved historical analysis, not launch authority.
+
+
 Updated offline on 2026-11-02. The detailed evidence inventory, live order,
 per-run ceilings and sized gaps are in
 [stream-d-item8-offline-preparation.md](stream-d-item8-offline-preparation.md).
