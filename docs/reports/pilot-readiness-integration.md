@@ -1,7 +1,7 @@
 # Pilot readiness integration — offline candidate
 
 Root staging branch: merge/pilot-readiness-20261103, based on factory-simplify
-f9a97ea. This is not merged, deployed, unlocked or activated.
+f9a97ea. The reviewed candidate landed at a0ae006 with the exact tested tree. It is not deployed, unlocked or activated.
 
 ## Integrated sources
 
@@ -44,11 +44,15 @@ is preserved with a separate evidence disposition. No Murphy row closes here.
 
 The initial combined suite on 9b0abf3 was interrupted after the integration review
 found the ID defect. Its log/exit143 are NONQUALIFYING, not a test PASS.
-Final combined exact-tree suite is next; accepted component suites are not a
-substitute. No provider, worker, model, deployment, push or secret action occurred.
+Final combined exact-tree suite passed: 193 scripts, 0 failures, 19 explicit
+unittest skips, exit 0, 970.13 seconds. Tested source 8b8635a, tree
+e91a85f257332f67a5b88e1d9a9b807a4984ebe3; landed a0ae006 has that identical
+tree. Log/record/checksums are retained in docs/reports/pilot-readiness-suite/.
+No cached test-result passes; the optional shared-Docker qualification was unset.
+Accepted component suites were not used as a substitute. No provider, worker, model, deployment, push or secret action occurred.
 The founder's unrelated README.md edit and EXAM.md remain untouched.
 
-Still required before live work: combined suite success, exact policy/release
+Still required before live work: exact policy/release
 pins and existing unlock, founder acknowledgment of the two fingerprint additions,
 and refreshed live prerequisites. Cloud smoke then ordinary practice must prove
 startup/G1/collection/publication/deletion and retained-card replay. Practice also

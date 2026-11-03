@@ -1,0 +1,58 @@
+{
+  "sha": "8b8635a449f30456832884288536fee8c045f6c5",
+  "tree": "e91a85f257332f67a5b88e1d9a9b807a4984ebe3",
+  "branch": "t3/offline-suite-validation",
+  "cwd": "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-9dcee8b7",
+  "command": [
+    "uv",
+    "run",
+    "--with",
+    "numpy",
+    "--with",
+    "scipy",
+    "python",
+    "-B",
+    "tests/run.py"
+  ],
+  "command_text": "uv run --with numpy --with scipy python -B tests/run.py",
+  "environment_choices": {
+    "UNBUG_LOCAL_DOCKER_SMOKE": "explicitly unset",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "UV_OFFLINE": "1",
+    "TEST_SLOTS": "12",
+    "TEST_SLOT_DIR": "/tmp/unbug-test-slots",
+    "TEST_JOBS": "default CPU count",
+    "cache": "No test-result cache; fresh runner invocation, python -B. uv dependency cache retained for offline dependency resolution."
+  },
+  "start_utc": "2026-11-03T22:36:48.026302+00:00",
+  "log_path": "/private/tmp/unbug-head8b8635a-offline-03n_ozpj/suite.log",
+  "end_utc": "2026-11-03T22:52:58.159841+00:00",
+  "wall_seconds": 970.1266628749436,
+  "exit_code": 0,
+  "post_sha": "8b8635a449f30456832884288536fee8c045f6c5",
+  "post_tree": "e91a85f257332f67a5b88e1d9a9b807a4984ebe3",
+  "post_status_porcelain": "",
+  "fixture_hashes_unchanged": true,
+  "fixture_file_count": 63,
+  "script_count": 193,
+  "failure_count": 0,
+  "failed_scripts": [],
+  "skip_context": [
+    "OK (skipped=1)",
+    "OK (skipped=11)",
+    "OK (skipped=1)",
+    "PASS unreadable log dir is skipped (stall still detected)",
+    "OK (skipped=1)",
+    "OK (skipped=2)",
+    "OK (skipped=1)",
+    "OK (skipped=2)"
+  ],
+  "unittest_skip_count": 19,
+  "hashes_sha256": {
+    "suite.log": "831aa52c8d678ed0f1a2c869546ed3711441ed344192f4af3050c8a8876d1b80",
+    "fixture-hashes-before.json": "e8cd53d9663d128d6cc194a17493ca04c20deaf4a0c60cf4add224c79db6a4d2",
+    "fixture-hashes-after.json": "e8cd53d9663d128d6cc194a17493ca04c20deaf4a0c60cf4add224c79db6a4d2",
+    "validate.py": "24d84076d173d3efd7f65003cf25d6e430ca18898a4cf9fb8a8df7ebf8ab1a82"
+  },
+  "result": "PASS"
+}
