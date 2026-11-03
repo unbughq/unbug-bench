@@ -1,60 +1,60 @@
 # Three-case real pilot — design only
-Founder decision (2026-11-02): replace full item 8 with a small REAL PILOT:
-three fresh real cases, diagnosis ON, existing accounts, after practice passes
-and lane 2 finishes item 7. This document grants no launch or spending authority.
-Goal: observe real outcomes and at least one diagnosis; not all cases must seal.
-
-## Scope and remaining work
-
+Founder decision (2026-11-02): replace full item 8 with three fresh REAL cases,
+diagnosis ON and existing accounts, after practice PASS and lane-2 item-7 PASS.
+Proposal only; goal: real diagnosis receipts. Risk/payoff: cheap/time-limited cases will probably exhaust or pause, not seal;
+we learn their outcomes under explicit limits, not normal full-case completion rates.
+## Scope, timing and remaining work
 Exactly three fresh cases, one batch, concurrency one; no dry-run or legacy input.
-Propose replacement_policy.enabled=false for this bounded three-case pilot;
-retirement ends that case, not a fourth case. Founder must approve this scope.
-At most six worker lifecycles: three initial plus one diagnosis/checkpoint resume
-each; extensions must fit those lifecycles and existing time/money authority.
-S = config/small seam; M = one bounded code increment; L = integrated lifecycle work.
-
-| Gap | Size | Exact required change / evidence before activation |
+Propose no replacements: retirement ends a case, not a fourth case (founder approval).
+Choose review option (b): measure behavior under a 30-minute run cutoff per worker;
+collect at start+30m, watchdog-delete at +45m, provider TTL +60m. This is NOT a real-case-duration estimate; ordinary workers default to 8h (Murphy 5/launch.sh).
+Each case gets one initial lifecycle, <=1 checkpoint resume AND <=1 diagnosis resume:
+<=9 creations total. No extra worker on uncertainty. Extensions must fit these slots.
+Propose a 12h absolute window: 9×1h TTL plus 3h setup/collection/admission margin;
+each admission still requires a full TTL before the deadline. Slot/time exhaustion
+without completed diagnosis is incomplete; the cutoff may prevent a pilot pass.
+S=config/small seam, M=bounded increment, L=integrated lifecycle work. Timeline: unknown until lane-2 merge and practice evidence; separate reviewed increments.
+| Gap / owner | Size | Required change/evidence before activation |
 |---|---|---|
-| Pilot admission | M | HOLDER_ENABLED=False; practice.py admits only one plumbing batch. Add a release/manifest-authenticated pilot opt-in to existing batch_holder.active/key_holder/batch.bind call sites; keep old/practice IDs off and general default off. No second launch API. |
-| Diagnosis scheduling | L | DIAGNOSIS_ENABLED=False; batch_service.plan has no production caller and ordered_queue is metadata only. Wire authenticated collected generations to plan and drain its resume requests through existing holder.reserve/dispatch; persist replay identity, enforce ACK/retirement/money checks. Scope diagnosis activation to the pinned pilot; toggling the constant alone is insufficient. |
-| Item-7 completion | L (lane 2) | Consume merged writer/stress/gate/comparison and factory-bug/retirement routing; qualify an actual queue-to-resume-to-diagnosis-to-outcome cycle. Do not invent missing adapters; factory-bug results hold for a separate reviewed fix. |
-| Multiple lifecycles | L | bin/boat-spend refuses any other reserved/finished/reconciled_expired row. Implement reviewed attributed settlement in its existing ledger before pilot admission, including practice liabilities; retain charges/unknown holds cumulatively, never reset or use another home to evade the refusal. |
-| Cleanup/deployment | M | Generalize practice_cleanup's hard-coded batch/activation binding for this pinned pilot on the same holder path. Require ready PID/policy/operation/launch binding before each dispatch, worker-start+30m collection < +45m deletion < +60m TTL; persist the six-creation bound and absolute deadline. |
-| Manifest, routes, pins | S config + M headroom | Three ordinary jobs, fresh case IDs and authenticated S=0, $20 authority each/$60 batch; no practice.py reuse. Reuse batch.build/verify and qualify-batch-inputs, with a pilot pin wrapper instead of practice's exact manifest. Explicit five-role AND diagnosis routes must have current enforced maxima; reserve diagnosis headroom before initial work using those maxima, not an invented call price. |
-Review/test each gap with locked suite and fresh review before switch-on.
-Supersede the item-8 matrix and manual/global activation; keep evidence/journals. No rows closed.
-Relevant open obligations: Murphy 9 (diagnosis), new-batch-service-4 (carry),
-new-isolation-settlement-1 and new-stream-d-current-comparison-1; assess their
-actual applicability against merged item 7, not this proposal's optimism.
-
-## Money proposal — founder approval required
-
-Propose $20 per case INCLUDING diagnosis, extensions, retries and unknown holds:
-3 × $20 = $60 model/list-equivalent total; fresh baselines are zero.
-Source: factory/batches/b-practice-20261031.json requested_total_usd=20;
-docs/designs/stream-d.md records a $15.0531879 writer call, so $5/case is no success guarantee.
-Propose $5 infrastructure TOTAL across all six possible lifecycles, not $5 each:
-each lifecycle may draw only the remaining shared $5; total proposal is $65.
-This reuses practice-run.md's founder-accepted prepaid balance/no-top-up/TTL bound,
-subject to founder acceptance for multiple workers; it is not a provider quote.
-Actual paid OpenRouter stays inside the EXISTING shared min($11.63, observed credit)
-ledger ceiling, less prior charges/holds (router-shared-paid-spend.md); never refill/reset.
-Subscriptions still count at list-equivalent cost toward $20/$60. Practice spend
-is separately reported; neither old holds nor used wallet credit becomes fresh money.
-
-## Steps, stop rules and pass
-
-1. Founder approves $65 ceilings, three-case/no-replacement scope, six lifecycle cap,
-   existing-account labels/distinctness waiver if retained, and a <=6h absolute window;
-   refresh/rewrap credentials locally to founder+control recipients; key stays on Mac.
-2. After practice PASS and item-7 PASS, pin the merged pilot release and UTC deadline;
-   verify CLI version, credential lifetime, router/credit/R2, empty inputs and cleanup.
-3. Admit three jobs sequentially via key-holder; collect/ACK, diagnose and route
-   outcomes only through that same holder path. Retain case/usage/lease/operation IDs.
-4. Abort admissions on cap/refusal, unknown settlement/ownership, duplicate creation,
-   invalid diagnosis, unsafe cancellation, failed publication or deadline; cleanup stays
-   armed until every created VM has completed deletion receipts plus full absence inventory.
-5. Pass: all three have attributable terminal outcomes, >=1 genuine diagnosis and
-   authenticated routed outcome, no duplicate spend/work, full money reconciliation,
-   verified deletion and all caps met. All-sealed/no-diagnosis or cap stops are incomplete;
-   missing proof is never a pass. Founder receives outcomes/costs and decides any next run.
+| Pilot admission / B | M | HOLDER_ENABLED=False in batch_holder.py. Add authenticated pilot opt-in beside practice.active in batch_holder.active, consumed by existing key_holder/batch.bind. Keep global/default and old IDs off; practice.py remains one-case plumbing only. |
+| Diagnosis scheduling / lane 1 | L | DIAGNOSIS_ENABLED=False; batch_service.plan has no production caller and ordered_queue no consumer. Wire collected authenticated generations to plan and resume requests to holder.reserve/dispatch, with ACK/retirement/money/replay checks; scope diagnosis to pilot pins, not a global permissive toggle. |
+| Item-7 completion / lane 2 | prerequisite, not pilot sizing | Merge/qualify writer/stress/gate/comparison and diagnosis outcome routes through that holder path; factory-bug holds await separately reviewed fixes. Pilot cannot invent missing adapters. |
+| First AND later lifecycle settlement / B | L | boat-spend refuses any other reserved/finished/reconciled_expired row, including practice's. Add reviewed attributed settlement to its existing ledger; retain cumulative charges/unknown holds. No reset, fresh home or new ledger to evade refusal. |
+| Cleanup/deployment / B | M | Generalize practice_cleanup's hard-coded batch/timing binding on the same path. Authenticate PID/policy/operation/launch readiness before each dispatch; persist per-case checkpoint/diagnosis and total creation limits plus absolute deadline. |
+| Manifest/routes / B config; route owners/headroom code | S config + M headroom | Three ordinary jobs, fresh IDs/S=0, $20 each/$60 batch. Reuse batch.build/verify and qualify-batch-inputs with pilot pins, not practice's exact manifest. Pin all five roles AND diagnosis to enforced maxima; reserve diagnosis headroom before initial work using those maxima. |
+| Escaped-session containment / E | prerequisite O7 | Qualify selected routes against new-isolation-settlement-1 before live pilot; subscription billing does not waive containment. |
+Review/test each increment with locked suite and fresh review. Supersede full item-8
+matrix/manual activation; keep journals/evidence. No parallel launcher, no row closures.
+Murphy 9 remains open; new-batch-service-4 matters for later held-case recovery.
+new-stream-d-current-comparison-1 applies only after extension then factory-bug resume;
+that is unlikely here and must not be exercised unless lane 2 qualifies it.
+## Money proposal — not existing real-case authority
+Propose a founder exploration ceiling of $20/case INCLUDING diagnosis/extensions/
+retries/unknown holds: 3×$20=$60 list-equivalent, about 40% of historical real cost.
+docs/designs/stream-d-cost-evidence.json records $51.28–$53.64 cases against $70 limits;
+Murphy 9 gives the $50 default. The old $20 dry-run manifest is NOT real-case authority.
+stream-d.md:626 records a $15.0531879 writer alone: after diagnosis headroom, an
+extension is probably unfundable. Expect budget exhaustion→diagnosis→retire/hold.
+Propose infrastructure ceiling min($5, measured Boat credit left after practice),
+shared across ALL lifecycles; each draws only remaining authority. No top-ups.
+Thus $65 is the maximum proposal, not a quote or guaranteed usable balance.
+Founder must extend practice's prepaid/no-auto-top-up/TTL acceptance to this pilot.
+OpenRouter retains its existing min($11.63, observed credit) ceiling minus ledger
+charges/holds, with the existing fresh-credit/overlap check; never reset/refill.
+Subscriptions count toward $20/$60. Report actual remaining cash beside proposed caps.
+## Founder steps, stops and pass
+1. Founder approves exploration/30m cutoff, $60 models + measured infra<=5, three
+   cases/no replacements, nine slots/12h and existing labels/distinctness waiver;
+   refresh and dual-recipient rewrap locally; founder private key stays on Mac.
+2. After prerequisite PASS results, pin merged release/UTC deadline; verify exact CLI,
+   credential lifetime, router/R2/inputs/cleanup, live Boat credit and auto-top-up OFF.
+   Refuse unless credit and cumulative authority cover a conservative full-TTL lifecycle;
+   recheck before each creation. Unknown charges, depleted cash or unbounded routes abort.
+3. Admit through key-holder only. Case-budget exhaustion followed by diagnosis is expected;
+   accepted routes: retire, factory-bug held, or extension admitted/refused by money.
+4. Stop admissions on batch cap/deadline, duplicate creation, unknown settlement/ownership,
+   invalid diagnosis, unsafe cancellation or publication failure; keep cleanup until verified deletion.
+5. Pass: three attributable terminal outcomes, >=1 genuine diagnosis with a recorded route,
+   reconciled costs, caps met and completed deletion receipts/full absence inventory for all VMs.
+   Case-budget→diagnosis→retire/hold counts; all-sealed/no-diagnosis, unfinished extensions,
+   batch-level cap/deadline/refusal stops or missing proof are incomplete. Founder decides any next run.
