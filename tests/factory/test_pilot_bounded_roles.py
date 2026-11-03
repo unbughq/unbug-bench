@@ -194,7 +194,7 @@ class PilotRolesTests(unittest.TestCase):
         bad = deepcopy(h.record); bad['jobs']['k']['args'] += ['--reviewer2', CODEX]
         before_state = deepcopy(state); before = snapshot(h.home)
         with self.assertRaisesRegex(ValueError, '^pilot roles must use pinned bounded routes$'):
-            holder._admit(directory, bad, h.policy, h.root, ops, state, 'j', None)
+            holder._admit(directory, bad, h.policy, h.root, h.home, ops, state, 'j', None)
         self.assertEqual(state, before_state); self.assertEqual(snapshot(h.home), before)
         real_resolve = holder.service.resolve_job
         def changed_selected(record, name):
@@ -203,7 +203,7 @@ class PilotRolesTests(unittest.TestCase):
             return resolved
         with patch.object(holder.service, 'resolve_job', side_effect=changed_selected), \
              self.assertRaisesRegex(ValueError, '^pilot roles must use pinned bounded routes$'):
-            holder._admit(directory, h.record, h.policy, h.root, ops, state, 'j', None)
+            holder._admit(directory, h.record, h.policy, h.root, h.home, ops, state, 'j', None)
         self.assertEqual(state, before_state); self.assertEqual(snapshot(h.home), before)
 
     def test_legacy_authorizer_refuses_pilot_without_optional_schema(self):
