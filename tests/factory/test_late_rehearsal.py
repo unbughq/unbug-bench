@@ -117,9 +117,9 @@ class RehearsalTests(unittest.TestCase):
                         c.work/'synthetic-stream', c.ledger, 3)
                 if ceiling == 5:
                     with self.assertRaisesRegex(budget.BudgetError, 'cost_limit'):
-                        budget.run_budgeted(*args, **kwargs)
+                        budget.run_budgeted(*args, **{**kwargs, 'containment': False})
                 else:
-                    self.assertEqual(budget.run_budgeted(*args, **kwargs).returncode, 0)
+                    self.assertEqual(budget.run_budgeted(*args, **{**kwargs, 'containment': False}).returncode, 0)
 
 
 if __name__ == '__main__':

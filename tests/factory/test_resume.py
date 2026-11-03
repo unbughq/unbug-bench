@@ -58,7 +58,7 @@ def build(c):
         from budget import run_budgeted
         import os
         run_budgeted([sys.executable, '-c', 'raise AssertionError("must not spawn")'], c.work, os.environ.copy(),
-                     c.work / 'transcripts/test.jsonl', c.ledger, 1, resume=True)
+                     c.work / 'transcripts/test.jsonl', c.ledger, 1, containment=False, resume=True)
     if mode in ('limit', 'stall', 'zero'):
         from budget import run_budgeted
         import os
@@ -70,7 +70,7 @@ def build(c):
             code = '\n'.join('print(' + repr(__import__('json').dumps({**event, 'part': {**event['part'], 'id': str(i), 'messageID': str(i)}})) + ', flush=True)' for i in range(3))
         code += '\nimport time; time.sleep(60)'
         run_budgeted([sys.executable, '-c', code], c.work, os.environ.copy(), c.work / 'transcripts/test.jsonl',
-                     c.ledger, 5, progress_timeout=0.2, configured_model='opencode-go/test')
+                     c.ledger, 5, containment=False, progress_timeout=0.2, configured_model='opencode-go/test')
 run.g1, run.seal, run.build = gate, seal, build
 run.sh = lambda *args, **kwargs: 0
 run.bench_manifest = lambda: 'trusted'

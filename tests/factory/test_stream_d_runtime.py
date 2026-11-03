@@ -273,7 +273,7 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
         code = '\n'.join('print(' + repr(json.dumps(event)) + ', flush=True)' for event in stream)
         with self.assertRaisesRegex(budget.BudgetError, '^claude_error$'):
             budget.run_budgeted([sys.executable, '-c', code], self.work, os.environ.copy(), self.work / 'stream.jsonl',
-                self.ledger, 3, max_cost=None, driver='claude', configured_model=lease.route, role='writer',
+                self.ledger, 3, containment=False, max_cost=None, driver='claude', configured_model=lease.route, role='writer',
                 invocation_name='builder-stream-test', case_budget=200, job_authority=authority,
                 invocation_id=row['invocation_id'], lease_id=lease.lease_id, concurrent=True, resume=True,
                 max_total_calls=self.source['continuation_budget']['calls'] + 10)
@@ -290,7 +290,7 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
         event = {'type': 'step_finish', 'part': {'id': 'sibling-step', 'messageID': 'sibling', 'cost': .25,
                  'tokens': {'input': 1, 'output': 1, 'reasoning': 0, 'cache': {'read': 0, 'write': 0}}}}
         budget.run_budgeted([sys.executable, '-c', 'print(' + repr(json.dumps(event)) + ', flush=True)'], self.work,
-            os.environ.copy(), self.work / 'sibling.jsonl', self.ledger, 30, max_cost=None, driver='opencode',
+            os.environ.copy(), self.work / 'sibling.jsonl', self.ledger, 30, containment=False, max_cost=None, driver='opencode',
             configured_model=sibling.route, role='stress_tester', invocation_name='attacker-stream-test',
             case_budget=200, job_authority=authority, invocation_id=other['invocation_id'],
             lease_id=sibling.lease_id, concurrent=True, resume=True,
@@ -338,7 +338,7 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
             attempts.append(kwargs['invocation_name'])
             emitter = [sys.executable, '-c', 'import json,sys\nfor e in json.loads(sys.argv[1]): print(json.dumps(e), flush=True)',
                        json.dumps(events)]
-            return real(emitter, *args, **kwargs)
+            return real(emitter, *args, **{**kwargs, 'containment': False})
         self.patch(model_runtime.model_call_gate, 'enforce', gate)
         self.patch(model_runtime, 'run_budgeted', budgeted)
         self.patch(model_runtime, 'pinned_cli', lambda kind: 'synthetic')
@@ -429,7 +429,7 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
         emitter = [sys.executable, '-c', 'print(' + repr(json.dumps(event)) + ', flush=True)']
         def budgeted(cmd, *args, **kwargs):
             seen.append(kwargs['max_cost'])
-            return real(emitter, *args, **kwargs)
+            return real(emitter, *args, **{**kwargs, 'containment': False})
         self.patch(model_runtime, 'run_budgeted', budgeted)
         self.c.force_budget_resume = True  # the saved ledger stopped at a pause; this call resumes it
         self.patch(model_runtime, 'invocation_maximum', lambda c, lease: Decimal(1))
@@ -537,7 +537,7 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
                 code = 'print(' + repr(json.dumps(event)) + ', flush=True)'
                 budget.run_budgeted([sys.executable, '-c', code], self.work, os.environ.copy(),
                     self.work / ('telemetry-' + suffix + '.jsonl'), self.ledger, 3,
-                    max_cost=None, max_calls=2, max_total_calls=1000, driver='opencode',
+                    containment=False, max_cost=None, max_calls=2, max_total_calls=1000, driver='opencode',
                     configured_model=lease.route, role='writer', invocation_name='builder-telemetry',
                     case_budget=200, job_authority=authority, invocation_id=row['invocation_id'],
                     lease_id=lease.lease_id, concurrent=True, resume=True)
@@ -553,7 +553,7 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
                 with self.assertRaisesRegex(budget.BudgetError, '^call_limit$'):
                     budget.run_budgeted([sys.executable, '-c', code], self.work, os.environ.copy(),
                         self.work / ('capped-' + suffix + '.jsonl'), self.ledger, 3,
-                        max_cost=None, max_calls=1, max_total_calls=1000, driver='opencode',
+                        containment=False, max_cost=None, max_calls=1, max_total_calls=1000, driver='opencode',
                         configured_model=lease.route, role='writer', invocation_name='builder-telemetry',
                         case_budget=200, job_authority=authority, invocation_id=row['invocation_id'],
                         lease_id=lease.lease_id, concurrent=True, resume=True)
@@ -664,7 +664,7 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
             operation_id=str(uuid.uuid4()), call_name='builder-deadline-test')
         with self.assertRaisesRegex(budget.BudgetError, '^retired_batch_bound$'):
             budget.run_budgeted([sys.executable, '-c', 'import time; time.sleep(5)'], self.work, os.environ.copy(),
-                self.work / 'deadline.jsonl', self.ledger, 2, max_cost=None, driver='claude', configured_model=lease.route,
+                self.work / 'deadline.jsonl', self.ledger, 2, containment=False, max_cost=None, driver='claude', configured_model=lease.route,
                 role='writer', invocation_name='builder-deadline-test', case_budget=200, job_authority=authority,
                 invocation_id=row['invocation_id'], lease_id=lease.lease_id, concurrent=True, resume=True,
                 max_total_calls=self.source['continuation_budget']['calls'] + 10)

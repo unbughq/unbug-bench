@@ -164,7 +164,7 @@ class ProfileTests(unittest.TestCase):
             command=[sys.executable,'-c','import sys;print(sys.argv[1])',json.dumps(event)]
             with self.assertRaises(budget.BudgetError):
                 budget.run_budgeted(command,path,dict(os.environ),path/'transcript',ledger,5,
-                    driver='claude',configured_model=CLAUDE+':small',role='writer',invocation_name='builder-partial',
+                    containment=False, driver='claude',configured_model=CLAUDE+':small',role='writer',invocation_name='builder-partial',
                     max_cost=100,max_calls=1000,max_total_calls=1000,case_budget=1000)
             saved=json.loads(ledger.read_text())
             self.assertEqual(saved['estimated_subscription_cost_usd'],float(expected))

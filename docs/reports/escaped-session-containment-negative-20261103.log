@@ -1,0 +1,19 @@
+MUTATION: removed production cgroup.kill write
+F
+======================================================================
+FAIL: test_cancel_double_fork_before_settlement (__main__.KernelTests.test_cancel_double_fork_before_settlement)
+----------------------------------------------------------------------
+budget.BudgetError: cancellation_failed
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/tmp/o7-negative/tests/factory/test_escaped_session_containment.py", line 148, in test_cancel_double_fork_before_settlement
+    with self.assertRaisesRegex(budget.BudgetError, 'cancelled'): future.result(timeout=15)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: "cancelled" does not match "cancellation_failed"
+
+----------------------------------------------------------------------
+Ran 1 test in 5.820s
+
+FAILED (failures=1)

@@ -64,7 +64,7 @@ class CaseBudgetTests(unittest.TestCase):
         code = ''.join('print(' + repr(json.dumps(e)) + ', flush=True)\n' for e in events)
         code += kw.pop('tail', '')
         return budget.run_budgeted([sys.executable, '-c', code], self.root, os.environ.copy(),
-            self.root / 'synthetic-stream', self.c.ledger, 3, driver=driver, configured_model=model,
+            self.root / 'synthetic-stream', self.c.ledger, 3, containment=False, driver=driver, configured_model=model,
             max_cost=100, max_total_calls=1000, **kw)
 
     def public_card(self, stop='stress_review_unresolved:rounds_exhausted', spent=30.08, limit=None):
@@ -291,7 +291,7 @@ class CaseBudgetTests(unittest.TestCase):
             limits.append(timeout)
             self.assertLess(timeout, c.args.no_progress_minutes * 60)
             return real_run([sys.executable, '-c', 'import time; time.sleep(5)'], cwd, env,
-                            transcript, ledger, .05, **kw)
+                            transcript, ledger, .05, **{**kw, 'containment': False})
         with patch.object(model_runtime, 'run_budgeted', hung), patch.object(run, 'public_progress'), \
                 patch.object(model_runtime, 'opencode_config', return_value=self.root / 'config.json'):
             with self.assertRaisesRegex(budget.BudgetError, '^timeout$'):
