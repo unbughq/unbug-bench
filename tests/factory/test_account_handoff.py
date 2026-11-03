@@ -231,11 +231,49 @@ class AccountHandoffTests(unittest.TestCase):
             handoff.worker_resume(self.card['case'], 'a' * 64, ['--case-budget', '70', '--rounds', '9'], json.dumps(state))
         argv = spawn.call_args.args[0]; env = spawn.call_args.kwargs['env']
         self.assertEqual(argv[0], 'python3')
+        self.assertEqual(argv[1:5], [str(home / 'factory/runner_supervisor.py'), '--',
+                                   'python3', str(home / 'factory/run.py')])
+        self.assertEqual(env['FACTORY_RUNNER_SECONDS'], os.environ.get('FACTORY_RUNNER_SECONDS', '14400'))
+        self.assertEqual(env['FACTORY_RUNNER_GRACE_SECONDS'], os.environ.get('FACTORY_RUNNER_GRACE_SECONDS', '720'))
         self.assertFalse(any('synthetic-' in arg for arg in argv))
         self.assertEqual(env['OPENCODE_API_KEY'], 'synthetic-opencode-go-key-2')
         self.assertEqual(env['OPENCODE_SECRET_NAME'], 'opencode-go-key-2')
         self.assertEqual(json.loads(env['FACTORY_ACCOUNT_STATE']), state)
         self.assertEqual(argv[-4:], ['--case-budget', '70', '--rounds', '9'])
+
+    def test_in_place_upload_carries_matching_supervisor_and_process_helper(self):
+        command = next(line for line in (ROOT / 'factory/resume-in-place.sh').read_text().splitlines()
+                       if line.startswith('COPYFILE_DISABLE=1 tar '))
+        handoff.subprocess.run(['/bin/sh', '-c', command], check=True, capture_output=True,
+                               env={**os.environ, 'root': str(ROOT), 'tmp': str(self.root)})
+        with tarfile.open(self.root / 'factory.tgz') as archive:
+            for name in ('factory/runner_supervisor.py', 'bin/processes.py'):
+                self.assertEqual(archive.extractfile(name).read(), (ROOT / name).read_bytes())
+        home = self.root / 'worker'; bench = home / 'unbug-bench'
+        (bench / 'bin').mkdir(parents=True)
+        (bench / 'bin/processes.py').write_text("raise AssertionError('stale helper imported')\n")
+        shutil.copy2(self.root / 'factory.tgz', home / 'factory.tgz')
+        extraction = next(line for line in (ROOT / 'factory/resume-in-place.sh').read_text().splitlines()
+                          if line.startswith('rm -rf ~/factory && tar '))
+        # Decode the remote double-quoted shell string; execute its real staging line.
+        extraction = extraction.replace('\\$', '$').replace('\\"', '"')
+        env = {**os.environ, 'HOME': str(home), 'BENCH': str(bench)}
+        handoff.subprocess.run(['/bin/sh', '-c', extraction], check=True, env=env, capture_output=True)
+        code = """import runpy
+from pathlib import Path
+from unittest.mock import patch
+s=runpy.run_path('factory/runner_supervisor.py'); p=s['processes']
+with patch.object(p, 'prepare_model_containment', side_effect=p.ContainmentError('containment_unavailable')) as prepare:
+ assert s['supervise'](['must-not-run'], Path.home(), 10) == 78
+ prepare.assert_called_once_with(Path.home())
+print(p.__file__)
+"""
+        result = handoff.subprocess.run([sys.executable, '-I', '-c', code], cwd=home, env=env,
+                                       check=True, capture_output=True, text=True)
+        self.assertEqual(Path(result.stdout.strip()), bench / 'bin/processes.py')
+        status = json.loads((home / 'sealed/runner-status.json').read_text())
+        self.assertEqual((status['attempt'], status['reason']), (0, 'containment_unavailable'))
+        self.assertEqual((bench / 'bin/processes.py').read_bytes(), (ROOT / 'bin/processes.py').read_bytes())
 
     def test_parked_failure_status_reaches_entrypoint(self):
         with patch.object(sys, 'argv', ['handoff', 'parked', '--policy', 'policy', '--job', 'canary', '--worker', 'owned']), \

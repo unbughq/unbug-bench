@@ -471,7 +471,7 @@ import json
 status = home + "/sealed/runner-status.json"
 if os.path.isfile(home + "/sealed/DONE"):
     print("DONE")
-elif os.path.isfile(status) and (lambda s: s.get('reason') == 'startup_failed' or s.get('phase') in ('finished', 'stopped'))(json.load(open(status))):
+elif os.path.isfile(status) and (lambda s: s.get('reason') in ('startup_failed', 'containment_unavailable') or s.get('phase') in ('finished', 'stopped'))(json.load(open(status))):
     print("STARTUP_FAILED")
 else:
     paths = [home + "/.boat-launch-start"] + glob.glob(home + "/sealed/*.continuation-budget.json")

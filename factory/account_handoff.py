@@ -229,9 +229,12 @@ def worker_resume(case, bench_sha, args, account_state=None):
         env['OPENROUTER_API_KEY'] = (SECRETS / 'openrouter-key').read_text().rstrip('\n')
     env.update(FACTORY_ACCOUNT_STATE=json.dumps(state), OPENCODE_DISABLE_AUTOUPDATE='1',
                FACTORY_DEFER_WIPE='1', FACTORY_OPENCODE_BIN='/usr/local/bin/opencode')
+    env.setdefault('FACTORY_RUNNER_SECONDS', '14400')
+    env.setdefault('FACTORY_RUNNER_GRACE_SECONDS', '720')
     (home / 'sealed/DONE').unlink(missing_ok=True)
     with (home / 'sealed/scorecard.stdout').open('w') as output:
-        subprocess.Popen(['python3', str(home / 'factory/run.py'), '--resume', case,
+        subprocess.Popen(['python3', str(home / 'factory/runner_supervisor.py'), '--',
+                          'python3', str(home / 'factory/run.py'), '--resume', case,
                           '--resume-bench-sha', bench_sha, *args], env=env, stdin=subprocess.DEVNULL,
                          stdout=output, stderr=subprocess.DEVNULL, start_new_session=True)
 
