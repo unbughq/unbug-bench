@@ -203,3 +203,7 @@ branch took 172.9 seconds under high shared-host load. The 1200-second whole-exa
 target was an underestimate. Record the complete method timing during the locked
 full suite; retain the parent-approved 7200-second suite timeout after acquisition.
 No cap, admission or evidence assertion is reduced to meet the estimate.
+
+The qualifying parallel suite measured the complete integration method at
+1031.829 seconds (21 branches), within the original target on that run. The full
+suite took 2559.1 seconds and passed 184 scripts with zero failures.

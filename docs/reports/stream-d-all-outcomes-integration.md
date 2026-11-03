@@ -1,7 +1,7 @@
 # Fresh-batch all-outcomes integration
 
-Implementation and qualification are in progress. No full-suite or diff-review
-pass is claimed yet.
+Implementation and the full suite have passed. Fresh diff review remains
+required; no review approval is claimed yet.
 
 The new `tests/factory/test_stream_d_all_outcomes.py` joins real installed batch
 policy, ordinary capture, infrastructure exhaustion, accounting finalization,
@@ -64,3 +64,19 @@ locked full suite to avoid duplicating this expensive chain.
 Pending the detached plain-lockf full suite and fresh diff review (maximum two
 rounds). The suite timeout is 7200 seconds after lock acquisition; queue time is
 excluded.
+
+### Qualifying full suite
+
+- Tested head: `dc20f2bebde9ab0db290d9b3205554fd7e9a096d`.
+- Tested tree: `f3d5f816709ac5c6694f2c7aa9cac3fdc0cc4af6`.
+- `stream-d-all-outcomes-suite-20261103T184631Z-1d900730.{json,log}`:
+  **184 scripts, 0 failed, exit 0**, 2559.1 seconds after lock acquisition.
+- The complete integration method passed all 21 branches in **1031.829 seconds**,
+  within the original 1200-second target on this run. The earlier focused timing
+  showed the estimate is sensitive to shared-host load.
+- Plain detached `lockf`, unlimited lock wait, 7200-second execution timeout;
+  parallel runner `74dc5c7` merged at `bfe2a19`, no test pass cache.
+- The serial run was superseded at the parent's request. The first parallel run
+  was accidentally killed by the parent's host-wide pkill. Both records are
+  non-qualifying interruptions, not test failures.
+- Parent explicitly accepted this runner/head without merging `281bf20`.

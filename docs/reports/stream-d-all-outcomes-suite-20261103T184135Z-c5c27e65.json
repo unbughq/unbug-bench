@@ -15,7 +15,7 @@
   "run_seconds": 110.2,
   "exit_code": 143,
   "qualification": "non-qualifying",
-  "interruption_reason": "Exited 143 after 110.2 seconds, with no test output and before timeout; termination source unknown. No surviving checkout test processes found.",
+  "interruption_reason": "Parent confirmed an accidental host-wide pkill of tests/run.py. Not a code or test failure; superseded by the passing retry.",
   "scripts": null,
   "failures": null,
   "log_sha256": "e55d5e90c4a84d29acf2f9741b027790a0be9960826145a08e3c943f05379edf",
