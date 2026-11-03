@@ -38,7 +38,8 @@ for independent test cleanup. Kill/procs/events are never mocked in these tests.
 The host macOS run passes three checks and explicitly skips eleven kernel tests.
 It is not the cgroup evidence. Existing synthetic budget/TLS tests explicitly
 disable containment at their emitter boundary; their scope remains unchanged.
-The production runtime always passes containment=True when user is None.
+The production runtime always passes containment=True when no isolated user is selected (including an
+empty user string, matching the existing UID setup/cleanup predicate).
 
 Initial kernel development found reused synthetic event IDs (missing_usage on
 the second call); the emitter now assigns each invocation a unique session ID.

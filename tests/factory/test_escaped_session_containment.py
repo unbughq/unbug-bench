@@ -98,7 +98,7 @@ class RefusalTests(unittest.TestCase):
                  and isinstance(n.func, ast.Name) and n.func.id == 'run_budgeted']
         self.assertEqual(len(calls), 1)
         value = next(k.value for k in calls[0].keywords if k.arg == 'containment')
-        self.assertEqual(ast.unparse(value), 'user is None')
+        self.assertEqual(ast.unparse(value), 'not user')
 
 
 @unittest.skipUnless(sys.platform == 'linux' and os.environ.get('O7_TEST_CGROUP_ROOT'),

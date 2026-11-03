@@ -36,7 +36,8 @@ class ModelRuntimeTests(unittest.TestCase):
                      mock.patch.object(model_runtime, 'run_budgeted',
                                        side_effect=model_runtime.BudgetError(label)) as process:
                     with self.assertRaisesRegex(model_runtime.BudgetError, label):
-                        runtime.call(c, ['claude/claude-opus-5-5'], 'synthetic', root, 'builder-1')
+                        runtime.call(c, ['claude/claude-opus-5-5'], 'synthetic', root, 'builder-1',
+                                     user='' if label == 'containment_unavailable' else None)
                 self.assertEqual(process.call_count, 1)
                 self.assertTrue(process.call_args.kwargs['containment'])
                 self.assertIn({'stage': 'model_containment', 'error': label}, c.card['cleanup_errors'])

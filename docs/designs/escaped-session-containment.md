@@ -192,3 +192,8 @@ N4: stale default-off and process-only refusal wording has been removed. N5:
 runtime card entries are {'stage': 'model_containment', 'error': label}, for
 containment_unavailable or cancellation_failed. These labels hard-stop routing.
 The parent authorizes implementation and at most two fresh diff review rounds.
+
+Implementation clarification: containment uses the same `if user` predicate as
+UID setup and cleanup. An empty user string therefore stays contained; only a
+truthy isolated-user selection takes the UID path. This closes an accidental
+empty-string bypass, without changing the isolated-UID acceptance scope.
