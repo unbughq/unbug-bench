@@ -3948,7 +3948,9 @@ implementation completes retained G1/early/saved-cheat rejections without stress
 or gate rerolls, with all package stages unreached and private terminal proof.
 Subsequent close-to-passing retires through the verified no-progress branch before
 comparison/admission. Implementation 108e65f passes the locked full suite: 181
-scripts / 0 failures. Fresh diff review pending. No Murphy
+scripts / 0 failures. Fresh Claude diff review round 1 PASS:
+`docs/reviews/stream-d-writer-rejection-terminal-diff-1.md`. This terminal slice is
+complete for handback; item 7 remains open. No Murphy
 rows close. Partial/legacy first-entry reconstruction and final all-outcomes
 integration (including successful irrelevant-edit progress checks) remain open.
 Lane 1 factory-bug return target is merged in ff31d87. Founder has replaced item 8
