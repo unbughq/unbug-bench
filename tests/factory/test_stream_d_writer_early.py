@@ -77,13 +77,14 @@ class EarlyWriterTests(unittest.TestCase):
         return package.run(self.c, run, self.prev, 1)
 
     def held(self):
-        with self.assertRaisesRegex(budget.BudgetError, '^extension_execution_pending$'): self.package()
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_incomplete$'): self.package()
 
     def observation(self, stage):
         data = self.records.load(stage)
         self.assertIs(data['ok'], False)
-        self.assertEqual(data['info']['writer_observation']['feedback'], self.saved()['validation_problems'])
-        self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
+        if self.saved()['phase'] == 'validated':
+            self.assertEqual(data['info']['writer_observation']['feedback'], self.saved()['validation_problems'])
+        self.assertIsNotNone(extensions.read(self.c)[-1]['outcome'])
         self.assertFalse((self.records.root / 'stress').exists())
         return data
 
@@ -126,7 +127,7 @@ class EarlyWriterTests(unittest.TestCase):
         self.assertTrue(any(tag == 'early-g6-cheat' for tag, _ in self.transports))
         for path in (self.records.root / 'G6', self.work / 'gate-cache/G6.json'):
             self.assertFalse(path.exists())
-        self.assertNotIn('G6', self.c.early)
+        self.assertNotIn('G6', getattr(self.c, 'early', {}))
         proof = [self.work / name for name in data['support'] if name.endswith('early-g6-cheat.execution.json')]
         self.assertEqual(json.loads(proof[0].read_text()), execution('reference'))
         before = (self.records.root / 'saved-cheats/record.json').read_bytes()
@@ -146,9 +147,9 @@ class EarlyWriterTests(unittest.TestCase):
         self.checkpoint.side_effect = fail_sample
         self.held(); data = self.observation('saved-cheats')
         self.assertIsNone(data['info']['summary'])
-        self.c.card['early_gates']['saved_cheats'] = {'ok': True}
+        self.c.card['early_gates'] = {'saved_cheats': {'ok': True}}
         self.held()
-        self.assertNotIn('saved_cheats', self.c.card['early_gates'])
+        self.assertNotIn('early_gates', self.c.card)
 
     def test_after_publication_skips_g1_and_every_early_call_with_requested_two_workers(self):
         original = package.Records.save
@@ -166,15 +167,16 @@ class EarlyWriterTests(unittest.TestCase):
         self.g1.side_effect = self.early.side_effect = AssertionError('replayed check')
         self.checkpoint.side_effect = AssertionError('replayed checkpoint')
         self.pipeline.check = Mock(side_effect=AssertionError('replayed setup'))
+        self.assertEqual(self.records.replay_writer_early(), expected)
+        self.assertEqual(self.c.card['early_gates']['G5'], {'ok': False, 'minutes': 0})
         for _ in range(2):
             self.held()
             self.assertEqual(path.read_bytes(), before)
             self.assertEqual((self.work / 'attack-state.json').read_bytes(), receipt)
-            self.assertEqual(self.records.replay_writer_early(), expected)
             self.assertEqual(self.c.args.bench_workers, 2)
         self.assertEqual(self.calls, ['builder-9'])
-        self.assertEqual(self.c.early, {})
-        self.assertEqual(self.c.card['early_gates']['G5'], {'ok': False, 'minutes': 0})
+        self.assertFalse(hasattr(self.c, 'early'))
+        self.assertNotIn('early_gates', self.c.card)
 
     def test_before_publication_keeps_ordinary_path(self):
         with patch.object(package.Records, 'save', side_effect=runtime.Killed):
@@ -201,7 +203,7 @@ class EarlyWriterTests(unittest.TestCase):
 
     def test_pending_and_sample_exceptions_publish_nothing(self):
         self.pipeline.check = Mock(return_value=(False, {'classification': 'invalid-infra'}))
-        self.held()
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_execution_pending$'): self.package()
         self.assertFalse(self.records.root.exists())
         # Fresh real sample invocation; failure propagates without callback.
         self.cheats()
@@ -216,7 +218,10 @@ class EarlyWriterTests(unittest.TestCase):
         self.assertFalse(self.records.root.exists())
 
     def test_support_case_version_and_metadata_refusals_precede_work(self):
-        self.held(); data = self.observation('G5')
+        import extension_writer_rejection as rejection
+        with patch.object(rejection, 'complete', return_value=False):
+            with self.assertRaisesRegex(budget.BudgetError, '^extension_execution_pending$'): self.package()
+        data = self.records.load('G5')
         self.g1.side_effect = self.early.side_effect = AssertionError('refusal executed')
         support = self.work / next(iter(data['support']))
         original = support.read_bytes()
@@ -231,7 +236,9 @@ class EarlyWriterTests(unittest.TestCase):
         draft.write_bytes(b'changed')
         with self.assertRaisesRegex(budget.BudgetError, '^extension_snapshot_changed$'): self.package()
         draft.write_bytes(original_draft)
-        with patch.object(gate_state, 'scientific_version', return_value='d' * 64): self.held()
+        with patch.object(gate_state, 'scientific_version', return_value='d' * 64):
+            with self.assertRaisesRegex(budget.BudgetError, '^extension_comparison_pending$'):
+                self.records.replay_writer_early()
         path = self.records.root / 'G5/record.json'; envelope = json.loads(path.read_text())
         for change in ('pass', 'metadata', 'workers'):
             modified = copy.deepcopy(envelope)

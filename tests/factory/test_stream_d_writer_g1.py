@@ -1,7 +1,7 @@
 """Real saved-practice G1 rejection through admitted writer completion.
 
 The writer output/usage acknowledgement are authored external controls. No
-stress/model/Docker worker runs. Terminal outcome completion is a later slice.
+stress/model/Docker worker runs. Terminal outcomes retain those same observations.
 """
 import json
 from pathlib import Path
@@ -43,7 +43,7 @@ class WriterG1Tests(unittest.TestCase):
         return package.run(self.c, run, self.prev, 1)
 
     def held(self):
-        with self.assertRaisesRegex(budget.BudgetError, '^extension_execution_pending$'):
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_incomplete$'):
             self.package()
 
     def rejected(self):
@@ -57,10 +57,11 @@ class WriterG1Tests(unittest.TestCase):
             saved = next(self.work / p for p in data['support'] if p.endswith('/case/' + name))
             self.assertEqual(saved.read_bytes(), (self.case / name).read_bytes())
         self.assertFalse((self.records.root / 'stress/record.json').exists())
-        self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
-        self.assertEqual(self.saved()['phase'], 'validated')
-        self.assertEqual(self.saved()['stop_reason'], 'rounds_exhausted')
-        self.assertIs(self.saved()['exhausted'], True)
+        self.assertIsNotNone(extensions.read(self.c)[-1]['outcome'])
+        if self.saved()['phase'] == 'validated':
+            self.assertEqual(self.saved()['stop_reason'], 'rounds_exhausted')
+            self.assertIs(self.saved()['exhausted'], True)
+        else: self.assertEqual(self.saved()['phase'], 'completed')
         self.early.assert_not_called()
         return data
 
@@ -112,7 +113,7 @@ class WriterG1Tests(unittest.TestCase):
             run.write_and_attack(self.c, self.prev, extension_id=1)
         self.assertFalse(self.path.exists())
         self.g1.side_effect = AssertionError('legacy G1 inferred')
-        self.held()
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_execution_pending$'): self.package()
         self.assertFalse(self.path.exists())
         self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
         self.assertEqual(self.calls, ['builder-9'])
@@ -125,6 +126,14 @@ class WriterG1Tests(unittest.TestCase):
         self.assertEqual(self.calls, ['builder-9', 'attacker-9'])
         self.early.assert_called_once()
         self.assertFalse(self.path.exists())
+
+    def test_false_without_problems_continues_without_rejection_record(self):
+        self.g1.side_effect = None
+        self.g1.return_value = False, {'problems': []}  # Authored non-rejection control.
+        with patch.object(package, 'stress', side_effect=budget.BudgetError('test_stress_handoff')):
+            with self.assertRaisesRegex(budget.BudgetError, '^test_stress_handoff$'): self.package()
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.calls, ['builder-9', 'attacker-9'])
 
     def test_pending_and_exception_controls_keep_original_result(self):
         for result in ((False, {'error': 'authored pending'}),
@@ -168,7 +177,7 @@ class WriterG1Tests(unittest.TestCase):
             self.records.writer_g1(self.c, invoke)
         invoke.assert_not_called()
 
-    def test_package_version_drift_keeps_existing_handoff_label(self):
+    def test_package_version_drift_completes_historical_rejection(self):
         original = package.Records.save
         def killed(records, *args):
             original(records, *args)

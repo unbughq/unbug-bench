@@ -48,6 +48,20 @@ def project(card):
     return copy.deepcopy({k: v for k, v in card.items() if k not in EXCLUDED})
 
 
+def writer_feedback(stage, data):
+    if data is None or data['ok'] is not False: refuse()
+    info = data['info']
+    if stage == 'G1':
+        feedback = info.get('problems')
+    else:
+        observation = info.get('writer_observation')
+        if (not isinstance(observation, dict) or set(observation) != {'feedback', 'bench_workers'} or
+                type(observation['bench_workers']) is not int or observation['bench_workers'] < 1): refuse()
+        feedback = observation['feedback']
+    if not isinstance(feedback, list) or not feedback or any(not isinstance(p, str) or not p for p in feedback): refuse()
+    return copy.deepcopy(feedback)
+
+
 class Records:
     def __init__(self, c, r, row=None, *, observation_id=None, round_number=None, expected_versions=None):
         self.c, self.r, self.row = c, r, row
@@ -247,7 +261,9 @@ class Records:
         before = {k: gate_state.digest(p) for k, p in gate_state.inventory(c, self.r.BENCH).items()}
         card, case = project(c.card), self.r.case_hash(c)
         ok, info = invoke()
-        if ok is False and not comparison._pending(ok, info):
+        if (ok is False and not comparison._pending(ok, info) and
+                isinstance(info.get('problems'), list) and info['problems'] and
+                all(isinstance(p, str) and p for p in info['problems'])):
             if self.r.case_hash(c) != case: refuse()
             self.save('G1', ok, info, before, card)
         return ok, info
@@ -269,13 +285,8 @@ class Records:
         probe.args, probe.card = copy.deepcopy(c.args), copy.deepcopy(c.card)
         reader = Records(probe, self.r, self.row)
         data = reader.load(stage, check_version=False)
-        observation = data['info'].get('writer_observation')
-        if (data['ok'] is not False or not isinstance(observation, dict) or
-                set(observation) != {'feedback', 'bench_workers'} or
-                type(observation['bench_workers']) is not int or observation['bench_workers'] < 1 or
-                not isinstance(observation['feedback'], list) or not observation['feedback'] or
-                any(not isinstance(p, str) or not p for p in observation['feedback'])):
-            refuse()
+        feedback = writer_feedback(stage, data)
+        observation = data['info']['writer_observation']
         probe.args.bench_workers = observation['bench_workers']
         data = reader.load(stage)
         self.restore(stage, data)
@@ -288,7 +299,7 @@ class Records:
             else: markers['saved_cheats'] = copy.deepcopy(summary)
         else:
             markers[stage] = {'ok': False, 'minutes': 0}  # replay, not execution time
-        return copy.deepcopy(observation['feedback'])
+        return feedback
 
     def writer_early(self, c):
         retained = self.replay_writer_early()
@@ -476,6 +487,8 @@ def completed_route(c, row):
     if unchanged_outcome(c, r, row): return
     import extension_public_match as public
     if public.verified(c, r, row): return
+    import extension_writer_rejection as rejection
+    if rejection.verified(c, r, row): return
     data = Records(c, r, row).load('stress', check_version=False)
     if data is None: refuse('extension_outcome_changed')
 
@@ -493,15 +506,15 @@ def run(c, r, previous, number):
     if public.verified(c, r, row):
         if extensions.digest(extensions.tree(c.case)) != row['outcome']['case_sha256']: refuse()
         public.stop(c, row)
+    import extension_writer_rejection as rejection
+    if rejection.verified(c, r, row):
+        if extensions.digest(extensions.tree(c.case)) != row['outcome']['case_sha256']: refuse()
+        rejection.stop(c, row)
     records = Records(c, r, row)
     if not records.completed and records.load('stress') is None:
         if complete_unchanged(c, r, row): stop_unchanged(c, row)
         if public.complete(c, r, row): public.stop(c, extensions.read(c)[-1])
-        try:
-            if records.replay_writer_early() is not None: refuse('extension_execution_pending')
-        except BudgetError as error:
-            if str(error) == 'extension_comparison_pending': refuse('extension_execution_pending')
-            raise
+        if rejection.complete(c, r, row): rejection.stop(c, extensions.read(c)[-1])
         try:
             with public.capture(c, r, row):
                 r.write_and_attack(c, previous, extension_id=number,
@@ -514,6 +527,8 @@ def run(c, r, previous, number):
             if str(error) == 'stress_review_unresolved:unchanged_repair':
                 if complete_unchanged(c, r, row): stop_unchanged(c, row)
                 raise
+            if str(error) == 'stress_review_unresolved:rounds_exhausted':
+                if rejection.complete(c, r, row): rejection.stop(c, extensions.read(c)[-1])
             if str(error) not in ('extension_comparison_pending', 'stress_review_unresolved:rounds_exhausted'):
                 raise
     result = stress(c, r, records)
@@ -674,6 +689,8 @@ def subsequent_entry(c, r):
     if unchanged_outcome(c, r, row): refuse('retired_no_progress')
     import extension_public_match as public
     if public.verified(c, r, row): refuse('retired_no_progress')
+    import extension_writer_rejection as rejection
+    if rejection.verified(c, r, row): refuse('retired_no_progress')
     number = row['extension_id']
     def selected():
         pair, valid, retained = comparison.current_pair(c, number, r.BENCH, execution=EXECUTION)
