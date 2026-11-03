@@ -32,7 +32,7 @@ actor/phase/pending/round/report/completion-hash/scientific-binding checks.
 After parsing, before the existing clearance and unfinished-work hold, recognize
 only this conjunction:
 
-- `complete is True`, nonempty blocking list, and the existing
+- (`complete is True` or `result.get('status') == 'scored'`), nonempty blocking list, and the existing
   `r.freshness_only_clearance(result)['blocking']` is empty. Reuse that exact
   matcher; do not introduce a prose classifier. In particular, `review incomplete`
   and a request mixed with a genuine defect do not qualify.
@@ -132,6 +132,8 @@ diagnosis. Update missing/empty metadata expectations only after this review.
    no stress record or gate call. Assert reservations settled and usage retained.
    Require no hit/ambiguous rows in the saved case's `freshness.jsonl`; make
    `confirm_hits` raise AssertionError so no retrieval/reviewer can run.
+   Emit the request from `case_freshness` with that category incomplete through
+   REAL_CATEGORIES; assert aggregate complete=False, status='scored', retirement.
 2. Twice replay package execution, including a lagging card; report, receipt,
    history, ledger and model-call count remain unchanged. Run real accounting
    finalization; no pending diagnosis or scored outcome appears.
@@ -140,6 +142,7 @@ diagnosis. Update missing/empty metadata expectations only after this review.
    sentinel, unfinished validation/diagnostic and invalid-infrastructure
    negatives. Genuine mixed defect remains a stress failure; clean pass remains
    a pass. No broad limit is relaxed.
+   A re-hashed complete=False, status='pending' request-only report still holds.
 4. Assert recovery restart/holder rejection and public retired status for the
    resulting card. B `plan` must return exhaustion=False, pending_projection=None
    and an empty queue for both known and unknown totals. Assert aggregate(state),
@@ -148,7 +151,9 @@ diagnosis. Update missing/empty metadata expectations only after this review.
 5. Negative control: locally remove the retirement branch in a temporary source
    copy and show the positive integration test fails with the original hold.
 6. Request-only/no-metadata plus flagged freshness row: use real loop_freshness
-   with only confirm_hits authored to exclude. Valid clearance passes stress and
+   and confirm_hits with saved HTTP bytes and an authored external reviewer
+   exclusion answer, so production code creates and authenticates the proof.
+   Valid clearance passes stress and
    reaches gates. Tampering its proof keeps extension_execution_pending and no
    outcome. Test orphan writer artifact and dangling clearance symlink as holds.
 
@@ -160,3 +165,14 @@ with a 7200000 ms execution budget. Preserve timing failures and unchanged
 single-file reruns, never weaken limits. One fresh diff review, max two rounds.
 After design round 2 hand unresolved blockers to the parent in three lines;
 hand back immediately after diff pass, with pass or approval in commit subject.
+
+## Parent-approved after round 2
+
+The parent approved accepting complete=True OR status='scored' under the existing
+authenticated, validated, exhausted receipt and report-hash binding. The real
+category engine stops at the first blocker, including an incomplete case_freshness
+category; remaining coverage cannot change this unscored terminal disposition.
+Sentinel and mixed-defect exclusions stay. Exam 1 covers that exact category
+shape; exam 3 adds a pending-report negative. Unfinished diagnostic claims and
+unfinished_validation remain explicitly accepted residual holds even for this
+shape. No third design review; diff review checks these decisions.

@@ -23,6 +23,7 @@ STOPS = {None: 'stopped', 'complete': 'complete', 'paused': 'paused',
          'provider_wait': 'waiting for provider', 'provider_wait_unrecoverable': 'provider unavailable',
          'provider_wait_deadline': 'provider wait deadline', 'money_wait': 'waiting for money',
          'retired_factory_bug_limit': 'factory bug resume limit reached',
+         'retired_stress_request_only': 'stress reviewer request lacks freshness metadata',
          'retired_batch_bound': 'batch bound reached', 'ttl_retired': 'worker lifetime reached',
          'total_call_limit': 'historical call limit', 'call_limit': 'call limit',
          'stalled': 'stalled', 'budget_exhausted': 'budget exhausted',
@@ -139,7 +140,7 @@ def render(target, rows, workers, progress, *, now=None):
                     actions.append('launch stuck')
         elif phase == 'stopped':
             failed, stop = card.get('failed_gate'), card.get('terminal_stop')
-            if stop == 'retired_factory_bug_limit':
+            if stop in ('retired_factory_bug_limit', 'retired_stress_request_only'):
                 bucket, reason = 'retired', STOPS[stop]
             elif stop == 'factory_bug_held':
                 reason = STOPS[stop]
