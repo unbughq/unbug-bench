@@ -27,7 +27,12 @@ Boundary clarification: the unchanged history reader rejects symlinks with
 extension_snapshot_invalid before terminal code runs. The terminal verifier maps
 its own malformed proof to extension_snapshot_changed. Both are tested explicitly.
 
-Full locked suite and fresh diff review pending. No Murphy rows close. No activation,
+Implementation 108e65f passes the locked full suite: 181 scripts / 0 failures,
+exit 0, elapsed 2594.9 seconds. Record/log:
+`stream-d-writer-rejection-suite-20261103T061322Z-d7384b24.{json,log}`.
+Tested tree: `a81978f2a099aee2fdbc77cca1d769155e30a928`.
+Log SHA-256: `ebe416c8bf651e97db228f5d7fa0f05db3a89a95601708fbb4b3b6d1206ce435`.
+Focused tests: 34 pass. Fresh diff review pending. No Murphy rows close. No activation,
 limits, attribution, normal gate-version or snapshot schema changes. Remaining:
 partial/legacy first-entry reconstruction (6–10h), then final all-outcomes integration
 (4–6h), including successful irrelevant-edit progress checks. Lane 1's return target

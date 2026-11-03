@@ -3947,7 +3947,8 @@ Design stream-d-writer-rejection-terminal.md passes fresh review round 2. The
 implementation completes retained G1/early/saved-cheat rejections without stress
 or gate rerolls, with all package stages unreached and private terminal proof.
 Subsequent close-to-passing retires through the verified no-progress branch before
-comparison/admission. Full locked suite and fresh diff review pending. No Murphy
+comparison/admission. Implementation 108e65f passes the locked full suite: 181
+scripts / 0 failures. Fresh diff review pending. No Murphy
 rows close. Partial/legacy first-entry reconstruction and final all-outcomes
 integration (including successful irrelevant-edit progress checks) remain open.
 Lane 1 factory-bug return target is merged in ff31d87. Founder has replaced item 8
