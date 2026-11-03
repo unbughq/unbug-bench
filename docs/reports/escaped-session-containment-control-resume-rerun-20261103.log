@@ -1,0 +1,144 @@
+.......F/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/case.py:704: ResourceWarning: unclosed file <_io.TextIOWrapper name=7 encoding='UTF-8'>
+  function, args, kwargs = self._cleanups.pop()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/case.py:704: ResourceWarning: unclosed file <_io.TextIOWrapper name=5 encoding='UTF-8'>
+  function, args, kwargs = self._cleanups.pop()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+FF.FE...........
+======================================================================
+ERROR: test_scan_resumes_abandoned_launch (__main__.ControlResumeTests.test_scan_resumes_abandoned_launch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/test_control_resume.py", line 242, in test_scan_resumes_abandoned_launch
+    result=subprocess.run(['sh',str(self.f.root/'factory/launch.sh'),'--resume-launches'],
+        input='synthetic identity\n',text=True,capture_output=True,env=self.env,timeout=20)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['sh', '/private/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/tmp54iiqahz/host/factory/launch.sh', '--resume-launches']' timed out after 20 seconds
+
+======================================================================
+FAIL: test_killed_after_deletion_before_spend_finish (__main__.ControlResumeTests.test_killed_after_deletion_before_spend_finish)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/test_control_resume.py", line 209, in test_killed_after_deletion_before_spend_finish
+    self.abandon('before-spend-finish'); self.run_resume(); self.assert_finished(handoffs=0)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/test_control_resume.py", line 146, in abandon
+    self.fail('controller did not reach '+phase+': '+p.stderr.read())
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: controller did not reach before-spend-finish: launch abandoned: /private/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/tmp1g2g7b_j/control/launches/abandoned
+not auto-resumed: stop needs a repair or budget decision
+
+
+======================================================================
+FAIL: test_killed_before_admission_handoff (__main__.ControlResumeTests.test_killed_before_admission_handoff)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/test_control_resume.py", line 130, in run_resume
+    try: out,err=p.communicate('synthetic identity\n',timeout=20)
+                 ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['sh', '/private/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/tmp9m42fp4c/host/factory/launch.sh', '--resume-launch', 'abandoned']' timed out after 20 seconds
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/test_control_resume.py", line 189, in test_killed_before_admission_handoff
+    self.abandon('before-admission'); self.run_resume(); self.assert_finished()
+                                      ~~~~~~~~~~~~~~~^^
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/test_control_resume.py", line 134, in run_resume
+    self.fail('resume timed out: '+err)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: resume timed out: launch abandoned: /private/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/tmp9m42fp4c/control/launches/abandoned
+worker-owned: resumed case-selected in place (transient retries 0/3; separate admission handoffs; original ceilings and TTL)
+
+
+======================================================================
+FAIL: test_live_owner_excludes_second_controller (__main__.ControlResumeTests.test_live_owner_excludes_second_controller)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/test_control_resume.py", line 130, in run_resume
+    try: out,err=p.communicate('synthetic identity\n',timeout=20)
+                 ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['sh', '/private/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/tmp0jknz4wj/host/factory/launch.sh', '--resume-launch', 'abandoned']' timed out after 20 seconds
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/test_control_resume.py", line 235, in test_live_owner_excludes_second_controller
+    self.run_resume(); self.assert_finished()
+    ~~~~~~~~~~~~~~~^^
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/test_control_resume.py", line 134, in run_resume
+    self.fail('resume timed out: '+err)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: resume timed out: launch abandoned: /private/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/tmp0jknz4wj/control/launches/abandoned
+
+
+======================================================================
+FAIL: test_recycled_pid_does_not_own_launch (__main__.ControlResumeTests.test_recycled_pid_does_not_own_launch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/test_control_resume.py", line 130, in run_resume
+    try: out,err=p.communicate('synthetic identity\n',timeout=20)
+                 ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['sh', '/private/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/tmpbs29jx2n/host/factory/launch.sh', '--resume-launch', 'abandoned']' timed out after 20 seconds
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/test_control_resume.py", line 239, in test_recycled_pid_does_not_own_launch
+    self.run_resume(); self.assert_finished()
+    ~~~~~~~~~~~~~~~^^
+  File "/Users/bugsincode/.t3/worktrees/unbug-bench/t3-7224aba9/tests/factory/test_control_resume.py", line 134, in run_resume
+    self.fail('resume timed out: '+err)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: resume timed out: launch abandoned: /private/var/folders/wy/9m9k8zxx55dbm7_s_xqfmc7c0000gn/T/tmpbs29jx2n/control/launches/abandoned
+worker-owned: resumed case-selected in place (transient retries 0/3; separate admission handoffs; original ceilings and TTL)
+not auto-resumed: stop needs a repair or budget decision
+deleted worker-owned
+
+
+----------------------------------------------------------------------
+Ran 24 tests in 198.421s
+
+FAILED (failures=4, errors=1)

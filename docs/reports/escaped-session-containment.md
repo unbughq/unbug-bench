@@ -60,13 +60,34 @@ negative log shows the mutation and expected failing assertion.
 
 ## Full suite and review
 
-The exact suite command is queued under the shared lock:
+The exact suite command runs under the shared lock:
 
 ```
 lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py
 ```
 
-Final result and diff review will be recorded here before handback. Logs use the
+The first full run completed 181 scripts with one failure: a synthetic router
+emitter invoked run_budgeted through an alias and had missed the explicit
+containment=False migration. The test-only adapter was corrected in 29cad10;
+its standalone rerun passed all 42 tests. This was not a timing failure. The
+complete first log is retained. The next command exited 2 before tests because
+uv could not resolve pypi.org; the unchanged exact command was retried.
+
+The final full run completed 181 scripts with ONE failure: control-resume's
+unchanged ten-second readiness guard did not observe after-handoff-reserved.
+The router file passed all 42 tests in this run. An unlocked control-resume
+rerun, while the full run was still active, hit four readiness/completion
+failures and one timeout error. Running that unchanged file alone under the
+shared lock then PASSED all 24 tests in 113.585 seconds. Its ten/twenty-second
+limits were not changed. The first full run had also passed its 24 tests on the
+same production source. This is the user's timing-only rerun procedure; it is
+NOT a claim that the final full invocation exited zero. All outputs are retained.
+
+Locked single-file command (BENCH matches tests/run.py's environment):
+`BENCH="$PWD" lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/factory/test_control_resume.py`.
+
+Tested source is 29cad10; subsequent evidence/review commits change only docs.
+Fresh diff review is pending. Logs use the
 escaped-session-containment prefix; their hashes/source hashes are in the final
 evidence JSON. The suite waited for other agents and did not run concurrently
 outside the lock. No timing limit was weakened.
