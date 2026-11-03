@@ -223,3 +223,20 @@
 - Holder/restart timer remain stopped; no launch or provider request made during this handoff. Cleanup retained armed from prior abort.
 - Practice spend remains models $0 and infrastructure $0; no worker created. Disconnect window not entered.
 - Evidence recorded UTC: 2026-11-02T13:56:55.393173+00:00.
+
+## Parent-authorized rewrapped bundle resumption
+
+- Parent confirmation: rewrapped bundle has two recipients; mode 600.
+- Observation UTC: 2026-11-03T08:12:56.143767+00:00.
+- Bundle decryption: pass.
+- Codex lifetime guard (60-minute TTL plus pinned margin): pass.
+- Live entry observation UTC: 2026-11-03T08:15:07.951138+00:00.
+- Step 1: pass; auto top-up OFF remains founder-confirmed.
+- Boat credit: $4.17157.
+- Pin/router check UTC: 2026-11-03T08:18:10.251384+00:00.
+- New practice pin hashes: pass; router check: pass.
+- Deployment observation UTC: 2026-11-03T08:20:18.034758+00:00.
+- Approved pinned deployment: refused; source b75c9b45b020e2ba4996ef83ee834c183d38c35f.
+- Deployment refusal occurred before a verified completion result; service transitions were not reverified after refusal. No journal or ledger reset was attempted. The old failed launch remains retained.
+- Status: STOP at deployment refusal. Models $0; infrastructure $0; no new worker or admission.
+- Parent stop rule applied: no further live calls after deployment refusal. New operation/worker IDs: none. Models $0; infrastructure $0; no new deletion required or claimed.
