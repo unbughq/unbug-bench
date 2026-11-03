@@ -35,7 +35,9 @@ Design reviews 1 and 2 are saved in docs/reviews/stream-d-capture-recovery-desig
 The parent approved B3 after round 2: narrow the success exam to a one-shot G1
 post-rename failure, allow verification sync, assert closed.json; keep the
 persistent failure separately pending. O1/O2 are applied and O3 accepted as scoped.
-There is no design round 3. A fresh diff review remains required.
+There is no design round 3. Fresh diff review round 1 passes with no blockers;
+saved verbatim in docs/reviews/stream-d-capture-recovery-diff-1.md. Four optional
+findings remain recorded as non-blocking follow-ups. No code changed after review.
 
 No Murphy rows close. Activation, money limits, scientific versions and snapshot
 schema are unchanged. Retired/pre-schema adapters are excluded. Genuinely absent

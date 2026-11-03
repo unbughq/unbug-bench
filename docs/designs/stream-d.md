@@ -4000,4 +4000,5 @@ after design round 2 (B3 one-shot ACK exam plus separate persistent failure).
 The implementation retries proof publication only, at most twice, and preserves
 intact renamed records. It never reconstructs card-only scores or reruns gates.
 Permanent absent/corrupt proof remains held. Implementation 32235e9 passes the
-full locked suite (182 scripts / 0 failures); fresh diff review remains required. No Murphy rows close; final all-outcomes integration follows.
+full locked suite (182 scripts / 0 failures); fresh diff review round 1 passes
+(stream-d-capture-recovery-diff-1.md). No Murphy rows close; final all-outcomes integration follows.
