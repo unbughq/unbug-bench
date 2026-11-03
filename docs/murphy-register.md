@@ -4,6 +4,8 @@ Every known way a factory batch can stop, hang, or produce a wrong result. Sourc
 
 Rules: see `docs/ENGINEERING.md` section 2. A row is **closed** only when a test on real artifacts proves it. New failures seen in real runs are added here before they are fixed.
 
+Current implementation, pilot relevance and remaining launch gates: [Factory readiness scoreboard](reports/murphy-scoreboard.md). An open row may already have code and still lack integration or real qualification; this link does not change any closure.
+
 Workstreams: **A** smart router · **B** control VM owns the batch · **C** broken runs never scored · **D** caps, resume and diagnosis · **E** timeouts, isolation and hangs · **F** parallel admission (folded into B).
 
 | # | Stage and failure | Evidence | Today | Likelihood / impact | Fix | Router | Stream | Status | Closed by (test) |
