@@ -152,3 +152,20 @@ message assertions pass. This run uses no lockf and no test-limit changes.
 Fresh diff review round 2 of 2 is the remaining startup gate. Earlier failed
 and interrupted runs remain non-qualifying evidence; settlement still awaits
 its own separate review. No live state was changed.
+
+## Handback validation after cache removal
+
+Claude diff review round 2 passed with no blockers or majors; saved verbatim in
+docs/reviews/practice-startup-error-diff-2.md. Optional nits remain open.
+Parent-required parallel-tests 74dc5c7 merged at d3852e649dc074d5d056b5bb3b972c3da46f61fb.
+The exact merged head passed the cache-free full suite: 185 scripts, zero failed,
+exit 0, 2026-11-03T18:44:19Z to 19:18:35Z. No lockf or pass-cache reuse.
+Record: practice-startup-error-suite-20261103T184419Z-2b586448.json and .log.gz.
+Source tree and both log hashes checked; real Docker success marker confirmed.
+Only documentation/evidence is committed after that tested head.
+Both new-practice-startup-1 and new-practice-startup-2 closures were independently
+confirmed by Claude. Missing continuation-budget accounting remains the early
+crash consequence; no accounting evidence was invented or released.
+No live calls, re-pin, preflight-area edits, or practice retry were performed.
+Startup merges first; the founder's separate preflight branch rebases and merges
+next, before any retry. Boat settlement 0292abc still requires separate review.
