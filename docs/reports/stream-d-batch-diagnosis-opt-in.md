@@ -102,3 +102,16 @@ acquisition, around the unchanged uv suite command. Record acquisition time and
 the exact Python timeout wrapper in the JSON for audit. No production or test
 source changes; parent-approved mechanical migration remains exactly four
 contexts and unused-import cleanup. No round-2 review is started.
+
+Completed combined-tree suite ...T150658Z-4f0a84c0: 182 scripts, 1 failed,
+exit 1. All four migrated-context test files ran; the only failing file was
+unchanged test_model_call_maxima.py. In one protocol subcase its immediate
+post-cancellation assertion saw the synthetic child in macOS state U rather
+than absent/zombie, so the test's assertion became usage_monitor:AssertionError.
+The test, model_runtime.py, budget.py, run.py and model_router.py are unchanged
+relative to the accepted 7dbdc58 base. No opt-in helper is in the failure stack.
+The exact single method passed on targeted recheck (1 test, 15.391 seconds).
+This suggests a transient process-state assertion; it does not waive the 182/1
+result or prove a quiet-host full suite. Structured recheck record is retained.
+No production or test source changed. Retry the plain-lockf combined-tree gate
+with the same two-hour execution budget after acquisition. No extra review.

@@ -1,0 +1,11 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/factory/test_model_call_maxima.py ProtocolTests.test_real_process_tls_cancellation_settles_unknown_once",
+  "head": "bc3c8a727bbc468c9498cfb57ee9f0f84cbf6761",
+  "exit_code": 0,
+  "tests": 1,
+  "seconds": 15.391,
+  "recorded_at": "2026-11-03T17:25:06.722884+00:00",
+  "evidence": "native exec session 27038 completion chunk 724b56",
+  "qualification": "Targeted offline recheck only; not a quiet-host full-suite result",
+  "changes": "No production or test source change"
+}
