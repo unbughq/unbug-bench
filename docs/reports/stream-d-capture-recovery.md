@@ -19,7 +19,11 @@ are frozen. Package capture and entry logic are unchanged.
 
 Focused entry run: 26 tests passed in 54.807s. The subsequent added verification
 exam and strengthened real-artifact byte check both passed (2 tests, 8.192s).
-The locked full suite remains pending. The tests use real
+The locked full suite passed: 182 scripts / 0 failures / exit 0. Record:
+`stream-d-capture-recovery-suite-20261103T144440Z-9bc15f42.json` and matching `.log`.
+Tested head `32235e9f3da0c580267f80f396bff525fe0e67ac`, tree `6fcd4d9305effa3a11dc885422422bd3b6f3ef16`; log SHA-256
+`cf64192bab273831c92dc4386eb1b5f51f4d01f009b1f0269d55156f036a194d`. Queue 3595.2s, execution
+2828.8s. Plain detached lockf; 7200-second timeout starts after acquisition. The tests use real
 saved G4/G5 execution bytes with labelled external controls. New exams cover the
 parent-approved one-shot ACK and persistent sync cases, pre-rename copy retry,
 stress publication, RuntimeError boundaries, JSON normalization, copied G3 state,
