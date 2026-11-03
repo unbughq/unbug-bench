@@ -45,6 +45,8 @@ class BlockingStressTests(unittest.TestCase):
         self.use_legacy = False
         self.legacy_complete = False
         self.error = None
+        self.request_category = False
+        self.clearance_categories = False
         original = model_runtime.ModelRuntime._invoke
         def invoke(rt, c, models, text, cwd, name, **kwargs):
             if name == 'builder-9': return original(rt, c, models, text, cwd, name, **kwargs)
@@ -64,6 +66,12 @@ class BlockingStressTests(unittest.TestCase):
                 target = Path(config['category_output'])
                 value.update(category=config['category'], category_complete=False,
                              completed_subchecks=[config['required_subchecks'][0]])
+                if self.request_category and config['category'] == 'wrong_fixes':
+                    value.update(blocking=[], category_complete=True,
+                                 completed_subchecks=config['required_subchecks'])
+                if self.clearance_categories:
+                    value.update(category_complete=True, completed_subchecks=config['required_subchecks'],
+                                 blocking=self.blocking if config['category'] == 'v2_strategies' else [])
             registry.atomic_json(target, value)
             if self.error is not None: raise self.error
             return 0
@@ -197,7 +205,7 @@ class BlockingStressTests(unittest.TestCase):
                     package.stress(self.c, run, package.Records(self.c, run, extensions.active(self.c)))
                 self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
 
-    def test_request_only_with_missing_or_empty_metadata_deliberately_holds(self):
+    def test_request_only_missing_empty_metadata_retires_but_nonempty_holds(self):
         receipt = self.prepared()
         self.assertTrue(receipt['exhausted']); self.assertFalse(receipt['review_pending'])
         (self.work/'diagnostic-budgets/attacker-9/claimed').unlink()
@@ -206,9 +214,193 @@ class BlockingStressTests(unittest.TestCase):
             with self.subTest(metadata=metadata):
                 self.mutate_producer_input(dict(complete=True,
                     blocking=['[freshness-review] independent verdict required'], **metadata))
-                with self.assertRaisesRegex(budget.BudgetError, '^extension_execution_pending$'):
+                label = 'extension_execution_pending' if metadata.get('freshness_review') else 'retired_stress_request_only'
+                with self.assertRaisesRegex(budget.BudgetError, '^' + label + '$'):
                     package.stress(self.c, run, package.Records(self.c, run, extensions.active(self.c)))
                 self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
+
+    def request_only(self):
+        self.request_category = True
+        self.blocking = ['[freshness-review] independent verdict required']
+        self.unfinished = []; self.diagnostic = False
+        self.fresh.side_effect = REAL_FRESHNESS
+        # Authored no-flag boundary on saved practice bytes, before the writer.
+        rows = run.freshness_lines(self.c)
+        for row in rows: row.update(hit=False, ambiguous=False)
+        (self.case/'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+        self.assertFalse(any(row.get('hit') or row.get('ambiguous') for row in run.freshness_lines(self.c)))
+        self.patch(run, 'confirm_hits', side_effect=AssertionError('no requested retrieval'))
+
+    def test_real_case_freshness_request_retires_unscored_and_replays(self):
+        import diagnosis
+        import recovery
+        import batch_status
+        self.request_only()
+        self.c.card.update(failed_gate='G8', failed_detail={'stale': True},
+                           infrastructure_gate='G8', gates={'G8': 'fail'}, gate_results={'G8': {}})
+        with self.assertRaisesRegex(budget.BudgetError, '^retired_stress_request_only$'): self.package()
+        report = json.loads((self.work/'attacks/round-9.json').read_text())
+        self.assertFalse(report['complete']); self.assertEqual(report['status'], 'scored')
+        self.assertTrue(report['coverage']['wrong_fixes']['complete'])
+        self.assertFalse(report['coverage']['case_freshness']['complete'])
+        self.assertEqual(self.calls, ['builder-9', 'attacker-9', 'attacker-9'])
+        self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
+        self.assertFalse((self.work/'extension-package/1/stress/record.json').exists())
+        self.assertEqual(self.c.card['gates'], {}); self.assertEqual(self.c.card['gate_results'], {})
+        for key in ('failed_gate', 'failed_detail', 'infrastructure_gate'): self.assertNotIn(key, self.c.card)
+        paths = [self.work/'attack-state.json', self.work/'attacks/round-9.json',
+                 self.work/'extension-history.json', self.ledger]
+        before = [p.read_bytes() for p in paths]
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=AssertionError('paid replay')):
+            for _ in range(2):
+                self.c.card.pop('terminal_stop', None); self.c.card.pop('stress_review', None)
+                with self.assertRaisesRegex(budget.BudgetError, '^retired_stress_request_only$'): self.package()
+        self.assertEqual([p.read_bytes() for p in paths], before)
+        self.c.stopped = self.c.exhaustion_occurred = True
+        run.finalize_accounting(self.c)
+        state = copy.deepcopy(self.c.card['diagnosis_state'])
+        run.finalize_accounting(self.c)
+        self.assertEqual(self.c.card['diagnosis_state'], state)
+        self.assertEqual(state['status'], 'completed')
+        self.assertFalse(diagnosis.exhaustion(self.c.card))
+        self.assertIsNone(diagnosis.pending_projection(self.c.card))
+        ledger = json.loads(self.ledger.read_text())
+        self.assertTrue(all(v['state']=='settled' for v in ledger['invocation_reservations'].values()))
+        with self.assertRaises(ValueError): recovery.require_restart_stop(self.c.card, [])
+        with self.assertRaises(ValueError): recovery.require_holder_stop(self.c.card, [], 'case')
+        text = batch_status.render(3, [dict(case=self.c.case_id, card=self.c.card, phase='stopped')],
+                                   set(), {}, now=0)
+        self.assertIn('1 retired', text); self.assertIn('0 rejected', text)
+        self.assertIn('stress reviewer request lacks freshness metadata', text)
+        self.assertNotIn('unknown stop', text)
+        import batch_service
+        import diagnosis_dispatch
+        with patch.object(batch_service, 'DIAGNOSIS_ENABLED', True), \
+                patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=AssertionError('paid resume')):
+            number = diagnosis_dispatch.apply(self.c, self.work,
+                {'exhaustion_id': self.row['exhaustion_id']}, {'outcome': 'close_to_passing'}, resume=True)
+            self.assertEqual(number, 1)
+            with self.assertRaisesRegex(budget.BudgetError, '^retired_stress_request_only$'):
+                package.run(self.c, run, self.prev, number)
+        self.assertEqual([p.read_bytes() for p in paths], before)
+        self.check_batch_retirement()
+
+    def check_batch_retirement(self):
+        import batch_money as money
+        import batch_service as service
+        import diagnosis
+        from test_batch_service import ServiceTests
+        # Saved encrypted bytes are only a transport envelope, not a newly
+        # encrypted result; D projection consumes the actual produced card.
+        for total in (0.25, None):
+            with self.subTest(total=total):
+                f = ServiceTests(); f.setUp()
+                try:
+                    money_path = f.home/'batches/practice/money.json'
+                    with money.locked(f.home, 'practice') as directory:
+                        before = money.load_locked(directory, f.record, f.policy['batch']['manifest_sha256'])
+                        authority = money.authorize_locked(before, f.record, 'j', None)
+                        registry.atomic_json(money_path, before)
+                    card = f.input(total=total)
+                    for key in ('terminal_stop', 'status', 'gates', 'gate_results', 'stress_review',
+                                'diagnosis_state', 'extension_history', 'continuation_budget'):
+                        card[key] = copy.deepcopy(self.c.card[key])
+                    card.pop('failed_gate', None); card.pop('failed_detail', None)
+                    card['case_budget'] = {'total_spent_usd': total}
+                    f.write_card(card); f.collect()
+                    with patch.object(service, 'DIAGNOSIS_ENABLED', True):
+                        result = service.plan(f.policy, f.root, f.home, card['case'], card['sha256'])
+                    self.assertFalse(result['facts']['exhaustion'])
+                    self.assertIsNone(result['facts']['pending_projection']); self.assertEqual(result['queue'], [])
+                    after = json.loads(money_path.read_text())
+                    self.assertEqual(money.aggregate(after), money.aggregate(before))
+                    for key in ('held_usd', 'known_floor_usd', 'authority'):
+                        self.assertEqual(after['jobs']['j'][key], before['jobs']['j'][key])
+                    self.assertEqual(after['jobs']['j']['authority'], authority)
+                    self.assertEqual(service.card_total(card), None if total is None else '0.250000000')
+                finally: f.doCleanups()
+
+    def test_request_only_pending_and_unfinished_shapes_keep_hold(self):
+        self.request_only(); self.prepared()
+        base = dict(complete=False, status='scored', blocking=self.blocking, unfinished_validation=[])
+        for change in ({'status': 'pending'}, {'unfinished_validation': ['unfinished']},
+                       {'freshness_review': [None]}, {'blocking': self.blocking + ['review incomplete']}):
+            with self.subTest(change=change):
+                self.mutate_producer_input({**base, **change})
+                with self.assertRaisesRegex(budget.BudgetError, '^extension_execution_pending$'):
+                    package.stress(self.c, run, package.Records(self.c, run, extensions.active(self.c)))
+        self.mutate_producer_input(base, exhausted=False)
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_execution_pending$'):
+            package.stress(self.c, run, package.Records(self.c, run, extensions.active(self.c)))
+        self.mutate_producer_input({**base, 'classification': 'invalid-infra'}, exhausted=True)
+        with self.assertRaises(InvalidInfra):
+            package.stress(self.c, run, package.Records(self.c, run, extensions.active(self.c)))
+        self.mutate_producer_input(base)
+        folder = self.work/'diagnostic-budgets/attacker-9'; folder.mkdir(parents=True, exist_ok=True)
+        (folder/'claimed').touch()
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_execution_pending$'):
+            package.stress(self.c, run, package.Records(self.c, run, extensions.active(self.c)))
+        self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
+
+    def test_request_only_orphan_clearance_artifacts_never_retire(self):
+        self.request_only(); self.prepared()
+        for name, kind in [('round-9-writer.json', 'file'), ('round-9.clearance.json', 'file'),
+                           ('round-9.clearance.json', 'link'), ('round-9-writer.json', 'link')]:
+            path = self.work/'attacks'/name
+            with self.subTest(name=name, kind=kind):
+                if kind == 'link': path.symlink_to('absent-target')
+                else: path.write_text('{}')
+                with self.assertRaisesRegex(budget.BudgetError, '^extension_execution_pending$'):
+                    package.stress(self.c, run, package.Records(self.c, run, extensions.active(self.c)))
+                path.unlink()
+        self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
+
+    def test_missing_metadata_independent_clearance_passes_and_tampering_holds(self):
+        import freshness_retrieval
+        import test_scientific_receipts as artifacts
+        self.clearance_categories = True
+        self.blocking = ['[freshness-review] independent verdict required']
+        self.unfinished = []; self.diagnostic = False
+        self.fresh.side_effect = REAL_FRESHNESS
+        http = artifacts.fixture('invalid-runs-http.json.gz')
+        meta = json.loads((self.case/'case.json').read_text())
+        meta.setdefault('app', {})['version'] = '2.19.0'
+        registry.atomic_json(self.case/'case.json', meta)
+        rows = run.freshness_lines(self.c)
+        for row in rows: row.update(hit=False, ambiguous=False)
+        rows.append(dict(who='attacker', url=http['url'], app_version='2.19.0', hit=True,
+                         query='Authored flagged saved reference', note='Authored review request'))
+        (self.case/'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+        # Real confirmation/proof production; only saved HTTP bytes and external
+        # reviewer answer are supplied. No fabricated clearance or live fetch.
+        def fetch(url, **kwargs):
+            return {'url': url, 'final_url': url, 'status': 200}, http['body'].encode()
+        def reviewer(c, chain, text, directory, name, out, *args, **kwargs):
+            registry.atomic_json(out, {'hits': [dict(url=http['url'], resolved=True, same_bug=False,
+                retrieved=True, app_version='2.19.0', version_scope='Different practice behavior',
+                why='Authored independent exclusion')]})
+        with patch.object(freshness_retrieval, 'fetch', side_effect=fetch), \
+                patch.object(run, 'retained_answer', side_effect=reviewer):
+            run.write_and_attack(self.c, self.prev, extension_id=1)
+        report = self.work/'attacks/round-9.json'
+        original = run.attack_report(report)
+        self.assertEqual(original['freshness_review'], []); self.assertEqual(original['blocking'], self.blocking)
+        self.assertTrue(original['complete'])
+        receipt = json.loads((self.work/'attack-state.json').read_text())
+        self.assertEqual(receipt['next_phase'], 'extension_comparison')
+        proof = report.with_suffix('.clearance.json'); saved = proof.read_bytes()
+        proof.write_text('{}')
+        with self.assertRaisesRegex(budget.BudgetError, '^extension_execution_pending$'): self.package()
+        self.assertIsNone(extensions.read(self.c)[-1]['outcome'])
+        self.assertFalse((self.work/'extension-package/1/stress/record.json').exists())
+        proof.write_bytes(saved)
+        calls = list(self.calls)
+        with patch.object(run, 'run_gates', side_effect=runtime.Killed) as gates:
+            with self.assertRaises(runtime.Killed): self.package()
+        gates.assert_called_once()
+        result = package.Records(self.c, run, extensions.active(self.c)).load('stress')
+        self.assertTrue(result['ok']); self.assertEqual(result['info']['blocking'], [])
+        self.assertEqual(self.calls, calls); self.assertEqual(proof.read_bytes(), saved)
 
     def test_pending_receipt_and_missing_exhaustion_cannot_score(self):
         self.prepared()

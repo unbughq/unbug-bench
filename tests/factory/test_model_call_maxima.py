@@ -258,7 +258,7 @@ class MaximaTests(unittest.TestCase):
                             ledger=self.root/(uuid.uuid4().hex+'.json')
                             command=[sys.executable,'-c','import json,sys; [print(json.dumps(e),flush=True) for e in json.loads(sys.argv[1])]',json.dumps(events)]
                             invoke=lambda:budget.run_budgeted(command,self.root,dict(os.environ),self.root/'mode-transcript',ledger,5,
-                                driver='claude',configured_model=model,role='writer',invocation_name='builder-mode',
+                                containment=False, driver='claude',configured_model=model,role='writer',invocation_name='builder-mode',
                                 max_cost=100,max_calls=1000,max_total_calls=1000,case_budget=1000)
                             if complete:invoke()
                             else:
@@ -472,7 +472,7 @@ class MaximaTests(unittest.TestCase):
         (secrets / 'claude-factory-token-2').write_text('synthetic-only')
         runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(),
             lambda path, **kw: shutil.rmtree(path), Mock())
-        for outcome in ('done', 'interrupted', 'denied'):
+        for outcome in ('done', 'interrupted', 'denied', 'containment_denied'):
             with self.subTest(outcome=outcome):
                 work = self.root / outcome; work.mkdir(); (work / 'transcripts').mkdir()
                 path = work / 'ledger.json'
@@ -496,6 +496,10 @@ class MaximaTests(unittest.TestCase):
                     self.assertIsNone(kw['max_cost']); self.assertTrue(kw['concurrent'])
                     self.assertTrue(env['ANTHROPIC_BASE_URL'].startswith('http://127.0.0.1:'))
                     self.assertIsNotNone(kw['cancel'])
+                    if outcome == 'containment_denied':
+                        self.assertTrue(kw['containment'])
+                        with patch.dict(os.environ, UNBUG_MODEL_CGROUP_ROOT=''):
+                            return budget.run_budgeted(cmd, cwd, env, transcript, ledger, timeout, **kw)
                     if outcome == 'denied': raise OSError('synthetic setup failure')
                     kw['on_started']()
                     if outcome == 'interrupted': raise budget.BudgetError('model_call_cap')
@@ -506,7 +510,8 @@ class MaximaTests(unittest.TestCase):
                     if outcome == 'done':
                         self.assertEqual(runtime.call(c, [GATED_CLAUDE], 'synthetic', work, 'builder-1'), 0)
                     else:
-                        label = 'model_call_cap' if outcome == 'interrupted' else 'usage_monitor:OSError'
+                        label = ('containment_unavailable' if outcome == 'containment_denied' else
+                                 'model_call_cap' if outcome == 'interrupted' else 'usage_monitor:OSError')
                         with self.assertRaisesRegex(budget.BudgetError, '^'+label+'$'):
                             runtime.call(c, [GATED_CLAUDE], 'synthetic', work, 'builder-1')
                     called.assert_called_once()
@@ -515,7 +520,11 @@ class MaximaTests(unittest.TestCase):
                 # Stream D money: an interrupted call is estimated when it ends, not left pending.
                 self.assertEqual(row['state'], 'estimated' if outcome == 'interrupted' else 'settled')
                 receipt = json.loads((work / 'usage-receipts' / (row['lease_id']+'.json')).read_text())
-                self.assertEqual(receipt['outcome'], outcome)
+                self.assertEqual(receipt['outcome'], 'denied' if outcome == 'containment_denied' else outcome)
+                if outcome == 'containment_denied':
+                    self.assertIn({'stage': 'model_containment', 'error': 'containment_unavailable'},
+                                  c.card['cleanup_errors'])
+                    self.assertEqual(budget.case_spending(ledger)['total_spent_usd'], 0)
                 self.assertEqual(receipt['max_usd'], 50.0)
                 self.assertEqual(receipt['final_usage_known'], outcome != 'interrupted')
                 budget.reconcile_reservations(work, path)
@@ -563,7 +572,7 @@ class MaximaTests(unittest.TestCase):
         command=[sys.executable,'-c','import json,sys; [print(json.dumps(e),flush=True) for e in json.loads(sys.argv[1])]',json.dumps(emitted)]
         with self.assertRaises(budget.BudgetError):
             budget.run_budgeted(command,self.root,dict(os.environ),self.root/'transcript',ledger,5,
-                driver='claude',configured_model=GATED_CLAUDE,role='writer',invocation_name='builder-partial',
+                containment=False, driver='claude',configured_model=GATED_CLAUDE,role='writer',invocation_name='builder-partial',
                 max_cost=100,max_calls=10000,max_total_calls=10000,case_budget=1000)
         saved=json.loads(ledger.read_text())
         self.assertGreater(saved['estimated_subscription_cost_usd'],0)
@@ -586,7 +595,7 @@ class MaximaTests(unittest.TestCase):
         ledger=self.root/'near.json'
         with self.assertRaises(budget.BudgetError):
             budget.run_budgeted(command,self.root,dict(os.environ),self.root/'near-transcript',ledger,5,
-                driver='claude',configured_model=GATED_CLAUDE,role='writer',invocation_name='builder-boundary',
+                containment=False, driver='claude',configured_model=GATED_CLAUDE,role='writer',invocation_name='builder-boundary',
                 max_cost=100,max_calls=100,max_total_calls=100,case_budget=1000)
         self.assertLessEqual(json.loads(ledger.read_text())['estimated_subscription_cost_usd'],50.0)
         tight=gate.Allowance(lease())
@@ -837,6 +846,7 @@ class ProtocolTests(unittest.TestCase):
                 self.assertEqual(c.model_lease.route,model)
                 observed['gate']=kw['cancel']
                 if real_cli:
+                    kw["containment"] = False  # synthetic same-group TLS evidence, not O7
                     try:return budget.run_budgeted(cmd,cwd,env,*args,**kw)
                     except budget.BudgetError as error:
                         self.assertEqual(str(error),'cancelled')

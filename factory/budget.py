@@ -771,11 +771,13 @@ def _activity(path, resume=False):
 def resume_ledger(ledger_path):
     """The resume handshake alone, no process: record the previous run's stop and clear it, so the first model calls of a
     resumed run may start in parallel (2026-10-20: a resume whose first calls were G10 ran both testers serially)."""
+    _check_containment(ledger_path)
     path = Path(ledger_path)
     if not path.exists(): return
     with _activity(path, resume=True) as (_, reset, _), open(str(path) + '.lock', 'a') as lock:
         if not reset: return
         fcntl.flock(lock, fcntl.LOCK_EX)
+        _check_containment(ledger_path)  # an owner may have died while we waited
         ledger = json.loads(path.read_text())
         previous = ledger.get('terminal_stop')
         if previous not in (None, 'complete'): ledger.setdefault('previous_stops', []).append(previous)
@@ -784,12 +786,20 @@ def resume_ledger(ledger_path):
         _save(path, ledger)
 
 
+def _check_containment(ledger):
+    if not os.environ.get('UNBUG_MODEL_CGROUP_ROOT'): return
+    import processes
+    try: processes.check_containment(ledger)
+    except processes.ContainmentError as error: raise BudgetError(str(error)) from None
+
+
 def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 job_authority=None, invocation_id=None, lease_id=None, on_started=None):
+                 job_authority=None, invocation_id=None, lease_id=None, on_started=None, containment=True):
     # Preserve the original whole-session lock unless concurrency is explicitly enabled.
     settings = locals()
+    _check_containment(ledger_path)
     path = Path(ledger_path)
     with _activity(path, resume=resume) as (activity, reset, admission):
         settings["resume"] = reset
@@ -802,7 +812,7 @@ def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
 def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 job_authority=None, invocation_id=None, lease_id=None, on_started=None, _serial_lock=None, _activity_lock=None, _admission_lock=None):
+                 job_authority=None, invocation_id=None, lease_id=None, on_started=None, containment=True, _serial_lock=None, _activity_lock=None, _admission_lock=None):
     """Return CompletedProcess, or raise BudgetError without exposing transcript text.
 
     max_calls limits this invocation; max_total_calls and max_cost span roles.
@@ -812,6 +822,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     Ledger contains usage metadata only. A terminal failure is sticky unless explicitly
     resumed; resuming preserves all costs/calls and archives the previous stop.
     """
+    import processes
     if driver not in ('opencode', 'codex', 'claude'):
         raise ValueError('Unknown driver')
     from job_authority import JobAuthority
@@ -901,6 +912,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     count = usages = 0
     session = {'id': '', 'turns': 0}
     process = None
+    contained = None
     stopped = False
     collecting_usage = False
     pending = b''
@@ -1145,6 +1157,14 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
 
     def stop_process():
         nonlocal stopped
+        if contained is not None:
+            try:
+                contained.stop()
+                if process is not None: process.wait(timeout=5)
+            except (processes.ContainmentError, subprocess.TimeoutExpired):
+                raise BudgetError('cancellation_failed') from None
+            stopped = True
+            return
         if process is not None and not stopped:
             # Kill descendants even if their immediate parent already exited.
             try:
@@ -1172,9 +1192,12 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
 
     try:
         with open(transcript_path, 'wb') as transcript:
-            process = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
-                                       stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                       start_new_session=True)  # codex exec waits on an open stdin
+            _check_containment(ledger_path)  # include isolated calls after admission-lock waits
+            if containment: contained = processes.ContainedCall(ledger_path)
+            launch = contained.launch if contained is not None else subprocess.Popen
+            process = launch(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                             **({} if containment else {'start_new_session': True}))
             if on_started is not None: on_started()
             selector.register(process.stdout, selectors.EVENT_READ)
             pending = b''
@@ -1226,6 +1249,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 raise BudgetError('process_error')
             if not usages or starts - finishes:
                 raise BudgetError('missing_usage')
+            if contained is not None: stop_process()
             with transaction():
                 shared_stop()
                 if concurrent: ledger['active'].remove(invocation)
@@ -1233,6 +1257,15 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 if not ledger.get('active'): ledger.pop('active', None)
             return subprocess.CompletedProcess(cmd, returncode)
     except BaseException as error:
+        if isinstance(error, processes.ContainmentError): error = BudgetError(str(error))
+        if contained is not None:
+            try: stop_process()
+            except BudgetError as cleanup_error:
+                starts.add('cancellation-failed:' + invocation)
+                with transaction():
+                    ledger.setdefault('cleanup_errors', []).append({
+                        'stage': 'process_cancellation', 'error': 'cancellation_failed'})
+                error = cleanup_error
         if (process is not None and driver in ('codex', 'claude')
                 and isinstance(error, BudgetError)
                 and str(error) in ('call_limit', 'total_call_limit', 'cost_limit', 'timeout', 'retired_batch_bound')):

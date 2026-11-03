@@ -2,17 +2,142 @@
 import asyncio
 import contextlib
 import contextvars
+import fcntl
+import hashlib
 import math
 import os
+from pathlib import Path
 import signal
 import subprocess
+import sys
 import time
+import uuid
 
 _deadline = contextvars.ContextVar('process_deadline', default=(math.inf, False))
 
 
 class Cancelled(RuntimeError):
     pass
+
+
+class ContainmentError(RuntimeError):
+    """Safe labels only; never include a command or its environment."""
+
+
+@contextlib.contextmanager
+def _containment_scope(ledger):
+    root = os.environ.get('UNBUG_MODEL_CGROUP_ROOT')
+    if sys.platform != 'linux' or not root:
+        raise ContainmentError('containment_unavailable')
+    ledger = Path(ledger).resolve()
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    scope = Path(root) / hashlib.sha256(os.fsencode(ledger)).hexdigest()
+    with open(str(ledger) + '.containment.lock', 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        scope.mkdir(exist_ok=True)
+        yield scope
+
+
+def _check_calls(scope):
+    for call in scope.iterdir():
+        if not call.is_dir(): continue  # cgroup control files
+        if (call / '.poisoned').exists():
+            raise ContainmentError('containment_unavailable')
+        fd = os.open(call, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError: continue  # another live call, possibly in another process
+            raise ContainmentError('containment_unavailable')
+        finally:
+            os.close(fd)
+
+
+def check_containment(ledger):
+    """Also guard isolated calls and resume against abandoned non-isolated work."""
+    if not os.environ.get('UNBUG_MODEL_CGROUP_ROOT'): return
+    try:
+        with _containment_scope(ledger) as scope: _check_calls(scope)
+    except OSError:
+        raise ContainmentError('containment_unavailable') from None
+
+
+class ContainedCall:
+    """Kernel-owned membership; fork only while no calls are live.
+
+    Directory locks outlive membership and are closed only after removal (or
+    poisoning). The short scope lock orders enrollment against leftover checks.
+    No PID/session scans, shared process owner, or unsafe fallback.
+    """
+    def __init__(self, ledger):
+        self.ledger, self.fd, self.path = ledger, None, None
+        self.failed = False
+        try:
+            with _containment_scope(ledger) as scope:
+                _check_calls(scope)
+                self.path = scope / uuid.uuid4().hex
+                self.path.mkdir()
+                # Fresh cgroupfs directories create these files themselves.
+                if not all((self.path / name).exists() for name in
+                           ('cgroup.kill', 'cgroup.events', 'cgroup.procs')):
+                    self.path.rmdir()
+                    raise ContainmentError('containment_unavailable')
+                # Probe kill support/permission while empty, before admission.
+                with (self.path / 'cgroup.kill').open('w') as control: control.write('1')
+                self.fd = os.open(self.path, os.O_RDONLY | os.O_DIRECTORY)
+                fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            if self.fd is not None: os.close(self.fd); self.fd = None
+            raise ContainmentError('containment_unavailable') from None
+
+    def launch(self, command, **kwargs):
+        read_fd, write_fd = os.pipe()
+        process = None
+        try:
+            process = subprocess.Popen(
+                [sys.executable, '-I', str(Path(__file__).resolve()), str(read_fd), '--', *command],
+                pass_fds=(read_fd,), close_fds=True, start_new_session=True, **kwargs)
+            (self.path / 'cgroup.procs').write_text(str(process.pid))
+            os.write(write_fd, b'1')
+            return process
+        except BaseException:
+            # This shim has not been admitted. It cannot have CLI descendants.
+            if process is not None:
+                process.kill()
+                process.wait(timeout=5)
+                if process.stdout is not None: process.stdout.close()
+            raise ContainmentError('containment_unavailable') from None
+        finally:
+            os.close(read_fd); os.close(write_fd)
+
+    def stop(self):
+        if self.failed: raise ContainmentError('cancellation_failed')
+        if self.fd is None: return
+        end = time.monotonic() + 5
+        try:
+            (self.path / 'cgroup.kill').write_text('1')
+            while True:
+                events = dict(line.split() for line in (self.path / 'cgroup.events').read_text().splitlines())
+                if events.get('populated') == '0': break
+                if time.monotonic() >= end: raise TimeoutError()
+                time.sleep(.01)
+            with _containment_scope(self.ledger):
+                for directory, children, _ in os.walk(self.path, topdown=False):
+                    if time.monotonic() >= end: raise TimeoutError()
+                    Path(directory).rmdir()
+                os.close(self.fd); self.fd = None
+        except BaseException:
+            self.failed = True
+            try:
+                with _containment_scope(self.ledger):
+                    try: (self.path / '.poisoned').mkdir(exist_ok=True)
+                    finally:
+                        if self.fd is not None: os.close(self.fd); self.fd = None
+            except OSError:
+                pass  # The unlocked directory itself is the durable refusal.
+            finally:
+                # An unlocked leftover is also durable if marker creation fails.
+                if self.fd is not None: os.close(self.fd); self.fd = None
+            raise ContainmentError('cancellation_failed') from None
 
 
 @contextlib.contextmanager
@@ -154,3 +279,12 @@ async def shell(command, *, timeout=120, cwd=None):
                 await asyncio.wait_for(process.wait(), 2)
             finally:
                 if not communication.done(): communication.cancel()
+
+
+if __name__ == "__main__":
+    # Isolated Python startup and a private pipe prevent pre-enrollment execution.
+    descriptor = int(sys.argv[1])
+    admitted = os.read(descriptor, 1) == b"1"
+    os.close(descriptor)
+    if not admitted: sys.exit(125)
+    os.execvpe(sys.argv[3], sys.argv[3:], os.environ)

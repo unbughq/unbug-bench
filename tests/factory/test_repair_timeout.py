@@ -55,7 +55,7 @@ class RepairTimeoutTests(unittest.TestCase):
             # Allow interpreter startup under concurrent suites before timing out the sleeping child.
             with self.assertRaisesRegex(budget.BudgetError, '^timeout$'):
                 budget.run_budgeted([sys.executable, '-c', code], root, os.environ.copy(),
-                    root / 'synthetic-stream', ledger, 1, driver=driver, configured_model=model,
+                    root / 'synthetic-stream', ledger, 1, containment=False, driver=driver, configured_model=model,
                     role='writer', **kwargs)
             return json.loads(ledger.read_text())
 
@@ -97,7 +97,7 @@ class RepairTimeoutTests(unittest.TestCase):
                 code = ''.join('print(' + repr(json.dumps(e)) + ', flush=True)\n' for e in events)
                 with self.assertRaisesRegex(budget.BudgetError, '^missing_usage$'):
                     budget.run_budgeted([sys.executable, '-c', code], root, os.environ.copy(),
-                        root / 'synthetic-stream', ledger, 3, driver='claude',
+                        root / 'synthetic-stream', ledger, 3, containment=False, driver='claude',
                         configured_model='claude/claude-opus-5-5', role='writer')
                 data = json.loads(ledger.read_text())
                 self.assertTrue(data['events'][0]['estimated_from_partial_usage'])
