@@ -35,3 +35,12 @@ Claude and the free OpenCode reviewer hit usage limits. A fresh Codex
 gpt-6.1-sol reviewed the design because the writer is gpt-6.1-terra; design
 round 2 passed, with both review files under `docs/reviews/`.
 The full parallel suite and fresh diff review follow.
+
+## Full-suite validation
+
+Source 191337eb52646013fc83c90ebb46dbf94c2362b1 passed the parallel full suite:
+186 scripts, zero failed, exit 0, from 2026-11-03T19:54:37Z to 20:02:18Z.
+Record: pilot-bounded-roles-suite-20261103T195437Z-7b2839a0.json and .log.gz.
+The source tree and compressed/uncompressed log hashes were checked. No lockf,
+pass-cache reuse, test-limit changes, live calls, workers, or credentials.
+The fresh diff review is the remaining gate.
