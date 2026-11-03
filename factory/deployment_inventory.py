@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Observe local deployment metadata. Never authorizes cleanup or activation."""
+import boat_lifecycle
+from boat_lifecycle import unique_object, reject_constant, number
 import datetime
 from decimal import Decimal, Inexact, InvalidOperation, localcontext
 import hashlib
@@ -17,7 +19,7 @@ FILES = ('launch.json', 'controller.lock', 'monitor.sh', 'ids', 'complete',
          'spend-finished', 'cleanup-status.json')
 LABELS = ('intent-only', 'response-and-intent', 'response-without-marker')
 TYPES = ('file', 'directory', 'symlink', 'other')
-STATUSES = ('reserved', 'finished', 'reconciled_expired')
+STATUSES = ('reserved', 'finished', 'reconciled_expired', 'settled')
 
 
 def kind(mode):
@@ -154,33 +156,8 @@ def scan_launches(path):
 
 
 def empty_ledger(state):
-    return dict(state=state, counts=dict.fromkeys(STATUSES, 0), reserved_usd=None,
+    return dict(state=state, counts=dict.fromkeys(STATUSES, 0), reserved_usd=None, settled_usd=None,
                 expired_reserved=0, malformed_records=0, unknown_statuses=0)
-
-
-def unique_object(pairs):
-    obj = {}
-    for key, value in pairs:
-        if key in obj:
-            raise ValueError('duplicate-key')
-        obj[key] = value
-    return obj
-
-
-def reject_constant(value):
-    raise ValueError('invalid-number')
-
-
-def number(value):
-    if isinstance(value, bool) or not isinstance(value, (str, int, Decimal)):
-        raise ValueError('invalid-number')
-    value = Decimal(value)
-    if not value.is_finite() or value < 0:
-        raise ValueError('invalid-number')
-    digits = value.as_tuple()
-    if len(digits.digits) > 32 or not -18 <= digits.exponent <= 18:
-        raise ValueError('invalid-number')
-    return value
 
 
 def scan_ledger(path, observed):
@@ -198,6 +175,7 @@ def scan_ledger(path, observed):
             context.prec = 64 + len(str(LIMIT))
             context.traps[Inexact] = True
             total = Decimal(0)
+            settled = Decimal(0)
             for record in ledger['reservations'].values():
                 if not isinstance(record, dict):
                     result['malformed_records'] += 1
@@ -213,12 +191,16 @@ def scan_ledger(path, observed):
                 except (ValueError, InvalidOperation):
                     result['malformed_records'] += 1
                     continue
+                if status == 'settled':
+                    try: settled += boat_lifecycle.settlement_amount(record)
+                    except (ValueError, KeyError, TypeError, InvalidOperation):
+                        result['malformed_records'] += 1
                 if status == 'reserved':
                     total += usd
                     if expiry < observed:
                         result['expired_reserved'] += 1
             if not result['malformed_records'] and not result['unknown_statuses']:
-                result.update(state='ok', reserved_usd=format(total, 'f'))
+                result.update(state='ok', reserved_usd=format(total, 'f'), settled_usd=format(settled, 'f'))
     except (ValueError, InvalidOperation, Inexact, RecursionError):
         pass
     return result

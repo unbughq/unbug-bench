@@ -208,7 +208,7 @@ run.pilot_homes=lambda: []
 founder_ruling.context=lambda c: None
 job_config.install=install
 if fault in ('execute', 'admit', 'admit-money', 'admit-comparison'):
- run.sh=lambda *a,**k: None
+ run.sh=lambda *a,**k: 0  # Successful non-capture sh returns an exit status.
  run.pick_models=lambda c: {'builder':['claude/claude-opus-5-5']}
  worker_release.verify_selected_drivers=lambda *a,**k: {}
  def execute(c,r,prev,extension_id):

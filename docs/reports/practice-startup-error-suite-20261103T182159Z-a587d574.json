@@ -1,0 +1,17 @@
+{
+  "command": "uv run --with numpy --with scipy python -B tests/run.py",
+  "environment": {
+    "UV_OFFLINE": "1"
+  },
+  "source_commit": "b7f6a974417a91911387eb67705a52cc00d78a10",
+  "source_tree": "7bf03e4a88a659d5becc35654da55e9258c5f300",
+  "started_at": "2026-11-03T18:21:59Z",
+  "finished_at": "2026-11-03T18:39:06Z",
+  "exit_code": 0,
+  "qualifying": true,
+  "test_scripts": 186,
+  "failed_scripts": 0,
+  "log_path": "docs/reports/practice-startup-error-suite-20261103T182159Z-a587d574.log.gz",
+  "log_sha256": "0eff1098f7df2fbf95236d566310b85b6663536721e6705cbc1bed124066bd45",
+  "compressed_log_sha256": "5c6078997e1d8dfb9eaeba4ce69440312ba8e8e6038578e58b29085da85aaed1"
+}

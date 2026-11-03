@@ -1,0 +1,30 @@
+[
+  {
+    "location": "case-b-plumbing-practice-2-practice/logs/runner.log:4",
+    "message": "  File \"/home/user/factory/run.py\", line 3387, in main"
+  },
+  {
+    "location": "case-b-plumbing-practice-2-practice/logs/runner.log:6",
+    "message": "  File \"/home/user/factory/run.py\", line 161, in sh"
+  },
+  {
+    "location": "case-b-plumbing-practice-2-practice/logs/runner.log:9",
+    "message": "RuntimeError: exit 1"
+  },
+  {
+    "location": "case-b-plumbing-practice-2-practice/logs/commands.log:3",
+    "message": " service:postgres:1 Error response from daemon: Conflict. The container name \"/unbug-bench-postgres-1\" is already in use by container \"891eb553d91ac3b06f14fb0923d6e5d5f2e97e817969be7f7ba0b04bbb72b626\". You have to remove (or rename) that container to be able to reuse that name. "
+  },
+  {
+    "location": "case-b-plumbing-practice-2-practice/logs/commands.log:4",
+    "message": "Error response from daemon: Conflict. The container name \"/unbug-bench-postgres-1\" is already in use by container \"891eb553d91ac3b06f14fb0923d6e5d5f2e97e817969be7f7ba0b04bbb72b626\". You have to remove (or rename) that container to be able to reuse that name."
+  },
+  {
+    "location": "case-b-plumbing-practice-2-practice/logs/commands.log:1",
+    "message": " Container unbug-bench-redis-1 Creating "
+  },
+  {
+    "location": "case-b-plumbing-practice-2-practice/logs/commands.log:2",
+    "message": " Container unbug-bench-postgres-1 Creating "
+  }
+]

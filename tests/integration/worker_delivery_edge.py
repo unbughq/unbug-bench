@@ -15,7 +15,18 @@ if name=='node':
  raise SystemExit(0)
 if name=='harbor': print('harbor 0.24.0');raise SystemExit(0)
 if name=='docker':
- if 'inspect' in args and '--format' in args: print('sha256:'+'a'*64)
+ home=pathlib.Path(os.environ['HOME']); ready=home/'bench-cleaned.json'
+ if args[:3]==['rm','-f','unbug-bench-postgres-1']:
+  assert args[2:]==['unbug-bench-'+n+'-1' for n in ('postgres','redis','medusa','medusa-b')]
+  ready.write_text('{"fixed_names_removed":true}')
+ elif args[:1]==['cp'] and args[-1].endswith('seed-ids.json'):
+  pathlib.Path(args[-1]).write_text(json.dumps({**{k:'offline-'+k for k in ('inventory_x','product_x','variant_single','variant_pack')},'admin':{'email':'offline@example.invalid','password':'offline-public'}}))
+ elif 'up' in args and 'postgres' in args and not ready.exists():
+  print('Error response from daemon: Conflict. The container name "/unbug-bench-postgres-1" is already in use.',file=sys.stderr); raise SystemExit(1)
+ elif 'psql' in args:
+  import bench
+  print(json.dumps(bench.EXPECTED_BASELINE))
+ elif 'inspect' in args and '--format' in args: print('sha256:'+'a'*64)
  elif args[:2]==['compose','version']: print('2.35.1')
  elif args[:1]==['info']: print('28.0.0')
  raise SystemExit(0)
@@ -45,6 +56,14 @@ class EdgeProcess(_original):
    args=[str(edges/Path(args[0]).name),*args[1:]]
   super().__init__(args,*a,**kw)
 subprocess.Popen=EdgeProcess
+# Docker app health is an offline network edge; router TLS remains real.
+import urllib.request,io
+_urlopen=urllib.request.urlopen
+def urlopen(url,*a,**kw):
+ if isinstance(url,str) and url in ('http://127.0.0.1:9000/health','http://127.0.0.1:9001/health'):
+  response=io.BytesIO(b'OK'); response.status=200; return response
+ return _urlopen(url,*a,**kw)
+urllib.request.urlopen=urlopen
 def guard(event,args):
  if event in ('open','os.remove','os.mkdir','os.rmdir','os.listdir','os.scandir') and args and isinstance(args[0],(str,bytes)):
   value=os.fsdecode(args[0])
@@ -112,6 +131,14 @@ def verify_exam(test,base,root,cloud,config,store,digest,results,runtime):
     cards=list((root/'sealed').glob('case-public-a.scorecard.json'))
     test.assertTrue(cards,logs)
     card=json.loads(cards[0].read_text())
+    if card.get('terminal_stop') != 'provider_preflight_failed':
+        import io,tarfile,subprocess
+        wrapped=next((root/'sealed').glob('*.casekey.age'))
+        key=subprocess.check_output(['age','-d','-i',str(base/'throwaway-identity'),str(wrapped)])
+        archive=next((root/'sealed').glob('*.checkpoint.tar.gz.age'))
+        data=subprocess.check_output(['age','-d','-i','/dev/stdin',str(archive)],input=key)
+        with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+            logs+='\n'+tar.extractfile(next(m for m in tar if m.name.endswith('/logs/runner.log'))).read().decode()
     test.assertEqual(card.get('terminal_stop'),'provider_preflight_failed',logs+'\n'+json.dumps(card))
     test.assertEqual(card['job_money']['batch'],'public')
     test.assertEqual(card['job_money']['job'],'a')
@@ -122,6 +149,7 @@ def verify_exam(test,base,root,cloud,config,store,digest,results,runtime):
         test.assertTrue(requests)
         test.assertTrue(all(r['deadline']==4070908800 for r in requests))
     vm=cloud/'vm-1'
+    test.assertEqual(json.loads((vm/'bench-cleaned.json').read_text()), {'fixed_names_removed':True})
     test.assertTrue((vm/'deleted').exists())
     test.assertTrue(all(json.loads((vm/'worker-inputs.json').read_text()).values()))
     if sys.platform == 'linux': test.assertTrue(list(vm.rglob('model-edge.json')),logs)
