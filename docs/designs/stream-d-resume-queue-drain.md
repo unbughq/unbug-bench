@@ -57,7 +57,9 @@ own path.
    wait 60 seconds of time.monotonic() before retry; clear on success or when
    the operation is already present. This bounds repeated snapshot hashing;
    restart clears the delay. It never grants authority or deletes queue rows.
-   A bad row cannot block later eligible rows. Existing holder-wide incidents,
+   After the journal validates, a refused row cannot block later eligible rows.
+   A structurally invalid journal refuses the entire scan under service._load.
+   Existing holder-wide incidents,
    money limits and concurrency checks can of course block all applicable rows.
 
 The queue remains immutable history with dense sequence numbers. No consumed
