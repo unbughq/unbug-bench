@@ -55,3 +55,14 @@ BENCH=/Users/bugsincode/Developer/ub-preflight python3 -B tests/factory/test_rou
 The earlier 186-script result belongs to b0024a2, not this follow-up. A new full
 suite and integration validation remain required before handback/merge, after
 the retained-release evidence blocker is resolved. The round-2 verdict stays FAIL.
+
+## Integration evidence resolution (2026-11-03)
+
+The historical FAIL above is retained unchanged. B1 was fixed at c93f91e.
+B2 is now resolved by the real candidate deployment release frozen at 8a5c38f,
+retained under tests/factory/fixtures/preflight-deployment-release, with saved
+policy/provenance and unchanged practice manifest. Independent artifact audit:
+docs/reviews/pilot-deployment-retained-evidence-audit.md (PASS). Root observed
+28 passing dispatch/preflight tests with no batch.build or release repinning in
+test setup. This is evidence resolution, not a third implementation review or
+live qualification. Final combined suite and live launch prerequisites remain.

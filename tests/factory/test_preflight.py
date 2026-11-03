@@ -4,10 +4,9 @@ Real artifacts:
 - the retained practice manifest (factory/batches/b-plumbing-practice-2.json), for the live
   report and the Codex gate;
 - for dispatch, the retained practice policy docs/reports/stream-b-practice-policy-20261031.json
-  with its unchanged manifest (factory/batches/b-practice-20261031.json), checked by the real
-  batch.verify against a release commit-built from today's sources. The retained release
-  record cannot verify under today's code, so the release, digest, code fingerprint and
-  recipient are adapted (DispatchHoldTests lists why);
+  with its unchanged manifest (factory/batches/b-practice-20261031.json), checked by real
+  batch.verify against the independently retained deployment release at
+  fixtures/preflight-deployment-release. No release is built by the test;
 - the real router (router_delivery_support: model_router.Server over verified TLS with a real
   0600 client config) and the real router_delivery.pack;
 - the retained Boat list/billing receipts and the installed `boat 1.0.87` label from
@@ -85,42 +84,23 @@ def bundle(**changes):
 
 @unittest.skipUnless(shutil.which('age') and shutil.which('openssl'), 'age and openssl required')
 class DispatchHoldTests(unittest.TestCase):
-    """Phase B through the real batch_holder.dispatch, against the retained practice policy.
+    """Real dispatch against an independently retained frozen deployment package.
 
-    The policy is docs/reports/stream-b-practice-policy-20261031.json, the retained practice
-    policy whose release record is retained byte-exact beside it (sha256 0781679…, built at
-    6ac450e). Its manifest, factory/batches/b-practice-20261031.json, is used unchanged
-    (sha256 90ce53…). The release is built for real, as test_batch_launch does: tracked public
-    sources snapshotted into a fresh commit, then batch.build. money.manifest runs the real
-    batch.verify against it and the test root; nothing about release verification is mocked.
-
-    Adapted policy fields, and why:
-    - batch.release and batch.sha256: the retained release (6ac450e) lists 44 host files;
-      today's launch_manifest.HOST_FILES has 55, so the real batch.verify refuses it. The
-      release is rebuilt from today's sources instead; its digest and path replace these.
-    - code_sha256: the real key_holder.fingerprint of the test root (today's code), not the
-      retained 6ac450e fingerprint, which today's code cannot match.
-    - recipient: the age identity made for the test; the real control identity is private.
-    Everything else (jobs, manifest path and sha256, max_concurrency, path, root) is retained.
+    Fixture provenance pins the real candidate source commit and payload hashes.
+    retained-policy.json preserves the old practice jobs and unchanged manifest;
+    its release/digest/code fingerprint were explicitly adapted during deployment
+    packaging, independently of this test. Here only its relocatable release path
+    and throwaway recipient change. Test setup never builds or repins a release.
     """
     @classmethod
     def setUpClass(cls):
-        if not batch.restore_inventory(ROOT):
-            raise unittest.SkipTest('REAL RESTORE INVENTORY ABSENT: batch.build qualification is unavailable')
-        temp = tempfile.TemporaryDirectory(); cls.addClassCleanup(temp.cleanup)
-        base = Path(temp.name); cls.source = base / 'source'
-        names = subprocess.check_output(['git', 'ls-files', '-z', '--', *batch.BATCH_SOURCE, *batch.HOST_FILES,
-                                         'tools/install_source.py'], cwd=ROOT).decode().split('\0')
-        for name in {*filter(None, names), *batch.HOST_FILES}:
-            target = cls.source / name; target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(ROOT / name, target)
-        subprocess.run(['git', 'init', '-q', str(cls.source)], check=True)
-        subprocess.run(['git', 'add', '.'], cwd=cls.source, check=True)
-        subprocess.run(['git', '-c', 'user.name=Public test', '-c', 'user.email=public@example.invalid',
-                        'commit', '-qm', 'Public source test snapshot'], cwd=cls.source, check=True)
-        commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=cls.source, text=True).strip()
-        cls.release = base / 'release'
-        cls.release_sha = batch.build(cls.source, commit, cls.release)
+        cls.source = ROOT
+        cls.release = ROOT / 'tests/factory/fixtures/preflight-deployment-release'
+        cls.retained_policy = json.loads((cls.release / 'retained-policy.json').read_text())
+        cls.release_sha = cls.retained_policy['batch']['sha256']
+        batch.verify(cls.release, cls.release_sha, ROOT)
+        if cls.retained_policy['batch']['manifest_sha256'] != POLICY['batch']['manifest_sha256']:
+            raise ValueError('retained practice manifest changed')
 
     def setUp(self):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
@@ -135,9 +115,9 @@ class DispatchHoldTests(unittest.TestCase):
         self.identity = (keys / 'control').read_bytes()
         self.recipient = subprocess.check_output(['age-keygen', '-y', str(keys / 'control')], text=True).strip()
         self.other = subprocess.check_output(['age-keygen', '-y', str(keys / 'other')], text=True).strip()
-        self.policy = json.loads(json.dumps(POLICY))
-        self.policy['batch'].update(release=str(self.release), sha256=self.release_sha)
-        self.policy.update(code_sha256=key_holder.fingerprint(self.root), recipient=self.recipient)
+        self.policy = json.loads(json.dumps(self.retained_policy))
+        self.policy['batch']['release'] = str(self.release)
+        self.policy['recipient'] = self.recipient
         self.directory = self.home / 'batches' / POLICY['batch']['id']
         self.secrets = self.root / 'secrets.age'
         self.tls = tempfile.TemporaryDirectory(); self.addCleanup(self.tls.cleanup)

@@ -27,7 +27,7 @@ No Murphy row closes; supports rows 17/49/51 without claiming live evidence.
 
 ## Authenticated opt-in and manifest
 
-Add factory/pilot.py, a small admission policy module. A pilot batch ID must begin
+Add factory/pilot.py, a small admission policy module. A pilot batch ID must equal
 `b-real-pilot`, matching the bounded-role and legacy-authorizer checks, and cannot be a practice ID. Its manifest must have a `pilot_admission`
 object with exactly: schema=1, starts_at (UTC), max_lifecycles=6,
 max_lifecycles_per_case=2, infrastructure_limit_usd (positive nine-place USD).
@@ -58,7 +58,7 @@ Activation requires UNBUG_PILOT_PIN equal to the exact string
 manifest/release authentication and the shape checks above. No switch is written
 by this increment. Missing/wrong pin returns inactive; malformed matching pinned
 input refuses. pilot.active does not expire by clock: cleanup must remain alive
-after admission closes. pilot.managed(policy) recognizes the reserved ID prefix
+after admission closes. pilot.managed(policy) recognizes the reserved exact ID
 even without a pin so inactive pilot requests cannot fall through to legacy APIs.
 
 batch_holder.active checks pilot activation in addition to unchanged practice
