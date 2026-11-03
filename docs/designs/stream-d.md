@@ -4031,3 +4031,5 @@ intact renamed records. It never reconstructs card-only scores or reruns gates.
 Permanent absent/corrupt proof remains held. Implementation 32235e9 passes the
 full locked suite (182 scripts / 0 failures); fresh diff review round 1 passes
 (stream-d-capture-recovery-diff-1.md). No Murphy rows close; final all-outcomes integration follows.
+
+Batch diagnosis integration clarification (parent-approved after round 2): in batch jobs, gate budget checks give `money_wait`, never `budget_exhausted`, so money pressure waits rather than triggering diagnosis. That's by design.

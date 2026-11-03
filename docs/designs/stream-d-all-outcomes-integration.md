@@ -93,7 +93,7 @@ publisher with temporary SEALED. Gate substitution is explicit per branch:
 | Public match | Practice tree; authored gate/setup controls, real loop_freshness/retrieval/confirmation over invalid-runs-http.json.gz and authored fetch/reviewer answers, as PublicMatchTests. No real G5-pass claim. |
 | Blocking/request-only stress, ordinary factory bug, malformed/not-converging/deadline and negative-proof branches | Practice tree with authored gate/setup controls unless an earlier row specifies a real check. Actual stress receipt validators and dispatch/package/terminal functions remain real. No fabricated retained snapshot. |
 
-Use the real public_progress publisher with temporary SEALED. Saved-cheat rejection uses real saved reference execution/verdicts as in
+Saved-cheat rejection uses real saved reference execution/verdicts as in
 EarlyWriterTests. No model/network/worker is launched.
 
 Use real checkpoint-card serialization and restore_ledger.install at every new
@@ -110,15 +110,15 @@ Do not patch resume_factory_bug or install readers.
 
 | Branch | Actual path and observable result |
 | --- | --- |
-| Partial entry, progress and completed replay | Ordinary stress pass and real G4 pass, budget_exhausted at G5's budget_boundary before invoke: no close marker, no G5 pass/fail label, and finalize_accounting must produce pending diagnosis_state. Close-to-passing diagnosis -> entry prefix -> reserved writer -> stress -> real G5 repaired result -> authored G16 failure. Completed package outcome advances the frontier; next diagnosis admits extension 2. Replay of each completed package uses the same records, no writer/stress/evaluator or extra reservation. |
+| Partial entry, progress and completed replay | Ordinary stress pass and real G4 pass, two authored InvalidInfra child-start failures at G5 through real gate_attempt and stop_infrastructure: run_gates returns normally with c.stopped set (it does not raise), infrastructure_exhausted, no close marker, G5 labelled invalid-infra and no G5 pass/fail label, and finalize_accounting must produce pending diagnosis_state. Close-to-passing diagnosis -> entry prefix -> reserved writer -> stress -> real G5 repaired result -> authored G16 failure. Completed package outcome advances the frontier; next diagnosis admits extension 2. Replay of each completed package uses the same records, no writer/stress/evaluator or extra reservation. |
 | Capture recovery | Repeat that initial traversal with one-shot post-rename G1 sync failure; verification succeeds. Entry/dispatch/admission still use real proof; each gate executes once. |
 | Unchanged and irrelevant edit | The second writer leaves the exact tree unchanged: terminal proof, next close-to-passing -> retired_no_progress before another reservation. A separate writer changing BUILD-NOTES.md only retains the same failing frontier under fixed gate controls and likewise retires; no progress is inferred from editing files. |
 | Rejected writer | Separate G1, early G5 and saved-cheat controls through write_and_attack and package.run produce real retained rejection proof. Finalize -> queued diagnosis -> close-to-passing -> retired_no_progress. Replay never reruns the rejecting check; saved cheats are never scored as G6. |
 | Confirmed public match | Real saved HTTP confirmation during package stress produces public-match proof, extension_incomplete, then retired_no_progress on close-to-passing. No gates after confirmation. |
 | Blocking stress and request-only | Real category receipt producer with labelled blocking output completes a failed-stress package and next close-to-passing retires_no_progress. A separate reviewer-request-only answer without freshness metadata takes retired_stress_request_only directly. |
-| Ordinary factory bug | Fresh case with no extension history: real exhaustion/finalization -> factory_bug diagnosis -> same-batch hold. Install fixed release/new batch, real dispatch returns exactly False, resume count 1, diagnosis_state cleared. The driver returns the ordinary-route sentinel without calling admit/package/writer. Assert those calls are forbidden. Ordinary build/validate_and_repair after this boundary remains covered by their existing tests, not claimed here. |
+| Ordinary factory bug | Fresh case with no extension history: the same two authored G5 InvalidInfra child-start failures through real gate_attempt/stop_infrastructure and finalization -> factory_bug diagnosis -> same-batch hold. Install fixed release/new batch, real dispatch returns exactly False, resume count 1, diagnosis_state cleared. The driver returns the ordinary-route sentinel without calling admit/package/writer. Assert those calls are forbidden. Ordinary build/validate_and_repair after this boundary remains covered by their existing tests, not claimed here. |
 | Factory bug hold and return | After a completed progressing package, change one pinned scientific dependency to force current comparison. Use the existing synchronous IPC transport from ComparisonTests, with two authored InvalidInfra child-start failures inside real Evaluator/gate_attempt. Finalize -> real factory_bug diagnosis -> hold. Same-owner replay stays held with no new admission. Install fixed release/cross-batch config, then real dispatch restores extension-resume target; real entry/comparison/package continues without ordinary build. Count one durable resume and unchanged prior snapshot bytes. |
-| Factory bug cap | Repeat the real hold/new-owner admission sequence three times; the fourth distinct finding takes retired_factory_bug_limit before model/package work. Do not seed the admissions file or lower the cap. A changed authored runtime_revision at each fixed release permits the existing infra journal's normal new-runtime retry. |
+| Factory bug cap | Each of the four findings comes from the same returned-extension comparison InvalidInfra crash as the hold-and-return branch. Repeat the real hold/new-owner admission sequence three times; the fourth distinct finding takes retired_factory_bug_limit before model/package work. Do not seed the admissions file or lower the cap. A changed authored runtime_revision at each fixed release permits the existing infra journal's normal new-runtime retry. |
 | Extension cap | Five genuinely admitted/completed progressing packages, with successive authored late-stage frontiers G16, G8, G9, G6, G13. A sixth close-to-passing reaches retired_extension_limit before entry/writer or reservation. Never synthesize history or lower LIMIT. |
 | Not converging | Validated authored diagnosis -> retired_not_converging, zero writer/package admission. Replay is model-free and preserves decision bytes. |
 | Malformed diagnosis | Invalid external answers on all real selected routes, including the existing schema-repair attempt, -> retired_diagnosis_malformed. Replay makes no further diagnosis or writer call. No journal is seeded. |
@@ -177,3 +177,14 @@ new worker process. It proves the target/decision chain but does not claim that
 remaining worker-lifecycle qualification; name this limitation in the report.
 The founder's
 three-case real pilot follows only the parent's acceptance of this increment.
+
+## Parent-approved after round 2
+
+The parent selected B1′ option (a): the first exhaustion in both partial-entry
+and ordinary factory-bug branches is the real G5 infrastructure stop described
+above. Batch gate money pressure is not used to manufacture an exhaustion.
+On every resume the driver constructs a fresh live card and a checkpoint card,
+runs inherit_recovery_history and pick_models exactly as main does, then enters
+the real dispatch/admission path. All four cap findings use the returned-extension
+comparison crash. The duplicate progress-publisher instruction is removed.
+No third design review is requested.
