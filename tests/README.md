@@ -15,6 +15,12 @@ python3 tests/run.py integration tools control
 python3 tests/run.py --list
 ```
 
+Scripts run in parallel, one per CPU by default. Set `-j N` or `TEST_JOBS=N` to
+change that, and use `-j 1` to check whether a failure only happens in parallel.
+Every suite on the host shares `TEST_SLOTS` (default: CPU count) slot locks in
+`TEST_SLOT_DIR` (default `/tmp/unbug-test-slots`), which caps total load.
+Each script's output is buffered and printed in order.
+
 The runner sets `BENCH` to this checkout and executes each test file in a fresh
 Python process. This covers unittest cases, import-time assertions, and standalone
 scripts, including hyphenated filenames. A failed script makes the command fail.
