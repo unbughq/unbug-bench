@@ -25,3 +25,9 @@ First locked run was interrupted safely before its outer deadline after about
 88 minutes in the shared-lock queue. Record adca5675 retains exit 70, null final
 counts and the complete partial log; it is not claimed as a pass. The suite tree
 was stopped before lock release, and a fresh full locked run follows.
+
+Parent-approved validation change: the two-hour timeout starts after acquiring
+the shared lock. Queue time does not count. The next run is detached under
+nohup/lockf, without -t, and publishes an exit footer. Both earlier attempts
+(adca5675 and beb1ca4a) are non-qualifying interruptions, not test failures.
+Production and test code are unchanged from e70949c.

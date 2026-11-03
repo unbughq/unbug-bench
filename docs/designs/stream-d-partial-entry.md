@@ -148,8 +148,12 @@ Records as proof. Tests:
 
 Midterm is the real interrupted-prefix entry with evaluator calls forbidden.
 Final is the focused exams, full locked suite and fresh diff review. Full suite:
-`lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py`,
-with an outer 7200000ms execution timeout, unique committed log and JSON record.
+`lockf /tmp/unbug-suite.lock` with detached suite execution, a 7200000ms timeout
+starting AFTER lock acquisition, and a unique committed log and JSON record.
+Parent-approved validation change on 2026-11-03: queue time does not count; no
+`-t`. Use nohup/lockf/sh, append an `exit <code>` footer, and wait for that footer
+(re-arm the waiting tool if needed). Queue interruptions are non-qualifying,
+not test failures. This replaces the earlier outer-timeout rule.
 Max two review rounds per design/diff; round-2 blockers go to parent in three lines.
 Name passing-record commits with pass or approval. Hand back after a passing diff.
 
