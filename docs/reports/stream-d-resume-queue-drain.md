@@ -28,7 +28,9 @@ test edits and BENCH set to this worktree, uv Python runs gave:
 test_batch_resume_queue.py 21/21, test_batch_admission_clamps.py 9/9,
 test_batch_transfer.py 14/14, and test_qualify_batch_inputs.py 11/11.
 Additional predecessor-facts and non-directory-marker tests cover the review nits.
-Fresh final diff review is required. One full no-lockf suite follows.
+Final fresh diff review: PASS, no blockers, Majors or nits; record
+stream-d-resume-queue-drain-diff-2.md. The direct-caller fix and coverage are
+independently verified. One full no-lockf suite on this reviewed code follows.
 No Murphy row closes; item 9 and new-stream-d-current-comparison-1 retain their
 real-artifact/live integration requirements. B retains pilot admission, lifecycle
 limits, cleanup and Boat settlement. Known-total diagnosis resumes in
