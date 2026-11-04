@@ -57,6 +57,56 @@ with `tests/factory/test_registry_promotion.py` as `Closed by` at merge.
 
 ## Addendum: reselection between history snapshot and handoff (new-registry-pending-promotion-1)
 
+### Current rule
+
+This subsection is the rule. The paragraphs after it are the design history and the review
+follow-ups that led to it. Where they disagree, this subsection wins.
+
+**Release.** `Registry.replace_rejected(case, digest, ciphertext, rejected, *, historical, bound)`
+releases the previous entry only when all of these hold:
+- it is not released, its digest is known and differs from the offered digest, and that digest
+  is listed in `rejected`;
+- its stored ciphertext differs from the offered bytes;
+- a complete entry is in `screening` or `building`, and a historical-only entry is `completed`
+  and `bound`.
+
+`bound` means the caller's own card carries a `statement_cipher_sha256` equal to sha256 of the
+offered bytes.
+
+**Fencing.** The release is `transition(..., "released", expect=(status, digest, cipher))`,
+checked under the lock. A changed entry raises "stale reservation", which is retried once
+from a fresh read.
+
+**Everything else goes to `reserve`.** The result is base's answer (return, promote, or refuse)
+with two deliberate exceptions on the candidate path:
+- invalid digest or non-age bytes are refused before any release;
+- identical stored bytes under a new digest are refused, where base released and bound them
+  (diff-5 B1).
+
+**Callers.** `statement_round.prepare` routes digested history imports through
+`replace_rejected(..., historical=True, bound=bound)`. It reads the history card's
+`rejected_candidates` only when the card is bound and the list is well formed (a list of at most
+3 dicts); otherwise it passes `[]`. A row without `statement_sha256` yields None, which never
+matches. Digestless history still uses `import_historical`. Candidates
+call `replace_rejected(..., bound=bound)` with their own card's list.
+
+**Accepted gaps.**
+- Release and reserve take the lock separately. A reservation for another case that lands in
+  between omits this case. Pairwise screening still holds, because this case's later
+  reservation recomputes its predecessors.
+- A stale wave can resurrect the old digest in that gap. This only over-screens, and the next
+  authenticated import releases it again.
+- A failed `reserve` after a release leaves the slot released until it is retried.
+- Unchanged from base: a candidate whose entry is in screening or building, with a legacy own
+  card that has no cipher binding.
+
+**Tests.** `tests/factory/test_registry_promotion.py` (19 tests). **Murphy.** The row stays open.
+No retained real card carries `statement_sha256`, `statement_cipher_sha256` or
+`rejected_candidates`, so the new branch runs only on hand-authored cards over the real registry
+and ciphertext.
+
+### History
+
 **Problem.** A pending candidate Y reselects (c1 rejected, c2 selected) after the registry
 last saw c1, either reserved by Y's earlier handoff or imported as history by another
 wave. `statement_round.prepare` then imports Y's c2 as history for another wave X;
