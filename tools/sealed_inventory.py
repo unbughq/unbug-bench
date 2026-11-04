@@ -89,8 +89,8 @@ def evidence(ciphertexts=CIPHERTEXTS, registry=REGISTRY):
         for entry in record[side]['checkpoints']:
             cards.setdefault(entry['case'], set()).add(entry['card_sha256'])
             for item in entry['files']:  # Final sealed archives only, never checkpoints.
-                if item['name'] == entry['case'] + '.tar.gz.age':
-                    ciphertext.setdefault(item['sha256'], set()).add(side)
+                if item['name'] == entry['case'] + '.tar.gz.age':  # This case's own archive.
+                    ciphertext.setdefault((entry['case'], item['sha256']), set()).add(side)
     return vm, ciphertext, cards, load(registry)['entries']
 
 
@@ -156,7 +156,7 @@ def inventory(cards_dir=ROOT / 'sealed', ciphertexts=CIPHERTEXTS, registry_path=
             skipped.append({'case': case, 'reason': reason})
             continue
         meta = metadata(card, case)
-        sides = sorted(ciphertext.get(card.get('sha256'), ()))
+        sides = sorted(ciphertext.get((case, card.get('sha256')), ()))
         findings = cells(card, case, meta, sides, registry)
         criteria = {k: v[0] if v else 'pass' for k, v in findings.items()}
         file_hash = hashlib.sha256(raw).hexdigest()

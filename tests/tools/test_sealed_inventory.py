@@ -121,6 +121,16 @@ class InventoryTests(unittest.TestCase):
             result = inv.inventory(ciphertexts=paths[0], registry_path=paths[1])
             with contextlib.redirect_stdout(io.StringIO()) as out:
                 inv.main(['--inventory', str(paths[0]), '--registry', str(paths[1])])
+            spec = round_file(directory, [case])
+            seen = []
+            real = inv.inventory
+            with patch.object(inv, 'inventory', lambda *a: seen.append(a) or real(*a)), \
+                    contextlib.redirect_stdout(io.StringIO()) as round_out:
+                code = inv.main(['--round', str(spec), '--expect', '1',
+                                 '--inventory', str(paths[0]), '--registry', str(paths[1])])
+        # The round check judges exactly the snapshots it is given, not the dated defaults.
+        self.assertEqual(seen, [(inv.ROOT / 'sealed', paths[0], paths[1])])
+        self.assertEqual((code, round_out.getvalue()), (1, f'not eligible {case}: missing:dedup\n'))
         self.assertEqual(json.loads(out.getvalue())['inputs']['registry']['path'], str(paths[1]))
         card = {c['case']: c for c in result['hidden']}[case]
         self.assertIn('missing:ciphertext-inventory', card['findings']['complete_evidence'])

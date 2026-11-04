@@ -41,7 +41,8 @@ report the failure. Never edit a frozen input to make a step pass.
      sealed after them stays non-eligible until both snapshots are refreshed.
    - The output's `inputs` block records the path and SHA-256 of each
      snapshot; keep it in the package.
-2. **Round check.** Run `python3 -B tools/sealed_inventory.py --round results/exam/<id>/round.json --expect 24`.
+2. **Round check.** Run `python3 -B tools/sealed_inventory.py --round results/exam/<id>/round.json --expect 24 --inventory <same as step 1> --registry <same as step 1>`.
+   - Pass exactly the step 1 snapshot flags. The check judges only the snapshots it is given, and without them it falls back to the dated defaults.
    - It must exit 0.
    - It rejects any case that is unknown, excluded (dry run, practice or
      smoke), not eligible, or duplicated, and it rejects any count other than 24.

@@ -32,6 +32,10 @@ The only statement of the G16/G17 gap is a sentence in `docs/designs/stream-d.md
 card lands. It can also include a dry-run card by mistake: one of the 51 cards in
 `sealed/` is a dry run.
 
+These numbers feed the founder's next decisions: the money cap and deadline
+for the production manifest, and whether the ramp to 24 is reachable within 48
+creations.
+
 There is also no written production manifest proposal, and no written
 procedure that says what a frozen 24-case exam package contains.
 
@@ -111,7 +115,7 @@ named predicate `registry_cell(entry) -> str`.
 | Discoverable requirements | G8, G16 |
 | Deterministic scorer | G7 |
 | Adversarial checks | G6, G11, G13, G14, G15 |
-| Complete evidence | G10, G12, G17; `verify_exam_metadata` raises `ValueError` → `fail:metadata` (any other exception aborts the tool with the case ID); card `sha256` not equal to a final `<case>.tar.gz.age` (never a checkpoint) in the `--inventory` snapshot → `missing:ciphertext-inventory`; *unavailable: archive-backed verify_exam* |
+| Complete evidence | G10, G12, G17; `verify_exam_metadata` raises `ValueError` → `fail:metadata` (any other exception aborts the tool with the case ID); card `sha256` not equal to **this case's own** final `<case>.tar.gz.age` (never a checkpoint, never another case's archive) in the `--inventory` snapshot → `missing:ciphertext-inventory`; *unavailable: archive-backed verify_exam* |
 | Separation from contestant development | `wipe` not a dict, or any of `plaintext_files_left`, `named_dirs_left` non-zero, or `guard_image_left`, `db_volume_left` true, or `factory_cleanup_ok` not true → `missing:wipe-record`; *unavailable: no-exposure attestation* |
 
 A case is **public-eligible** when every cell is `pass` except the
@@ -131,7 +135,7 @@ lowers this bar.
 - which of the Mac and VM inventories hold a file whose SHA-256 equals the
   card's `sha256`.
 
-**`--round round.json [--expect 24]`.** This checks a proposed
+**`--round round.json [--expect 24]`.** It uses whatever `--cards`, `--inventory` and `--registry` flags the same call passes. This checks a proposed
 `bin/exam-round` spec before any freeze or launch. The tool parses the JSON
 itself. It maps each `cases[].archive` to a case ID with `bin/exam-round`'s
 rule: the basename with `.tar.gz.age` removed. It then looks the ID up among
@@ -142,7 +146,7 @@ nonzero with one line per problem:
 |---|---|
 | No card for the case | `unknown case <id>` |
 | The card is excluded | `not hidden <id>: <reason>` |
-| The card is hidden but not public-eligible | `not eligible <id>: <first non-pass cell>` |
+| The card is hidden but not public-eligible | `not eligible <id>: <first finding, in criterion-table order, that does not start with unavailable:>` |
 | The same case appears twice | `duplicate <id>` |
 | The count is wrong | `expected N cases, got M` |
 
@@ -233,25 +237,38 @@ git-ignored and already accepted by `bin/freeze` and `bin/exam-round`.
 - the per-case decrypting audit records;
 - the launch commands.
 
-**Procedure:**
+**Procedure** (the same eight steps as `docs/exam-packaging.md`):
 
-1. Run the inventory.
-2. Run the `--round` check.
-3. Record a decrypting audit per case. This is done under the founder's
-   authority, not in this job.
-4. Run `bin/freeze create`.
-5. Hash the package.
-6. Hand the package to the founder for launch.
+1. Run the inventory with fresh `--inventory`/`--registry` snapshots.
+2. Run the `--round` check with **the same** `--cards`, `--inventory` and
+   `--registry` flags as step 1. `--round` judges exactly the snapshots it is
+   given; with no flags it falls back to the dated defaults and rejects every
+   later case.
+3. Record a decrypting audit per case (founder authority, not this job).
+4. Copy the cards and write `cases.sha256`.
+5. Run `bin/freeze create`.
+6. Write `PACKAGE.sha256` and `LAUNCH.md`, then hand the package to the founder.
+7. Launch with `bin/exam-round` (founder authority).
+8. Report with `analysis/report_round.py`.
 
 The procedure reuses `bin/exam-round`, `bin/exam-launch`, `bin/freeze` and
 `analysis/report_round.py`. It adds no new runner.
 
-**Known blocker.** `bin/freeze create` refuses this tree today. `source_files`
-(`bin/freeze:58`) raises "Unclassified bench inputs" for top-level names
-outside `INPUTS`, such as `docs`, `tools`, `analysis` and `control`. Step 4
-cannot run until a separately reviewed change classifies those names. The
-document lists the blocker, and test 8 keeps that list in step with the real
-refusal. Until then the procedure is not claimed to be reproducible.
+**Known blockers** (the same list as `docs/exam-packaging.md`):
+
+- `bin/freeze create` refuses this tree today. `source_files`
+  (`bin/freeze:58`) raises "Unclassified bench inputs" for top-level names
+  outside `INPUTS`, such as `docs`, `tools`, `analysis` and `control`. Step 5
+  cannot run until a separately reviewed change classifies those names. Test 8
+  keeps the documented list in step with the real refusal. Until then the
+  procedure is not claimed to be reproducible.
+- There is no fresh ciphertext inventory or registry snapshot. The 2026-10-30
+  inventory came from a one-off survey, and no committed tool produces one. A
+  new snapshot in the same schema, plus a copy of the live registry, needs
+  host access under founder authority.
+- This checkout holds no archives; the final `*.tar.gz.age` files are only
+  on the Mac and the VM. Step 4 must run where they are.
+- There are zero qualified hidden cases (§2).
 
 ## What it deletes
 
@@ -278,7 +295,7 @@ generates its input with the tool under test.
      `missing:registry-screening`;
    - "Discoverable requirements" is `missing:G16`;
    - "Complete evidence" is `missing:G17`;
-   - `verify_exam_metadata` returns its fairness error;
+   - the metadata cell records the fairness `ValueError` text (`fail:metadata`);
    - the card's `sha256` appears in both the Mac and VM inventories.
 3. **Per-rule cases**, each on real data. These assert on `findings`, because
    no real card with a `duplicate_of` value passes G2 and G4:
@@ -291,6 +308,8 @@ generates its input with the tool under test.
    - snapshot paths are honoured. Copies of the real inventory and registry,
      each with fcde6b removed and passed with `--inventory`/`--registry`, give
      fcde6b `missing:ciphertext-inventory` and `missing:registry-entry`.
+     `--round` with those same flags calls the inventory with exactly those
+     paths and reports fcde6b as not eligible.
    - a card with a string `wipe` (8f9762) has `missing:wipe-record`;
    - a stopped card whose `sha256` is a checkpoint hash (1ad7fa) has
      `missing:ciphertext-inventory`.
