@@ -37,7 +37,7 @@ class PracticeCarryTests(unittest.TestCase):
         self.snapshot = retained['snapshot']; self.old = json.loads(retained['manifest_json'])
         self.case = self.old['jobs']['smoke']['case']
         self.generation = next(iter(self.snapshot['money']['jobs']['smoke']['acks']))
-        self.record = json.loads((ROOT / preflight.MANIFEST).read_text())
+        self.record = json.loads((ROOT / 'factory/batches/b-plumbing-practice-4.json').read_text())  # Retained -3 to -4 contract.
         self.source = self.home / 'batches' / self.old['id']; self.source.mkdir(parents=True)
         source_release = self.root / 'retained-release'
         shutil.copytree(FIXTURE / 'release', source_release)

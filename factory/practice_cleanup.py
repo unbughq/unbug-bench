@@ -1,6 +1,7 @@
 """Independent cleanup on the existing practice/pilot operation path."""
 import argparse
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -116,6 +117,56 @@ def preflight_clear(home, op):
                     return no_reservation(home, path)
             return no_reservation(home, path)
     except (OSError, ValueError, KeyError, TypeError): return False
+
+
+
+def preallocation_settlement(home, op):
+    """Certify an immutable failed launch with durable settled-zero no-creation proof."""
+    from carry_over import digest as value_digest
+    if not (op['dispatch_started'] is True and op['state'] == 'failed' and
+            op['incident'] == 'preflight_refused' and
+            all(op[k] is None for k in ('worker_id','output_generation','retirement'))):
+        raise ValueError('not a preallocation failure')
+    path = home / 'launches' / op['launch_id']
+    directory = home / 'batches' / op['authority']['batch']
+    if path.is_symlink() or not path.is_dir(): raise ValueError('unsafe launch')
+    with holder.operation_lock(directory, op['operation_id']):
+        with service._regular(path / 'controller.lock') as controller:
+            fcntl.flock(controller, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            names = ('launch.json','ids','complete','spend-finished')
+            raw = {n: boat_lifecycle.regular(path / n) for n in names}
+            if (json.loads(raw['launch.json']) != op['launch'] or raw['ids'].strip() or
+                    list(path.glob('new.*'))): raise ValueError('creation not excluded')
+            with service._regular(home / 'boat-reservations.lock') as lock:
+                fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                spend = bound_spend(home, path)
+                row = boat_lifecycle.read_ledger(home / 'boat-reservations.json', missing_ok=False)['reservations'][str(spend)]
+                if (row['status'] != 'settled' or row['settlement']['basis'] != 'no_creation' or
+                        row['settlement']['workers'] != [] or boat_lifecycle.settlement_amount(row) != 0 or
+                        boat_lifecycle.number(row['actual_spend_usd']) != 0):
+                    raise ValueError('unsettled creation liability')
+                spend_raw = boat_lifecycle.regular(spend); data = boat_lifecycle.loads(spend_raw)
+                if (data.get('provider') != 'boat' or data.get('allowed') is not True or
+                        data.get('ids') != [] or any(type(data.get(k)) is not int for k in ('vms','ttl_seconds')) or
+                        data.get('settlement') != row['settlement'] or
+                        data.get('finished_at') != row.get('finished_at') or
+                        data.get('vms') != row['vms'] or data.get('ttl_seconds') != row['ttl_seconds'] or
+                        boat_lifecycle.number(data['max_spend_usd']) != boat_lifecycle.number(row['max_spend_usd']) or
+                        boat_lifecycle.number(data['actual_spend_usd']) != 0):
+                    raise ValueError('spend proof mismatch')
+                boat_lifecycle.timestamp(data['finished_at'])
+                status_path = location(home, op).with_suffix('.status.json')
+                status_raw = boat_lifecycle.regular(status_path); status = json.loads(status_raw)
+                if (type(status.get('schema')) is not int or status.get('schema') != 1 or
+                        status.get('operation_id') != op['operation_id'] or
+                        status.get('state') != 'complete' or status.get('settlement') != 'settled' or
+                        status.get('workers') != []): raise ValueError('cleanup not complete')
+                stable = {k: row[k] for k in ('status','state_path','vms','ttl_seconds','max_spend_usd',
+                                             'finished_at','actual_spend_usd','settlement')}
+                raw.update(spend=spend_raw, cleanup=status_raw)
+                return dict(schema=1, operation_id=op['operation_id'], launch_id=op['launch_id'],
+                            files={n: hashlib.sha256(v).hexdigest() for n,v in raw.items()},
+                            settlement_sha256=value_digest(stable))
 
 
 def no_reservation(home, path):

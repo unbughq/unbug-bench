@@ -79,3 +79,19 @@ Factory Claude routes remain unchanged; implementation cloud credits do not
 fund local model calls from a Boat worker. The prior top-up/account/RAM-only
 credential decisions remain attributed to their original dates and grant no
 additional launch authority.
+
+## Certified pre-allocation recovery (prepared November 4; inactive -5)
+
+The -4 continuation failed before creating any worker. Preserve its failed
+operation 3e6e2af8-73a9-5b51-9845-ab62dafcff7c, import/export, configs, zero
+no_creation settlement and the original checkpoint. -5 carries that unchanged
+imported base only through the reviewed certificate path described in
+preallocation-import-recovery.md. It never edits/retries the failed operation.
+
+After source review/tests, revalidate the exact certified -4 snapshot, pin the
+-5 release/policy, install with inactive/drained owners and retained backups, and
+qualify/reserve only smoke at the original b615c37c...d6d9 generation. Arm -5
+cleanup before dispatch. The existing one-worker no-model authorization and
+original money/time bounds apply; this is no extra worker, new allowance, paid
+practice or fleet authorization. No automatic retry. Require the complete
+collection/publication/stopped-meter/exact-deletion/settlement evidence.
