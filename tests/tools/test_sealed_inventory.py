@@ -8,12 +8,14 @@ sys.path.insert(0, str(ROOT / 'tools'))
 
 import builtins
 import contextlib
+import hashlib
 import importlib.machinery
 import importlib.util
 import io
 import json
 import os
 import re
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -65,8 +67,12 @@ def round_file(directory, cases):
 class InventoryTests(unittest.TestCase):
     def test_counts_and_hashes_match_saved_records(self):
         self.assertEqual(RESULT['counts'], {'hidden': 50, 'excluded': 1, 'public_eligible': 0, 'qualified': 0})
-        self.assertEqual(RESULT['excluded'], [{'case': DRY, 'reason': 'dry_run'}])
-        self.assertEqual({c['hashes']['vm_20261029'] for c in RESULT['hidden']}, {'match'})
+        self.assertEqual([(e['case'], e['reason'], e['hashes']) for e in RESULT['excluded']],
+                         [(DRY, 'dry_run', {'vm_20261029': 'match'})])
+        self.assertEqual({c['hashes']['vm_20261029'] for c in RESULT['hidden']}, {'match'})  # All 51 cards.
+        for row in RESULT['hidden'] + RESULT['excluded']:
+            self.assertEqual(row['card_sha256'], hashlib.sha256(
+                (ROOT / 'sealed' / (row['case'] + '.scorecard.json')).read_bytes()).hexdigest())
         self.assertNotIn('differs', {c['hashes']['card_20261030'] for c in RESULT['hidden']})
         listed = json.loads((ROOT / 'docs/reports/batch-service-inventory-20261030.json').read_text())
         listed = {e['case'] for side in ('mac', 'vm') for e in listed[side]['checkpoints']}
@@ -80,6 +86,7 @@ class InventoryTests(unittest.TestCase):
             card = BY_CASE[case]
             self.assertFalse(card['public_eligible'] or card['qualified'])
             self.assertEqual(card['metadata'], 'exam requires the same completed fairness checks for every case')
+            self.assertIn('fail:metadata', card['findings']['complete_evidence'])
             self.assertEqual(card['criteria']['discoverable'], 'missing:G16')
             self.assertEqual(card['criteria']['complete_evidence'], 'missing:G17')
             self.assertIn('missing:dedup', card['findings']['distinct_bug'])
@@ -144,7 +151,8 @@ class InventoryTests(unittest.TestCase):
     def test_real_smoke_card_is_excluded(self):
         result = inv.inventory(SMOKE_DIR)
         self.assertEqual(result['counts']['hidden'], 0)
-        self.assertEqual(result['excluded'], [{'case': 'case-20261103T220109Z-391cbc', 'reason': 'dry_run'}])
+        self.assertEqual([(e['case'], e['reason']) for e in result['excluded']],
+                         [('case-20261103T220109Z-391cbc', 'dry_run')])
 
     def test_never_opens_ciphertext_or_key_files(self):
         with no_secret_reads() as seen:
@@ -198,10 +206,13 @@ class InventoryTests(unittest.TestCase):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         freeze = importlib.util.module_from_spec(spec)
         loader.exec_module(freeze)
-        # Same predicate as bin/freeze source_files, without hashing any input.
-        unclassified = sorted(p.name for p in ROOT.iterdir()
-                              if p.name not in set(freeze.INPUTS) | freeze.EXCLUDED | {'.git', 'results', 'sealed'}
-                              and not p.name.startswith('._'))
+        # Same predicate as bin/freeze source_files, without hashing any input, over the
+        # committed tree's top-level names so untracked local names (e.g. .claude/) do not count.
+        tracked = subprocess.run(['git', 'ls-files', '-z'], cwd=ROOT, capture_output=True, check=True).stdout
+        top = {name.split('/')[0] for name in tracked.decode().split('\0') if name}
+        unclassified = sorted(n for n in top
+                              if n not in set(freeze.INPUTS) | freeze.EXCLUDED | {'.git', 'results', 'sealed'}
+                              and not n.startswith('._'))
         section = PACKAGING.read_text().split('## Known blockers', 1)[1].split('\n- **', 2)[1]
         documented = sorted(re.findall(r'^  - `([^`]+)`$', section, re.M))
         self.assertEqual(unclassified, documented)

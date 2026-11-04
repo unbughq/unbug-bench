@@ -151,18 +151,21 @@ def inventory(cards_dir=ROOT / 'sealed', ciphertexts=CIPHERTEXTS, registry_path=
         case = path.name[:-len('.scorecard.json')]
         if card.get('case') != case:
             raise ValueError('card names a different case: ' + path.name)
+        file_hash = hashlib.sha256(raw).hexdigest()
+        vm_hash = 'not-recorded' if case not in vm else 'match' if vm[case] == canonical(card) else 'differs'
         reason = excluded(card, case)
         if reason:
-            skipped.append({'case': case, 'reason': reason})
+            skipped.append({'case': case, 'reason': reason, 'card_sha256': file_hash,
+                            'hashes': {'vm_20261029': vm_hash}})
             continue
         meta = metadata(card, case)
         sides = sorted(ciphertext.get((case, card.get('sha256')), ()))
         findings = cells(card, case, meta, sides, registry)
         criteria = {k: v[0] if v else 'pass' for k, v in findings.items()}
-        file_hash = hashlib.sha256(raw).hexdigest()
         recorded = recorded_cards.get(case)
         hidden.append({
             'case': case,
+            'card_sha256': file_hash,
             'stop': card.get('terminal_stop') or card.get('failed_gate') and 'failed ' + card['failed_gate']
                     or card.get('status') or 'none',
             'gates_passed': sorted((k for k, v in (card.get('gates') or {}).items() if v == 'pass'),
@@ -173,8 +176,7 @@ def inventory(cards_dir=ROOT / 'sealed', ciphertexts=CIPHERTEXTS, registry_path=
             'public_eligible': all(v.startswith('unavailable:') for f in findings.values() for v in f),
             'qualified': not any(findings.values()),
             'hashes': {
-                'vm_20261029': 'not-recorded' if case not in vm else
-                               'match' if vm[case] == canonical(card) else 'differs',
+                'vm_20261029': vm_hash,
                 'card_20261030': 'not-recorded' if not recorded else
                                  'match' if recorded == {file_hash} else 'differs',
                 'ciphertext_20261030': sides},

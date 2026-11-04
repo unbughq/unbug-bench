@@ -62,11 +62,16 @@ procedure that says what a frozen 24-case exam package contains.
   `.age` objects. A `complete: false` entry is a historical import: per
   `factory/registry.py:83`, it was never screened as a fresh reservation.
 
+A card whose `case` field differs from its filename aborts the tool.
+Each hidden and excluded row records the card's file SHA-256
+(`card_sha256`).
+
 The defaults are dated snapshots. A case sealed after a snapshot is missing
 from it, so the case stays non-eligible. The cell is not relaxed. The
 freeze-time run must pass snapshots taken after the last case sealed
-(§4 step 1). The JSON output records the path and SHA-256 of every input
-under `inputs`, and the package keeps those hashes.
+(§4 step 1). The JSON output records the path and SHA-256 of every snapshot
+input under `inputs`, and the file SHA-256 of every card in its row. The
+package keeps those hashes.
 
 **Hidden or excluded.** A card is **excluded** (not hidden) if any of these
 holds, and the first one that holds is recorded as the reason:
@@ -135,7 +140,7 @@ lowers this bar.
 - which of the Mac and VM inventories hold a file whose SHA-256 equals the
   card's `sha256`.
 
-**`--round round.json [--expect 24]`.** It uses whatever `--cards`, `--inventory` and `--registry` flags the same call passes. This checks a proposed
+**`--round <round-id>.json [--expect 24]`.** It uses whatever `--cards`, `--inventory` and `--registry` flags the same call passes. This checks a proposed
 `bin/exam-round` spec before any freeze or launch. The tool parses the JSON
 itself. It maps each `cases[].archive` to a case ID with `bin/exam-round`'s
 rule: the basename with `.tar.gz.age` removed. It then looks the ID up among
@@ -225,7 +230,8 @@ git-ignored and already accepted by `bin/freeze` and `bin/exam-round`.
 
 **Contents:**
 
-- `round.json`: the `bin/exam-round` spec, listing 24 archives;
+- `<round-id>.json`: the `bin/exam-round` spec, listing 24 archives. It is
+  named after the round because `bin/exam-round` keys its state on the file stem;
 - `design.json`: the `analysis/ROUND_REPORT.md` design with `synthetic: false`;
 - the `bin/freeze` manifest;
 - `cases.sha256`: the archive, card and review receipt hashes;
@@ -343,7 +349,8 @@ generates its input with the tool under test.
    - one with the wrong count.
 
    Separately, the unclassified top-level names are computed with the same
-   predicate as `bin/freeze:60-62`: `ROOT.iterdir()` against the imported
+   predicate as `bin/freeze:60-62`, applied to the committed tree's top-level
+   names from `git ls-files` (untracked local names do not count), checked against the imported
    `INPUTS`/`EXCLUDED`. Nothing is hashed, so no `*key*` file is read. The
    names must equal the blocker list in `docs/exam-packaging.md`. If that
    list becomes empty, the test requires the blocker entry to be removed.

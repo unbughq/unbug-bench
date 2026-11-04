@@ -17,7 +17,7 @@ committed except the hashes the founder chooses to publish.
 
 | Path | Content | Made by |
 |---|---|---|
-| `round.json` | `bin/exam-round` spec: `accounts`, `arms`, `tries`, and 24 `cases[].archive` entries of the form `../../../sealed/<case>.tar.gz.age` | hand-written, then checked (step 2) |
+| `<round-id>.json` | `bin/exam-round` spec, named after the round because `bin/exam-round` keys its state directory on the file stem: `accounts`, `arms`, `tries`, and 24 `cases[].archive` entries of the form `../../../sealed/<case>.tar.gz.age` | hand-written, then checked (step 2) |
 | `design.json` | `analysis/ROUND_REPORT.md` design: `synthetic: false`, rule C, no interim look, each case's `tries` and `maintenance_steps`, the seeded third-try subset | hand-written from `analysis/fixtures/measurement-round/design.json` |
 | `run-settings.json` | Arms (the main B and C pair, plus any frozen extras), tries (3, or 2 plus a preselected third), 30 judge runs per checkpoint, account round robin, the `--parallel` value, and the `bin/exam-launch` TTL/spend flags. Tries, accounts, parallelism and spend are **founder-fixed at freeze time**; `EXAM.md` section 10 still leaves 2 or 3 tries open | hand-written, founder values |
 | `inventory.json` | `python3 -B tools/sealed_inventory.py` output at freeze time | step 1 |
@@ -41,7 +41,7 @@ report the failure. Never edit a frozen input to make a step pass.
      sealed after them stays non-eligible until both snapshots are refreshed.
    - The output's `inputs` block records the path and SHA-256 of each
      snapshot; keep it in the package.
-2. **Round check.** Run `python3 -B tools/sealed_inventory.py --round results/exam/<id>/round.json --expect 24 --inventory <same as step 1> --registry <same as step 1>`.
+2. **Round check.** Run `python3 -B tools/sealed_inventory.py --round results/exam/<id>/<id>.json --expect 24 --inventory <same as step 1> --registry <same as step 1>`.
    - Pass exactly the step 1 snapshot flags. The check judges only the snapshots it is given, and without them it falls back to the dated defaults.
    - It must exit 0.
    - It rejects any case that is unknown, excluded (dry run, practice or
@@ -68,7 +68,7 @@ report the failure. Never edit a frozen input to make a step pass.
 6. **Seal the package.** Write `PACKAGE.sha256` and `LAUNCH.md`, then hand
    the package hash to the founder. The founder decides whether to publish it.
 7. **Launch.** This step needs founder authority. Run
-   `cat /secure/founder-identity | bin/exam-round results/exam/<id>/round.json --parallel N`.
+   `cat /secure/founder-identity | bin/exam-round results/exam/<id>/<id>.json --parallel N`.
    - To resume, run the identical command.
    - `bin/exam-launch` re-runs `verify_exam_metadata` for each case, and
      `bin/run-exam` runs `verify_exam` on the restored archive.
@@ -80,7 +80,9 @@ report the failure. Never edit a frozen input to make a step pass.
 ## Known blockers
 
 - **`bin/freeze create` refuses this tree.** `source_files` (`bin/freeze:58`)
-  raises `Unclassified bench inputs` for these top-level names:
+  raises `Unclassified bench inputs` for the top-level names below. The list
+  is for a clean checkout of the committed tree. Untracked top-level names in
+  a release checkout, such as `.claude/`, also make it refuse:
   - `AGENTS.md`
   - `BRIEF-v2.md`
   - `CLAUDE.md`

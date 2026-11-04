@@ -82,10 +82,14 @@ What each still misses:
 Notes on the calibrators:
 
 - `fcde6b` has an independent G11 review with verdict
-  `checker_false_positive` (3/3). Its card records no calibrator summary
-  (`calibrators: {}`).
-- `86b100` and `18681d` record 0/3 strong and 0/3 easy solves, so they are
-  `hard` candidates under `FACTORY.md` G10.
+  `checker_false_positive` (3/3). Its card has no `calibrators` field.
+- `86b100` records 0/3 strong and 0/3 easy solves.
+- `18681d` records 0/3 strong and 0/3 easy solves, but two of its three
+  strong tries are `run_error` and one is `fix_failed_all_runs`. All three easy
+  tries hit `time_limit`. Broken runs are never scored, so this is not a clean
+  zero-solve.
+- A `hard` label for either case still needs an all-`wrong_fix` G17 verdict
+  (`FACTORY.md` G17).
 
 ### Not in this checkout
 
