@@ -57,7 +57,14 @@ class Registry:
             path = self.root / "registry.json"
             state = json.loads(path.read_text()) if path.exists() else {"revision": 0, "entries": {}}
             previous = state["entries"].get(case)
-            if previous and previous["status"] != "released":
+            # A candidate that an earlier handoff imported as history is promoted here:
+            # same identity, recomputed predecessors, fresh reservation.
+            promote = bool(previous and previous["status"] != "released" and not historical and
+                           not previous["complete"] and (previous["statement_sha256"] == statement_sha256 or
+                           previous["statement_sha256"] is None and previous["cipher_sha256"] == digest))
+            if promote:
+                digest = previous["cipher_sha256"]
+            elif previous and previous["status"] != "released":
                 if previous["statement_sha256"] == statement_sha256 and statement_sha256 is not None:
                     # age uses fresh randomness on each seal. Keep the already stored
                     # ciphertext when the trusted worker reports identical plaintext.
@@ -96,7 +103,8 @@ class Registry:
         """Only an explicitly rejected previous digest permits candidate reselection."""
         state = json.loads((self.root / "registry.json").read_text()) if (self.root / "registry.json").exists() else {"entries": {}}
         previous = state["entries"].get(case)
-        if previous and previous["status"] != "released" and previous["statement_sha256"] != statement_sha256:
+        if (previous and previous["status"] != "released" and previous["complete"] and
+                previous["statement_sha256"] != statement_sha256):
             if previous["status"] not in ("screening", "building") or previous["statement_sha256"] not in rejected:
                 raise ValueError("case already reserved with different content")
             self.transition(case, previous["reservation"], "released")
