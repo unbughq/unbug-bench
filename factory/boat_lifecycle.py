@@ -627,8 +627,13 @@ def delete_receipt(root, spend_file, worker, ids_path, timeout=60, delete_due=No
                 except BlockingIOError:
                     if time.monotonic() >= wait_end: raise TimeoutError()
                     time.sleep(min(.05,max(0,wait_end-time.monotonic())))
+            retained = os.path.lexists(spend.with_suffix('.deletions')/worker/'retirement-proof.json')
             try: capture_meter(root,spend,worker,state,marker,fd)
-            except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError): pass
+            except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError):
+                # A retained meter needs its current-stop recheck before a new
+                # ordinary DELETE. Keep it immutable; deadline deletion can
+                # later invalidate it via the wrapper winner's bypass marker.
+                if retained: raise
             # Metering allowance and delete budget are independent, both absolute.
             return _delete(root,spend,worker,ids_path,timeout,deadline=delete_end,fenced=True,owner=fd)
     fd = os.open(state/(worker+'.deletion.lock'),os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)

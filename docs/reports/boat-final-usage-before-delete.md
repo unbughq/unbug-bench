@@ -70,9 +70,10 @@ Verbatim records:
   initial-application/deletion-evidence test nit accepted and implemented)
 - docs/reviews/boat-final-usage-before-delete-diff-2.md (uncollected safety replay PASS)
 - docs/reviews/boat-final-usage-before-delete-diff-3.md (delete budget clamp PASS)
+- docs/reviews/boat-final-usage-before-delete-diff-4.md (retained-meter fresh-recheck refusal PASS)
 No finding was rejected. No accepted review was rerun.
 
-Focused checks: retirement 14 on Mac (2 explicit Linux-only skips), historical debit
+Focused checks: retirement 15 on Mac (2 explicit Linux-only skips), historical debit
 4, settlement14, practice15, holder60, control-resume24, inventory10, worker-release9,
 wrapper1, launch-manifest2 and isolation26 pass. Launch-guards passed in445.0s with
 no real Boat calls. Red tests preceded the provider seam changes, including missing
@@ -86,13 +87,13 @@ invocation, normal stop/meter/delete/settlement without deleted usage, and negat
 proof/authority/replay controls. The provider executable and lifecycle layouts are
 AUTHORED; saved public Boat DTOs and kernel locks are real. Early python-slim attempts
 lacked ps; the final local image contains the existing process helper prerequisites.
-Final candidate Linux record/log: /tmp/boat-final-usage-linux-candidate-20261104T001228Z.{json,log}.
+Final candidate Linux record/log: /tmp/boat-final-usage-linux-candidate-20261104T001745Z.{json,log}.
 Earlier records remain preserved at /tmp/boat-final-usage-linux-20261104.{json,log}.
 
 One uncached exact-head full suite follows the commit containing this report, using
 shared TEST_SLOTS with no lockf and UNBUG_LOCAL_DOCKER_SMOKE unset. Authoritative
 HEAD/tree, command, exit, times and output:
-/tmp/boat-final-usage-suite-20261104T001228Z.{json,log}.
+/tmp/boat-final-usage-suite-20261104T001745Z.{json,log}.
 The final handback states its result; this report does not substitute for that run.
 
 ## Precise remaining live gates
@@ -110,3 +111,24 @@ exact deletion/absence inventory and schema2 cumulative settlement. Deadline saf
 must retain unknown liability when metering is bypassed. Local Linux tests are
 kernel/transport evidence, not live provider qualification. Practice follows the
 required passing smoke; no fleet authority is implied. Murphy17/49/51 remain open.
+
+
+## Canceled non-final attempt and resolved replay blocker
+
+The first full attempt tested c1b2106 until an independent final audit found that
+an existing committed meter's failed fresh stop recheck was swallowed before an
+ordinary DELETE. That could let old receipt bytes settle after an observed resume.
+A red regression demonstrated it. The corrected helper propagates the error and
+refuses ordinary deletion, preserving the proof; recovery needs a successful
+recheck in the original window, or deadline deletion's winner invalidates billing
+proof and retains the hold. The real Linux crash-after-proof/before-DELETE exam
+now observes resumed-state refusal and unchanged-proof recovery. Fresh scoped
+review4 passes without reopening accepted scopes.
+
+That non-final suite was interrupted (exit130,206.530s); it is NOT a pass or the
+qualifying final suite. Preserved provenance:
+/tmp/boat-final-usage-suite-20261104T001228Z.{json,log}.
+Its already-passing Linux14 record is also retained:
+/tmp/boat-final-usage-linux-candidate-20261104T001228Z.{json,log}.
+The corrected final candidate's Linux15 and full run use the001745Z paths above.
+No live worker/evidence or historical ledger was changed during this repair.

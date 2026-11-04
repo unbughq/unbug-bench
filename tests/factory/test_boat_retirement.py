@@ -229,6 +229,18 @@ second=$?
         self.assertFalse((self.state/'forbidden-collection').exists())
         self.assertFalse((self.state/(WORKER+'.collected')).exists())
 
+    def test_saved_proof_recheck_failure_never_reaches_ordinary_delete(self):
+        self.started=int(time.time())-100
+        (self.state/(WORKER+'.started')).write_text(str(self.started))
+        (self.state/(WORKER+'.collected')).touch()
+        evidence=self.spend.with_suffix('.deletions')/WORKER; evidence.mkdir(parents=True)
+        (evidence/'retirement-proof.json').write_text('{}')  # AUTHORED retained/corrupt proof seam.
+        with patch.dict(os.environ,self.env), patch.object(key_holder,'ROOT',self.root), patch.object(life,'capture_meter',side_effect=ValueError('AUTHORED failed fresh stop recheck')), patch.object(life,'_delete') as delete:
+            with self.assertRaises(ValueError): life.delete_receipt(self.root,self.spend,WORKER,self.state/'ids')
+            delete.assert_not_called()
+        self.assertEqual((evidence/'retirement-proof.json').read_text(),'{}')
+        self.assertFalse((self.state/(WORKER+'.metering-bypassed')).exists())
+
     def test_delete_queries_cannot_use_unspent_meter_allowance(self):
         from types import SimpleNamespace
         budgets=[]
@@ -299,7 +311,21 @@ elif args[0]=='deletion':
 elif args[0]=='list': print('{"sandboxes":[],"pageInfo":{"hasMore":false}}')
 else: sys.exit(99)'''))
         self.env['RETIREMENT_WORKER']=WORKER
+        # Real wrapper/kernel seam: crash after meter commit but before DELETE.
         with patch.dict(os.environ,self.env), patch.object(key_holder,'ROOT',self.root):
+            marker=life.retirement_marker(self.root,self.spend,WORKER,self.state,self.started+2700)
+            with (self.state/(WORKER+'.deletion.lock')).open('a+') as owner:
+                fcntl.flock(owner,fcntl.LOCK_EX)
+                life.capture_meter(self.root,self.spend,WORKER,self.state,marker,owner.fileno())
+            evidence=self.spend.with_suffix('.deletions')/WORKER
+            retained=(evidence/'retirement-proof.json').read_bytes()
+            resumed=deepcopy(CONTRACT['info_projection']); resumed['sandbox']['state']='running'
+            atomic_json(self.base/'info',resumed)
+            with self.assertRaises(ValueError): life.delete_receipt(self.root,self.spend,WORKER,self.state/'ids')
+            self.assertFalse((self.state/(WORKER+'.deletion-attempted')).exists())
+            self.assertFalse(any(c[0]=='delete' for c in self.calls()))
+            self.assertEqual((evidence/'retirement-proof.json').read_bytes(),retained)
+            atomic_json(self.base/'info',CONTRACT['info_projection'])
             life.delete_receipt(self.root,self.spend,WORKER,self.state/'ids',delete_due=self.started+2700)
         evidence=self.spend.with_suffix('.deletions')/WORKER
         proof=life.loads((evidence/'retirement-proof.json').read_bytes())
