@@ -114,10 +114,10 @@ guard_retire() {
   [ ! -f "$state/$retire_id.deleted" ] || return 0
   [ ! -f "$state/$retire_id.keep" ] || { echo "$retire_id: KEEPING VM: checkpoint not verified" >&2; return 1; }
   # Pending detached startup can expose the previous DONE; retire only a fresh collection.
-  if [ -f "$state/$retire_id.restart-attempted" ] && [ ! -f "$state/$retire_id.deletion-attempted" ]; then
+  if [ -f "$state/$retire_id.restart-attempted" ] && [ ! -f "$state/$retire_id.deletion-attempted" ] && [ ! -e "$state/$retire_id.retiring.json" ]; then
     rm -f "$state/$retire_id.collected"
   fi
-  if [ ! -f "$state/$retire_id.collected" ]; then
+  if [ ! -f "$state/$retire_id.collected" ] && [ ! -e "$state/$retire_id.retiring.json" ]; then
     # Never delete a VM whose results did not arrive intact (2026-10-17: a cut-off scp lost a case).
     tries=0
     until collect_vm "$retire_id"; do

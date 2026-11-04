@@ -9,7 +9,7 @@ import json
 
 CHECKED_HELPERS = ('bin/qualified-release.py', 'tools/boat_readiness.py')
 HASH_FILE = 'factory/launcher-sha256.json'
-TRUSTED_FILES = ('factory/pilot.py', 'control/unbug-pilot-cleanup.service', 'factory/worker_secrets.py', 'factory/router_delivery.py', 'factory/practice.py', 'factory/practice_cleanup.py', 'factory/boat_lifecycle.py',
+TRUSTED_FILES = ('docs/reports/legacy-bx-z4wktrbn-budget-decision-20261104.json', 'factory/pilot.py', 'control/unbug-pilot-cleanup.service', 'factory/worker_secrets.py', 'factory/router_delivery.py', 'factory/practice.py', 'factory/practice_cleanup.py', 'factory/boat_lifecycle.py',
  'control/unbug-practice-cleanup@.service', 'tools/practice-fault.py',
  'tools/qualify-batch-inputs.py', 'factory/control_resume.py',
  'factory/key_holder.py',
@@ -102,7 +102,7 @@ WORKER_CONFIG = ('factory/invalid-runs-compat.json',
 WORKER_GLOBS = ('factory/*.py', 'factory/*.sh', 'factory/prompts/*.md', 'factory/batches/*.json')
 # Public tracked source only; never export sealed/, results/ or local credentials.
 BATCH_SOURCE = ('bin', 'cases', 'factory', 'guards', 'harbor', 'projects',
-                'scenarios', 'tests', 'CONTESTANT.md', 'SPEC.md', 'README.md')
+                'scenarios', 'tests', 'docs/reports/legacy-bx-z4wktrbn-budget-decision-20261104.json', 'CONTESTANT.md', 'SPEC.md', 'README.md')
 
 INHERITED_HELPERS = ('founder-run.py', 'start-in-terminal.sh', 'sync-to-vm.sh')
 PUBLISHER = {'sync-to-vm.py': 'factory/restore_sync.py'}

@@ -375,3 +375,63 @@ Practice follows a passing smoke; no fleet. Historical$0.036 is not forgiven.
 Murphy rows17/49/51 stay open: this fixes a provider-contract assumption, not case
 logic. Row49 already records the observed failure before coding. Design/static
 fixtures alone close no row; retain real normal-path lifecycle/settlement proof.
+
+
+## Explicit historical owner decision — 2026-11-04
+
+Supersedes ONLY the withheld-disposition/no-migration paragraph for the exact row
+named in docs/reports/legacy-bx-z4wktrbn-budget-decision-20261104.json (cc78673).
+The founder approves a permanent conservative budget debit of $0.036 against the
+existing $5 cap, leaving $4.964 before other liabilities. Exact actual usage stays
+UNKNOWN/null. Nothing authorizes a payment/top-up/limit increase, generic writeoff,
+other reservation, changed worker/path/hash or live application in this worktree.
+
+Reuse boat-spend's existing home-ledger lock and atomic write. Add an explicit
+--record-approved-legacy-debit command with no caller-defined amount or scope. It
+reads the tracked decision, requires its exact reviewed contents, validates the
+specific unbound finished $0.036 row, exact spend bytes SHA, retained creation and
+matching completed deletion operation for bx_z4wktrbn. No provider request. Replace
+only that row with status=budget_debited, actual_spend_usd=null and a strict
+budget_debit record containing the decision SHA and entire original row snapshot;
+retain the old spend/provider files byte-for-byte. The row remains unbound: the
+approved provenance is recorded in budget_debit rather than silently rewriting its
+historical envelope. Snapshot plus approval make replay idempotent; mismatched
+existing debit refuses. No mirror of exact actual charges is fabricated.
+
+Shared budget_amount returns exact settled charges OR this one validated approved
+conservative debit. Admission treats budget_debited as accounted for cumulative
+budget purposes while reporting exact actual unknown; min historical caps also
+includes this approved $5 ceiling. Inventory reports conservative_budget_debit_usd
+separately from settled_usd, counting the new status. Existing settled schema1/2,
+unknown holds and no_creation behavior remain unchanged. The original row and
+approval cannot be edited to replenish headroom or generalize the disposition.
+
+Tests challenge wrong row/amount/worker/path/hash/deletion/decision, repeat/crash
+replay, unchanged evidence, cap increase attempts, exact $4.964 remaining budget
+and actual unknown. Real evidence is reused where saved; local transport/layout
+variants remain AUTHORED. The fresh design/diff reviewers must cover this delta.
+Root alone applies the reviewed command to live state after integration.
+
+
+### Historical delta review resolutions (all findings accepted)
+
+budget_debit exact keys are {schema,decision_sha256,spend_path,state_path,
+worker_id,deletion_operation_id,spend_sha256,budget_debit_usd,budget_cap_usd,
+actual_charge_status,original_row}. schema is integer1; all other fields are
+strings except original_row (entire original object). Values equal the exact
+tracked approved decision, whose raw SHA256 is 4e5caa263a8bf323abb78791f03c3a064df3ab0ee0b9b5bbb0b950e97a350660.
+actual_charge_status='unknown', budget_debit_usd='0.036', budget_cap_usd='5.000'.
+original_row must be unbound, status='finished', usd exactly0.036, no settlement
+or budget_debit, no actual charge except absent/null. The reservation dictionary
+key must equal the approved spend_path, not an alternative spelling. The updated
+row equals original_row plus status='budget_debited', actual_spend_usd=null and
+budget_debit; any other change refuses. Shared validation rejects mismatched key,
+fields, snapshot or amount. No activation parameter can enlarge this scope.
+
+Initial application requires all retained spend SHA/owned creation/deletion proofs
+locally. Accepted replay validates the persisted snapshot plus pinned decision and
+row, with NO need to re-read provider/evidence files and NO provider query, matching
+accepted-settlement replay; prior evidence files remain untouched, not rewritten.
+--finish and --settle on a budget_debited row first validate it, then return no-op
+before any evidence read, provider call or write. Tests assert both no-op replays
+preserve the debit and all evidence bytes. Unknown other rows still block.

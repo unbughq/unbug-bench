@@ -191,10 +191,15 @@ def step(policy, root, home, op, now=None):
             result["deadline"] = min(deadlines)
             try: holder._retirement(root, path, worker)
             except (OSError, ValueError, KeyError, TypeError):
-                if now >= deadline:
+                if now >= deadline or os.path.lexists(path / (worker + ".collected")) or os.path.lexists(path / (worker + ".retiring.json")):
                     result["state"] = "deleting"
-                    boat_lifecycle.delete_receipt(root, spend, worker, path / "ids")
+                    boat_lifecycle.delete_receipt(root, spend, worker, path / "ids", delete_due=deadline)
         result["deadline"] = min(deadlines)
+        # A deadline safety winner invalidated accounting; no inventory/meter work
+        # may delay its safety path or turn it into exact settlement.
+        if any(os.path.lexists(path / (w + '.metering-bypassed')) for w in workers):
+            result.update(state='settlement_pending', settlement='unknown')
+            return result
         # Recheck after deletion; verify complete inventory, never absence alone.
         if all((spend.with_suffix(".deletions") / w / "deletion-completion.json").exists() for w in workers):
             for worker in workers: holder._retirement(root, path, worker)

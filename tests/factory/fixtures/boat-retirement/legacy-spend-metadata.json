@@ -1,0 +1,25 @@
+{
+  "legacy_spend_metadata": [
+    {
+      "ledger_key": "/home/user/unbug-bench/results/spend/20261103T083635Z-242175-factory.json",
+      "ledger_row": {
+        "usd": "0.036",
+        "expires_at": 1793700396.2445376,
+        "status": "finished",
+        "actual_spend_usd": null
+      },
+      "spend_sha256": "b682ef2bed391d9ce26056e3225498ce4910ec85edc3d1509b50e335532d28e2",
+      "spend_metadata": {
+        "started_at": "2026-11-03T08:36:36.247002+00:00",
+        "vms": 1,
+        "ttl_seconds": 3600,
+        "max_spend_usd": 5.0,
+        "provider": "boat",
+        "actual_spend_usd": null,
+        "allowed": true,
+        "finished_at": "2026-11-03T08:39:53.686556+00:00",
+        "exit_code": 0
+      }
+    }
+  ]
+}

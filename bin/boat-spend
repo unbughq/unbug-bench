@@ -90,7 +90,7 @@ read_ledger = lifecycle.read_ledger
 def main():
     # One control host owns admission. Never silently drop an uncertain hold.
     home = pathlib.Path(os.environ.get('UNBUG_CONTROL_HOME', str(pathlib.Path.home() / '.unbug-control')))
-    if not HETZNER and len(sys.argv) > 1 and sys.argv[1] in ('--check', '--finish', '--settle'):
+    if not HETZNER and len(sys.argv) > 1 and sys.argv[1] in ('--check', '--finish', '--settle', '--record-approved-legacy-debit'):
         home.mkdir(parents=True, exist_ok=True)
         with (home / 'boat-reservations.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
@@ -111,8 +111,13 @@ def accounting(ledger_path):
     def save_ledger():
         if ledger_path: write(ledger_path, ledger)
     def settle(path, state):
+        approved = ledger['reservations'].get(str(path))
+        if approved and approved['status']=='budget_debited':
+            lifecycle.budget_amount(approved,str(path)); return
         key = str(pathlib.Path(path).resolve())
         row = ledger['reservations'][key]
+        if row['status'] == 'budget_debited':
+            lifecycle.budget_amount(row,key); return
         state = str(pathlib.Path(state).resolve())
         if row.get('state_path') != state: raise ValueError('unbound state')
         data = json.loads(lifecycle.regular(path), object_pairs_hook=lifecycle.unique_object)
@@ -137,6 +142,10 @@ def accounting(ledger_path):
             return True
         except (ValueError, KeyError, TypeError, OSError, decimal.DecimalException, subprocess.SubprocessError):
             return False
+    if sys.argv[1:]==['--record-approved-legacy-debit']:
+        if HETZNER or ledger_path is None: raise ValueError('invalid conservative debit')
+        if lifecycle.record_approved_debit(ledger): save_ledger()
+        return
     if len(sys.argv) == 1:
         print(balance())
     elif sys.argv[1] == "--total":
@@ -169,7 +178,7 @@ def accounting(ledger_path):
                  lifecycle.number(previous['max_spend_usd']) != cap)) or
                 ('state_path' not in previous and state is not None)):
             refusal = 'reservation envelope changed'
-        elif any(k != key and row['status'] != 'settled' for k, row in holds.items()):
+        elif any(k != key and row['status'] not in ('settled','budget_debited') for k, row in holds.items()):
             refusal = 'infrastructure liability unsettled'
         elif previous is None and state is not None and any(r.get('state_path') == state for r in holds.values()):
             refusal = 'reservation state already bound'
@@ -177,8 +186,8 @@ def accounting(ledger_path):
             refusal = 'unledgered spend record exists'
         else:
             before = None if HETZNER else balance(query)
-            charges = lifecycle.total(lifecycle.settlement_amount(r) for r in holds.values() if r["status"] == "settled")
-            caps = [cap] + [lifecycle.number(r["max_spend_usd"]) for r in holds.values() if "max_spend_usd" in r]
+            charges = lifecycle.total(lifecycle.budget_amount(r,k) for k,r in holds.items() if r['status'] in ('settled','budget_debited'))
+            caps = [cap] + [lifecycle.number(r['budget_debit']['budget_cap_usd']) for r in holds.values() if r['status']=='budget_debited'] + [lifecycle.number(r["max_spend_usd"]) for r in holds.values() if "max_spend_usd" in r]
             if lifecycle.total([charges, estimate]) > min(caps) or (not HETZNER and estimate > before):
                 refusal = 'estimated batch cost exceeds balance or --max-spend'
         allowed = refusal is None
@@ -204,6 +213,12 @@ def accounting(ledger_path):
             raise ValueError("infrastructure settlement unavailable")
     elif sys.argv[1] == "--finish":
         path, code, ids_file = sys.argv[2:]
+        approved = ledger['reservations'].get(path)
+        if approved and approved['status']=='budget_debited':
+            lifecycle.budget_amount(approved,path); return
+        hold = ledger['reservations'].get(str(pathlib.Path(path).resolve()))
+        if hold and hold['status']=='budget_debited':
+            lifecycle.budget_amount(hold,str(pathlib.Path(path).resolve())); return
         data = json.loads(pathlib.Path(path).read_text())
         hold = ledger['reservations'].get(str(pathlib.Path(path).resolve()))
         if hold and hold.get('state_path') and str(pathlib.Path(ids_file).resolve().parent) != hold['state_path']:
