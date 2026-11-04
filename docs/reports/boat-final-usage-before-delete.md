@@ -189,3 +189,6 @@ and completed exact-worker deletion operation were independently rechecked live
 read-only; the ledger is still unchanged and the actual charge is null.
 A new full integration run remains necessary after the fixture correction.
 No deployment, budget debit application, worker or Murphy closure is claimed.
+
+Focused parent recovery file after the fixture correction:24/24 passed in
+129.013seconds. This does not replace the required new full integration run.
