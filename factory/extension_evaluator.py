@@ -1,4 +1,5 @@
 """Owning-job comparison execution; no launcher and no independent money authority."""
+import contextlib
 import copy
 import ctypes
 import hashlib
@@ -223,6 +224,8 @@ def stress(c, r, number):
 
 def child(pipe, c, r, private_bench, phase_manifest, versions):
     """Private process. Only durable records and operational IPC leave this scope."""
+    import processes
+    processes._deadline.set((float('inf'), False))  # forked inside a gate window: each stage message carries its own end
     os.setpgid(0, 0)
     def child_seal(*args, **kwargs): raise RuntimeError('child seal')
     runners = [r]
@@ -279,7 +282,8 @@ def child(pipe, c, r, private_bench, phase_manifest, versions):
         while True:
             message = pipe.recv()
             if message[0] == 'close': break
-            _, stage, attempt_id = message
+            _, stage, attempt_id, *rest = message
+            end = rest[0] if rest else None  # absolute monotonic end of this stage's gate window
             def mark(reason):
                 path = c.work / 'attempt-effects' / (attempt_id + '.json')
                 value = read(path, c.work) if path.exists() else dict(
@@ -310,7 +314,10 @@ def child(pipe, c, r, private_bench, phase_manifest, versions):
                         try:
                             if stage == 'stress': result = stress(c, r, phase_manifest['round_number'])
                             elif stage == 'G3' and prepared: result = True, setup
-                            else: result = getattr(r, stage.lower())(c)
+                            else:
+                                with (processes.deadline(max(end - time.monotonic(), 1e-3))
+                                      if end is not None else contextlib.nullcontext()):
+                                    result = getattr(r, stage.lower())(c)
                         except CaseProblem as error:
                             result = False, {'problems': [str(error)]}
                         if immutable != {k: v for k, v in extensions.tree(c.case).items()
@@ -524,7 +531,9 @@ class Evaluator:
             try:
                 self.start_child()
                 self.check_versions()
-                self.pipe.send(('stage', stage, attempt_id))
+                import processes
+                end, _ = processes._deadline.get()
+                self.pipe.send(('stage', stage, attempt_id, end if end != float('inf') else None))
                 while True:
                     message = self.receive()
                     if message[0] == 'unpublishable':
@@ -584,12 +593,13 @@ class Evaluator:
         self.phase_for(w)
         data = self.records.load(stage)
         if data is None:
-            outcome = gate_attempt.execute(lambda: self.invoke(stage),
-                publish=lambda state, *args: self.r.public_progress(self.c, 'comparison:' + stage, state),
-                record_crash=lambda error: self.crash(stage, error), interruption=BudgetError,
-                attempts=2, journal=self.context.work / 'infra-attempts.json',
-                identity=dict(operation='comparison-stage', comparison=self.identity,
-                              phase=self.phase, gate=stage, versions=self.versions))
+            with self.r._gate_pipeline().window(self.c, stage):  # retries share it; invoke() sends its end to the child
+                outcome = gate_attempt.execute(lambda: self.invoke(stage),
+                    publish=lambda state, *args: self.r.public_progress(self.c, 'comparison:' + stage, state),
+                    record_crash=lambda error: self.crash(stage, error), interruption=BudgetError,
+                    attempts=2, journal=self.context.work / 'infra-attempts.json',
+                    identity=dict(operation='comparison-stage', comparison=self.identity,
+                                  phase=self.phase, gate=stage, versions=self.versions))
             if outcome.crashed: self.exhausted(stage)
             data = self.records.load(stage)
         if data is None: raise InvalidInfra('missing comparison result')
