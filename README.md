@@ -462,3 +462,7 @@ The latest counts and reset durations are in
 verification artifacts are under ignored `results/`; they are not calibration.
 The literal all-`@medusajs/*` 2.19.0 pin remains impossible because upstream UI
 has no such release; the explicit lock verification exception is unchanged.
+
+## Cloud factory handoff
+
+Start with [the current branches, cloud tasks and 24-case checklist](docs/cloud-handoff.md).
