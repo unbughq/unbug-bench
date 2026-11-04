@@ -164,3 +164,28 @@ The final qualifying Linux/full records use004847Z paths above. The001745Z Linux
 record remains valid earlier kernel evidence but belongs to36fd6f8; it is preserved.
 All partial/failed logs remain available. Root still must recut real deployment
 pins; the test package is never deployed or used to unlock a live holder.
+
+
+## Parent integration validation, November 4
+
+The parent integrated the reviewed implementation on the fix branch, leaving
+factory-simplify and the deployed control VM unchanged. The first parent full
+suite at 7d6c467 ran195 scripts,194 passing, exit1,1095.503seconds, clean tree
+before and after. It is NOT green. The previously failing PostgreSQL startup
+exam passed after its reviewed test-only TCP-readiness wait.
+
+The sole parent failure was control-resume's fixture ten-second crash-gate wait,
+after the controller reached deletion but before its billing crash gate. The
+unchanged isolated test passed7.316seconds. An AUTHORED eleven-second pre-gate
+delay reproduced the same timeout in10.02seconds; reusing the fixture's existing
+twenty-second controller wait reached the same boundary in16.12seconds. No
+production deadline, crash/replay assertion or provider behavior changed.
+Fresh focused review: docs/reviews/boat-recovery-fixture-wait-diff-1.md.
+
+Original parent suite evidence remains under
+results/infrastructure/2026-11-04-plumbing-practice3/
+integration-suite-20261104T011112Z.{json,log}. The exact historical spend hash
+and completed exact-worker deletion operation were independently rechecked live
+read-only; the ledger is still unchanged and the actual charge is null.
+A new full integration run remains necessary after the fixture correction.
+No deployment, budget debit application, worker or Murphy closure is claimed.
