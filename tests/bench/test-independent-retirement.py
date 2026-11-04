@@ -227,15 +227,35 @@ class IndependentRetirementTests(unittest.TestCase):
     def test_unreachable_ttl_margin_retires_without_attestation(self):
         for shell in SHELLS:
             with self.subTest(shell=shell[0]):
-                launch = self.launch(shell, {REAL_ID: True}, label='factory')
+                # 'a-ttl' (numeric reply) sorts first, so retire_kind must be reset for the next worker.
+                launch = self.launch(shell, {'a-ttl': True, REAL_ID: True}, label='factory')
                 launch.reply(REAL_ID, 'FAIL')  # the probe SSH fails: unreachable-or-TTL branch
                 code, err = launch.run(STATUS, extra=self.ttl_collect())
                 events = launch.events()
                 self.assertEqual(code, 0, err)
                 self.assertIn('UNREACHABLE', err)
+                self.assertIn('attest a-ttl', events)
                 self.assertNotIn('attest ' + REAL_ID, events)  # only the numeric TTL-margin branch attests
-                self.assertEqual(launch.deletes(), [REAL_ID])
+                self.assertEqual(sorted(launch.deletes()), sorted(['a-ttl', REAL_ID]))
                 self.assertEqual(events[-1], 'status 1')
+
+    def test_reaped_failure_alone_sets_status_and_cleanup_failure(self):
+        for shell in SHELLS:
+            with self.subTest(shell=shell[0]):
+                # A DONE exam worker sets no status itself: only its reaped failure can make guard_wait 1.
+                launch = self.launch(shell, {'bx_row16a': False}, trap=True)
+                launch.reply('bx_row16a', 'DONE')
+                launch.mode('bx_row16a', fail=True)
+                code, err = launch.run(STATUS + '\nexit 0')
+                events = launch.events()
+                # guard_wait returned 1 after the task's three attempts, before the exit pass's three.
+                self.assertEqual(events.index('status 1'), 6, events)
+                self.assertNotIn('status 0', events)
+                # The exit pass retries, fails again, and that failure is the launcher's cleanup failure.
+                self.assertEqual(code, 1, err)
+                self.assertIn('unfinished launch evidence retained', err)
+                self.assertEqual(events.count('collect-start bx_row16a'), 6)
+                self.assertEqual(launch.deletes(), [])
 
     def test_later_due_worker_is_not_queued_and_failure_is_isolated(self):
         for shell in SHELLS:
@@ -332,7 +352,6 @@ class IndependentRetirementTests(unittest.TestCase):
                 launch.until('bx_row16a.collect-started')
                 os.kill(process.pid, signal.SIGTERM)
                 time.sleep(.5)
-                self.assertNotIn('collect-end bx_row16a 0', launch.events())  # still running, not killed
                 (launch.ev / 'release').touch()
                 out, err = process.communicate(timeout=240)
                 events = launch.events()

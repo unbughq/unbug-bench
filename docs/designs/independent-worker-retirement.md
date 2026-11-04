@@ -324,6 +324,21 @@ themselves are unchanged.
   R2 PUT up to 1800 s (`factory/r2_upload.py`). DONE can arrive about 2400 s
   after the pause request. That is longer than both the 1050 s pause wait and
   the 1800 s margin.
+  - **Which upload behaviour these figures assume:** the 2400 s figure is
+    the **base** `factory-simplify` behaviour.
+  - **Unmerged PR #7** (row 34, branch `claude/murphy-immutable-checkpoints`)
+    adds a read-back GET, also with a 1800 s timeout, after each checkpoint
+    PUT. With it, the worst-case stop seal is about 60 min for the upload
+    alone (PUT plus GET). Adding the 600 s encryption bound gives
+    600 + 1800 + 1800 = 4200 s, or about 70 min. At the launcher's 256 KiB/s floor, the largest recorded archive
+    (528 MB) already needs about 2014 s each way, which is over each 1800 s
+    bound.
+  - **Effect on this change:** none. It derives no invariant from upload
+    timeouts and changes no timing value, so it is correct under either
+    behaviour. Only the open half of row 16 grows. Against the 1800 s
+    margin, the seal overruns by about 600 s with base behaviour and by about
+    2400 s with PR #7.
+  - This branch does not touch `r2_upload.py` or `durable_checkpoint.py`.
   - Fixing it means bounding the worker-side seal and upload by the remaining
     provider lifetime, or checkpointing earlier.
   - That touches worker release code, the row-34 files (`r2_upload.py` and
@@ -442,13 +457,15 @@ Scenarios:
      leaves the worker pending, with no task and no `.retired`. When it later
      returns 1, a `retire` task starts.
 4. **Liveness: death is failure.**
-   - A task killed with SIGKILL writes no status file. Its stub finds the
-     task's own pid as the `$PPID` of a child `sh -c 'echo $PPID'`, because
-     `$$` inside the task is the controller's pid.
+   - A task killed with SIGKILL writes no status file. The collection helper
+     is a direct child of the task subshell, so it kills `os.getppid()`.
+     `$$` inside the task would be the controller's pid.
    - Pass: the task is reaped and its worker is `.retired`.
    - Pass: the worker is not probed or collected again by `guard_wait`, and
      `guard_wait` returns 1 rather than hanging.
    - Pass: a stale `.retirement-exit.*` file left before start is ignored.
+     This is shown through its removal before the fork. That token naming
+     alone would ignore it is argued, not tested.
 5. **Exit trap joins rather than kills.**
    - **TERM to the launcher shell** while A's collection is blocked. Pass:
      A's single collection completes, A is deleted exactly once, a peer still
