@@ -52,6 +52,23 @@ focused/full results with skips and environment limits, and remaining blockers.
 Do not enable deployment, create workers, alter spending authority, expose keys,
 decrypt cases, change factory model routes or launch pilots/fleet from these jobs.
 
+For the two already-uploaded sessions, first grant Claude's GitHub App access to
+`unbughq/unbug-bench`. Then paste this owner update into each session:
+
+> Publishing your completed factory work to the new private repository
+> `https://github.com/unbughq/unbug-bench.git` is now authorized. Preserve your
+> existing commits and use their real timestamps. Verify the remote URL, adding
+> origin only if it is absent. Commit only your task's files and push HEAD to a
+> new `claude/<task-name>` branch without force. Return the pushed branch URL,
+> head SHA, review and test results. If authentication refuses the push, stop and
+> report that error; do not claim a successful handoff. No factory-simplify/main
+> merge, deployment or worker action is authorized.
+
+Test one session's branch push before scaling cloud assignments. Bundle sessions
+need a GitHub connection with push access; creating the repository alone does
+not grant that access. Existing cloud-job instructions forbidding push are
+superseded only for these explicit private work branches.
+
 GitHub branch transport is the return path: after cloud work is pushed, the local
 integrator fetches it, checks its base and diff, resolves conflicts, validates the
 combined source, then merges. Session creation or an agent's completion label does
