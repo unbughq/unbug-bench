@@ -58,7 +58,11 @@ Use the retained original -3 manifest, public policy/release pins, validated
 source snapshot and real collected public smoke card. Preserve the source
 bytes and state, and label authored variants. Test -4 manifest/case/commitment
 bindings, matching snapshot acceptance, altered snapshot/release/generation
-refusal, original caps, old-batch opt-in refusal, and smoke-before-practice.
+refusal, original caps, old-batch opt-in refusal (including a stale -3
+unit/drop-in), and dormant practice. Smoke-before-practice is procedural, not
+code-enforced: the runbook orders the smoke continuation first and practice needs
+a separate later go-ahead. The test asserts only that practice cannot be reserved
+without the -4 opt-in (diff review 1, finding 1, option b).
 Use existing transfer and readiness tests; do not invent a new state machine.
 Run focused checks, fresh final diff review, then one final full offline suite.
 

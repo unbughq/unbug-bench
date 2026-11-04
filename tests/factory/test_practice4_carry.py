@@ -2,6 +2,7 @@
 
 The original source release, snapshot, journal, ACK, card and ciphertext are real.
 Target release verification is a named double; no live qualification or Murphy closure.
+AUTHORED: fixed clock; source money/reservations files re-serialised from the pinned snapshot.
 """
 from copy import deepcopy
 import hashlib
@@ -17,6 +18,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
 import batch
+import batch_holder as holder
 import batch_money as money
 import batch_transfer as transfer
 from carry_over import digest
@@ -97,6 +99,9 @@ class PracticeCarryTests(unittest.TestCase):
         self.assertEqual(ack, self.snapshot['money']['jobs']['smoke']['acks'][self.generation])
         payload = path / (self.case + '.checkpoint.tar.gz.age')
         self.assertEqual(hashlib.sha256(payload.read_bytes()).hexdigest(), self.generation)
+        files = json.loads((FIXTURE / 'collection-public.json').read_text())['generation_manifest']['files']
+        for name, meta in files.items():  # exact restore archive: checkpoint, wrapped key, card
+            self.assertEqual(hashlib.sha256((path / name).read_bytes()).hexdigest(), meta['sha256'])
         transfer.prepare(self.policy, self.root, self.home)  # exact replay, no new authority
 
     def test_changed_snapshot_release_or_generation_refuses_before_export(self):
@@ -121,8 +126,23 @@ class PracticeCarryTests(unittest.TestCase):
         self.assertEqual(current['jobs']['practice']['args'], self.old['jobs']['practice']['args'])
         with patch.dict(os.environ, UNBUG_PRACTICE_BATCH=practice.BATCH):
             self.assertFalse(practice.active({'batch': {'id': self.old['id']}}, ROOT))
+        with patch.dict(os.environ, UNBUG_PRACTICE_BATCH=self.old['id']):  # stale -3 unit/drop-in
+            self.assertFalse(practice.active({'batch': {'id': self.old['id']}}, ROOT))
         changed = deepcopy(current); changed['money_limit_usd'] = '20.000000000'
         self.assertFalse(practice.matches(changed))
+
+    def test_practice_stays_dormant_without_current_opt_in(self):
+        # Smoke-before-practice is procedural (runbook + separate go-ahead), not code-enforced.
+        for value in (None, self.old['id']):
+            with self.subTest(opt_in=value):
+                env = {k: v for k, v in os.environ.items() if k != 'UNBUG_PRACTICE_BATCH'}
+                if value: env['UNBUG_PRACTICE_BATCH'] = value
+                with patch.dict(os.environ, env, clear=True):
+                    self.assertFalse(practice.active(self.policy, self.root))
+                    with self.assertRaisesRegex(ValueError, 'request_refused'):
+                        holder.reserve(self.policy, self.root, self.home, 'practice', None)
+                self.assertFalse(self.target.exists())
+                self.assertFalse((self.source / 'export.json').exists())
 
 
 if __name__ == '__main__': unittest.main()

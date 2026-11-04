@@ -115,4 +115,32 @@ No authored content is presented as live evidence. The design, runbook and tests
 
 ## Elephant response
 
-_Pending. The elephant records here what was fixed and what was rejected, and why. A rejected blocking finding goes to a second goldfish from a different model family (ENGINEERING.md section 1)._
+No finding is rejected. The fixes below are in the commit after b97b0c2 on `claude/practice4-release-prep`, and they need diff review 2.
+
+1. **BLOCKING: accepted and fixed with option (b), as the reviewer recommended.**
+   - `docs/designs/practice4-checkpoint-carry.md` now says smoke-before-practice is procedural: the runbook runs the smoke continuation first, and practice needs a separate later go-ahead. The code does not enforce the ordering.
+   - New test `test_practice_stays_dormant_without_current_opt_in` in `tests/factory/test_practice4_carry.py`. With `UNBUG_PRACTICE_BATCH` unset, and with it still set to the stale -3 value:
+     - `practice.active` is False;
+     - `holder.reserve(..., 'practice', None)` raises `request_refused`;
+     - no target batch directory and no source `export.json` is created.
+   - No guard was added to `_admit`. The design does not authorise one, and adding one would go against "add no generic practice framework".
+2. **NIT: fixed.**
+   - The `test_boat_retirement.py` comment now says that fresh-reservation retirement is kept on -3 because the carried smoke refuses fresh admission under -4. It also says -4 prepare/source is covered by `test_practice4_carry.py`, and -4 imported-continuation retirement is not covered offline.
+   - Commit 07df660 is already pushed and is not rewritten. The new commit message carries the corrected wording.
+   - The optional -4 retirement-authority test is not added. It stays with the open `new-boat-stop-capture-1` work.
+3. **NIT: not changed.** Editing `provenance.json` would change a retained fixture hash, and the brief requires every retained fixture hash to stay exact. Better repackaging notes and an exact evidence path belong in a separate note outside the fixture directory, written by whoever holds the original evidence path. Neither this session nor the reviewer has that path.
+4. **NIT: fixed.** `test_current_fixed_contract_preserves_caps_and_refuses_old_opt_in` now also asserts refusal when both the environment and the policy are still at -3, which is the stale unit/drop-in case. The new dormant test covers the same case for `reserve`.
+5. **NIT: fixed.** The module docstring now labels two things as AUTHORED: the fixed clock, and the source `money.json`/`reservations.json` files re-serialised from the pinned snapshot.
+6. **NIT: fixed.** The positive test now checks every file in the collected `generation_manifest` at the resolved source path against its recorded sha256: checkpoint, wrapped case key, progress and scorecards.
+7. **NIT: partly fixed.**
+   - The `new-smoke-1` mitigation text in `docs/murphy-register.md` now points to the inactive -4 continuation. The row stays open, and no row number was added.
+   - The real-clock dependency on the 2026-11-07 deadline in `test_boat_retirement` is unchanged, because it predates this branch. It is noted here as a follow-up.
+8. **NIT: not changed (optional).** The duplication is required by `batch_transfer.predecessor`. I left `factory/practice.py` unedited so the fixed EXPECTED contract file stays byte-identical to the reviewed version.
+
+Focused tests after these fixes, on Linux with Docker smoke unset:
+- `test_practice4_carry`: 4 OK
+- `test_boat_retirement`: 21 OK
+- `test_practice_readiness`: 15 OK
+- `test_startup_smoke`: 7 OK, 1 skip (Docker qualification)
+
+The sha256 of all 16 retained fixtures is unchanged.

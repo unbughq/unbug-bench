@@ -34,8 +34,9 @@ WORKER = CONTRACT['worker_never_mutated']
 
 class RetirementTests(unittest.TestCase):
     def setUp(self):
-        # Fresh-reservation retirement regression on the retained -3 contract; the -4
-        # whole-batch carry (imported smoke) is covered by test_practice4_carry.py.
+        # Fresh-reservation retirement is retained on -3: under -4 the carried smoke refuses
+        # fresh admission. -4 prepare/source is covered by test_practice4_carry.py; -4
+        # imported-continuation retirement is not covered offline.
         legacy = json.loads((ROOT/'factory/batches/b-plumbing-practice-3.json').read_text())
         for name, value in (('BATCH', legacy['id']), ('EXPECTED', legacy)):
             change = patch.object(practice, name, value); change.start(); self.addCleanup(change.stop)
