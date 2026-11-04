@@ -241,6 +241,75 @@ second=$?
         self.assertEqual((evidence/'retirement-proof.json').read_text(),'{}')
         self.assertFalse((self.state/(WORKER+'.metering-bypassed')).exists())
 
+    def test_public_capture_failure_receipt_is_fixed_and_preserved(self):
+        self.started=int(time.time())-100
+        (self.state/(WORKER+'.started')).write_text(str(self.started))
+        import subprocess
+        errors=[(TimeoutError('PRIVATE_SENTINEL'),'timeout'),
+                (subprocess.CalledProcessError(1,['PRIVATE_SENTINEL']),'rpc'),
+                (OSError('PRIVATE_SENTINEL'),'io'),(TypeError('PRIVATE_SENTINEL'),'invalid_response')]
+        with patch.dict(os.environ,self.env),patch.object(key_holder,'ROOT',self.root):
+            marker=life.retirement_marker(self.root,self.spend,WORKER,self.state,self.started+2700)
+        target=self.spend.with_suffix('.deletions')/WORKER/'capture-stage.json'
+        for error,kind in errors:
+            target.unlink(missing_ok=True)
+            with patch.object(life,'_capture_meter',side_effect=error):
+                with self.assertRaises(type(error)): life.capture_meter(self.root,self.spend,WORKER,self.state,marker,0)
+                raw=target.read_bytes(); receipt=json.loads(raw)
+                self.assertEqual(set(receipt),{'schema','retirement_id','worker_id','stage','outcome','error_class','observed_at'})
+                self.assertEqual(receipt['error_class'],kind)
+                self.assertNotIn(b'PRIVATE_SENTINEL',raw)
+                with self.assertRaises(type(error)): life.capture_meter(self.root,self.spend,WORKER,self.state,marker,0)
+                self.assertEqual(target.read_bytes(),raw)
+            self.assertFalse((target.parent/'retirement-proof.json').exists())
+
+    def test_null_status_has_public_failure_without_proof(self):
+        self.null_status=True
+        with self.assertRaises(ValueError): self.test_fresh_stop_delayed_identity_and_stopped_info()
+        receipt=json.loads((self.spend.with_suffix('.deletions')/WORKER/'capture-stage.json').read_text())
+        self.assertEqual((receipt['stage'],receipt['error_class']),('stop_status','invalid_response'))
+        self.assertFalse((self.spend.with_suffix('.deletions')/WORKER/'retirement-proof.json').exists())
+
+    def test_transitional_supersession_refuses(self):
+        self.supersede_transition=True
+        with self.assertRaises(ValueError): self.test_fresh_stop_delayed_identity_and_stopped_info()
+        self.assertFalse((self.spend.with_suffix('.deletions')/WORKER/'retirement-proof.json').exists())
+
+    def test_saved_request_continues_identity_poll_without_second_stop(self):
+        self.prior_request=True
+        target=self.spend.with_suffix('.deletions')/WORKER/'stop-request.json'
+        target.parent.mkdir(parents=True); target.write_text(json.dumps({'id':WORKER}))
+        self.test_fresh_stop_delayed_identity_and_stopped_info()
+
+    def test_fresh_stop_delayed_identity_and_stopped_info(self):
+        from types import SimpleNamespace
+        self.started=int(time.time())-100
+        (self.state/(WORKER+'.started')).write_text(str(self.started))
+        current=deepcopy(CONTRACT['info_projection']); current['sandbox'].update(state='running',stop=None)
+        waiting=deepcopy(current); waiting['sandbox']['state']='stopping'
+        identified=deepcopy(CONTRACT['info_projection']); identified['sandbox']['state']='stopping'
+        infos=iter([current,waiting,identified,identified,CONTRACT['info_projection'],CONTRACT['info_projection']])
+        calls=[]
+        pending=deepcopy(CONTRACT['stop_status_response']); pending['stop'].update(status='pending',endedAt=None)
+        statuses=iter([pending,CONTRACT['stop_status_response']])
+        def run(argv,**kwargs):
+            args=argv[1:];calls.append(args)
+            if args[0]=='info':
+                data=deepcopy(next(infos))
+                if getattr(self,'supersede_transition',False) and not getattr(self,'supersession_emitted',False) and data['sandbox']['stop'] is not None:
+                    self.supersession_emitted=True
+                    data['sandbox']['stop']['status']='superseded'
+            elif args==['stop',WORKER,'--json']: data={'id':WORKER}
+            elif args[0]=='stop': data={'id':WORKER,'stop':None} if getattr(self,'null_status',False) else next(statuses)
+            else: return SimpleNamespace(stdout=CONTRACT['usage_raw_public_json'].encode())
+            return SimpleNamespace(stdout=json.dumps(data).encode())
+        with patch.dict(os.environ,self.env),patch.object(key_holder,'ROOT',self.root),patch.object(life,'boot_id',return_value='AUTHORED boot'),patch.object(life.time,'sleep'),patch.object(life.subprocess,'run',side_effect=run):
+            marker=life.retirement_marker(self.root,self.spend,WORKER,self.state,self.started+2700)
+            with (self.state/(WORKER+'.deletion.lock')).open('a+') as fd:
+                proof,_,_=life.capture_meter(self.root,self.spend,WORKER,self.state,marker,fd.fileno())
+        self.assertEqual(proof['stop_id'],CONTRACT['stop_status_response']['stop']['id'])
+        self.assertEqual(calls.count(['stop',WORKER,'--json']),0 if getattr(self,'prior_request',False) else 1)
+
     def test_delete_queries_cannot_use_unspent_meter_allowance(self):
         from types import SimpleNamespace
         budgets=[]
@@ -300,7 +369,14 @@ second=$?
         atomic_json(self.base/'info',CONTRACT['info_projection'])
         atomic_json(self.base/'status',CONTRACT['stop_status_response'])
         (self.base/'usage').write_text(CONTRACT['usage_raw_public_json'])
-        self.edge.write_text(self.edge.read_text().replace("else: sys.exit(99)",'''elif args[0]=='info': print((base/'info').read_text())
+        self.edge.write_text(self.edge.read_text().replace("else: sys.exit(99)",'''elif args[0]=='info':
+ data=json.loads((base/'info').read_text())
+ if os.environ.get('FRESH_STOP_EDGE')=='1' and not (base/'identity-visible').exists():
+  data['sandbox'].update(state='stopping',stop=None)
+  if (base/'stop-issued').exists(): (base/'identity-visible').touch()
+ print(json.dumps(data))
+elif args[0]=='stop' and '--status' not in args:
+ (base/'stop-issued').touch(); print(json.dumps({'id':args[1]}))
 elif args[0]=='stop' and '--status' in args: print((base/'status').read_text())
 elif args[0]=='usage':
  if (base/'deleted').exists(): sys.exit(44)
@@ -356,6 +432,12 @@ else: sys.exit(99)'''))
         self.assertEqual(self.calls(),calls)
         self.assertEqual({p.name:p.read_bytes() for p in evidence.iterdir()},before)
         self.assertEqual(proof['stop_id'],CONTRACT['stop_status_response']['stop']['id'])
+
+    @unittest.skipUnless(sys.platform=='linux','fresh stop real-wrapper FD positive requires Linux')
+    def test_fresh_stop_real_wrapper_and_write_fd(self):
+        self.env['FRESH_STOP_EDGE']='1'
+        self.test_saved_meter_stop_delete_settle_and_immutable_replay_without_deleted_usage()
+        self.assertEqual(self.calls().count(['stop',WORKER,'--json']),1)
 
     @unittest.skipUnless(sys.platform=='linux','actual /proc/self/fdinfo WRITE proof requires Linux')
     def test_kernel_owner_fd_accepts_only_existing_write_flock(self):
