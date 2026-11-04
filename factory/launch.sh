@@ -289,6 +289,7 @@ PYCODE
   fi
   # A public card may postdate its embedded copy, but must still identify the
   # exact ciphertext selected for restore. Never spend on a mismatched pair.
+  admission_archive=$ckpt
   cp "$ckpt" "$UNBUG_LAUNCH_STATE/restore-input.tar.gz.age"
   ckpt=$UNBUG_LAUNCH_STATE/restore-input.tar.gz.age
   python3 - "$card" "$ckpt" "$restore" "${checkpoint_sha:-}" <<'PYCODE'
@@ -397,10 +398,11 @@ fi
 if [ -n "$restore" ] && [ "$audit_g11" = no ] && [ -z "$sealed_audit" ]; then
   # Collected candidate handoffs need their coordinator reservation before any VM
   # is created. Only public cards/hashes and encrypted statements are read here.
-  admission_snapshot=$(PYTHONPATH="$here" python3 - "$root" "$restore" "$ckpt" "$state/admission" <<'PYCODE'
+  admission_snapshot=$(PYTHONPATH="$here" python3 - "$root" "$restore" "$admission_archive" "$state/admission" "${source_dir:-$root/sealed}" "$card" "$admission_root" <<'PYCODE'
 import sys
 from statement_round import prepare_restore
-snapshot = prepare_restore(*sys.argv[1:])
+snapshot = prepare_restore(*sys.argv[1:5], source_sealed=sys.argv[5],
+                           card_path=sys.argv[6], history_root=sys.argv[7])
 print(snapshot or '')
 PYCODE
   )

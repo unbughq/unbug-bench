@@ -27,7 +27,7 @@ print(json.dumps(out))
 """
 
 
-def prepare_restore(root, case, archive, destination, *, history_root=None):
+def prepare_restore(root, case, archive, destination, *, history_root=None, source_sealed=None, card_path=None):
     """Preflight a collected statement handoff without opening any case ciphertext.
 
     Other restore modes retain their existing path. A reservation stays immutable
@@ -35,8 +35,8 @@ def prepare_restore(root, case, archive, destination, *, history_root=None):
     """
     root, archive = pathlib.Path(root), pathlib.Path(archive)
     case = identifier(case)
-    sealed = root / 'sealed'
-    card_path = sealed / (case + '.scorecard.json')
+    sealed = pathlib.Path(source_sealed) if source_sealed is not None else root / 'sealed'
+    card_path = pathlib.Path(card_path) if card_path is not None else sealed / (case + '.scorecard.json')
     if not card_path.is_file() or card_path.is_symlink():
         raise ValueError('missing collected restore scorecard')
     card = json.loads(card_path.read_text())
@@ -73,14 +73,18 @@ def prepare_restore(root, case, archive, destination, *, history_root=None):
         raise ValueError('candidate statement ciphertext scorecard digest mismatch')
     history = pathlib.Path(history_root) / 'sealed' if history_root is not None else sealed
     snapshots = prepare(sealed, history / 'statement-registry', {case: digest}, destination,
-                        history_sealed=history)
+                        history_sealed=history, candidate_cards={case: card})
     return snapshots[case]
 
 
-def prepare(sealed, registry_root, candidates, destination, *, history_sealed=None):
+def prepare(sealed, registry_root, candidates, destination, *, history_sealed=None, candidate_cards=None):
     """Import all collected historical ciphertext before reserving this wave in stable order."""
     sealed, destination = pathlib.Path(sealed), pathlib.Path(destination)
     candidates = dict(candidates)
+    if candidate_cards is not None and (not isinstance(candidate_cards, dict) or
+            set(candidate_cards) != set(candidates) or
+            any(not isinstance(card, dict) for card in candidate_cards.values())):
+        raise ValueError('candidate card map mismatch')
     registry = Registry(registry_root)
     history = pathlib.Path(history_sealed) if history_sealed is not None else sealed
     ciphertexts = {p.name.removesuffix('.statement.age'): p for p in history.glob('*.statement.age')}
@@ -97,7 +101,8 @@ def prepare(sealed, registry_root, candidates, destination, *, history_sealed=No
     snapshots = {}
     for case, digest in sorted(candidates.items()):
         card_path = sealed / (case + '.scorecard.json')
-        card = json.loads(card_path.read_text()) if card_path.exists() else {}
+        card = (candidate_cards[case] if candidate_cards is not None else
+                json.loads(card_path.read_text()) if card_path.exists() else {})
         rejected = [row.get('statement_sha256') for row in card.get('rejected_candidates', [])]
         if len(rejected) > 3: raise ValueError('candidate selection bound exceeded')
         registry.replace_rejected(case, digest, ciphertexts[case], rejected)
