@@ -296,7 +296,8 @@ second=$?
             args=argv[1:];calls.append(args)
             if args[0]=='info':
                 data=deepcopy(next(infos))
-                if getattr(self,'supersede_transition',False) and data['sandbox']['stop'] is not None:
+                if getattr(self,'supersede_transition',False) and not getattr(self,'supersession_emitted',False) and data['sandbox']['stop'] is not None:
+                    self.supersession_emitted=True
                     data['sandbox']['stop']['status']='superseded'
             elif args==['stop',WORKER,'--json']: data={'id':WORKER}
             elif args[0]=='stop': data={'id':WORKER,'stop':None} if getattr(self,'null_status',False) else next(statuses)

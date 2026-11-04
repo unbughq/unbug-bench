@@ -608,6 +608,7 @@ def _capture_meter(root, spend, worker, state, marker, fd, stage):
             if stop is not None:
                 if not isinstance(stop,dict) or not isinstance(stop.get('id'),str) or not stop['id']:
                     raise ValueError('invalid stop identity')
+                if stop.get('status')=='superseded': raise ValueError('stop superseded')
                 break
             if deadline-time.monotonic() <= 73: raise TimeoutError()
             time.sleep(2)
