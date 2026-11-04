@@ -129,7 +129,9 @@ class PreallocationRecoveryTests(unittest.TestCase):
     def test_inactive_successor_pins_observed_failure_and_preserves_limits(self):
         record=json.loads((ROOT/'factory/batches/b-plumbing-practice-5.json').read_text())
         observed=json.loads((FIXTURE/'certified-snapshot.json').read_text())
-        self.assertEqual(record,practice.EXPECTED)
+        # The retained -5 profile remains authenticated by the actual -5 snapshot.
+        snap5=json.loads((ROOT/'tests/factory/fixtures/predispatch-refusal/certified-snapshot.json').read_text())
+        self.assertEqual(hashlib.sha256((ROOT/'factory/batches/b-plumbing-practice-5.json').read_bytes()).hexdigest(),snap5['manifest_sha256'])
         self.assertEqual(record['carry_from']['manifest_json'],json.loads((FIXTURE/'public.json').read_text())['files']['manifest.json'])
         self.assertEqual(record['carry_from']['snapshot_sha256'],digest(observed))
         self.assertEqual(record['money_limit_usd'],self.record['money_limit_usd'])
@@ -203,6 +205,55 @@ class PreallocationRecoveryTests(unittest.TestCase):
         with patch.object(holder, 'HOLDER_ENABLED', True), self.assertRaises(ValueError):
             batch.bind(self.next_policy, 'smoke', self.generation, self.target_root,
                        home=self.home, operation=op['operation_id'])
+
+    def test_never_dispatched_import_carries_again_then_reserves_and_binds(self):
+        self.successor()
+        with patch.object(holder, 'HOLDER_ENABLED', True), patch.object(practice, 'EXPECTED', self.next_record):
+            op=holder.reserve(self.next_policy,self.target_root,self.home,'smoke',self.generation)
+        target=self.home/'batches'/self.next_record['id']
+        with money.locked(self.home,self.next_record['id']):
+            ops=holder._operations(target,self.next_record,self.next_policy)
+            # AUTHORED replay of retained -5's exact never-dispatched failure mode.
+            ops[op['operation_id']].update(state='failed',incident='preflight_refused',dispatch_exit=1)
+            holder._save(target,self.next_record,self.next_policy,ops)
+        status=json.loads((ROOT/'tests/factory/fixtures/predispatch-refusal/public.json').read_text())['cleanup_status']
+        status['operation_id']=op['operation_id'];path=cleanup.location(self.home,op).with_suffix('.status.json');path.parent.mkdir();atomic_json(path,status)
+        source_snapshot=transfer.snapshot(target,self.next_record,self.next_policy)
+        root6=self.root/'target6';(root6/'factory/batches').mkdir(parents=True)
+        shutil.copy2(ROOT/'factory/control-recipient.txt',root6/'factory/control-recipient.txt')
+        record6=deepcopy(self.next_record);record6['id']='b-plumbing-practice-6'
+        record6['jobs']['practice']['case']='case-b-plumbing-practice-6-practice'
+        record6['carry_from']={'schema':1,'manifest_json':(self.target_root/self.next_policy['batch']['manifest_path']).read_text(),
+            'policy':{'batch':deepcopy(self.next_policy['batch']),'jobs':deepcopy(self.next_policy['jobs'])},
+            'snapshot_sha256':digest(source_snapshot),'jobs':deepcopy(self.next_record['carry_from']['jobs'])}
+        relative='factory/batches/b-plumbing-practice-6.json';atomic_json(root6/relative,record6)
+        release6=self.root/'authored-release6';release6.mkdir()
+        policy6={'jobs':record6['jobs'],'batch':dict(self.next_policy['batch'],id=record6['id'],release=str(release6),
+            sha256=hashlib.sha256(b'AUTHORED target6 release').hexdigest(),manifest_path=relative,
+            manifest_sha256=hashlib.sha256((root6/relative).read_bytes()).hexdigest())}
+        atomic_json(release6/'source-manifest.json',{'files':{relative:policy6['batch']['manifest_sha256']}})
+        prior_verify=batch.verify;prior_frozen=transfer.frozen_manifest
+        def verify(directory,sha,root=None):
+            if Path(directory)==release6:
+                self.assertEqual((sha,root),(policy6['batch']['sha256'],root6))
+            else:return prior_verify(directory,sha,root)
+        def frozen(record):
+            if record['id']==record6['id']:
+                # AUTHORED target5 host/release binding; original -3/-4 remain real verified artifacts.
+                self.assertEqual(record['carry_from']['manifest_json'],(self.target_root/self.next_policy['batch']['manifest_path']).read_text())
+                self.assertEqual(record['carry_from']['policy'],record6['carry_from']['policy'])
+                return self.next_policy,self.next_record
+            return prior_frozen(record)
+        before=self.ledger.read_bytes(),(target/'reservations.json').read_bytes()
+        with patch.object(batch,'verify',verify),patch.object(transfer,'frozen_manifest',frozen),patch.object(holder,'HOLDER_ENABLED',True),patch.object(practice,'EXPECTED',record6):
+            transfer.prepare(policy6,root6,self.home);transfer.prepare(policy6,root6,self.home)
+            next_op=holder.reserve(policy6,root6,self.home,'smoke',self.generation)
+            job=batch.bind(policy6,'smoke',self.generation,root6,home=self.home,operation=next_op['operation_id'])
+            _,_,_,source=transfer.source(self.home,record6,'smoke',self.generation)
+        self.assertEqual(source,self.parent/'generations'/self.case/self.generation)
+        self.assertEqual(hashlib.sha256((source/(self.case+'.checkpoint.tar.gz.age')).read_bytes()).hexdigest(),self.generation)
+        self.assertEqual(job['args'][job['args'].index('--batch-sha256')+1],policy6['batch']['sha256'])
+        self.assertEqual(before,(self.ledger.read_bytes(),(target/'reservations.json').read_bytes()))
 
     def test_existing_snapshot_without_certificates_keeps_its_original_digest(self):
         record=self.parent_record;policy=self.record['carry_from']['policy']

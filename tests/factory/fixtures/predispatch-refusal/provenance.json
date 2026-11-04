@@ -1,0 +1,8 @@
+{
+  "source": "Read-only exact practice-5 public operation/cleanup/validated ledger capture; source services inactive; no case content, keys or model calls.",
+  "public_sha256": "658c71983d731a6d2ee31a0c5fd684b6d0b7f5258b200e8e2ab3ce75a40c23a1",
+  "adaptations": "Temporary test root/lock and canonical state-path relocation; negative mutations authored.",
+  "live_lifecycle_qualified": false,
+  "certified_snapshot_sha256": "f9d0c01bf2ac0f1e201dfdb3e476fcf96e032111457f0672b682edee67c60e26",
+  "snapshot_method": "Read-only VM audit evaluated reviewed-design certificate branch in process; installed source unchanged. Snapshot is operational proof only, not a live lifecycle qualification."
+}

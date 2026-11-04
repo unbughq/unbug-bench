@@ -1,0 +1,129 @@
+{
+  "operation": {
+    "authority": {
+      "batch": "b-plumbing-practice-5",
+      "batch_deadline": "2026-11-07T00:00:00Z",
+      "case": "case-b-plumbing-practice-3-smoke",
+      "committed_total_usd": "0.010000000",
+      "job": "smoke",
+      "reservation_id": "9b89a4e4-0374-43a2-8348-2fa3f71961c2",
+      "revision": 1,
+      "schema": 1,
+      "source_generation": "b615c37c3ff2c3103576a74d1175cad299dc3eaf1f3f28f7a3b56b06eab2d6d9"
+    },
+    "case": "case-b-plumbing-practice-3-smoke",
+    "config_sha256": "cc1f1846c9d76e848da3615455bbb2fe75b489f6e0e122ee3668a4ee6c212c01",
+    "dispatch_exit": 1,
+    "dispatch_started": false,
+    "failures": 0,
+    "incident": "preflight_refused",
+    "job": "smoke",
+    "launch": null,
+    "launch_id": "271a1990550d47248cfe10c8a8b8dc02",
+    "operation_id": "b80f8f3b-0801-5b5e-8658-c2fd5cd0cecb",
+    "output_generation": null,
+    "pending_since": "2026-11-04T19:11:22.540767+00:00",
+    "release_sha256": "38763626a0ad6e6bedbaa494149b23394b6c5633a02afe1f6cba3556670389a5",
+    "retirement": null,
+    "source_generation": "b615c37c3ff2c3103576a74d1175cad299dc3eaf1f3f28f7a3b56b06eab2d6d9",
+    "state": "failed",
+    "worker_id": null
+  },
+  "cleanup_status": {
+    "deadline": null,
+    "operation_id": "b80f8f3b-0801-5b5e-8658-c2fd5cd0cecb",
+    "schema": 1,
+    "settlement": "not_attempted",
+    "settlement_attempted_at": null,
+    "state": "not_dispatched",
+    "workers": []
+  },
+  "ledger": {
+    "version": 1,
+    "reservations": {
+      "/home/user/unbug-bench/results/spend/20261103T083635Z-242175-factory.json": {
+        "usd": "0.036",
+        "expires_at": 1793700396.2445376,
+        "status": "budget_debited",
+        "finished_at": "2026-11-03T08:39:53.686556+00:00",
+        "actual_spend_usd": null,
+        "budget_debit": {
+          "schema": 1,
+          "decision_sha256": "4e5caa263a8bf323abb78791f03c3a064df3ab0ee0b9b5bbb0b950e97a350660",
+          "spend_path": "/home/user/unbug-bench/results/spend/20261103T083635Z-242175-factory.json",
+          "state_path": "/home/user/.unbug-control/launches/872f258ad1764f73829e33303d35fdf5",
+          "worker_id": "bx_z4wktrbn",
+          "deletion_operation_id": "bdop_4b49a239228240fb8af4ab9efd1037da",
+          "spend_sha256": "b682ef2bed391d9ce26056e3225498ce4910ec85edc3d1509b50e335532d28e2",
+          "budget_debit_usd": "0.036",
+          "budget_cap_usd": "5.000",
+          "actual_charge_status": "unknown",
+          "original_row": {
+            "usd": "0.036",
+            "expires_at": 1793700396.2445376,
+            "status": "finished",
+            "finished_at": "2026-11-03T08:39:53.686556+00:00",
+            "actual_spend_usd": null
+          }
+        }
+      },
+      "/home/user/unbug-bench/results/spend/20261104T093122Z-253257-factory.json": {
+        "usd": "0.036",
+        "expires_at": 1793790083.3712797,
+        "status": "budget_debited",
+        "state_path": "/home/user/.unbug-control/launches/f8536b66437d4a00bf9ce6f91e4952ec",
+        "vms": 1,
+        "ttl_seconds": 3600,
+        "max_spend_usd": "5",
+        "actual_spend_usd": null,
+        "budget_debit": {
+          "schema": 1,
+          "decision_sha256": "a774c1e9d284ec99b135d9a195e33617a00c4a366ac4962ae0790e8beb46a929",
+          "spend_path": "/home/user/unbug-bench/results/spend/20261104T093122Z-253257-factory.json",
+          "state_path": "/home/user/.unbug-control/launches/f8536b66437d4a00bf9ce6f91e4952ec",
+          "worker_id": "bx_bykfqbyn",
+          "deletion_operation_id": "bdop_1942fdf42b584771a252b40a6d62c168",
+          "spend_sha256": "14fc32b52e057144181e0aa44caef03e58ea0cfe8e9b69d970633d207e78691b",
+          "budget_debit_usd": "0.036",
+          "budget_cap_usd": "5.000",
+          "actual_charge_status": "unknown",
+          "original_row": {
+            "usd": "0.036",
+            "expires_at": 1793790083.3712797,
+            "status": "reserved",
+            "state_path": "/home/user/.unbug-control/launches/f8536b66437d4a00bf9ce6f91e4952ec",
+            "vms": 1,
+            "ttl_seconds": 3600,
+            "max_spend_usd": "5"
+          }
+        }
+      },
+      "/home/user/unbug-bench/results/spend/20261104T171230Z-272315-factory.json": {
+        "usd": "0.036",
+        "expires_at": 1793817751.1266608,
+        "status": "settled",
+        "state_path": "/home/user/.unbug-control/launches/d52b0a0ec9f24e298261b90c5afcc7e3",
+        "vms": 1,
+        "ttl_seconds": 3600,
+        "max_spend_usd": "5",
+        "finished_at": "2026-11-04T17:12:31.455317+00:00",
+        "actual_spend_usd": "0",
+        "settlement": {
+          "schema": 1,
+          "state_path": "/home/user/.unbug-control/launches/d52b0a0ec9f24e298261b90c5afcc7e3",
+          "settled_at": "2026-11-04T17:12:32.119115+00:00",
+          "basis": "no_creation",
+          "workers": []
+        }
+      }
+    }
+  },
+  "launch_path": "/home/user/.unbug-control/launches/271a1990550d47248cfe10c8a8b8dc02",
+  "launch_absent": true,
+  "ledger_sha256": "1f9bb4dedc81bb5f4af92b9ae015dbedb7f5d83c166cbd4f981b714dfe73d00d",
+  "services": {
+    "unbug-key-holder.service": "inactive",
+    "unbug-practice-cleanup@b80f8f3b-0801-5b5e-8658-c2fd5cd0cecb.service": "inactive"
+  },
+  "observed_utc": "2026-11-04T19:28:59.698256+00:00"
+}

@@ -123,12 +123,29 @@ def preflight_clear(home, op):
 def preallocation_settlement(home, op):
     """Certify an immutable failed launch with durable settled-zero no-creation proof."""
     from carry_over import digest as value_digest
-    if not (op['dispatch_started'] is True and op['state'] == 'failed' and
+    if not (type(op['dispatch_started']) is bool and op['state'] == 'failed' and
             op['incident'] == 'preflight_refused' and
             all(op[k] is None for k in ('worker_id','output_generation','retirement'))):
         raise ValueError('not a preallocation failure')
     path = home / 'launches' / op['launch_id']
     directory = home / 'batches' / op['authority']['batch']
+    if op['dispatch_started'] is False:
+        with holder.operation_lock(directory, op['operation_id']):
+            if op['launch'] is not None or path.is_symlink() or path.exists():
+                raise ValueError('launch not excluded')
+            if not no_reservation(home, path): raise ValueError('creation liability')
+            status_raw = boat_lifecycle.regular(location(home, op).with_suffix('.status.json'))
+            status = json.loads(status_raw)
+            expected = dict(schema=1, operation_id=op['operation_id'], deadline=None,
+                            state='not_dispatched', workers=[], settlement='not_attempted',
+                            settlement_attempted_at=None)
+            if type(status.get('schema')) is not int or status != expected:
+                raise ValueError('cleanup not terminal')
+            basis = dict(basis='not_dispatched', operation_id=op['operation_id'],
+                         launch_id=op['launch_id'], state_path=str(path.resolve()))
+            return dict(schema=1, operation_id=op['operation_id'], launch_id=op['launch_id'],
+                        files={'cleanup': hashlib.sha256(status_raw).hexdigest()},
+                        settlement_sha256=value_digest(basis))
     if path.is_symlink() or not path.is_dir(): raise ValueError('unsafe launch')
     with holder.operation_lock(directory, op['operation_id']):
         with service._regular(path / 'controller.lock') as controller:
