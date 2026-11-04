@@ -5,6 +5,9 @@ Local regression harness for Medusa inventory consistency. Bench internals are
 application and guard interface. No Medusa package source is patched. The contestant-facing document is
 [CONTESTANT.md](CONTESTANT.md); do not distribute this README or SPEC.md.
 
+For a plain-language guide to the exam's purpose, stages, and scoring, read
+[How the exam works](EXAM.md).
+
 Requirements: Docker Compose, Python 3, Node.js 22 or newer, npm. From this directory:
 
 ```sh
