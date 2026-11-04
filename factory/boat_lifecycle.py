@@ -532,6 +532,33 @@ def read_meter(root, spend, worker, state):
 
 
 def capture_meter(root, spend, worker, state, marker, fd):
+    target=spend.with_suffix('.deletions')/worker/'capture-stage.json'
+    if os.path.lexists(state/(worker+'.deletion-attempted')):
+        return _capture_meter(root,spend,worker,state,marker,fd,['initial_info'])
+    if target.exists():
+        old=loads(regular(target))
+        if old.get('retirement_id') != marker['retirement_id'] or old.get('worker_id') != worker:
+            raise ValueError('capture receipt identity mismatch')
+        if old.get('outcome')=='failed':
+            # Diagnostic only: retain the first failure; existing window/proof
+            # rules still decide whether a recheck can succeed.
+            return _capture_meter(root,spend,worker,state,marker,fd,['initial_info'])
+    stage=['initial_info']
+    try:
+        result=_capture_meter(root,spend,worker,state,marker,fd,stage)
+    except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError) as error:
+        kind=('timeout' if isinstance(error,(TimeoutError,subprocess.TimeoutExpired)) else
+              'rpc' if isinstance(error,subprocess.SubprocessError) else
+              'io' if isinstance(error,OSError) else 'invalid_response')
+        atomic_bytes(target,json.dumps(dict(schema=1,retirement_id=marker['retirement_id'],worker_id=worker,
+            stage=stage[0],outcome='failed',error_class=kind,observed_at=utc_now())).encode())
+        raise
+    atomic_bytes(target,json.dumps(dict(schema=1,retirement_id=marker['retirement_id'],worker_id=worker,
+        stage=stage[0],outcome='complete',error_class=None,observed_at=utc_now())).encode())
+    return result
+
+
+def _capture_meter(root, spend, worker, state, marker, fd, stage):
     evidence = spend.with_suffix('.deletions')/worker
     evidence.mkdir(parents=True,exist_ok=True)
     if evidence.is_symlink() or evidence.parent.is_symlink(): raise ValueError('invalid evidence')
@@ -563,16 +590,26 @@ def capture_meter(root, spend, worker, state, marker, fd):
     stop = current['response']['sandbox']['stop']
     if (not isinstance(stop,dict) or not isinstance(stop.get('id'),str) or not stop['id'] or
             (current['response']['sandbox']['state'] != 'stopped' and stop.get('status') in ('completed','superseded'))):
+        stage[0]='stop_request'
         _, response = query('stop',worker,'--json')
         if any(value != worker for value in (response.get('id',worker),response.get('sandbox',{}).get('id',worker))):
             raise ValueError('wrong stop response')
         # Do not persist arbitrary action DTO fields: only allowlisted public identity/stop.
         public = {k:response[k] for k in ('id','stop') if k in response}
         atomic_bytes(evidence/'stop-request.json',json.dumps(public).encode())
-        current = info(); stop = current['response']['sandbox']['stop']
+        stage[0]='stop_identity'
+        while True:
+            current = info(); stop = current['response']['sandbox']['stop']
+            if stop is not None:
+                if not isinstance(stop,dict) or not isinstance(stop.get('id'),str) or not stop['id']:
+                    raise ValueError('invalid stop identity')
+                break
+            if deadline-time.monotonic() <= 73: raise TimeoutError()
+            time.sleep(2)
     stop_id = stop['id']
     if not isinstance(stop_id,str) or not stop_id: raise ValueError('no stop id')
     while True:
+        stage[0]='stop_status'
         raw_status,status = query('stop',worker,'--status',stop_id,'--json')
         if (status.get('id') != worker or status.get('stop',{}).get('id') != stop_id or
                 status['stop'].get('status') not in ('pending','failing','completed','superseded')):
@@ -581,9 +618,20 @@ def capture_meter(root, spend, worker, state, marker, fd):
         if status['stop']['status']=='completed': break
         if deadline-time.monotonic() <= 73: raise TimeoutError()
         time.sleep(2)
-    current = info(); ended = stopped(current['response'],status,worker)['endedAt']
+    stage[0]='stopped_info'
+    while True:
+        current=info(); sandbox=current['response']['sandbox']
+        observed=sandbox['stop']
+        if observed is not None and (not isinstance(observed,dict) or observed.get('id') != stop_id):
+            raise ValueError('stop changed')
+        if sandbox['state']=='stopped': break
+        if deadline-time.monotonic() <= 73: raise TimeoutError()
+        time.sleep(2)
+    ended = stopped(current['response'],status,worker)['endedAt']
+    stage[0]='usage'
     raw_usage, usage = query('usage',worker,'--json')
     stopped_usage(usage,worker,ended)
+    stage[0]='recheck_info'
     rechecked = info(); stopped(rechecked['response'],status,worker)
     if time.monotonic() >= deadline or os.path.lexists(state/(worker+'.metering-bypassed')): raise TimeoutError()
     raw = {'stop-status.json':raw_status,'final-usage.json':raw_usage,
@@ -594,6 +642,7 @@ def capture_meter(root, spend, worker, state, marker, fd):
         retiring_sha256=sha256(state/(worker+'.retiring.json')),stop_id=stop_id,stop_ended_at=ended,
         files={name:hashlib.sha256(content).hexdigest() for name,content in raw.items()},captured_at=utc_now())
     if os.path.lexists(attempted) or time.monotonic() >= deadline: raise TimeoutError()
+    stage[0]='proof_commit'
     atomic_bytes(evidence/'retirement-proof.json',json.dumps(proof).encode())
     return read_meter(root,spend,worker,state)
 
