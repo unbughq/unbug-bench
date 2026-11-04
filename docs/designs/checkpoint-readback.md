@@ -134,7 +134,9 @@ recovery package. Its four facts, checked against the code on `fbca505`:
      - Add `superseded: "checkpoint_replaced"`.
      - Keep `sha256`, `archive` and `r2_object`, so the history stays readable.
      - The same revoked receipt is also written to
-       `work/durable-checkpoint.json` (if it exists), with `atomic_json`. That
+       `work/durable-checkpoint.json` with `atomic_json`, but only if that file
+       exists and names the same `sha256`. It never overwrites a different
+       receipt. That
        is the copy read by the operator views (`tools/factory_dashboard.py:32`,
        `tools/factory_board.py:189`), and it is sealed into the new archive.
    - **Not fixed here.** After `checkpoint_progress`, the card's restored
@@ -290,8 +292,12 @@ expensive work rather than silently advancing".
 **Existing tests.**
 - `test_startup_smoke` and `test_practice_startup` patch `r2_upload.upload` and
   keep their stubs. `upload` keeps its signature.
-- `tests/factory/test_r2_upload.py` and `tests/factory/test_durable_checkpoint.py`
-  pass unchanged.
+- `tests/factory/test_durable_checkpoint.py` passes unchanged.
+- `tests/factory/test_r2_upload.py` keeps its PUT-only-links case, and gains
+  a case with both links and a dead endpoint (after diff review 1).
+- **T3b** (added after diff review 1): `stall` and `flood` GET modes against
+  the real `_readback` both return `None` within 10 s. The `flood` case uses a
+  25 s bound, so it proves the per-block size cut-off ended the read.
 
 ## Murphy rows
 
@@ -320,7 +326,7 @@ above, but only for collected generations.
 is proposed here verbatim, for the integrator to add at merge:
 
 > | new-checkpoint-readback-1 | **The card's `durable_checkpoint` receipt
-> (and `work/durable-checkpoint.json`) keeps claiming a replaced checkpoint.** | `factory/run_artifacts.py:124`, `:128`;
+> (and `work/durable-checkpoint.json`) keeps claiming a replaced checkpoint.** | `factory/run_artifacts.py` `RunArtifacts.seal` (archive replace and `r2_upload.upload`; fixed by `revoke_replaced`);
 > `tests/factory/fixtures/e15450-collected-card.json` (receipt 460a8f21 vs card
 > 03a1dd51, same path and key) | A later checkpoint seal replaces the local
 > archive and the single R2 object, but leaves the earlier receipt

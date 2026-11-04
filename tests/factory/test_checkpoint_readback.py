@@ -44,6 +44,7 @@ MARK = "X-Amz-Signature=stub"
 class Store(http.server.ThreadingHTTPServer):
     """Authored R2 double: PUT stores the body, GET serves it; `mode` injects one failure."""
     daemon_threads = True
+    block_on_close = False  # T3b's sleeping handlers must not hold teardown (or a shared test slot)
 
     def __init__(self):
         super().__init__(("127.0.0.1", 0), Handler)
@@ -227,7 +228,8 @@ class CheckpointReadback(unittest.TestCase):
     def test_t3b_readback_stall_and_oversize_cut_off(self):
         url = self.links["checkpoint_get"]
         # stall: only the 2 s bound can end it. flood: the bound is 25 s, so returning within 10 s proves the
-        # early size cut-off and kill, not the timeout.
+        # per-block size cut-off ended the read, not the timeout. (Whether the explicit kill or EPIPE ends curl
+        # afterwards is not distinguished; both fail closed.)
         for mode, timeout in (("stall", 2), ("flood", 25)):
             with self.subTest(mode=mode):
                 self.store.mode = mode
