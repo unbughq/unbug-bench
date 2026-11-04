@@ -131,6 +131,23 @@ class PromotionTests(unittest.TestCase):
         entry = json.loads((mine / "admission.json").read_text())
         self.assertEqual((entry["complete"], entry["statement_sha256"]), (True, d2))
 
+    def test_stale_reservation_is_retried_once(self):
+        from unittest import mock
+        c1, c2, d1, d2 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64, "2" * 64
+        self.wave("r1", "case-pa", c1, d1, [], y_candidate=True)
+        real = registry.Registry.transition; calls = []
+        def flaky(reg, *a):
+            calls.append(a)
+            if len(calls) == 1: raise ValueError("stale reservation")
+            return real(reg, *a)
+        with mock.patch.object(registry.Registry, "transition", flaky):
+            self.assertEqual(self.r.replace_rejected("case-py", d2, c2, [d1])["statement_sha256"], d2)
+        self.assertEqual(len(calls), 2)
+        calls.clear()
+        with mock.patch.object(registry.Registry, "transition", side_effect=ValueError("stale reservation")) as always:
+            with self.assertRaisesRegex(ValueError, "stale"): self.r.replace_rejected("case-py", "3" * 64, c1, [d2])
+        self.assertEqual(always.call_count, 2)
+
     def test_malformed_input_refuses_before_releasing(self):
         c1, c2, d1 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64
         self.wave("m1", "case-pa", c1, d1, [], y_candidate=True)

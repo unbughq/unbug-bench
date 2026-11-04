@@ -105,7 +105,7 @@ class Registry:
         """Only an explicitly rejected previous digest permits candidate reselection."""
         if not re.fullmatch(r"[0-9a-f]{64}", statement_sha256 or "") or not pathlib.Path(ciphertext).read_bytes().startswith(
                 (b"age-encryption.org/v1", b"-----BEGIN AGE ENCRYPTED FILE-----")):
-            return self.reserve(case, statement_sha256, ciphertext, historical=historical)  # refuses before any release
+            return self.reserve(case, statement_sha256, ciphertext, historical=historical)  # invalid input is refused before any release
         for attempt in (0, 1):  # the decision is unlocked; one concurrent release/reselect is retried
             state = json.loads((self.root / "registry.json").read_text()) if (self.root / "registry.json").exists() else {"entries": {}}
             previous = state["entries"].get(case)
