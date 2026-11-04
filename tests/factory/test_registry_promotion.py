@@ -246,6 +246,55 @@ class PromotionTests(unittest.TestCase):
         self.assertEqual((mine["complete"], mine["statement_sha256"], mine["cipher_sha256"]), (True, d2, sha(c2)))
         self.assertEqual(self.r.export("case-pz", self.tmp / "k-out")["statements"]["case-py"], sha(c2))
 
+    def test_release_and_reserve_consume_the_authenticated_bytes(self):
+        # diff-10 (Codex): prepare authenticates one read of case-py's ciphertext against its card, then
+        # collection (transfer.collect: os.replace) swaps the file before the registry reopens the path.
+        # AUTHORED interleaving: the swap is a deterministic hook at each reopen point (entry to
+        # replace_rejected / reserve) over retained real ciphertext and a hand-authored card. It is not
+        # real-writer reselection evidence and does not close new-registry-pending-promotion-1.
+        import os
+        from unittest import mock
+        c1, c2, c3, d1, d2 = self.ct["case-pb"], self.ct["case-pc"], sorted(SEALED.glob("case-*.statement.age"))[4], "1" * 64, "2" * 64
+        sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+        self.assertEqual(len({sha(c1), sha(c2), sha(c3)}), 3)
+        for path, hook in (("history", "replace_rejected"), ("history", "reserve"),
+                           ("candidate", "replace_rejected"), ("candidate", "reserve")):
+            with self.subTest(path=path, hook=hook):
+                shutil.rmtree(self.tmp / "reg"); shutil.copytree(SEALED / "statement-registry", self.tmp / "reg")
+                self.r = registry.Registry(self.tmp / "reg")
+                self.wave(f"{path}-{hook}-1", "case-pa", c1, d1, [])  # c1 imported as history (completed, historical-only)
+                real = getattr(registry.Registry, hook); swapped = []
+                def swap(reg, case, *a, **k):
+                    if case == "case-py" and not swapped:  # first reopen after prepare's authenticated read
+                        live = self.tmp / f"{path}-{hook}-2" / "case-py.statement.age"
+                        shutil.copyfile(c3, live.with_suffix(".new")); os.replace(live.with_suffix(".new"), live)
+                        swapped.append(case)
+                    return real(reg, case, *a, **k)
+                with mock.patch.object(registry.Registry, hook, swap):
+                    out = self.wave(f"{path}-{hook}-2", "case-pz", c2, d2, [d1], y_candidate=path == "candidate")
+                self.assertEqual(swapped, ["case-py"])
+                kept = self.entry()
+                self.assertEqual((kept["statement_sha256"], kept["cipher_sha256"]), (d2, sha(c2)))  # what the card bound
+                snap = out["case-py" if path == "candidate" else "case-pz"]
+                if path == "history":
+                    self.assertEqual((snap / "case-py.statement.age").read_bytes(), c2.read_bytes())
+                else:
+                    self.assertEqual(json.loads((snap / "admission.json").read_text())["cipher_sha256"], sha(c2))
+
+    def test_candidate_card_must_name_the_offered_digest(self):
+        # design-2 B1: the caller took the candidate digest d2 from card G2; collection then swapped in c3
+        # and card G3 (d3, binds c3, rejects d1 and d2). G3 never bound c3 to d2, so nothing is released.
+        # AUTHORED state over retained real ciphertext; not real-writer reselection evidence.
+        c1, c3, d1, d2, d3 = self.ct["case-pb"], sorted(SEALED.glob("case-*.statement.age"))[4], "1" * 64, "2" * 64, "3" * 64
+        sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+        self.wave("g1", "case-pa", c1, d1, [])  # c1 imported as history (completed, historical-only)
+        before = self.entry()
+        g3 = {"statement_sha256": d3, "statement_cipher_sha256": sha(c3),
+              "rejected_candidates": [{"statement_sha256": d1}, {"statement_sha256": d2}]}
+        with self.assertRaisesRegex(ValueError, "different content"):
+            self.wave("g2", "case-pa", c3, d2, [], y_candidate=True, card=g3)
+        self.assertEqual(self.entry(), before)
+
     def test_release_is_fenced_on_status_changed_under_same_token(self):
         # diff-5 M1: Y completes c1 between the unlocked read and the release.
         from unittest import mock

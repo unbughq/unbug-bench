@@ -32,6 +32,11 @@ def atomic_json(path, value):
         os.close(fd)
 
 
+def ciphertext_bytes(ciphertext):
+    """Authenticated bytes pass through unchanged; a path is read exactly once."""
+    return ciphertext if isinstance(ciphertext, bytes) else pathlib.Path(ciphertext).read_bytes()
+
+
 def identifier(value):
     if not re.fullmatch(r"case-[A-Za-z0-9-]+", value):
         raise ValueError("invalid case identifier")
@@ -48,7 +53,7 @@ class Registry:
         identifier(case)
         if not (historical and statement_sha256 is None) and not re.fullmatch(r"[0-9a-f]{64}", statement_sha256 or ""):
             raise ValueError("invalid statement digest")
-        data = pathlib.Path(ciphertext).read_bytes()
+        data = ciphertext_bytes(ciphertext)
         if not data.startswith((b"age-encryption.org/v1", b"-----BEGIN AGE ENCRYPTED FILE-----")):
             raise ValueError("statement must be age ciphertext")
         digest = hashlib.sha256(data).hexdigest()
@@ -105,11 +110,12 @@ class Registry:
         """Only an explicitly rejected previous digest permits candidate reselection.
 
         bound: the caller's card binds these exact bytes (statement_cipher_sha256). Required to
-        release a historical-only entry, which no reservation of this case ever vouched for."""
-        data = pathlib.Path(ciphertext).read_bytes()
+        release a historical-only entry, which no reservation of this case ever vouched for.
+        ciphertext: the caller's authenticated bytes (or a path, read once); reserve gets these bytes."""
+        data = ciphertext_bytes(ciphertext)
         if not re.fullmatch(r"[0-9a-f]{64}", statement_sha256 or "") or not data.startswith(
                 (b"age-encryption.org/v1", b"-----BEGIN AGE ENCRYPTED FILE-----")):
-            return self.reserve(case, statement_sha256, ciphertext, historical=historical)  # invalid input is refused before any release
+            return self.reserve(case, statement_sha256, data, historical=historical)  # invalid input is refused before any release
         cipher = hashlib.sha256(data).hexdigest()
         for attempt in (0, 1):  # the decision is re-checked under the lock; one concurrent change is retried
             state = json.loads((self.root / "registry.json").read_text()) if (self.root / "registry.json").exists() else {"entries": {}}
@@ -129,7 +135,7 @@ class Registry:
                 except ValueError as error:
                     if attempt or "stale reservation" not in str(error): raise
                     continue
-            return self.reserve(case, statement_sha256, ciphertext, historical=historical)
+            return self.reserve(case, statement_sha256, data, historical=historical)
 
     def search_receipt(self, case, metadata, ciphertext):
         """Keep opaque worker evidence; the worker validates its verdict and expiry."""

@@ -100,10 +100,58 @@ call `replace_rejected(..., bound=bound)` with their own card's list.
 - Unchanged from base: a candidate whose entry is in screening or building, with a legacy own
   card that has no cipher binding.
 
-**Tests.** `tests/factory/test_registry_promotion.py` (19 tests). **Murphy.** The row stays open.
+**Tests.** `tests/factory/test_registry_promotion.py` (21 tests). **Murphy.** The row stays open.
 No retained real card carries `statement_sha256`, `statement_cipher_sha256` or
 `rejected_candidates`, so the new branch runs only on hand-authored cards over the real registry
 and ciphertext.
+
+**Authenticated bytes (diff-10, Codex).** This is part of the rule.
+- *Problem.* `prepare` authenticated one read of a collected ciphertext (`bound`, against the
+  card's `statement_cipher_sha256`), then `replace_rejected` and `reserve` each reopened the
+  path. Collection replaces that file with `os.replace` (`transfer.py:98`), so the bytes that
+  decide a release, and the bytes that get stored, could differ from the bytes the card bound.
+  Interleaving: Y's card binds c2 under d2, rejecting d1. The registry holds d1/c1 historical-only.
+  `prepare` reads c2, so `bound` is true. Collection then swaps in c3. `replace_rejected` reads c3
+  (differs from c1), so d1 is released, and `reserve` stores c3 under d2. Swapping between the
+  `replace_rejected` read and the `reserve` read has the same result. Both the history path and the
+  candidate path reach this, because both now release a historical-only entry on `bound`.
+- *Change.* `prepare` reads each ciphertext once per case, in the history loop and the candidate
+  loop, before it computes `bound`, and holds those bytes. It computes `bound` from those bytes and passes
+  the same `bytes` to `import_historical`, `replace_rejected` and `reserve`. `reserve` and
+  `replace_rejected` accept `bytes` (an `isinstance(ciphertext, bytes)` check) or anything else,
+  which is read once with `pathlib.Path(...).read_bytes()`. The age-magic and digest checks run on
+  those bytes, and `replace_rejected` passes its bytes on to `reserve`. The CLI still passes paths.
+  `search_receipt` is left reading its path once: it is outside this finding. Nothing after
+  authentication reopens the ciphertext.
+- *One card read per decision.* The card is replaced by collection too (`collect.sh`), and the
+  candidate digest comes from the caller's own earlier read of it. On the candidate path, `bound`
+  therefore also requires the card that `prepare` read to name the offered digest
+  (`card.statement_sha256 == digest`). The digest, the binding and the rejected list then come from
+  one parse, as they already do on the history path. A swapped card that names another digest binds
+  nothing, so it releases no historical-only entry.
+- *Preserved.* Promotion still keeps the stored ciphertext rather than the offered bytes, the
+  `transition` fence is unchanged, and predecessors are still computed from every live entry. Only
+  where the bytes come from changes, plus the digest condition on candidate `bound`.
+- *Deletes.* The second and third reads of the path.
+- *Tests.* `test_release_and_reserve_consume_the_authenticated_bytes` runs the history and candidate
+  paths, swapping the file (`os.replace` of another retained ciphertext) at the entry to
+  `replace_rejected` and to `reserve`. `test_candidate_card_must_name_the_offered_digest` hands the
+  candidate path a swapped card and ciphertext that bind c3 to d3 under the caller's d2. Both are
+  AUTHORED and deterministic: the first is a hooked interleaving, the second the authored state that
+  race leaves behind. Both fail on 7de75d9 (c3 stored under d2), and after
+  the fix they pass: c2 is stored, or the swapped pair refuses with "different content" and leaves the
+  entry unchanged.
+- *Left as is (a TOCTOU base also has).* `prepare_restore` checks the candidate's
+  `statement_cipher_sha256` on its own read, then `prepare` reads again. A swap of the ciphertext
+  alone in that window yields `bound=false`, so no historical-only entry is released. A complete
+  screening or building entry still takes base's unbound release and stores the newer bytes, as on
+  base. The same holds when the card and the ciphertext are both swapped, because the candidate's
+  `rejected` list is not gated on `bound`. In both cases the remaining check is the worker's own
+  verification of the restored statement against the reservation (`statement_round.py:69-70`), as on
+  base. Refusing in `prepare` whenever a candidate card carries a non-matching binding would close
+  the window. It would also add a refusal for `coordinator_inventory.prepare_admission`, which calls
+  `prepare` directly without base's check. That is a base-behaviour decision, so it is not made here.
+- *Murphy.* new-registry-pending-promotion-1 stays open. This adds no real-writer evidence.
 
 ### History
 
