@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Invoke the pinned Boat executable without updates; BOAT_CMD may select a transport."""
 import os
+from contextlib import nullcontext
 from pathlib import Path
 import shutil
 import signal
@@ -25,6 +26,7 @@ def snapshot(stream, size):
     return data
 
 
+
 def main():
     args = sys.argv[1:]
     forward = args[:1] == ['--stdin']
@@ -42,36 +44,47 @@ def main():
         raise SystemExit(128 + signum)
     for sig in (signal.SIGTERM, signal.SIGINT): signal.signal(sig, stop)
     try:
-        with processes.deadline(timeout):
-            # Production control uses BOAT_CMD=/usr/local/bin/boat and is pinned too.
-            # Other executable names are explicit Hetzner/test transport adapters.
-            if Path(executable).name == 'boat':
-                version = processes.run([executable, '--version'], capture_output=True, text=True,
-                                        env=env, stdin=subprocess.DEVNULL)
-                if version.returncode or version.stdout.strip() != VERSION:
-                    sys.exit('boat-call: Boat version mismatch; expected ' + VERSION)
-            if capture:
-                with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-                    result = processes.run([executable, *args],
-                        stdin=None if forward else subprocess.DEVNULL,
-                        stdout=out, stderr=err, env=env)
-                    sizes = [os.fstat(stream.fileno()).st_size for stream in (out, err)]
-                    if any(size > CAPTURE_LIMIT for size in sizes):
-                        print('boat-call: captured metadata exceeds 8 MiB', file=sys.stderr)
-                        return 125
-                    try:
-                        stdout, stderr = [snapshot(stream, size)
-                                          for stream, size in zip((out, err), sizes)]
-                    except OSError as error:
-                        print('boat-call: capture failed: ' + str(error), file=sys.stderr)
-                        return 125
-                    sys.stdout.buffer.write(stdout)
-                    sys.stderr.buffer.write(stderr)
-                    return result.returncode
-            result = processes.run([executable, *args], stdin=None if forward else subprocess.DEVNULL,
-                                   env=env)
-            return result.returncode
-    except subprocess.TimeoutExpired:
+        gate = nullcontext(None)
+        if os.environ.get('UNBUG_LAUNCH_STATE'):
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'factory'))
+            import boat_lifecycle as lifecycle
+            gate = lifecycle.command_fence(Path(__file__).resolve().parents[1], args, timeout)
+        with processes.deadline(timeout), gate as authorization:
+            timeout = min(timeout, 5) if authorization and authorization['emergency'] else timeout
+            with processes.deadline(timeout):
+                # Production control uses BOAT_CMD=/usr/local/bin/boat and is pinned too.
+                # Other executable names are explicit Hetzner/test transport adapters.
+                if Path(executable).name == 'boat':
+                    version = processes.run([executable, '--version'], capture_output=True, text=True,
+                                            env=env, stdin=subprocess.DEVNULL)
+                    if version.returncode or version.stdout.strip() != VERSION:
+                        sys.exit('boat-call: Boat version mismatch; expected ' + VERSION)
+                if authorization is not None: lifecycle.claim_delete(authorization)
+                if capture:
+                    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+                        result = processes.run([executable, *args],
+                            stdin=None if forward else subprocess.DEVNULL,
+                            stdout=out, stderr=err, env=env)
+                        sizes = [os.fstat(stream.fileno()).st_size for stream in (out, err)]
+                        if any(size > CAPTURE_LIMIT for size in sizes):
+                            print('boat-call: captured metadata exceeds 8 MiB', file=sys.stderr)
+                            return 125
+                        try:
+                            stdout, stderr = [snapshot(stream, size)
+                                              for stream, size in zip((out, err), sizes)]
+                        except OSError as error:
+                            print('boat-call: capture failed: ' + str(error), file=sys.stderr)
+                            return 125
+                        sys.stdout.buffer.write(stdout)
+                        sys.stderr.buffer.write(stderr)
+                        return result.returncode
+                result = processes.run([executable, *args], stdin=None if forward else subprocess.DEVNULL,
+                                       env=env)
+                return result.returncode
+    except (OSError, ValueError, KeyError, TypeError):
+        print('boat-call: managed command refused', file=sys.stderr)
+        return 1
+    except (subprocess.TimeoutExpired, TimeoutError):
         print('boat-call: command timed out; remote outcome may be unknown', file=sys.stderr)
         return 124
 

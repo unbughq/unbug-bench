@@ -1,0 +1,40 @@
+[
+  {
+    "args": [
+      "usage",
+      "bx_z4wktrbn",
+      "--json"
+    ],
+    "exit_code": 1,
+    "response_characters": 168,
+    "categories": [
+      "not found",
+      "404",
+      "sandbox"
+    ],
+    "http_statuses": [],
+    "error_vocabulary": [
+      "404",
+      "code",
+      "error",
+      "found",
+      "not",
+      "sandbox",
+      "status"
+    ]
+  },
+  {
+    "args": [
+      "usage",
+      "--help"
+    ],
+    "exit_code": 0,
+    "response_characters": 745,
+    "categories": [
+      "usage:",
+      "sandbox"
+    ],
+    "http_statuses": [],
+    "help": "Show the machine time one sandbox has consumed, and what it costs\n\nUsage: boat usage [OPTIONS] <ID>\n\nArguments:\n  <ID>  Sandbox ID, or \"current\"/\"self\".\n\nOptions:\n      --api-url <API_URL>  [env: BOAT_API_URL=]\n      --since <TIME>       Count from this time, ISO 8601 or Unix seconds. Default: when the sandbox was created.\n      --org <ID_OR_NAME>   Run this command in an organization's billing scope. See `boat org list`. [env: BOAT_ORG=]\n      --until <TIME>       Count up to this time, ISO 8601 or Unix seconds. Default: now.\n      --json               Force machine-readable JSON/JSONL output\n      --no-update          Skip the automatic CLI update (also BOAT_NO_UPDATE=1) [env: BOAT_NO_UPDATE=1]\n  -h, --help               Print help\n"
+  }
+]

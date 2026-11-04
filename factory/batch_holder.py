@@ -662,7 +662,7 @@ def orphaned(policy, root, home):
             if (not op['dispatch_started'] or op['retirement'] is not None or op['state'] == 'failed' or
                     op['incident'] in ('resume_failed', 'publication_failed')): continue
             path = home / 'launches' / op['launch_id']
-            if (path / 'complete').exists() or not (path / 'monitor.sh').is_file(): continue
+            if list(path.glob('*.retiring.json')) or (path / 'complete').exists() or not (path / 'monitor.sh').is_file(): continue
             try:
                 with operation_lock(directory, identity), service._regular(path / 'controller.lock') as lock:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -738,7 +738,7 @@ def resume_controller(policy, root, home, identity, identity_bytes):
             path = home / 'launches' / op['launch_id']
             if (not op['dispatch_started'] or op['retirement'] is not None or op['state'] == 'failed' or
                     op['incident'] in ('resume_failed', 'publication_failed') or
-                    (path / 'complete').exists() or not (path / 'monitor.sh').is_file() or
+                    list(path.glob('*.retiring.json')) or (path / 'complete').exists() or not (path / 'monitor.sh').is_file() or
                     service._json(path / 'launch.json') != op['launch']): raise ValueError('request_refused')
             with service._regular(path / 'controller.lock') as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

@@ -84,20 +84,28 @@ def bundle(**changes):
 
 @unittest.skipUnless(shutil.which('age') and shutil.which('openssl'), 'age and openssl required')
 class DispatchHoldTests(unittest.TestCase):
-    """Real dispatch against an independently retained frozen deployment package.
+    """Retained package remains immutable and is explicitly stale for new runtime.
 
-    Fixture provenance pins the real candidate source commit and payload hashes.
-    retained-policy.json preserves the old practice jobs and unchanged manifest;
-    its release/digest/code fingerprint were explicitly adapted during deployment
-    packaging, independently of this test. Here only its relocatable release path
-    and throwaway recipient change. Test setup never builds or repins a release.
+    Current dispatch contracts use an AUTHORED policy binding to a current commit-
+    built public package, produced by the existing real builder (not a verifier
+    mock or a rewritten retained fixture). This is offline host/preflight behavior,
+    not deployed release qualification. The saved old policy supplies job inputs.
     """
     @classmethod
     def setUpClass(cls):
         cls.source = ROOT
-        cls.release = ROOT / 'tests/factory/fixtures/preflight-deployment-release'
-        cls.retained_policy = json.loads((cls.release / 'retained-policy.json').read_text())
-        cls.release_sha = cls.retained_policy['batch']['sha256']
+        retained = ROOT / 'tests/factory/fixtures/preflight-deployment-release'
+        cls.retained_policy = json.loads((retained / 'retained-policy.json').read_text())
+        batch.verify(retained, cls.retained_policy['batch']['sha256'])
+        # Old deployed bytes remain valid evidence, but cannot authorize new code.
+        with unittest.TestCase().assertRaisesRegex(ValueError, 'host differs'):
+            batch.verify(retained, cls.retained_policy['batch']['sha256'], ROOT)
+        cls.package = tempfile.TemporaryDirectory(); cls.addClassCleanup(cls.package.cleanup)
+        cls.release = Path(cls.package.name).resolve() / 'current-public-release'
+        commit = subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip()
+        cls.release_sha = batch.build(ROOT, commit, cls.release)
+        cls.retained_policy['batch']['sha256'] = cls.release_sha
+        cls.retained_policy['code_sha256'] = key_holder.fingerprint(ROOT)
         batch.verify(cls.release, cls.release_sha, ROOT)
         if cls.retained_policy['batch']['manifest_sha256'] != POLICY['batch']['manifest_sha256']:
             raise ValueError('retained practice manifest changed')
@@ -407,8 +415,8 @@ class LiveReportTests(unittest.TestCase):
         self.assertNotIn('boat-call list', ' '.join(calls))  # a refused version is never listed with
 
     def test_missing_decisions_need_founder_and_exit_3(self):
-        report, rows, _ = self.live(installed='boat 1.0.85')
-        self.assertFalse(preflight.decisions_file(ROOT).exists())
+        with tempfile.TemporaryDirectory() as tmp, patch.object(preflight,'decisions_file',return_value=Path(tmp)/'missing-decisions.json'):
+            report, rows, _ = self.live(installed='boat 1.0.85')
         self.assertEqual(rows['founder_decisions'], dict(id='founder_decisions', status='needs_founder',
                          reason='missing topup_off accounts_unverified_accepted router_ram_openrouter'))
         self.assertTrue(all(r['status'] == 'pass' for k, r in rows.items() if k != 'founder_decisions'))
@@ -431,7 +439,7 @@ class LiveReportTests(unittest.TestCase):
         self.assertIn('decisions_sha256=digest(decisions_file(root))', source)
 
     def test_unresolved_server_fails_every_ssh_check(self):
-        with patch.object(preflight, 'verify_bundle'):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(preflight,'decisions_file',return_value=Path(tmp)/'missing-decisions.json'), patch.object(preflight, 'verify_bundle'):
             report = preflight.check(ROOT, Path('authored-bundle'), None)
         rows = {r['id']: r['status'] for r in report['preflight']}
         self.assertEqual(rows, dict(founder_decisions='needs_founder', deploy_access='fail', boat_cli='fail',

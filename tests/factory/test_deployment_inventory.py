@@ -125,7 +125,7 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(result['state'], 'ok')
         self.assertEqual(result['reserved_usd'], '100.036')
         self.assertEqual(result['expired_reserved'], 1)
-        self.assertEqual(result['counts'], {'reserved': 2, 'finished': 1, 'reconciled_expired': 1, 'settled': 0})
+        self.assertEqual(result['counts'], {'reserved': 2, 'finished': 1, 'reconciled_expired': 1, 'settled': 0, 'budget_debited': 0})
 
     def test_invalid_records_never_produce_partial_totals(self):
         for value in ('-1', 'NaN', 'Infinity', '1e999999999', '1e-19', True, None, [], '9' * 33):
