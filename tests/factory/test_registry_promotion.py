@@ -26,8 +26,8 @@ class PromotionTests(unittest.TestCase):
         shutil.copytree(SEALED / "statement-registry", self.tmp / "reg")
         self.r = registry.Registry(self.tmp / "reg")
         real = sorted(SEALED.glob("case-*.statement.age"))
-        self.ct = {n: real[i] for i, n in enumerate(("case-pa", "case-pb", "case-pc"))}
-        self.dg = {"case-pa": "a" * 64, "case-pb": "b" * 64, "case-pc": "c" * 64}
+        self.ct = {n: real[i] for i, n in enumerate(("case-pa", "case-pb", "case-pc", "case-pz"))}
+        self.dg = {"case-pa": "a" * 64, "case-pb": "b" * 64, "case-pc": "c" * 64, "case-pz": "e" * 64}
 
     def history(self, *cases):  # what statement_round.prepare does for non-candidates
         for c in cases:
@@ -93,6 +93,49 @@ class PromotionTests(unittest.TestCase):
         self.assertIn("case-pa.statement.age", {p.name for p in waves["case-pb"].iterdir()})
         for c in waves:
             self.assertTrue(json.loads((waves[c] / "admission.json").read_text())["complete"])
+
+    def wave(self, name, candidate, y_ct, y_digest, rejected, y_candidate=False):
+        """statement_round.prepare with case-py's collected ciphertext/card as the history."""
+        import statement_round
+        d = self.tmp / name; d.mkdir()
+        shutil.copyfile(self.ct[candidate], d / (candidate + ".statement.age"))
+        shutil.copyfile(y_ct, d / "case-py.statement.age")
+        (d / "case-py.scorecard.json").write_text(json.dumps(
+            {"statement_sha256": y_digest, "rejected_candidates": [{"statement_sha256": r} for r in rejected]}))
+        cands = {"case-py": y_digest} if y_candidate else {candidate: self.dg[candidate]}
+        return statement_round.prepare(d, self.tmp / "reg", cands, self.tmp / ("out-" + name), history_sealed=d)
+
+    def test_reselected_pending_candidate_survives_other_wave_and_own_handoff(self):
+        c1, c2, d1, d2 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64, "2" * 64
+        for first in ("reserved", "history"):
+            with self.subTest(first=first):
+                shutil.rmtree(self.tmp / "reg"); shutil.copytree(SEALED / "statement-registry", self.tmp / "reg")
+                self.r = registry.Registry(self.tmp / "reg")
+                if first == "reserved":
+                    self.wave(first + "1", "case-pa", c1, d1, [], y_candidate=True)  # Y's own handoff reserved c1
+                    self.assertEqual(self.r.export("case-py", self.tmp / (first + "-old"))["statement_sha256"], d1)
+                else:
+                    self.wave(first + "1", "case-pa", c1, d1, [])  # another wave imported c1 as history
+                out = self.wave(first + "2", "case-pz", c2, d2, [d1])  # Y reselected c2; X's wave must not fail
+                self.assertEqual((out["case-pz"] / "case-py.statement.age").read_bytes(), c2.read_bytes())
+                mine = self.wave(first + "3", "case-pa", c2, d2, [d1], y_candidate=True)["case-py"]
+                entry = json.loads((mine / "admission.json").read_text())
+                self.assertTrue(entry["complete"]); self.assertEqual(entry["statement_sha256"], d2)
+                self.assertTrue({"case-pa", "case-pz"} <= set(entry["statements"]))
+                self.assertEqual(self.r.export("case-pz", self.tmp / (first + "-a"))["statements"]["case-py"], entry["cipher_sha256"])
+
+    def test_unauthenticated_reselection_still_refuses_and_keeps_reservation(self):
+        c1, c2, d1, d2 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64, "2" * 64
+        for first in ("reserved", "history"):
+            with self.subTest(first=first):
+                shutil.rmtree(self.tmp / "reg"); shutil.copytree(SEALED / "statement-registry", self.tmp / "reg")
+                self.wave(first + "1", "case-pa", c1, d1, [], y_candidate=first == "reserved")
+                with self.assertRaisesRegex(ValueError, "different content"):  # c1 not listed as rejected
+                    self.wave(first + "2", "case-pa", c2, d2, [])
+                with self.assertRaisesRegex(ValueError, "different content"):  # rejected list names another digest
+                    self.wave(first + "3", "case-pa", c2, d2, ["9" * 64])
+                kept = json.loads((self.tmp / "reg/registry.json").read_text())["entries"]["case-py"]
+                self.assertEqual((kept["statement_sha256"], kept["status"] != "released"), (d1, True))
 
     def test_negative_identities_still_refuse(self):
         self.history("case-pb", "case-pc")

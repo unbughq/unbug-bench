@@ -54,3 +54,31 @@ object, negatives, stale revision). Fails on parent, passes on change.
 registry and ciphertext through `statement_round.prepare`; not deployed or live-proven.
 The register is not edited by this branch (root owns it); root may set row 7 `closed`
 with `tests/factory/test_registry_promotion.py` as `Closed by` at merge.
+
+## Addendum: reselection between history snapshot and handoff (new-registry-pending-promotion-1)
+
+**Problem.** A pending candidate Y reselects (c1 rejected, c2 selected) after the registry
+last saw c1, either reserved by Y's earlier handoff or imported as history by another
+wave. `statement_round.prepare` then imports Y's c2 as history for another wave X;
+`reserve` raises "different content" and X's whole wave fails. Y's own handoff fails the
+same way when c1 is historical-only (`replace_rejected` only released screening/building
+entries).
+
+**Change.** `Registry.replace_rejected` gains `historical=False`, and its release rule
+covers a historical-only previous entry with a known digest: release only when that digest
+is in the card's `rejected_candidates` (the same authentication as before; a None digest
+never matches). `prepare` routes non-candidate history imports with a known digest through
+`replace_rejected(..., historical=True)`, reading the history card's rejected list with the
+existing bound of 3. With no digest it still calls `import_historical`. Everything after
+the release is the existing `reserve` path, so c2 is stored, stays visible to X and every
+later reservation, and Y's own handoff promotes it by the row 7 rule.
+
+**Unchanged / refuses.** Unlisted or mismatched previous digest still raises "different
+content" and leaves the existing reservation alone; screening visibility is never removed
+for a candidate not named rejected by its own card; no reservation is reset otherwise.
+Already-reserved candidates keep their fixed snapshot (later entries are not retrofitted).
+
+**Tests.** `test_registry_promotion.py`: two-wave `prepare` for both starting states
+(reserved, history), Y's own handoff after, and unauthenticated reselection refusals.
+Fails on 271f4a87, passes now. **Murphy.** Closes new-registry-pending-promotion-1 locally;
+not deployed or live-proven; register untouched.

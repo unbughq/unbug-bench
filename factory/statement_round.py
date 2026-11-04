@@ -92,8 +92,14 @@ def prepare(sealed, registry_root, candidates, destination, *, history_sealed=No
         identifier(case)
         if case not in candidates:
             card = history / (case + '.scorecard.json')
-            digest = json.loads(card.read_text()).get('statement_sha256') if card.exists() else None
-            registry.import_historical(case, ciphertexts[case], statement_sha256=digest)
+            card = json.loads(card.read_text()) if card.exists() else {}
+            digest = card.get('statement_sha256')
+            rejected = [row.get('statement_sha256') for row in card.get('rejected_candidates', [])]
+            if len(rejected) > 3: raise ValueError('candidate selection bound exceeded')
+            if digest is None:
+                registry.import_historical(case, ciphertexts[case])
+            else:  # a pending candidate may have reselected since the registry last saw it
+                registry.replace_rejected(case, digest, ciphertexts[case], rejected, historical=True)
     snapshots = {}
     for case, digest in sorted(candidates.items()):
         card_path = sealed / (case + '.scorecard.json')

@@ -101,16 +101,18 @@ class Registry:
     def import_historical(self, case, ciphertext, statement_sha256=None):
         return self.reserve(case, statement_sha256, ciphertext, historical=True)
 
-    def replace_rejected(self, case, statement_sha256, ciphertext, rejected):
+    def replace_rejected(self, case, statement_sha256, ciphertext, rejected, *, historical=False):
         """Only an explicitly rejected previous digest permits candidate reselection."""
         state = json.loads((self.root / "registry.json").read_text()) if (self.root / "registry.json").exists() else {"entries": {}}
         previous = state["entries"].get(case)
-        if (previous and previous["status"] != "released" and previous["complete"] and
-                previous["statement_sha256"] != statement_sha256):
-            if previous["status"] not in ("screening", "building") or previous["statement_sha256"] not in rejected:
+        old = previous and previous["statement_sha256"]
+        # A historical-only entry with an unknown digest falls through to reserve (promotion or refusal).
+        if (previous and previous["status"] != "released" and old != statement_sha256 and
+                (previous["complete"] or old is not None)):
+            if old is None or old not in rejected or (previous["complete"] and previous["status"] not in ("screening", "building")):
                 raise ValueError("case already reserved with different content")
             self.transition(case, previous["reservation"], "released")
-        return self.reserve(case, statement_sha256, ciphertext)
+        return self.reserve(case, statement_sha256, ciphertext, historical=historical)
 
     def search_receipt(self, case, metadata, ciphertext):
         """Keep opaque worker evidence; the worker validates its verdict and expiry."""
