@@ -68,8 +68,9 @@ class RealInventoryTests(unittest.TestCase):
             with self.subTest(name=original.name):
                 root = self.tmp / str(index); (root / 'sealed').mkdir(parents=True)
                 copy = root / 'sealed' / original.name
-                shutil.copyfile(original, copy)
-                self.assertEqual(digest(copy), digest(original))
+                data = original.read_bytes()  # Read once: the main checkout's sealed/ may be live.
+                copy.write_bytes(data)
+                self.assertEqual(copy.read_bytes(), data)
                 self.assertTrue(refused(root, root / 'batch', case))
                 for neighbour in (case + '0', case[:-1]):
                     holder.empty_input(root, root / 'batch', neighbour)
@@ -144,15 +145,19 @@ class RealGitDiscoveryTests(unittest.TestCase):
             self.assertEqual(batch.restore_inventory(self.checkout), [])
             holder.empty_input(self.checkout, self.checkout / 'batch', 'case-b-x-j')
 
-    def test_valid_gitfile_still_reaches_the_common_checkout(self):
-        (self.checkout / '.git').write_text('gitdir: ' + str(self.parent / '.git') + '\n')
-        self.assertEqual(batch.sealed_directories(self.checkout),
-                         [self.parent / 'sealed', self.checkout / 'sealed'])
-        self.assertTrue(refused(self.checkout, self.checkout / 'batch', 'case-b-x-j'))
+    def test_real_linked_worktree_still_reaches_the_common_checkout(self):
+        identity = ['-c', 'user.name=authored', '-c', 'user.email=authored@example.invalid']
+        self.assertEqual(git(*identity, 'commit', '-q', '--allow-empty', '-m', 'authored', cwd=self.parent).returncode, 0)
+        linked = self.parent / 'linked'
+        result = git('worktree', 'add', '-q', '--detach', str(linked), cwd=self.parent)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((linked / '.git').is_file())  # gitfile -> .git/worktrees/<name> with commondir
+        self.assertEqual(batch.sealed_directories(linked), [self.parent / 'sealed', linked / 'sealed'])
+        self.assertTrue(refused(linked, linked / 'batch', 'case-b-x-j'))
 
 
 class HolderWiringTests(unittest.TestCase):
-    """Contract-level: real retained ledger bytes under the fixture case's authored name."""
+    """Contract-level: real ledger content (re-serialized) under the fixture case's authored name."""
 
     def setUp(self):
         self.h = holder_fixtures.HolderTests('test_lifecycle_status_ack_retirement_source_and_replay')
@@ -185,19 +190,24 @@ class HolderWiringTests(unittest.TestCase):
         self.assert_terminal(op, *self.h.preflight(op))
 
     def test_second_locked_check_catches_name_placed_during_preflight(self):
-        op = self.h.reserve(); original = holder.empty_input; calls = []
+        op = self.h.reserve(); original = holder.empty_input; outcomes = []
         def observe(root, directory, case):
-            original(root, directory, case); calls.append(case)
-            if len(calls) == 1: self.place(root)
+            try: original(root, directory, case)
+            except ValueError as error:
+                outcomes.append(str(error)); raise
+            outcomes.append('admitted')
+            if len(outcomes) == 1: self.place(root)
         with patch.object(holder, 'empty_input', side_effect=observe):
             result, spawns = self.h.preflight(op)
-        self.assertEqual(len(calls), 1)  # The second call raised.
+        self.assertEqual(outcomes, ['admitted', 'request_refused'])  # Second locked check refused.
         self.assert_terminal(op, result, spawns)
 
     def test_dangling_symlinked_sealed_directory_is_not_absence(self):
         sealed = self.h.root / 'sealed'
         if sealed.exists(): shutil.rmtree(sealed)
         sealed.symlink_to('absent-sealed-store')
+        with self.assertRaisesRegex(ValueError, 'request_refused'):
+            holder.empty_input(self.h.root, self.h.directory, self.case)
         with self.assertRaisesRegex(ValueError, 'request_refused'): self.h.reserve()
         self.assertFalse((self.h.directory / 'reservations.json').exists())
 
