@@ -83,9 +83,13 @@ recovery package. Its four facts, checked against the code on `fbca505`:
      - It returns the key only if the size and SHA-256 equal the local archive.
        Any mismatch, curl error or timeout returns `None`.
    - **How the GET runs.**
-     - `subprocess.Popen(["curl", "-fsS", <GET link>], stdout=PIPE)`.
-     - A monotonic bound of 1800 s, the same as the PUT's. When it expires, the
-       process is killed.
+     - `subprocess.Popen(["curl", "-fsS", <GET link>], stdout=PIPE,
+       stderr=DEVNULL)`.
+     - A monotonic bound of 1800 s, the same as the PUT's. When it expires, or
+       when the size bound is exceeded, the process is killed.
+     - Like today's PUT, this deliberately runs outside the seal's 600 s
+       `processes.deadline` envelope, which only `processes.run` honours. The
+       transfer bounds are row 16's.
      - No `--retry`, because a retried transfer would append to bytes already
        hashed. A failure fails closed, and the next checkpoint boundary
        retries.
@@ -101,6 +105,14 @@ recovery package. Its four facts, checked against the code on `fbca505`:
 2. **Add GET links in the launcher (`factory/launch.sh:780`).**
    - The launcher also presigns GET for the same two keys, with the same 7-day
      lifetime, and writes them as `checkpoint_get` and `final_get`.
+   - The `python3 -c` program takes its arguments in the order `id put_ckpt
+     get_ckpt put_final get_final`.
+   - **Phasing.** All five changes land in one commit. `r2_upload` without the
+     launcher's GET links would refuse every upload.
+   - **Why read back instead of a checksum header on the PUT.** Row 34's fix
+     asks for verification. Only a read-back proves the object can actually be
+     fetched through the same signed-link path a restore uses. An unsigned
+     `x-amz-checksum-*` header on a presigned PUT is also unverified for R2.
    - If signing fails, no file is written, as today.
    - The worker still gets no R2 credentials, only links for its own two
      objects. It already holds the plaintext those objects encrypt.
@@ -121,6 +133,15 @@ recovery package. Its four facts, checked against the code on `fbca505`:
      - Set `local_durable: false`, `remote_durable: false` and `pending: true`.
      - Add `superseded: "checkpoint_replaced"`.
      - Keep `sha256`, `archive` and `r2_object`, so the history stays readable.
+     - The same revoked receipt is also written to
+       `work/durable-checkpoint.json` (if it exists), with `atomic_json`. That
+       is the copy read by the operator views (`tools/factory_dashboard.py:32`,
+       `tools/factory_board.py:189`), and it is sealed into the new archive.
+   - **Not fixed here.** After `checkpoint_progress`, the card's restored
+     top-level `sha256`/`archive`/`r2_object` can name a path and key that a
+     later checkpoint seal overwrote. Restores catch this: they fail closed on
+     the digest check at `launch.sh:179-183`. It is part of fact 2 (one
+     mutable object) and stays open.
    - **Where it lives.** Today the only checkpoint seal outside
      `checkpoint_progress` is `run.py:3505`. The revocation goes in `seal`
      because `seal` owns replacing both copies. That way it also covers any
@@ -182,6 +203,8 @@ expensive work rather than silently advancing".
   - `ledger`: a temporary JSON file;
   - `t0 = time.time()`.
 - `RunArtifacts`:
+  - `home` and `sealed`: temporary directories;
+  - `pilot_wall=None` and `factory_slots`, which returns 1;
   - `bench`: a temporary directory with an empty `results/`;
   - `statements_recipient`: an absent path;
   - `agent_state=()`;
@@ -251,8 +274,13 @@ expensive work rather than silently advancing".
   - It also asserts that `launch.sh` calls `r2_sign GET` for both keys.
 - **T5: no URL leak.** On every T3 failure, the card, the receipt and the
   captured stdout/stderr contain no stub signature marker (`X-Amz-Signature`).
-- **T6: resume-in-place refusal.** The test extracts the guard line from
-  `factory/resume-in-place.sh` and runs it with `sh` against a temporary HOME:
+- **T6: resume-in-place refusal.**
+  - The guard is on its own line inside the remote string. The existing
+    `rm -rf ~/factory && tar` extraction in `tests/factory/test_account_handoff.py`
+    therefore still works.
+  - The test extracts the guard line from `factory/resume-in-place.sh`,
+    decodes its shell escapes as `test_account_handoff.py:258-259` does, and
+    runs it with `sh` against a temporary HOME:
   - old links, without GET links: refused;
   - new links: passes;
   - no links file: passes.
@@ -289,8 +317,8 @@ above, but only for collected generations.
 **Proposed new row.** ENGINEERING §2 asks for a row for this real failure. It
 is proposed here verbatim, for the integrator to add at merge:
 
-> | new-checkpoint-readback-1 | **A durable receipt keeps claiming a replaced
-> checkpoint.** | `factory/run_artifacts.py:124`, `:128`;
+> | new-checkpoint-readback-1 | **The card's `durable_checkpoint` receipt
+> (and `work/durable-checkpoint.json`) keeps claiming a replaced checkpoint.** | `factory/run_artifacts.py:124`, `:128`;
 > `tests/factory/fixtures/e15450-collected-card.json` (receipt 460a8f21 vs card
 > 03a1dd51, same path and key) | A later checkpoint seal replaces the local
 > archive and the single R2 object, but leaves the earlier receipt
@@ -317,6 +345,14 @@ objects are still one mutable key per worker."
   - Estimate for the largest recorded archive (527,987,760 bytes,
     new-single-path-1): about 34 minutes each way at the launcher's
     conservative 256 KiB/s floor, or about 26 s at 20 MB/s.
+  - **Consequence at the floor rate.** 527,987,760 B at 256 KiB/s takes
+    about 2014 s. That is longer than the fixed 1800 s bound on both the PUT
+    and the GET, so the largest archive would never be remote durable. The
+    stop seal's worst case also grows from about 30 to about 60 minutes,
+    against row 16's 30-minute reserve. Row 16's owner inherits these numbers.
+- **Activation gate.** The GET presign has never run live, and one bad GET
+  link would stop every worker's barriers at once. A live PUT+GET read-back,
+  for example inside the no-model smoke, must pass before batch activation.
 - **The stop seal.** The GET is part of the stop seal at `run.py:3505`. If it
   does not finish, `r2_object` stays unset. The host still collects the local
   archive, so nothing is falsely claimed.
