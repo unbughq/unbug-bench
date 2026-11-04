@@ -1,0 +1,13 @@
+DRY RUN (practice fixture, throwaway key)  case-b-plumbing-practice-3-smoke  sha256:b615c37c3ff2c3103576a74d1175cad299dc3eaf1f3f28f7a3b56b06eab2d6d9
+gates: passed G1,G3,G4,G12; skipped G2
+reviewers: fairness - approve, realism - approve
+plain app broke the promise 10/10   reference fix 10/10   cheats - passed   scenario keys -
+calibrators: {}   fake pass: -
+surprises: 0   scenarios: 12   provenance: 0   source: fixture (dry-run)   builder rounds: -
+wipe: null   wall: 24.2 min
+model calls: 0 (telemetry)
+STOPPED: paused
+seal round trip: {"decrypted": true, "identical": true, "files": 334}
+case budget: 0.0 / 0.01 USD
+infrastructure_waste_usd: 0.0
+total spend: 0.0 USD

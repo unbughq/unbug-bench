@@ -47,3 +47,35 @@ Startup smoke (2026-11-03): the batch is now `b-plumbing-practice-3`, with a no-
 `smoke` job run first (steps 3–3b). It splits the same $19.99 between the jobs and adds no
 money. Repin and redeploy the policy, release pins, cleanup unit and holder drop-in
 for -3; any of them left at -2 makes cleanup refuse and dispatch wait for ever.
+
+## Repaired-release smoke continuation (prepared November 4; inactive)
+
+The -3 smoke was collected/published/deleted, but fresh stopped metering failed.
+The -4 successor imports that exact smoke checkpoint through existing
+`batch_transfer` and preserves its original case, commitment, model totals and
+history. It does not restart science from scratch or reset either budget.
+See `practice4-checkpoint-carry.md` and its retained public source fixture.
+
+These steps supersede new-admission steps 3–3a only after separately authorized
+installation/unlock and exactly one smoke-continuation worker. Prepare the -4
+pins; revalidate the pinned -3 snapshot; preserve its release, operations,
+collection and both $0.036 conservative debits. Do not replace the release pin in
+its existing journal. Existing transfer freezes -3 on admission, then the
+ordinary checkpoint launch runs the imported `smoke` generation under -4.
+Use `UNBUG_PRACTICE_BATCH=b-plumbing-practice-4` consistently in the installed
+cleanup unit and holder drop-in. Qualify/reserve smoke with checkpoint
+`b615c37c3ff2c3103576a74d1175cad299dc3eaf1f3f28f7a3b56b06eab2d6d9`,
+arm independent cleanup and record readiness before dispatch. Collection is
+still +30 minutes, deletion grace +15 minutes, provider TTL 60 minutes.
+
+This is a no-model lifecycle qualification only: require fresh same-stop
+completion, stopped usage/recheck, exact collection/ciphertext/publication,
+completed exact-worker deletion and settlement. `paused` during a mechanical
+gate is compatible with smoke science criteria but cannot excuse missing
+lifecycle proof. No automatic retry, practice worker or fleet is authorized.
+Do not reserve or dispatch the dormant practice job without a later go-ahead;
+once -4 is opted in, nothing in code enforces this ordering.
+Factory Claude routes remain unchanged; implementation cloud credits do not
+fund local model calls from a Boat worker. The prior top-up/account/RAM-only
+credential decisions remain attributed to their original dates and grant no
+additional launch authority.

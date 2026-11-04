@@ -1,0 +1,129 @@
+{
+  "journal": {
+    "batch": "b-plumbing-practice-3",
+    "derivations": {},
+    "entries": {
+      "case-b-plumbing-practice-3-smoke/b615c37c3ff2c3103576a74d1175cad299dc3eaf1f3f28f7a3b56b06eab2d6d9": {
+        "case": "case-b-plumbing-practice-3-smoke",
+        "facts": null,
+        "generation": "b615c37c3ff2c3103576a74d1175cad299dc3eaf1f3f28f7a3b56b06eab2d6d9",
+        "job": "smoke",
+        "manifest_sha256": "6524d7fd9e97bc923a052729b8696fc131a75844589d1f65fb69b8db8b0d5e62",
+        "state": "pending"
+      }
+    },
+    "manifest_sha256": "a66e5585dcd9df78f073551b07cb84d80727a9d04fd1fa3881892737df02151c",
+    "next_sequence": 0,
+    "operations": {
+      "accb60a1-2f07-5af4-a8d3-b48ea3efbab3": {
+        "authority": {
+          "batch": "b-plumbing-practice-3",
+          "batch_deadline": "2026-11-07T00:00:00Z",
+          "case": "case-b-plumbing-practice-3-smoke",
+          "committed_total_usd": "0.010000000",
+          "job": "smoke",
+          "reservation_id": "bcd8c27b-fc12-46ae-b18e-e5e16645c8f6",
+          "revision": 1,
+          "schema": 1,
+          "source_generation": null
+        },
+        "case": "case-b-plumbing-practice-3-smoke",
+        "config_sha256": "ae5ef6da3ead90ede0bd8164334da434d9d72e82a1368168ea083382285af15c",
+        "dispatch_exit": 1,
+        "dispatch_started": true,
+        "failures": 0,
+        "incident": null,
+        "job": "smoke",
+        "launch": {
+          "argv": [
+            "1",
+            "--source",
+            "port",
+            "--rotation-slot",
+            "1",
+            "--builder",
+            "openrouter/minimax/minimax-m3.1-flash",
+            "--attacker",
+            "openrouter/deepseek/deepseek-v4.1-flash",
+            "--reviewer1",
+            "openrouter/xiaomi/mimo-v2.6-pro",
+            "--strong-calibrator",
+            "claude/claude-opus-4-5-20251101:compact",
+            "--easy-calibrator",
+            "openrouter/minimax/minimax-m3.1-flash",
+            "--ttl-hours",
+            "1",
+            "--max-spend",
+            "5",
+            "--dry-run",
+            "--batch-release",
+            "/home/user/.unbug-control/releases/cde6dc9244df96a693dbe8e97e4a2cedccda6504731394c14b672718facda7f4",
+            "--batch-sha256",
+            "cde6dc9244df96a693dbe8e97e4a2cedccda6504731394c14b672718facda7f4",
+            "--case-id",
+            "case-b-plumbing-practice-3-smoke",
+            "--factory-job-config",
+            "/home/user/.unbug-control/batches/b-plumbing-practice-3/configs/ae5ef6da3ead90ede0bd8164334da434d9d72e82a1368168ea083382285af15c.json",
+            "--factory-job-config-sha256",
+            "ae5ef6da3ead90ede0bd8164334da434d9d72e82a1368168ea083382285af15c"
+          ],
+          "environment": {
+            "BOAT_TYPE": "default",
+            "CLAUDE_SECRET_NAME": "claude-factory-token-2",
+            "FACTORY_ACCOUNT_POLICY": "{\"opencode_accounts\": [], \"claude_accounts\": [2, 1]}",
+            "FACTORY_ACCOUNT_STATE": "{\"accounts\": {\"opencode\": 1, \"claude\": 2}, \"limited\": {}, \"history\": []}",
+            "UNBUG_BATCH_OPERATION": "accb60a1-2f07-5af4-a8d3-b48ea3efbab3",
+            "UNBUG_CLOUD": "boat",
+            "UNBUG_PRACTICE_BATCH": "b-plumbing-practice-3",
+            "UNBUG_SECRETS_FILE": "/home/user/.config/unbug-bench/secrets.age"
+          }
+        },
+        "launch_id": "f8536b66437d4a00bf9ce6f91e4952ec",
+        "operation_id": "accb60a1-2f07-5af4-a8d3-b48ea3efbab3",
+        "output_generation": "b615c37c3ff2c3103576a74d1175cad299dc3eaf1f3f28f7a3b56b06eab2d6d9",
+        "pending_since": "2026-11-04T09:31:20.612484+00:00",
+        "release_sha256": "cde6dc9244df96a693dbe8e97e4a2cedccda6504731394c14b672718facda7f4",
+        "retirement": {
+          "completion_sha256": "735269a09d9103d47f89c28c37758a28658b651fdc9c52e4349d725f96cf1c89",
+          "request_sha256": "7fa8888c31a8e89a89a695eb508298739fd7c87daf14915cffb67356ee4fbbc0",
+          "worker_id": "bx_bykfqbyn"
+        },
+        "source_generation": null,
+        "state": "launched",
+        "worker_id": "bx_bykfqbyn"
+      }
+    },
+    "queue": {},
+    "schema": 1
+  },
+  "generation_manifest": {
+    "batch": "b-plumbing-practice-3",
+    "batch_release_sha256": "cde6dc9244df96a693dbe8e97e4a2cedccda6504731394c14b672718facda7f4",
+    "case": "case-b-plumbing-practice-3-smoke",
+    "files": {
+      "case-b-plumbing-practice-3-smoke.casekey.age": {
+        "sha256": "17c7695b310284d6999b64f2f94b8863b99850d484c6b7edc974df3d95bce9d5",
+        "size": 482
+      },
+      "case-b-plumbing-practice-3-smoke.checkpoint.tar.gz.age": {
+        "sha256": "b615c37c3ff2c3103576a74d1175cad299dc3eaf1f3f28f7a3b56b06eab2d6d9",
+        "size": 2433296
+      },
+      "case-b-plumbing-practice-3-smoke.progress.json": {
+        "sha256": "0f816851ec5a892b6ea4254ef2d1a43b7915a1f125489812632a34e23ce6d631",
+        "size": 982
+      },
+      "case-b-plumbing-practice-3-smoke.scorecard.json": {
+        "sha256": "8c90f0850a76bab4f962f31e2edf97f2a368f2bea0c0f2f737094adf7d8f111b",
+        "size": 2654
+      },
+      "case-b-plumbing-practice-3-smoke.scorecard.txt": {
+        "sha256": "b23e05fa99cdbd3ab4276d2a790faa6c082c06c6f25f07df67e9807be8ed634c",
+        "size": 673
+      }
+    },
+    "generation": "b615c37c3ff2c3103576a74d1175cad299dc3eaf1f3f28f7a3b56b06eab2d6d9",
+    "job": "smoke",
+    "schema": 1
+  }
+}

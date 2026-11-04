@@ -89,8 +89,8 @@ class PracticeTests(unittest.TestCase):
 
     def test_previous_practice_id_refused_and_ceilings_unchanged(self):
         record = json.loads((ROOT / preflight.MANIFEST).read_text())
-        self.assertEqual(practice.BATCH, 'b-plumbing-practice-3')
-        self.assertEqual(record['jobs']['practice']['case'], 'case-b-plumbing-practice-3-practice')
+        self.assertEqual(practice.BATCH, 'b-plumbing-practice-4')
+        self.assertEqual(record['jobs']['practice']['case'], 'case-b-plumbing-practice-4-practice')
         self.assertEqual(record['money_limit_usd'], '19.990000000')
         self.assertEqual(record['jobs']['practice']['requested_total_usd'], '19.980000000')
         self.assertEqual(record['practice_admission']['jobs']['practice'],

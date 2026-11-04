@@ -3,6 +3,7 @@ Real wrapper/process locks exercised locally; Linux WRITE-FD positive skips on M
 No provider/network/worker credentials, no historical ledger edits or row closure.
 """
 from copy import deepcopy
+from datetime import datetime, timezone
 from decimal import Decimal
 import fcntl
 import hashlib
@@ -23,6 +24,7 @@ import boat_lifecycle as life
 import batch
 import batch_holder as holder
 import batch_money as money
+import job_authority
 import key_holder
 import launch_manifest
 import practice
@@ -32,8 +34,22 @@ CONTRACT = json.loads((ROOT/'docs/reports/boat-stopped-contract-20261104.json').
 WORKER = CONTRACT['worker_never_mutated']
 
 
+class Clock(datetime):
+    """AUTHORED: before the retained -3 deadline (2026-11-07), so admission stays valid after it."""
+    @classmethod
+    def now(cls, tz=None): return datetime(2026, 11, 3, 12, tzinfo=timezone.utc)
+
+
 class RetirementTests(unittest.TestCase):
     def setUp(self):
+        # Fresh-reservation retirement is retained on -3: under -4 the carried smoke refuses
+        # fresh admission. -4 prepare/source is covered by test_practice4_carry.py; -4
+        # imported-continuation retirement is not covered offline.
+        legacy = json.loads((ROOT/'factory/batches/b-plumbing-practice-3.json').read_text())
+        for name, value in (('BATCH', legacy['id']), ('EXPECTED', legacy)):
+            change = patch.object(practice, name, value); change.start(); self.addCleanup(change.stop)
+        for module in (holder, practice, job_authority):
+            clock = patch.object(module, 'datetime', Clock); clock.start(); self.addCleanup(clock.stop)
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name).resolve(); self.root = self.base/'source'; self.root.mkdir()
         # Public source only. This is an AUTHORED local release, not a saved production pin.
@@ -42,6 +58,9 @@ class RetirementTests(unittest.TestCase):
         for name in paths:
             target = self.root/name; target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT/name, target)
+        # AUTHORED: the copied source's wrapper subprocesses see the same retained -3 pin.
+        with (self.root/'factory/practice.py').open('a') as pin:
+            pin.write('\n# AUTHORED test pin: retained -3 contract\nBATCH = %r\nEXPECTED = %r\n' % (legacy['id'], legacy))
         self.home = self.base/'control'; self.home.mkdir()
         self.state = self.home/'launches'/('a'*32); self.state.mkdir(parents=True)
         self.spend = self.root/'results/spend/authored.json'; self.spend.parent.mkdir(parents=True)
