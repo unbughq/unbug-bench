@@ -223,9 +223,9 @@ def stress(c, r, number):
 
 
 def child(pipe, c, r, private_bench, phase_manifest, versions):
+    """Private process. Only durable records and operational IPC leave this scope."""
     import processes
     processes._deadline.set((float('inf'), False))  # forked inside a gate window: each stage message carries its own end
-    """Private process. Only durable records and operational IPC leave this scope."""
     os.setpgid(0, 0)
     def child_seal(*args, **kwargs): raise RuntimeError('child seal')
     runners = [r]
@@ -315,7 +315,7 @@ def child(pipe, c, r, private_bench, phase_manifest, versions):
                             if stage == 'stress': result = stress(c, r, phase_manifest['round_number'])
                             elif stage == 'G3' and prepared: result = True, setup
                             else:
-                                with (processes.deadline(max(end - time.monotonic(), 1e-3), independent=True)
+                                with (processes.deadline(max(end - time.monotonic(), 1e-3))
                                       if end is not None else contextlib.nullcontext()):
                                     result = getattr(r, stage.lower())(c)
                         except CaseProblem as error:

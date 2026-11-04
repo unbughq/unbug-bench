@@ -409,13 +409,14 @@ class ComparisonTests(unittest.TestCase):
         import processes, time
         seen = []
         def gate(context):
-            seen.append(processes._deadline.get()[0]); return True, {}
+            seen.append(processes._deadline.get()); return True, {}
         end = time.monotonic() + 3600
         with processes.deadline(1):  # the stale window the child was forked inside
             self.child_protocol('G14', gate, end=end)
             self.child_protocol('G7', gate)
-        self.assertAlmostEqual(seen[0], end, delta=1)  # mechanical stage: the parent's window
-        self.assertEqual(seen[1], float('inf'))  # non-mechanical stage: no inherited window
+        self.assertAlmostEqual(seen[0][0], end, delta=1)  # mechanical stage: the parent's window
+        self.assertFalse(seen[0][1])  # never independent: the runner's inherited deadline still applies
+        self.assertEqual(seen[1], (float('inf'), False))  # non-mechanical stage: no inherited window
 
     def test_real_g3_prepares_before_a_fresh_checkpoint(self):
         saved = comparison_tests.execution('plain')
