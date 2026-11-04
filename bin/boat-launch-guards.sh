@@ -336,6 +336,7 @@ guard_wait() {
     done
     [ "$pending" -ne 0 ] || guard_retirements_active || return "$wait_status"
     for wait_id in $(cat "$state/ids"); do
+      ! guard_retire_running "$wait_id" || continue
       [ -f "$state/$wait_id.pid" ] || continue
       if wait "$(cat "$state/$wait_id.pid")"; then touch "$state/$wait_id.ok"; fi
       rm -f "$state/$wait_id.pid"

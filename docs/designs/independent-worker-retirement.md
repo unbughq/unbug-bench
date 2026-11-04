@@ -418,7 +418,7 @@ Scenarios:
 
 1. **Simultaneous TTL margin.** Three workers have been running for
    `retire_at` seconds. A stub `collect_vm` blocks until all three have
-   started, bounded at 60 s. Pass: all three collections overlap;
+   started, bounded at 20 s. Pass: all three collections overlap;
    `factory_ttl_retire` runs inside each task, before collection; all three
    are deleted and `.retired`.
    - **Mutation check (manual, recorded in the diff review):** run the same
@@ -436,7 +436,7 @@ Scenarios:
    - **Two phases.** Within one pass, DONE factory worker D (an auto-resume
      candidate) sorts **before** TTL-due worker T. The stub
      `factory_auto_resume` for D blocks until T's collection has started,
-     bounded at 60 s. Pass: T's task started before D's inline auto-resume
+     bounded at 20 s. Pass: T's task started before D's inline auto-resume
      ran. On the base guard the barrier times out.
    - **Auto-resume outcomes.** An inline `factory_auto_resume` that returns 0
      leaves the worker pending, with no task and no `.retired`. When it later

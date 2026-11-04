@@ -37,7 +37,9 @@ if a[0] == 'ssh':
     worker, command = a[1], a[2]
     if 'ROW16PROBE' in command:
         reply = ev / (worker + '.reply')
-        print(reply.read_text().strip() if reply.exists() else '5'); sys.exit(0)
+        text = reply.read_text().strip() if reply.exists() else '5'
+        if text == 'FAIL': sys.exit(255)
+        print(text); sys.exit(0)
     if command == 'row16-pause':
         blocked = ev / (worker + '.pause-blocked')
         if not blocked.exists():
@@ -162,6 +164,10 @@ class Launch:
         path = self.ev / 'events'
         return path.read_text().splitlines() if path.exists() else []
 
+    def calls(self):
+        path = self.ev / 'calls'
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
     def deletes(self):
         path = self.ev / 'deletes'
         return path.read_text().split() if path.exists() else []
@@ -211,10 +217,25 @@ class IndependentRetirementTests(unittest.TestCase):
     def ttl_collect():
         return ('factory_ttl_retire() { echo "attest $1" >> "$EV/events"; }\n'
                 'collect_vm() {\n'
+                '  mkdir "$EV/$1.collecting" 2>/dev/null || echo "overlap $1" >> "$EV/events"\n'
                 '  echo "collect-start $1" >> "$EV/events"\n'
                 '  c=0; python3 "$HELPER" collect "$1" || c=$?\n'
-                '  echo "collect-end $1 $c" >> "$EV/events"; return "$c"\n'
+                '  echo "collect-end $1 $c" >> "$EV/events"\n'
+                '  rmdir "$EV/$1.collecting"; return "$c"\n'
                 '}')
+
+    def test_unreachable_ttl_margin_retires_without_attestation(self):
+        for shell in SHELLS:
+            with self.subTest(shell=shell[0]):
+                launch = self.launch(shell, {REAL_ID: True}, label='factory')
+                launch.reply(REAL_ID, 'FAIL')  # the probe SSH fails: unreachable-or-TTL branch
+                code, err = launch.run(STATUS, extra=self.ttl_collect())
+                events = launch.events()
+                self.assertEqual(code, 0, err)
+                self.assertIn('UNREACHABLE', err)
+                self.assertNotIn('attest ' + REAL_ID, events)  # only the numeric TTL-margin branch attests
+                self.assertEqual(launch.deletes(), [REAL_ID])
+                self.assertEqual(events[-1], 'status 1')
 
     def test_later_due_worker_is_not_queued_and_failure_is_isolated(self):
         for shell in SHELLS:
@@ -296,6 +317,8 @@ class IndependentRetirementTests(unittest.TestCase):
                 self.assertEqual(events[-1], 'status 1')
                 self.assertIn('ended without a status', err)
                 self.assertEqual(events.count('collect-start bx_row16a'), 1)  # never re-classified
+                probes = [c for c in launch.calls() if c[:2] == ['ssh', 'bx_row16a'] and 'ROW16PROBE' in c[2]]
+                self.assertEqual(len(probes), 1)  # never probed again after its task died
                 self.assertEqual(launch.deletes(), [])  # never deleted uncollected
                 self.assertTrue((launch.state / 'bx_row16a.retired').exists())
                 self.assertFalse(list(launch.state.glob('*.retirement-exit.*')))
@@ -357,10 +380,12 @@ class IndependentRetirementTests(unittest.TestCase):
                 self.assertEqual(process.returncode, 143, err)
                 self.assertFalse([e for e in events if e.startswith('resume-after')], events)  # trap fired between commands
                 self.assertIn('collect-end %s 0' % REAL_ID, events)
+                self.assertEqual(events.count('collect-start ' + REAL_ID), 1)  # joined, not killed and redone
                 self.assertEqual(sorted(launch.deletes()), sorted(['a-done', REAL_ID]))
                 self.assertNoOverlap(launch)
 
-    def test_real_collector_collects_two_workers_concurrently(self):
+    def test_real_collector_under_parallel_retirement_tasks(self):
+        # Integration only: overlap of the two collections is likely but not asserted.
         for shell in SHELLS:
             with self.subTest(shell=shell[0]):
                 temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
