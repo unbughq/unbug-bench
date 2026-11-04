@@ -32,6 +32,11 @@ def atomic_json(path, value):
         os.close(fd)
 
 
+def ciphertext_bytes(ciphertext):
+    """Authenticated bytes pass through unchanged; a path is read exactly once."""
+    return ciphertext if isinstance(ciphertext, bytes) else pathlib.Path(ciphertext).read_bytes()
+
+
 def identifier(value):
     if not re.fullmatch(r"case-[A-Za-z0-9-]+", value):
         raise ValueError("invalid case identifier")
@@ -48,7 +53,7 @@ class Registry:
         identifier(case)
         if not (historical and statement_sha256 is None) and not re.fullmatch(r"[0-9a-f]{64}", statement_sha256 or ""):
             raise ValueError("invalid statement digest")
-        data = pathlib.Path(ciphertext).read_bytes()
+        data = ciphertext_bytes(ciphertext)
         if not data.startswith((b"age-encryption.org/v1", b"-----BEGIN AGE ENCRYPTED FILE-----")):
             raise ValueError("statement must be age ciphertext")
         digest = hashlib.sha256(data).hexdigest()
@@ -101,16 +106,36 @@ class Registry:
     def import_historical(self, case, ciphertext, statement_sha256=None):
         return self.reserve(case, statement_sha256, ciphertext, historical=True)
 
-    def replace_rejected(self, case, statement_sha256, ciphertext, rejected):
-        """Only an explicitly rejected previous digest permits candidate reselection."""
-        state = json.loads((self.root / "registry.json").read_text()) if (self.root / "registry.json").exists() else {"entries": {}}
-        previous = state["entries"].get(case)
-        if (previous and previous["status"] != "released" and previous["complete"] and
-                previous["statement_sha256"] != statement_sha256):
-            if previous["status"] not in ("screening", "building") or previous["statement_sha256"] not in rejected:
-                raise ValueError("case already reserved with different content")
-            self.transition(case, previous["reservation"], "released")
-        return self.reserve(case, statement_sha256, ciphertext)
+    def replace_rejected(self, case, statement_sha256, ciphertext, rejected, *, historical=False, bound=False):
+        """Only an explicitly rejected previous digest permits candidate reselection.
+
+        bound: the caller's card binds these exact bytes (statement_cipher_sha256). Required to
+        release a historical-only entry, which no reservation of this case ever vouched for.
+        ciphertext: the caller's authenticated bytes (or a path, read once); reserve gets these bytes."""
+        data = ciphertext_bytes(ciphertext)
+        if not re.fullmatch(r"[0-9a-f]{64}", statement_sha256 or "") or not data.startswith(
+                (b"age-encryption.org/v1", b"-----BEGIN AGE ENCRYPTED FILE-----")):
+            return self.reserve(case, statement_sha256, data, historical=historical)  # invalid input is refused before any release
+        cipher = hashlib.sha256(data).hexdigest()
+        for attempt in (0, 1):  # the decision is re-checked under the lock; one concurrent change is retried
+            state = json.loads((self.root / "registry.json").read_text()) if (self.root / "registry.json").exists() else {"entries": {}}
+            previous = state["entries"].get(case)
+            old = previous and previous["statement_sha256"]
+            # Release only a fully authenticated rejected entry. Everything else is reserve's
+            # answer, exactly as before this path existed: return, promote, or refuse.
+            authenticated = bool(
+                previous and previous["status"] != "released" and old is not None and old != statement_sha256 and
+                old in rejected and previous["cipher_sha256"] != cipher and  # same bytes under a new digest: stale
+                (previous["status"] in ("screening", "building") if previous["complete"] else
+                 bound and previous["status"] == "completed"))
+            if authenticated:
+                try:
+                    self.transition(case, previous["reservation"], "released",
+                                    expect=(previous["status"], old, previous["cipher_sha256"]))
+                except ValueError as error:
+                    if attempt or "stale reservation" not in str(error): raise
+                    continue
+            return self.reserve(case, statement_sha256, data, historical=historical)
 
     def search_receipt(self, case, metadata, ciphertext):
         """Keep opaque worker evidence; the worker validates its verdict and expiry."""
@@ -174,7 +199,8 @@ class Registry:
             atomic_json(destination / "selection-board.json", board)
             return board
 
-    def transition(self, case, reservation, status):
+    def transition(self, case, reservation, status, *, expect=None):
+        """expect=(status, statement_sha256, cipher_sha256) fences a decision made outside the lock."""
         if status not in {"building", "completed", "known_public", "released"}:
             raise ValueError("invalid registry status")
         identifier(case)
@@ -183,7 +209,8 @@ class Registry:
             path = self.root / "registry.json"
             state = json.loads(path.read_text())
             entry = state["entries"][case]
-            if entry["reservation"] != reservation or entry["status"] == "released":
+            if (entry["reservation"] != reservation or entry["status"] == "released" or expect is not None and
+                    expect != (entry["status"], entry["statement_sha256"], entry["cipher_sha256"])):
                 raise ValueError("stale reservation")
             entry["status"] = status
             state["revision"] += 1
