@@ -165,16 +165,20 @@ class PromotionTests(unittest.TestCase):
                 shutil.rmtree(self.tmp / "reg"); shutil.copytree(SEALED / "statement-registry", self.tmp / "reg")
                 self.r = registry.Registry(self.tmp / "reg")
                 self.wave(first + "1", "case-pa", c1, d1, [], y_candidate=first == "reserved")
-                with self.assertRaisesRegex(ValueError, "different content"):
-                    self.wave(first + "2", "case-pz", c1, d2, [d1])
+                before = self.entry()
+                # diff-8 F1: other waves with the stale bytes get base's answer (keep d1/c1, bind nothing), not a failure.
+                for i, card in enumerate((None, {"statement_sha256": d2},  # bound-to-c1 card, legacy card, legacy rejecting d1
+                                          {"statement_sha256": d2, "rejected_candidates": [{"statement_sha256": d1}]},
+                                          bound)):  # card binds c2, bytes are c1: not authenticated
+                    out = self.wave(f"{first}2{i}", "case-pz", c1, d2, [d1], card=card)
+                    self.assertEqual((out["case-pz"] / "case-py.statement.age").read_bytes(), c1.read_bytes())
+                    self.assertEqual(self.entry(), before)
                 with self.assertRaisesRegex(ValueError, "different content"):  # Y's own handoff with the same stale bytes
-                    self.r.replace_rejected("case-py", d2, c1, [d1])
-                self.assertEqual((self.entry()["statement_sha256"], self.entry()["status"] != "released"), (d1, True))
-                with self.assertRaisesRegex(ValueError, "different content"):  # card binds c2, bytes are c1: not authenticated
-                    self.wave(first + "3", "case-pz", c1, d2, [d1], card=bound)
-                self.assertEqual(self.entry()["statement_sha256"], d1)
-                out = self.wave(first + "4", "case-pz", c2, d2, [d1], card=bound)  # the consistent card still succeeds
-                self.assertEqual((out["case-pz"] / "case-py.statement.age").read_bytes(), c2.read_bytes())
+                    self.r.replace_rejected("case-py", d2, c1, [d1], bound=True)
+                self.assertEqual(self.entry(), before)
+                # the consistent card still succeeds (fresh candidate: case-pz's snapshot is fixed above)
+                out = self.wave(first + "4", "case-pb", c2, d2, [d1], card=bound)
+                self.assertEqual((out["case-pb"] / "case-py.statement.age").read_bytes(), c2.read_bytes())
                 self.assertEqual(self.entry()["cipher_sha256"], sha(c2))
 
     def test_history_release_needs_card_bound_to_collected_bytes(self):

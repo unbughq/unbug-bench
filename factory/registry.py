@@ -115,15 +115,14 @@ class Registry:
             state = json.loads((self.root / "registry.json").read_text()) if (self.root / "registry.json").exists() else {"entries": {}}
             previous = state["entries"].get(case)
             old = previous and previous["statement_sha256"]
-            # A historical-only entry with an unknown digest falls through to reserve (promotion or refusal).
-            if (previous and previous["status"] != "released" and old != statement_sha256 and
-                    (previous["complete"] or old is not None)):
-                if (old is None or old not in rejected or
-                        (previous["complete"] and previous["status"] not in ("screening", "building")) or
-                        (not previous["complete"] and (not bound or previous["status"] != "completed"))):
-                    raise ValueError("case already reserved with different content")
-                if previous["cipher_sha256"] == cipher:  # the rejected bytes under a new digest: stale ciphertext
-                    raise ValueError("case already reserved with different content")
+            # Release only a fully authenticated rejected entry. Everything else is reserve's
+            # answer, exactly as before this path existed: return, promote, or refuse.
+            authenticated = bool(
+                previous and previous["status"] != "released" and old is not None and old != statement_sha256 and
+                old in rejected and previous["cipher_sha256"] != cipher and  # same bytes under a new digest: stale
+                (previous["status"] in ("screening", "building") if previous["complete"] else
+                 bound and previous["status"] == "completed"))
+            if authenticated:
                 try:
                     self.transition(case, previous["reservation"], "released",
                                     expect=(previous["status"], old, previous["cipher_sha256"]))

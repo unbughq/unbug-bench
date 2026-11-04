@@ -130,3 +130,19 @@ was: a candidate from the reserved state with a legacy own card. Closing it woul
 behaviour and needs its own decision. More of the known gap: if `reserve` fails after a
 release (a resurrected old digest, a corrupted object), the case stays released until it is
 retried. Only content its own card named rejected has left screening, so this is safe.
+
+**Review follow-ups (diff-8): the final rule.** `replace_rejected` releases only when one
+predicate, `authenticated`, holds:
+- the previous digest is known, differs from the offered one, and is listed in the caller's own
+  card's `rejected_candidates`;
+- the stored ciphertext differs from the offered bytes;
+- a complete entry is in screening or building, and a historical-only entry is `completed`
+  and `bound`.
+
+When it holds, the release is fenced. Every input then goes to `reserve`, which gives base's
+answer: return, promote, or refuse. `replace_rejected` never refuses on its own. This
+supersedes the earlier follow-ups wherever they describe a refusal inside `replace_rejected`.
+A history import whose bytes are stale (a new card beside the old c1) therefore leaves the
+entry unchanged and does not fail the wave, exactly as on base. Correction to diff-6: if a
+stale wave resurrects an old digest in a released slot, the next authenticated import
+releases it again. It does not refuse.
