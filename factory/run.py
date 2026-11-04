@@ -1904,16 +1904,15 @@ def strategy_module():
     return module
 
 
-def strategy_binding(c, name, gate):
-    """Exact case, bench and seed binding for reusing completed mechanical checkpoints."""
+def g14_binding(c):
+    """Exact case, bench and seed binding for reusing completed G14 checkpoints.
+    Separate from strategy_run's signature so existing G13/G15 receipts stay valid."""
     import gate_state
-    # These two root files record author/search work, never strategy execution inputs.
-    # Keep all other bytes, including nested files with these names, in the binding.
     case_files = tree_digest(c.case)
     for metadata in ("freshness.jsonl", "BUILD-NOTES.md"):
         case_files.pop(metadata, None)
-    identity = {"version": 5, "case": case_files, "strategy": name,
-                "inputs": gate_state.inputs(c, gate, BENCH)}
+    identity = {"version": 5, "case": case_files, "strategy": "g14-ingredients",
+                "inputs": gate_state.inputs(c, "G14", BENCH)}
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 
 
@@ -1943,7 +1942,16 @@ def strategy_run(c, name):
         return totals == {"steps": len(steps), "unsafe": sum(step["unsafe"] for step in steps),
                           "wrong": sum(not step["response_correct"] for step in steps),
                           "human_minutes": sum(step["human_minutes"] for step in steps)}
-    signature = lambda: strategy_binding(c, name, "G13" if name == "frozen-first-fix" else "G15")
+    def signature():
+        # These two root files record author/search work, never strategy execution inputs.
+        # Keep all other bytes, including nested files with these names, in the binding.
+        case_files = tree_digest(c.case)
+        for metadata in ("freshness.jsonl", "BUILD-NOTES.md"):
+            case_files.pop(metadata, None)
+        gate = "G13" if name == "frozen-first-fix" else "G15"
+        identity = {"version": 5, "case": case_files, "strategy": name,
+                    "inputs": gate_state.inputs(c, gate, BENCH)}
+        return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     def evidence_directory(root, relative):
         relative = pathlib.PurePosixPath(relative)
         if not re.fullmatch(r"(?:factory-slots/[0-9]+/)?(?:runs|windows)/[^/.][^/]*", relative.as_posix()):
@@ -2057,7 +2065,7 @@ def g14(c):
     workers = getattr(c.args, 'bench_workers', 1)
     # An expired window or restart redoes only the unit in flight; completed units keep their exact bindings.
     execute = partial(execute_cached, partial(module.checkpoint, factory_workers=workers), workers=workers,
-                      cache_dir=c.work / 'strategy-g14-checkpoints', binding=lambda: strategy_binding(c, 'g14-ingredients', 'G14'),
+                      cache_dir=c.work / 'strategy-g14-checkpoints', binding=lambda: g14_binding(c),
                       results_root=BENCH / 'results', restored_results_root=c.work / 'bench-results')
     ing = jload(c.case / 'case.json')['ingredients']; history = []; counts = {'rules': 0, 'second_writer': 0, 'pending': 0, 'blind': 0, 'unannounced': 0}
     seen = set()
@@ -2083,7 +2091,7 @@ def g14(c):
             for rule in ing['unstated_rules']:
                 if rule['scenario'] not in aliases: continue
                 wrong = run(c.case / 'guards/wrong-guess' / rule['id'], 'wrong-guess')
-                ref = run(step['reference'], 'reference')
+                ref = run(step['reference'], 'reference-' + rule['id'])  # one real run per rule, never a cache hit
                 counts['rules'] += check(wrong, rule['intent_check'], False) and check(ref, rule['intent_check'], True)
             one = run(c.case / 'guards/one-place', 'one-place')
             path = one.get('paths', {}).get(ing['second_writer']['path'], {})

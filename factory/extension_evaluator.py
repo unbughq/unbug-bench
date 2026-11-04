@@ -584,12 +584,13 @@ class Evaluator:
         self.phase_for(w)
         data = self.records.load(stage)
         if data is None:
-            outcome = gate_attempt.execute(lambda: self.invoke(stage),
-                publish=lambda state, *args: self.r.public_progress(self.c, 'comparison:' + stage, state),
-                record_crash=lambda error: self.crash(stage, error), interruption=BudgetError,
-                attempts=2, journal=self.context.work / 'infra-attempts.json',
-                identity=dict(operation='comparison-stage', comparison=self.identity,
-                              phase=self.phase, gate=stage, versions=self.versions))
+            with self.r._gate_pipeline().window(self.c, stage):  # the forked child inherits it
+                outcome = gate_attempt.execute(lambda: self.invoke(stage),
+                    publish=lambda state, *args: self.r.public_progress(self.c, 'comparison:' + stage, state),
+                    record_crash=lambda error: self.crash(stage, error), interruption=BudgetError,
+                    attempts=2, journal=self.context.work / 'infra-attempts.json',
+                    identity=dict(operation='comparison-stage', comparison=self.identity,
+                                  phase=self.phase, gate=stage, versions=self.versions))
             if outcome.crashed: self.exhausted(stage)
             data = self.records.load(stage)
         if data is None: raise InvalidInfra('missing comparison result')

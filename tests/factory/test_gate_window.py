@@ -34,22 +34,27 @@ class GateWindowTests(unittest.TestCase):
         self.clock = Clock()
         patcher = patch.object(processes, 'time', self.clock); patcher.start(); self.addCleanup(patcher.stop)
 
-    def run_gate(self, gate, units, unit_hours=1):
+    def work(self, units, unit_hours=1):
+        for unit in range(units):  # nested serial scenario/guard checkpoints
+            processes.run([sys.executable, '-c', 'pass'])  # the real helper enforces the window
+            self.started.append(unit)
+            self.clock.now += unit_hours * HOUR  # mechanical work consumed by this unit
+        return True, {'units': units}
+
+    def make_context(self, gate):
+        self.started = []
         c = types.SimpleNamespace(args=run.argument_parser().parse_args(worker_args()), work=self.home,
                                   case=self.home / 'case', card=LOAD('scorecard.json'), audit_gates=[gate])
         c.case.mkdir(exist_ok=True)
         c.args.agent_timeout = 4 * HOUR
         c.card['gates'] = {}
         c.case_id = c.card['case']
-        started = []
-        def evaluate(ctx, name):
-            for unit in range(units):  # nested serial scenario/guard checkpoints
-                processes.run([sys.executable, '-c', 'pass'])  # the real helper enforces the window
-                started.append(unit)
-                self.clock.now += unit_hours * HOUR  # mechanical work consumed by this unit
-            return True, {'units': units}
+        return c, self.started
+
+    def run_gate(self, gate, units):
+        c, started = self.make_context(gate)
         pipeline = run._gate_pipeline()
-        pipeline.evaluate = evaluate
+        pipeline.evaluate = lambda ctx, name: self.work(units)
         pipeline.budget_boundary = lambda c: None
         pipeline.after_gate = Mock()
         pipeline.publish = lambda *a: None
@@ -66,6 +71,19 @@ class GateWindowTests(unittest.TestCase):
                 self.assertEqual(c.card['gates'][gate], 'invalid-infra')
                 self.assertNotIn('failed_gate', c.card)
                 (self.home / 'infra-attempts.json').unlink(missing_ok=True)
+
+    def test_early_g15_retry_shares_the_one_window(self):
+        c, started = self.make_context('G15')
+        def evaluate(ctx, name): return self.work(10)
+        pipeline = run._gate_pipeline()
+        pipeline.evaluate = evaluate
+        pipeline.publish = lambda *a: None
+        pipeline.early_gates = ()
+        (c.case / 'answer-key.json').write_text('{}')
+        with self.assertRaises(Exception) as caught:
+            pipeline.early_checks(c)
+        self.assertEqual(type(caught.exception).__name__, 'InfrastructureExhausted')
+        self.assertEqual(len(self.started), 4)
 
     def test_work_inside_the_window_passes_normally(self):
         c, started = self.run_gate('G14', units=3)
@@ -97,14 +115,13 @@ class G14ResumeTests(unittest.TestCase):
         module.silent_checkpoint = lambda *a, **k: self.fail('unannounced live window is never cached or reached here')
         with patch.object(processes, 'time', clock), patch.object(run, 'BENCH', root), \
                 patch.object(run, 'strategy_module', lambda: module):
-            pipeline = run._gate_pipeline()
             for window in range(2):
                 with self.assertRaises(__import__('subprocess').TimeoutExpired):
                     with processes.deadline(4 * HOUR):  # each window is the real gate allowance
                         run.g14(c)
                 self.assertEqual(len(executed), 4 * (window + 1))
         self.assertEqual(len(set(executed)), len(executed), 'a completed unit was redone')
-        # A third window against unchanged inputs still reuses all eight and finishes the rest.
+        # A third window against unchanged inputs reuses all eight and spends itself on new units.
         with patch.object(processes, 'time', clock), patch.object(run, 'BENCH', root), \
                 patch.object(run, 'strategy_module', lambda: module):
             before = len(executed)

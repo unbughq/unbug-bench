@@ -24,11 +24,20 @@ retry or restart redoes every completed scenario/guard unit.
    shrink), so direct callers are unchanged. A retry inside an expired window
    fails at once at the first child spawn and spends the existing
    infrastructure allowance; it buys no new time.
-2. G14 `run()` goes through `execute_cached` with the same exact binding as
-   G13/G15 (`strategy_binding`, extracted from `strategy_run` with a
-   byte-identical identity so existing receipts stay valid). Cache key still
-   covers scenarios, guard, report, runs, seed, label, workers and the bench.
-   Live silent windows are never cached (unchanged).
+2. G14 `run()` goes through `execute_cached` with its own exact binding
+   (`g14_binding`: case tree, `gate_state.inputs(c, "G14")`, seed). `strategy_run`
+   is untouched, so G13/G15 gate fingerprints and receipts are byte-identical to
+   baseline dd81ff8 (checked with `gate_state.source_inputs`); only G14's
+   fingerprint changes. Cache key covers scenarios, guard, report, runs, seed,
+   label, workers and the bench. Per-rule `reference` runs get the rule id in
+   their label so two rules on one step stay two real runs. Live silent windows
+   are never cached (unchanged). G14 caches announced units even when the case
+   has unannounced steps (`simulate` refuses that for strategies); it is safe
+   because `bin/checkpoint` is a standalone call with a fixed report and
+   explicit history.
+3. `extension_evaluator` runs G13/G14/G15 in a forked comparison child, outside
+   `GatePipeline.check`. Its `gate_attempt.execute` is wrapped in the same
+   `window()`; the fork inherits the context deadline.
 
 Expiry stays `infrastructure_exhausted` / `invalid-infra`: never a gate pass,
 fail, or writer feedback. Run counts, guards, seeds, and allowances are
@@ -36,15 +45,21 @@ unchanged. Extension re-runs call `run_gates` again and get their own window.
 
 ## Deletes
 
-The per-attempt window inside the retry loop (moved outward).
+Nothing; the per-attempt window moves outward. `check` keeps its own, now always
+dominated, for direct `checked_gate` callers.
+
+## Cost
+
+G14's gate fingerprint changes, so any cached G14 pass re-runs once on rollout.
 
 ## Tests
 
 `tests/factory/test_gate_window.py`: (a) retry shares one window for G13, G14
-and G15 (baseline: 8 units, now 4); in-window work passes; (b) real retained
-`cases/medusa-oversell-v2` step order through real `run.g14`, real
-`execute_cached` and real `processes.run`; only `bin/checkpoint` (docker bench)
-is replaced. Three expired windows never redo a completed unit (baseline
+and G15, and for early G15 (baseline: 8 units, now 4); in-window work passes;
+(b) real retained `cases/medusa-oversell-v2` step order through real `run.g14`,
+real `execute_cached` and real `processes.run`; the `bin/strategy checkpoint`
+wrapper (docker bench, `read_completed`) is replaced by a fake that writes
+synthetic summaries, so G14's verdict logic is not exercised on cached data. Three expired windows never redo a completed unit (baseline
 redoes them). `tests/bench/test_strategy.py` gains the `work` dir real cards
 always have.
 
@@ -57,6 +72,18 @@ checkpoint boundary.
 
 ## Limits
 
+- Not closed: no live bench run, and G13/G15 checkpoint reuse is off on every v2
+  case (`simulate` disables it when any step is `unannounced`; unchanged here).
+- Expiry spends the two-attempt infrastructure allowance, and that allowance
+  persists in `infra-attempts.json` (no reset on retry, as required). A resume
+  of the same unchanged execution after expiry is therefore exhausted before it
+  starts; the G14 cache pays off after a worker crash (one stale `running`
+  attempt) or after a code/identity change. A honest workload longer than
+  `agent_timeout` cannot finish without such a change; it stops as
+  infrastructure, never as a case result.
+- The deadline bites at child spawns and child timeouts; in-process work (silent
+  window sleeps, tree hashing) runs on until the next spawn.
+- The extension comparison window is wrapped but has no dedicated test.
 - The window is still `agent_timeout`; the two retries share it, they do not
   shrink it.
 - The unit in flight when the window ends is lost (a child is killed).
