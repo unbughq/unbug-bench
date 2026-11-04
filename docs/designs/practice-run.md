@@ -73,7 +73,8 @@ completion, stopped usage/recheck, exact collection/ciphertext/publication,
 completed exact-worker deletion and settlement. `paused` during a mechanical
 gate is compatible with smoke science criteria but cannot excuse missing
 lifecycle proof. No automatic retry, practice worker or fleet is authorized.
-Do not reserve or dispatch the dormant practice job without a later go-ahead.
+Do not reserve or dispatch the dormant practice job without a later go-ahead;
+once -4 is opted in, nothing in code enforces this ordering.
 Factory Claude routes remain unchanged; implementation cloud credits do not
 fund local model calls from a Boat worker. The prior top-up/account/RAM-only
 credential decisions remain attributed to their original dates and grant no

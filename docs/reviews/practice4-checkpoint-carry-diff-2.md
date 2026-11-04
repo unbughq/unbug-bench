@@ -83,4 +83,27 @@ The design's checklist is fully implemented, with no open design decision left t
 
 ## Elephant response
 
-_Pending. The elephant records here what was fixed and what was left, and why._
+There was no blocking finding, and no nit is rejected. The fixes are in the commit after 229ba00. No production code, fixture byte or EXPECTED was changed.
+
+1. **NIT: fixed.**
+   - The test is renamed to `test_whole_batch_refuses_without_current_opt_in`. Its comment now says the gate is batch-wide, and that once -4 is opted in for smoke, practice dormancy and smoke-before-practice are procedural only.
+   - The same wording was added to the design's test list and to the runbook line in `docs/designs/practice-run.md`.
+2. **NIT: fixed in the design.** `provenance.json` is left byte-identical, so all 16 files in the fixture directory keep their recorded hashes, including the 15 listed in `provenance.json`.
+   - `docs/designs/practice4-checkpoint-carry.md` (Tests section) now says which three `*-public.json` files are JSON projections, and of which keys.
+   - It gives the Murphy-recorded evidence location, `results/infrastructure/2026-11-04-plumbing-practice3/`, noting that it is not in the repo tree.
+   - It says the non-derivation journal parts are bound by no pin.
+   - The wrong reason in the diff-1 response 3 is now corrected in place, with a note.
+3. **NIT: fixed.**
+   - `RetirementTests.setUp` now patches `datetime` in `batch_holder`, `practice` and `job_authority` with an AUTHORED `Clock` set to 2026-11-03T12:00Z. This is the same pattern `test_startup_smoke` uses.
+   - Negative control, run ad hoc and not committed: with `Clock` moved to 2026-11-08, setUp fails with `MoneyWait: cleanup window unavailable`, so the patched clock is the admission gate.
+   - The remaining real-time uses in `boat_lifecycle` are relative to the test's own `started` and markers, not to the batch deadline.
+4. **NIT: fixed.** `new-smoke-1` now reads "…run before practice; lifecycle proof failed (`new-boat-stop-capture-1`); its prepared continuation is the imported smoke in `b-plumbing-practice-4` (…, inactive)". The row stays open, and no row number was added.
+5. **NIT: no change.** As the reviewer accepted, `factory/practice.py` stays untouched.
+
+Focused tests after these fixes, on Linux with Docker smoke unset:
+- `test_practice4_carry`: 4 OK
+- `test_boat_retirement`: 21 OK
+- `test_practice_readiness`: 15 OK
+- `test_startup_smoke`: 7 OK, 1 skip (Docker qualification)
+
+The full suite result for the final head is recorded in PR #1.

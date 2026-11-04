@@ -131,8 +131,9 @@ class PracticeCarryTests(unittest.TestCase):
         changed = deepcopy(current); changed['money_limit_usd'] = '20.000000000'
         self.assertFalse(practice.matches(changed))
 
-    def test_practice_stays_dormant_without_current_opt_in(self):
-        # Smoke-before-practice is procedural (runbook + separate go-ahead), not code-enforced.
+    def test_whole_batch_refuses_without_current_opt_in(self):
+        # The opt-in gate is batch-wide. Once -4 is opted in for the smoke continuation,
+        # practice dormancy and smoke-before-practice are procedural only (runbook + go-ahead).
         for value in (None, self.old['id']):
             with self.subTest(opt_in=value):
                 env = {k: v for k, v in os.environ.items() if k != 'UNBUG_PRACTICE_BATCH'}

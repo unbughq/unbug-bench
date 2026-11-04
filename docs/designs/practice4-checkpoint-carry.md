@@ -61,8 +61,18 @@ bindings, matching snapshot acceptance, altered snapshot/release/generation
 refusal, original caps, old-batch opt-in refusal (including a stale -3
 unit/drop-in), and dormant practice. Smoke-before-practice is procedural, not
 code-enforced: the runbook orders the smoke continuation first and practice needs
-a separate later go-ahead. The test asserts only that practice cannot be reserved
-without the -4 opt-in (diff review 1, finding 1, option b).
+a separate later go-ahead. The test asserts only that no job of the batch can be
+reserved without the -4 opt-in (diff review 1, finding 1, option b); once -4 is
+opted in for the smoke continuation, practice dormancy is procedural only.
+
+Fixture provenance note: `provenance.json` says "adaptations: None" for the
+retained bytes, which are unchanged. Three of them are JSON projections that
+combine original files, not byte copies of single files: `source-public.json` =
+{snapshot, public_policy, manifest_json}; `collection-public.json` = {journal,
+generation_manifest}; `publication-public.json` = {current, outbox}. The retained
+public evidence location recorded in the Murphy register is
+`results/infrastructure/2026-11-04-plumbing-practice3/` (not in the repo tree).
+The non-derivation parts of `collection-public.json`'s journal are bound by no pin.
 Use existing transfer and readiness tests; do not invent a new state machine.
 Run focused checks, fresh final diff review, then one final full offline suite.
 
