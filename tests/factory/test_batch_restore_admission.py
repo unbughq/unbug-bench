@@ -17,6 +17,22 @@ from statement_round import prepare_restore
 from registry import Registry
 
 
+def launch_boundary(root, source, case, archive, frozen, state):
+    script = (ROOT / 'factory/launch.sh').read_text()
+    freeze_start = script.index('  # A public card may postdate its embedded copy')
+    freeze = script[freeze_start:script.index('  purpose=', freeze_start)]
+    start = script.index('admission_snapshot=""')
+    block = script[start:script.index('\nif [ -n "$reuse_worker" ]; then', start)]
+    env = {**os.environ, 'root': str(root), 'admission_root': str(root), 'source_dir': str(source),
+           'restore': case, 'ckpt': str(archive), 'card': str(frozen), 'state': str(state),
+           'UNBUG_LAUNCH_STATE': str(state), 'here': str(ROOT / 'factory'),
+           'secrets': 'statements-key', 'args': '--dry-run', 'audit_g11': 'no', 'sealed_audit': ''}
+    result = subprocess.run(['/bin/sh', '-c', 'set -eu\n' + freeze + block +
+                             '\nguard_new() { touch "$state/creation-boundary"; }; guard_new\n'],
+                            env=env, capture_output=True, text=True)
+    return result, (state / 'creation-boundary').exists()
+
+
 class BatchRestoreAdmissionTests(unittest.TestCase):
     def run_boundary(self, change=None):
         with tempfile.TemporaryDirectory() as tmp:
@@ -33,17 +49,7 @@ class BatchRestoreAdmissionTests(unittest.TestCase):
             elif change == 'global-card-conflict': (root / 'sealed' / card.name).write_text('{"terminal_stop":"statement-ready"}')
             elif change == 'frozen-card-symlink': frozen.unlink(); frozen.symlink_to(card)
             elif change == 'missing-frozen-card': frozen.unlink()
-            script = (ROOT / 'factory/launch.sh').read_text()
-            start = script.index('admission_snapshot=""')
-            block = script[start:script.index('\nif [ -n "$reuse_worker" ]; then', start)]
-            env = {**os.environ, 'root': str(root), 'admission_root': str(root), 'source_dir': str(source),
-                   'restore': CASE, 'ckpt': str(archive), 'card': str(frozen), 'state': str(state),
-                   'here': str(ROOT / 'factory'), 'secrets': '', 'args': '--dry-run',
-                   'audit_g11': 'no', 'sealed_audit': ''}
-            result = subprocess.run(['/bin/sh', '-c', 'set -eu\n' + block +
-                                     '\nguard_new() { touch "$state/creation-boundary"; }; guard_new\n'],
-                                    env=env, capture_output=True, text=True)
-            return result, (state / 'creation-boundary').exists()
+            return launch_boundary(root, source, CASE, archive, frozen, state)
 
     def test_real_batch_restore_without_global_card_reaches_creation_boundary(self):
         result, created = self.run_boundary()
@@ -96,6 +102,16 @@ class CandidateContextTests(unittest.TestCase):
             self.assertEqual((one / 'admission.json').read_bytes(), (two / 'admission.json').read_bytes())
             self.assertTrue((root / 'sealed/statement-registry/registry.json').is_file())
             self.assertFalse((source / 'statement-registry').exists())
+
+    def test_candidate_launcher_keeps_selected_archive_after_freezing_transfer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, source, case, archive, mutable, frozen, card = self.selected(tmp)
+            state = Path(tmp) / 'launch'; state.mkdir()
+            result, reached = launch_boundary(root, source, case, archive, frozen, state)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(reached)
+            self.assertEqual(hashlib.sha256((state / 'restore-input.tar.gz.age').read_bytes()).hexdigest(), card['sha256'])
+            self.assertTrue((state / 'admission' / case / 'case-previous.statement.age').is_file())
 
     def test_changed_source_card_cannot_authorize_rejection(self):
         with tempfile.TemporaryDirectory() as tmp:

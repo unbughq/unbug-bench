@@ -17,6 +17,10 @@ practice4-launch-failure.json and practice4-failed-before-worker-terminal.json.
 
 Extend `prepare_restore` with optional keyword arguments `source_sealed` and
 `card_path`. Defaults retain the legacy `root/sealed/CASE.scorecard.json` lookup.
+Before freezing the transfer archive, the launcher preserves its selected
+archive path as `admission_archive`; admission validates that source membership,
+while worker transfer continues using the frozen copy. Test this exact sequence
+for waiting candidates, not just direct helper calls.
 The launcher passes its authenticated immutable batch `source_dir` as
 `source_sealed`, its already-frozen `restore-input-scorecard.json` as `card_path`,
 and `admission_root` as the history root. Pass the parsed frozen card into
