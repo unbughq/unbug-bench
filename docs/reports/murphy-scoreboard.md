@@ -1,5 +1,7 @@
 # Factory readiness scoreboard
 
+Latest delivery audit (2026-11-04): [24-case status and finite queue](24-case-delivery-status.md). The snapshot below remains historical; no row closes from that audit.
+
 Snapshot: 2026-11-03T22:55:49.095607+00:00. Integrated source baseline: `a0ae006ee327c8f9f6b0616b840238f7723bce0d`.
 
 ## Decision

@@ -1,0 +1,17 @@
+{
+  "observed_utc": "2026-11-04T14:54:49.349561+00:00",
+  "scope": "Documentation and retained public metadata only",
+  "checks": [
+    "51 local / 54 VM card counts",
+    "51 shared card byte digests identical",
+    "same three historical G1-G15 all-pass candidates",
+    "copied snapshots and retained repair-source SHA256 matches",
+    "recovery/quarantine counts",
+    "relative document links",
+    "git diff --check"
+  ],
+  "result": "passed",
+  "runtime_code_changed": false,
+  "runtime_tests_run": false,
+  "reason": "No runtime or executable manifest changes"
+}

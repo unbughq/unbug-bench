@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "prepared_utc": "2026-11-04T14:51:13.608954+00:00",
+  "source_base": "fbca505894bda2b5ac6042994ed46a507e678925",
+  "target": 24,
+  "verified_current_acceptances_in_audited_evidence": 0,
+  "local_canonical_cards": 51,
+  "control_vm_canonical_cards": 54,
+  "historical_all_g1_g15_pass_candidates": 3,
+  "recovery_candidates_pending_full_qualification": [
+    "case-20261017T120256Z-86b100",
+    "case-20261017T125556Z-18681d"
+  ],
+  "quarantined": [
+    "case-20261017T114426Z-fcde6b"
+  ],
+  "fresh_cases_required_if_both_recover": 22,
+  "fresh_cases_required_if_neither_recovers": 24,
+  "sources": [
+    {
+      "source": "results/infrastructure/2026-11-04-plumbing-practice3/24-case-inventory-first-pass.json",
+      "retained_copy": "local-scorecards.json",
+      "sha256": "3590bc9a4b51a062e7952574bdefe9f2710b6cef669199b1f032ef44655a2108"
+    },
+    {
+      "source": "results/infrastructure/2026-11-04-plumbing-practice3/24-case-control-vm-inventory.json",
+      "retained_copy": "control-vm-scorecards.json",
+      "sha256": "0e1771b8fd740db5a22f6e1f1a4ee32ca34e7a8f8261701e5e62f41cd30ca86b"
+    },
+    {
+      "source": "results/infrastructure/2026-10-22-case-repairs/STATUS.md",
+      "sha256": "60634005aff7a5fd69d4301963fcd2555ba05874055d2a31d88b0a70776388fe",
+      "retained_copy": null
+    },
+    {
+      "source": "results/infrastructure/2026-10-22-case-repairs/case-copy-status.json",
+      "sha256": "355beeee1953d393e84a5567cdd8a5b5de6fccf875fe1c2c7bbd0135db417af6",
+      "retained_copy": null
+    },
+    {
+      "source": "results/infrastructure/2026-10-22-case-repairs/stock-r5-assessment.json",
+      "sha256": "a4bff931e6aadc9d3f150af6dfaca54003eb99eba4c64ed666685ba1c781cc59",
+      "retained_copy": null
+    }
+  ],
+  "limitations": [
+    "Canonical local and control-VM metadata only; not an exhaustive R2/isolated-evidence inventory.",
+    "Historical all-pass cards do not establish current gate qualification.",
+    "Repair status is the latest matching public repair record found, dated October 22; no new case-content qualification performed.",
+    "Counts are not permission to launch or spend."
+  ],
+  "shared_local_vm_card_count": 51,
+  "shared_card_byte_hash_mismatches": 0,
+  "control_vm_only_cases": [
+    "case-20261023T223056Z-c7d405",
+    "case-20261024T043353Z-e15450",
+    "case-20261024T085209Z-873d7f"
+  ]
+}

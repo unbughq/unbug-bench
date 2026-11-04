@@ -85,6 +85,8 @@ claims separate. Factory Boat model calls do not inherit cloud-session credits.
 
 ## Finite delivery checklist
 
+Current bounded inventory and root-owned preparation: [24-case status](reports/24-case-delivery-status.md) and [inactive completion-pilot proposal](designs/completion-pilot.md). The current diagnosis pilot cannot run this proposal through configuration alone.
+
 - [x] Publish the source and work branches to a private GitHub repository.
 - [ ] Connect Claude's GitHub App to this repository; verify cloud credit use in UI.
 - [ ] Retrieve and consolidate the existing two cloud jobs against their source bases.

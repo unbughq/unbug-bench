@@ -1,0 +1,437 @@
+{
+  "observed_utc": "2026-11-04T14:28:12.888144+00:00",
+  "scope": "Canonical retained local public scorecards only; independent GitHub clone omits ignored ciphertext archives. No decryption or new runs.",
+  "canonical_card_count": 51,
+  "categories": {
+    "practice": 1,
+    "stopped_or_incomplete": 34,
+    "failed_gate": 13,
+    "historical_all_15_passed": 3
+  },
+  "verified_current_exam_ready_count": 0,
+  "target": 24,
+  "historical_candidate_count": 3,
+  "note": "Zero verified current acceptances is not evidence that historical cases are irreparable or archives are absent remotely. This is a first metadata inventory, not final content qualification.",
+  "cases": [
+    {
+      "case": "case-20261014T130816Z-a869de",
+      "category": "practice",
+      "failed_gate": null,
+      "public_card_sha256": "d259e81932908f91fa29dc66de766b591e9bb50dc618b94bf6d5eaf1056ec39d",
+      "historical_gate_count": 8,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261014T205027Z-6d8046",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "d8b1e6601ef8f9a7979d22f209ef120068d9737c293933848c70831d55dc6fa8",
+      "historical_gate_count": 1,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261015T122810Z-aeefd5",
+      "category": "failed_gate",
+      "failed_gate": "G1",
+      "public_card_sha256": "f66ccccb084d15e9bcd5caa6934b64b1a483ec6f1c27697f71c670c656ca2368",
+      "historical_gate_count": 1,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261017T114415Z-11a9f1",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "817293ee937437b1288b99053ae41713bde5450cb535176d94829062dcfe4b6a",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261017T114422Z-0f3b37",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "0e914794261947fe1f00e6aaa3d95800c7c426db16903092c3ec98e3d5f17259",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261017T114423Z-d4a7b8",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "67713dbe70c59da24c5f381b5bfaca7bd8fbef7c548a18d1b6ff5af82d066561",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261017T114426Z-fcde6b",
+      "category": "historical_all_15_passed",
+      "failed_gate": null,
+      "public_card_sha256": "08af8094826a035d85ee71ffbe56d59e112b1c9c0f9c57e0a439083a6352a659",
+      "historical_gate_count": 15,
+      "currently_accepted": false,
+      "local_ciphertext_present": true,
+      "ciphertext_sha_matches_card": true,
+      "archive_filename": "case-20261017T114426Z-fcde6b.tar.gz.age",
+      "acceptance_hold": "Historical pass predates subsequent case/judge repairs and current gate qualification; not counted until revalidated."
+    },
+    {
+      "case": "case-20261017T114431Z-9d2b0e",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "2f756100dcd669f8407459e22741f5db11fe8b62645172022986e479ce4cdde2",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261017T114432Z-000990",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "9a62b3fcca81c8e1169cb71eefa2f9aa85bbab8038fc196264cb1321370b21ca",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261017T120254Z-01eae8",
+      "category": "failed_gate",
+      "failed_gate": "G1",
+      "public_card_sha256": "53fa05c75fe5eef1c40570f141b4d1d1fdbd328eb048de104508f6ed20574999",
+      "historical_gate_count": 1,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261017T120256Z-86b100",
+      "category": "historical_all_15_passed",
+      "failed_gate": null,
+      "public_card_sha256": "0c2842405005078b0c75cac49e419dadd29d87bc4e3aea906b136f655432707b",
+      "historical_gate_count": 15,
+      "currently_accepted": false,
+      "local_ciphertext_present": true,
+      "ciphertext_sha_matches_card": true,
+      "archive_filename": "case-20261017T120256Z-86b100.tar.gz.age",
+      "acceptance_hold": "Historical pass predates subsequent case/judge repairs and current gate qualification; not counted until revalidated."
+    },
+    {
+      "case": "case-20261017T121257Z-195b92",
+      "category": "failed_gate",
+      "failed_gate": "G5",
+      "public_card_sha256": "ca2cf42da58e186447b29ead6f129126c646fce1d41c78df5317dc4e48386db4",
+      "historical_gate_count": 5,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261017T121326Z-832462",
+      "category": "failed_gate",
+      "failed_gate": "G1",
+      "public_card_sha256": "702ee7f48aeee6bcb7ba9dfa98da7895c0d559bd0d0fa9ed5571428550c698f1",
+      "historical_gate_count": 1,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261017T125556Z-18681d",
+      "category": "historical_all_15_passed",
+      "failed_gate": null,
+      "public_card_sha256": "ff13ca7f9cfe3d21419f3cd2e1d1ee8e9c4f58173ab07e5c9ad3b2ba244d4281",
+      "historical_gate_count": 15,
+      "currently_accepted": false,
+      "local_ciphertext_present": true,
+      "ciphertext_sha_matches_card": true,
+      "archive_filename": "case-20261017T125556Z-18681d.tar.gz.age",
+      "acceptance_hold": "Historical pass predates subsequent case/judge repairs and current gate qualification; not counted until revalidated."
+    },
+    {
+      "case": "case-20261017T153943Z-2c8a49",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "9bb7829bb04990b099a794b366ba142e64532155fd6a87abf49b4d01b8c7fc03",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261017T212113Z-5813be",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "8c8f83c0daba6f31a45ef36382fcf9f71689995eb75386d0d8d7443fef2d8c1e",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261017T212115Z-8acb5c",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "211ea7ad1626cbefe3cefaf6e54ba8df6978b187e1f39aebce6742c92f9fb1ca",
+      "historical_gate_count": 5,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261017T212118Z-1ad7fa",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "2912faeeb6b769b8a6aa892010b7b1c1062aee818d1ecb0ad0c3fcbdfee0b34a",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261017T212118Z-ea7425",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "e98ef7b0994812f072635bac6cf9f782dfa2d868a720a799c132e1ee96060d2f",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261018T144333Z-f46dac",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "06f9bd75e360b301c54ee5d9f468a484aa7d7d03a94dc8a415bcf8ffe8ccf7b2",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261018T144339Z-8f9762",
+      "category": "failed_gate",
+      "failed_gate": "G2",
+      "public_card_sha256": "a385be7fc1c47ca10295e3a10d8ad080d372fabe580715a850a3f9a6626f2094",
+      "historical_gate_count": 2,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261018T144339Z-e5caf7",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "0b434695f372e7eeab07cd1252d579f4cd4c95b898c34a143f66978415535d1e",
+      "historical_gate_count": 5,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261018T144343Z-2b6c68",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "31192ad093846e4411294e34b54332f3aa7685d203d00092231de148f556ac85",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T022246Z-a6beee",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "2a5b9c8acb94a3c30d7b99a6c050f0cdd5e3fcf0950a19834849a2a978f97fce",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T022247Z-44c16b",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "2148c1723172a028f9702081bfed8a18f09e46c46a0d21d6f1a510a5a4325070",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T022247Z-e5a2e9",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "5f7ffd1eaa56e8a8fe071a7046da7a0d09e7a81448e9733fcf3e6629b7ad4fcb",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T022248Z-953035",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "8d16a87d1cc1787f56cf904d4061ee14a553bbf957f298fb4ffe1a28ede7f633",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T055203Z-b5521c",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "3cb8333f10f38b05e5f0319f774a672612dccc7be00dbcad01d210d3239b32e4",
+      "historical_gate_count": 5,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T055205Z-14d35a",
+      "category": "failed_gate",
+      "failed_gate": "G15",
+      "public_card_sha256": "403d618956a40bdb4ac617b5c4e0e73042687c8d618fcebd16831e342263ac05",
+      "historical_gate_count": 11,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T055205Z-ce4d82",
+      "category": "failed_gate",
+      "failed_gate": "G2",
+      "public_card_sha256": "1368dc5f716a65f22165e2d2419c0f2d07aecb9c7f088247dac6efc3b1d72169",
+      "historical_gate_count": 2,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T055209Z-7d8a30",
+      "category": "failed_gate",
+      "failed_gate": "G1",
+      "public_card_sha256": "d577f136cd01fb4aa9b6e4c839f118c95af2c3089f457e152a14a73197469b0d",
+      "historical_gate_count": 1,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T061050Z-1bb2ad",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "8f9358bb5174c296bf2918dfc622aa4f9012df8587bed05c21e4eba9d359233b",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T061055Z-798600",
+      "category": "failed_gate",
+      "failed_gate": "G8",
+      "public_card_sha256": "d4b73a50255a68ea8fac8679db8da2fa073ff3e472bfa98f66057b54405b3a02",
+      "historical_gate_count": 6,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T061056Z-e3b57a",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "19cd41bb3d228f86f280160fb6392f7eae39491ec03eccfba3e2eb101c391ef6",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T061109Z-e9d919",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "23508ea4637dde0e575253f4b2527c2bb36c0e843504c76c1a537b45383a1953",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T061116Z-3826d5",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "d4c09c32e89f7dd9bd7431a1cfd88876289d49a7ada96dabd4b55615cf9d1b12",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T061455Z-c4a72b",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "244842c8b0871851bef8a71eee330ef0243649db8acfa97f7e542b7a6b96975e",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T061459Z-cb5e26",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "9170224f8e726672dc4ac4aac77a64352f11f2f94deb127471b2003e1c3a0606",
+      "historical_gate_count": 11,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T061510Z-6a8a7d",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "cd15dd24abc0b8502c044a2a488670509db1fb77aecb4ef1a92a819a34e3930c",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T064341Z-2a7b2a",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "d6dc3f3e6438d93d71cfaa36a14fd3c0b29344e03594a0cb6650d440c5e31ff5",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T064344Z-03be64",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "989c1be7bdc19589485d5ac1a9986543f6b0d2c99d322d6bc0b292e004cfe4dc",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T065843Z-22e434",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "d1dc895ad664ffe8af996a6ddaf17272cb189a04f7e3fce1c6d4b74074c3fd7f",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261019T072318Z-04d417",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "5dfe7982f83b3ba0232f18792ad6b5adca5ce866648f434e5de13ea782b58ad8",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261020T094641Z-5a6ef3",
+      "category": "failed_gate",
+      "failed_gate": "G1",
+      "public_card_sha256": "3a2ceb2aab5452ed5d6e2ddeb7f1ace0db5915e52bf2e4c3b296d886162edc8a",
+      "historical_gate_count": 1,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261020T094644Z-2abb0a",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "fd22c50ed16353ace64b3f55db1119fef220b15d7c192fffadf0f7779426e9cf",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261020T094704Z-a61f54",
+      "category": "failed_gate",
+      "failed_gate": "G2",
+      "public_card_sha256": "4078b0686dcd1a0656653420b1e4ee9403b2522a9c31bd78a9d2f78e0c5b3a78",
+      "historical_gate_count": 2,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261020T094712Z-eadaf2",
+      "category": "failed_gate",
+      "failed_gate": "G2",
+      "public_card_sha256": "c688e295699cfa471088690486a55576397a15ae74df25c88c37e1d4e0956d1c",
+      "historical_gate_count": 2,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261020T094950Z-cae763",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "4fd90e9821644f52e1685c0974b1afaa2a4cc2e0dd2c5d7d3442e353e1bc7550",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261020T094956Z-055481",
+      "category": "failed_gate",
+      "failed_gate": "G8",
+      "public_card_sha256": "69778c60d9ad623c9c3209e18cde1d62b62742789fc154db66c365c88fd79ba8",
+      "historical_gate_count": 6,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261020T095024Z-25fbfa",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "0420d963b5b01b91d0810f0f73eb5ba41df9a6a579d2b3efcd1605896f8bbf9c",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    },
+    {
+      "case": "case-20261020T095039Z-091b3f",
+      "category": "stopped_or_incomplete",
+      "failed_gate": null,
+      "public_card_sha256": "3891132158ff9be906cec92377380cf0c69dd3a858b9928230a3ce2fec7fd2b6",
+      "historical_gate_count": 0,
+      "currently_accepted": false
+    }
+  ]
+}
