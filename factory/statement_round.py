@@ -95,9 +95,21 @@ def prepare(sealed, registry_root, candidates, destination, *, history_sealed=No
     for case in sorted(ciphertexts):
         identifier(case)
         if case not in candidates:
+            data = ciphertexts[case].read_bytes()  # the one read: authenticated below, then stored
             card = history / (case + '.scorecard.json')
-            digest = json.loads(card.read_text()).get('statement_sha256') if card.exists() else None
-            registry.import_historical(case, ciphertexts[case], statement_sha256=digest)
+            card = json.loads(card.read_text()) if card.exists() else {}
+            digest = card.get('statement_sha256')
+            if digest is None:
+                registry.import_historical(case, data)
+                continue
+            rows = card.get('rejected_candidates')
+            # A release needs the card to bind these exact bytes and a well-formed rejected list.
+            # Otherwise nothing is authenticated: reserve returns or refuses exactly as before.
+            bound = card.get('statement_cipher_sha256') == hashlib.sha256(data).hexdigest()
+            rejected = ([row.get('statement_sha256') for row in rows] if bound and isinstance(rows, list) and
+                        len(rows) <= 3 and all(isinstance(row, dict) for row in rows) else [])
+            # a pending candidate may have reselected since the registry last saw it
+            registry.replace_rejected(case, digest, data, rejected, historical=True, bound=bound)
     snapshots = {}
     for case, digest in sorted(candidates.items()):
         card_path = sealed / (case + '.scorecard.json')
@@ -105,7 +117,11 @@ def prepare(sealed, registry_root, candidates, destination, *, history_sealed=No
                 json.loads(card_path.read_text()) if card_path.exists() else {})
         rejected = [row.get('statement_sha256') for row in card.get('rejected_candidates', [])]
         if len(rejected) > 3: raise ValueError('candidate selection bound exceeded')
-        registry.replace_rejected(case, digest, ciphertexts[case], rejected)
+        data = ciphertexts[case].read_bytes()  # the one read: authenticated below, then stored
+        # digest came from the caller's earlier card read; bind only if this card names it too
+        bound = (card.get('statement_sha256') == digest and
+                 card.get('statement_cipher_sha256') == hashlib.sha256(data).hexdigest())
+        registry.replace_rejected(case, digest, data, rejected, bound=bound)
         search = sealed / (case + '.search.age')
         metadata = card.get('public_search')
         if search.is_file() and metadata:
