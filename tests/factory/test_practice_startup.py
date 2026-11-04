@@ -164,6 +164,7 @@ class RealDocker(unittest.TestCase):
                     with (results/'.bench.lock').open('r') as f:
                         with self.assertRaises(BlockingIOError):fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
                     dc('up','--pull','never','--no-build','-d','--wait','postgres')
+                    ready()  # Compose's socket health may pass during the temporary init server.
                     self.assertNotEqual(docker('exec',name,'test','-e','/var/lib/postgresql/data/old-pilot-marker',check=False).returncode,0)
                     sql('CREATE ROLE bench_checker;');sql('CREATE DATABASE medusa_seed;')
                     docker('inspect',sentinel)

@@ -1,0 +1,21 @@
+{
+  "spend_path": "/home/user/unbug-bench/results/spend/20261103T083635Z-242175-factory.json",
+  "spend_sha256": "b682ef2bed391d9ce26056e3225498ce4910ec85edc3d1509b50e335532d28e2",
+  "state_path": "/home/user/.unbug-control/launches/872f258ad1764f73829e33303d35fdf5",
+  "worker_id": "bx_z4wktrbn",
+  "reserved_usd": "0.036",
+  "actual_spend_usd": null,
+  "finished": true,
+  "ttl_seconds": "3600",
+  "unique_creation_and_monitor_binding": true,
+  "exact_retirement_receipts_match": true,
+  "retirement": {
+    "id": "bdop_4b49a239228240fb8af4ab9efd1037da",
+    "targetId": "bx_z4wktrbn",
+    "kind": "sandbox",
+    "status": "completed",
+    "stage": "completed",
+    "completedAt": "2026-11-03T08:39:51.866Z"
+  },
+  "no_record_changed": true
+}

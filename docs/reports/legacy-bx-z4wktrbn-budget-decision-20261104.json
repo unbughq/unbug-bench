@@ -1,0 +1,27 @@
+{
+  "record_type": "founder_budget_decision",
+  "decision_id": "legacy-bx-z4wktrbn-conservative-budget-debit-20261104",
+  "recorded_utc": "2026-11-03T23:51:10.493936+00:00",
+  "approval": "Approve conservative $0.036 budget debit (Recommended)",
+  "scope": "Already-deleted November 3 worker bx_z4wktrbn only",
+  "worker_id": "bx_z4wktrbn",
+  "state_path": "/home/user/.unbug-control/launches/872f258ad1764f73829e33303d35fdf5",
+  "spend_path": "/home/user/unbug-bench/results/spend/20261103T083635Z-242175-factory.json",
+  "spend_sha256": "b682ef2bed391d9ce26056e3225498ce4910ec85edc3d1509b50e335532d28e2",
+  "deletion_operation_id": "bdop_4b49a239228240fb8af4ab9efd1037da",
+  "budget_debit_usd": "0.036",
+  "infrastructure_budget_cap_usd": "5.000",
+  "remaining_budget_after_this_debit_usd": "4.964",
+  "actual_spend_usd": null,
+  "actual_charge_status": "unknown",
+  "treatment": "Permanent conservative infrastructure budget debit; not an exact usage settlement",
+  "authorization_limits": [
+    "No new payment, top-up or increased limit",
+    "Preserve every prior ledger, spend and provider evidence record",
+    "Do not replace actual_spend_usd with the reservation",
+    "Do not generalize this decision to other reservations",
+    "Apply only through reviewed code retaining cumulative budget enforcement"
+  ],
+  "execution_status": "Approval recorded; live ledger not changed by this record",
+  "relationship_to_prior_design": "Explicit owner disposition of this one historical hold; future unknown usage still preserves its entire hold"
+}

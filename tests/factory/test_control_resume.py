@@ -140,7 +140,7 @@ sys.exit(result.returncode)
         p=self.start(phase)
         p.stdin.write('synthetic identity\n'); p.stdin.close(); p.stdin=None
         self.addCleanup(lambda: self.stop(p))
-        deadline=time.monotonic()+10
+        deadline=time.monotonic()+20  # Match run_resume's bounded controller window under suite load.
         while not (self.f.base/'blocked').exists() and p.poll() is None and time.monotonic()<deadline:
             time.sleep(.01)
         if not (self.f.base/'blocked').exists():

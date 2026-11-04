@@ -185,7 +185,7 @@ class PracticeTests(unittest.TestCase):
                 self.assertEqual(result["deadline"], 102700)
                 delete.assert_not_called()
             cleanup.step(self.policy, self.root, self.home, op, 102700)
-            delete.assert_called_once_with(self.root, spend, op["worker_id"], path / "ids")
+            delete.assert_called_once_with(self.root, spend, op["worker_id"], path / "ids", delete_due=102700)
             cleanup.step(self.policy, self.root, self.home, op, 102701)
             self.assertEqual(delete.call_count, 2)  # helper reconciles; it never repeats a POST.
 

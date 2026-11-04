@@ -26,6 +26,7 @@ def main():
         identity = sys.stdin.buffer.read()
         children = []
         for state in sorted(launches.iterdir()):
+            if list(state.glob('*.retiring.json')): continue
             if not (state / 'monitor.sh').is_file() or (state / 'complete').exists(): continue
             with (state / 'controller.lock').open('a+') as lock:
                 try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -54,6 +55,7 @@ def main():
     started = subprocess.check_output(['ps', '-p', str(os.getpid()), '-o', 'lstart='], text=True).strip()
     lock.seek(0); lock.truncate()
     json.dump(dict(pid=os.getpid(), started=started), lock); lock.flush(); os.fsync(lock.fileno())
+    if list(state.glob('*.retiring.json')): sys.exit('launch retiring')
     if (state / 'complete').exists(): return 0
     if resume:
         job = json.loads((state / 'launch.json').read_text())
