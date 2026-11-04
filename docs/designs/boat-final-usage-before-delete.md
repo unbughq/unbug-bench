@@ -435,3 +435,20 @@ accepted-settlement replay; prior evidence files remain untouched, not rewritten
 --finish and --settle on a budget_debited row first validate it, then return no-op
 before any evidence read, provider call or write. Tests assert both no-op replays
 preserve the debit and all evidence bytes. Unknown other rows still block.
+
+
+### Runtime packaging preservation
+
+The original approval report remains immutable. A byte-identical tracked copy at
+factory/legacy-bx-z4wktrbn-budget-decision-20261104.json carries the same pinned
+SHA into the existing factory source root and host trust inventory. A regression
+checks equality with the original. This avoids adding docs to the deployment
+adapter's owned source roots; no new source-root deletion authority is introduced.
+boat-call imports the lifecycle fence only for UNBUG_LAUNCH_STATE executions;
+standalone copied wrappers remain compatible. A managed execution with a missing
+helper still fails closed; there is no import-error bypass for owned commands.
+Historical preflight deployment archives stay unchanged and must fail against new
+host code. The dispatch test matrix explicitly builds an ephemeral current commit
+package/policy binding with the existing builder; it does not repin the retained
+fixture or claim deployed qualification. Missing-decision tests use an isolated
+missing path rather than deny the real e62a5c4 founder decision already on disk.

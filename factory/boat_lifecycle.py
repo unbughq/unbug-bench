@@ -722,7 +722,7 @@ def _delete(root, spend, worker, ids_path, timeout, *, deadline=None, fenced=Fal
 
 
 LEGACY_DECISION_SHA = '4e5caa263a8bf323abb78791f03c3a064df3ab0ee0b9b5bbb0b950e97a350660'
-LEGACY_DECISION_FILE = 'docs/reports/legacy-bx-z4wktrbn-budget-decision-20261104.json'
+LEGACY_DECISION_FILE = 'factory/legacy-bx-z4wktrbn-budget-decision-20261104.json'
 
 
 def legacy_decision():

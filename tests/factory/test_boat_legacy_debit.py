@@ -22,6 +22,11 @@ SAVED=json.loads((ROOT/'tests/factory/fixtures/boat-retirement/legacy-spend-meta
 
 
 class BudgetDebitTests(unittest.TestCase):
+    def test_runtime_decision_copy_is_verbatim_original_founder_record(self):
+        self.assertEqual((ROOT/life.LEGACY_DECISION_FILE).read_bytes(),
+                         (ROOT/'docs/reports/legacy-bx-z4wktrbn-budget-decision-20261104.json').read_bytes())
+        self.assertEqual(life.sha256(ROOT/life.LEGACY_DECISION_FILE),life.LEGACY_DECISION_SHA)
+
     def test_saved_metadata_permanent_debit_actual_stays_unknown_and_strict_scope(self):
         row=life.approved_budget_row(deepcopy(SAVED['ledger_row'])); key=SAVED['ledger_key']
         self.assertEqual(row['budget_debit']['original_row'],SAVED['ledger_row'])
