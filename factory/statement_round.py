@@ -104,14 +104,15 @@ def prepare(sealed, registry_root, candidates, destination, *, history_sealed=No
             rejected = ([row.get('statement_sha256') for row in rows] if bound and isinstance(rows, list) and
                         len(rows) <= 3 and all(isinstance(row, dict) for row in rows) else [])
             # a pending candidate may have reselected since the registry last saw it
-            registry.replace_rejected(case, digest, ciphertexts[case], rejected, historical=True)
+            registry.replace_rejected(case, digest, ciphertexts[case], rejected, historical=True, bound=bound)
     snapshots = {}
     for case, digest in sorted(candidates.items()):
         card_path = sealed / (case + '.scorecard.json')
         card = json.loads(card_path.read_text()) if card_path.exists() else {}
         rejected = [row.get('statement_sha256') for row in card.get('rejected_candidates', [])]
         if len(rejected) > 3: raise ValueError('candidate selection bound exceeded')
-        registry.replace_rejected(case, digest, ciphertexts[case], rejected)
+        bound = card.get('statement_cipher_sha256') == hashlib.sha256(ciphertexts[case].read_bytes()).hexdigest()
+        registry.replace_rejected(case, digest, ciphertexts[case], rejected, bound=bound)
         search = sealed / (case + '.search.age')
         metadata = card.get('public_search')
         if search.is_file() and metadata:

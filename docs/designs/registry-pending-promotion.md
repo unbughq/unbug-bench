@@ -118,3 +118,15 @@ over-screens, and the next authenticated import refuses loudly instead of bindin
 Asymmetry (unchanged from base): the candidate path still raises on a malformed own-card
 `rejected_candidates`, because that card belongs to the case being handed off, not to
 another wave.
+
+**Review follow-ups (diff-7).** This corrects the diff-6 claim that the candidate path was unchanged: it
+too reached the new historical-only release. The rule now lives in `replace_rejected`, so it
+applies on both paths. A historical-only previous entry (never vouched for by a reservation of
+this case) is released only when the caller passes `bound=True`, meaning its own card's
+`statement_cipher_sha256` equals sha256 of the offered bytes, and only when the entry is
+`completed` (never `known_public`). `prepare` computes `bound` for history and candidate cards.
+Complete screening/building entries keep base behaviour. A pre-existing hole is left as it
+was: a candidate from the reserved state with a legacy own card. Closing it would change base
+behaviour and needs its own decision. More of the known gap: if `reserve` fails after a
+release (a resurrected old digest, a corrupted object), the case stays released until it is
+retried. Only content its own card named rejected has left screening, so this is safe.

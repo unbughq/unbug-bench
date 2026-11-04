@@ -1,7 +1,9 @@
-"""A pending candidate that another handoff imported as history stays restorable (Murphy 7).
+"""A pending candidate that another handoff imported as history stays restorable (Murphy 7),
+and a reselected pending candidate survives stale history (new-registry-pending-promotion-1).
 
 Uses a copy of the retained public registry (sealed/statement-registry) and its real
-age ciphertext; only the plaintext digests of pending candidates are authored.
+age ciphertext; only the scorecards (plaintext digests, cipher bindings, rejected lists)
+of pending candidates are authored.
 """
 import sys
 from pathlib import Path as _P
@@ -192,6 +194,31 @@ class PromotionTests(unittest.TestCase):
                 kept = self.entry()
                 self.assertEqual((kept["statement_sha256"], kept["cipher_sha256"], kept["status"] != "released"),
                                  (d1, sha(c1), True))
+
+    def test_own_handoff_needs_bound_card_to_release_historical_only_entry(self):
+        # diff-7 H1: Y's own legacy-shape card (no cipher digest) with another seal of the rejected statement.
+        c1, c2, d1, d2 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64, "2" * 64
+        other_seal = sorted(SEALED.glob("case-*.statement.age"))[5]
+        sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+        self.wave("o1", "case-pa", c1, d1, [])  # another wave imported c1 as history
+        legacy = {"statement_sha256": d2, "rejected_candidates": [{"statement_sha256": d1}]}
+        with self.assertRaisesRegex(ValueError, "different content"):
+            self.wave("o2", "case-pa", other_seal, d2, [d1], y_candidate=True, card=legacy)
+        kept = self.entry()
+        self.assertEqual((kept["statement_sha256"], kept["cipher_sha256"], kept["complete"], kept["status"]),
+                         (d1, sha(c1), False, "completed"))
+        mine = self.wave("o3", "case-pa", c2, d2, [d1], y_candidate=True)["case-py"]  # the bound card still releases
+        self.assertEqual(json.loads((mine / "admission.json").read_text())["cipher_sha256"], sha(c2))
+
+    def test_known_public_historical_entry_is_never_released(self):
+        # diff-7 M1: only a completed historical-only entry may be released by its own bound card.
+        c1, c2, d1, d2 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64, "2" * 64
+        self.wave("p1", "case-pa", c1, d1, [])
+        self.r.transition("case-py", self.entry()["reservation"], "known_public")
+        for name, kw in (("p2", {"y_candidate": True}), ("p3", {})):
+            with self.assertRaisesRegex(ValueError, "different content"):
+                self.wave(name, "case-pz" if not kw else "case-pa", c2, d2, [d1], **kw)
+        self.assertEqual((self.entry()["status"], self.entry()["statement_sha256"]), ("known_public", d1))
 
     def test_history_cipher_skew_without_release_does_not_fail_other_wave(self):
         # diff-6 G2: a new seal beside an older card, same digest as the registry: nothing to release.

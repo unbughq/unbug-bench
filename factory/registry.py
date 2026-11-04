@@ -101,8 +101,11 @@ class Registry:
     def import_historical(self, case, ciphertext, statement_sha256=None):
         return self.reserve(case, statement_sha256, ciphertext, historical=True)
 
-    def replace_rejected(self, case, statement_sha256, ciphertext, rejected, *, historical=False):
-        """Only an explicitly rejected previous digest permits candidate reselection."""
+    def replace_rejected(self, case, statement_sha256, ciphertext, rejected, *, historical=False, bound=False):
+        """Only an explicitly rejected previous digest permits candidate reselection.
+
+        bound: the caller's card binds these exact bytes (statement_cipher_sha256). Required to
+        release a historical-only entry, which no reservation of this case ever vouched for."""
         data = pathlib.Path(ciphertext).read_bytes()
         if not re.fullmatch(r"[0-9a-f]{64}", statement_sha256 or "") or not data.startswith(
                 (b"age-encryption.org/v1", b"-----BEGIN AGE ENCRYPTED FILE-----")):
@@ -115,7 +118,9 @@ class Registry:
             # A historical-only entry with an unknown digest falls through to reserve (promotion or refusal).
             if (previous and previous["status"] != "released" and old != statement_sha256 and
                     (previous["complete"] or old is not None)):
-                if old is None or old not in rejected or (previous["complete"] and previous["status"] not in ("screening", "building")):
+                if (old is None or old not in rejected or
+                        (previous["complete"] and previous["status"] not in ("screening", "building")) or
+                        (not previous["complete"] and (not bound or previous["status"] != "completed"))):
                     raise ValueError("case already reserved with different content")
                 if previous["cipher_sha256"] == cipher:  # the rejected bytes under a new digest: stale ciphertext
                     raise ValueError("case already reserved with different content")
