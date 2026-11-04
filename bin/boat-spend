@@ -90,7 +90,7 @@ read_ledger = lifecycle.read_ledger
 def main():
     # One control host owns admission. Never silently drop an uncertain hold.
     home = pathlib.Path(os.environ.get('UNBUG_CONTROL_HOME', str(pathlib.Path.home() / '.unbug-control')))
-    if not HETZNER and len(sys.argv) > 1 and sys.argv[1] in ('--check', '--finish', '--settle', '--record-approved-legacy-debit'):
+    if not HETZNER and len(sys.argv) > 1 and sys.argv[1] in ('--check', '--finish', '--settle', '--record-approved-legacy-debit', '--record-approved-smoke-debit'):
         home.mkdir(parents=True, exist_ok=True)
         with (home / 'boat-reservations.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
@@ -142,9 +142,9 @@ def accounting(ledger_path):
             return True
         except (ValueError, KeyError, TypeError, OSError, decimal.DecimalException, subprocess.SubprocessError):
             return False
-    if sys.argv[1:]==['--record-approved-legacy-debit']:
+    if sys.argv[1:] in (['--record-approved-legacy-debit'],['--record-approved-smoke-debit']):
         if HETZNER or ledger_path is None: raise ValueError('invalid conservative debit')
-        if lifecycle.record_approved_debit(ledger): save_ledger()
+        if lifecycle.record_approved_debit(ledger,'smoke' if sys.argv[1]=='--record-approved-smoke-debit' else 'legacy'): save_ledger()
         return
     if len(sys.argv) == 1:
         print(balance())
