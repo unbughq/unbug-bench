@@ -8,6 +8,7 @@ _BENCH_ROOT = _Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_BENCH_ROOT / "bin"))
 
 import json
+import shutil
 import os
 from pathlib import Path
 import subprocess
@@ -18,6 +19,20 @@ CALL = (_BENCH_ROOT / "bin" / 'boat-call')
 
 
 class BoatCallTests(unittest.TestCase):
+    def test_standalone_copy_works_but_managed_missing_helper_refuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base=Path(tmp); tools=base/'bin'; tools.mkdir()
+            for name in ('boat-call','processes.py'): shutil.copy2(_BENCH_ROOT/'bin'/name,tools/name)
+            provider=base/'provider'; called=base/'called'
+            provider.write_text('#!/bin/sh\ntouch "'+str(called)+'"\necho \'{"ok":true}\'\n'); provider.chmod(0o755)
+            env={**os.environ,'BOAT_CMD':str(provider)}
+            env.pop('UNBUG_LAUNCH_STATE',None); env.pop('PYTHONPATH',None)
+            good=subprocess.run([str(tools/'boat-call'),'usage','owned','--json'],env=env,capture_output=True,timeout=8)
+            self.assertEqual(good.returncode,0,good.stderr); self.assertTrue(called.exists())
+            called.unlink(); state=base/'managed'; state.mkdir(); (state/'ids').write_text('owned')
+            bad=subprocess.run([str(tools/'boat-call'),'resume','owned'],env={**env,'UNBUG_LAUNCH_STATE':str(state)},capture_output=True,timeout=8)
+            self.assertNotEqual(bad.returncode,0); self.assertFalse(called.exists())
+
     def test_updates_disabled_and_stdin_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:
             fake = Path(tmp) / 'fake-transport'

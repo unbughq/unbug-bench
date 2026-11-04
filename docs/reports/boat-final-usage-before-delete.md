@@ -71,11 +71,12 @@ Verbatim records:
 - docs/reviews/boat-final-usage-before-delete-diff-2.md (uncollected safety replay PASS)
 - docs/reviews/boat-final-usage-before-delete-diff-3.md (delete budget clamp PASS)
 - docs/reviews/boat-final-usage-before-delete-diff-4.md (retained-meter fresh-recheck refusal PASS)
+- docs/reviews/boat-final-usage-before-delete-diff-5.md (runtime packaging preservation PASS)
 No finding was rejected. No accepted review was rerun.
 
 Focused checks: retirement 15 on Mac (2 explicit Linux-only skips), historical debit
-4, settlement14, practice15, holder60, control-resume24, inventory10, worker-release9,
-wrapper1, launch-manifest2 and isolation26 pass. Launch-guards passed in445.0s with
+5, settlement14, practice15, holder60, control-resume24, inventory10, worker-release9,
+wrapper2, launch-manifest2 and isolation26 pass. Launch-guards passed in445.0s with
 no real Boat calls. Red tests preceded the provider seam changes, including missing
 retirement support and the179.999s-vs60s delete-budget regression. The temporary
 legacy /var alias regression was corrected and isolation26 passed afterward.
@@ -87,13 +88,13 @@ invocation, normal stop/meter/delete/settlement without deleted usage, and negat
 proof/authority/replay controls. The provider executable and lifecycle layouts are
 AUTHORED; saved public Boat DTOs and kernel locks are real. Early python-slim attempts
 lacked ps; the final local image contains the existing process helper prerequisites.
-Final candidate Linux record/log: /tmp/boat-final-usage-linux-candidate-20261104T001745Z.{json,log}.
+Final candidate Linux record/log: /tmp/boat-final-usage-linux-candidate-20261104T004847Z.{json,log}.
 Earlier records remain preserved at /tmp/boat-final-usage-linux-20261104.{json,log}.
 
 One uncached exact-head full suite follows the commit containing this report, using
 shared TEST_SLOTS with no lockf and UNBUG_LOCAL_DOCKER_SMOKE unset. Authoritative
 HEAD/tree, command, exit, times and output:
-/tmp/boat-final-usage-suite-20261104T001745Z.{json,log}.
+/tmp/boat-final-usage-suite-20261104T004847Z.{json,log}.
 The final handback states its result; this report does not substitute for that run.
 
 ## Precise remaining live gates
@@ -132,3 +133,34 @@ Its already-passing Linux14 record is also retained:
 /tmp/boat-final-usage-linux-candidate-20261104T001228Z.{json,log}.
 The corrected final candidate's Linux15 and full run use the001745Z paths above.
 No live worker/evidence or historical ledger was changed during this repair.
+
+
+## Full-run packaging feedback and corrected final candidate
+
+36fd6f8's uncached full attempt completed195 scripts with5 failures (exit1,
+1055.019s), retained at /tmp/boat-final-usage-suite-20261104T001745Z.{json,log}.
+This attempt is NOT a pass. Failures were exam-round/transfer/outer-callers copied
+standalone wrappers missing the new lifecycle import; batch-launch's unchanged
+adapter refusing a newly introduced docs source root; and preflight's stale
+retained-host package plus outdated missing-founder-decision assumptions.
+
+Runtime correction preserves the standalone interface through lazy loading;
+managed state never gains an import-error fallback. An identical approval copy
+under factory/ carries the same4e5caa... pinned bytes through the already-owned
+factory source root and host trust inventory. The original report, raw hash,
+historical scope and old artifacts are unchanged. No adapter ownership expansion
+or new installer/launcher was added.
+
+Historical preflight archives are verified intact and refused against changed
+runtime, not repinned. The positive dispatch matrix uses the existing builder on
+the current committed public source with an explicitly AUTHORED test policy;
+these are contract tests, not a claim of deployed evidence. Missing-decision tests
+use an absent isolated file. Focused reruns: preflight28, outer-callers8, transfer5,
+batch-launch8, exam-round pass, wrapper2, historical debit5, launch-manifest2;
+real local Linux retirement15 also passes after the packaging change.
+Fresh scoped review5 passes. No new full run began before these repairs/tests.
+
+The final qualifying Linux/full records use004847Z paths above. The001745Z Linux15
+record remains valid earlier kernel evidence but belongs to36fd6f8; it is preserved.
+All partial/failed logs remain available. Root still must recut real deployment
+pins; the test package is never deployed or used to unlock a live holder.
