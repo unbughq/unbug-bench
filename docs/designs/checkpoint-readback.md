@@ -168,7 +168,9 @@ recovery package. Its four facts, checked against the code on `fbca505`:
      `rm -rf ~/factory`. If `~/.factory-r2` exists and lacks either
      `checkpoint_get` or `final_get`, it refuses with "R2 links predate
      checkpoint read-back; restore this case with factory/launch.sh
-     --restore". The VM, its code and its plaintext stay unchanged.
+     --restore". The VM's installed code, links and plaintext stay unchanged.
+     The only leftover is the already-copied `~/factory.tgz`, which the next
+     resume overwrites.
    - **Absent links file.** It passes. That is today's "host-collected only"
      case, and the new code claims nothing in it.
    - **No other path mixes versions.**

@@ -5,7 +5,9 @@ Real artifacts: the saved collected card tests/factory/fixtures/e15450-collected
 claims generation 460a8f21... at vm/bx_gdt298d7/checkpoint.tar.gz.age while the same card's later archive 03a1dd51...
 names the same key), the real RunArtifacts.seal with real tar/age, the real checkpoint_progress, the real
 r2_upload.upload running real curl, and the launcher's own links program from factory/launch.sh. Authored: the R2
-endpoint is a local HTTP double on 127.0.0.1, and the archive holds only this test's work tree (no case is decrypted).
+endpoint is a local HTTP double on 127.0.0.1, the archive holds only this test's work tree (no case is decrypted), and
+T1's work/durable-checkpoint.json is written from the saved receipt (a collected card does not carry that worker file;
+its content is what checkpoint_progress writes).
 """
 
 # Keep direct execution and unittest discovery independent of the working directory.
@@ -61,6 +63,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(200); self.send_header("Content-Length", "0"); self.end_headers()
 
     def do_GET(self):
+        if self.server.mode in ("stall", "flood"):
+            try:
+                self.send_response(200); self.send_header("Content-Length", str(64 << 20)); self.end_headers()
+                if self.server.mode == "flood": self.wfile.write(b"x" * (4 << 20)); self.wfile.flush()
+                time.sleep(30)
+            except OSError: pass
+            return
         body = self.server.objects.get(self.key())
         if body is None or self.server.mode == "get404":
             self.send_response(404); self.send_header("Content-Length", "0"); self.end_headers(); return
@@ -213,6 +222,18 @@ class CheckpointReadback(unittest.TestCase):
                 for text in (json.dumps(self.c.card), (self.c.work / "durable-checkpoint.json").read_text(),
                              captured.read_text()):
                     self.assertNotIn("X-Amz-Signature", text)
+
+    # T3b: a stalled GET times out, and an oversized GET is cut off early; both fail closed (design-1 diff NB).
+    def test_t3b_readback_stall_and_oversize_cut_off(self):
+        url = self.links["checkpoint_get"]
+        # stall: only the 2 s bound can end it. flood: the bound is 25 s, so returning within 10 s proves the
+        # early size cut-off and kill, not the timeout.
+        for mode, timeout in (("stall", 2), ("flood", 25)):
+            with self.subTest(mode=mode):
+                self.store.mode = mode
+                start = time.monotonic()
+                self.assertIsNone(r2_upload._readback(url, 1024, timeout=timeout))
+                self.assertLess(time.monotonic() - start, 10)
 
     # T6: resume-in-place refuses a VM whose links predate read-back, before replacing its code.
     def test_t6_resume_in_place_refuses_put_only_links(self):
