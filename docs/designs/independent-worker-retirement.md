@@ -92,10 +92,25 @@ Steps:
    ```
 5. Append `id:pid:token` to the space-separated shell variable
    `guard_retiring`.
-6. Restore `trap 'exit 130' INT` and `trap 'exit 143' TERM`. These are the
-   exact traps `guard_init` installs. Every caller reaches `guard_wait` only
-   after `guard_init`, and a comment ties the two together. If `gr_signal`
-   is set, run `exit "$gr_signal"`.
+6. Restore the traps with `guard_signal_traps`, the same helper `guard_init`
+   now calls to install `trap 'exit 130' INT` and `trap 'exit 143' TERM`. If
+   `gr_signal` is set, run `exit "$gr_signal"`.
+
+The `ttl` dispatch, inside the `|| gr_s=$?` context, is:
+
+```sh
+case $kind in
+  ttl) if [ "$label" = factory ] && command -v factory_ttl_retire >/dev/null 2>&1; then
+         factory_ttl_retire "$id" || echo "... TTL attestation failed ..." >&2
+       fi
+       guard_retire "$id" ;;
+  *) guard_retire "$id" ;;
+esac
+```
+
+`ttl` is used only in the numeric-reply branch that reaches the TTL margin,
+which is today's only `factory_ttl_retire` call site. The stall branch and
+the unreachable-or-TTL-margin branch start `retire`.
 
 The guard file initialises `gr_signal`, `guard_exiting`, `guard_retiring`,
 `guard_task_counter` and `guard_task_epoch` when it is sourced, so `set -u`
@@ -135,7 +150,10 @@ For each `id:pid:token` in `guard_retiring`:
      `guard_exit`'s exit pass retries `guard_retire` from its markers, and
      the provider TTL is the final backstop. Today, a shell-fatal error in
      an inline `guard_retire` kills the launcher shell, and the exit pass
-     runs in the same way.
+     runs **at once**. Now it runs when the batch ends. A TTL-due worker
+     whose task died can therefore be erased before that pass reaches it.
+     The trigger is rare (SIGKILL/OOM of a small `sh`, a `set -u` bug,
+     ENOSPC), and this is an accepted trade-off against re-classification.
 
      This replaces revision 3's respawn, which re-classified the worker and
      lost its retirement kind (design review 3, finding 2). It also cannot
@@ -146,10 +164,16 @@ A finished task is reaped on the next pass, so reaping can lag by up to one
 `poll`. Tasks started in `once` mode are reaped only by the next
 `guard_wait` call or by `guard_exit`.
 
-Within one controller, only one task per id exists at a time. An orphaned
-task of a SIGKILLed controller can overlap the next controller's task for the
-same id, as today's single orphaned retirement can. Its status file carries
-the old token and is never read.
+Within one controller, only one task per id exists at a time. That holds
+for tasks, not necessarily their children:
+- If only a task subshell is SIGKILLed, its `collect.sh` child can survive
+  as an orphan. The exit pass can then collect the same id alongside it.
+- An orphaned task of a SIGKILLed controller can overlap the next
+  controller's task for the same id, as today's single orphaned retirement
+  can. Its status file carries the old token and is never read.
+
+In both cases integrity holds: the per-file `flock`, the SHA-gated replace
+and the per-worker deletion lock all still apply.
 
 `kill -0` can in theory be fooled by PID reuse, for a task that died without
 a status file. The effect would be a reap delayed for as long as the
@@ -182,6 +206,8 @@ from the token file or from `wait`.
 
   For STARTUP_FAILED, stall, unreachable and the TTL margin, reaping a
   failure adds nothing, because the status is already 1.
+- Phase 2 (the deferred list, `guard_deferred`) runs right after the
+  classification loop, **before** the `once` return.
 - `once` mode returns after one pass without joining. Its tasks keep running
   and a later `guard_wait` reaps them. A non-`once` call returns only when no
   worker is pending and `guard_retiring` is empty.
@@ -193,8 +219,11 @@ from the token file or from `wait`.
    these. A plain `wait` for every job would instead hang on the
    `tools/run-gate-smoke.sh` 2700 s watchdog.
 2. Set `guard_exiting=1`, then join the in-flight tasks with
-   `guard_retire_reap block`. Their failures make the cleanup fail, through
-   `guard_cleanup_error`.
+   `guard_retire_reap block`. This happens before `guard_ids resolve`.
+   Failures from this join are **logged only**. The exit pass's own result
+   decides `cleanup_failed`, as today: an interrupted foreground retirement
+   was never counted, and `factory/restore_bundle.py` reads
+   `cleanup-status.json`.
 3. In the exit pass, start one `retire` task for every id, then join them all
    with `guard_retire_reap block` instead of the sequential loop.
    `guard_retire` replays safely from its `.deleted`, `.collected` and
@@ -215,11 +244,14 @@ stop latency is lower than today's sequential sum.
 
 **Ctrl-C (SIGINT to the process group).**
 - An `&` task ignores SIGINT when job control is off.
-- `bin/boat-call` installs its own INT handler. So an in-flight pause SSH or
-  transfer in a task is interrupted, and its child group is cleaned up, just
-  as Ctrl-C interrupts today's foreground collection.
-- The task's `collect_vm` then fails, and `guard_retire`'s own retry runs (up
-  to 3 tries, `BOAT_COLLECT_RETRY_SECONDS` apart).
+- `bin/boat-call` installs its own INT handler. So an in-flight `boat-call`
+  in a task is interrupted, and its child group is cleaned up, just as
+  Ctrl-C interrupts today's foreground collection.
+- **An interrupted pause SSH** fails the attempt through `pause_status`.
+  `guard_retire`'s own retry then runs (up to 3 tries,
+  `BOAT_COLLECT_RETRY_SECONDS` apart).
+- **An interrupted transfer chunk** is usually just retried inside
+  `transfer.py`.
 - Meanwhile the launcher's trap runs `exit 130`, and `guard_exit` joins the
   task before its exit pass.
 
@@ -313,9 +345,12 @@ themselves are unchanged.
     - Its `collect_vm` runs on a worker that already wrote DONE, so
       `collect.sh` skips the 1050 s pause.
     - The worst-case bound per auto-resume is the chunked transfer of the
-      sealed checkpoint (120 s per 8 MiB chunk; a ~500 MiB archive is about
-      63 chunks, or about 2 h if every chunk ran to its bound), plus a few
-      SSH calls of up to 120 s each and the local planners. Several DONE
+      sealed checkpoint, plus a few SSH calls of up to 120 s each and the
+      local planners. Each 8 MiB chunk is bounded at 120 s and retried 3
+      times (`COLLECT_CHUNK_RETRIES`), so up to 360 s per chunk. A ~500 MiB
+      archive is about 63 chunks, or about 6.3 h if every chunk ran to its
+      bound. `metadata()` calls and a `flock` wait on the same name come on
+      top. Several DONE
       workers in one pass run their auto-resumes in turn, as today.
     - A typical transfer takes minutes, but the worst case is the bound
       above.
@@ -419,12 +454,14 @@ Scenarios:
      A's single collection completes, A is deleted exactly once, a peer still
      due at exit is retired in the exit pass, and the exit status is 143.
    - **INT to the whole process group** while A's pause SSH is blocked inside
-     `boat-call`. Pass: the interrupted attempt fails, `guard_retire` retries,
-     there are never two concurrent collections of A, A is deleted exactly
-     once, and the exit status is 130.
-   - **Signal window:** the trap-deferral code path runs with a signal sent
-     right after the task starts. Pass: the task is recorded and joined, not
-     killed.
+     `boat-call`. The stub `collect_vm` calls the real `bin/boat-call ssh`,
+     and the authored transport blocks the first call. Pass: the interrupted
+     attempt fails, `guard_retire` retries, there are never two concurrent
+     collections of A, A is deleted exactly once, and the exit status is 130.
+   - **The signal window is not tested.** It holds only builtins, so a
+     signal from Python cannot land in it deterministically. The deferral is
+     argued from shell semantics (design reviews 3 and 4) and was checked
+     with a dash experiment. It is not counted as test proof.
    - **Signal during inline auto-resume while a peer task is in flight.**
      TERM arrives while the stub `factory_auto_resume` runs. Pass: the trap
      fires between its commands (the stub's next command never runs),
