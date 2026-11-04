@@ -112,7 +112,7 @@ class StatementRoundTests(unittest.TestCase):
                 if mode == 'missing-cipher':
                     (root / 'sealed' / (case + '.statement.age')).unlink()
                 shell = ('set -eu\nroot=$1; restore=$2; ckpt=$3; state=$4; here=$5; secrets=$6\n'
-                         'audit_g11=no; sealed_audit=""; args=""\n' + preflight +
+                         'audit_g11=no; sealed_audit=""; args=""; admission_root=$root; card=$root/sealed/$restore.scorecard.json\n' + preflight +
                          '\nguard_new() { touch "$state/created"; }; guard_new\n')
                 result = subprocess.run(['/bin/sh', '-c', shell, 'synthetic-launch', str(root), case,
                                          str(archive), str(state), str((pathlib.Path(__file__).resolve().parents[2] / "factory")),
