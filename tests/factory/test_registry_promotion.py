@@ -56,10 +56,43 @@ class PromotionTests(unittest.TestCase):
         # idempotent: replay returns the same reservation
         again = self.r.reserve("case-pb", self.dg["case-pb"], self.ct["case-pb"])
         self.assertEqual(again["reservation"], self.r.export("case-pb", self.tmp / "again")["reservation"])
-        seen = [json.loads((self.tmp / ("snap-" + c) / "admission.json").read_text())["statements"] for c in ("case-pb", "case-pc")]
-        self.assertTrue("case-pc" in seen[0] or "case-pb" in seen[1])  # the later promotion sees the earlier
+        # B and C screened against each other (both were live entries) and against A
+        for c, other in (("case-pb", "case-pc"), ("case-pc", "case-pb")):
+            self.assertTrue({"case-pa", other} <= set(json.loads((self.tmp / ("snap-" + c) / "admission.json").read_text())["statements"]))
+        # re-importing after promotion neither demotes nor reissues the reservation
+        token = again["reservation"]
+        self.assertEqual(self.r.import_historical("case-pb", self.ct["case-pb"], self.dg["case-pb"])["reservation"], token)
+        self.assertTrue(self.r.export("case-pb", self.tmp / "after-import")["complete"])
         board = self.r.export_board(self.tmp / "board")
         self.assertTrue({"case-pa", "case-pb", "case-pc"} <= set(board["statements"]))
+
+    def test_promotion_keeps_stored_ciphertext(self):
+        self.history("case-pb")
+        stored = self.r.export_board(self.tmp / "b0")["statements"]["case-pb"]
+        resealed = self.ct["case-pc"]  # different real age bytes for the same plaintext digest
+        entry = self.r.reserve("case-pb", self.dg["case-pb"], resealed)
+        self.assertEqual(entry["cipher_sha256"], stored)
+        self.assertEqual((self.r.root / "objects" / (stored + ".age")).read_bytes(), self.ct["case-pb"].read_bytes())
+
+    def test_promotion_refuses_missing_stored_object(self):
+        stored = self.history("case-pb") or self.r.export_board(self.tmp / "b0")["statements"]["case-pb"]
+        (self.r.root / "objects" / (stored + ".age")).unlink()
+        with self.assertRaisesRegex(ValueError, "corrupted"):
+            self.r.reserve("case-pb", self.dg["case-pb"], self.ct["case-pb"])
+
+    def test_prepare_promotes_other_waves_pending_candidate(self):
+        import statement_round
+        hist = self.tmp / "hist"; hist.mkdir()
+        for c in ("case-pa", "case-pb"):
+            shutil.copyfile(self.ct[c], hist / (c + ".statement.age"))
+        (hist / "case-pb.scorecard.json").write_text(json.dumps({"statement_sha256": self.dg["case-pb"]}))
+        waves = {}
+        for c in ("case-pa", "case-pb"):  # each handoff sees the other's pending ciphertext as history
+            waves[c] = statement_round.prepare(hist, self.tmp / "reg", {c: self.dg[c]}, self.tmp / ("w-" + c), history_sealed=hist)[c]
+        self.assertIn("case-pb.statement.age", {p.name for p in waves["case-pa"].iterdir()})
+        self.assertIn("case-pa.statement.age", {p.name for p in waves["case-pb"].iterdir()})
+        for c in waves:
+            self.assertTrue(json.loads((waves[c] / "admission.json").read_text())["complete"])
 
     def test_negative_identities_still_refuse(self):
         self.history("case-pb", "case-pc")

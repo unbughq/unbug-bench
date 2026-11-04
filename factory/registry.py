@@ -59,7 +59,7 @@ class Registry:
             previous = state["entries"].get(case)
             # A candidate that an earlier handoff imported as history is promoted here:
             # same identity, recomputed predecessors, fresh reservation.
-            promote = bool(previous and previous["status"] != "released" and not historical and
+            promote = bool(previous and previous["status"] == "completed" and not historical and
                            not previous["complete"] and (previous["statement_sha256"] == statement_sha256 or
                            previous["statement_sha256"] is None and previous["cipher_sha256"] == digest))
             if promote:
@@ -85,6 +85,8 @@ class Registry:
                      "status": "completed" if historical else "screening"}
             obj = self.root / "objects" / (digest + ".age")
             if obj.exists() and hashlib.sha256(obj.read_bytes()).hexdigest() != digest:
+                raise ValueError("registry object corrupted")
+            if promote and not obj.exists():
                 raise ValueError("registry object corrupted")
             if not obj.exists():
                 with obj.open("xb") as f:
