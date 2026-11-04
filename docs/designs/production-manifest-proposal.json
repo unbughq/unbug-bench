@@ -47,15 +47,23 @@
     "hidden_cards": 50,
     "sealed_g1_to_g15": 3,
     "public_eligible": 0,
-    "source": "docs/reports/sealed-audit-20261104.md"
+    "source": "docs/reports/sealed-audit-20261104.md",
+    "interpretation": "Descriptive counts from legacy stopped, failed and partial gate records; not a production completion-rate sample."
   },
-  "shortfall_estimate": "At the historical public G1-G15 rate (3 of 50 hidden cards, 6%), 48 creations would be expected to yield about 3 cases, far short of 24; even those need G16/G10/G17, a dedup check and registry promotion before they are eligible. Report the shortfall; do not raise limits or lower quality silently.",
+  "shortfall_estimate": "No defensible completed-case yield forecast is established. The legacy 3/50 G1-G15 ratio is descriptive and mixes stopped, failed and partially qualified historical runs. Measure accepted-case yield, duration and cost through the repaired three-case completion pilot; report any actual shortfall without increasing bounds or lowering quality.",
   "blockers": [
     "Founder: money_limit_usd, batch_deadline, completion_timeouts.",
-    "Legacy G1-G15 cards (fcde6b, 86b100, 18681d): G16/G10/G17 rerun, dedup check and registry promotion (historical entries are complete:false); the audit rerun produces neither of the last two.",
+    "Legacy recovery: fcde6b is quarantined. 86b100 and 18681d require repaired-content full qualification, fairness/calibration, rehearsal, dedup, registry admission and reseal; historical gate passes alone do not authorize acceptance.",
     "Reviewed admission change: pilot-bounded-roles admission is bound to b-real-pilot with exactly three templates.",
     "Saved no-model smoke lifecycle qualification (collection, ACK/publication, same-stop usage, deletion, settlement).",
     "Three-case completion pilot.",
     "Parallel admission, spending and cleanup qualification before concurrency above 1."
-  ]
+  ],
+  "recovery_dispositions": {
+    "fcde6b": "quarantined after reproduced correctness failure; no routine recovery spend",
+    "86b100": "scoped repair/diagnostic only; full qualification and reseal pending",
+    "18681d": "scoped repair only; fresh race qualification, full pipeline and reseal pending",
+    "source": "https://github.com/unbughq/unbug-bench/blob/prep/completion-pilot-inventory-20261104/docs/reports/24-case-delivery-status.md"
+  },
+  "replacement_policy_scope": "The automatic replacement rule describes the eventual factory target. The proposed initial three-case completion pilot has no replacements and a six-lifecycle/two-per-case bound; do not apply the eventual production replacement target to that pilot."
 }

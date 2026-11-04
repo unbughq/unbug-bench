@@ -57,14 +57,38 @@ Hash checks:
   Public evidence can therefore never qualify a case on its own. Here it does
   not even make one eligible.
 
-### The three closest cases
+### Historical passes and current repair dispositions
+
+The generated table below describes retained historical gate labels. A `pass`
+cell is not a fresh content qualification. Later repair evidence changes the
+recovery priority:
+
+- **`fcde6b` is quarantined.** October 22 R4 reproduced stale compensation
+  corrupting newer business state; R5 found no safe narrow correction. Do not
+  schedule it as a routine G16/G10/G17 refresh or count it as recoverable.
+- **`86b100` is a recovery candidate, not accepted.** Its scoped repair has
+  reviewed changes and a passing paired BASE diagnostic, but still needs the
+  configured full qualification, calibration/fairness, rehearsal and reseal.
+- **`18681d` is a recovery candidate, not accepted.** Its scoped repair still
+  needs fresh counter/web overlap race qualification followed by the full pipeline.
+
+The integrator's [November 4 audit](https://github.com/unbughq/unbug-bench/blob/prep/completion-pilot-inventory-20261104/docs/reports/24-case-delivery-status.md)
+retains public metadata and the repair-source hashes. It independently compared
+51 local and 54 current control-VM cards: all 51 shared card byte hashes match,
+and the same three historical G1–G15 passes remain. The three VM-only cards are
+stopped/incomplete. This supplements the dated inputs used by the generated tool;
+it does not make that tool's default October snapshots current or qualify content.
+No new plaintext audit was performed. Preserve the original archives and cards.
+
+### The three historical G1–G15 passes
 
 `case-20261017T114426Z-fcde6b`, `case-20261017T120256Z-86b100` and
 `case-20261017T125556Z-18681d` pass G1-G15. Each card's final archive hash
 is listed in both the Mac and the VM inventories, and their wipe records are
 clean.
 
-What each still misses:
+Historical metadata gaps (necessary but insufficient for recovery; the
+quarantine and repaired-content qualification above take precedence):
 
 - **G16 (judge breadth) and G17 (zero-solve diagnosis):** absent.
   `docs/designs/stream-d.md` ("Remove the paid cap everywhere") describes a
