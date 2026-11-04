@@ -7,6 +7,7 @@ import sys
 from pathlib import Path as _P
 _ROOT = _P(__file__).resolve().parents[2]
 sys.path[:0] = [str(_ROOT / "factory")]
+import hashlib
 import json
 import shutil
 import tempfile
@@ -94,13 +95,13 @@ class PromotionTests(unittest.TestCase):
         for c in waves:
             self.assertTrue(json.loads((waves[c] / "admission.json").read_text())["complete"])
 
-    def wave(self, name, candidate, y_ct, y_digest, rejected, y_candidate=False):
+    def wave(self, name, candidate, y_ct, y_digest, rejected, y_candidate=False, card=None):
         """statement_round.prepare with case-py's collected ciphertext/card as the history."""
         import statement_round
         d = self.tmp / name; d.mkdir()
         shutil.copyfile(self.ct[candidate], d / (candidate + ".statement.age"))
         shutil.copyfile(y_ct, d / "case-py.statement.age")
-        (d / "case-py.scorecard.json").write_text(json.dumps(
+        (d / "case-py.scorecard.json").write_text(json.dumps(card if card is not None else
             {"statement_sha256": y_digest, "rejected_candidates": [{"statement_sha256": r} for r in rejected]}))
         cands = {"case-py": y_digest} if y_candidate else {candidate: self.dg[candidate]}
         return statement_round.prepare(d, self.tmp / "reg", cands, self.tmp / ("out-" + name), history_sealed=d)
@@ -136,10 +137,10 @@ class PromotionTests(unittest.TestCase):
         c1, c2, d1, d2 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64, "2" * 64
         self.wave("r1", "case-pa", c1, d1, [], y_candidate=True)
         real = registry.Registry.transition; calls = []
-        def flaky(reg, *a):
+        def flaky(reg, *a, **k):
             calls.append(a)
             if len(calls) == 1: raise ValueError("stale reservation")
-            return real(reg, *a)
+            return real(reg, *a, **k)
         with mock.patch.object(registry.Registry, "transition", flaky):
             self.assertEqual(self.r.replace_rejected("case-py", d2, c2, [d1])["statement_sha256"], d2)
         self.assertEqual(len(calls), 2)
@@ -147,6 +148,77 @@ class PromotionTests(unittest.TestCase):
         with mock.patch.object(registry.Registry, "transition", side_effect=ValueError("stale reservation")) as always:
             with self.assertRaisesRegex(ValueError, "stale"): self.r.replace_rejected("case-py", "3" * 64, c1, [d2])
         self.assertEqual(always.call_count, 2)
+
+    def entry(self):
+        return json.loads((self.tmp / "reg/registry.json").read_text())["entries"]["case-py"]
+
+    def test_stale_history_ciphertext_cannot_take_reselected_digest(self):
+        # diff-5 B1: card already names d2 (rejecting d1) but the collected history bytes are still c1.
+        c1, c2, d1, d2 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64, "2" * 64
+        sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+        bound = {"statement_sha256": d2, "statement_cipher_sha256": sha(c2), "rejected_candidates": [{"statement_sha256": d1}]}
+        for first in ("reserved", "history"):
+            with self.subTest(first=first):
+                shutil.rmtree(self.tmp / "reg"); shutil.copytree(SEALED / "statement-registry", self.tmp / "reg")
+                self.r = registry.Registry(self.tmp / "reg")
+                self.wave(first + "1", "case-pa", c1, d1, [], y_candidate=first == "reserved")
+                with self.assertRaisesRegex(ValueError, "different content"):
+                    self.wave(first + "2", "case-pz", c1, d2, [d1])
+                with self.assertRaisesRegex(ValueError, "different content"):  # Y's own handoff with the same stale bytes
+                    self.r.replace_rejected("case-py", d2, c1, [d1])
+                self.assertEqual((self.entry()["statement_sha256"], self.entry()["status"] != "released"), (d1, True))
+                with self.assertRaisesRegex(ValueError, "historical statement ciphertext"):  # card binds c2, bytes are c1
+                    self.wave(first + "3", "case-pz", c1, d2, [d1], card=bound)
+                self.assertEqual(self.entry()["statement_sha256"], d1)
+                out = self.wave(first + "4", "case-pz", c2, d2, [d1], card=bound)  # the consistent card still succeeds
+                self.assertEqual((out["case-pz"] / "case-py.statement.age").read_bytes(), c2.read_bytes())
+                self.assertEqual(self.entry()["cipher_sha256"], sha(c2))
+
+    def test_own_handoff_keeps_reselected_ciphertext_imported_as_history(self):
+        # diff-5 N3: X's history import stores c2; Y hands off a different seal of the same d2.
+        c1, c2, d1, d2 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64, "2" * 64
+        c2b = sorted(SEALED.glob("case-*.statement.age"))[4]
+        sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+        self.assertNotIn(sha(c2b), (sha(c1), sha(c2)))
+        self.wave("k1", "case-pa", c1, d1, [], y_candidate=True)
+        self.wave("k2", "case-pz", c2, d2, [d1])
+        mine = json.loads((self.wave("k3", "case-pa", c2b, d2, [d1], y_candidate=True)["case-py"] / "admission.json").read_text())
+        self.assertEqual((mine["complete"], mine["statement_sha256"], mine["cipher_sha256"]), (True, d2, sha(c2)))
+        self.assertEqual(self.r.export("case-pz", self.tmp / "k-out")["statements"]["case-py"], sha(c2))
+
+    def test_release_is_fenced_on_status_changed_under_same_token(self):
+        # diff-5 M1: Y completes c1 between the unlocked read and the release.
+        from unittest import mock
+        c1, c2, d1, d2 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64, "2" * 64
+        self.wave("f1", "case-pa", c1, d1, [], y_candidate=True)
+        real = registry.Registry.transition; calls = []
+        def racing(reg, case, token, status, **k):
+            calls.append(status)
+            if len(calls) == 1: real(reg, case, token, "completed")  # the concurrent change, same token
+            return real(reg, case, token, status, **k)
+        with mock.patch.object(registry.Registry, "transition", racing):
+            with self.assertRaisesRegex(ValueError, "different content"):
+                self.r.replace_rejected("case-py", d2, c2, [d1])
+        self.assertEqual(calls, ["released"])
+        self.assertEqual((self.entry()["status"], self.entry()["statement_sha256"]), ("completed", d1))
+        token = self.entry()["reservation"]
+        with self.assertRaisesRegex(ValueError, "stale reservation"):
+            self.r.transition("case-py", token, "released", expect=("screening", d1, self.entry()["cipher_sha256"]))
+
+    def test_malformed_history_rejected_list_authenticates_nothing(self):
+        # diff-5 N1: a malformed history card no longer crashes other waves; it never authenticates a release.
+        c1, c2, d1, d2 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64, "2" * 64
+        for i, rows in enumerate((None, [{"statement_sha256": d1}] * 4, [d1], "x")):
+            with self.subTest(rows=rows):
+                shutil.rmtree(self.tmp / "reg"); shutil.copytree(SEALED / "statement-registry", self.tmp / "reg")
+                self.r = registry.Registry(self.tmp / "reg")
+                self.wave(f"n{i}a", "case-pz", c2, d2, [], card={"statement_sha256": d2, "rejected_candidates": rows})
+                self.assertEqual(self.entry()["statement_sha256"], d2)  # no previous entry: plain history import
+                shutil.rmtree(self.tmp / "reg"); shutil.copytree(SEALED / "statement-registry", self.tmp / "reg")
+                self.wave(f"n{i}b", "case-pa", c1, d1, [], y_candidate=True)
+                with self.assertRaisesRegex(ValueError, "different content"):
+                    self.wave(f"n{i}c", "case-pz", c2, d2, [], card={"statement_sha256": d2, "rejected_candidates": rows})
+                self.assertEqual((self.entry()["statement_sha256"], self.entry()["status"]), (d1, "screening"))
 
     def test_malformed_input_refuses_before_releasing(self):
         c1, c2, d1 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64

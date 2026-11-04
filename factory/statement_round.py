@@ -94,12 +94,18 @@ def prepare(sealed, registry_root, candidates, destination, *, history_sealed=No
             card = history / (case + '.scorecard.json')
             card = json.loads(card.read_text()) if card.exists() else {}
             digest = card.get('statement_sha256')
-            rejected = [row.get('statement_sha256') for row in card.get('rejected_candidates', [])]
-            if len(rejected) > 3: raise ValueError('candidate selection bound exceeded')
             if digest is None:
                 registry.import_historical(case, ciphertexts[case])
-            else:  # a pending candidate may have reselected since the registry last saw it
-                registry.replace_rejected(case, digest, ciphertexts[case], rejected, historical=True)
+                continue
+            if (card.get('statement_cipher_sha256') is not None and
+                    hashlib.sha256(ciphertexts[case].read_bytes()).hexdigest() != card['statement_cipher_sha256']):
+                raise ValueError('historical statement ciphertext scorecard digest mismatch')
+            rows = card.get('rejected_candidates')
+            # A malformed list authenticates no release; reserve then returns or refuses as before.
+            rejected = ([row.get('statement_sha256') for row in rows] if isinstance(rows, list) and len(rows) <= 3
+                        and all(isinstance(row, dict) for row in rows) else [])
+            # a pending candidate may have reselected since the registry last saw it
+            registry.replace_rejected(case, digest, ciphertexts[case], rejected, historical=True)
     snapshots = {}
     for case, digest in sorted(candidates.items()):
         card_path = sealed / (case + '.scorecard.json')

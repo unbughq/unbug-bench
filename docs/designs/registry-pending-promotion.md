@@ -80,7 +80,7 @@ Already-reserved candidates keep their fixed snapshot (later entries are not ret
 
 **Tests.** `test_registry_promotion.py`: two-wave `prepare` for both starting states
 (reserved, history), Y's own handoff after, and unauthenticated reselection refusals.
-Fails on 271f4a87, passes now. **Murphy.** Closes new-registry-pending-promotion-1 locally;
+Fails on 271f4a87, passes now. **Murphy.** Fixes new-registry-pending-promotion-1 locally (row stays open, see diff-5 follow-up);
 not deployed or live-proven; register untouched.
 
 **Review follow-ups (diff-3, published as diff-2 on the follow-up branch).** `replace_rejected` validates digest and ciphertext before any
@@ -89,3 +89,19 @@ every race ends in success, retry or refusal). Legacy digestless historical entr
 replaced by a reselected candidate (a None digest never authenticates a release); all 37
 retained ones are finished cases. Tests add the direct own-handoff release and
 malformed-input-before-release cases.
+
+**Review follow-ups (diff-5).** The release is now a fenced compare-and-release:
+`transition(..., expect=(status, statement_sha256, cipher_sha256))` re-checks under the lock
+the values the unlocked decision read, so a same-token change (for example building →
+completed) raises "stale reservation" and the single retry re-reads and refuses. This
+replaces the diff-3 claim above, which did not cover that race. A release is also refused when
+the offered bytes equal the stored ciphertext under a different digest (stale collected
+ciphertext); `prepare` checks a history card's `statement_cipher_sha256` when present, as the
+candidate path does. A history card's `rejected_candidates` is read only when it carries a
+digest, and a malformed list authenticates nothing (the import then refuses or succeeds as
+before instead of failing other waves). **Known gap (accepted):** release and reserve take the
+lock separately, so a reservation for another case landing in between omits this case. Pairwise
+screening still holds because this case's own later reservation (promotion or reserve)
+recomputes its predecessors and includes that case. **Murphy:** new-registry-pending-promotion-1
+stays open. No retained real card carries `statement_sha256`/`rejected_candidates`, so the
+new branch runs only on hand-authored cards over the real registry and ciphertext.
