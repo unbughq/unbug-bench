@@ -2,7 +2,8 @@
 
 Murphy row 16, partial: the queueing half only. The row stays **open**.
 
-Revision 2 addresses `docs/reviews/independent-worker-retirement-design-1.md`.
+Revision 3 addresses `docs/reviews/independent-worker-retirement-design-1.md`
+and `-design-2.md`.
 
 ## Problem
 
@@ -36,37 +37,57 @@ Revision 2 addresses `docs/reviews/independent-worker-retirement-design-1.md`.
 
 ## Change
 
-Every per-worker action that `guard_wait` used to run inline after
-classifying a worker now runs in that worker's own background task:
-`factory_ttl_retire`, `factory_auto_resume`, `guard_retire` and the
-`.retired` decision. The poll loop does only probes (bounded by the Boat
-command timeout), classification, task starts and reaping.
+Every retirement that `guard_wait` used to run inline now runs in that
+worker's own background task. That is `factory_ttl_retire` plus
+`guard_retire`, and the `.retired` decision.
+
+`factory_auto_resume` (DONE path, `label=factory`) **stays inline**, exactly
+as today. If it returns 0, the worker stays pending. If it returns non-zero,
+a `retire` task starts. It stays inline because its stop semantics depend on
+the launcher trap running between its commands:
+- Ctrl-C would otherwise make its `boat-call`s fail inside a shell that
+  ignores SIGINT, which runs its `.keep` handlers;
+- TERM to the launcher alone would otherwise let it reach
+  `boat exec --detach run.py --resume`, which is new paid work after a stop.
+
+Keeping it inline preserves today's behaviour exactly (design review 2,
+finding 1). The bound it still adds to peers is stated under Out of scope.
+
+So the poll loop does probes (bounded by the Boat command timeout),
+classification, inline auto-resume for DONE factory workers, task starts and
+reaping.
 
 ### `guard_retire_start <id> <kind>`
 
 `kind` is one of:
 - `retire`: plain `guard_retire`;
 - `ttl`: `factory_ttl_retire` if it is defined (a failure only logs, as
-  today), then `guard_retire`;
-- `done`: `factory_auto_resume` if it is defined and `label=factory`. If it
-  returns 0, the outcome is `resumed`. Otherwise run `guard_retire`.
+  today), then `guard_retire`.
 
 Steps:
 1. Bump a counter, then set `gr_token=$$.$counter` and
    `gr_exit=$state/$id.retirement-exit.$gr_token`.
-2. Unless `guard_exiting` is set, install deferring traps:
+2. Remove older `$state/$id.retirement-exit.*` files. This must happen
+   **before** the fork, so the glob cannot remove the new task's own file.
+3. Unless `guard_exiting=1`, install deferring traps:
    `trap 'gr_signal=130' INT` and `trap 'gr_signal=143' TERM`.
-3. Start the task:
+4. Start the task:
    ```sh
    ( trap - 0
      gr_s=0; <kind work> || gr_s=$?
      printf '%s\n' "$gr_s" > "$gr_exit.tmp" && mv "$gr_exit.tmp" "$gr_exit" ) &
    ```
-   For `resumed`, the task writes the word `resumed`.
-4. Append `id:pid:token` to the space-separated shell variable
+5. Append `id:pid:token` to the space-separated shell variable
    `guard_retiring`.
-5. Restore `trap 'exit 130' INT` and `trap 'exit 143' TERM`. If `gr_signal`
-   was set, run `exit "$gr_signal"`.
+6. Restore `trap 'exit 130' INT` and `trap 'exit 143' TERM`. These are the
+   exact traps `guard_init` installs. Every caller reaches `guard_wait` only
+   after `guard_init`, and a comment ties the two together. If `gr_signal`
+   is set, run `exit "$gr_signal"`.
+
+`guard_init` and the new functions initialise `gr_signal`, `guard_exiting`,
+`guard_retiring`, `guard_task_counter` and `guard_task_deaths` with
+`${var:-}`-safe defaults, so `set -u` holds. Because the guard file is
+sourced, the defaults are set at source time.
 
 This closes the window between `&` and recording the pid. A signal in that
 window only sets the flag, and the exit trap then sees the recorded task.
@@ -95,14 +116,29 @@ For each `id:pid:token` in `guard_retiring`:
 2. **Reap.** Run `wait "$pid" || :` and read the file.
    - **Numeric status:** touch `<id>.retired`. A status above 0 sets the
      reaper's return value to 1.
-   - **`resumed`:** do not touch `.retired`. The worker returns to polling,
-     exactly as when `factory_auto_resume` returned 0 inline.
-   - **Missing or invalid status:** the task died. Log it, set the return
-     value to 1 and do **not** touch `.retired`, so that a later poll probes
-     the worker again and `guard_retire` replays from its markers. Only one
-     task per id can exist at a time, so this cannot produce a concurrent
-     duplicate.
+   - **Missing or invalid status:** the task died. Log it and set the return
+     value to 1. Then:
+     - **First such death for this id in this controller:** do **not** touch
+       `.retired`. The id is recorded in `guard_task_deaths`, a later poll
+       probes the worker again, and `guard_retire` replays from its markers.
+     - **Second such death:** touch `.retired`, the same as a failed
+       retirement today. The exit pass and the provider TTL remain the
+       backstop.
+
+     This bounds respawns to 2 per id per controller, so a deterministic
+     cause (a `set -u` abort, ENOSPC) cannot make `guard_wait` loop forever
+     (design review 2, finding 2). In `block` mode (the exit path), a
+     missing status is a failure and never respawns.
 3. **Clean up.** Remove the file and drop the entry.
+
+Within one controller, only one task per id exists at a time. An orphaned
+task of a SIGKILLed controller can overlap the next controller's task for the
+same id, as today's single orphaned retirement can. Its status file carries
+the old token and is never read.
+
+`kill -0` can in theory be fooled by PID reuse. The effect would be a
+delayed reap, never a wrong status: the status always comes from the token
+file or from `wait`.
 
 ### `guard_wait`
 
@@ -111,16 +147,21 @@ For each `id:pid:token` in `guard_retiring`:
   - the start/probe loop;
   - the probe-wait loop;
   - the classification loop.
-  
-  A worker with an in-flight task keeps `pending=1`, so a stale `.ok` or
-  `.reply` can never start a second task.
-- Each former inline action becomes a start:
+
+  In the first loop, the skip comes **before** the `.retired` and `.deleted`
+  checks. Otherwise a task that has just deleted its worker would drop
+  `pending` while it is still in flight. A worker with an in-flight task sets
+  `pending=1`, so a stale `.ok` or `.reply` can never start a second task.
+- **Both return points also require an empty `guard_retiring`.** These are
+  the early "nothing pending" return after the first loop, and the
+  end-of-pass return.
+- Each former inline retirement becomes a start:
 
   | Path | Old inline action | New start | Status |
   |---|---|---|---|
-  | `.deletion-attempted` | `guard_retire` | `retire` | unchanged |
+  | `.deletion-attempted` | `guard_retire` | `retire` | reap failure sets `wait_status=1` |
   | STARTUP_FAILED | `guard_retire \|\| true` | `retire` | `wait_status=1` set as before |
-  | DONE | `factory_auto_resume`, else `guard_retire` | `done` | reap failure sets `wait_status=1` |
+  | DONE | `factory_auto_resume` (inline, unchanged), else `guard_retire` | inline auto-resume, else `retire` | reap failure sets `wait_status=1` |
   | stall / unreachable / TTL margin | (`factory_ttl_retire` +) `guard_retire \|\| true` | `ttl` for the TTL margin, else `retire` | `wait_status=1` set as before |
 
   For STARTUP_FAILED, stall, unreachable and the TTL margin, reaping a
@@ -163,29 +204,44 @@ worker). That is longer than systemd's default stop timeout, as today.
 Today, Ctrl-C aborts the foreground collection and the exit pass collects
 again. Afterwards, the outcome is the same as today: an uncollected worker is
 never deleted, collection is retried, and a worker that still cannot be
-collected is kept with the TTL as the backstop. One overlap is removed:
-today's exit pass and an orphaned `collect.sh` could collect one worker
-concurrently. Now each id has exactly one task at a time.
+collected is kept with the TTL as the backstop.
+
+**`factory_ttl_retire` inside a `ttl` task.** If Ctrl-C makes its SSH fail,
+the existing `|| echo "TTL attestation failed ..."` path logs it, and
+collection proceeds without attestation. Today, the trap would skip the
+attestation and the exit pass would collect without it. Either way the
+result is the same: no continuation is queued, and collection still happens.
 
 **TERM to the launcher only:** the same as above, except the tasks are not
-interrupted.
+interrupted. A `ttl` task may then complete its attestation, and `collect.sh`
+may queue the case as `queued_policy_required` in
+`results/ttl-continuations`. That queue only *records* eligibility. A
+continuation still needs its own separately admitted launch, so no model
+work starts.
+
+**Auto-resume:** inline, so its signal behaviour is unchanged.
 
 **TERM to the whole cgroup (systemd):** everything dies, as today. Replay
 markers govern the next controller.
 
 ### Concurrency audit (parallel tasks for distinct workers)
 
-- **Shell state.** `retire_id`, `retire_status`, `tries`, `collect_status`,
-  `files` and `factory_auto_resume`'s `resume_id`, `remaining`, `attempts` and
-  `restart_plan` are subshell-local. `factory_auto_resume` sets no main-shell
-  variable that the poll loop reads afterwards. Its side effects are all state
-  files keyed by worker id.
+- **Shell state.** `retire_id`, `retire_status`, `tries`, `collect_status`
+  and `files` are subshell-local. Auto-resume stays in the main shell, as
+  today.
 - **Collection** (`collect.sh`):
   - `transfer.py` holds a per-file `flock` and replaces a file only after a
     SHA match;
   - `collection.py` verifies only the names its own collection listed;
-  - case ids are timestamp plus random, so the workers of one launch run
-    distinct cases.
+  - `--restore` and batch operations force `N=1` (`launch.sh`), and fresh
+    case ids are timestamp plus random, so the workers of one launch never
+    collect the same case name.
+- **Bandwidth.** N tasks transfer chunks at the same time, sharing host
+  bandwidth under the 120 s-per-8 MiB chunk bound. A contended chunk that
+  times out fails the collection attempt. Chunks resume across
+  `guard_retire`'s retries, and only SHA-verified bytes replace a result. So
+  contention costs retries, never integrity. The live effect at large N is
+  unmeasured.
 - **Deletion.** `boat_lifecycle.delete_receipt` uses a per-worker
   `<id>.deletion.lock` and a per-worker evidence directory. `boat delete` and
   `hcloud-park` take one id. `guard_ids resolve` replaces `$state/ids`
@@ -220,11 +276,19 @@ themselves are unchanged.
     (`practice.TIMING`: `retire_at == 1800`, `ttl == 3600`, frozen by the
     practice4 branch).
   - It also needs live timing proof.
-- **The setup-failure `guard_retire` in `factory/launch.sh` stays
-  synchronous.** It runs in the creation loop, so earlier peers can be due
-  meanwhile and are delayed by it. The impact is low: a setup-failed worker
-  has no `run.py` to pause, so its collection is short. It is left
-  unchanged to keep the diff small.
+- **Some retirement-related work stays synchronous in `factory/launch.sh`.**
+  It runs in the creation loop or the poll loop, so earlier peers can be due
+  meanwhile and are delayed by it. It is left unchanged to keep the diff
+  small and stop semantics identical.
+  - **The setup-failure `guard_retire`.** Its impact is low: a setup-failed
+    worker has no `run.py` to pause, so its collection is short.
+  - **The `guard_retire` after a failed `guard_new`.**
+  - **Inline `factory_auto_resume` for DONE factory workers.** Its
+    `collect_vm` runs on a worker that already wrote DONE, so `collect.sh`
+    skips the 1050 s pause. The delay it adds to peers is the transfer of an
+    already-sealed checkpoint, plus a few SSH calls of up to 120 s each and
+    the local planners. That is typically minutes, not the hour of a pausing
+    retirement.
 - **No live proof.** The transports are authored. Real archive ciphertext is
   never saved in the repo.
 
@@ -232,6 +296,9 @@ themselves are unchanged.
 
 - **Cost:** one shell file, about 60 changed lines, plus one test file. No
   money, routes or timing values change.
+- **Timeline:** a single change on this branch. Nothing rolls out until root
+  re-pins the launcher fingerprint and deploys. Live proof needs a separately
+  authorised multi-worker launch.
 - **Risk:** a new background process model in the launcher. This is
   mitigated by signal deferral, token-named status files, the liveness
   fallback, and tests under both dash and `bash --posix`.
@@ -275,14 +342,19 @@ Scenarios:
    poll. Pass: B is retired while A is in flight, and `guard_wait` returns
    only after both. In a variant, A's collection fails all three tries. Pass:
    `guard_wait` returns 1, A is kept (not deleted), and B is still deleted.
-3. **`once` does not join, and auto-resume runs in the task.** `guard_wait
-   once` returns while A's collection is blocked, and a later `guard_wait`
-   reaps A. In a separate case, a `factory_auto_resume` that returns 0 leaves
-   the worker pending without `.retired`, and it is retired on a later DONE.
-4. **Liveness.** A task killed with SIGKILL, so it writes no status file, is
-   reaped. Its worker is not `.retired`. It is probed again, retired on the
-   next pass, and `guard_wait` returns 1 rather than hanging. A stale
-   `.retirement-exit.*` file left before start is ignored.
+3. **`once` does not join, and auto-resume stays inline.** `guard_wait once`
+   returns while A's collection is blocked, and a later `guard_wait` reaps A.
+   In a separate case, an inline `factory_auto_resume` that returns 0 leaves
+   the worker pending without a task or `.retired`. When it later returns 1,
+   a `retire` task starts.
+4. **Liveness and the respawn bound.**
+   - A task killed with SIGKILL, so it writes no status file, is reaped. Its
+     worker is not `.retired`. It is probed again, retired on the next pass,
+     and `guard_wait` returns 1 rather than hanging.
+   - A task that **always** dies without a status (deterministic) is
+     respawned once. It is then marked `.retired`, and `guard_wait` returns 1
+     in bounded time.
+   - A stale `.retirement-exit.*` file left before start is ignored.
 5. **Exit trap joins rather than kills.**
    - **TERM to the launcher shell** while A's collection is blocked. Pass:
      A's single collection completes, A is deleted exactly once, a peer still
@@ -298,7 +370,16 @@ Scenarios:
    directories (an authored card whose `sha256` binds an opaque archive). The
    real `factory/collect.sh`, `transfer.py` and `collection.py` collect them
    concurrently into one destination through an authored transport. Pass:
-   both are verified and deleted.
+   both are verified and deleted. The card is authored, so this scenario is
+   **not** real-artifact evidence for closing row 16.
+
+A once-mode task overlapping `guard_new` and `guard_ids resolve` is not
+tested separately. Two things cover it instead:
+- `guard_ids resolve` replaces `ids` atomically. Its write path is unchanged,
+  and the existing launcher tests cover it.
+- The only task-side reader of `ids` is `_delete`'s ownership check, which
+  only needs the task's own id. That id is present in both the old and the
+  new list.
 7. **No regression.** These still pass:
    - `tests/bench/test-launch-guards.py` (factory and exam paths);
    - `tests/bench/test-guard-bounds.py`;
