@@ -5,6 +5,9 @@ Local regression harness for Medusa inventory consistency. Bench internals are
 application and guard interface. No Medusa package source is patched. The contestant-facing document is
 [CONTESTANT.md](CONTESTANT.md); do not distribute this README or SPEC.md.
 
+For a plain-language guide to the exam's purpose, stages, and scoring, read
+[How the exam works](EXAM.md).
+
 Requirements: Docker Compose, Python 3, Node.js 22 or newer, npm. From this directory:
 
 ```sh
@@ -459,3 +462,7 @@ The latest counts and reset durations are in
 verification artifacts are under ignored `results/`; they are not calibration.
 The literal all-`@medusajs/*` 2.19.0 pin remains impossible because upstream UI
 has no such release; the explicit lock verification exception is unchanged.
+
+## Cloud factory handoff
+
+Start with [the current branches, cloud tasks and 24-case checklist](docs/cloud-handoff.md).

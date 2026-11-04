@@ -1904,6 +1904,19 @@ def strategy_module():
     return module
 
 
+def g14_binding(c):
+    """Exact case, bench and seed binding for reusing completed G14 checkpoints.
+    Separate from strategy_run's signature so existing G13/G15 receipts stay valid;
+    keep its case-file handling in step with strategy_run.signature()."""
+    import gate_state
+    case_files = tree_digest(c.case)
+    for metadata in ("freshness.jsonl", "BUILD-NOTES.md"):
+        case_files.pop(metadata, None)
+    identity = {"version": 5, "case": case_files, "strategy": "g14-ingredients",
+                "inputs": gate_state.inputs(c, "G14", BENCH)}
+    return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+
+
 def strategy_run(c, name):
     """Only completed runner validations with intact evidence survive a restart."""
     import gate_state
@@ -2048,6 +2061,13 @@ def g14(c):
         return True, {'skipped': 'v1 practice fixture has no v2 ingredients'}
     if problems: return False, {'problems': problems}
     module = strategy_module(); ordered = module.steps(c.case)
+    from functools import partial
+    from strategy_resume import execute_cached
+    workers = getattr(c.args, 'bench_workers', 1)
+    # An expired window or restart redoes only the unit in flight; completed units keep their exact bindings.
+    execute = partial(execute_cached, partial(module.checkpoint, factory_workers=workers), workers=workers,
+                      cache_dir=c.work / 'strategy-g14-checkpoints', binding=lambda: g14_binding(c),
+                      results_root=BENCH / 'results', restored_results_root=c.work / 'bench-results')
     ing = jload(c.case / 'case.json')['ingredients']; history = []; counts = {'rules': 0, 'second_writer': 0, 'pending': 0, 'blind': 0, 'unannounced': 0}
     seen = set()
     import claims
@@ -2067,12 +2087,12 @@ def g14(c):
             scenarios = history + ([directory] if directory not in history else [])
             previous = ordered[max(0, index - 1)]['reference']
             def run(guard, tag):
-                return module.checkpoint(scenarios, guard, {'pending_decision': 'approve'}, c.args.scenario_runs, c.seed,
-                                         'g14-' + tag + '-' + str(index), factory_workers=getattr(c.args, 'bench_workers', 1))
+                return execute(scenarios, guard, {'pending_decision': 'approve'}, c.args.scenario_runs, c.seed,
+                               'g14-' + tag + '-' + str(index))
             for rule in ing['unstated_rules']:
                 if rule['scenario'] not in aliases: continue
                 wrong = run(c.case / 'guards/wrong-guess' / rule['id'], 'wrong-guess')
-                ref = run(step['reference'], 'reference')
+                ref = run(step['reference'], 'reference-' + rule['id'])  # one real run per rule, never a cache hit
                 counts['rules'] += check(wrong, rule['intent_check'], False) and check(ref, rule['intent_check'], True)
             one = run(c.case / 'guards/one-place', 'one-place')
             path = one.get('paths', {}).get(ing['second_writer']['path'], {})

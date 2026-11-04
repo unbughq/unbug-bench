@@ -1,0 +1,35 @@
+{
+  "record_type": "founder_budget_decision",
+  "decision_id": "smoke-bx-bykfqbyn-conservative-budget-debit-20261104",
+  "recorded_utc": "2026-11-04T10:48:14.062233+00:00",
+  "approval": "Approve this $0.036 budget debit",
+  "scope": "Already-deleted November 4 smoke worker bx_bykfqbyn only",
+  "worker_id": "bx_bykfqbyn",
+  "state_path": "/home/user/.unbug-control/launches/f8536b66437d4a00bf9ce6f91e4952ec",
+  "spend_path": "/home/user/unbug-bench/results/spend/20261104T093122Z-253257-factory.json",
+  "spend_sha256": "14fc32b52e057144181e0aa44caef03e58ea0cfe8e9b69d970633d207e78691b",
+  "deletion_operation_id": "bdop_1942fdf42b584771a252b40a6d62c168",
+  "deletion_request_sha256": "7fa8888c31a8e89a89a695eb508298739fd7c87daf14915cffb67356ee4fbbc0",
+  "deletion_completion_sha256": "735269a09d9103d47f89c28c37758a28658b651fdc9c52e4349d725f96cf1c89",
+  "original_row_status": "reserved",
+  "original_envelope": {
+    "vms": 1,
+    "ttl_seconds": 3600,
+    "max_spend_usd": "5"
+  },
+  "budget_debit_usd": "0.036",
+  "infrastructure_budget_cap_usd": "5.000",
+  "prior_Nov3_permanent_budget_debit_usd": "0.036",
+  "remaining_budget_after_both_debits_before_other_liabilities_usd": "4.928",
+  "actual_spend_usd": null,
+  "actual_charge_status": "unknown",
+  "treatment": "Permanent conservative infrastructure budget debit; not exact usage settlement",
+  "authorization_limits": [
+    "No new payment, top-up or higher limit",
+    "Preserve every prior ledger, spend and provider evidence record",
+    "Do not set actual_spend_usd to the reservation",
+    "Scope only this exact November 4 reservation; retain separate November 3 decision and its replay validity",
+    "No additional worker, replacement, retry, practice or fleet authorized"
+  ],
+  "execution_status": "Approval recorded; live ledger application requires reviewed compatible accounting code"
+}

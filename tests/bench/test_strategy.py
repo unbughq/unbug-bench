@@ -118,7 +118,7 @@ class StrategyTests(unittest.TestCase):
             with patch.object(run, 'strategy_module', return_value=strategy), \
                  patch.object(run, 'case_ingredients', return_value=[]), \
                  patch.object(strategy, 'checkpoint', checkpoint):
-                ok, detail = run.g14(SimpleNamespace(case=case, seed=1,
+                ok, detail = run.g14(SimpleNamespace(case=case, seed=1, work=pathlib.Path(tmp) / 'work',
                     args=SimpleNamespace(dry_run=False, scenario_runs=3, bench_workers=2)))
             self.assertTrue(ok, detail)
             self.assertEqual((case / 'scenarios/harmless/scenario.json').read_bytes(), original)

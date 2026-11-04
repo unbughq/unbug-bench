@@ -781,19 +781,35 @@ LEGACY_DECISION_SHA = '4e5caa263a8bf323abb78791f03c3a064df3ab0ee0b9b5bbb0b950e97
 LEGACY_DECISION_FILE = 'factory/legacy-bx-z4wktrbn-budget-decision-20261104.json'
 
 
-def legacy_decision():
-    path = pathlib.Path(__file__).resolve().parent.parent/LEGACY_DECISION_FILE
-    if sha256(path) != LEGACY_DECISION_SHA: raise ValueError('decision changed')
+SMOKE_DECISION_SHA = 'a774c1e9d284ec99b135d9a195e33617a00c4a366ac4962ae0790e8beb46a929'
+SMOKE_DECISION_FILE = 'factory/smoke-bx-bykfqbyn-budget-decision-20261104.json'
+
+
+def legacy_decision(selector='legacy'):
+    if selector not in ('legacy','smoke'): raise ValueError('unapproved decision')
+    name,expected = (LEGACY_DECISION_FILE,LEGACY_DECISION_SHA) if selector=='legacy' else (SMOKE_DECISION_FILE,SMOKE_DECISION_SHA)
+    path = pathlib.Path(__file__).resolve().parent.parent/name
+    if sha256(path) != expected: raise ValueError('decision changed')
     return loads(regular(path))
 
 
-def approved_budget_row(original):
-    decision = legacy_decision()
-    if (not isinstance(original,dict) or original.get('status') != 'finished' or
+def approved_budget_row(original, selector='legacy'):
+    decision = legacy_decision(selector)
+    if selector=='smoke':
+        required={'usd','expires_at','status','state_path','vms','ttl_seconds','max_spend_usd'}
+        if (not isinstance(original,dict) or set(original) not in (required,required|{'actual_spend_usd'}) or
+                original['usd']!='0.036' or original['status']!='reserved' or
+                type(original['expires_at']) not in (int,float,Decimal) or Decimal(str(original['expires_at']))!=Decimal('1793790083.3712797') or
+                original['state_path']!=decision['state_path'] or
+                type(original['vms']) is not int or original['vms']!=1 or
+                type(original['ttl_seconds']) is not int or original['ttl_seconds']!=3600 or
+                original['max_spend_usd']!='5' or original.get('actual_spend_usd') is not None):
+            raise ValueError('not the approved smoke row')
+    elif (not isinstance(original,dict) or original.get('status') != 'finished' or
             number(original['usd']) != Decimal('0.036') or
             any(k in original for k in ('state_path','vms','ttl_seconds','max_spend_usd','settlement','budget_debit')) or
             original.get('actual_spend_usd') is not None): raise ValueError('not the approved historical row')
-    proof = dict(schema=1,decision_sha256=LEGACY_DECISION_SHA,
+    proof = dict(schema=1,decision_sha256=LEGACY_DECISION_SHA if selector=='legacy' else SMOKE_DECISION_SHA,
         **{k:decision[k] for k in ('spend_path','state_path','worker_id','deletion_operation_id','spend_sha256','budget_debit_usd')},
         budget_cap_usd=decision['infrastructure_budget_cap_usd'],actual_charge_status='unknown',original_row=original)
     return dict(original,status='budget_debited',actual_spend_usd=None,budget_debit=proof)
@@ -802,18 +818,23 @@ def approved_budget_row(original):
 def budget_amount(row, key):
     if row['status'] == 'settled': return settlement_amount(row)
     if row['status'] != 'budget_debited': raise ValueError('unaccounted liability')
-    decision = legacy_decision()
+    proof=row.get('budget_debit')
+    if not isinstance(proof,dict) or type(proof.get('schema')) is not int: raise ValueError('invalid conservative debit')
+    approval=proof.get('decision_sha256')
+    if approval not in (LEGACY_DECISION_SHA,SMOKE_DECISION_SHA): raise ValueError('unapproved decision')
+    selector='legacy' if approval==LEGACY_DECISION_SHA else 'smoke'
+    decision = legacy_decision(selector)
     if (key != decision['spend_path'] or not isinstance(row.get('budget_debit'),dict) or
-            row != approved_budget_row(row['budget_debit']['original_row'])):
+            row != approved_budget_row(row['budget_debit']['original_row'],selector)):
         raise ValueError('invalid conservative debit')
     return Decimal('0.036')
 
 
-def record_approved_debit(ledger):
-    decision = legacy_decision(); key = decision['spend_path']; original = ledger['reservations'][key]
+def record_approved_debit(ledger, selector='legacy'):
+    decision = legacy_decision(selector); key = decision['spend_path']; original = ledger['reservations'][key]
     if original['status'] == 'budget_debited':
         budget_amount(original,key); return False
-    candidate = approved_budget_row(original)
+    candidate = approved_budget_row(original,selector)
     spend, state = pathlib.Path(key),pathlib.Path(decision['state_path'])
     if spend != spend.resolve() or state != state.resolve() or sha256(spend) != decision['spend_sha256']:
         raise ValueError('historical spend mismatch')
@@ -821,7 +842,7 @@ def record_approved_debit(ledger):
     if (data.get('provider') != 'boat' or data.get('allowed') is not True or
             type(data.get('vms')) is not int or data['vms'] != 1 or data.get('ttl_seconds') != 3600 or
             number(data.get('max_spend_usd')) != 5 or data.get('actual_spend_usd') is not None or
-            not data.get('finished_at')): raise ValueError('historical envelope mismatch')
+            (selector=='legacy' and not data.get('finished_at'))): raise ValueError('historical envelope mismatch')
     workers = settlement_workers(state,dict(original,vms=1,ttl_seconds=3600,max_spend_usd='5'))
     if workers != [decision['worker_id']]: raise ValueError('historical worker mismatch')
     import shlex
@@ -829,6 +850,9 @@ def record_approved_debit(ledger):
     if values != [[str(spend)]]: raise ValueError('historical monitor mismatch')
     evidence = spend.with_suffix('.deletions')/workers[0]
     if evidence.is_symlink() or evidence.parent.is_symlink(): raise ValueError('historical evidence mismatch')
+    if selector=='smoke' and (sha256(evidence/'deletion-request.json') != decision['deletion_request_sha256'] or
+            sha256(evidence/'deletion-completion.json') != decision['deletion_completion_sha256']):
+        raise ValueError('historical deletion hash mismatch')
     request,done = (loads(regular(evidence/name)) for name in ('deletion-request.json','deletion-completion.json'))
     if request.get('id') != decision['deletion_operation_id'] or request.get('targetId') != workers[0] or request.get('kind') != 'sandbox':
         raise ValueError('historical deletion mismatch')
