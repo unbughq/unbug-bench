@@ -35,9 +35,14 @@ retry or restart redoes every completed scenario/guard unit.
    has unannounced steps (`simulate` refuses that for strategies); it is safe
    because `bin/checkpoint` is a standalone call with a fixed report and
    explicit history.
-3. `extension_evaluator` runs G13/G14/G15 in a forked comparison child, outside
-   `GatePipeline.check`. Its `gate_attempt.execute` is wrapped in the same
-   `window()`; the fork inherits the context deadline.
+3. `extension_evaluator` runs G13/G14/G15 in one long-lived forked comparison
+   child per phase, outside `GatePipeline.check`. A fork keeps the deadline it
+   was forked under, so inheritance cannot work. Instead the parent wraps its
+   `gate_attempt.execute` in the same `window()` (retries share it) and sends the
+   window's absolute monotonic end in the `('stage', ...)` message; the child
+   clears its fork-time deadline at start and wraps each gate call in that end
+   (`None` for non-mechanical stages = no deadline). The monotonic clock is
+   system-wide, so an absolute end is valid in the child.
 
 Expiry stays `infrastructure_exhausted` / `invalid-infra`: never a gate pass,
 fail, or writer feedback. Run counts, guards, seeds, and allowances are
@@ -59,8 +64,10 @@ and G15, and for early G15 (baseline: 8 units, now 4); in-window work passes;
 (b) real retained `cases/medusa-oversell-v2` step order through real `run.g14`,
 real `execute_cached` and real `processes.run`; the `bin/strategy checkpoint`
 wrapper (docker bench, `read_completed`) is replaced by a fake that writes
-synthetic summaries, so G14's verdict logic is not exercised on cached data. Three expired windows never redo a completed unit (baseline
-redoes them). `tests/bench/test_strategy.py` gains the `work` dir real cards
+synthetic summaries, so G14's verdict logic is not exercised on cached data.
+Three expired windows never redo a completed unit (baseline redoes them). The
+real comparison child loop gets each stage's window from the message
+(`test_stream_d_comparison.py`, `long_lived`). `tests/bench/test_strategy.py` gains the `work` dir real cards
 always have.
 
 ## Murphy rows
@@ -78,12 +85,13 @@ checkpoint boundary.
   persists in `infra-attempts.json` (no reset on retry, as required). A resume
   of the same unchanged execution after expiry is therefore exhausted before it
   starts; the G14 cache pays off after a worker crash (one stale `running`
-  attempt) or after a code/identity change. A honest workload longer than
+  attempt) or after a code/identity change. An honest workload longer than
   `agent_timeout` cannot finish without such a change; it stops as
   infrastructure, never as a case result.
 - The deadline bites at child spawns and child timeouts; in-process work (silent
   window sleeps, tree hashing) runs on until the next spawn.
-- The extension comparison window is wrapped but has no dedicated test.
+- The parent half of the comparison wiring (`invoke` sending the end) has no
+  dedicated test; the child half does.
 - The window is still `agent_timeout`; the two retries share it, they do not
   shrink it.
 - The unit in flight when the window ends is lost (a child is killed).

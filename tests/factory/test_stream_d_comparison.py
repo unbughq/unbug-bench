@@ -364,7 +364,7 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(gate_state.fingerprint(self.c, 'G4', ROOT), signature)
 
 
-    def child_protocol(self, stage, action, attempt_id=None, on_send=None, real_setup=False):
+    def child_protocol(self, stage, action, attempt_id=None, on_send=None, real_setup=False, end=None):
         """Authored synchronous Pipe, exercising the real child loop on macOS too."""
         root = self.work / 'protocol'
         root.mkdir(exist_ok=True)
@@ -377,7 +377,7 @@ class ComparisonTests(unittest.TestCase):
         versions = comparison._versions(self.workspace())
         messages = []
         class Pipe:
-            def __init__(self): self.commands = [('stage', stage, attempt_id), ('close',)]
+            def __init__(self): self.commands = [('stage', stage, attempt_id, *([] if end is None else [end])), ('close',)]
             def send(self, message):
                 messages.append(message)
                 if on_send: on_send(message)
@@ -404,6 +404,18 @@ class ComparisonTests(unittest.TestCase):
                 patch.object(run, 'g3', setup), patch.object(run, stage.lower(), action):
             evaluator.child(Pipe(), context, run, ROOT, manifest, versions)
         return context, messages, manifest, versions
+
+    def test_long_lived_child_takes_each_stage_window_from_the_message_not_from_its_fork(self):
+        import processes, time
+        seen = []
+        def gate(context):
+            seen.append(processes._deadline.get()[0]); return True, {}
+        end = time.monotonic() + 3600
+        with processes.deadline(1):  # the stale window the child was forked inside
+            self.child_protocol('G14', gate, end=end)
+            self.child_protocol('G7', gate)
+        self.assertAlmostEqual(seen[0], end, delta=1)  # mechanical stage: the parent's window
+        self.assertEqual(seen[1], float('inf'))  # non-mechanical stage: no inherited window
 
     def test_real_g3_prepares_before_a_fresh_checkpoint(self):
         saved = comparison_tests.execution('plain')

@@ -121,6 +121,7 @@ class G14ResumeTests(unittest.TestCase):
                         run.g14(c)
                 self.assertEqual(len(executed), 4 * (window + 1))
         self.assertEqual(len(set(executed)), len(executed), 'a completed unit was redone')
+        self.assertIn('g14-reference-manual-holds-1', executed)  # per-rule real run keeps its own label
         # A third window against unchanged inputs reuses all eight and spends itself on new units.
         with patch.object(processes, 'time', clock), patch.object(run, 'BENCH', root), \
                 patch.object(run, 'strategy_module', lambda: module):

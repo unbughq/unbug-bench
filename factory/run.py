@@ -1906,7 +1906,8 @@ def strategy_module():
 
 def g14_binding(c):
     """Exact case, bench and seed binding for reusing completed G14 checkpoints.
-    Separate from strategy_run's signature so existing G13/G15 receipts stay valid."""
+    Separate from strategy_run's signature so existing G13/G15 receipts stay valid;
+    keep its case-file handling in step with strategy_run.signature()."""
     import gate_state
     case_files = tree_digest(c.case)
     for metadata in ("freshness.jsonl", "BUILD-NOTES.md"):
