@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -37,8 +38,11 @@ def sealed_directories(root):
     directories = [root / 'sealed']
     try: (root / '.git').lstat()
     except FileNotFoundError: return directories  # Installed releases have no Git metadata.
+    # Broken root/.git must not walk up to, or inherit, an enclosing repository.
+    env = {k: v for k, v in os.environ.items() if k not in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR')}
+    env['GIT_CEILING_DIRECTORIES'] = str(root.resolve().parent)
     common = Path(subprocess.check_output(['git', '-C', str(root), 'rev-parse',
-                                          '--git-common-dir'], text=True,
+                                          '--git-common-dir'], text=True, env=env,
                                          stderr=subprocess.DEVNULL, timeout=10).strip())
     common = (root / common).resolve() if not common.is_absolute() else common.resolve()
     return list(dict.fromkeys([common.parent / 'sealed', *directories]))
