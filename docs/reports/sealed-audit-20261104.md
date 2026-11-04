@@ -121,7 +121,8 @@ Each item below is recorded as unavailable, not as a pass.
 
 None was closed and none was added.
 
-- **Row 41:** no card carries G16 or G17 at all.
+- **Row 41** (already closed): the legacy G1-G15 cards predate that fix, and
+  no card carries G16 or G17 at all.
 - **new-batch-service-1:** for 18681d, both inventories list the same final
   archive hash; only the checkpoints differ.
 

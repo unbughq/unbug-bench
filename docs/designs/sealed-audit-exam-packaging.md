@@ -114,7 +114,7 @@ named predicate `registry_cell(entry) -> str`.
 
 | Criterion | Parts, in order |
 |---|---|
-| Distinct bug | G2, G4; `dedup` absent → `missing:dedup`, `dedup.duplicate_of` non-null → `fail:duplicate_of=<id>`; registry: no entry → `missing:registry-entry`, `status == "released"` → `fail:registry-released`, `pass` only when `complete is True` and `status == "completed"`, otherwise → `missing:registry-screening`; *unavailable: screening verdict content* |
+| Distinct bug | G2, G4; `dedup` absent, not a dict, without a `duplicate_of` key or without an integer `checked_against` → `missing:dedup`, `dedup.duplicate_of` non-null → `fail:duplicate_of=<id>`; registry: no entry → `missing:registry-entry`, `status == "released"` → `fail:registry-released`, `pass` only when `complete is True` and `status == "completed"`, otherwise → `missing:registry-screening`; *unavailable: screening verdict content* |
 | Viable reference fix | G5 |
 | Legitimate business behavior | G5, G9 |
 | Discoverable requirements | G8, G16 |
@@ -359,7 +359,9 @@ generates its input with the tool under test.
 
 None closed. Rows touched, not closed:
 
-- 41 (G16/G17 repeat the same inconclusive review): the audit shows that no
+- 41 (G16/G17 repeat the same inconclusive review; already closed by
+  `tests/factory/test_invalid_runs.py`): the legacy G1-G15 cards predate that
+  fix, and the audit shows that no
   card has G16/G17 at all.
 - new-batch-service-1 (Mac and VM generations differ): the report shows the
   per-case Mac/VM ciphertext presence. For 18681d, both inventories list the

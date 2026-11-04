@@ -109,7 +109,9 @@ def cells(card, case, meta, sides, registry):
         value = card.get('dedup')
         if not isinstance(value, dict):
             return 'missing:dedup'
-        return 'pass' if value.get('duplicate_of') is None else 'fail:duplicate_of=' + str(value['duplicate_of'])
+        if 'duplicate_of' not in value or not isinstance(value.get('checked_against'), int):
+            return 'missing:dedup'  # An empty or partial record is not a completed check.
+        return 'pass' if value['duplicate_of'] is None else 'fail:duplicate_of=' + str(value['duplicate_of'])
 
     def screening():
         return registry_cell(registry.get(case))
