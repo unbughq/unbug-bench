@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Read-only sealed-case qualification inventory from public evidence only.
 
-  python3 -B tools/sealed_inventory.py [--cards DIR] [--markdown]
+  python3 -B tools/sealed_inventory.py [--cards DIR] [--inventory JSON] [--registry JSON] [--markdown]
   python3 -B tools/sealed_inventory.py --round round.json [--expect 24]
+
+--inventory and --registry default to the committed 2026-10-30 ciphertext inventory
+and registry index. A freeze-time run must pass snapshots taken after the last case
+sealed; a case absent from a stale snapshot stays non-eligible.
 
 Reads public scorecards, the 2026-10-29 VM card record, the 2026-10-30 ciphertext
 inventory and the statement registry index. Never opens a .age file or a key file
@@ -34,6 +38,10 @@ HEADINGS = ('Distinct bug', 'Reference fix', 'Legitimate behavior', 'Discoverabl
 
 def load(path):
     return json.loads(Path(path).read_text())
+
+
+def file_sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def canonical(card):
@@ -72,18 +80,18 @@ def metadata(card, case):
         raise RuntimeError(f'{case}: {type(error).__name__}: {error}') from error
 
 
-def evidence():
+def evidence(ciphertexts=CIPHERTEXTS, registry=REGISTRY):
     vm = {Path(c['path']).name[:-len('.scorecard.json')]: c['canonical_json_sha256']
           for c in load(VM_CARDS)['vm_cards']}
     ciphertext, cards = {}, {}
-    record = load(CIPHERTEXTS)
+    record = load(ciphertexts)
     for side in ('mac', 'vm'):
         for entry in record[side]['checkpoints']:
             cards.setdefault(entry['case'], set()).add(entry['card_sha256'])
             for item in entry['files']:  # Final sealed archives only, never checkpoints.
                 if item['name'] == entry['case'] + '.tar.gz.age':
                     ciphertext.setdefault(item['sha256'], set()).add(side)
-    return vm, ciphertext, cards, load(REGISTRY)['entries']
+    return vm, ciphertext, cards, load(registry)['entries']
 
 
 def registry_cell(entry):
@@ -128,9 +136,9 @@ def cells(card, case, meta, sides, registry):
     }
 
 
-def inventory(cards_dir=ROOT / 'sealed'):
+def inventory(cards_dir=ROOT / 'sealed', ciphertexts=CIPHERTEXTS, registry_path=REGISTRY):
     cards_dir = Path(cards_dir)
-    vm, ciphertext, recorded_cards, registry = evidence()
+    vm, ciphertext, recorded_cards, registry = evidence(ciphertexts, registry_path)
     reviews = {}
     for path in sorted(cards_dir.glob('g11-review-*.scorecard.json')):
         review = load(path)
@@ -173,7 +181,11 @@ def inventory(cards_dir=ROOT / 'sealed'):
             'g11_reviews': reviews.get(case, [])})
     elsewhere = sorted(set(vm) - {p.name[:-len('.scorecard.json')] for p in cards_dir.glob('case-*.scorecard.json')}) \
         if cards_dir.resolve() == (ROOT / 'sealed').resolve() else []
-    return {'cards': str(cards_dir), 'hidden': hidden, 'excluded': skipped,
+    return {'cards': str(cards_dir), 'inputs': {
+                'ciphertext_inventory': {'path': str(ciphertexts), 'sha256': file_sha(ciphertexts)},
+                'registry': {'path': str(registry_path), 'sha256': file_sha(registry_path)},
+                'vm_cards_20261029': {'path': str(VM_CARDS), 'sha256': file_sha(VM_CARDS)}},
+            'hidden': hidden, 'excluded': skipped,
             'recorded_elsewhere_20261029': elsewhere,
             'counts': {'hidden': len(hidden), 'excluded': len(skipped),
                        'public_eligible': sum(c['public_eligible'] for c in hidden),
@@ -223,11 +235,13 @@ def check_round(path, result, expect=24):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--cards', type=Path, default=ROOT / 'sealed')
+    parser.add_argument('--inventory', type=Path, default=CIPHERTEXTS, help='ciphertext inventory JSON')
+    parser.add_argument('--registry', type=Path, default=REGISTRY, help='statement registry index JSON')
     parser.add_argument('--markdown', action='store_true')
     parser.add_argument('--round', type=Path)
     parser.add_argument('--expect', type=int, default=24)
     args = parser.parse_args(argv)
-    result = inventory(args.cards)
+    result = inventory(args.cards, args.inventory, args.registry)
     if args.round:
         errors = check_round(args.round, result, args.expect)
         for line in errors:

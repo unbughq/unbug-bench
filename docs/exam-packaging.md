@@ -33,10 +33,14 @@ committed except the hashes the founder chooses to publish.
 Each step must pass before the next one starts. If a step fails, stop and
 report the failure. Never edit a frozen input to make a step pass.
 
-1. **Inventory.** Run `python3 -B tools/sealed_inventory.py > results/exam/<id>/inventory.json`.
+1. **Inventory.** Run `python3 -B tools/sealed_inventory.py --inventory <fresh ciphertext inventory> --registry <fresh registry snapshot> > results/exam/<id>/inventory.json`.
    - Every case you plan to include must be listed as hidden with
      `public_eligible: true`.
    - The tool reads public files only.
+   - The default inputs are the committed 2026-10-30 snapshots. Every case
+     sealed after them stays non-eligible until both snapshots are refreshed.
+   - The output's `inputs` block records the path and SHA-256 of each
+     snapshot; keep it in the package.
 2. **Round check.** Run `python3 -B tools/sealed_inventory.py --round results/exam/<id>/round.json --expect 24`.
    - It must exit 0.
    - It rejects any case that is unknown, excluded (dry run, practice or
@@ -109,6 +113,16 @@ report the failure. Never edit a frozen input to make a step pass.
 
   The audit rerun (`sealed_audit.run`) produces neither the dedup check nor
   the registry promotion. That remains an open blocker.
+- **No fresh ciphertext inventory or registry snapshot.** The committed
+  2026-10-30 inventory was a one-off read-only survey. No committed tool
+  produces one.
+  - Step 1 needs a new snapshot taken after the last case seals. It must have
+    the same schema: per host, `checkpoints[]` entries with `case`,
+    `card_sha256`, `card_archive_sha256`, and `files[]` entries with `name`,
+    `sha256` and `size`.
+  - It also needs a copy of the control VM's live
+    `sealed/statement-registry/registry.json`.
+  - Both need host access under founder authority.
 - **No archives in this checkout.** The final `*.tar.gz.age` files exist only
   on the founder's Mac and the control VM, per the 2026-10-30 inventory.
   Step 4 must run where they are.

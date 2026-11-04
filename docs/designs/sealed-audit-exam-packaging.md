@@ -50,12 +50,19 @@ procedure that says what a frozen 24-case exam package contains.
   Applied to this checkout, that method reproduces all 51 VM records whose
   cards are present. Three VM cards are not in this checkout: c7d405, e15450
   and 873d7f.
-- `docs/reports/batch-service-inventory-20261030.json`: Mac and VM ciphertext
-  names and SHA-256s, plus the file SHA-256 of each card (`card_sha256`).
-- `sealed/statement-registry/registry.json`: for each case, whether an entry
-  exists and the value of its `complete` flag. The tool never opens the
+- `--inventory JSON`, default `docs/reports/batch-service-inventory-20261030.json`:
+  Mac and VM ciphertext names and SHA-256s, plus the file SHA-256 of each card
+  (`card_sha256`).
+- `--registry JSON`, default `sealed/statement-registry/registry.json`: for each
+  case, the entry's `status` and `complete` flag. The tool never opens the
   `.age` objects. A `complete: false` entry is a historical import: per
   `factory/registry.py:83`, it was never screened as a fresh reservation.
+
+The defaults are dated snapshots. A case sealed after a snapshot is missing
+from it, so the case stays non-eligible. The cell is not relaxed. The
+freeze-time run must pass snapshots taken after the last case sealed
+(§4 step 1). The JSON output records the path and SHA-256 of every input
+under `inputs`, and the package keeps those hashes.
 
 **Hidden or excluded.** A card is **excluded** (not hidden) if any of these
 holds, and the first one that holds is recorded as the reason:
@@ -85,8 +92,16 @@ Gate cells use one rule, shown here for gate `Gn`:
 
 The JSON output lists every non-pass part for each criterion (`findings`), in
 the order shown below. The criterion cell in the table is the first entry in
-that list, or `pass` if the list is empty. Parts marked *unavailable* always
-appear, because public files cannot supply them.
+that list, including an *unavailable* entry, or `pass` if the list is empty.
+The tool cannot obtain the *unavailable* parts from public files, so they
+always appear. Their exact tokens are:
+
+- `unavailable:screening-verdict-content`;
+- `unavailable:archive-backed-verify_exam`;
+- `unavailable:no-exposure-attestation`.
+
+Each one is always the last entry of its criterion. The registry part is the
+named predicate `registry_cell(entry) -> str`.
 
 | Criterion | Parts, in order |
 |---|---|
@@ -96,7 +111,7 @@ appear, because public files cannot supply them.
 | Discoverable requirements | G8, G16 |
 | Deterministic scorer | G7 |
 | Adversarial checks | G6, G11, G13, G14, G15 |
-| Complete evidence | G10, G12, G17; `verify_exam_metadata` raises `ValueError` → `fail:metadata` (any other exception aborts the tool with the case ID); card `sha256` not equal to a final `<case>.tar.gz.age` (never a checkpoint) in the 2026-10-30 inventory → `missing:ciphertext-inventory`; *unavailable: archive-backed verify_exam* |
+| Complete evidence | G10, G12, G17; `verify_exam_metadata` raises `ValueError` → `fail:metadata` (any other exception aborts the tool with the case ID); card `sha256` not equal to a final `<case>.tar.gz.age` (never a checkpoint) in the `--inventory` snapshot → `missing:ciphertext-inventory`; *unavailable: archive-backed verify_exam* |
 | Separation from contestant development | `wipe` not a dict, or any of `plaintext_files_left`, `named_dirs_left` non-zero, or `guard_image_left`, `db_volume_left` true, or `factory_cleanup_ok` not true → `missing:wipe-record`; *unavailable: no-exposure attestation* |
 
 A case is **public-eligible** when every cell is `pass` except the
@@ -270,11 +285,14 @@ generates its input with the tool under test.
    - 953035's findings include `fail:duplicate_of=case-20261017T212115Z-8acb5c`;
    - e5caf7 passes G2 and G4 and has `dedup.duplicate_of: null`, and its first
      Distinct-bug finding is `missing:registry-screening`;
-   - the real registry entries a4e4d9 (`released`) and a36ad8
-     (`screening`, `complete: true`) map to `fail:registry-released` and
+   - `registry_cell` maps the real registry entries a4e4d9 (`released`) and
+     a36ad8 (`screening`, `complete: true`) to `fail:registry-released` and
      `missing:registry-screening`;
+   - snapshot paths are honoured. Copies of the real inventory and registry,
+     each with fcde6b removed and passed with `--inventory`/`--registry`, give
+     fcde6b `missing:ciphertext-inventory` and `missing:registry-entry`.
    - a card with a string `wipe` (8f9762) has `missing:wipe-record`;
-   - a paused card whose `sha256` is a checkpoint hash (1ad7fa) has
+   - a stopped card whose `sha256` is a checkpoint hash (1ad7fa) has
      `missing:ciphertext-inventory`.
 
    No hidden card has a `skipped` gate value, so that rule has no real-card

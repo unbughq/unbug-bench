@@ -105,6 +105,32 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(card['findings']['separation'][-1], 'unavailable:no-exposure-attestation')
             self.assertEqual(card['findings']['complete_evidence'][-1], 'unavailable:archive-backed-verify_exam')
 
+    def test_snapshot_paths_are_honoured(self):
+        # Derived from the real snapshots by removing one case: a case absent from a
+        # stale inventory or registry stays non-eligible, never passes.
+        case = LEGACY[0]
+        inventory = json.loads(inv.CIPHERTEXTS.read_text())
+        for side in ('mac', 'vm'):
+            inventory[side]['checkpoints'] = [e for e in inventory[side]['checkpoints'] if e['case'] != case]
+        registry = json.loads(inv.REGISTRY.read_text())
+        del registry['entries'][case]
+        with tempfile.TemporaryDirectory() as directory:
+            paths = Path(directory) / 'inventory.json', Path(directory) / 'registry.json'
+            paths[0].write_text(json.dumps(inventory))
+            paths[1].write_text(json.dumps(registry))
+            result = inv.inventory(ciphertexts=paths[0], registry_path=paths[1])
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                inv.main(['--inventory', str(paths[0]), '--registry', str(paths[1])])
+        self.assertEqual(json.loads(out.getvalue())['inputs']['registry']['path'], str(paths[1]))
+        card = {c['case']: c for c in result['hidden']}[case]
+        self.assertIn('missing:ciphertext-inventory', card['findings']['complete_evidence'])
+        self.assertIn('missing:registry-entry', card['findings']['distinct_bug'])
+        self.assertEqual(card['hashes']['card_20261030'], 'not-recorded')
+        self.assertNotIn('missing:ciphertext-inventory', BY_CASE[case]['findings']['complete_evidence'])
+        self.assertEqual(result['inputs']['ciphertext_inventory']['path'], str(paths[0]))
+        self.assertEqual(RESULT['inputs']['ciphertext_inventory']['sha256'],
+                         'c59a07542dcf4f0d69ea1390e2045c346d11ab7db57fe4b9fd24be9e7338a928')
+
     def test_real_smoke_card_is_excluded(self):
         result = inv.inventory(SMOKE_DIR)
         self.assertEqual(result['counts']['hidden'], 0)
