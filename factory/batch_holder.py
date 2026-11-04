@@ -237,7 +237,11 @@ def empty_input(root, directory, case):
             with os.scandir(sealed) as entries:
                 if any(e.name == case or e.name.startswith(prefixes) for e in entries):
                     raise ValueError('request_refused')
-        except FileNotFoundError: pass
+        except FileNotFoundError:
+            try: sealed.lstat()  # A dangling symlinked sealed directory is not absence.
+            except FileNotFoundError: pass
+            except OSError: raise ValueError('request_refused') from None
+            else: raise ValueError('request_refused') from None
         except OSError: raise ValueError('request_refused') from None
         paths.append(sealed / 'generations' / case)
     for path in paths:

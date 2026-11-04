@@ -28,16 +28,22 @@ CASE_FILE = re.compile(r'\.?(case-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6})\..+')
 
 
 def real_case_files(sealed):
-    """Top-level real files whose name is <case>.* or .<case>.* (transfer locks)."""
+    """Top-level real files named <case>.* or .<case>.* (transfer locks).
+
+    In-flight .part partials are excluded: another session's collection renames them.
+    """
     return sorted((p, CASE_FILE.fullmatch(p.name).group(1)) for p in sealed.iterdir()
-                  if CASE_FILE.fullmatch(p.name) and p.is_file() and not p.is_symlink())
+                  if CASE_FILE.fullmatch(p.name) and not p.name.endswith('.part')
+                  and p.is_file() and not p.is_symlink())
 
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def git(*args, cwd, env=None):
-    return subprocess.run(['git', *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=30)
+    clean = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+    return subprocess.run(['git', *args], cwd=cwd, env={**clean, **(env or {})},
+                          capture_output=True, text=True, timeout=30)
 
 
 def refused(root, directory, case):
@@ -79,17 +85,25 @@ class RealInventoryTests(unittest.TestCase):
         self.assertIn(ROOT / 'sealed', directories); self.assertIn(common, directories)
         entries = [entry for sealed in directories if sealed.is_dir() for entry in real_case_files(sealed)]
         self.assertTrue(entries)
-        before = {str(p): (p.lstat().st_mtime_ns, digest(p)) for p, _ in entries}
+        # The no-write check covers this checkout's tracked files only; other sessions
+        # may collect into the shared common sealed/ while this runs.
+        listed = git('ls-files', '-z', 'sealed', cwd=ROOT)
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        tracked = [ROOT / name for name in listed.stdout.split('\0') if name]
+        tracked = [p for p in tracked if p.is_file() and not p.is_symlink()]
+        self.assertTrue(tracked)
+        before = {str(p): (p.lstat().st_mtime_ns, digest(p)) for p in tracked}
         batch_directory = self.tmp / 'batches/practice'
-        for case in sorted({case for _, case in entries}):
-            with self.subTest(case=case):
-                self.assertTrue(refused(ROOT, batch_directory, case))
-        fresh = 'case-b-empty-input-fresh-j'
-        self.assertFalse(any(p.name.startswith(fresh) for sealed in directories if sealed.is_dir()
-                             for p in sealed.iterdir()))
-        holder.empty_input(ROOT, batch_directory, fresh)
-        # Only entries this test enumerated: the common sealed/ is shared with other sessions.
-        self.assertEqual({str(p): (p.lstat().st_mtime_ns, digest(p)) for p, _ in entries}, before)
+        # Discovery above is real Git, once; reuse its answer for the per-case checks.
+        with patch.object(batch, 'sealed_directories', return_value=directories):
+            for case in sorted({case for _, case in entries}):
+                with self.subTest(case=case):
+                    self.assertTrue(refused(ROOT, batch_directory, case))
+            fresh = 'case-b-empty-input-fresh-j'
+            self.assertFalse(any(p.name.startswith((fresh, '.' + fresh)) for sealed in directories
+                                 if sealed.is_dir() for p in sealed.iterdir()))
+            holder.empty_input(ROOT, batch_directory, fresh)
+        self.assertEqual({str(p): (p.lstat().st_mtime_ns, digest(p)) for p in tracked}, before)
         self.assertFalse(batch_directory.exists())
 
 
@@ -180,7 +194,15 @@ class HolderWiringTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)  # The second call raised.
         self.assert_terminal(op, result, spawns)
 
+    def test_dangling_symlinked_sealed_directory_is_not_absence(self):
+        sealed = self.h.root / 'sealed'
+        if sealed.exists(): shutil.rmtree(sealed)
+        sealed.symlink_to('absent-sealed-store')
+        with self.assertRaisesRegex(ValueError, 'request_refused'): self.h.reserve()
+        self.assertFalse((self.h.directory / 'reservations.json').exists())
+
     def test_unreadable_sealed_path_is_terminal_not_tempfail(self):
+        """Regression guard, not a red step: base lstat under a file also refused."""
         op = self.h.reserve()
         sealed = self.h.root / 'sealed'
         if sealed.exists(): shutil.rmtree(sealed)
