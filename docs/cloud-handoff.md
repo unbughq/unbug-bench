@@ -64,6 +64,14 @@ For the two already-uploaded sessions, first grant Claude's GitHub App access to
 > report that error; do not claim a successful handoff. No factory-simplify/main
 > merge, deployment or worker action is authorized.
 
+For existing sessions uploaded before publication, the base history has the old
+email/commit IDs. Fetch the corresponding published work branch, then rebase ONLY
+your task commits onto it using the initial cloud HEAD captured at session start:
+`git rebase --onto origin/WORK_BRANCH INITIAL_CLOUD_HEAD`. Preserve a local backup
+branch first and verify the task diff after rebasing. Do not push the old base
+history. For a squashed upload, use its actual initial cloud HEAD, not an assumed
+original SHA. Set the commit email to `65364356+adeyinkaezra123@users.noreply.github.com` before creating new commits.
+
 Test one session's branch push before scaling cloud assignments. Bundle sessions
 need a GitHub connection with push access; creating the repository alone does
 not grant that access. Existing cloud-job instructions forbidding push are
@@ -106,8 +114,11 @@ failures blocking this delivery path belong on it.
 
 ## Publication provenance
 
-Original commits, timestamps, source pins and local archives are preserved. The
-publication includes the tested branch and two relevant drafts, not every stale
+Original history and source pins are preserved locally. GitHub email privacy
+required replacing the owner email with a GitHub no-reply address in this
+publication copy; commit IDs changed, while dates and file trees are unchanged.
+[The commit map](publication-commit-map.tsv) maps original IDs used in test/release
+records to their published equivalents. The publication includes the tested branch and two relevant drafts, not every stale
 experimental ref. Pattern scanning of reachable history was reviewed: findings
 were SHA/cache values, message IDs, authored test tokens/labels, localhost demo
 credentials and the explicitly public dry-run fixture key. This is not a claim of
