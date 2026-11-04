@@ -33,7 +33,7 @@ import practice_cleanup
 from transfer import digest
 
 MANIFEST = "factory/batches/" + practice.BATCH + ".json"
-DROPIN = "[Service]\nEnvironment=UNBUG_PRACTICE_BATCH=b-plumbing-practice-5\nEnvironment=UNBUG_CLOUD=boat\n"
+DROPIN = "[Service]\nEnvironment=UNBUG_PRACTICE_BATCH=b-plumbing-practice-6\nEnvironment=UNBUG_CLOUD=boat\n"
 LIVE = [("provider_cost_and_legacy_debt", "0.000000000"), ("distinct_accounts_and_deployment", "0.000000000"),
         ("armed_admission", "0.000000000"), ("worker_and_verified_deletion", "5.000000000"),
         ("account2_model_work_and_settlement", "19.980000000"), ("publication_replay", "0.000000000")]

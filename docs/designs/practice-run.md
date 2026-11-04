@@ -95,3 +95,16 @@ cleanup before dispatch. The existing one-worker no-model authorization and
 original money/time bounds apply; this is no extra worker, new allowance, paid
 practice or fleet authorization. No automatic retry. Require the complete
 collection/publication/stopped-meter/exact-deletion/settlement evidence.
+
+## Never-dispatched recovery (prepared November 4; inactive -6)
+
+The -5 smoke failed before dispatch at the producing-release check. Preserve its
+failed operation, import and absent-launch/no-reservation proof. The reviewed
+predispatch-import-recovery design adds a strictly bound certificate for that
+terminal refusal. -6 carries the same original checkpoint and all liabilities
+through existing transfer; no failed operation is reset or retried. Before any
+activation require final source review/tests, fresh exact source certification,
+new pins and the normal inactive-owner deployment checks. The prior unspent
+one-worker no-model continuation authority and all original caps/timings remain;
+no paid practice, fleet, replacement or automatic retry. Full live lifecycle proof
+is still required.

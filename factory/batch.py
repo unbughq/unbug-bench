@@ -182,7 +182,11 @@ def bind(policy, name, checkpoint, root, *, home=None, operation=None):
         expected_release = batch['sha256']
         imported = record.get('carry_from', {}).get('jobs', {}).get(name)
         if batch_holder.active(policy, root) and imported and imported['generation'] == checkpoint:
-            expected_release = record['carry_from']['policy']['batch']['sha256']
+            from batch_transfer import source as imported_source
+            _, _, authenticated_card, _ = imported_source(home, record, name, checkpoint)
+            if card != authenticated_card:
+                raise ValueError('checkpoint differs from authenticated source')
+            expected_release = authenticated_card.get('batch_release_sha256')
         if (card.get('case') != case or card.get('sha256') != checkpoint or
                 card.get('batch_release_sha256') != expected_release):
             raise ValueError('checkpoint differs from batch release or requested generation')
