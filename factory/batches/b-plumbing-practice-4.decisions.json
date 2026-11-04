@@ -1,0 +1,17 @@
+[
+  {
+    "id": "topup_off",
+    "text": "Carry forward founder decision 2026-11-02, docs/designs/practice-run.md step 1: Boat prepaid credit below $5, no auto top-up, and 60-minute provider TTL are the accepted $5 infrastructure bound. No new budget or top-up is authorized.",
+    "recorded_utc": "2026-11-03T23:03:24.230218+00:00"
+  },
+  {
+    "id": "accounts_unverified_accepted",
+    "text": "Carry forward founder decision 2026-11-02, docs/designs/practice-run.md steps 2/5: Use existing token. Keep both existing Claude labels unchanged, initial account 2 and allowed accounts [2,1]. Distinct accounts and account-2 attribution remain unverified (founder accepted). Invalid/expired/refused token-2 remains an ordinary stop.",
+    "recorded_utc": "2026-11-03T23:03:24.230218+00:00"
+  },
+  {
+    "id": "router_ram_openrouter",
+    "text": "Carry forward founder acknowledgement 2026-11-02, docs/designs/practice-run.md step 2: the OpenRouter API key may be in control-VM router RAM only, for read-only credit checks and capped calls; never write it to disk, print it or persist it.",
+    "recorded_utc": "2026-11-03T23:03:24.230218+00:00"
+  }
+]

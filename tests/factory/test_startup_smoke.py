@@ -74,6 +74,12 @@ class SmokeTests(unittest.TestCase):
 
     def setUp(self):
         self.holder_setUp()
+        # Preserve the original -3 smoke regression; current -4 carry is tested separately.
+        legacy = json.loads((ROOT / 'factory/batches/b-plumbing-practice-3.json').read_text())
+        for module, name, value in ((practice, 'BATCH', legacy['id']),
+                                    (practice, 'EXPECTED', legacy),
+                                    (preflight, 'MANIFEST', 'factory/batches/' + legacy['id'] + '.json')):
+            change = patch.object(module, name, value); change.start(); self.addCleanup(change.stop)
         for module in (holder, practice, job_authority):
             clock = patch.object(module, 'datetime', Clock); clock.start(); self.addCleanup(clock.stop)
         self.record = json.loads((ROOT / preflight.MANIFEST).read_text())
@@ -203,7 +209,7 @@ class SmokeTests(unittest.TestCase):
         for text in ((ROOT / 'control' / cleanup.UNIT).read_text(), preflight.DROPIN,
                      (ROOT / 'factory/practice.py').read_text()):
             self.assertNotIn('b-plumbing-practice-2', text)
-            self.assertIn('b-plumbing-practice-3', text)
+            self.assertIn('b-plumbing-practice-4', text)
 
     @unittest.skipUnless(os.environ.get('UNBUG_LOCAL_DOCKER_SMOKE') == '1',
                          'explicit local qualification: UNBUG_LOCAL_DOCKER_SMOKE=1; shared Docker project')

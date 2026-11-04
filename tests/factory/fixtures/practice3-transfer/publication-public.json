@@ -1,0 +1,13 @@
+{
+  "current": {
+    "generation": "b615c37c3ff2c3103576a74d1175cad299dc3eaf1f3f28f7a3b56b06eab2d6d9",
+    "manifest_sha256": "6524d7fd9e97bc923a052729b8696fc131a75844589d1f65fb69b8db8b0d5e62"
+  },
+  "outbox": {
+    "generation": "b615c37c3ff2c3103576a74d1175cad299dc3eaf1f3f28f7a3b56b06eab2d6d9",
+    "manifest_sha256": "6524d7fd9e97bc923a052729b8696fc131a75844589d1f65fb69b8db8b0d5e62",
+    "operation_id": "accb60a1-2f07-5af4-a8d3-b48ea3efbab3",
+    "schema": 1,
+    "state": "acknowledged"
+  }
+}

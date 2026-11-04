@@ -1,0 +1,85 @@
+{
+  "batch": {
+    "id": "b-plumbing-practice-3",
+    "manifest_path": "factory/batches/b-plumbing-practice-3.json",
+    "manifest_sha256": "a66e5585dcd9df78f073551b07cb84d80727a9d04fd1fa3881892737df02151c",
+    "max_concurrency": 1,
+    "release": "/home/user/.unbug-control/releases/cde6dc9244df96a693dbe8e97e4a2cedccda6504731394c14b672718facda7f4",
+    "sha256": "cde6dc9244df96a693dbe8e97e4a2cedccda6504731394c14b672718facda7f4"
+  },
+  "code_sha256": "18f93340852c535e1ceabbed18778289f33b44bdaa850db486736cfbd3e400f3",
+  "jobs": {
+    "practice": {
+      "args": [
+        "1",
+        "--source",
+        "port",
+        "--rotation-slot",
+        "1",
+        "--builder",
+        "openrouter/minimax/minimax-m3.1-flash",
+        "--attacker",
+        "openrouter/deepseek/deepseek-v4.1-flash",
+        "--reviewer1",
+        "openrouter/xiaomi/mimo-v2.6-pro",
+        "--strong-calibrator",
+        "claude/claude-opus-4-5-20251101:compact",
+        "--easy-calibrator",
+        "openrouter/minimax/minimax-m3.1-flash",
+        "--ttl-hours",
+        "1",
+        "--max-spend",
+        "5"
+      ],
+      "case": "case-b-plumbing-practice-3-practice",
+      "claude_accounts": [
+        2,
+        1
+      ],
+      "initial_accounts": {
+        "claude": 2
+      },
+      "mode": "batch",
+      "opencode_accounts": [],
+      "requested_total_usd": "19.980000000"
+    },
+    "smoke": {
+      "args": [
+        "1",
+        "--source",
+        "port",
+        "--rotation-slot",
+        "1",
+        "--builder",
+        "openrouter/minimax/minimax-m3.1-flash",
+        "--attacker",
+        "openrouter/deepseek/deepseek-v4.1-flash",
+        "--reviewer1",
+        "openrouter/xiaomi/mimo-v2.6-pro",
+        "--strong-calibrator",
+        "claude/claude-opus-4-5-20251101:compact",
+        "--easy-calibrator",
+        "openrouter/minimax/minimax-m3.1-flash",
+        "--ttl-hours",
+        "1",
+        "--max-spend",
+        "5",
+        "--dry-run"
+      ],
+      "case": "case-b-plumbing-practice-3-smoke",
+      "claude_accounts": [
+        2,
+        1
+      ],
+      "initial_accounts": {
+        "claude": 2
+      },
+      "mode": "batch",
+      "opencode_accounts": [],
+      "requested_total_usd": "0.010000000"
+    }
+  },
+  "path": "/usr/local/bin:/usr/bin:/bin",
+  "recipient": "age1ae6f86fkvfnlv525ne9n4rj49texw9r9sh5h5udj23da0ptnnuksuxm6ch",
+  "root": "/home/user/unbug-bench"
+}

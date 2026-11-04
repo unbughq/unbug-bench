@@ -1,0 +1,24 @@
+{
+  "source_batch": "b-plumbing-practice-3",
+  "source_release_sha256": "cde6dc9244df96a693dbe8e97e4a2cedccda6504731394c14b672718facda7f4",
+  "snapshot_sha256": "d0f19598d7c3924b36d1c8277a2d4496c0fd457b522a3e7f3585fb81d983856d",
+  "source": "Read-only validated control-VM snapshot and independently retained November4 smoke collection; originals preserved in infrastructure evidence. No decrypt or provider mutation.",
+  "adaptations": "None in these retained files. Test layout/path changes must be labeled authored.",
+  "files": {
+    "case-b-plumbing-practice-3-smoke.scorecard.txt": "b23e05fa99cdbd3ab4276d2a790faa6c082c06c6f25f07df67e9807be8ed634c",
+    "policy.json": "5d4c6afda9f06f3b7ebb85cca92e41a2ac125d4d583db4309b467182d9c04b93",
+    "publication-public.json": "90659f9bd31a060e5864a924bbfe9b5e946fb9b8ebe860c19d70ab660b68994d",
+    "case-b-plumbing-practice-3-smoke.checkpoint.tar.gz.age": "b615c37c3ff2c3103576a74d1175cad299dc3eaf1f3f28f7a3b56b06eab2d6d9",
+    "collection-public.json": "253488b60adb93f902b7868bb9da8a1fa72d419a8a33cff1aaea8f8846de8d2a",
+    "case-b-plumbing-practice-3-smoke.casekey.age": "17c7695b310284d6999b64f2f94b8863b99850d484c6b7edc974df3d95bce9d5",
+    "case-b-plumbing-practice-3-smoke.progress.json": "0f816851ec5a892b6ea4254ef2d1a43b7915a1f125489812632a34e23ce6d631",
+    "source-public.json": "e61447eee0e219ae976d89b2ca23bfe9d4d4c6755774ab1ed8084bb908a82b0d",
+    "case-b-plumbing-practice-3-smoke.scorecard.json": "8c90f0850a76bab4f962f31e2edf97f2a368f2bea0c0f2f737094adf7d8f111b",
+    "release/source-manifest.json": "51b81ed0c012762bed0472fe38dce9105eee7d862593edca195641af1a45b15e",
+    "release/public-source.tar.gz": "6b748eed4bd8a03ad5a5c2b9f89bb7d7256124a3c68c0d48d8f1b19f0bd60032",
+    "release/deploy.py": "6dfb0cb16ad93f12fa3f8f6dd13bdea7f55484300e239ae2584746e84a889b0b",
+    "release/batch-release.json": "cde6dc9244df96a693dbe8e97e4a2cedccda6504731394c14b672718facda7f4",
+    "release/install-source.py": "48585d98a7c3c4271ca6ffc0b3ff4bced122da645d24a1d571cb9e41b5fca536",
+    "release/worker-release-manifest.json": "c35c291ff815e9017d409757d5b4fda1ac3abf959047f55ee62b04e484b0b295"
+  }
+}
