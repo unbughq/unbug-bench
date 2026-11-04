@@ -105,3 +105,16 @@ screening still holds because this case's own later reservation (promotion or re
 recomputes its predecessors and includes that case. **Murphy:** new-registry-pending-promotion-1
 stays open. No retained real card carries `statement_sha256`/`rejected_candidates`, so the
 new branch runs only on hand-authored cards over the real registry and ciphertext.
+
+**Review follow-ups (diff-6).** This supersedes the diff-5 sentence about `statement_cipher_sha256`.
+A history import authenticates a release only when its card binds the collected bytes, meaning
+`statement_cipher_sha256` is present and equals their sha256. A card without that binding (the
+legacy shape, or a new seal beside an older card) authenticates nothing: `replace_rejected`
+gets `rejected=[]` and returns or refuses exactly as base did, so it never fails the wave on
+its own. Another seal of a rejected statement therefore cannot take the new digest. The
+byte-identity guard stays as a second check. Gap sub-case (accepted): while a slot is
+released, a wave holding a stale history card can re-import the old digest. That only
+over-screens, and the next authenticated import refuses loudly instead of binding anything.
+Asymmetry (unchanged from base): the candidate path still raises on a malformed own-card
+`rejected_candidates`, because that card belongs to the case being handed off, not to
+another wave.

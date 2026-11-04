@@ -97,13 +97,12 @@ def prepare(sealed, registry_root, candidates, destination, *, history_sealed=No
             if digest is None:
                 registry.import_historical(case, ciphertexts[case])
                 continue
-            if (card.get('statement_cipher_sha256') is not None and
-                    hashlib.sha256(ciphertexts[case].read_bytes()).hexdigest() != card['statement_cipher_sha256']):
-                raise ValueError('historical statement ciphertext scorecard digest mismatch')
             rows = card.get('rejected_candidates')
-            # A malformed list authenticates no release; reserve then returns or refuses as before.
-            rejected = ([row.get('statement_sha256') for row in rows] if isinstance(rows, list) and len(rows) <= 3
-                        and all(isinstance(row, dict) for row in rows) else [])
+            # A release needs the card to bind these exact bytes and a well-formed rejected list.
+            # Otherwise nothing is authenticated: reserve returns or refuses exactly as before.
+            bound = card.get('statement_cipher_sha256') == hashlib.sha256(ciphertexts[case].read_bytes()).hexdigest()
+            rejected = ([row.get('statement_sha256') for row in rows] if bound and isinstance(rows, list) and
+                        len(rows) <= 3 and all(isinstance(row, dict) for row in rows) else [])
             # a pending candidate may have reselected since the registry last saw it
             registry.replace_rejected(case, digest, ciphertexts[case], rejected, historical=True)
     snapshots = {}

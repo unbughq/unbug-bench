@@ -101,8 +101,9 @@ class PromotionTests(unittest.TestCase):
         d = self.tmp / name; d.mkdir()
         shutil.copyfile(self.ct[candidate], d / (candidate + ".statement.age"))
         shutil.copyfile(y_ct, d / "case-py.statement.age")
-        (d / "case-py.scorecard.json").write_text(json.dumps(card if card is not None else
-            {"statement_sha256": y_digest, "rejected_candidates": [{"statement_sha256": r} for r in rejected]}))
+        (d / "case-py.scorecard.json").write_text(json.dumps(card if card is not None else  # current writer's card shape
+            {"statement_sha256": y_digest, "statement_cipher_sha256": hashlib.sha256(y_ct.read_bytes()).hexdigest(),
+             "rejected_candidates": [{"statement_sha256": r} for r in rejected]}))
         cands = {"case-py": y_digest} if y_candidate else {candidate: self.dg[candidate]}
         return statement_round.prepare(d, self.tmp / "reg", cands, self.tmp / ("out-" + name), history_sealed=d)
 
@@ -167,12 +168,40 @@ class PromotionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "different content"):  # Y's own handoff with the same stale bytes
                     self.r.replace_rejected("case-py", d2, c1, [d1])
                 self.assertEqual((self.entry()["statement_sha256"], self.entry()["status"] != "released"), (d1, True))
-                with self.assertRaisesRegex(ValueError, "historical statement ciphertext"):  # card binds c2, bytes are c1
+                with self.assertRaisesRegex(ValueError, "different content"):  # card binds c2, bytes are c1: not authenticated
                     self.wave(first + "3", "case-pz", c1, d2, [d1], card=bound)
                 self.assertEqual(self.entry()["statement_sha256"], d1)
                 out = self.wave(first + "4", "case-pz", c2, d2, [d1], card=bound)  # the consistent card still succeeds
                 self.assertEqual((out["case-pz"] / "case-py.statement.age").read_bytes(), c2.read_bytes())
                 self.assertEqual(self.entry()["cipher_sha256"], sha(c2))
+
+    def test_history_release_needs_card_bound_to_collected_bytes(self):
+        # diff-6 G1: a legacy-shape card (no cipher digest) with another seal of the rejected statement.
+        c1, d1, d2 = self.ct["case-pb"], "1" * 64, "2" * 64
+        other_seal = sorted(SEALED.glob("case-*.statement.age"))[5]
+        sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+        self.assertNotEqual(sha(other_seal), sha(c1))
+        legacy = {"statement_sha256": d2, "rejected_candidates": [{"statement_sha256": d1}]}
+        for first in ("reserved", "history"):
+            with self.subTest(first=first):
+                shutil.rmtree(self.tmp / "reg"); shutil.copytree(SEALED / "statement-registry", self.tmp / "reg")
+                self.r = registry.Registry(self.tmp / "reg")
+                self.wave(first + "1", "case-pa", c1, d1, [], y_candidate=first == "reserved")
+                with self.assertRaisesRegex(ValueError, "different content"):
+                    self.wave(first + "2", "case-pz", other_seal, d2, [d1], card=legacy)
+                kept = self.entry()
+                self.assertEqual((kept["statement_sha256"], kept["cipher_sha256"], kept["status"] != "released"),
+                                 (d1, sha(c1), True))
+
+    def test_history_cipher_skew_without_release_does_not_fail_other_wave(self):
+        # diff-6 G2: a new seal beside an older card, same digest as the registry: nothing to release.
+        c1, d1 = self.ct["case-pb"], "1" * 64
+        other_seal = sorted(SEALED.glob("case-*.statement.age"))[5]
+        self.wave("s1", "case-pa", c1, d1, [], y_candidate=True)
+        out = self.wave("s2", "case-pz", other_seal, d1, [], card={
+            "statement_sha256": d1, "statement_cipher_sha256": hashlib.sha256(c1.read_bytes()).hexdigest()})
+        self.assertEqual((out["case-pz"] / "case-py.statement.age").read_bytes(), c1.read_bytes())  # stored bytes kept
+        self.assertEqual((self.entry()["statement_sha256"], self.entry()["status"]), (d1, "screening"))
 
     def test_own_handoff_keeps_reselected_ciphertext_imported_as_history(self):
         # diff-5 N3: X's history import stores c2; Y hands off a different seal of the same d2.
