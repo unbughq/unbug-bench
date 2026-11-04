@@ -47,6 +47,41 @@ class BudgetDebitTests(unittest.TestCase):
         with patch.object(life,'sha256',return_value='wrong'), self.assertRaises(ValueError): life.record_approved_debit(ledger)
         self.assertEqual(ledger['reservations'][decision['spend_path']],row)
 
+    def test_successful_initial_debit_and_wrong_retained_deletion_authored_io(self):
+        decision=life.legacy_decision(); original_regular=life.regular; original_sha=life.sha256
+        resolve=Path.resolve; is_dir=Path.is_dir; iterdir=Path.iterdir
+        with tempfile.TemporaryDirectory() as temporary:
+            base=Path(temporary).resolve()
+            def mapped(path):
+                path=Path(path)
+                return base/path.relative_to('/home/user') if path.is_relative_to('/home/user') else path
+            spend=Path(decision['spend_path']); state=Path(decision['state_path'])
+            mapped(state).mkdir(parents=True); mapped(spend).parent.mkdir(parents=True)
+            mapped(spend).write_text(json.dumps(SAVED['spend_metadata']))
+            (mapped(state)/'ids').write_text(decision['worker_id'])
+            (mapped(state)/'new.1').write_text(json.dumps(dict(event='created',id=decision['worker_id'])))
+            (mapped(state)/'monitor.sh').write_text('spend_file='+str(spend)+'\n')
+            evidence=mapped(spend.with_suffix('.deletions')/decision['worker_id']); evidence.mkdir(parents=True)
+            done=json.loads((ROOT/'tests/factory/fixtures/boat-retirement/legacy-budget-proposal.json').read_text())['retirement']
+            request=dict(done,status='pending',stage='pending',completedAt=None)
+            (evidence/'deletion-request.json').write_text(json.dumps(request))
+            (evidence/'deletion-completion.json').write_text(json.dumps(done))
+            ledger=dict(version=1,reservations={str(spend):deepcopy(SAVED['ledger_row'])})
+            # AUTHORED filesystem transport uses the real observed SHA at the digest
+            # boundary; it is not a fabricated raw spend file claimed to hash to it.
+            def digest(path): return decision['spend_sha256'] if Path(path)==spend else original_sha(path)
+            with patch.object(life,'regular',side_effect=lambda path:original_regular(mapped(path))), patch.object(life,'sha256',side_effect=digest), patch.object(Path,'resolve',lambda path,*a,**k:path if path.is_relative_to('/home/user') else resolve(path,*a,**k)), patch.object(Path,'is_dir',lambda path:is_dir(mapped(path))), patch.object(Path,'iterdir',lambda path:iterdir(mapped(path))):
+                before={p:p.read_bytes() for p in base.rglob('*') if p.is_file()}
+                bad=dict(done,id='wrong'); (evidence/'deletion-completion.json').write_text(json.dumps(bad))
+                with self.assertRaises(ValueError): life.record_approved_debit(ledger)
+                self.assertEqual(ledger['reservations'][str(spend)],SAVED['ledger_row'])
+                (evidence/'deletion-completion.json').write_text(json.dumps(done))
+                self.assertTrue(life.record_approved_debit(ledger))
+                self.assertFalse(life.record_approved_debit(ledger))
+                self.assertEqual(ledger['reservations'][str(spend)]['budget_debit']['original_row'],SAVED['ledger_row'])
+                self.assertIsNone(ledger['reservations'][str(spend)]['actual_spend_usd'])
+                self.assertEqual({p:p.read_bytes() for p in base.rglob('*') if p.is_file()},before)
+
     def test_accepted_debit_finish_settle_and_record_replays_write_nothing(self):
         decision=life.legacy_decision(); key=decision['spend_path']
         row=life.approved_budget_row(deepcopy(SAVED['ledger_row']))

@@ -426,7 +426,9 @@ def command_fence(root, args, timeout):
     if not raw:
         yield None; return
     state = pathlib.Path(raw)
-    if state != state.resolve() or state.is_symlink(): raise ValueError('invalid managed state')
+    if state.is_symlink() or (state != state.resolve() and list(state.glob('*.retiring.json'))):
+        raise ValueError('invalid managed state')
+    state = state.resolve()
     try: names = regular(state/'ids').decode().split()
     except FileNotFoundError:
         if list(state.glob('*.retiring.json')): raise ValueError('missing ownership')
@@ -644,7 +646,8 @@ def _delete(root, spend, worker, ids_path, timeout, *, deadline=None, fenced=Fal
         raise ValueError('worker not owned by this launch')
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError('invalid deadline')
-    deadline = time.monotonic() + timeout if deadline is None else deadline
+    # Only shorten the caller deadline; unused metering time is not delete authority.
+    deadline = min(time.monotonic() + timeout, deadline) if deadline is not None else time.monotonic() + timeout
     evidence = spend.with_suffix('.deletions') / worker
     evidence.mkdir(parents=True, exist_ok=True)
     def save(name, value):

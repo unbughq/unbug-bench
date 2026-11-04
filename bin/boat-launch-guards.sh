@@ -111,7 +111,11 @@ guard_delete_receipt() {
 guard_retire() {
   retire_id=$1
   retire_status=0
-  [ ! -f "$state/$retire_id.deleted" ] || return 0
+  # A safety deletion cannot make missing collection successful, including replay.
+  if [ -e "$state/$retire_id.retiring.json" ] && [ ! -f "$state/$retire_id.collected" ]; then
+    retire_status=1
+  fi
+  [ ! -f "$state/$retire_id.deleted" ] || return "$retire_status"
   [ ! -f "$state/$retire_id.keep" ] || { echo "$retire_id: KEEPING VM: checkpoint not verified" >&2; return 1; }
   # Pending detached startup can expose the previous DONE; retire only a fresh collection.
   if [ -f "$state/$retire_id.restart-attempted" ] && [ ! -f "$state/$retire_id.deletion-attempted" ] && [ ! -e "$state/$retire_id.retiring.json" ]; then

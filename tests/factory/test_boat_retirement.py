@@ -210,6 +210,38 @@ else: sys.exit(99)
         self.assertFalse((self.state/(WORKER+'.retiring.json')).exists())
         self.assertEqual(self.calls(),[])
 
+    def test_guard_reports_uncollected_deadline_retirement_failure_on_replay(self):
+        (self.state/(WORKER+'.retiring.json')).write_text('{}')  # AUTHORED fence transport.
+        script='''root=$1; state=$2; label=factory
+. "$root/bin/boat-launch-guards.sh"
+guard_delete_receipt() { touch "$state/delete-checked"; }
+collect_vm() { touch "$state/forbidden-collection"; }
+guard_retire "$3"
+first=$?
+guard_retire "$3"
+second=$?
+[ "$first" -ne 0 ] && [ "$second" -ne 0 ]
+'''
+        result=subprocess.run(['sh','-c',script,'sh',str(self.root),str(self.state),WORKER],
+            env=self.env,capture_output=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertTrue((self.state/'delete-checked').exists())
+        self.assertFalse((self.state/'forbidden-collection').exists())
+        self.assertFalse((self.state/(WORKER+'.collected')).exists())
+
+    def test_delete_queries_cannot_use_unspent_meter_allowance(self):
+        from types import SimpleNamespace
+        budgets=[]
+        def run(argv,**kwargs):
+            budgets.append(float(kwargs['env']['BOAT_COMMAND_TIMEOUT_SECONDS']))
+            request=argv[1]=='delete'
+            return SimpleNamespace(returncode=0,stdout=json.dumps({'operation':dict(id='authored-delete',targetId=WORKER,kind='sandbox',
+                status='pending' if request else 'completed',stage='pending' if request else 'completed',
+                completedAt=None if request else '2026-11-04T00:00:00Z')}))
+        with patch.object(life.subprocess,'run',side_effect=run):
+            life._delete(self.root,self.spend,WORKER,self.state/'ids',60,deadline=time.monotonic()+180)
+        self.assertTrue(all(0<b<=60 for b in budgets),budgets)
+
     def test_controlled_late_stop_reply_abandons_meter_without_renewing_delete_budget(self):
         from types import SimpleNamespace
         self.started=int(time.time())-100
