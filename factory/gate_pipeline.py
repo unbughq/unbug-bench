@@ -37,6 +37,12 @@ class GatePipeline:
     saved_cheat_check: Callable
     dry_skip: dict
 
+    def window(self, c, gate):
+        """One monotonic window for a mechanical gate. Callers wrap every retry in it; nested windows only shrink."""
+        import processes  # run.py installs the bench bin path after importing this module
+        return (processes.deadline(getattr(getattr(c, 'args', None), 'agent_timeout', 14400))
+                if gate in ('G13', 'G14', 'G15') else contextlib.nullcontext())
+
     def check(self, c, gate):
         """Reuse verified evidence or execute a gate and retain its supporting artifacts."""
         reusable = gate in gate_state.REUSABLE and hasattr(c, "manifest0") and hasattr(c, "case")
@@ -49,11 +55,9 @@ class GatePipeline:
                               "fingerprint_version": c.gate_fingerprint_versions[gate]}
             signature = gate_state.fingerprint(c, gate, self.bench)
             before = {key: gate_state.digest(path) for key, path in gate_state.inventory(c, self.bench).items()}
-        import processes  # run.py installs the bench bin path after importing this module
         from factory_waste import attempt
         try:
-            with attempt(c, gate, self.case_hash(c)), (processes.deadline(getattr(getattr(c, 'args', None), 'agent_timeout', 14400))
-                  if gate in ('G13', 'G14', 'G15') else contextlib.nullcontext()):
+            with attempt(c, gate, self.case_hash(c)), self.window(c, gate):
                 ok, info = self.evaluate(c, gate)
                 if info.get('classification') == 'invalid-infra':
                     from run_validity import InvalidInfra
@@ -82,13 +86,14 @@ class GatePipeline:
         # G15 needs the complete answer key/ingredients; G1 has validated them before this call.
         gates = (["G15"] if (c.case / "answer-key.json").is_file() else []) + list(self.early_gates)
         for gate in gates:
-            outcome = gate_attempt.execute(
-                lambda: self.check(c, gate),
-                publish=lambda *args: self.publish(c, 'early:' + gate, *args),
-                record_crash=lambda error: self.record_crash(c, gate, error),
-                interruption=BudgetError, attempts=2, raise_crash=True,
-                journal=c.work / "infra-attempts.json",
-                identity={"operation": "early-gate", "gate": gate, "case": self.case_hash(c)})
+            with self.window(c, gate):
+                outcome = gate_attempt.execute(
+                    lambda: self.check(c, gate),
+                    publish=lambda *args: self.publish(c, 'early:' + gate, *args),
+                    record_crash=lambda error: self.record_crash(c, gate, error),
+                    interruption=BudgetError, attempts=2, raise_crash=True,
+                    journal=c.work / "infra-attempts.json",
+                    identity={"operation": "early-gate", "gate": gate, "case": self.case_hash(c)})
             ok, info = outcome.ok, outcome.info
             self.log(c, gate, "early", "pass" if ok else "FAIL", json.dumps(info), f"{outcome.elapsed_seconds:.0f}s")
             c.card.setdefault("early_gates", {})[gate] = {"ok": ok, "minutes": round((outcome.elapsed_seconds) / 60, 1)}
@@ -150,15 +155,16 @@ class GatePipeline:
                 ok, info = retained
                 self.publish(c, gate, 'completed' if ok else 'failed', 0, True)
                 return gate_attempt.Outcome(ok, info, 0)
-            outcome = gate_attempt.execute(
-                (lambda: around_gate(c, gate, invoke)) if around_gate else invoke,
-                publish=lambda *args: self.publish(c, gate, *args),
-                record_crash=lambda error: self.record_crash(c, gate, error), interruption=BudgetError,
-                attempts=2, journal=c.work / "infra-attempts.json",
-                identity={"operation": "gate", "gate": gate, "case": self.case_hash(c),
-                          "seed": getattr(c, "seed", None), "bench": getattr(c, "manifest0", None), "models": getattr(c, "models", {}),
-                          "args": {key: getattr(c.args, key, None) for key in
-                                   ("runs", "scenario_runs", "pilot_runs", "pilot_tries", "calibrator_minutes")}})
+            with self.window(c, gate):
+                outcome = gate_attempt.execute(
+                    (lambda: around_gate(c, gate, invoke)) if around_gate else invoke,
+                    publish=lambda *args: self.publish(c, gate, *args),
+                    record_crash=lambda error: self.record_crash(c, gate, error), interruption=BudgetError,
+                    attempts=2, journal=c.work / "infra-attempts.json",
+                    identity={"operation": "gate", "gate": gate, "case": self.case_hash(c),
+                              "seed": getattr(c, "seed", None), "bench": getattr(c, "manifest0", None), "models": getattr(c, "models", {}),
+                              "args": {key: getattr(c.args, key, None) for key in
+                                       ("runs", "scenario_runs", "pilot_runs", "pilot_tries", "calibrator_minutes")}})
             return outcome
 
         def stop_infrastructure(gate, outcome):
