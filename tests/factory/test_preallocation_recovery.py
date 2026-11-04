@@ -185,6 +185,25 @@ class PreallocationRecoveryTests(unittest.TestCase):
         self.assertEqual((target/'import.json').read_bytes(),receipt)
         self.assertEqual(before,(self.ledger.read_bytes(),(self.directory/'reservations.json').read_bytes(),(self.parent/'export.json').read_bytes()))
 
+    def test_nested_import_binds_the_original_producer_release(self):
+        self.successor()
+        # AUTHORED activation only; transfer, reservation, source and bind are real.
+        with patch.object(holder, 'HOLDER_ENABLED', True), patch.object(practice, 'EXPECTED', self.next_record):
+            op = holder.reserve(self.next_policy, self.target_root, self.home, 'smoke', self.generation)
+            job = batch.bind(self.next_policy, 'smoke', self.generation, self.target_root,
+                             home=self.home, operation=op['operation_id'])
+        self.assertIn('--restore', job['args'])
+        self.assertEqual(job['args'][job['args'].index('--checkpoint-sha256') + 1], self.generation)
+        self.assertEqual(job['args'][job['args'].index('--batch-sha256') + 1],
+                         self.next_policy['batch']['sha256'])
+        # A different producing release cannot be asserted by editing the public card.
+        path = self.parent / 'generations' / self.case / self.generation / (self.case + '.scorecard.json')
+        card = json.loads(path.read_text()); card['batch_release_sha256'] = self.policy['batch']['sha256']
+        atomic_json(path, card)
+        with patch.object(holder, 'HOLDER_ENABLED', True), self.assertRaises(ValueError):
+            batch.bind(self.next_policy, 'smoke', self.generation, self.target_root,
+                       home=self.home, operation=op['operation_id'])
+
     def test_existing_snapshot_without_certificates_keeps_its_original_digest(self):
         record=self.parent_record;policy=self.record['carry_from']['policy']
         snap=transfer.snapshot(self.parent,record,policy)
