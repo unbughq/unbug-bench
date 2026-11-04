@@ -31,6 +31,7 @@ account_state_arg=""
 [ -z "${FACTORY_ACCOUNT_STATE:-}" ] || account_state_arg="--account-state $(quote "$FACTORY_ACCOUNT_STATE")"
 extra=""; for a in "$@"; do extra="$extra '$(printf '%s' "$a" | sed "s/'/'\\\\''/g")'"; done
 "$BOAT_CMD" ssh "$id" "set -eu
+! test -f ~/.factory-r2 || python3 -c 'import json,os,sys; d=json.load(open(os.path.expanduser(\"~/.factory-r2\"))); sys.exit(not (isinstance(d, dict) and d.get(\"checkpoint_get\") and d.get(\"final_get\")))' || { echo 'R2 links predate checkpoint read-back; restore this case with factory/launch.sh --restore' >&2; exit 1; }
 rm -rf ~/factory && tar -xzf ~/factory.tgz -C ~ factory && tar -xzf ~/factory.tgz -C \"\${BENCH:-\$HOME/unbug-bench}\" bin/processes.py && rm ~/factory.tgz
 ! pgrep -f '^python3 .*factory/(run|runner_supervisor)[.]py' >/dev/null || { echo 'runner already running' >&2; exit 1; }
 # Source and slot from the newest scorecard that has them (a run that crashed early writes one without),

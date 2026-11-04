@@ -776,9 +776,11 @@ PYCODE
     echo "restored $restore on $id" >&2
     unset identity
   fi
-  # Pre-signed upload links for this VM's sealed archives (7 days, the SigV4 maximum); run.py uploads after sealing.
-  if put_ckpt=$(r2_sign PUT "vm/$id/checkpoint.tar.gz.age" 604800) && put_final=$(r2_sign PUT "vm/$id/final.tar.gz.age" 604800); then
-    python3 -c 'import json,sys; print(json.dumps({"prefix": "vm/" + sys.argv[1], "checkpoint": sys.argv[2], "final": sys.argv[3]}))' "$id" "$put_ckpt" "$put_final" |
+  # Pre-signed links for this VM's sealed archives (7 days, the SigV4 maximum); run.py uploads after sealing and
+  # reads each object back before naming it (checkpoint-readback), so every PUT link has a GET link for the same key.
+  if put_ckpt=$(r2_sign PUT "vm/$id/checkpoint.tar.gz.age" 604800) && get_ckpt=$(r2_sign GET "vm/$id/checkpoint.tar.gz.age" 604800) &&
+     put_final=$(r2_sign PUT "vm/$id/final.tar.gz.age" 604800) && get_final=$(r2_sign GET "vm/$id/final.tar.gz.age" 604800); then
+    python3 -c 'import json,sys; print(json.dumps({"prefix": "vm/" + sys.argv[1], "checkpoint": sys.argv[2], "checkpoint_get": sys.argv[3], "final": sys.argv[4], "final_get": sys.argv[5]}))' "$id" "$put_ckpt" "$get_ckpt" "$put_final" "$get_final" |
       boat --stdin ssh "$id" "umask 077; cat > ~/.factory-r2" >/dev/null || echo "$id: R2 links not stored; archives stay host-collected only" >&2
   fi
   remaining=$((retire_at - $(date +%s) + $(cat "$state/$id.started")))
