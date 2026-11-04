@@ -93,20 +93,27 @@ def snapshot(directory, record, policy):
     require(not state['incidents'] and all(not row['overrun'] and row['previous']['total_usd'] is not None
                                          for row in state['jobs'].values()))
     operations = holder._operations(directory, record, policy)
-    for op in operations.values():
-        require(op['incident'] is None and (op['state'] == 'failed' or
-                op['state'] == 'launched' and op['retirement'] is not None and op['output_generation'] is not None))
+    preallocation = {}
+    for identity, op in operations.items():
+        if op['incident'] is not None:
+            from practice_cleanup import preallocation_settlement
+            preallocation[identity] = preallocation_settlement(directory.parent.parent, op)
+        else:
+            require(op['state'] == 'failed' or op['state'] == 'launched' and
+                    op['retirement'] is not None and op['output_generation'] is not None)
     journal = service._load(directory, record, policy['batch']['manifest_sha256'])
     entries = {row['parent_case'] + '/' + row['eligible_generation']: journal['entries'][
         row['parent_case'] + '/' + row['eligible_generation']] for row in journal['derivations'].values()}
     prior_import = service._json(directory / 'import.json') if (directory / 'import.json').exists() else None
     if prior_import is not None:
         require(journal.get('imported_derivations') == latches(prior_import))
-    return dict(schema=1, batch=record['id'], manifest_sha256=policy['batch']['manifest_sha256'],
+    result = dict(schema=1, batch=record['id'], manifest_sha256=policy['batch']['manifest_sha256'],
                 release_sha256=policy['batch']['sha256'], money=state, operations=operations,
                 derivations=journal['derivations'], entries=entries,
                 imported_derivations=journal.get('imported_derivations', {}),
                 prior_import=prior_import)
+    if preallocation: result['preallocation_settlements'] = preallocation
+    return result
 
 
 def practice_check(record, old, snapshot_value):
@@ -179,12 +186,16 @@ def _local_source(directory, record, policy, snapshot_value, name, generation):
 
 def source(home, record, name, generation):
     """Resolve only the imported base against unchanged source ACK/artifacts."""
+    check(record)
     directory = home / 'batches' / record['id']
     receipt = read_import(directory, record)
     require(receipt['jobs'][name]['generation'] == generation and generation is not None)
     policy, old = frozen_manifest(record)
     source_dir = home / 'batches' / old['id']
     require(snapshot(source_dir, old, policy) == receipt['snapshot'])
+    row = receipt['snapshot']['money']['jobs'][name]
+    if row.get('imported', {}).get('generation') == generation:
+        return source(home, old, name, generation)
     ack, entry, card = _local_source(source_dir, old, policy, receipt['snapshot'], name, generation)
     return ack, entry, card, source_dir / 'generations' / card['case'] / generation
 
@@ -237,10 +248,16 @@ def prepare(policy, root, home):
                 require(previous['ordinal'] > 0 and not any(op['job'] == name for op in snap['operations'].values()) and
                         row['authority']['source_generation'] is None and row['known_floor_usd'] == '0.000000000')
             else:
-                # Only a local successor can be exported, not an unlaunched imported checkpoint.
-                require(generation in row['acks'])
+                imported_base = generation not in row['acks']
+                if imported_base:
+                    base = row.get('imported', {})
+                    attempts = [op for op in snap['operations'].values() if op['job'] == name]
+                    require(base.get('generation') == generation and row['sources'] == [generation] and
+                            all(row[k] == base[k] for k in ('authority','previous','known_floor_usd')) and
+                            not row['acks'] and attempts and all(op['operation_id'] in
+                            snap.get('preallocation_settlements', {}) for op in attempts))
                 ack, _, card = _local_source(src, old, old_policy, snap, name, generation)
-                require(ack['authority'] == row['authority'] and card.get('status') == 'stopped' and
+                require((imported_base or ack['authority'] == row['authority']) and card.get('status') == 'stopped' and
                         card.get('terminal_stop') not in ('retired_not_converging', 'retired_factory_bug_limit',
                                                          'factory_bug_history_invalid', 'diagnosis_input_invalid'))
             authority = (existing['jobs'][name]['authority'] if existing else dict(schema=1,
