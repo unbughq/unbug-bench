@@ -263,6 +263,24 @@ second=$?
                 self.assertEqual(target.read_bytes(),raw)
             self.assertFalse((target.parent/'retirement-proof.json').exists())
 
+    def test_null_status_has_public_failure_without_proof(self):
+        self.null_status=True
+        with self.assertRaises(ValueError): self.test_fresh_stop_delayed_identity_and_stopped_info()
+        receipt=json.loads((self.spend.with_suffix('.deletions')/WORKER/'capture-stage.json').read_text())
+        self.assertEqual((receipt['stage'],receipt['error_class']),('stop_status','invalid_response'))
+        self.assertFalse((self.spend.with_suffix('.deletions')/WORKER/'retirement-proof.json').exists())
+
+    def test_transitional_supersession_refuses(self):
+        self.supersede_transition=True
+        with self.assertRaises(ValueError): self.test_fresh_stop_delayed_identity_and_stopped_info()
+        self.assertFalse((self.spend.with_suffix('.deletions')/WORKER/'retirement-proof.json').exists())
+
+    def test_saved_request_continues_identity_poll_without_second_stop(self):
+        self.prior_request=True
+        target=self.spend.with_suffix('.deletions')/WORKER/'stop-request.json'
+        target.parent.mkdir(parents=True); target.write_text(json.dumps({'id':WORKER}))
+        self.test_fresh_stop_delayed_identity_and_stopped_info()
+
     def test_fresh_stop_delayed_identity_and_stopped_info(self):
         from types import SimpleNamespace
         self.started=int(time.time())-100
@@ -272,11 +290,16 @@ second=$?
         identified=deepcopy(CONTRACT['info_projection']); identified['sandbox']['state']='stopping'
         infos=iter([current,waiting,identified,identified,CONTRACT['info_projection'],CONTRACT['info_projection']])
         calls=[]
+        pending=deepcopy(CONTRACT['stop_status_response']); pending['stop'].update(status='pending',endedAt=None)
+        statuses=iter([pending,CONTRACT['stop_status_response']])
         def run(argv,**kwargs):
             args=argv[1:];calls.append(args)
-            if args[0]=='info': data=next(infos)
+            if args[0]=='info':
+                data=deepcopy(next(infos))
+                if getattr(self,'supersede_transition',False) and data['sandbox']['stop'] is not None:
+                    data['sandbox']['stop']['status']='superseded'
             elif args==['stop',WORKER,'--json']: data={'id':WORKER}
-            elif args[0]=='stop': data=CONTRACT['stop_status_response']
+            elif args[0]=='stop': data={'id':WORKER,'stop':None} if getattr(self,'null_status',False) else next(statuses)
             else: return SimpleNamespace(stdout=CONTRACT['usage_raw_public_json'].encode())
             return SimpleNamespace(stdout=json.dumps(data).encode())
         with patch.dict(os.environ,self.env),patch.object(key_holder,'ROOT',self.root),patch.object(life,'boot_id',return_value='AUTHORED boot'),patch.object(life.time,'sleep'),patch.object(life.subprocess,'run',side_effect=run):
@@ -284,7 +307,7 @@ second=$?
             with (self.state/(WORKER+'.deletion.lock')).open('a+') as fd:
                 proof,_,_=life.capture_meter(self.root,self.spend,WORKER,self.state,marker,fd.fileno())
         self.assertEqual(proof['stop_id'],CONTRACT['stop_status_response']['stop']['id'])
-        self.assertEqual(calls.count(['stop',WORKER,'--json']),1)
+        self.assertEqual(calls.count(['stop',WORKER,'--json']),0 if getattr(self,'prior_request',False) else 1)
 
     def test_delete_queries_cannot_use_unspent_meter_allowance(self):
         from types import SimpleNamespace

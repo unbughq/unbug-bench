@@ -537,6 +537,7 @@ def capture_meter(root, spend, worker, state, marker, fd):
         return _capture_meter(root,spend,worker,state,marker,fd,['initial_info'])
     if target.exists():
         old=loads(regular(target))
+        if not isinstance(old,dict): raise ValueError('invalid capture receipt')
         if old.get('retirement_id') != marker['retirement_id'] or old.get('worker_id') != worker:
             raise ValueError('capture receipt identity mismatch')
         if old.get('outcome')=='failed':
@@ -590,13 +591,17 @@ def _capture_meter(root, spend, worker, state, marker, fd, stage):
     stop = current['response']['sandbox']['stop']
     if (not isinstance(stop,dict) or not isinstance(stop.get('id'),str) or not stop['id'] or
             (current['response']['sandbox']['state'] != 'stopped' and stop.get('status') in ('completed','superseded'))):
-        stage[0]='stop_request'
-        _, response = query('stop',worker,'--json')
-        if any(value != worker for value in (response.get('id',worker),response.get('sandbox',{}).get('id',worker))):
-            raise ValueError('wrong stop response')
-        # Do not persist arbitrary action DTO fields: only allowlisted public identity/stop.
-        public = {k:response[k] for k in ('id','stop') if k in response}
-        atomic_bytes(evidence/'stop-request.json',json.dumps(public).encode())
+        if not os.path.lexists(evidence/'stop-request.json'):
+            stage[0]='stop_request'
+            _, response = query('stop',worker,'--json')
+            if not isinstance(response,dict): raise ValueError('invalid stop response')
+            nested=response.get('sandbox')
+            if nested is not None and not isinstance(nested,dict): raise ValueError('invalid stop response')
+            if response.get('id',worker) != worker or (nested is not None and nested.get('id',worker) != worker):
+                raise ValueError('wrong stop response')
+            # Do not persist arbitrary action DTO fields: only allowlisted public identity/stop.
+            public = {k:response[k] for k in ('id','stop') if k in response}
+            atomic_bytes(evidence/'stop-request.json',json.dumps(public).encode())
         stage[0]='stop_identity'
         while True:
             current = info(); stop = current['response']['sandbox']['stop']
@@ -611,7 +616,7 @@ def _capture_meter(root, spend, worker, state, marker, fd, stage):
     while True:
         stage[0]='stop_status'
         raw_status,status = query('stop',worker,'--status',stop_id,'--json')
-        if (status.get('id') != worker or status.get('stop',{}).get('id') != stop_id or
+        if (not isinstance(status,dict) or not isinstance(status.get('stop'),dict) or status.get('id') != worker or status.get('stop',{}).get('id') != stop_id or
                 status['stop'].get('status') not in ('pending','failing','completed','superseded')):
             raise ValueError('stop identity mismatch')
         if status['stop']['status']=='superseded': raise ValueError('stop superseded')
@@ -624,6 +629,7 @@ def _capture_meter(root, spend, worker, state, marker, fd, stage):
         observed=sandbox['stop']
         if observed is not None and (not isinstance(observed,dict) or observed.get('id') != stop_id):
             raise ValueError('stop changed')
+        if isinstance(observed,dict) and observed.get('status')=='superseded': raise ValueError('stop superseded')
         if sandbox['state']=='stopped': break
         if deadline-time.monotonic() <= 73: raise TimeoutError()
         time.sleep(2)
