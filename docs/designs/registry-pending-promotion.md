@@ -82,3 +82,10 @@ Already-reserved candidates keep their fixed snapshot (later entries are not ret
 (reserved, history), Y's own handoff after, and unauthenticated reselection refusals.
 Fails on 271f4a87, passes now. **Murphy.** Closes new-registry-pending-promotion-1 locally;
 not deployed or live-proven; register untouched.
+
+**Review follow-ups (diff-2).** `replace_rejected` validates digest and ciphertext before any
+release and retries once on a concurrent "stale reservation" (the decision stays unlocked;
+every race ends in success, retry or refusal). Legacy digestless historical entries cannot be
+replaced by a reselected candidate (a None digest never authenticates a release); all 37
+retained ones are finished cases. Tests add the direct own-handoff release and
+malformed-input-before-release cases.

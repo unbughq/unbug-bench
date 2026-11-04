@@ -103,16 +103,24 @@ class Registry:
 
     def replace_rejected(self, case, statement_sha256, ciphertext, rejected, *, historical=False):
         """Only an explicitly rejected previous digest permits candidate reselection."""
-        state = json.loads((self.root / "registry.json").read_text()) if (self.root / "registry.json").exists() else {"entries": {}}
-        previous = state["entries"].get(case)
-        old = previous and previous["statement_sha256"]
-        # A historical-only entry with an unknown digest falls through to reserve (promotion or refusal).
-        if (previous and previous["status"] != "released" and old != statement_sha256 and
-                (previous["complete"] or old is not None)):
-            if old is None or old not in rejected or (previous["complete"] and previous["status"] not in ("screening", "building")):
-                raise ValueError("case already reserved with different content")
-            self.transition(case, previous["reservation"], "released")
-        return self.reserve(case, statement_sha256, ciphertext, historical=historical)
+        if not re.fullmatch(r"[0-9a-f]{64}", statement_sha256 or "") or not pathlib.Path(ciphertext).read_bytes().startswith(
+                (b"age-encryption.org/v1", b"-----BEGIN AGE ENCRYPTED FILE-----")):
+            return self.reserve(case, statement_sha256, ciphertext, historical=historical)  # refuses before any release
+        for attempt in (0, 1):  # the decision is unlocked; one concurrent release/reselect is retried
+            state = json.loads((self.root / "registry.json").read_text()) if (self.root / "registry.json").exists() else {"entries": {}}
+            previous = state["entries"].get(case)
+            old = previous and previous["statement_sha256"]
+            # A historical-only entry with an unknown digest falls through to reserve (promotion or refusal).
+            if (previous and previous["status"] != "released" and old != statement_sha256 and
+                    (previous["complete"] or old is not None)):
+                if old is None or old not in rejected or (previous["complete"] and previous["status"] not in ("screening", "building")):
+                    raise ValueError("case already reserved with different content")
+                try:
+                    self.transition(case, previous["reservation"], "released")
+                except ValueError as error:
+                    if attempt or "stale reservation" not in str(error): raise
+                    continue
+            return self.reserve(case, statement_sha256, ciphertext, historical=historical)
 
     def search_receipt(self, case, metadata, ciphertext):
         """Keep opaque worker evidence; the worker validates its verdict and expiry."""

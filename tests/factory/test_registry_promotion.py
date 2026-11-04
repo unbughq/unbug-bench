@@ -124,6 +124,21 @@ class PromotionTests(unittest.TestCase):
                 self.assertTrue({"case-pa", "case-pz"} <= set(entry["statements"]))
                 self.assertEqual(self.r.export("case-pz", self.tmp / (first + "-a"))["statements"]["case-py"], entry["cipher_sha256"])
 
+    def test_own_handoff_releases_reselected_historical_only_entry(self):
+        c1, c2, d1, d2 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64, "2" * 64
+        self.wave("h1", "case-pa", c1, d1, [])  # c1 imported as history by another wave
+        mine = self.wave("h2", "case-pa", c2, d2, [d1], y_candidate=True)["case-py"]  # no X wave in between
+        entry = json.loads((mine / "admission.json").read_text())
+        self.assertEqual((entry["complete"], entry["statement_sha256"]), (True, d2))
+
+    def test_malformed_input_refuses_before_releasing(self):
+        c1, c2, d1 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64
+        self.wave("m1", "case-pa", c1, d1, [], y_candidate=True)
+        junk = self.tmp / "junk.age"; junk.write_bytes(b"not age")
+        with self.assertRaises(ValueError): self.r.replace_rejected("case-py", "2" * 64, junk, [d1])
+        with self.assertRaises(ValueError): self.r.replace_rejected("case-py", "xyz", c2, [d1])
+        self.assertEqual(self.r.export("case-py", self.tmp / "m-out")["statement_sha256"], d1)
+
     def test_unauthenticated_reselection_still_refuses_and_keeps_reservation(self):
         c1, c2, d1, d2 = self.ct["case-pb"], self.ct["case-pc"], "1" * 64, "2" * 64
         for first in ("reserved", "history"):
