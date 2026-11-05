@@ -11,7 +11,7 @@ import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-BASE = ROOT / 'docs/reports/stream-b-cleanup-qualification-20261031'
+BASE = ROOT / 'tests/factory/fixtures/retained-evidence/stream-b-cleanup-qualification-20261031'
 sys.path.insert(0, str(ROOT / 'factory'))
 import deployment_inventory as inventory
 # Validate the historical producer's literal schema, not today's launch environment.
@@ -219,13 +219,13 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(len(records), 9)
         urls = []
         for folder in ('stream-b-provider-contract-20261031', 'stream-b-cost-contract-20261031'):
-            old = json.loads((ROOT / 'docs/reports' / folder / 'sources.json').read_text())
+            old = json.loads((ROOT / 'tests/factory/fixtures/retained-evidence' / folder / 'sources.json').read_text())
             urls += [r['url'] for r in (old['sources'] if isinstance(old, dict) else old)]
         self.assertEqual([r['url'] for r in records], urls)
         for r in records:
-            self.assertEqual(hashlib.sha256((ROOT / r['old_file']).read_bytes()).hexdigest(), r['old_sha256'])
+            self.assertEqual(hashlib.sha256((ROOT / 'tests/factory/fixtures/retained-evidence' / Path(r['old_file']).relative_to('docs/reports')).read_bytes()).hexdigest(), r['old_sha256'])
             if r['status'] != 'unavailable':
-                self.assertEqual(hashlib.sha256((ROOT / r['file']).read_bytes()).hexdigest(), r['new_sha256'])
+                self.assertEqual(hashlib.sha256((ROOT / 'tests/factory/fixtures/retained-evidence' / Path(r['file']).relative_to('docs/reports')).read_bytes()).hexdigest(), r['new_sha256'])
 
 
 if __name__ == '__main__': unittest.main()

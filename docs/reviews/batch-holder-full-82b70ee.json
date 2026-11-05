@@ -1,1 +1,0 @@
-{"head": "82b70eeb5f97e193431266597c85b6d269265194", "command": "uv run --with numpy --with scipy python -B tests/run.py", "exit_code": 0, "result": "155 test scripts run; 0 failed.", "log_sha256": "d52b640d7cf457aa0fd52885cf83a34808aeb726216a59b27b70783347d93d5e"}

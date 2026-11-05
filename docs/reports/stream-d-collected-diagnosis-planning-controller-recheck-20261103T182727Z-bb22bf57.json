@@ -1,9 +1,0 @@
-{
-  "command": "uv run --with numpy --with scipy python -B tests/factory/test_control_resume.py",
-  "head": "3e3528081d1ccf0ffbd126bb292370a8875b2368",
-  "started_at": "2026-11-03T18:27:27.870429+00:00",
-  "log": "docs/reports/stream-d-collected-diagnosis-planning-controller-recheck-20261103T182727Z-bb22bf57.log",
-  "scope": "focused recheck of sole full-suite failure; not a replacement full suite",
-  "exit_code": 1,
-  "finished_at": "2026-11-03T18:30:17.885065+00:00"
-}

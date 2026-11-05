@@ -3,7 +3,7 @@
 Run the complete offline suite from the repository root:
 
 ```sh
-uv run --with numpy --with scipy python tests/run.py
+uv run --with numpy --with scipy --with dbos==3.4.0 python tests/run.py
 ```
 
 The analysis tests require NumPy and SciPy; other suites use their existing local

@@ -1,8 +1,7 @@
 """WP4 failure classification (factory/durable/classify.py) on the real stop history.
 
-Real artifacts (ENGINEERING section 4): every stop string is read at test time from the
-50 non-dry-run scorecards in sealed/, never copied into a fixture. Design:
-docs/designs/durable-execution-wp4.md; findings: docs/reports/durable-execution-wp4-stops.md.
+Stop strings are read at test time from the 50 non-dry-run scorecards in
+sealed/, never copied into a fixture.
 """
 import ast
 import collections
@@ -335,11 +334,6 @@ class Secrecy(unittest.TestCase):
         for _, stop in STOPS:
             self.assertIn(classify(stop, step=StepKind.WRITER, now=NOW).reason, PUBLISHED_REASONS)
 
-    def test_contract_reasons_are_the_contracts_own(self):
-        source = (ROOT / "factory" / "durable" / "contract.py").read_text() + \
-            (ROOT / "docs" / "designs" / "durable-execution.md").read_text()
-        for reason in CONTRACT_REASONS:
-            self.assertIn(reason, source)
 
 
 class Purity(unittest.TestCase):

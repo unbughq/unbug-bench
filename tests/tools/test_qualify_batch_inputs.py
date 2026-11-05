@@ -174,7 +174,7 @@ class MigrationQualificationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        path = ROOT / 'docs/reports/batch-service-migration-plan-20261030.json'
+        path = ROOT / 'tests/factory/fixtures/retained-evidence/batch-service-migration-plan-20261030.json'
         self.plan = json.loads(path.read_bytes()); self.pin = hashlib.sha256(path.read_bytes()).hexdigest()
 
     def test_real_plan_missing_store_never_skips_or_claims_remote_proof(self):

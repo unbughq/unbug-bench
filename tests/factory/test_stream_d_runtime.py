@@ -504,7 +504,6 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
         """Search exam: no new paid-cap use enters factory code unclassified."""
         expected = {
             'bin/run-exam': 4,                 # exam-owner protection, no factory authority
-            'factory/README.md': 4,            # documentation of both regimes
             'factory/batch.py': 2,             # historical argv stripped from batch jobs
             'factory/batch_money.py': 1,       # manifest job refuses a max_cost field
             'factory/budget.py': 9,            # non-factory enforcement; factory requires None
@@ -520,7 +519,7 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
         # free-model-cutover.json (not scanned) pins legacy case IDs only; batch IDs never match it.
         found = {}
         for path in [*(ROOT / 'factory').glob('*.py'), *(ROOT / 'factory').glob('*.sh'),
-                     ROOT / 'factory/README.md', *(p for p in (ROOT / 'bin').iterdir() if p.is_file())]:
+                     *(p for p in (ROOT / 'bin').iterdir() if p.is_file())]:
             try: text = path.read_text()
             except UnicodeDecodeError: continue
             count = text.count('max_cost') + text.count('max-cost')

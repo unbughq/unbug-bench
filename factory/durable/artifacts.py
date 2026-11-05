@@ -1,6 +1,6 @@
 """WP3: the age Sealer and the ArtifactStore (local and R2 backends).
 
-docs/designs/durable-execution-wp3.md. The Sealer runs on both sides; the store runs on
+ARCHITECTURE.md. The Sealer runs on both sides; the store runs on
 the control VM only and holds ciphertext, never keys or plaintext.
 
 - AgeSealer encrypts with the real `age` CLI, to the X25519 identity derived from the

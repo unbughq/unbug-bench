@@ -1,4 +1,4 @@
-"""WP3: the age Sealer and the ArtifactStore (docs/designs/durable-execution-wp3.md).
+"""WP3: the age Sealer and the ArtifactStore (ARCHITECTURE.md).
 
 Real artifacts only: the real `age` and `age-keygen` binaries, real files, a real child
 process killed mid-write, and real HTTP sockets. Independent checks: RFC 7748's X25519
