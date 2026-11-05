@@ -13,7 +13,8 @@ the control VM only and holds ciphertext, never keys or plaintext.
 - LocalObjects writes a temporary file, fsyncs it and link()s it into place, so a partial
   write is never visible and the first complete object wins.
 - R2Objects signs each S3 request with SigV4, including the payload's sha256, so the
-  store refuses a truncated or altered body, and reads every PUT back before returning.
+  store refuses a truncated or altered body. A PUT is conditional (If-None-Match: *),
+  never follows a redirect, and is read back before it returns.
 
 Errors carry fixed codes only: never a path, URL, key, credential or age's stderr.
 """
@@ -130,8 +131,8 @@ def identity_secret(identity: str) -> bytes:
 class AgeSealer:
     """contract.Sealer with the age CLI. Stateless; holds no key between calls."""
 
-    def __init__(self, age: str = "age"):
-        self.age = age
+    def __init__(self, age: str = "age", timeout_s: float = 600):
+        self.age, self.timeout_s = age, timeout_s
 
     def seal(self, scope_key: bytes, kind: ArtifactKind, plaintext: bytes) -> tuple[Ref, bytes]:
         if type(plaintext) is not bytes:
@@ -163,7 +164,9 @@ class AgeSealer:
             write_end = None
             try:
                 done = subprocess.run([self.age, mode, "-i", f"/dev/fd/{read_end}"], input=data,
-                                      capture_output=True, pass_fds=(read_end,))
+                                      capture_output=True, pass_fds=(read_end,), timeout=self.timeout_s)
+            except subprocess.TimeoutExpired:
+                raise ArtifactError("age_timeout") from None   # run() has killed and reaped age
             except OSError:
                 raise ArtifactError("age_unavailable") from None
         finally:
@@ -226,8 +229,9 @@ def open_from(store, keys: KeyService, sealer, ref: Ref, *, case_id: str, batch_
 # ---- the store ----------------------------------------------------------------------------------
 
 class Objects(Protocol):
-    """Immutable byte objects by key. put is first-wins and makes an object visible only
-    once complete; get returns None when absent."""
+    """Byte objects by key. put is idempotent and makes an object visible only once
+    complete; an existing object is kept (LocalObjects always; R2Objects through a
+    conditional PUT). get returns None when absent."""
     def put(self, key: str, data: bytes) -> None: ...
     def get(self, key: str) -> Optional[bytes]: ...
     def exists(self, key: str) -> bool: ...
@@ -265,7 +269,9 @@ _PART = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
 
 class LocalObjects:
-    """Objects in a directory tree (tests, offline runs, a control-VM cache)."""
+    """Objects in a directory tree (tests, offline runs, a control-VM cache). A crash
+    leaves its .tmp-* file behind; nothing sweeps it, since deleting a live writer's
+    temp would fail that put (a cache-only leak, see the WP3 note)."""
 
     def __init__(self, root):
         self.root = Path(root)
@@ -278,9 +284,10 @@ class LocalObjects:
 
     def put(self, key: str, data: bytes) -> None:
         path = self._path(key)
-        if path.is_file():
-            return
         try:
+            if path.is_file():
+                _fsync_dir(path.parent)   # a concurrent writer may not have fsynced its link yet
+                return
             _mkdirs(path.parent)
             fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")   # mode 0600
         except OSError:
@@ -296,8 +303,8 @@ class LocalObjects:
             try:
                 os.link(tmp, path)   # first complete object wins; never replaced
             except FileExistsError:
-                pass
-            _fsync_dir(path.parent)
+                pass                 # a concurrent writer won; its object is kept
+            _fsync_dir(path.parent)  # on both paths, so a returned put survives power loss
         except OSError:
             raise ArtifactError("store_failed") from None
         finally:
@@ -372,12 +379,21 @@ def sigv4_headers(method: str, host: str, path: str, headers: Mapping[str, str],
 Transport = Callable[[str, str, Mapping[str, str], Optional[bytes]], tuple]
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A 3xx comes back as its status: a signed request is never re-sent to another host."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def urllib_transport(method: str, url: str, headers: Mapping[str, str], body: Optional[bytes],
                      timeout: float = 300) -> tuple:
-    """(status, headers, body). An HTTP error status is returned, not raised."""
+    """(status, headers, body). An HTTP error status, including a 3xx, is returned, not raised."""
     request = urllib.request.Request(url, data=body, method=method, headers=dict(headers))
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _OPENER.open(request, timeout=timeout) as response:
             return response.status, {k.lower(): v for k, v in response.headers.items()}, response.read()
     except urllib.error.HTTPError as error:
         status = error.code
@@ -412,10 +428,11 @@ class R2Objects:
             raise ArtifactError("bad_key")
         path = "/" + urllib.parse.quote(f"{self.bucket}/{key}", safe="/~")
         payload = hashlib.sha256(body).hexdigest() if body is not None else EMPTY_SHA256
-        extra = {"Content-Length": str(len(body))} if body is not None else {}
-        headers = sigv4_headers(method, self.host, path, {}, payload, access_key=self._access,
+        signed = {"Content-Type": "application/octet-stream", "If-None-Match": "*"} if body is not None else {}
+        headers = sigv4_headers(method, self.host, path, signed, payload, access_key=self._access,
                                 secret_key=self._secret, now=self._clock(), region=self.region)
-        headers.update(extra)
+        if body is not None:
+            headers["Content-Length"] = str(len(body))
         try:
             status, got, data = self._transport(method, self.endpoint + path, headers, body)
         except ArtifactError:
@@ -426,8 +443,15 @@ class R2Objects:
 
     def put(self, key: str, data: bytes) -> None:
         if self.exists(key):
-            return   # first complete object wins; every object was verified when written
+            return   # kept: a PUT commits only a whole, hash-checked body
         status, _, _ = self._call("PUT", key, data)
+        if status == 412:
+            # A concurrent writer committed first. Its ciphertext differs (age is randomised)
+            # but opens to the same bytes, so confirm it is there and keep it.
+            back = self.get(key)
+            if back is None or not back.startswith(AGE_HEADER):
+                raise ArtifactError("upload_unverified")
+            return
         if status != 200:
             raise ArtifactError("upload_failed")
         back = self.get(key)
