@@ -4,6 +4,14 @@
 [ "${UNBUG_CLOUD:-hetzner}" = boat ] || { BOAT_CMD=${BOAT_CMD:-$root/bin/hcloud-boat}; export BOAT_CMD; }
 boat() { "$root/bin/boat-call" "$@"; }
 quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+# Each worker retires in its own background task (Murphy row 16): simultaneous
+# retirements never queue behind one another. Entries are id:pid:token.
+guard_retiring=""; guard_deferred=""; guard_exiting=0; gr_signal=""; guard_task_counter=0
+guard_task_epoch=$(date +%s)
+guard_signal_traps() {
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
 
 guard_init() {
   state=${UNBUG_LAUNCH_STATE:-$(mktemp -d "${TMPDIR:-/tmp}/boat-launch.XXXXXX")}
@@ -14,8 +22,7 @@ guard_init() {
     : > "$state/ids"
   fi
   trap 'guard_exit $?' 0
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
+  guard_signal_traps
   [ "${UNBUG_RESUME_LAUNCH:-}" != 1 ] || return 0
   poll=${BOAT_POLL_SECONDS:-120}
   stall_minutes=${BOAT_STALL_MINUTES:-45}  # matches the runner's own silence limit
@@ -156,6 +163,79 @@ guard_retire() {
   return "$retire_status"
 }
 
+guard_retire_running() {
+  case " $guard_retiring " in *" $1:"*) return 0 ;; esac
+  return 1
+}
+
+guard_retire_owned_pid() {
+  case " $guard_retiring " in *":$1:"*) return 0 ;; esac
+  return 1
+}
+
+# Start <id>'s retirement (kind retire|ttl) as its own task; the poll loop never
+# waits on it. Its status is a token-named file, so a stale or orphan one is never read.
+guard_retire_start() {
+  gr_id=$1; gr_kind=$2
+  guard_task_counter=$((guard_task_counter + 1))
+  gr_token=$guard_task_epoch.$$.$guard_task_counter
+  gr_exit=$state/$gr_id.retirement-exit.$gr_token
+  # Before the fork: this glob must never remove the new task's own status.
+  rm -f "$state/$gr_id".retirement-exit.*
+  gr_signal=""
+  # Defer INT/TERM until the task is recorded, so guard_exit joins it, never kills it.
+  if [ "$guard_exiting" != 1 ]; then trap 'gr_signal=130' INT; trap 'gr_signal=143' TERM; fi
+  (
+    trap - 0
+    gr_s=0
+    case $gr_kind in
+      ttl)
+        if [ "$label" = factory ] && command -v factory_ttl_retire >/dev/null 2>&1; then
+          factory_ttl_retire "$gr_id" || echo "$gr_id: TTL attestation failed; collection remains a manual pause" >&2
+        fi
+        guard_retire "$gr_id" || gr_s=$? ;;
+      *) guard_retire "$gr_id" || gr_s=$? ;;
+    esac
+    printf '%s\n' "$gr_s" > "$gr_exit.tmp" && mv "$gr_exit.tmp" "$gr_exit"
+  ) &
+  guard_retiring="$guard_retiring $gr_id:$!:$gr_token"
+  if [ "$guard_exiting" != 1 ]; then
+    guard_signal_traps
+    [ -z "$gr_signal" ] || exit "$gr_signal"
+  fi
+}
+
+# Reap finished tasks (every task with "block"); 1 if a reaped retirement failed.
+# A task that ended without a status (killed, shell error, full disk) is a failed
+# retirement: marked retired, never re-classified; the exit pass retries it.
+guard_retire_reap() {
+  gr_block=${1:-}; gr_failed=0; gr_left=""
+  for gr_entry in $guard_retiring; do
+    gr_id=${gr_entry%%:*}; gr_rest=${gr_entry#*:}
+    gr_pid=${gr_rest%%:*}; gr_token=${gr_rest#*:}
+    gr_exit=$state/$gr_id.retirement-exit.$gr_token
+    if [ "$gr_block" != block ] && [ ! -f "$gr_exit" ] && kill -0 "$gr_pid" 2>/dev/null; then
+      gr_left="$gr_left $gr_entry"; continue
+    fi
+    wait "$gr_pid" 2>/dev/null || :
+    gr_s=$(cat "$gr_exit" 2>/dev/null || :)
+    case $gr_s in
+      0) ;;
+      ''|*[!0-9]*) echo "$gr_id: retirement task ended without a status; treated as a failed retirement" >&2; gr_failed=1 ;;
+      *) gr_failed=1 ;;
+    esac
+    rm -f "$gr_exit"
+    touch "$state/$gr_id.retired"
+  done
+  guard_retiring=$gr_left
+  return "$gr_failed"
+}
+
+guard_retirements_active() {
+  case $guard_retiring in *[!\ ]*) return 0 ;; esac
+  return 1
+}
+
 guard_cleanup_error() {
   guard_cleanup_failed=true
   [ "$exit_code" -ne 0 ] || exit_code=1
@@ -169,13 +249,20 @@ guard_exit() {
   trap '' INT TERM
   set +e
   # The shell job table also covers a signal between starting a probe and recording its PID.
+  # Recorded retirement tasks are joined instead: killing one would orphan its collect.sh.
   for probe_pid in $(jobs -p); do
+    guard_retire_owned_pid "$probe_pid" && continue
     kill -TERM "$probe_pid" 2>/dev/null
     wait "$probe_pid" 2>/dev/null
   done
+  guard_exiting=1
+  # Logged only: the exit pass below decides cleanup, as it did for an
+  # interrupted foreground retirement.
+  guard_retire_reap block || echo "an in-flight retirement failed; the exit pass retries it" >&2
   guard_ids_failed=0
   guard_ids resolve || { guard_ids_failed=1; guard_cleanup_error; }
-  for exit_id in $(cat "$state/ids"); do guard_retire "$exit_id" || guard_cleanup_error; done
+  for exit_id in $(cat "$state/ids"); do guard_retire_start "$exit_id" retire; done
+  guard_retire_reap block || guard_cleanup_error
   if [ -s "$state/ids" ]; then
     if boat list --json > "$state/list.json"; then
       python3 - "$state/ids" "$state/list.json" "$state" <<'PY'
@@ -231,44 +318,50 @@ guard_wait() {
   # Probe together so one unreachable VM cannot delay the rest of the batch.
   probe="python3 -c $(quote "$probe_python")"
   while :; do
+    guard_retire_reap || wait_status=1
     pending=0
     for wait_id in $(cat "$state/ids"); do
+      # An in-flight retirement owns its worker until it is reaped.
+      if guard_retire_running "$wait_id"; then pending=1; continue; fi
       [ ! -f "$state/$wait_id.retired" ] || continue
       [ ! -f "$state/$wait_id.deleted" ] || { touch "$state/$wait_id.retired"; continue; }
       # A recorded deletion operation is reconciled through the receipt path, not SSH.
       if [ -f "$state/$wait_id.deletion-attempted" ]; then
-        guard_retire "$wait_id" || wait_status=1
-        touch "$state/$wait_id.retired"; continue
+        guard_retire_start "$wait_id" retire; pending=1; continue
       fi
       pending=1
       rm -f "$state/$wait_id.ok"
       "$root/bin/boat-call" ssh "$wait_id" "$probe" > "$state/$wait_id.reply" &
       echo "$!" > "$state/$wait_id.pid"
     done
-    [ "$pending" -ne 0 ] || return "$wait_status"
+    [ "$pending" -ne 0 ] || guard_retirements_active || return "$wait_status"
     for wait_id in $(cat "$state/ids"); do
+      ! guard_retire_running "$wait_id" || continue
       [ -f "$state/$wait_id.pid" ] || continue
       if wait "$(cat "$state/$wait_id.pid")"; then touch "$state/$wait_id.ok"; fi
       rm -f "$state/$wait_id.pid"
     done
     pending=0
+    guard_deferred=""
     for wait_id in $(cat "$state/ids"); do
+      if guard_retire_running "$wait_id"; then pending=1; continue; fi
       [ ! -f "$state/$wait_id.retired" ] || continue
+      retire_kind=retire
       if [ -f "$state/$wait_id.ok" ]; then
         reply=$(cat "$state/$wait_id.reply")
         case $reply in
           STARTUP_FAILED)
             echo "$wait_id: runner startup failed; collecting operational exit receipt" >&2
             wait_status=1
-            guard_retire "$wait_id" || true
-            touch "$state/$wait_id.retired"; continue ;;
+            guard_retire_start "$wait_id" retire; pending=1; continue ;;
           DONE)
             # Factory-only hook: retain the original TTL/spend envelope and restart in place.
-            # Exams and Hetzner keep their existing retirement paths.
-            if [ "$label" = factory ] && command -v factory_auto_resume >/dev/null 2>&1 && factory_auto_resume "$wait_id"; then
-              pending=1; continue
+            # Exams and Hetzner keep their existing retirement paths. It stays inline (its
+            # stop semantics need the launcher trap), after every due peer's task started.
+            if [ "$label" = factory ] && command -v factory_auto_resume >/dev/null 2>&1; then
+              guard_deferred="$guard_deferred $wait_id"; pending=1; continue
             fi
-            guard_retire "$wait_id" || wait_status=1; touch "$state/$wait_id.retired"; continue ;;
+            guard_retire_start "$wait_id" retire; pending=1; continue ;;
           *[!0-9]*|'') reply="" ;;
         esac
       else reply=""; fi
@@ -280,9 +373,7 @@ guard_wait() {
         elif [ $((now - $(cat "$state/$wait_id.started"))) -lt "$retire_at" ]; then pending=1; continue
         else
           echo "$wait_id: TTL margin reached; collecting before boat erases it" >&2
-          if [ "$label" = factory ] && command -v factory_ttl_retire >/dev/null 2>&1; then
-            factory_ttl_retire "$wait_id" || echo "$wait_id: TTL attestation failed; collection remains a manual pause" >&2
-          fi
+          retire_kind=ttl  # its task attests first (factory_ttl_retire), then collects
         fi
       else
         [ -f "$state/$wait_id.failed" ] || echo "$now" > "$state/$wait_id.failed"
@@ -291,11 +382,15 @@ guard_wait() {
         echo "$wait_id UNREACHABLE: failed polls for $unreachable seconds (or TTL margin reached)" >&2
       fi
       wait_status=1
-      guard_retire "$wait_id" || true
-      touch "$state/$wait_id.retired"
+      guard_retire_start "$wait_id" "$retire_kind"; pending=1
     done
+    # Phase 2: inline auto-resume never delays a peer due in this pass.
+    for wait_id in $guard_deferred; do
+      factory_auto_resume "$wait_id" || guard_retire_start "$wait_id" retire
+    done
+    guard_deferred=""
     [ "$wait_once" != once ] || return "$wait_status"
-    [ "$pending" -ne 0 ] || return "$wait_status"
+    [ "$pending" -ne 0 ] || guard_retirements_active || return "$wait_status"
     sleep "$poll" & wait $!
   done
 }
