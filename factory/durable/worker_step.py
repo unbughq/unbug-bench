@@ -178,8 +178,8 @@ class Worker:
         return {pid for pid in found if pid != os.getpid() and _alive(pid)}
 
     def live(self, key):
-        """A unit with no result: some process of the attempt still runs and no result exists."""
-        return not self.paths(key)["result"].exists() and bool(self.processes(key))
+        """Keep the case busy until every process of the attempt has exited."""
+        return bool(self.processes(key))
 
     def busy(self, case_id, key):
         directory = self._case_dir(case_id)
@@ -252,7 +252,7 @@ class Worker:
     def poll(self, frame):
         key = self._key(frame)
         result = self.read_result(key)
-        if result is not None:
+        if result is not None and not self.processes(key):
             return Poll(PollState.DONE, result)
         return Poll(PollState.RUNNING if self.processes(key) else PollState.ABSENT)
 
