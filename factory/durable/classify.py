@@ -51,8 +51,8 @@ _FIXED = {
     "ProviderWait": (_P, "router:provider_wait"),
     "shared_paid_spend_wait": (_P, "router:provider_wait"),
     "provider_routes_exhausted": (_P, "router:provider_wait"),
-    "codex_login_expired": (_P, "router:credential_expiring"),
-    "credential_expiring": (_P, "router:credential_expiring"),
+    "codex_login_expired": (_I, "router:credential_expiring"),
+    "credential_expiring": (_I, "router:credential_expiring"),
     # Model CLI and provider faults: broken runs, retried.
     "opencode_error": (_I, "router:opencode_error"),
     "codex_error": (_I, "router:codex_error"),
@@ -124,12 +124,15 @@ REASONS = frozenset({r for _, r in _FIXED.values()} | {r for _, r in _LIMIT_FAMI
 CONTRACT_REASONS = frozenset({"infra:deadline", "infra:version_mismatch", "infra:attempt_busy",
                               "infra:cancelled", "engine:executor_raised", "engine:executor_bad_result"})
 
+# Fixed WP2 PoolError reasons; these reveal no provider output.
+WORKER_POOL_REASONS = frozenset({"infra:worker_create_failed", "infra:worker_create_unknown"})
+
 # Reasons safe for the public scorecard. "A model refused this case" hints at the case's
 # content, so router:refusal stays private. report.py shows any other reason as its
 # outcome alone.
-PUBLISHED_REASONS = frozenset((REASONS | CONTRACT_REASONS) - {"router:refusal"})
+PUBLISHED_REASONS = frozenset((REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS) - {"router:refusal"})
 
-if not all(REASON.fullmatch(r) for r in REASONS | CONTRACT_REASONS):
+if not all(REASON.fullmatch(r) for r in REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS):
     raise ContractError("a WP4 reason breaks the REASON grammar")
 
 

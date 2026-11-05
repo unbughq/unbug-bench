@@ -19,7 +19,7 @@ os.environ.setdefault("BENCH", str(ROOT))
 
 from durable import classify as wp4
 from durable.classify import (BACKOFF_S, CONTRACT_REASONS, MAX_RESET_AHEAD_S, PUBLISHED_REASONS, REASONS,
-                              UNCLASSIFIED, classify)
+                              UNCLASSIFIED, WORKER_POOL_REASONS, classify)
 from durable.contract import (REASON, ArtifactKind, Classified, ContractError, Outcome, Ref, Step, StepKind,
                               StepResult, check_result_for)
 
@@ -179,9 +179,9 @@ class RealStops(unittest.TestCase):
         "claude_error": ("infra_error", "router:claude_error"),
         "cleanup_failed": ("infra_error", "infra:cleanup_failed"),
         "codex_error": ("infra_error", "router:codex_error"),
-        "codex_login_expired": ("provider_limit", "router:credential_expiring"),
+        "codex_login_expired": ("infra_error", "router:credential_expiring"),
         "cost_limit": ("exhausted", "writer:money"),
-        "credential_expiring": ("provider_limit", "router:credential_expiring"),
+        "credential_expiring": ("infra_error", "router:credential_expiring"),
         "invalid_money": ("infra_error", "infra:ledger_error"),
         "invalid_operation": ("infra_error", "infra:ledger_error"),
         "invalid_provider_wait": ("infra_error", "infra:ledger_error"),
@@ -327,7 +327,7 @@ class Secrecy(unittest.TestCase):
                          Classified(Outcome.INFRA_ERROR, UNCLASSIFIED))
 
     def test_published_allowlist(self):
-        self.assertTrue(PUBLISHED_REASONS <= REASONS | CONTRACT_REASONS)
+        self.assertTrue(PUBLISHED_REASONS <= REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS)
         self.assertTrue(all(REASON.fullmatch(r) for r in PUBLISHED_REASONS))
         self.assertNotIn("router:refusal", PUBLISHED_REASONS)
         self.assertEqual(REASONS - PUBLISHED_REASONS, {"router:refusal"})
