@@ -1,8 +1,0 @@
-{
-  "head": "d0be3c9d2a4206c28a1100be08253339be5d233e",
-  "command": "uv run --with numpy --with scipy python -B tests/run.py",
-  "exit_code": 0,
-  "result": "151 test scripts run; 0 failed.",
-  "log_sha256": "a2e8c6541c16a6786568e9b415e4a235bd91f7f9ff0e789e7f73103a65ec359e",
-  "scope": "Baseline before implementation; only untracked design/review documents present."
-}

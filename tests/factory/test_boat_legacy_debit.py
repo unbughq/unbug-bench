@@ -23,10 +23,10 @@ SAVED=json.loads((ROOT/'tests/factory/fixtures/boat-retirement/legacy-spend-meta
 
 class BudgetDebitTests(unittest.TestCase):
     def test_runtime_decision_copy_is_verbatim_original_founder_record(self):
-        self.assertEqual((ROOT/life.SMOKE_DECISION_FILE).read_bytes(),(ROOT/'docs/reports/smoke-bx-bykfqbyn-budget-decision-20261104.json').read_bytes())
+        self.assertEqual((ROOT/life.SMOKE_DECISION_FILE).read_bytes(),(ROOT/'tests/factory/fixtures/retained-evidence/smoke-bx-bykfqbyn-budget-decision-20261104.json').read_bytes())
         with patch.object(life,'sha256',return_value='wrong'), self.assertRaises(ValueError):life.legacy_decision('smoke')
         self.assertEqual((ROOT/life.LEGACY_DECISION_FILE).read_bytes(),
-                         (ROOT/'docs/reports/legacy-bx-z4wktrbn-budget-decision-20261104.json').read_bytes())
+                         (ROOT/'tests/factory/fixtures/retained-evidence/legacy-bx-z4wktrbn-budget-decision-20261104.json').read_bytes())
         self.assertEqual(life.sha256(ROOT/life.LEGACY_DECISION_FILE),life.LEGACY_DECISION_SHA)
 
     def test_smoke_scope_preserves_legacy_and_mixed_budget(self):

@@ -30,7 +30,7 @@ import launch_manifest
 import practice
 from registry import atomic_json
 
-CONTRACT = json.loads((ROOT/'docs/reports/boat-stopped-contract-20261104.json').read_text())
+CONTRACT = json.loads((ROOT/'tests/factory/fixtures/retained-evidence/boat-stopped-contract-20261104.json').read_text())
 WORKER = CONTRACT['worker_never_mutated']
 
 
