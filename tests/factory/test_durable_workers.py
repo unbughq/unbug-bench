@@ -220,7 +220,7 @@ def bench_manifest(path):
 def release_tree(dest: Path) -> Path:
     """The real worker release file set from this checkout, plus the stand-in worker command."""
     from launch_manifest import worker_files
-    for name in worker_files(ROOT) + [p.relative_to(ROOT).as_posix() for p in (ROOT / "factory/durable").glob("*.py")]:
+    for name in worker_files(ROOT) + [p.relative_to(ROOT).as_posix() for p in (ROOT / "factory/durable").rglob("*.py")]:
         target = dest / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / name, target)

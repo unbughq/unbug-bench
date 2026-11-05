@@ -181,7 +181,7 @@ def _atomic_json(path: Path, value):
 def _release_files(root: Path) -> list[str]:
     from launch_manifest import worker_files
     names = [n for n in worker_files(root) if n.startswith("factory/")]
-    names += [p.relative_to(root).as_posix() for p in sorted((root / "factory/durable").glob("*.py"))
+    names += [p.relative_to(root).as_posix() for p in sorted((root / "factory/durable").rglob("*.py"))
               if not p.name.startswith("test_")]
     return sorted(set(names))
 

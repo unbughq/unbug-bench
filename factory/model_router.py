@@ -568,7 +568,7 @@ def _credential_ready(lease):
 
 
 def _deadlines(case, deadline):
-    enabled = os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
+    enabled = getattr(case, 'engine', None) is not None or os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
     value = getattr(case, 'batch_deadline', None) or os.environ.get('FACTORY_BATCH_DEADLINE')
     batch_end = metadata(case)[2] if enabled else epoch(value) if value is not None else time.time() + 7 * 86400
     stop_at = min(batch_end, time.time() + max(0, deadline - time.monotonic())) if deadline is not None else batch_end
@@ -611,7 +611,7 @@ def await_lease(role, case, deadline=None):
     deadline is a caller monotonic deadline; the server sees UTC epochs only.
     ProviderWait is handled by run.py's ordinary checkpoint-and-exit path.
     """
-    enabled = os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
+    enabled = getattr(case, 'engine', None) is not None or os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
     choices = routes(model, getattr(case, 'router_accounts', ACCOUNTS))  # Configuration errors are not outages.
     exhausted = choices and all(r['pool'] + '/' + r['route'] in getattr(case, 'router_excluded', ()) for r in choices)

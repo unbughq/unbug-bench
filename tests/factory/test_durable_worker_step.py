@@ -23,6 +23,7 @@ import json
 import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import tarfile
 import tempfile
@@ -35,6 +36,7 @@ from unittest.mock import patch
 
 import budget
 import model_runtime
+import model_router
 import run
 from durable import worker_step
 from durable import contract as k
@@ -306,14 +308,19 @@ class WorkerHome:
 # ---- the wire protocol -------------------------------------------------------------------------
 
 class WireProtocolTests(unittest.TestCase):
-    def test_admit_through_the_real_command_is_not_implemented_yet(self):
+    def test_practice_admit_through_the_real_worker_command(self):
+        from dataclasses import replace
         h = WorkerHome(self)
-        si = h.step(StepKind.ADMIT, registry=Ref("2" * 64, ArtifactKind.STATEMENT_REGISTRY))
+        inputs = h.push(ArtifactKind.INPUTS, json.dumps({"version": 1, "dry_run": True, "seed": 7}).encode(), h.batch_key)
+        registry = h.push(ArtifactKind.STATEMENT_REGISTRY, b"", h.batch_key)
+        si = replace(h.step(StepKind.ADMIT, registry=registry), inputs=inputs)
         done = h.start(si, real=True)
         self.assertEqual((done.returncode, done.stdout), (0, b""), done.stderr)
         result = h.wait(si)
-        self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "engine:admit_unavailable"))
-        self.assertIsNone(result.snapshot)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:practice"))
+        self.assertIsNotNone(result.snapshot)
+        self.assertIsNotNone(result.registry)
+        self.assertEqual(result.usage.calls, 0)
         self.assertTrue(k.REASON.fullmatch(result.reason))
 
     def test_release_check(self):
@@ -621,6 +628,31 @@ class HookTests(unittest.TestCase):
         self.assertEqual(order[1].outcome, Outcome.INFRA_ERROR)
         self.assertEqual(order[1].usage.calls, 1)
         self.assertEqual(order[1].usage.paid_usd_micros, 750000)
+
+    def test_context_keeps_supervisor_deadline_and_discards_legacy_timeout(self):
+        with patch.dict(os.environ, {"UNBUG_DURABLE_DEADLINE_EPOCH": str(time.time() + 30)}):
+            c, _ = self.context(deadline=600)
+        self.assertAlmostEqual(c.engine.deadline_monotonic - time.monotonic(), 30, delta=5)
+        self.assertAlmostEqual(c.args.agent_timeout, 30, delta=5)
+        self.assertEqual(c.job_id, CASE)
+        self.assertTrue(model_router._deadlines(c, None)[0])
+
+    def test_provider_limit_reset_and_credential_fault_are_distinct(self):
+        c, si = self.context()
+        for reason, expected in (("quota", "provider_wait"), ("credential_expiring", "credential_expiring")):
+            reset = time.time() + 1234
+            wait = model_router.ProviderWait("writer", model_router.Wait(reason, reset))
+            with patch.object(run, "engine_writer_round", side_effect=wait):
+                result = run.run_step(c, si)
+            self.assertEqual(result["stop"], expected)
+            self.assertEqual(result["reset_at"], reset)
+
+    def test_dry_run_writer_and_stress_never_invoke_models(self):
+        c, si = self.context()
+        with patch.object(run, "opencode", side_effect=AssertionError("dry run model call")), \
+                patch.object(run, "engine_prepare_bench", side_effect=AssertionError("unneeded bench")):
+            self.assertEqual(run.engine_writer_round(c, 1, None)["outcome"], Outcome.OK)
+            self.assertEqual(run.engine_stress_round(c, 1)["outcome"], Outcome.OK)
 
     def test_context_is_never_a_legacy_job_and_only_the_attempt_deadline_bounds_calls(self):
         with patch.dict(os.environ, {"FACTORY_BATCH_DEADLINE": "2020-01-01T00:00:00Z"}):

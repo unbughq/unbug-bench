@@ -786,6 +786,10 @@ def open_statements(c, encrypted_files):
 
 
 def selection_statements(c):
+    if under_engine(c) and hasattr(c, "engine_prior_statements"):
+        c.card["selection_board"] = {"statements": len(c.engine_prior_statements),
+                                     "registry_revision": c.engine_registry_revision}
+        return c.engine_prior_statements
     from admission import selection_snapshot
     files = selection_snapshot(STATEMENTS, c.case_id)
     prior = open_statements(c, files)
@@ -804,6 +808,8 @@ def selection_context(c, occupied, **more):
 
 def prior_statements(c):
     """Open only a complete, candidate-bound shared ciphertext snapshot on the worker."""
+    if under_engine(c) and callable(getattr(c, "engine_reserve_candidate", None)):
+        return c.engine_reserve_candidate()
     from admission import registry_snapshot
     if not STATEMENTS_KEY.is_file(): raise RuntimeError("missing statements key")
     encrypted_files = registry_snapshot(STATEMENTS, c.case_id, c.statement)
@@ -3301,6 +3307,11 @@ def engine_stop(c, stop):
     return None
 
 
+def invoke_diagnosis(c, *, model, prompt, inputs, output):
+    from durable.diagnosis_invocation import invoke
+    return invoke(sys.modules[__name__], c, model=model, prompt=prompt, inputs=inputs, output=output)
+
+
 def context_for_step(step_input, work):
     """Run context for one engine step, from a work tree the worker has just restored."""
     from budget import case_spending, resume_ledger
@@ -3335,12 +3346,15 @@ def context_for_step(step_input, work):
     c.engine = EngineStep(step_input, spent)
     a.agent_timeout = max(0.001, c.engine.deadline_monotonic - time.monotonic())
     # The router's admission end is the attempt's deadline, not FACTORY_BATCH_DEADLINE.
-    c.batch_id, c.batch_deadline = step_input.batch_id, c.engine.deadline_epoch
+    c.batch_id, c.job_id, c.batch_deadline = step_input.batch_id, step_input.case_id, c.engine.deadline_epoch
     # The attempt's own spend against its ceiling: cumulative spend against baseline + ceiling.
     # Unpriced spend (None) keeps today's refusal of the next call.
     a.case_budget = (spent or 0.0) + c.engine.ceiling_usd
     c.stopped = False
-    if card.get("models"): c.models = card["models"]
+    if card.get("models"):
+        c.models = card["models"]
+    else:
+        c.models = card["models"] = pick_models(c)
     prepared = card.get("factory_slots_prepared", 1)
     c.prepared_factory_slots = prepared if type(prepared) is int and prepared >= 1 else 1
     c.manifest0 = bench_manifest()
@@ -3388,6 +3402,11 @@ def engine_writer_round(c, n, feedback):
     to the writer within the round, bounded by the runner's round cap."""
     from durable.contract import Outcome
     from registry import atomic_json
+    if c.args.dry_run:
+        if g1(c)[1]["problems"]:
+            return {"outcome": Outcome.EXHAUSTED, "reason": "writer:invalid_practice"}
+        c.card["builder_rounds"] = n
+        return {"outcome": Outcome.OK, "reason": "writer:practice"}
     problems, report = _feedback_input(c, feedback)
     engine_prepare_bench(c)
     (c.work / "attacks").mkdir(exist_ok=True)
@@ -3417,6 +3436,8 @@ def engine_stress_round(c, n):
     """STRESS round n: today's stress call and report checks, then today's early reviews after a clean round."""
     from durable.contract import Outcome
     from registry import atomic_json
+    if c.args.dry_run:
+        return {"outcome": Outcome.OK, "reason": "stress:practice"}
     infra = lambda code: {"outcome": Outcome.INFRA_ERROR, "reason": "stress:" + code}
     engine_prepare_bench(c)
     (c.work / "attacks").mkdir(exist_ok=True)
@@ -3529,6 +3550,18 @@ def run_step(c, step_input, *, feedback=None, ruling=None):
         elif kind is StepKind.STRESS: result = engine_stress_round(c, n)
         elif kind is StepKind.GATES: result = engine_gates(c)
         else: result = engine_seal(c)
+    except model_router.ProviderWait as error:
+        waits = [*getattr(c, "router_waits", []), {"reason": error.wait.reason,
+                                                  "retry_after": error.wait.retry_after}]
+        reasons = {row.get("reason") for row in waits}
+        fault = next((reason for reason in ("credential_expiring", "unbounded_route", "router_unavailable")
+                      if reason in reasons), None)
+        valid = reasons <= model_router.REASONS
+        resets = [row.get("retry_after") for row in waits]
+        resets = [float(value) for value in resets if type(value) in (int, float)
+                  and 0 < value < float("inf")]
+        result = {"stop": fault or ("provider_wait" if valid else "router_unavailable"),
+                  "reset_at": max(resets) if resets else None}
     except (BudgetError, PauseRequested) as error:
         stop = "paused" if isinstance(error, PauseRequested) else str(error)
         log(c, "ENGINE STOPPED", stop)

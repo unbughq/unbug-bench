@@ -373,6 +373,7 @@ class Worker:
         key = step_input.idempotency_key
         deadline = time.monotonic() + step_input.deadline_s
         os.environ["UNBUG_DURABLE_DEADLINE_EPOCH"] = str(self.clock() + step_input.deadline_s)
+        os.environ["UNBUG_PROVIDER_WAIT"] = "1"
         pid = os.fork()
         if pid == 0:
             code = 1
@@ -480,9 +481,11 @@ class Worker:
             return fail(reason)
         kind = step_input.step.kind
         if kind is StepKind.ADMIT:
-            return fail("engine:admit_unavailable")      # WP11's adapter, wave 2
+            from durable.steps.admit import run
+            return run(self, step_input, keys)
         if kind is StepKind.DIAGNOSIS:
-            return fail("engine:diagnosis_unavailable")  # WP10's adapter, wave 2
+            from durable.steps.diagnosis import run
+            return run(self, step_input, keys)
         try:
             sealer = self.sealer()
         except ImportError:
@@ -538,7 +541,10 @@ class Worker:
                 fields["archive"] = seal(ArtifactKind.SEALED_ARCHIVE, out["archive"])
                 fields["hard"] = bool(out.get("hard"))
         else:
-            classified = classifier(stop if isinstance(stop, str) else "", step=kind, now=self.clock())
+            arguments = {"step": kind, "now": self.clock()}
+            if out.get("reset_at") is not None:
+                arguments["reset_at"] = out["reset_at"]
+            classified = classifier(stop if isinstance(stop, str) else "", **arguments)
             outcome = classified.outcome
             fields.update(outcome=outcome, reason=classified.reason, retry_at=classified.retry_at)
         if kind is StepKind.GATES:
