@@ -649,6 +649,7 @@ class HookTests(unittest.TestCase):
 
     def test_dry_run_writer_and_stress_never_invoke_models(self):
         c, si = self.context()
+        c.card["admission"] = {"status": "practice_dry_run"}
         with patch.object(run, "opencode", side_effect=AssertionError("dry run model call")), \
                 patch.object(run, "engine_prepare_bench", side_effect=AssertionError("unneeded bench")):
             self.assertEqual(run.engine_writer_round(c, 1, None)["outcome"], Outcome.OK)

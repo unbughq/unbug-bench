@@ -3402,7 +3402,7 @@ def engine_writer_round(c, n, feedback):
     to the writer within the round, bounded by the runner's round cap."""
     from durable.contract import Outcome
     from registry import atomic_json
-    if c.args.dry_run:
+    if c.args.dry_run and c.card.get("admission", {}).get("status") == "practice_dry_run":
         if g1(c)[1]["problems"]:
             return {"outcome": Outcome.EXHAUSTED, "reason": "writer:invalid_practice"}
         c.card["builder_rounds"] = n
@@ -3436,7 +3436,7 @@ def engine_stress_round(c, n):
     """STRESS round n: today's stress call and report checks, then today's early reviews after a clean round."""
     from durable.contract import Outcome
     from registry import atomic_json
-    if c.args.dry_run:
+    if c.args.dry_run and c.card.get("admission", {}).get("status") == "practice_dry_run":
         return {"outcome": Outcome.OK, "reason": "stress:practice"}
     infra = lambda code: {"outcome": Outcome.INFRA_ERROR, "reason": "stress:" + code}
     engine_prepare_bench(c)
