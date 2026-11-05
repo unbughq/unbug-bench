@@ -19,7 +19,7 @@ os.environ.setdefault("BENCH", str(ROOT))
 from durable.contract import (ArtifactKind as K, Grant, LimitedBy, Outcome, Poll, PollState, Step, StepInput,
                               StepKind, StepResult, Usage, WorkerLease, guarded_run)
 from durable.executor import Executor, SeamError, blob_name
-from test_durable_engine_fakes import FakeKeys, FakeLedger, FakeSealer, FakeStore, make_spec  # noqa: E402
+from test_durable_engine_fakes import FakeKeys, FakeLedger, FakeSealer, FakeStore  # noqa: E402
 
 P, B = "1" * 64, "2" * 64
 

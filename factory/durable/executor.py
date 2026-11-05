@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Mapping, Optional
+from typing import Optional
 
-from durable.contract import (BATCH_SCOPED, ArtifactKind, ArtifactStore, Grant, KeyService, Ledger, Outcome, Poll,
+from durable.contract import (ArtifactKind, ArtifactStore, Grant, KeyService, Ledger, Outcome, Poll,
                               PollState, Ref, Sealer, StepInput, StepKind, StepResult, WorkerChannel, WorkerLease,
                               WorkerPool)
 from durable.policy import POLL_GRACE_S, settles_as_waste, settles_lost
