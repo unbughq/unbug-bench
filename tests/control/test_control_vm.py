@@ -11,7 +11,7 @@ import tempfile
 import unittest
 
 SOURCE = Path(__file__).resolve().parents[2]
-# boat-cli-v1.0.85 boat-linux-x64, installed and hashed on the control VM (docs/reports/practice-run-20261102.md).
+# boat-cli-v1.0.85 boat-linux-x64, installed and hashed on the control VM.
 BOAT_SHA256 = '5d7933a238dcea0446bbbee0e2506692961d16537b9960003e4ece9ecb1ec498'
 FAKE = r'''#!/usr/bin/env python3
 import hashlib, json, os, pathlib, shutil, sys

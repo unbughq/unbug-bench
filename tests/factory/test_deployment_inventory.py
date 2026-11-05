@@ -53,7 +53,7 @@ class InventoryTests(unittest.TestCase):
                                *args], capture_output=True, text=True)
 
     def test_saved_legacy_layout_and_no_mutation_across_processes(self):
-        preflight = json.loads((ROOT / 'docs/reports/stream-b-preparation-preflight-20261031.json').read_text())
+        preflight = json.loads((ROOT / 'tests/factory/fixtures/retained-evidence/stream-b-preparation-preflight-20261031.json').read_text())
         old = preflight['unresolved_launch']
         state = self.launch(old['id'])
         # Only layout is retained from VM preflight; file contents are not its provenance.

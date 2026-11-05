@@ -1,4 +1,4 @@
-"""Startup smoke (docs/designs/startup-smoke.md): the -3 batch, its money, accounting and sealing.
+"""Startup smoke: the -3 batch, its money, accounting and sealing.
 
 Real artifacts: the retained -2 manifest upgraded to -3, the tracked -3 manifest,
 the real control recipient, the canary6 collected card and real age. Release

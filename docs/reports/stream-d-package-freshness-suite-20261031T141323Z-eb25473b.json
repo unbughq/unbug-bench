@@ -1,7 +1,0 @@
-{
-  "command": "uv run --with numpy --with scipy python -B tests/run.py",
-  "started_at": "2026-10-31T14:13:23.009971+00:00",
-  "finished_at": "2026-10-31T14:40:04.986572+00:00",
-  "exit_code": 0,
-  "log": "docs/reports/stream-d-package-freshness-suite-20261031T141323Z-eb25473b.log"
-}
