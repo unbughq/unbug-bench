@@ -1,8 +1,8 @@
-# Budget-aware admission using a DBOS decision queue, revision 11
+# Budget-aware admission using a DBOS decision queue, revision 12
 
 Status: proposed alternative to `durable-execution-admission-budget.md` revision 6;
 not implemented. Earlier reviews are in
-`docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8,9,10}.md`; request a fresh
+`docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8,9,10,11}.md`; request a fresh
 independent design review before choosing it. WP1 owns the engine changes; WP2 must satisfy the existing idempotent `WorkerPool`
 contract. No `contract.py` edit is proposed.
 
@@ -163,19 +163,28 @@ keeps the grant and fence: poll/cancel the exact recorded lease and key without
 starting a new attempt until an authenticated DONE, confirmed tombstone, or proven
 worker death. Only then settle its actual usage or lost, close the fence, or retry.
 An unreachable live worker remains quarantined rather than retried on a guess.
-Before closing an ADMIT fence, the reconciler recovers the recorded pre-attempt
+Before closing an ADMIT fence for a dispatched attempt, the reconciler recovers the recorded pre-attempt
 inputs, grant, authenticated result, relevant clock and post-result counters, and
 derives or recovers exactly the same terminal action as the normal path. It applies
 STOP_ADMISSION or the authenticated updated registry to the batch before closing
 the fence. A non-OK ADMIT does not carry a registry: retain the existing registry
 for that result. If the required action or successful-ADMIT registry cannot be
-established, retain the fence.
+established, retain the fence. A proven `no_dispatch` follows the separately
+recorded zero-settlement transition above and does not require a nonexistent result.
 
 The case catches a failed terminal-child result and waits on a deterministic,
 idempotently keyed reconciliation response. After applying the batch decision,
 the reconciler sends the authenticated `StepResult` (including its snapshot),
 the derived action and post-result counters; the case acknowledges and continues
-from that result without rerunning ADMIT or incrementing counters twice. The case
+from that result without rerunning ADMIT or incrementing counters twice. Before it
+can start a subsequent step, the case records an acknowledgement event at a stable
+case-owned key derived from the operation and attempt. Every reaper generation can
+read that event, including after a previous reaper failed; an acknowledgement is not
+addressed only to a particular generation. A generation that observes the recorded
+acknowledgement completes without waiting for a duplicate response or another ack.
+For both a recovered result and `no_dispatch`, test generation 1 failing after the
+case records acknowledgement but before that reaper observes it; generation 2 must
+complete and the case's subsequent work and batch termination must progress. The case
 accepts a response only for its currently awaited operation and attempt, records
 which result it applied, and ignores later duplicates even across reaper generations.
 Replay redelivers the same response until acknowledged. Test an already-applied
@@ -333,7 +342,7 @@ Files and checkpoints:
    recorded grant without a clock, an unrecorded committed reserve, and a still-live
    synchronous reserve. No later reaper may choose a conflicting settlement. Verify no model slot is held while waiting for capacity or an
    operator. Add fixed `infra:worker_create_failed` and `infra:worker_create_unknown`
-   to WP4's `CONTRACT_REASONS`/`PUBLISHED_REASONS` and test their grammar and public
+   to WP4's `PUBLISHED_REASONS` through a distinct worker-pool allowlist, and test their grammar and public
    rendering in `tests/factory/test_durable_classify.py`; no provider text is published.
 5. Enable V2 for new batches; run all touched tests, the 20-kill mid-term and the
    ENGINEERING full suite on the exact head, then a fresh goldfish diff review.

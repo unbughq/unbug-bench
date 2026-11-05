@@ -21,6 +21,6 @@ The pending case path itself does not dispatch attempts, reserve funds, or creat
 
 | Finding | Disposition |
 |---|---|
-| Failed-card overlay | Open; implementing verified-seal evidence and loader-to-scorecard tests. |
-| V2 DBOS ordering | Open; adding switched-workflow ordering and restart coverage. |
-| Text output | Fixed in the isolated checkpoint worktree; verification and integration pending. |
+| Failed-card overlay | Implemented recorded verified-seal evidence, loader validation and a real DBOS cleanup-failure test; fresh verification pending. |
+| V2 DBOS ordering | Added switched-workflow ordering, equal-time/duplicate messages and a same-generation kill/restart test; fresh verification pending. |
+| Text output | Added cleanup-error text and a rendering test; fresh verification pending. |
