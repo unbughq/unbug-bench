@@ -222,6 +222,21 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(c.card["admission"]["status"], "exhausted")
         self.assertEqual(c.card["candidate_attempts"], 3)
 
+    def test_batch_ordinals_follow_existing_role_rotation(self):
+        from dataclasses import replace
+        import model_runtime
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key,
+            json.dumps(self.real_inputs("# Candidate\n\nA checkout failure.")).encode())
+        empty = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        for ordinal in (1, 4, 8, 9):
+            si = replace(self.step(inputs, empty), case_id=f"case-cohort-{ordinal}")
+            result, blobs = self.run_admit(si)
+            self.assertEqual(result.outcome, Outcome.OK)
+            _, c = self.restore(si, result, blobs)
+            slot = (ordinal - 1) % 8 + 1
+            self.assertEqual(c.card["rotation_slot"], slot)
+            self.assertEqual(c.card["roles"]["writer"]["model"], model_runtime.rotation(slot)["writer"]["model"])
+
     def test_paid_failure_and_snapshot_failure_preserve_usage(self):
         from budget import BudgetError
         value = self.real_inputs("unused")

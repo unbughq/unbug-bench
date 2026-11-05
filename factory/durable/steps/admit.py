@@ -22,6 +22,8 @@ INPUTS (batch key), reusing the card and case.json schemas:
         `candidate` is optional. Without it the existing selector proposes a statement.
         Every real candidate runs the existing semantic dedup, public freshness and
         independent idea-realism checks before it can be handed to WRITER.
+        Optional `rotation_slot` overrides the existing cohort table; otherwise engine
+        case ordinals cycle that table. Explicit role chains still undergo validation.
 
 REGISTRY (batch key), exactly registry.Registry's state plus its object store:
     {"version": 1, "registry": {"revision": n, "entries": {...}},
@@ -39,6 +41,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -79,6 +82,8 @@ def _inputs(plaintext):
     for name in ("models", "roles", "recovery_config"):
         if value.get(name) is not None and not isinstance(value[name], dict):
             raise _Invalid("inputs")
+    if value.get("rotation_slot") is not None and (type(value["rotation_slot"]) is not int or value["rotation_slot"] < 1):
+        raise _Invalid("inputs")
     if value["dry_run"]:
         return value
     for name in ("app_repo", "app_commit", "promise", "source"):
@@ -164,6 +169,14 @@ def _dump_registry(root, refs):
 def _card(value, case_id, dry_run):
     card = {"case": case_id, "dry_run": dry_run, "seed": value["seed"], "gates": {}, "failed_gate": None,
             "factory_slots_prepared": 1}
+    import model_runtime
+    table = model_runtime.PROMPTS.parent / os.environ.get("FACTORY_ROTATION", "rotation-3writers.json")
+    slots = len(json.loads(table.read_text())["slots"])
+    # Engine case IDs end in their batch ordinal; cycle the existing cohort table.
+    ordinal = case_id.rsplit("-", 1)[-1]
+    default = (int(ordinal) - 1) % slots + 1 if ordinal.isdigit() and int(ordinal) > 0 else 1
+    card["rotation_slot"] = value.get("rotation_slot") or default
+    if not 1 <= card["rotation_slot"] <= slots: raise _Invalid("inputs")
     card["source"] = "fixture (dry-run)" if dry_run else value["source"]
     for name in ("models", "roles", "recovery_config"):
         if value.get(name) is not None:
