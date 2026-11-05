@@ -174,7 +174,7 @@ class RealDTests(unittest.TestCase):
         source = json.loads(path.read_text())
         retired = json.loads((root / 'tests/factory/fixtures/retained-evidence/stream-b-legacy-retirements-20261031.json').read_text())
         expected = dict(schema=1, decision_date='2026-10-30', disposition='retired',
-            reason='pre-new-schema', inventory_path=str(path.relative_to(root)),
+            reason='pre-new-schema', inventory_path='docs/reports/' + path.name,
             inventory_sha256=hashlib.sha256(path.read_bytes()).hexdigest(), inventories={})
         for side in ('mac', 'vm'):
             expected['inventories'][side] = [{k: row[k] for k in (
