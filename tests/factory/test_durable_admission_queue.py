@@ -29,6 +29,15 @@ class AdmissionProbe(unittest.TestCase):
 
             gate = threading.Event()
             bound_gate, bound_started = threading.Event(), threading.Event()
+            received_events = []
+            if mode == "event_storm":
+                original_recv = DBOS.recv
+                def observed_recv(topic, *args, **kwargs):
+                    result = original_recv(topic, *args, **kwargs)
+                    if topic == engine.CASE_EVENT:
+                        received_events.append(result)
+                    return result
+                DBOS.recv = staticmethod(observed_recv)
             if mode == "queued_stop":
                 @DBOS.workflow()
                 def block_decisions():
@@ -68,7 +77,8 @@ class AdmissionProbe(unittest.TestCase):
 
             ex = LedgerOnly()
             engine._RT.executor = ex
-            engine._RT.timing = engine.Timing(batch_poll_s=0.1, wake_poll_s=1 if mode == "event_storm" else 60,
+            engine._RT.timing = engine.Timing(batch_poll_s=0.5 if mode == "event_storm" else 0.1,
+                                              wake_poll_s=1 if mode == "event_storm" else 60,
                                               queue_poll_s=0.05, listener_poll_s=0.05)
             DBOS(config={"name": "unbug-factory-engine", "application_version": "factory-engine-2",
                          "system_database_url": f"sqlite:///{work}/sys.sqlite",
@@ -177,6 +187,10 @@ class AdmissionProbe(unittest.TestCase):
                 os._exit(0)
             if mode == "event_storm":
                 assert DBOS.get_event(spec.batch_id, "test_waited", timeout_seconds=15) is True
+                first_wait = next(i for i, msg in enumerate(received_events)
+                                  if isinstance(msg, dict) and msg.get("kind") == "probe_result"
+                                  and msg.get("status") == "waiting")
+                assert len(ex.ledger.snapshot()["res"]) == 1
                 stop = threading.Event()
                 def traffic():
                     while not stop.is_set():
@@ -186,6 +200,10 @@ class AdmissionProbe(unittest.TestCase):
                 thread.start()
                 try:
                     state = until(lambda: (s if len((s := ex.ledger.snapshot())["res"]) >= 2 else None))
+                    observed = received_events[first_wait:]
+                    unrelated = sum(isinstance(msg, dict) and msg.get("kind") == "unrelated"
+                                    for msg in observed)
+                    assert unrelated >= 2 and None not in observed, observed
                     assert thread.is_alive() and len(state["res"]) >= 2, state
                 finally:
                     stop.set(); thread.join(timeout=3)

@@ -21,6 +21,6 @@ Read-only review; no tests were run.
 
 | Finding | Disposition |
 |---|---|
-| Poll starvation | Check due retries after every event and timeout; a real-DBOS event-storm test proves a fresh-key retry. Fresh verification pending. |
-| Bound-raise actor blocking | Moved the ledger update to a child workflow and added tests for STOP and probe progress while it is stalled. Fresh verification pending. |
-| Raised-bound replay | WAIT and EXPIRED tests now raise the fake ledger bound while the engine is down before restarting with a reversed clock. Fresh verification pending. |
+| Poll starvation | Check due retries after every event and timeout; the real-DBOS event-storm test was strengthened after review 3 to check that no receive timeout triggers the fresh-key retry. Verification pending. |
+| Bound-raise actor blocking | Moved the ledger update to a child workflow and added tests for STOP and probe progress while it is stalled. Reviewed by probe diff review 3. |
+| Raised-bound replay | WAIT and EXPIRED tests now raise the fake ledger bound while the engine is down before restarting with a reversed clock. Reviewed by probe diff review 3. |
