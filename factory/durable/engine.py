@@ -32,7 +32,7 @@ from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised
                               wait_seconds)
 from durable.executor import Executor, SeamError
 from durable.policy import (ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
-                            draws_case_money, progressed, request_usd_micros, starts_replacement)
+                            draws_case_money, is_pause, progressed, request_usd_micros, starts_replacement)
 
 APP_NAME = "unbug-factory-engine"
 APP_VERSION = "factory-engine-1"   # pinned for the life of the database: DBOS recovers only matching versions
@@ -50,6 +50,8 @@ class Timing:
     founder_poll_s: float = 3600.0  # an escalated case's recv loop
     queue_poll_s: float = 1.0       # DBOS queue polling interval
     listener_poll_s: float = 1.0    # DBOS notification listener polling interval
+    pause_retry_s: float = 900.0    # after an operator pause (infra:paused), wait this long before the retry
+                                    # (WP4's flat backoff); a pause never counts as an infra retry
 
 
 class _Runtime:
@@ -321,6 +323,13 @@ class _Case:
             prev = {"input": out["input"], "started_at": out["started_at"]}
             self.worker_id = out["worker_id"]
             self.absorb(step, attempt, result)
+            if is_pause(result):
+                # An operator pause: wait, then retry, without using the infra-retry allowance.
+                if _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s and self.worker_id is not None:
+                    release_step(self.case_id, self.worker_id)
+                    self.worker_id = None
+                DBOS.sleep(_RT.timing.pause_retry_s)
+                continue
             if result.outcome is Outcome.INFRA_ERROR:
                 infra += 1
             if result.outcome is Outcome.PROVIDER_LIMIT and result.usage.paid_usd_micros > 0:

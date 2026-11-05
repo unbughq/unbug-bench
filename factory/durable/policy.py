@@ -25,6 +25,9 @@ MIN_GRANT_USD_MICROS = 1_000_000
 # A batch-only step requests at least this: Stream D's ceiling of the largest authenticated CLI
 # aggregate observed ($32.6137984). Finite, so one step never holds the whole bound.
 BATCH_ONLY_FLOOR_USD_MICROS = 33_000_000
+# An operator pause (WP4 classify.py maps PauseRequested and paused to it). Not a fault of
+# the step: it retries without using the infra-retry allowance, after the engine's pause wait.
+PAUSE_REASONS = frozenset({"infra:paused"})
 # Results whose usage the engine cannot know: they book the whole grant as waste (settle_lost).
 LOST_REASONS = frozenset({"infra:cancelled", "infra:worker_lost", "infra:attempt_absent",
                           "engine:executor_raised", "engine:executor_bad_result"})
@@ -87,6 +90,8 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
         # misclassification) gives up.
         return Action.SLEEP if counters.step_spent_limits <= spec.max_spent_limits_per_step else give_up()
     if o is Outcome.INFRA_ERROR:
+        if is_pause(result):
+            return Action.RETRY                   # never scored, never counted, never diagnosed
         return Action.RETRY if counters.step_infra_errors <= spec.max_infra_retries_per_step else give_up()
     if o is Outcome.GATE_FAILED:
         if not result.repairable:
@@ -141,6 +146,12 @@ def deadline_s(step: Step, spec: BatchSpec) -> float:
     if step.kind is StepKind.GATES:
         return max(spec.step_deadline_s, GATES_DEADLINE_S)
     return spec.step_deadline_s
+
+
+def is_pause(result: StepResult) -> bool:
+    """An operator pause. The engine waits Timing.pause_retry_s, then retries the same seq, and
+    does not count it in Counters.step_infra_errors. It still settles as waste."""
+    return result.outcome is Outcome.INFRA_ERROR and result.reason in PAUSE_REASONS
 
 
 def settles_lost(result: StepResult) -> bool:

@@ -16,7 +16,7 @@ os.environ.setdefault("BENCH", str(ROOT))
 from durable.contract import (ArtifactKind as K, BatchSpec, ContractError, Grant, LimitedBy, Outcome, Ref, Step,
                               StepKind, StepResult, Usage, Verdict)
 from durable.policy import (BATCH_ONLY_FLOOR_USD_MICROS, GATES_DEADLINE_S, MIN_GRANT_USD_MICROS, Action, Counters,
-                            deadline_s, decide, decide_diagnosis, decide_grant, draws_case_money, progressed,
+                            deadline_s, decide, decide_diagnosis, decide_grant, draws_case_money, is_pause, progressed,
                             request_usd_micros, settles_as_waste, settles_lost, starts_replacement)
 
 A = "a" * 64
@@ -161,6 +161,15 @@ class Settlements(unittest.TestCase):
         self.assertEqual(deadline_s(STRESS, SPEC), SPEC.step_deadline_s)
         longer = BatchSpec(**{**SPEC.__dict__, "step_deadline_s": 50_000.0})
         self.assertEqual(deadline_s(GATES, longer), 50_000.0)
+
+    def test_an_operator_pause_never_uses_the_infra_allowance(self):
+        # WP4 classify.py maps PauseRequested and paused to INFRA_ERROR "infra:paused".
+        paused = StepResult(Outcome.INFRA_ERROR, "infra:paused", Usage(paid_usd_micros=3))
+        self.assertTrue(is_pause(paused))
+        self.assertIs(d(GATES, paused, step_infra_errors=100), Action.RETRY)
+        self.assertIs(d(DIAG, paused, step_infra_errors=100), Action.RETRY)
+        self.assertTrue(settles_as_waste(paused))   # never against the case's money
+        self.assertFalse(is_pause(StepResult(Outcome.INFRA_ERROR, "infra:stalled")))
 
     def test_cancelled_and_unknown_usage_settle_lost(self):
         self.assertTrue(settles_lost(StepResult(Outcome.INFRA_ERROR, "infra:cancelled")))

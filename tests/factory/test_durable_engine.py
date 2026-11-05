@@ -145,6 +145,19 @@ class Outcomes(unittest.TestCase):
         # A free limit is not waste and spends no allowance.
         self.assertEqual([x["op"] for x in r.ledger_log() if x.get("key") == f"{C1}/1/admit/1"], ["reserve", "settle"])
 
+    def test_operator_pauses_retry_without_diagnosis(self):
+        # Four pauses on one step, with an infra allowance of one: still no diagnosis.
+        paused = {"outcome": "infra_error", "reason": "infra:paused", "paid": 2000}
+        r, out = run({"spec": {"max_infra_retries_per_step": 1},
+                      "timing": {"pause_retry_s": 0.3},
+                      "script": {f"1/writer:1/{n}": paused for n in range(1, 5)}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 5 + ["stress:1", "gates:1", "seal"])
+        w = [start(r, f"{C1}/2/writer:1/{n}")["t"] for n in range(1, 6)]
+        self.assertTrue(all(b - a >= 0.3 for a, b in zip(w, w[1:])), w)   # the pause wait
+        self.assertEqual(out["ledger"]["batches"]["b-t"]["waste"], 8000)   # waste, not case money
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
     def test_long_sleep_releases_the_worker(self):
         r, out = run({"spec": {"release_worker_after_sleep_s": 0.5},
                       "script": {"1/stress:1/1": {"outcome": "provider_limit", "reason": "router:claude_limit",
