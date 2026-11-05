@@ -142,6 +142,11 @@ def release_step(case_id: str, worker_id: str) -> None:
 
 
 @DBOS.step(**SEAM)
+def lease_alive_step(case_id: str, worker_id: str) -> bool:
+    return _ex().lease_alive(WorkerLease(worker_id, case_id))
+
+
+@DBOS.step(**SEAM)
 def reserve_step(si: dict, request: int, case_limit: int, draws: bool) -> dict:
     return to_record(_ex().reserve(step_input_from_record(si), request=request, case_limit=case_limit,
                                    draws_case_money=draws))
@@ -268,6 +273,48 @@ def attempt_workflow(job: dict) -> dict:
     DBOS.send(si.batch_id, {"kind": "settled"}, topic=CASE_EVENT)   # waiting cases wake on every settle
     return {"started": True, "grant": to_record(grant), "input": to_record(si), "result": result,
             "started_at": started_at, "worker_id": worker_id}
+
+
+@DBOS.workflow(max_recovery_attempts=None)
+def prepared_attempt_workflow(job: dict) -> dict:
+    """Dispatch a previously funded, prepared attempt while holding a model slot.
+
+    Preparation and the ledger hold happen outside this queue. A stale release or
+    dead worker returns the same unspent grant to the caller for re-preparation.
+    """
+    si = step_input_from_record(job["input"])
+    grant = Grant(**job["grant"])
+    lease = WorkerLease(**job["lease"])
+    if (lease.case_id != si.case_id or grant.amount_usd_micros == 0
+            or decide_grant(si.step, grant) is not None):
+        raise ContractError("invalid prepared attempt")
+    plumbing = DBOS.get_event(si.batch_id, "plumbing", timeout_seconds=5.0) or si.plumbing_version
+    bench = si.bench_version
+    if si.step.kind in (StepKind.GATES, StepKind.SEAL):
+        bench = DBOS.get_event(si.batch_id, "bench", timeout_seconds=5.0) or bench
+    if si.step.kind is StepKind.SEAL and (plumbing, bench) != (si.plumbing_version, si.bench_version):
+        return {"started": False, "action": Action.RERUN_GATES.value}
+    if ((plumbing, bench) != (job["lease_plumbing"], job["lease_bench"])
+            or not lease_alive_step(si.case_id, lease.worker_id)):
+        return {"started": False, "action": "stale_preparation"}
+    si = replace(si, plumbing_version=plumbing, bench_version=bench,
+                 money_ceiling_usd_micros=grant.amount_usd_micros)
+    if si.step.kind is StepKind.ADMIT:
+        registry = DBOS.get_event(si.batch_id, "registry", timeout_seconds=5.0)
+        if registry is None:
+            raise ContractError("missing admission registry")
+        si = replace(si, registry=Ref(**registry))
+    if job["prev"] is not None:
+        cancel_step(job["prev"]["input"], job["prev"]["started_at"], job["prev"]["worker_id"])
+    started_at = now_step()
+    DBOS.set_event("attempt_context", {"input": to_record(si), "grant": to_record(grant),
+                                       "lease": to_record(lease), "key": si.idempotency_key})
+    result = attempt_step(to_record(si), started_at, lease.worker_id)
+    settle_step(to_record(si), result)
+    key = _message_key(si.batch_id, si.idempotency_key, "attempt", "settled", "result", si.batch_id)
+    DBOS.send(si.batch_id, {"kind": "settled", "case": si.case_id}, topic=CASE_EVENT, idempotency_key=key)
+    return {"started": True, "grant": to_record(grant), "input": to_record(si), "result": result,
+            "started_at": started_at, "worker_id": lease.worker_id}
 
 
 @DBOS.workflow(max_recovery_attempts=None)

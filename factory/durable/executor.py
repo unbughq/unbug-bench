@@ -256,6 +256,12 @@ class Executor:
     def release(self, lease: WorkerLease) -> None:
         _call("engine:pool_failed", self.pool.release, lease)
 
+    def lease_alive(self, lease: WorkerLease) -> bool:
+        alive = _call("engine:pool_failed", self.pool.alive, lease)
+        if type(alive) is not bool:
+            raise SeamError("engine:pool_failed")
+        return alive
+
     def lease_for(self, case_id: str, plumbing_version: str, bench_version: str) -> WorkerLease:
         reason = "infra:pool_failed"
         try:

@@ -2,8 +2,10 @@
 
 Status: the queue architecture passed its latest design verification in
 `docs/reviews/durable-execution-admission-queue-design-13.md`; the disabled
-bookkeeping and initial admission probe are implemented, but terminal decisions and
-reconciliation are not. The founder resolved the provider-limit boundary: genuine
+bookkeeping and initial admission probe are implemented. A prepared-attempt model
+child now reuses the held grant and checks the release and lease at dispatch; it is
+not yet connected to cases. Terminal decisions and reconciliation are not implemented.
+The founder resolved the provider-limit boundary: genuine
 limits keep waiting; see `durable-execution-provider-waits.md` for the WP5a and
 WP8 integration gates. Earlier queue reviews are in
 `docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8,9,10,11,12}.md`.
