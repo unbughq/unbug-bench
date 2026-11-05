@@ -1,6 +1,6 @@
 # Durable execution: wave 1 briefs
 
-**Status: draft. Do not launch until design review 5 of `docs/designs/durable-execution.md` passes.**
+**Status: ready.** Design review 5 passed. The founder decisions at the end of the design come before launch.
 
 These are briefs for the seven wave-1 packages of `docs/designs/durable-execution.md`.
 Each brief is the whole prompt for one agent. The agents run in parallel, each in its
@@ -57,7 +57,11 @@ own worktree, on its own branch `de/<id>`, cut from `durable-execution`.
   - SEAL running only under the GATES versions;
   - waking waiting cases on settle;
   - registering queues before recovery enqueues;
-  - checking the constructed instance for Conductor.
+  - checking the constructed instance for Conductor;
+  - a finite request figure for batch-only steps;
+  - a sub-minimum CASE grant diagnoses without starting, while a sub-minimum BATCH
+    grant waits;
+  - settling every `infra:cancelled` result with `settle_lost`.
 - **Done when:** the mid-term exam passes. A batch of three cases on fakes survives
   `kill -9` of the engine at 20 random points, and no finished step runs twice.
 
@@ -112,7 +116,10 @@ own worktree, on its own branch `de/<id>`, cut from `durable-execution`.
     first-wins results, detach, the `RELEASE.json` version check, restore, run,
     snapshot;
   - the `run.py` hooks `context_for_step`, `run_step` and `retained_paths`;
-  - turning off the in-process lifecycle branches listed in the design.
+  - turning off the in-process lifecycle branches listed in the design, including the
+    in-process case budget. Under the engine, `money_ceiling_usd_micros` is the only
+    money stop. Test: a snapshot with spent ≥ $50 and a $20 ceiling still runs a
+    writer round.
 - **Test on the public practice case.**
 - **Done when:** the GATES snapshot-reuse test passes. A fresh worker restoring a
   GATES snapshot reuses that snapshot's passed gates.
@@ -126,7 +133,10 @@ own worktree, on its own branch `de/<id>`, cut from `durable-execution`.
 - **Done when:**
   - concurrent reservations never exceed either limit;
   - five INFRA_ERROR attempts that spend money do not reduce the case's money;
-  - replay gives an identical ledger.
+  - replay gives an identical ledger;
+  - `settle_lost` is also waste;
+  - the three tie cases of the label rule hold;
+  - a re-reserve after `raise_bound` returns the original Grant.
 
 ## WP7: key service
 

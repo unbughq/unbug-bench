@@ -80,6 +80,22 @@ class Decide(unittest.TestCase):
         self.assertFalse(draws_case_money(Step(StepKind.WRITER, 4), Counters(in_extension=True)))
         self.assertTrue(draws_case_money(Step(StepKind.WRITER, 4), Counters()))
 
+    def test_after_a_diagnosis_nothing_draws_case_money(self):
+        # Review 5, N2: the SEAL or GATES rerun after an extension must not need spent case money.
+        self.assertFalse(draws_case_money(Step(StepKind.SEAL), Counters(diagnoses_used=1)))
+        self.assertFalse(draws_case_money(GATES, Counters(diagnoses_used=1)))
+
+    def test_a_batch_only_step_that_outgrows_its_grant_retries(self):
+        # Review 5, N3: a diagnosis or extension that spends its whole grant is plumbing, not a result.
+        spent = StepResult(Outcome.EXHAUSTED, "diagnosis:money", Usage(paid_usd_micros=9))
+        self.assertIs(decide(DIAG, spent, Counters(), SPEC, grant=Grant(9, LimitedBy.NOTHING)), Action.RETRY)
+        self.assertIs(decide(GATES, spent, Counters(in_extension=True, extensions_used=1), SPEC,
+                             grant=Grant(9, LimitedBy.NOTHING)), Action.RETRY)
+        self.assertIs(decide(DIAG, spent, Counters(), SPEC, grant=Grant(9, LimitedBy.BATCH)), Action.WAIT_FOR_BOUND)
+        # A zero grant never counts as used up, so it cannot loop.
+        none = StepResult(Outcome.EXHAUSTED, "diagnosis:money")
+        self.assertIs(decide(DIAG, none, Counters(), SPEC, grant=Grant(0, LimitedBy.BATCH)), Action.RETIRE)
+
     def test_broken_runs_settle_as_waste(self):
         self.assertTrue(settles_as_waste(StepResult(Outcome.INFRA_ERROR, "infra:attempt_busy", Usage(paid_usd_micros=3))))
         self.assertTrue(settles_as_waste(StepResult(Outcome.PROVIDER_LIMIT, "router:claude_limit", Usage(paid_usd_micros=3), retry_at=1.0)))

@@ -24,7 +24,7 @@ class Action(str, Enum):
     RETIRE = "retire"                  # stop this case
     ESCALATE = "escalate"              # park and wait for FOUNDER_REPLY
     STOP_ADMISSION = "stop_admission"  # ADMIT cannot find a bug: retire this case and start no new cases
-    WAIT_FOR_BOUND = "wait_for_bound"  # the batch bound ran out under this attempt: wait for BOUND_RAISED, then RETRY
+    WAIT_FOR_BOUND = "wait_for_bound"  # the batch bound ran out under this attempt: wait for any settle or BOUND_RAISED, then RETRY
 
 
 @dataclass(frozen=True)
@@ -81,8 +81,13 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
             return Action.RETIRE                  # a scored rejection, e.g. the bug is not fresh
         return Action.REPAIR if rounds_left else give_up()
     if o is Outcome.EXHAUSTED:
-        if grant.limited_by is LimitedBy.BATCH and result.usage.paid_usd_micros >= grant.amount_usd_micros:
+        # A zero grant is never "used up": the engine does not start attempts below its minimum
+        # grant, and treating $0 as spent would retry forever.
+        used_grant = grant.amount_usd_micros > 0 and result.usage.paid_usd_micros >= grant.amount_usd_micros
+        if grant.limited_by is LimitedBy.BATCH and used_grant:
             return Action.WAIT_FOR_BOUND          # the batch ran out under it, not the case and not a round limit
+        if used_grant and not draws_case_money(step, counters):
+            return Action.RETRY                   # a batch-only step outgrew its grant: plumbing, not a case result
         return give_up()
     if o is Outcome.NEEDS_FOUNDER:
         return Action.ESCALATE
@@ -90,8 +95,9 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
 
 
 def draws_case_money(step: Step, counters: Counters) -> bool:
-    """Ordinary steps draw on the case's own money; DIAGNOSIS and extensions do not."""
-    return step.kind is not StepKind.DIAGNOSIS and not counters.in_extension
+    """Ordinary steps draw on the case's own money. DIAGNOSIS, extensions, and every step
+    after a case's first diagnosis (its SEAL, a GATES rerun) draw on the batch only."""
+    return step.kind is not StepKind.DIAGNOSIS and not counters.in_extension and counters.diagnoses_used == 0
 
 
 def settles_as_waste(result: StepResult) -> bool:

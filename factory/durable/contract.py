@@ -604,7 +604,7 @@ class WorkerChannel(Protocol):
 class LimitedBy(str, Enum):
     NOTHING = "nothing"   # the whole request was granted
     CASE = "case"         # the case's own money ran short: exhausting it is a case outcome
-    BATCH = "batch"       # the batch bound ran short: exhausting it waits for BOUND_RAISED
+    BATCH = "batch"       # the batch bound ran short: using it all waits for any settle or BOUND_RAISED
 
 
 @dataclass(frozen=True)
