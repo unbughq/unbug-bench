@@ -111,5 +111,7 @@ Lost-source or stale archives restore into a quarantine that cannot execute work
 until external ownership and spending have been reconciled. This path does not
 claim automatic recovery from unrecorded post-backup spending. Legacy lifecycle modules and their obsolete tests have been removed from this
 candidate. The clean offline suite passed (151 scripts), along with Linux worker
-checks and a disposable PostgreSQL restore exercise. Live Boat/R2, Docker, provider
-limits and control/worker loss still require qualification before production cutover.
+checks and a disposable PostgreSQL restore exercise. Model-free live checks cover
+Boat/R2, Docker, control restart, worker replacement and authenticated checkpoint
+reuse. Model access, routing and provider spending ceilings still require live
+qualification before production cutover. The practice fixture is not a scientific case.
