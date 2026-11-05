@@ -32,6 +32,22 @@ def shred_tree(path, sudo=False):
 
 
 
+def revoke_replaced(c, out, key):
+    """A checkpoint seal is about to replace the local archive at `out` and the R2 object `key`. A durable receipt
+    naming either copy stops claiming it, before the copies change (checkpoint-readback). Delete once every
+    generation has its own objects (Murphy row 34)."""
+    receipt = c.card.get("durable_checkpoint")
+    if not isinstance(receipt, dict) or not (receipt.get("local_durable") or receipt.get("remote_durable")): return
+    if receipt.get("archive") != str(out) and (key is None or receipt.get("r2_object") != key): return
+    receipt.update(local_durable=False, remote_durable=False, pending=True, superseded="checkpoint_replaced")
+    progress = c.work / "durable-checkpoint.json"
+    try: saved = json.loads(progress.read_text())
+    except (OSError, ValueError): return
+    if isinstance(saved, dict) and saved.get("sha256") == receipt.get("sha256"):
+        from registry import atomic_json
+        atomic_json(progress, receipt)
+
+
 @dataclass
 class RunArtifacts:
     home: Path
@@ -97,10 +113,11 @@ class RunArtifacts:
         if hasattr(c, 'job_money'):
             from copy import deepcopy
             c.card['job_money'] = deepcopy(c.job_money)
-        # Bind the exact statement ciphertext inside the encrypted checkpoint too.
-        (work / "scorecard.json").write_text(json.dumps(c.card, indent=2))
         out = self.sealed / f"{c.case_id}{'.checkpoint' if checkpoint else ''}.tar.gz.age"
         import r2_upload  # 2026-10-20: also sealed to the case's own key, so a restore can fetch it from R2
+        if checkpoint: revoke_replaced(c, out, r2_upload.target(True))
+        # Bind the exact statement ciphertext inside the encrypted checkpoint too.
+        (work / "scorecard.json").write_text(json.dumps(c.card, indent=2))
         try:
             vm_recipient = (Path(__file__).with_name('control-recipient.txt').read_text().strip()
                             if getattr(c.args, 'batch_release_sha256', None) else None)

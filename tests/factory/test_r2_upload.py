@@ -52,5 +52,8 @@ with tempfile.TemporaryDirectory() as d:
     assert founder_key == case_key, 'dual wrapping must preserve founder recovery'
     assert r2_upload.upload(archive, True, links=d / "absent") is None
     (d / "links").write_text(json.dumps({"prefix": "vm/x", "checkpoint": "http://127.0.0.1:9/nowhere", "final": "x"}))
-    assert r2_upload.upload(archive, True, links=d / "links") is None
+    assert r2_upload.upload(archive, True, links=d / "links") is None  # PUT-only links: no read-back, no claim
+    (d / "links").write_text(json.dumps({"prefix": "vm/x", "checkpoint": "http://127.0.0.1:9/nowhere",
+                                         "checkpoint_get": "http://127.0.0.1:9/nowhere", "final": "x", "final_get": "x"}))
+    assert r2_upload.upload(archive, True, links=d / "links") is None  # the PUT itself fails
 print("PASS stable case key, archive roundtrip, optional founder+VM wrap; failed or absent uploads return None")

@@ -23,7 +23,8 @@ def checkpoint_progress(c, seal, *, quiescent, now=None, interval=900):
     previous = getattr(c, "durable_checkpoint_at", None)
     if previous is not None and now - previous < interval: return False
     c.durable_checkpoint_at = now
-    receipt = {"version": 1, "at": int(time.time()), "local_durable": False,
+    # version 2: remote_durable means r2_upload read back exactly `sha256` at `r2_object` (checkpoint-readback).
+    receipt = {"version": 2, "at": int(time.time()), "local_durable": False,
                "remote_durable": False, "pending": True}
     c.card["durable_checkpoint"] = receipt
     public = {key: c.card[key] for key in ("sha256", "archive", "r2_object") if key in c.card}
