@@ -28,6 +28,9 @@ class ServiceTests(unittest.TestCase):
         subprocess.run(["sh", "-n", str(path)], check=True)
         text = path.read_text()
         self.assertIn("dbos==3.4.0", text)
+        self.assertIn("pg_restore", text)
+        backup = (ROOT / "control/unbug-durable-backup.service").read_text()
+        self.assertIn("refuses active runtime", backup)
         self.assertNotIn("systemctl enable", text)
         self.assertNotIn("age-keygen -o", text)
 

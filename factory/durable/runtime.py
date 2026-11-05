@@ -12,6 +12,7 @@ Worker model credentials must already exist on the chosen image.
 from __future__ import annotations
 
 import fcntl
+from contextlib import contextmanager
 import json
 import math
 import os
@@ -22,7 +23,7 @@ from durable.artifacts import AgeSealer, LocalObjects, R2Objects, SealedStore, c
 from durable.contract import ArtifactKind, Ref, assert_no_conductor, batch_spec_from_record
 from durable.keys import AgeKeyService
 from durable.ledger import SqlLedger
-from durable.workers import BoatPool, ReleaseStore
+from durable.workers import BoatPool, ReleaseStore, LABEL_CASE, LABEL_INTENT
 
 
 class RuntimeErrorCode(ValueError):
@@ -36,6 +37,42 @@ def private_bytes(path):
         if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or stat.S_IMODE(st.st_mode) != 0o600:
             raise RuntimeErrorCode("private_file_permissions")
         return stream.read()
+
+
+@contextmanager
+def runtime_lock(state):
+    state = Path(state)
+    state.mkdir(mode=0o700, parents=True, exist_ok=True)
+    st = state.lstat()
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or stat.S_IMODE(st.st_mode) != 0o700:
+        raise RuntimeErrorCode("state_permissions")
+    fd = os.open(state / "runtime.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise RuntimeErrorCode("runtime_already_owned") from None
+        yield lock
+
+
+@contextmanager
+def database_lock(config):
+    import sqlalchemy as sa
+    from durable.ledger import _make_engine
+    if sa.engine.make_url(config["database_url"]).get_backend_name() != "postgresql":
+        yield
+        return
+    engine = _make_engine(config["database_url"])
+    try:
+        with engine.connect() as conn:
+            if not conn.execute(sa.text("SELECT pg_try_advisory_lock(719235184003)")).scalar():
+                raise RuntimeErrorCode("database_already_owned")
+            try:
+                yield
+            finally:
+                conn.execute(sa.text("SELECT pg_advisory_unlock(719235184003)"))
+    finally:
+        engine.dispose()
 
 
 def load_config(path):
@@ -83,19 +120,17 @@ class Runtime:
             raise RuntimeErrorCode("invalid_output_retry")
         self.config = config
         self.state = Path(config["state_dir"])
-        self.state.mkdir(mode=0o700, parents=True, exist_ok=True)
-        st = self.state.lstat()
-        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or stat.S_IMODE(st.st_mode) != 0o700:
-            raise RuntimeErrorCode("state_permissions")
-        self.lock = (self.state / "runtime.lock").open("a")
-        try:
-            fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            self.lock.close()
-            raise RuntimeErrorCode("runtime_already_owned") from None
-        self.keys = self.ledger = None
+        self._ownership = runtime_lock(self.state)
+        self.lock = self._ownership.__enter__()
+        if (self.state / "cold-backup.json").exists():
+            self._ownership.__exit__(None, None, None)
+            raise RuntimeErrorCode("source_fenced_resume_or_restore_required")
+        self.keys = self.ledger = self._database_ownership = None
         self.launched = False
         try:
+            ownership = database_lock(config)
+            ownership.__enter__()
+            self._database_ownership = ownership
             self.keys = AgeKeyService(config["database_url"], restore_recipient=config["restore_recipient"],
                                       founder_recipient=config["founder_recipient"], restore_identity=config["restore_identity"])
             self.ledger = SqlLedger(config["database_url"])
@@ -112,7 +147,27 @@ class Runtime:
 
     def launch(self):
         # No cleanup/release on reconciliation failure: journals retain ownership.
-        self.pool.recover()
+        if (self.state / "restored.json").exists():
+            # Restored ownership is conservative: retain missing/uncertain records
+            # and never run orphan deletion against a potentially newer inventory.
+            records = self.pool._records()
+            rows = self.pool._inventory()
+            for row in rows:
+                labels = self.pool._ours(row)
+                if labels is None:
+                    continue
+                record = records.get(labels.get(LABEL_CASE))
+                if record is None or not (record["worker"] == row["id"] or (
+                        record["worker"] is None and record["intent"] is not None
+                        and record["intent"] == labels.get(LABEL_INTENT))):
+                    raise RuntimeErrorCode("restore_unclaimed_worker")
+            for case_id, record in records.items():
+                worker = self.pool._find(rows, case_id, worker=record["worker"], intent=record["intent"])
+                if worker is not None and record["worker"] != worker:
+                    self.pool._write(case_id, {**record, "worker": worker})
+            # Normal acquire/release reconciles each retained record before work.
+        else:
+            self.pool.recover()
         self.launched = True  # destroy even if DBOS launch fails halfway through
         self.engine.launch()
 
@@ -139,7 +194,13 @@ class Runtime:
             if self.launched:
                 self.engine.shutdown()
         finally:
-            for component in (self.keys, self.ledger):
-                if component is not None:
-                    component.close()
-            self.lock.close()
+            try:
+                for component in (self.keys, self.ledger):
+                    if component is not None:
+                        component.close()
+            finally:
+                try:
+                    if self._database_ownership is not None:
+                        self._database_ownership.__exit__(None, None, None)
+                finally:
+                    self._ownership.__exit__(None, None, None)

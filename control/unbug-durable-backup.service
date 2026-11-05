@@ -1,5 +1,5 @@
 [Unit]
-Description=Encrypted durable factory backup
+Description=Cold encrypted durable backup (refuses active runtime; fences source until resume/restore)
 After=network-online.target
 
 [Service]

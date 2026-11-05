@@ -10,7 +10,7 @@ for unit in unbug-durable.service unbug-durable-backup.service; do
     echo "Stop durable services before installation" >&2; exit 1
   fi
 done
-for command in python3 age age-keygen pg_dump; do
+for command in python3 age age-keygen pg_dump pg_restore; do
   command -v "$command" >/dev/null
 done
 install -d -m 700 -o user -g user "$state"

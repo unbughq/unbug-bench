@@ -4,29 +4,26 @@
 Run --help for commands. All content/message/spec arguments are private file paths.
 The service is the sole Engine owner; operator clients never launch recovery.
 Backups are full PostgreSQL dumps plus local pool/release state, encrypted in RAM.
-Restore automation, credential provisioning and live qualification are unsupported.
+Cold backup fences the stopped source until explicit resume or restore.
+Restore requires the fenced source state and a fresh destination configuration.
 """
 from __future__ import annotations
 
 import argparse
 import base64
-import io
 import json
 import os
 from pathlib import Path
 import signal
 import socket
 import socketserver
-import subprocess
 import sys
-import tarfile
 import threading
-import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from durable.contract import (ArtifactKind, BenchRelease, BoundRaised, FounderReply, PlumbingRelease,
                               Ref, Topic, to_record, BATCH_ID, CASE_ID)
-from durable.runtime import Runtime, RuntimeErrorCode, load_config, objects_for, private_bytes
+from durable.runtime import Runtime, RuntimeErrorCode, load_config, private_bytes
 
 
 def dispatch(runtime, request):
@@ -99,42 +96,7 @@ def serve(config):
         runtime.close()
 
 
-def backup(config):
-    from sqlalchemy.engine import make_url
-    url = make_url(config["database_url"])
-    if url.get_backend_name() != "postgresql":
-        raise RuntimeErrorCode("backup_requires_postgresql")
-    env = {**os.environ}
-    for key, value in {"PGHOST": url.host, "PGPORT": url.port, "PGUSER": url.username,
-                       "PGPASSWORD": url.password, "PGDATABASE": url.database}.items():
-        if value is not None:
-            env[key] = str(value)
-    # Connection options that pg_dump cannot faithfully reproduce must fail closed.
-    if set(url.query) - {"sslmode"}:
-        raise RuntimeErrorCode("unsupported_backup_dsn_options")
-    if "sslmode" in url.query:
-        env["PGSSLMODE"] = url.query["sslmode"]
-    dump = subprocess.run(["pg_dump", "--format=custom"], env=env, capture_output=True, check=True).stdout
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w") as archive:
-        info = tarfile.TarInfo("database.dump")
-        info.size = len(dump)
-        archive.addfile(info, io.BytesIO(dump))
-        # Journals are individually atomic, but DB and files are not a single snapshot.
-        # Recovery must reconcile inventory after restore; wrapped keys are exported
-        # separately on every artifact publication.
-        for name in ("pool", "releases"):
-            path = Path(config["state_dir"]) / name
-            if path.exists():
-                archive.add(path, arcname=name)
-    encrypted = subprocess.run(["age", "-r", config["restore_recipient"], "-r", config["founder_recipient"]],
-                               input=buf.getvalue(), capture_output=True, check=True).stdout
-    key = f"backups/{uuid.uuid4().hex}.tar.age"
-    objects = objects_for(config)
-    objects.put(key, encrypted)
-    if objects.get(key) != encrypted:
-        raise RuntimeErrorCode("backup_publication_failed")
-    return {"backup": key}
+from durable.backup import backup, restore, resume
 
 
 def main(argv=None):
@@ -143,6 +105,10 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="op", required=True)
     for name in ("run", "backup"):
         commands.add_parser(name)
+    commands.add_parser("resume", help="invalidate the cold restore point and allow source startup")
+    restore_parser = commands.add_parser("restore", help="restore into the fresh config destination; source remains retired")
+    restore_parser.add_argument("archive_file", help="owned 0600 encrypted archive downloaded from backup storage")
+    restore_parser.add_argument("--source-state", required=True)
     prepare = commands.add_parser("prepare")
     prepare.add_argument("scope")
     prepare.add_argument("kind", choices=[k.value for k in (ArtifactKind.INPUTS, ArtifactKind.STATEMENT_REGISTRY, ArtifactKind.FOUNDER_RULING)])
@@ -168,6 +134,10 @@ def main(argv=None):
             return 0
         if args["op"] == "backup":
             result = backup(config)
+        elif args["op"] == "restore":
+            result = restore(config, args["archive_file"], args["source_state"])
+        elif args["op"] == "resume":
+            result = resume(config)
         else:
             for field in ("spec", "registry", "payload"):
                 if field + "_file" in args:
@@ -185,8 +155,8 @@ def main(argv=None):
                 result = response["result"]
         print(json.dumps(result, sort_keys=True))
         return 0
-    except Exception:
-        print("durable_operator_failed", file=sys.stderr)
+    except Exception as error:
+        print(str(error) if isinstance(error, RuntimeErrorCode) else "durable_operator_failed", file=sys.stderr)
         return 1
 
 

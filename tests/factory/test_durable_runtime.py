@@ -1,5 +1,6 @@
 """Offline composition checks; SQLite is not PostgreSQL qualification."""
 import base64
+from contextlib import nullcontext
 import io
 import json
 import os
@@ -188,7 +189,7 @@ class RuntimeTests(unittest.TestCase):
                 self.assertEqual(kwargs["env"]["PGPASSWORD"], "secret")
                 return subprocess.CompletedProcess(argv, 0, stdout=b"database plaintext")
             return real_run(argv, **kwargs)
-        with patch("durable.cli.subprocess.run", side_effect=run):
+        with patch("durable.backup.subprocess.run", side_effect=run), patch("durable.backup.database_lock", return_value=nullcontext()):
             result = backup(self.config)
         data = LocalObjects(self.config["local_objects"]).get(result["backup"])
         self.assertTrue(data.startswith(b"age-encryption.org/v1"))
