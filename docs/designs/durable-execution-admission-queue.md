@@ -1,8 +1,8 @@
-# Budget-aware admission using a DBOS decision queue, revision 9
+# Budget-aware admission using a DBOS decision queue, revision 10
 
 Status: proposed alternative to `durable-execution-admission-budget.md` revision 6;
 not implemented. Earlier reviews are in
-`docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8}.md`; request a fresh
+`docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8,9}.md`; request a fresh
 independent design review before choosing it. WP1 owns the engine changes; WP2 must satisfy the existing idempotent `WorkerPool`
 contract. No `contract.py` edit is proposed.
 
@@ -152,7 +152,23 @@ Before closing an ADMIT fence, the reconciler recovers the recorded pre-attempt
 inputs, grant, authenticated result, relevant clock and post-result counters, and
 derives or recovers exactly the same terminal action as the normal path. It applies
 STOP_ADMISSION or the authenticated updated registry to the batch before closing
-the fence. If either action or registry cannot be established, retain the fence.
+the fence. A non-OK ADMIT does not carry a registry: retain the existing registry
+for that result. If the required action or successful-ADMIT registry cannot be
+established, retain the fence.
+
+The case catches a failed terminal-child result and waits on a deterministic,
+idempotently keyed reconciliation response. After applying the batch decision,
+the reconciler sends the authenticated `StepResult` (including its snapshot),
+the derived action and post-result counters; the case acknowledges and continues
+from that result without rerunning ADMIT or incrementing counters twice. Replay
+redelivers the same response until acknowledged. If the case itself is terminal
+and cannot consume it, the batch retains the authenticated result and registry,
+reports the case as `engine_error`, and safely reconciles its worker and grant;
+it neither invents a continuation nor reruns the paid step. This exceptional
+fallback can require operator intervention. Test a terminal child failing after
+settlement but before reporting: the still-running case must consume the recovered
+result and continue, and ADMIT must run once. Also test the terminal-case fallback
+and a non-OK ADMIT that leaves the existing registry unchanged.
 Test a holder failing after settlement but before reporting, for both a threshold
 STOP (no later probe) and a successful ADMIT (the next ADMIT reads its registry).
 For a recovered successful SEAL, the reconciler sends the authenticated archive,
@@ -189,7 +205,15 @@ for acknowledgement; the batch retains the single token until that first termina
 result is resolved or the acquired lease is confirmed released. If DBOS marks the
 preparation holder ERROR or CANCELLED, its queue slot may reopen, but the next holder
 cannot acquire until the token's deterministic reconciliation workflow resolves
-its child/lease and the batch clears the token. Thus at most one first-ADMIT worker
+its child/lease and the batch clears the token. Before `acquire`, the holder records
+the case ID, attempt key, and requested plumbing and bench versions, so the reaper
+can recover even if the acquisition's output was never recorded. If that call may
+still run, retain the token and grant. Only after proving the call quiescent may the
+reaper repeat that exact idempotent acquisition to recover, adopt or release the
+lease. A provider error or negative inventory alone does not prove absence; a
+confirmed terminal no-worker result is recorded as a predecessor-release fact.
+Test a successful acquisition committed before its step output, a still-running
+acquisition that cannot be repeated, and an unresolved provider outcome. Thus at most one first-ADMIT worker
 is prepared or queued per batch even after failure. A case with the only worker can
 still run SEAL on the decision queue and release capacity. Preparation for other
 steps is independent of the held first-ADMIT token; individual attempts use a
@@ -293,7 +317,10 @@ Files and checkpoints:
    rendering in `tests/factory/test_durable_classify.py`; no provider text is published.
 5. Enable V2 for new batches; run all touched tests, the 20-kill mid-term and the
    ENGINEERING full suite on the exact head, then a fresh goldfish diff review.
-   An independent cross-package test must combine WP1 with fixed WP2, WP5a and WP6.
+   After WP2, WP5a and WP6/WP7 are independently reviewed and merged in the user's
+   specified order, run an independent cross-package integration test against the
+   combined implementations. That test is a final merged-tree and real-use gate,
+   not a prerequisite that reverses WP1's package-review order.
 
 Internal messages contain only IDs, reason codes, enum values, numbers and encrypted
 Refs: `replacement_request(case, action)`, `worker_released(case)`,
