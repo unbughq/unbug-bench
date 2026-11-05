@@ -1,8 +1,8 @@
-# Budget-aware admission using a DBOS decision queue, revision 12
+# Budget-aware admission using a DBOS decision queue, revision 13
 
 Status: proposed alternative to `durable-execution-admission-budget.md` revision 6;
 not implemented. Earlier reviews are in
-`docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8,9,10,11}.md`; request a fresh
+`docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8,9,10,11,12}.md`; request a fresh
 independent design review before choosing it. WP1 owns the engine changes; WP2 must satisfy the existing idempotent `WorkerPool`
 contract. No `contract.py` edit is proposed.
 
@@ -132,8 +132,17 @@ only the StepInput record, grant, exact lease and attempt key before it can call
 `attempt_step`. A missing context proves no dispatch only if no queued/running child
 can still produce it; otherwise retain the fence and hold. A probe with recorded
 reserve and clock results reconstructs WAIT, EXPIRED or ADMITTED, replays the
-idempotent settlement if needed, and redelivers the same keyed result/permit. If
-reserve committed but its result was not recorded, once the old synchronous call is
+idempotent settlement if needed, and redelivers the same keyed result/permit.
+Before calling reserve, the holder records a durable reserve-intent event containing
+the operation key and exact reservation arguments. If the holder fails after opening
+its fence, once the holder and any synchronous operation are proven quiescent,
+absence of that intent proves reserve did not start: record `no_reserve`, close
+that probe's fence without settling, leave the candidate unadmitted, and enqueue a
+new probe with a fresh key and fresh authorization. If intent exists but the result
+is missing, reserve may have run; retain the fence until quiescence, then repeat the
+exact idempotent reserve to recover or create the grant and apply the normal clock
+rule. Test failure before intent, after intent but before invocation, and while
+reserve is in flight. If reserve committed but its result was not recorded, once the old synchronous call is
 proven quiescent the reconciler repeats the same idempotent reserve to recover the
 original grant. If reserve is recorded but no clock decision is recorded, it records
 a new `now_step` only after the original holder cannot still record one, then applies
@@ -193,7 +202,13 @@ ADMIT B and delayed A recovery: B's registry remains current. Deliver A's respon
 again while the case waits for a later attempt and prove it is ignored. If the case itself is terminal
 and cannot consume it, the batch retains the authenticated result and registry,
 reports the case as `engine_error`, and safely reconciles its worker and grant;
-it neither invents a continuation nor reruns the paid step. This exceptional
+it neither invents a continuation nor reruns the paid step. After proving the case
+cannot continue and resolving the grant, worker and matching fence without guessing,
+the batch records a terminal-case resolution keyed by operation and attempt. Every
+reaper generation can observe that durable resolution and complete without a case
+acknowledgement. A previously accepted successful SEAL remains sealed. Test both
+response types with the case terminal before receipt and after receipt but before
+acknowledgement, including a new reaper generation and batch termination. This exceptional
 fallback can require operator intervention. Test a terminal child failing after
 settlement but before reporting: the still-running case must consume the recovered
 result and continue, and ADMIT must run once. Also test the terminal-case fallback
