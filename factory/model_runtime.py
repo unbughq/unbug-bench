@@ -44,6 +44,7 @@ def accounting_work(c):
 
 
 def factory_job(c):
+    if getattr(c, 'engine', None) is not None: return False
     return bool(getattr(getattr(c, 'args', None), 'batch_release_sha256', None) or hasattr(c, 'job_money'))
 
 
@@ -285,6 +286,8 @@ def update_case_budget(c):
 
 def case_budget_boundary(c, model=None, *, lease_id=None):
     ledger, summary = update_case_budget(c)
+    if getattr(c, 'engine', None) is not None:
+        return
     try:
         if factory_job(c):
             import job_authority
@@ -396,13 +399,19 @@ class ModelRuntime:
             context.router_condition_since = None
             started = time.monotonic()
             try:
-                if factory_job(c):
-                    import budget, job_authority
-                    reservation = budget.reserve_invocation(c.ledger, lease, invocation_maximum(c, lease), job_authority.for_case(c),
+                if factory_job(c) or getattr(c, 'engine', None) is not None:
+                    import budget
+                    authority = None
+                    if factory_job(c):
+                        import job_authority
+                        authority = job_authority.for_case(c)
+                    reservation = budget.reserve_invocation(c.ledger, lease, invocation_maximum(c, lease), authority,
+                        attempt=getattr(c, 'engine', None),
                         operation_id=operation_id, call_name=name, parent_call_name=getattr(c, 'parent_call_name', None))
                     c.invocation_reservation = context.invocation_reservation = reservation
-                    from factory_waste import record_reservation
-                    record_reservation(c, reservation)
+                    if factory_job(c):
+                        from factory_waste import record_reservation
+                        record_reservation(c, reservation)
                 with model_router.running(lease, context.role_cancel) as lost:
                     model_router._start(lease)
                     context._model_launch_permit = lease.lease_id
@@ -424,7 +433,7 @@ class ModelRuntime:
                         code = self._invoke(context, [lease.route], text, cwd, name, user=user, timeout=limit, deadline=deadline)
                     finally:
                         if factory_job(c): c.active_model_calls.discard(name)
-                        if factory_job(c) and not context.model_process_state['started']:
+                        if (factory_job(c) or getattr(c, 'engine', None) is not None) and not context.model_process_state['started']:
                             invoked, outcome = False, 'denied'
                     if lost.is_set(): raise model_router.RouterUnavailable('lease renewal uncertain')
                     if code: raise BudgetError('process_error')
@@ -476,7 +485,7 @@ class ModelRuntime:
                             'outcome': outcome})
                         # Process-start evidence first: accounting below may raise.
                         receipt_row.update(outcome=outcome, call_id=receipt)
-                        if factory_job(c) and lease.lease_id in after.get('invocation_reservations', {}):
+                        if (factory_job(c) or getattr(c, 'engine', None) is not None) and lease.lease_id in after.get('invocation_reservations', {}):
                             from budget import complete_invocation
                             complete_invocation(accounting_work(c), c.ledger, lease.lease_id)
                     receipt_row.update(outcome=outcome, call_id=receipt)
@@ -650,6 +659,10 @@ class ModelRuntime:
                 factory_kwargs = dict(job_authority=job_authority.for_case(c), invocation_id=reservation['invocation_id'],
                                       lease_id=reservation['lease_id'],
                                       on_started=lambda: c.model_process_state.update(started=True))
+            if getattr(c, 'engine', None) is not None:
+                reservation = c.invocation_reservation
+                factory_kwargs = dict(attempt=c.engine, invocation_id=reservation['invocation_id'],
+                    lease_id=reservation['lease_id'], on_started=lambda: c.model_process_state.update(started=True))
             with model_call_gate.enforce(lease, env, c.model_cap_used, limit, getattr(c, 'role_cancel', None), user=user) as gate:
                 if diagnosis and driver == 'opencode':
                     env.pop('OPENCODE_ENABLE_EXA', None)
@@ -661,12 +674,12 @@ class ModelRuntime:
                     cmd[1] = '--preserve-env=' + ','.join(env)
                 with diagnosis_loopback(c, self.command, gate, diagnosis):
                     result = run_budgeted(cmd, None if user else cwd, env, transcript, c.ledger, limit,
-                                  max_cost=None if factory_job(c) else c.args.max_cost,
+                                  max_cost=None if factory_job(c) or getattr(c, 'engine', None) is not None else c.args.max_cost,
                                   max_calls=c.args.max_role_calls, max_total_calls=c.args.max_total_calls, driver=driver,
                                   progress_timeout=c.args.no_progress_minutes * 60, max_zero_tokens=c.args.max_zero_tokens,
                                   configured_model=model, resume=(bool(getattr(c.args, "resume", None)) and not getattr(c, "budget_resumed", False))
                                   or getattr(c, "force_budget_resume", False),
-                                  concurrent=factory_job(c) or getattr(c.args, "concurrent_roles", False), cancel=gate,
+                                  concurrent=factory_job(c) or getattr(c, 'engine', None) is not None or getattr(c.args, "concurrent_roles", False), cancel=gate,
                                   case_budget=getattr(c.args, 'case_budget', 50.0), role=role, invocation_name=name,
                                   containment=not user, **factory_kwargs)
             update_case_budget(c)
