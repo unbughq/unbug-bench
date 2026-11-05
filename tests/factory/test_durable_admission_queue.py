@@ -66,6 +66,8 @@ class AdmissionProbe(unittest.TestCase):
                     self.ledger.raise_bound(batch_id, bound)
                 def reserve(self, si, *, request, case_limit, draws_case_money):
                     if mode == "expire": time.sleep(2.0)
+                    if mode == "event_storm" and si.attempt == 2:
+                        received_events.append("next_reserve")
                     grant = self.ledger.reserve(si.batch_id, si.case_id, si.idempotency_key, request,
                                                 case_limit, draws_case_money=draws_case_money)
                     block = ((mode in ("stop_inflight", "wake_bound_inflight", "bound_stall_probe") and si.attempt == 1)
@@ -200,7 +202,8 @@ class AdmissionProbe(unittest.TestCase):
                 thread.start()
                 try:
                     state = until(lambda: (s if len((s := ex.ledger.snapshot())["res"]) >= 2 else None))
-                    observed = received_events[first_wait:]
+                    end = received_events.index("next_reserve", first_wait)
+                    observed = received_events[first_wait:end]
                     unrelated = sum(isinstance(msg, dict) and msg.get("kind") == "unrelated"
                                     for msg in observed)
                     assert unrelated >= 2 and None not in observed, observed
