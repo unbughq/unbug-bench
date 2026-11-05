@@ -16,7 +16,7 @@ from durable.runtime import Runtime, RuntimeErrorCode, private_bytes, load_confi
 from durable.engine import APP_VERSION
 from durable.artifacts import AgeSealer, LocalObjects
 from durable.contract import ArtifactKind, Ref, BatchSpec, to_record
-from durable.operator import dispatch, backup, main
+from durable.cli import dispatch, backup, main
 
 
 class RuntimeTests(unittest.TestCase):
@@ -108,7 +108,7 @@ class RuntimeTests(unittest.TestCase):
     def test_private_socket_client_prepare(self):
         import socketserver
         import threading
-        from durable.operator import Handler
+        from durable.cli import Handler
         runtime = self.runtime()
         config_path = self.root / "config"
         config_path.write_text("{}")
@@ -121,7 +121,7 @@ class RuntimeTests(unittest.TestCase):
             thread = threading.Thread(target=server.handle_request)
             thread.start()
             try:
-                with patch("durable.operator.load_config", return_value=self.config), patch("sys.stdout", new_callable=io.StringIO) as output:
+                with patch("durable.cli.load_config", return_value=self.config), patch("sys.stdout", new_callable=io.StringIO) as output:
                     self.assertEqual(main(["--config", str(config_path), "prepare", "b-offline", "registry", str(content_path)]), 0)
                     record = json.loads(output.getvalue())
                     self.assertEqual(record["kind"], "registry")
@@ -175,7 +175,7 @@ class RuntimeTests(unittest.TestCase):
         runtime.engine.reply.assert_called_once()
 
     def test_cli_sanitizes_secret_failure(self):
-        with patch("durable.operator.load_config", side_effect=ValueError("secret content")), patch("sys.stderr", new_callable=io.StringIO) as err:
+        with patch("durable.cli.load_config", side_effect=ValueError("secret content")), patch("sys.stderr", new_callable=io.StringIO) as err:
             self.assertEqual(main(["--config", "unused", "status", "b-offline"]), 1)
             self.assertEqual(err.getvalue(), "durable_operator_failed\n")
 
@@ -188,7 +188,7 @@ class RuntimeTests(unittest.TestCase):
                 self.assertEqual(kwargs["env"]["PGPASSWORD"], "secret")
                 return subprocess.CompletedProcess(argv, 0, stdout=b"database plaintext")
             return real_run(argv, **kwargs)
-        with patch("durable.operator.subprocess.run", side_effect=run):
+        with patch("durable.cli.subprocess.run", side_effect=run):
             result = backup(self.config)
         data = LocalObjects(self.config["local_objects"]).get(result["backup"])
         self.assertTrue(data.startswith(b"age-encryption.org/v1"))

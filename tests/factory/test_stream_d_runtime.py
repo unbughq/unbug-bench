@@ -513,7 +513,7 @@ with patch.object(run.shutil, 'which', return_value='offline'), patch.object(sys
             'factory/key_holder.py': 1,        # legacy recovery; skipped for _batch_job
             'factory/model_runtime.py': 3,     # factory None, non-factory forwarded; card key dropped
             'factory/restart.py': 1,           # unreachable for batch (launch.sh factory_auto_resume)
-            'factory/run.py': 5,               # CLI default, batch None, binding keys
+            'factory/run.py': 7,               # CLI default, batch None, binding keys
             'factory/ttl_continuation.py': 8,  # mode=case continuation; batch policy refuses it
         }
         # free-model-cutover.json (not scanned) pins legacy case IDs only; batch IDs never match it.

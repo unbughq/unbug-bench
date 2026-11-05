@@ -50,7 +50,10 @@ ATTEMPTS = sa.Table(
 
 
 def _make_engine(url: str) -> sa.Engine:
-    if sa.engine.make_url(url).get_backend_name() != "sqlite":
+    parsed = sa.engine.make_url(url)
+    if parsed.get_backend_name() == "postgresql" and parsed.drivername == "postgresql":
+        url = parsed.set(drivername="postgresql+psycopg")
+    if parsed.get_backend_name() != "sqlite":
         return sa.create_engine(url, pool_pre_ping=True)
     engine = sa.create_engine(url, connect_args={"timeout": 60, "check_same_thread": False})
 
