@@ -75,7 +75,7 @@ class ManifestTests(unittest.TestCase):
         # Independent upload expectation from the real release inventory, with
         # its documentation excluded and explicitly reviewed additions included.
         expected_worker = {n for n in build['source_sha256'] if n.startswith('factory/')}
-        expected_worker -= {'factory/README.md', 'factory/IMPROVEMENTS.md',
+        expected_worker -= {'factory/README.md',
                             'factory/apply_free_model_cutover.py', 'factory/free_model_patch.py'}
         expected_worker |= {'factory/worker_secrets.py', 'factory/launch_manifest.py', 'factory/restore_sync.py',
                             'factory/runner_supervisor.py', 'factory/batch.py',

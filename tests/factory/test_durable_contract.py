@@ -1,6 +1,6 @@
 """Durable-execution contract v4: the frozen seams every work package builds against.
 
-docs/designs/durable-execution.md. The engine records every step argument, result and
+ARCHITECTURE.md. The engine records every step argument, result and
 exception, so the contract must refuse case content and round-trip exactly.
 """
 import base64

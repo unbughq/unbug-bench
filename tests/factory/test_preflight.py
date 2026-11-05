@@ -1,16 +1,16 @@
-"""Live preflight (docs/designs/preflight.md), offline.
+"""Live preflight, tested offline against retained fixtures.
 
 Real artifacts:
 - the retained practice manifest (factory/batches/b-plumbing-practice-2.json), for the live
   report and the Codex gate;
-- for dispatch, the retained practice policy docs/reports/stream-b-practice-policy-20261031.json
+- for dispatch, the retained practice policy tests/factory/fixtures/retained-evidence/stream-b-practice-policy-20261031.json
   with its unchanged manifest (factory/batches/b-practice-20261031.json), checked by real
   batch.verify against the independently retained deployment release at
   fixtures/preflight-deployment-release. No release is built by the test;
 - the real router (router_delivery_support: model_router.Server over verified TLS with a real
   0600 client config) and the real router_delivery.pack;
 - the retained Boat list/billing receipts and the installed `boat 1.0.87` label from
-  docs/reports/practice-run-20261102.md.
+  tests/factory/fixtures/retained-evidence/practice-run-20261102-cli.txt.
 AUTHORED: bundle values (labels are real bin/setup-secrets names) and the Codex JWT; the
 practice report kept labels only, no token. age bundles are encrypted with the real age CLI
 to identities made for the test. OpenRouter /credits, R2 and SSH are doubled at their
@@ -48,10 +48,10 @@ import router_delivery
 from router_delivery_support import router
 
 FIXTURES = ROOT / 'tests/factory/fixtures/isolation-timeouts'
-REPORT = (ROOT / 'docs/reports/practice-run-20261102.md').read_text()
+REPORT = (ROOT / 'tests/factory/fixtures/retained-evidence/practice-run-20261102-cli.txt').read_text()
 INSTALLED = re.search(r'Installed CLI label: (boat [0-9.]+)\.', REPORT).group(1)
 RECORD = json.loads((ROOT / preflight.MANIFEST).read_text())
-POLICY = json.loads((ROOT / 'docs/reports/stream-b-practice-policy-20261031.json').read_text())
+POLICY = json.loads((ROOT / 'tests/factory/fixtures/retained-evidence/stream-b-practice-policy-20261031.json').read_text())
 PRACTICE_ARGS = RECORD['jobs']['practice']['args']
 
 

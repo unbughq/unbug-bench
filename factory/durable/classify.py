@@ -4,7 +4,7 @@ A stop is the runner's BudgetError text or a card's terminal_stop, for example
 "opencode_error", "provider_limit:claude/claude-opus-5-5" or "Budget ledger stopped:
 codex_error". `classify` implements the contract's `Classifier` protocol.
 
-Rules (docs/designs/durable-execution-wp4.md):
+Rules:
 - Pure: no I/O, no clock, no engine import. The same input always gives the same result.
 - A reason is never built from stop text. Every reason is a member of the fixed set
   REASONS, so nothing a stop carries (paths, routes, messages) can reach the engine

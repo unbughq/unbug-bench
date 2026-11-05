@@ -1,8 +1,0 @@
-{
-  "command": "lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py",
-  "head": "9cd1a66c6b034497e37961c5fb7997a49323fe14",
-  "started_at": "2026-11-02T15:34:53.001491+00:00",
-  "log": "docs/reports/stream-d-return-target-suite-20261102T153452Z-a3cd3353.log",
-  "exit_code": 1,
-  "finished_at": "2026-11-02T16:49:58.350633+00:00"
-}

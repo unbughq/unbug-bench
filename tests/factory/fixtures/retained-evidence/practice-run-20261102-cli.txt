@@ -1,0 +1,1 @@
+- Installed CLI label: boat 1.0.87. Required pinned CLI label: boat 1.0.85.

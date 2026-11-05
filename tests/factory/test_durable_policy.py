@@ -1,6 +1,6 @@
 """Case policy (WP1-owned, factory/durable/policy.py): ENGINEERING section 3 as code.
 
-Design reviews 1 and 2 of docs/designs/durable-execution.md: diagnosis, extensions and
+Architecture policy: diagnosis, extensions and
 factory-bug limits are enforced in code, a diagnosis is never diagnosed, a case starts at
 most one replacement, and an admission that cannot finish stops admission.
 """

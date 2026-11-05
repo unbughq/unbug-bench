@@ -10,7 +10,7 @@
 4. A restart under changed step code with the same pinned application_version resumes
    the case, and the open step runs the new code (design review 1, finding 2).
 
-Needs dbos (the suite runs with `--with dbos==3.4.0`, docs/ENGINEERING.md).
+Needs dbos (the suite runs with `--with dbos==3.4.0`, tests/README.md).
 """
 import json
 import os
