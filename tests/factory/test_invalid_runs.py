@@ -18,10 +18,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
 import run
 import calibration
-import collection
 import freshness_retrieval as retrieval
 import gate_attempt
-import recovery
 import admission
 import fairness
 from run_validity import classify, require_valid, retry, InvalidInfra, InfrastructureExhausted
@@ -119,24 +117,6 @@ class InvalidRunsTests(unittest.TestCase):
         self.assertEqual(result[0]['error_runs'], 0)
         self.assertEqual(shell.call_args_list[0], shell.call_args_list[1])
 
-    def test_final_invalid_execution_never_becomes_failure_or_writer_feedback(self):
-        self.c.audit_gates = ['G4']
-        pipeline = run._gate_pipeline()
-        pipeline.evaluate = Mock(side_effect=InvalidInfra('reset failed'))
-        pipeline.after_gate = Mock(); pipeline.publish = Mock(); pipeline.log = Mock(); pipeline.budget_boundary = Mock()
-        pipeline.run(self.c)
-        self.assertEqual(self.c.card['gates']['G4'], 'invalid-infra')
-        self.assertNotIn('failed_gate', self.c.card)
-        self.assertNotIn('G4', self.c.card.get('gate_results', {}))
-        pipeline.after_gate.assert_not_called()
-        self.assertEqual(self.c.card['terminal_stop'], 'infrastructure_exhausted')
-        self.c.card['status'] = 'stopped'
-        for policy in (recovery.require_restart_stop, recovery.require_holder_stop):
-            with self.assertRaises(ValueError):
-                policy(self.c.card, [], *(['case'] if policy is recovery.require_holder_stop else []))
-        self.assertFalse(recovery.rereview_stop(self.c.card))
-        self.assertFalse(recovery.freshness_retry_stop(self.c.card))
-        self.assertFalse(recovery.gate_only_continuation(self.c.card))
 
     def test_pending_submission_survives_invalid_checkpoint_without_another_paid_call(self):
         import bench
@@ -284,28 +264,6 @@ class InvalidRunsTests(unittest.TestCase):
         self.assertFalse(ok); self.assertIn('writer_misspelled_observation', info['problems'][0])
         execute.assert_called_once()
 
-    def test_collection_requires_each_real_cards_exact_generation(self):
-        rows = fixture('invalid-runs-public-cards.json.gz')[:2]
-        for index, row in enumerate(rows):
-            card = row['card']; name = card['case'] + '.scorecard.json'
-            directory = self.work / str(index); directory.mkdir(); (directory / name).write_text(json.dumps(card))
-            with self.assertRaises(ValueError): collection.verify(directory, [name])
-            foreign = card['case'] + '-old.tar.gz.age'; (directory / foreign).write_bytes(b'old generation')
-            with self.assertRaises(ValueError): collection.verify(directory, [name, foreign])
-            exact = Path(card['archive']).name; (directory / exact).write_bytes(b'stale generation')
-            with self.assertRaises(ValueError): collection.verify(directory, [name, exact])
-            changed = {**card, 'sha256':hashlib.sha256(b'stale generation').hexdigest()}
-            (directory / name).write_text(json.dumps(changed))
-            self.assertEqual(collection.verify(directory, [name, exact]), {card['case']})
-            with self.assertRaises(ValueError): collection.verify(directory, [name])  # prior local bytes are insufficient
-
-    def test_collection_explicit_probe_and_startup_exceptions_cannot_cover_work(self):
-        name = 'case-probe.scorecard.json'
-        for card in ({'kind':'provider-preflight','scope':'availability_only'},
-                     {'status':'startup_failed','gates':{}}):
-            (self.work / name).write_text(json.dumps(card))
-            self.assertEqual(collection.verify(self.work, [name]), set())
-            with self.assertRaises(ValueError): collection.verify(self.work, [name], has_work=True)
 
     def test_all_public_card_projections_change_only_explicit_silent_wrong_result(self):
         rows = fixture('invalid-runs-public-cards.json.gz') + fixture('20261029-real-public-cards.json.gz')

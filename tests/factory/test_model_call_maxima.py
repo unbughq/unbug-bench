@@ -29,7 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 import calibration
 import budget
-import job_authority
+import factory_waste as job_authority
 import model_call_gate as gate
 import model_router as router
 import model_runtime
@@ -483,7 +483,7 @@ class MaximaTests(unittest.TestCase):
             rounded = model_runtime.invocation_maximum(SimpleNamespace(), actual)
         self.assertEqual(rounded, Decimal('0.123456790'))
         channel = json.loads((ROOT / 'tests/fixtures/factory/stream-d/job-money.json').read_text())
-        authority = job_authority.read(channel, copy.deepcopy(channel))
+        authority = job_authority._owner(channel, copy.deepcopy(channel))
         path = self.root / 'ledger.json'
         path.write_text(json.dumps({'cost': 0, 'calls': 0, 'events': []}))
         for amount in (rounded, actual.max_usd):

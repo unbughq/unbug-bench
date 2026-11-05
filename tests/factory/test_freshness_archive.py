@@ -8,8 +8,6 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
-import founder_decisions
-import recovery
 import run
 import test_admission as fixtures
 from test_admission import evidence
@@ -104,36 +102,6 @@ class ArchiveTests(unittest.TestCase):
                 archive_available=True, archive_snapshot_url=snapshot)
             from run_validity import InfrastructureExhausted
             with self.assertRaises(InfrastructureExhausted): self.review()
-
-    def test_unavailable_review_can_resume_but_failed_gate_cannot(self):
-        card = dict(status='stopped', terminal_stop='freshness_review_unavailable', gates={},
-                    admission_freshness={'outcome':'review_unresolved', 'unresolved_hits':1})
-        self.assertTrue(recovery.freshness_retry_stop(card))
-        recovery.require_restart_stop(card, [])
-        self.assertFalse(recovery.freshness_retry_stop({**card, 'failed_gate':'G2'}))
-        self.assertFalse(recovery.freshness_retry_stop({**card, 'checkpoint_error':'failed'}))
-        self.assertFalse(recovery.freshness_retry_stop({**card, 'admission_freshness':{'outcome':'public_match'}}))
-
-    def test_completed_unresolved_review_requires_ruling(self):
-        self.answers[13]['resolved'] = False
-        with self.assertRaisesRegex(run.BudgetError, '^freshness_review_unavailable$'):
-            self.review()
-        card = {**self.c.card, 'status':'stopped',
-                'terminal_stop':'freshness_review_unavailable'}
-        self.assertEqual(card['freshness_confirmation']['status'], 'completed')
-        self.assertFalse(recovery.freshness_retry_stop(card))
-        with self.assertRaisesRegex(ValueError, 'repair or budget decision'):
-            recovery.require_restart_stop(card, [])
-        for status in ('running', 'interrupted'):
-            with self.subTest(status=status):
-                self.assertTrue(recovery.freshness_retry_stop({**card,
-                    'freshness_confirmation':{'status':status}}))
-
-    def test_ruling_recorded_for_ordinary_cases(self):
-        self.c.args.max_total_calls = run.argument_parser().parse_args([]).max_total_calls
-        founder_decisions.record(self.c)
-        self.assertEqual(self.c.card['freshness_archive_ruling']['authority'], 'founder-2026-10-28')
-        self.assertEqual(self.c.card['freshness_archive_ruling']['decision'], 'G2 archive check')
 
 
 if __name__ == '__main__': unittest.main()

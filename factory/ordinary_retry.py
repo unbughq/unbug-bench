@@ -6,7 +6,6 @@ from pathlib import Path
 import time
 
 from budget import BudgetError
-import job_authority
 import model_router
 import model_runtime
 from registry import atomic_json
@@ -24,7 +23,8 @@ def read(path, default=None):
 
 
 def check(c):
-    job_authority.for_case(c)
+    if time.time() >= model_router.epoch(c.batch_deadline):
+        raise BudgetError('provider_wait_deadline')
     cancel = getattr(c, 'role_cancel', None)
     if cancel is not None and cancel.is_set(): raise BudgetError('cancelled')
 

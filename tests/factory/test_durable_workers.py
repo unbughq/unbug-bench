@@ -595,10 +595,8 @@ class PoolTests(unittest.TestCase):
         self.assertEqual(caught.exception.reason, "infra:worker_unreachable")
         self.assertEqual(len(self.h.inventory()), 1)
 
-    def test_default_steps_are_launch_sh_verbatim(self):
-        launch = (ROOT / "factory/launch.sh").read_text()
-        self.assertIn(W.PIN_SCRIPT.strip(), launch)
-        self.assertIn(W.IMAGE_SCRIPT, launch)
+    def test_default_steps_qualify_the_installed_candidate(self):
+        self.assertIn("worker_release.py", W.QUALIFY_SCRIPT)
         self.assertIn("--root ~/unbug-bench", W.QUALIFY_SCRIPT)
         self.assertIn("--drivers opencode,codex", W.QUALIFY_SCRIPT)
 

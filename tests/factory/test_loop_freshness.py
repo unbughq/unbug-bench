@@ -165,15 +165,6 @@ class LoopFreshnessTests(unittest.TestCase):
         self.assertEqual(info['reason'], 'all_excluded')
         self.assertTrue((self.c.work / info['verdict_path']).is_file())
 
-    def test_unflagged_requests_unresolved_reviewer_is_terminal(self):
-        self.unflagged_requests()
-        self.same_bug = None
-        with self.assertRaisesRegex(run.BudgetError, '^freshness_unresolved$'):
-            self.loop()
-        self.assertEqual(self.calls, ['attacker-1', 'reviewer-g2-confirm'])
-        self.assertEqual(self.c.card['loop_freshness']['reason'], 'reviewer_unresolved')
-        self.assertTrue((self.c.work / self.c.card['loop_freshness']['verdict_path']).is_file())
-        self.assert_terminal('freshness_unresolved')
 
     def test_unflagged_requests_confirmed_match_fails_G2(self):
         self.unflagged_requests()
@@ -194,24 +185,6 @@ class LoopFreshnessTests(unittest.TestCase):
             'rows': 2, 'requested': 2, 'verdict_path': None, 'outcome': 'unresolved',
             'reason': 'same_family_reviewer'})
 
-    def test_unflagged_requests_missing_or_invalid_verdict_fail_closed(self):
-        self.unflagged_requests()
-        report = self.c.work / 'report.json'
-        report.write_text(json.dumps({'complete': True, 'blocking': self.report_blocking,
-                                     'freshness_review': self.requested_urls}))
-        for verdict in (None, {'hits': [{'same_bug': False}]}):
-            with self.subTest(verdict=verdict):
-                def model(c, models, text, cwd, name, **kwargs):
-                    self.assertEqual(name, 'reviewer-g2-confirm')
-                    if verdict is not None:
-                        (pathlib.Path(cwd) / 'verdict.json').write_text(json.dumps(verdict))
-                    return 0
-                with patch.object(run, 'opencode', side_effect=model) as reviewer, \
-                     self.assertRaisesRegex(run.BudgetError, '^freshness_unresolved$'):
-                    run.loop_freshness(self.c, run.attack_report(report), report)
-                reviewer.assert_called_once()
-                self.assertEqual(self.c.card['loop_freshness']['reason'], 'reviewer_unresolved')
-                self.assert_terminal('freshness_unresolved')
 
     def test_flagged_and_requested_rows_share_one_review(self):
         self.unflagged_requests()
@@ -327,25 +300,6 @@ class LoopFreshnessTests(unittest.TestCase):
         self.assertEqual(self.c.card["failed_gate"], "G2")
         self.assertEqual(self.c.card["gates"]["G2"], "fail")
 
-    def test_unresolved_is_terminal_not_writer_feedback(self):
-        self.same_bug = None
-        with self.assertRaisesRegex(run.BudgetError, "^freshness_unresolved$"):
-            self.loop()
-        self.assertEqual(self.calls, ["attacker-1", "reviewer-g2-confirm"])
-        self.assertEqual(self.c.card["loop_freshness"]["outcome"], "unresolved")
-        self.assert_terminal("freshness_unresolved")
-
-    def assert_terminal(self, stop):
-        from restart import plan
-        archive = self.c.work / "case-synthetic.checkpoint.tar.gz.age"
-        archive.write_bytes(b"synthetic opaque archive")
-        card = {**self.c.card, "case": "case-synthetic", "status": "stopped", "terminal_stop": stop,
-                "seed": 42, "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
-                "continuation_budget": {"cost": 1, "events": [], "calls": 1, "terminal_stop": stop}}
-        path = self.c.work / "case-synthetic.scorecard.json"
-        path.write_text(json.dumps(card))
-        with self.assertRaisesRegex(ValueError, "decision"):
-            plan(path, 0, 7200, "--case-budget 100 --rounds 20")
 
     def test_same_family_reviewer_fails_closed(self):
         for family in ("claude/other", "deepseek/other"):

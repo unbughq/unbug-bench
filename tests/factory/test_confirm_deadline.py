@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[2] / 'factory'), str(Path(__file__).parent)]
 import run
-import recovery
 import g11_review
 import model_runtime
 import model_router
@@ -50,22 +49,6 @@ class ConfirmDeadlineTests(FreshnessRestoreTests):
             (self.c.work / name).unlink(missing_ok=True)
         return state
 
-    def test_real_collected_restore_reaches_confirm_without_reset(self):
-        self.addCleanup(offline_router()[0].close)
-        for card, seconds in self.cards():
-            with self.subTest(case=card['case']):
-                self.assertTrue(recovery.freshness_retry_stop(card))
-                state = self.prepare(card)
-                def reviewer(c, models, text, cwd, name, **kw):
-                    self.assertEqual(name, 'reviewer-g2-confirm')
-                    self.assertEqual(kw['timeout'], seconds)
-                    raise run.BudgetError('timeout')
-                with patch.object(run, 'opencode', side_effect=reviewer) as call, \
-                     patch.object(run, 'freshness_topup') as repair:
-                    with self.assertRaisesRegex(run.BudgetError, '^timeout$'):
-                        run.ensure_freshness(self.c)
-                call.assert_called_once(); repair.assert_not_called()
-                self.assertEqual(json.loads((self.c.work / 'freshness-repair.json').read_text()), state)
 
     def test_in_loop_real_url_counts_get_same_deadlines(self):
         self.addCleanup(offline_router()[0].close)

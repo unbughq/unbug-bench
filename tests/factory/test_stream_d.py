@@ -20,7 +20,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
 import budget
-import job_authority
+import factory_waste as job_authority
 from model_router import Lease
 from router_test_support import synthetic_maximum
 
@@ -31,7 +31,7 @@ def authority(limit=1000):
     channel = {'schema': 1, 'batch': 'practice', 'job': 'original', 'case': 'case-practice',
         'reservation_id': 'bc97cc76-9028-457d-b116-8887ac02f62f', 'revision': 1, 'source_generation': None,
         'committed_total_usd': format(Decimal(str(limit)), '.9f'), 'batch_deadline': '2030-11-01T00:00:00Z'}
-    return job_authority.read(channel, channel)
+    return job_authority._owner(channel, channel)
 
 
 def cards():
@@ -356,15 +356,13 @@ class JobMoneyTests(unittest.TestCase):
         channel = {'schema': 1, 'batch': 'practice', 'job': 'original', 'case': cards()[0]['card']['case'],
             'reservation_id': str(uuid.uuid4()), 'revision': 2, 'source_generation': 'e' * 64,
             'committed_total_usd': '80.000000000', 'batch_deadline': '2026-11-01T00:00:00Z'}
-        self.assertEqual(job_authority.read(channel, channel, now=0).committed_total_usd, Decimal(80))
+        self.assertEqual(job_authority._owner(channel, channel, now=0).committed_total_usd, Decimal(80))
         for candidate in (None, {}, {**channel, 'revision': 1}, {**channel, 'source_generation': 'f' * 64},
                           {**channel, 'committed_total_usd': 'NaN'}, {**channel, 'committed_total_usd': '80.0'}):
             with self.assertRaisesRegex(budget.BudgetError, 'money_wait'):
-                job_authority.read(candidate, channel, now=0)
+                job_authority._owner(candidate, channel, now=0)
         with self.assertRaisesRegex(budget.BudgetError, 'retired_batch_bound'):
-            job_authority.read(channel, channel, now=1e12)
-        with self.assertRaisesRegex(budget.BudgetError, 'money_wait'):
-            job_authority.for_case(SimpleNamespace(case_id=channel['case'], card={}))
+            job_authority._owner(channel, channel, now=1e12)
 
 
 if __name__ == '__main__': unittest.main()

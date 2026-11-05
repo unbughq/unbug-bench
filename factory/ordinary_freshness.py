@@ -6,7 +6,6 @@ import shutil
 import uuid
 
 from admission import search_evidence_error, search_evidence
-from job_authority import for_case
 from budget import BudgetError
 import freshness_retrieval as retrieval
 from ordinary_retry import check, backoff, digest, read, transport
@@ -38,7 +37,7 @@ def obtain(c, rows, directory, *, flagged):
             except InvalidInfra:
                 pass
             deadline = min(time.monotonic() + 120, time.monotonic() +
-                (datetime.fromisoformat(for_case(c).batch_deadline.replace('Z', '+00:00')) - datetime.now(timezone.utc)).total_seconds())
+                (datetime.fromisoformat(c.batch_deadline.replace('Z', '+00:00')) - datetime.now(timezone.utc)).total_seconds())
             failures = 0
             while True:
                 check(c)
@@ -52,7 +51,7 @@ def obtain(c, rows, directory, *, flagged):
                 failures += 1
                 backoff(c, failures, deadline=deadline)
             check(c)
-            remaining = (datetime.fromisoformat(for_case(c).batch_deadline.replace('Z', '+00:00')) - datetime.now(timezone.utc)).total_seconds()
+            remaining = (datetime.fromisoformat(c.batch_deadline.replace('Z', '+00:00')) - datetime.now(timezone.utc)).total_seconds()
             return retrieval.retrieve([row], target, archive=True,
                 deadline=time.monotonic() + min(120, remaining), access=True)
         result = transport(c, {'retrieval': row['url']}, cycle) if flagged else cycle()

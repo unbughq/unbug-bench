@@ -15,7 +15,6 @@ from types import SimpleNamespace
 from unittest import mock
 
 import free_models
-import restart
 import run
 import model_runtime
 import model_router
@@ -81,13 +80,6 @@ with tempfile.TemporaryDirectory() as tmp:
         after['writer']['model'] = 'opencode/minimax-m3.1-flash-free'; save()
         rejected(lambda: free_models.selected('case-fixture', args))
         after['writer'] = copy.deepcopy(before['writer']); save()
-        card = {'case': 'case-fixture', 'status': 'stopped', 'terminal_stop': 'paused', 'roles': before, 'seed': 1,
-                'continuation_budget': {'calls': 10, 'cost': .1, 'active': {}, 'events': [], 'terminal_stop': 'PauseRequested'}}
-        archive = root / 'case-fixture.checkpoint.tar.gz.age'; archive.write_bytes(b'synthetic ciphertext')
-        card['sha256'] = __import__('hashlib').sha256(archive.read_bytes()).hexdigest()
-        card_path = root / 'case-fixture.scorecard.json'; card_path.write_text(json.dumps(card))
-        flags = '--max-cost 5 --max-total-calls 2000 --max-role-calls 400'
-        rejected(lambda: restart.plan(card_path, 0, 600, flags))
         config['expires_utc'] = '2000-01-01T00:00:00Z'; save()
         rejected(lambda: free_models.selected('case-fixture', args))
     c = SimpleNamespace(card={'model_transition': {'kind': 'approved-paid-to-free'}})

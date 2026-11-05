@@ -20,7 +20,7 @@ import unittest
 from unittest.mock import patch
 import uuid
 import budget
-import job_authority
+import factory_waste as job_authority
 import model_call_gate as gate
 import model_router as router
 from token_prices import GATED_OPENROUTER,openrouter_gate_cost,openrouter_gate_maximum,runtime_prices
@@ -98,7 +98,7 @@ class CheapTests(unittest.TestCase):
             work=self.root/card['case'];work.mkdir();(work/'usage-receipts').mkdir();path=work/'ledger.json'
             path.write_text(json.dumps(dict(cost=0,calls=0,events=[])))
             channel=json.loads((ROOT/'tests/fixtures/factory/stream-d/job-money.json').read_text())
-            channel['committed_total_usd']='3.000000000';authority=job_authority.read(channel,copy.deepcopy(channel))
+            channel['committed_total_usd']='3.000000000';authority=job_authority._owner(channel,copy.deepcopy(channel))
             total=peak=Decimal(0)
             for index,(session,events) in enumerate(sessions.items()):
                 route=events[0]['configured_model'];self.assertTrue(all(e['configured_model']==route for e in events))

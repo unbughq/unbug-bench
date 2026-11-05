@@ -15,7 +15,6 @@ from unittest.mock import patch
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
 import run
-import recovery
 import model_runtime
 import model_router
 from router_test_support import offline_router
@@ -161,14 +160,10 @@ class FreshnessRestoreTests(unittest.TestCase):
         self.assertEqual(self.c.card['loop_freshness']['outcome'], 'excluded')
 
     def diagnosis_republish(self):
-        import diagnosis_dispatch
         from registry import atomic_json
-        self.c.checkpoint_card = json.loads((self.c.work / 'scorecard.json').read_text())
-        # Only this test's routing marker is authored; full authenticated replay is
-        # exercised in test_stream_d_dispatch with the saved case and ledger.
-        self.c.checkpoint_card['diagnosis_state'] = {'status': 'completed'}
-        self.c.card = {}
-        self.assertTrue(diagnosis_dispatch.carry_context(self.c))
+        # Durable restoration carries the authenticated card as snapshot bytes;
+        # no legacy dispatcher projects scheduler state onto a new card.
+        self.c.card = json.loads((self.c.work / 'scorecard.json').read_text())
         atomic_json(self.c.work / 'scorecard.json', self.c.card)
 
     def completed_review_checkpoint(self, *, public_match=False):
@@ -322,20 +317,6 @@ class FreshnessRestoreTests(unittest.TestCase):
              patch.object(run, 'opencode') as call, self.assertRaisesRegex(run.BudgetError, 'budget_exhausted'):
             run.ensure_freshness(self.c)
         call.assert_not_called()
-
-    def test_public_expiry_eligibility_refuses_mixed_reasons(self):
-        self.addCleanup(offline_router()[0].close)
-        state = self.expire()
-        card = {'status': 'stopped', 'terminal_stop': 'freshness_evidence_unavailable',
-                'freshness_repair': state, 'admission_freshness': {
-                    'outcome': 'evidence_incomplete', 'invalid_evidence': 22,
-                    'invalid_evidence_reasons': {'evidence_expired': 22}}}
-        recovery.require_restart_stop(card, [])
-        for changes in ({'failed_gate': 'G2'}, {'checkpoint_error': 'bad'}, {'gates': {'G2': 'fail'}},
-                        {'admission_freshness': {**card['admission_freshness'],
-                         'invalid_evidence_reasons': {'evidence_expired': 21, 'retrieval_failed': 1}}}):
-            with self.subTest(changes=changes), self.assertRaises(ValueError):
-                recovery.require_restart_stop({**card, **changes}, [])
 
 
 class RestoreSyncTests(unittest.TestCase):

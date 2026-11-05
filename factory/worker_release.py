@@ -31,6 +31,7 @@ def source_files(root):
 
 def stamp(root, output):
     policy = json.loads(POLICY.read_text())
+    policy['release'] += '-durable-candidate-v1'
     policy['files'] = source_files(root)
     output.write_text(json.dumps(policy, indent=2, sort_keys=True) + '\n')
 

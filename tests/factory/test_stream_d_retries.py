@@ -640,22 +640,6 @@ class RetryTests(unittest.TestCase):
         run.confirm_hits(self.c,flagged)
         self.assertEqual(len(self.calls),3)
 
-    def test_batch_boundaries_bypass_legacy_restart_and_holder_attempt_caps(self):
-        import key_holder
-        # Captured source generation, with four authored transport retries.
-        job={'case':self.source['case'],'mode':'case','_batch_job':True}
-        history=[{'case':self.source['case'],'generation':self.source['sha256']} for _ in range(4)]
-        self.assertIsNone(key_holder.admit_attempt(job,self.source['sha256'],{},history,4))
-        with self.assertRaisesRegex(ValueError,'attempt limit'):
-            key_holder.admit_attempt({**job,'_batch_job':False},self.source['sha256'],{},history,4)
-        launch=(ROOT/'factory/launch.sh').read_text()
-        function='factory_auto_resume() {'+launch.split('factory_auto_resume() {',1)[1].split('\n}\n',1)[0]+'\n}\n'
-        for operation,release in [('authored-operation',''),('','authored-release')]:
-            result=subprocess.run(['bash','-uc',function+'\nfactory_auto_resume captured-vm'],
-                cwd=self.work,env={**os.environ,'UNBUG_BATCH_OPERATION':operation,'batch_release':release},
-                capture_output=True,text=True)
-            self.assertEqual(result.returncode,1,result.stderr)
-            self.assertEqual(result.stderr,'') # exits before reading unset legacy VM/retry state
 
     def test_five_stress_interruptions_keep_same_round_and_operation(self):
         attempts=[0]

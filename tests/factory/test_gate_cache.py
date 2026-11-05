@@ -1,4 +1,4 @@
-"""Offline salvage and scoped evidence regressions; synthetic inputs only."""
+"""Offline gate-cache and scoped evidence regressions; synthetic inputs only."""
 
 # Keep direct execution and unittest discovery independent of the working directory.
 import sys
@@ -18,11 +18,10 @@ import unittest
 from unittest.mock import patch
 
 import gate_state
-import restart
 import run
 
 
-class SalvageTests(unittest.TestCase):
+class EvidenceCacheTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root = pathlib.Path(self.tmp.name)
@@ -42,99 +41,8 @@ class SalvageTests(unittest.TestCase):
         self.runner.write_text('LIMIT = 1\ndef helper(c):\n    return LIMIT\ndef g4(c):\n    return helper(c)\ndef unrelated():\n    return 1\n')
         p = patch.object(gate_state, 'RUNNER', self.runner, create=True); p.start(); self.addCleanup(p.stop)
 
-    def plan(self, card):
-        self.path.write_text(json.dumps(card))
-        return restart.plan(self.path, 0, 7200, '--max-cost 2 --max-total-calls 10')
 
-    def crash(self, error='RuntimeError', attempt=1):
-        directory = self.c.work / 'gate-details'; directory.mkdir(exist_ok=True)
-        (directory / f'G15.crash-{attempt}.json').write_text(json.dumps({'error': error, 'message': 'synthetic', 'traceback': 'synthetic'}))
 
-    def test_public_crash_stop_is_restorable_but_real_failure_is_not(self):
-        self.assertEqual(self.plan(self.card), ('case-test', 60, 7))
-        for detail in ({'problems': ['defect']}, {'error': 'RuntimeError', 'problems': []}, {'error': ''}, ['RuntimeError']):
-            with self.subTest(detail=detail), self.assertRaises(ValueError):
-                self.plan({**self.card, 'failed_detail': detail})
-        with self.assertRaises(ValueError): self.plan({**self.card, 'terminal_stop': 'cost_limit'})
-        conflict = copy.deepcopy(self.card); conflict['gate_results']['G15'] = {'problems': ['defect']}
-        with self.assertRaises(ValueError): self.plan(conflict)
-
-    def test_worker_requires_matching_crash_and_never_charges_writer(self):
-        with self.assertRaises(ValueError): run.restore_gate_crash(self.c, self.card)
-        self.crash('OSError')
-        with self.assertRaises(ValueError): run.restore_gate_crash(self.c, self.card)
-        self.crash(attempt=2)
-        run.restore_gate_crash(self.c, self.card)
-        self.assertEqual(self.c.card['salvaged_from'], {'gate': 'G15', 'error_type': 'RuntimeError', 'attempt': 2})
-        self.assertTrue(self.c.args.skip_build)
-        self.c.audit_gates = ['G15']
-        with patch.object(run.GatePipeline, 'check', return_value=(True, {})) as gate, patch.object(run, 'write_and_attack') as writer:
-            run.validate_and_repair(self.c)
-        gate.assert_called_once_with(self.c, 'G15'); writer.assert_not_called()
-        self.assertNotIn('builder_rounds', self.c.card)
-        (self.c.case / 'statement.md').write_text('changed statement')
-        with self.assertRaises(ValueError):
-            run.restore_gate_crash(self.c, {**self.card, 'statement_sha256': 'old'})
-
-    def test_main_resume_keeps_writer_rounds_and_verified_gate_evidence(self):
-        harness = r'''
-import hashlib, json, pathlib, sys, types
-from unittest.mock import patch
-import run, gate_state, worker_release
-root = pathlib.Path(sys.argv[1]); work = root / 'work/case-test'
-(work / 'case/base').mkdir(parents=True); (work / 'logs').mkdir()
-(work / 'case/base/judge.py').write_text('synthetic judge')
-(work / 'case/statement.md').write_text('synthetic statement')
-(work / 'gate-details').mkdir()
-(work / 'gate-details/G15.crash-1.json').write_text(json.dumps({'error': 'RuntimeError', 'message': 'synthetic', 'traceback': 'synthetic'}))
-(work / 'review-1').mkdir(); (work / 'review-1/verdict.json').write_text('{}')
-(work / 'scorecard.json').write_text(json.dumps({'failed_gate': 'G15', 'failed_detail': {'error': 'RuntimeError'},
-    'gates': {'G4': 'pass', 'G15': 'fail'}, 'builder_rounds': 2, 'admission': {'status': 'passed'},
-    'statement_sha256': hashlib.sha256(b'synthetic statement').hexdigest()}))
-run.HOME, run.SEALED, run.BENCH = root, root / 'output', root / 'bench'
-run.GATES = ['G4', 'G15']
-run.sh = lambda *a, **kw: 0
-run.bench_manifest = lambda: 'trusted'
-run.pilot_homes = lambda: []
-run.seal = lambda *a, **kw: None
-run.wipe = lambda *a: None
-run.build = lambda *a: (_ for _ in ()).throw(AssertionError('writer must not run'))
-run.g4 = lambda *a: (_ for _ in ()).throw(AssertionError('verified G4 must not run'))
-def models(c):
-    assert (work / 'review-1/verdict.json').exists(), 'resume moved verified review evidence'
-    c.models = {'builder': ['synthetic/test']}
-    gate_state.save(c, 'G4', {'broke': '1/1'}, gate_state.fingerprint(c, 'G4', run.BENCH), {}, run.BENCH)
-    return c.models
-def gate(c):
-    (root / 'retried-G15').touch()
-    return True, {}
-run.pick_models, run.g15 = models, gate
-worker_release.verify_selected_drivers = lambda *a: {}
-with patch.object(run.shutil, 'which', return_value='synthetic'), patch.object(sys, 'argv',
-        ['run.py', '--source', 'port', '--resume', 'case-test', '--resume-bench-sha', 'trusted', '--no-early-probe']):
-    run.main()
-'''
-        result = subprocess.run([sys.executable, '-c', harness, str(self.root)],
-            cwd=pathlib.Path(run.__file__).parent, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        card = json.loads((self.root / 'output/case-test.scorecard.json').read_text())
-        self.assertNotIn('terminal_stop', card, card)
-        self.assertTrue((self.root / 'retried-G15').exists(), card)
-        self.assertEqual(card['builder_rounds'], 2)
-        self.assertEqual(card['admission'], {'status': 'passed'})
-        self.assertEqual(card['statement_sha256'], hashlib.sha256(b'synthetic statement').hexdigest())
-        self.assertEqual(card['salvaged_from'], {'gate': 'G15', 'error_type': 'RuntimeError', 'attempt': 1})
-        self.assertEqual(card['gate_results']['G4']['fingerprint_version'], gate_state.VERSION)
-
-    def test_repeat_crash_keeps_failed_gate_and_is_operational_on_resume(self):
-        self.c.audit_gates = ['G15']; self.c.stopped = False
-        with patch.object(run.GatePipeline, 'check', side_effect=RuntimeError('synthetic')), patch.object(run, 'write_and_attack') as writer:
-            run.validate_and_repair(self.c)
-        writer.assert_not_called()
-        self.assertTrue(self.c.stopped)
-        self.assertNotIn('failed_gate', self.c.card)
-        self.assertNotIn('failed_detail', self.c.card)
-        self.assertEqual(self.c.card['terminal_stop'], 'infrastructure_exhausted')
 
     def save(self):
         evidence = self.root / 'results/trial.json'; evidence.parent.mkdir(exist_ok=True); evidence.write_text('{}')

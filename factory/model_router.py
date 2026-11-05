@@ -525,7 +525,8 @@ def metadata(case):
 
 
 def _account_order(case):
-    from account_handoff import ACCOUNTS as LABELS
+    LABELS = {'opencode': {1: 'opencode-go-key', 2: 'opencode-go-key-2'},
+              'claude': {1: 'claude-token', 2: 'claude-factory-token-2', 3: 'claude-factory-token-3'}}
     preferred = {LABELS[p].get(n) for p,n in (case.card.get('provider_accounts') or {}).items() if p in LABELS}
     return sorted(getattr(case, 'router_accounts', ACCOUNTS),
                   key=lambda a: (not (SECRETS / a).is_file(), a not in preferred))

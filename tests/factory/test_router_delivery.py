@@ -100,29 +100,6 @@ class DeliveryTests(unittest.TestCase):
                 self.assertEqual(calls,['/status'])
             finally:server.shutdown();server.server_close();thread.join()
 
-    def test_resume_requires_worker_files_without_host_client(self):
-        source=(ROOT/'factory/launch.sh').read_text()
-        selected=source[source.index('router_names=""'):source.index('# On the VM:')]
-        exports=source[source.index('vm_creds="'):source.index('# One bench run per')]
-        with tempfile.TemporaryDirectory() as tmp:
-            ram=Path(tmp)/'secrets'; ram.mkdir()
-            values={'factory-router-url':'https://router.invalid', 'factory-router-token':TOKEN,
-                    'factory-router-ca.pem':'public-ca-placeholder'}
-            for name,value in values.items(): (ram/name).write_text(value)
-            script='set -eu\nbatch_release=yes; secrets="claude-token codex-auth.json opencode-go-key openrouter-key"; claude_secret=claude-token; opencode_secret=opencode-go-key\n'+selected+'\nsecrets="$router_names"\n'+exports.replace('/dev/shm/secrets',str(ram))+'\neval "$vm_creds"\ntest "$FACTORY_ROUTER_TOKEN" = "'+TOKEN+'"\n'
-            env={**os.environ,'UNBUG_RESUME_LAUNCH':'1','UNBUG_ROUTER_CLIENT_FILE':str(Path(tmp)/'missing')}
-            env.pop('FACTORY_ACCOUNT_POLICY',None)
-            result=subprocess.run(['/bin/sh','-c',script],env=env,capture_output=True)
-            self.assertEqual(result.returncode,0,result.stderr)
-            for name in values:
-                (ram/name).unlink()
-                result=subprocess.run(['/bin/sh','-c',script],env=env,capture_output=True)
-                self.assertNotEqual(result.returncode,0,name)
-                self.assertNotIn(TOKEN.encode(),result.stdout+result.stderr)
-                (ram/name).write_text(values[name])
-        import control_resume
-        self.assertIn('UNBUG_ROUTER_CLIENT_FILE',control_resume.ENVIRONMENT)
-        self.assertFalse(any(k.startswith('FACTORY_ROUTER_') for k in control_resume.ENVIRONMENT))
 
     def test_shared_secrets_default_and_override(self):
         code='import worker_secrets,model_router,job_config,account_handoff,run; print(worker_secrets.SECRETS); assert all(x==worker_secrets.SECRETS for x in (model_router.SECRETS,job_config.SECRETS,account_handoff.SECRETS)); assert run.STATEMENTS_KEY==worker_secrets.SECRETS/"statements-key"'

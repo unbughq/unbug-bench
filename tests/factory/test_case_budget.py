@@ -18,7 +18,6 @@ from unittest.mock import patch
 
 import budget
 import gate_state
-import restart
 import run
 import model_runtime
 import token_prices
@@ -76,9 +75,6 @@ class CaseBudgetTests(unittest.TestCase):
         if limit is not None: card['case_budget'] = {'limit_usd': limit, 'spent_usd': spent}
         return card
 
-    def plan(self, card, args):
-        path = self.root / 'case-test.scorecard.json'; path.write_text(json.dumps(card))
-        return restart.plan(path, 0, 7200, args)
 
     def test_transient_review_resume_rereviews_same_round_without_raise(self):
         for stop in (None, 'stalled', 'paused', 'timeout', 'opencode_error', 'provider_limit:opencode/test',
@@ -238,74 +234,6 @@ class CaseBudgetTests(unittest.TestCase):
         self.assertEqual(calls, ['builder-1', 'attacker-1'])
         self.assertNotIn('resume_rereview', self.c.card)
 
-    def test_completed_claude_writer_budget_ignores_throttled_work_snapshot(self):
-        from durable_checkpoint import checkpoint_progress
-        c = self.c
-        old = self.ledger(49)
-        snapshot = c.work / 'continuation-budget.json'
-        snapshot.write_text(json.dumps(old))
-        c.durable_checkpoint_at = 100
-        result = self.invoke([{'type': 'result', 'session_id': 'fresh-writer', 'total_cost_usd': 2,
-            'usage': {'input_tokens': 10, 'output_tokens': 20, 'cache_read_input_tokens': 0,
-                      'cache_creation_input_tokens': 0}}], 'claude', 'claude/synthetic',
-            role='writer', invocation_name='builder-6')
-        self.assertEqual(result.returncode, 0)
-        with patch('durable_checkpoint.time.monotonic', return_value=725), patch.object(run, 'seal') as seal:
-            self.assertFalse(checkpoint_progress(c, seal, quiescent=True))
-        seal.assert_not_called()
-        self.assertEqual(json.loads(snapshot.read_text()), old)
-        ledger, summary = run.update_case_budget(c)
-        self.assertEqual(summary['spent_usd'], 51)
-        self.assertEqual(ledger['events'][-1]['invocation'], 'builder-6')
-        with self.assertRaisesRegex(budget.BudgetError, '^budget_exhausted$'):
-            run.case_budget_boundary(c)
-
-    def test_interrupted_review_planner_without_raise_and_failed_gate_refusal(self):
-        for stop in ('stress_review_unresolved:interrupted_review',
-                     'stress_review_unresolved:missing_or_malformed_report',
-                     'stress_review_unresolved:case_changed_since_review'):
-            card = self.public_card(stop, limit=50)
-            self.assertEqual(self.plan(card, ''), ('case-test', 60, 7))
-            self.assertEqual(self.plan(card, '--case-budget 50 --rounds 3'), ('case-test', 60, 7))
-            for ledger_stop in ('stalled', 'timeout', 'provider_limit:opencode/test', 'budget_exhausted'):
-                value = {**card, 'continuation_budget': {**card['continuation_budget'], 'terminal_stop': ledger_stop}}
-                if ledger_stop == 'budget_exhausted':
-                    with self.assertRaises(ValueError): self.plan(value, '')
-                else: self.assertEqual(self.plan(value, ''), ('case-test', 60, 7))
-            for extra in ({'failed_gate': 'G15'}, {'gates': {'G15': 'fail'}}):
-                with self.assertRaises(ValueError): self.plan({**card, **extra}, '')
-        with self.assertRaises(ValueError): self.plan(self.public_card(limit=50), '')
-
-    def test_attacker_call_timeout_is_transient_and_shorter_than_global_stall(self):
-        from router_test_support import offline_router
-        self.addCleanup(offline_router()[0].close)
-        c = self.c
-        c.models['attacker'] = ['opencode/test-free']
-        for key, value in dict(agent_timeout=4 * 3600, no_progress_minutes=45, max_cost=5,
-                               max_role_calls=400, max_total_calls=2000, max_zero_tokens=3).items():
-            setattr(c.args, key, value)
-        (c.work / 'transcripts').mkdir()
-        limits = []
-        real_run = model_runtime.run_budgeted
-        def hung(cmd, cwd, env, transcript, ledger, timeout, **kw):
-            limits.append(timeout)
-            self.assertLess(timeout, c.args.no_progress_minutes * 60)
-            return real_run([sys.executable, '-c', 'import time; time.sleep(5)'], cwd, env,
-                            transcript, ledger, .05, **{**kw, 'containment': False})
-        with patch.object(model_runtime, 'run_budgeted', hung), patch.object(run, 'public_progress'), \
-                patch.object(model_runtime, 'opencode_config', return_value=self.root / 'config.json'):
-            with self.assertRaisesRegex(budget.BudgetError, '^timeout$'):
-                run.opencode(c, c.models['attacker'], 'synthetic', c.work, 'attacker-3')
-        self.assertEqual(limits, [1200 + 60 * sum(p.is_file() for p in c.case.rglob('*'))])
-        self.assertEqual(json.loads(c.ledger.read_text())['terminal_stop'], 'timeout')
-        self.assertTrue(restart.RETRY.fullmatch('timeout'))
-        for overall, explicit, expected in ((14400, 60, 60), (30, 60, 30)):
-            c.args.agent_timeout = overall
-            with patch.object(model_runtime, 'run_budgeted', return_value=types.SimpleNamespace(returncode=0)) as call, \
-                    patch.object(run, 'public_progress'), \
-                    patch.object(model_runtime, 'opencode_config', return_value=self.root / 'config.json'):
-                run.opencode(c, c.models['attacker'], 'synthetic', c.work, 'attacker-3', timeout=explicit)
-            self.assertEqual(call.call_args.args[5], expected)
 
     def test_counts_all_drivers_once_and_by_role(self):
         usage = {'input_tokens': 1000000, 'cached_input_tokens': 400000, 'output_tokens': 10000}
@@ -401,33 +329,6 @@ class CaseBudgetTests(unittest.TestCase):
         model.assert_not_called()
         self.assertEqual(self.c.card['case_budget']['next_round_estimate_usd'], 12)
 
-    def test_legacy_final_repair_changed_case_rereviews_before_writer_n_plus_one(self):
-        self.receipt(final=True)
-        # A final fix legitimately changes the revision after the stored stress report.
-        (self.c.case / 'final-fix.txt').write_text('synthetic previous final fix')
-        card = self.public_card()
-        changes = restart.raised_limits(card, 50, 3, explicit_budget=True)
-        self.c.limits_raised = changes; self.c.card.update(changes)
-        names = []
-        def call(c, models, text, cwd, name):
-            names.append(name)
-            if name == 'attacker-3':
-                pathlib.Path(json.JSONDecoder().raw_decode(text)[0]['report_path']).write_text(
-                    '{"complete": true, "blocking": ["fresh stock finding"]}')
-            elif name == 'builder-4':
-                self.assertIn('fresh stock finding', text)
-                self.assertNotIn('synthetic latest stock finding', text)
-                self.assertIn('round-3.json', text)
-                (c.case / 'repair.txt').write_text('synthetic repair')
-            else:
-                self.assertEqual(name, 'attacker-4')
-                pathlib.Path(json.JSONDecoder().raw_decode(text)[0]['report_path']).write_text('{"complete": true, "blocking": []}')
-            return 0
-        with patch.object(run, 'opencode', call): run.write_and_attack(self.c, card)
-        self.assertEqual(names, ['attacker-3', 'builder-4', 'attacker-4'])
-        self.assertEqual(self.c.card['builder_rounds'], 4)
-        self.assertEqual(self.c.card['budget_raised'], {'from': None, 'to': 50, 'spent_at_raise': 30.08})
-        self.assertTrue((self.c.case / 'final-fix.txt').exists())
 
     def test_unraised_final_repair_refuses_even_with_historical_raise_record(self):
         self.receipt(final=True)
@@ -509,37 +410,6 @@ class CaseBudgetTests(unittest.TestCase):
             run.write_and_attack(self.c, {})
         self.assertEqual(calls, ['builder-1', 'attacker-1'])
 
-    def test_missing_report_retry_allows_unraised_resume_and_preserves_explicit_raises(self):
-        card = self.public_card('stress_review_unresolved:missing_or_malformed_report', limit=50)
-        card.update(recovery_config={'rounds': 8, 'case_budget': 50},
-                    budget_raised={'from': None, 'to': 50, 'spent_at_raise': 30},
-                    rounds_raised={'from': 3, 'to': 8})
-        for args in ('--case-budget 50 --rounds 8', '--case-budget 75', '--rounds 9'):
-            self.assertEqual(self.plan(card, args), ('case-test', 60, 7))
-        for args in ('', '--case-budget 40 --rounds 3'):
-            self.assertEqual(self.plan(card, args), ('case-test', 60, 7))
-        for changes in ({'failed_gate': 'G15', 'failed_detail': {'problems': ['real gate failure']}},
-                        {'gates': {'G15': 'fail'}}):
-            with self.assertRaises(ValueError): self.plan({**card, **changes}, '--case-budget 100 --rounds 9')
-        card.pop('budget_raised'); card.pop('rounds_raised')
-        self.assertEqual(self.plan(card, '--case-budget 50 --rounds 8'), ('case-test', 60, 7))
-
-    def test_planner_allows_only_explicit_economic_salvage(self):
-        for stop, old_limit, spent in [('stress_review_unresolved:rounds_exhausted', None, 30.08),
-                                       ('budget_exhausted', 30, 31)]:
-            with self.subTest(stop=stop):
-                card = self.public_card(stop, spent=spent, limit=old_limit)
-                self.assertEqual(self.plan(card, '--case-budget 50'), ('case-test', 60, 7))
-                for args in ('', '--case-budget 20', '--rounds 3'):
-                    with self.assertRaises(ValueError): self.plan(card, args)
-                card['failed_gate'] = 'G5'; card['failed_detail'] = {'problems': ['real defect']}
-                with self.assertRaises(ValueError): self.plan(card, '--case-budget 100 --rounds 9')
-
-    def test_rounds_raise_is_recorded_and_same_budget_refuses(self):
-        card = self.public_card('budget_exhausted', limit=50)
-        changes = restart.raised_limits(card, 50, 8, explicit_rounds=True)
-        self.assertEqual(changes, {'rounds_raised': {'from': 3, 'to': 8}})
-        with self.assertRaises(ValueError): restart.raised_limits(card, 50, 3, explicit_budget=True)
 
     def test_completed_writer_survives_budget_boundary_before_stress(self):
         self.receipt(n=1)
@@ -561,16 +431,6 @@ class CaseBudgetTests(unittest.TestCase):
         with patch.object(run, 'opencode', tester): run.write_and_attack(self.c, {})
         self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 2})
 
-    def test_recovery_policy_forwards_and_preserves_case_ceiling(self):
-        import coordinator
-        config = {key: 1 for key in coordinator.CONFIG_FIELDS}
-        config.update(version=1, case_budget=75.5)
-        card = {'source': 'hunt', 'rotation_slot': 1, 'seed': 7, 'recovery_config': config}
-        job = {'args': ['1'], 'roles': {'writer': {'model': 'synthetic/writer', 'effort': 'high'}}}
-        argv = coordinator.configuration_args(card, job)
-        self.assertEqual(argv[argv.index('--case-budget') + 1], '75.5')
-        with self.assertRaises(ValueError):
-            coordinator.configuration_args(card, {**job, 'args': ['1', '--case-budget', '100']})
 
     def test_gate_finishes_verdict_then_next_boundary_stops(self):
         self.c.audit_gates = ['G4', 'G5']

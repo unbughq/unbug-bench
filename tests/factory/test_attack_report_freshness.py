@@ -12,8 +12,6 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import key_holder
-import restart
 import run
 import test_loop_freshness as loop_fixture
 
@@ -187,39 +185,6 @@ class AttackReportFlowTests(unittest.TestCase):
         self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 8})
         self.assertFalse(getattr(self.c, 'limits_raised', {}))
         self.assertEqual(report.read_bytes(), before)
-
-
-class RoundSevenRestoreTests(unittest.TestCase):
-    def test_rereview_stop_is_eligible_in_planner_and_holder_without_raise(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = pathlib.Path(temp); sealed = root / 'sealed'; sealed.mkdir()
-            case = 'case-round-seven'
-            archive = sealed / (case + '.checkpoint.tar.gz.age')
-            archive.write_bytes(b'synthetic ciphertext, never decrypted')
-            card = {'case': case, 'seed': 42, 'status': 'stopped', 'roles': {}, 'gates': {},
-                    'terminal_stop': 'stress_review_unresolved:missing_or_malformed_report',
-                    'stress_review': {'status': 'unresolved', 'reason': 'missing_or_malformed_report'},
-                    'resume_rereview': {'round': 7, 'reason': 'binding_changed', 'binding_changed': ['prompt']},
-                    'case_budget': {'limit_usd': 50}, 'recovery_config': {'rounds': 8, 'case_budget': 50},
-                    'sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
-                    'continuation_budget': {'cost': .1, 'list_cost_usd': 30, 'calls': 20,
-                                            'events': [], 'terminal_stop': 'complete'}}
-            path = sealed / (case + '.scorecard.json')
-            job = {'case': case, 'mode': 'case', 'card': path.name, 'archive_prefix': case,
-                   'roles': {}, 'max_calls': 1000, 'max_cost': 5, 'args': ['1', '--restore', case]}
-            with patch.object(key_holder, 'ROOT', root):
-                path.write_text(json.dumps(card))
-                self.assertEqual(restart.raised_limits(card, 50, 8), {})
-                self.assertEqual(restart.plan(path, 0, 7200, ''), (case, 60, 42))
-                self.assertEqual(key_holder.current_generation(job), card['sha256'])
-                for changes in ({'failed_gate': 'G2', 'gates': {'G2': 'fail'},
-                                 'failed_detail': {'findings': ['real gate failure']}},
-                                {'gates': {'G15': 'fail'}}, {'checkpoint_error': 'OSError'},
-                                {'continuation_budget': {**card['continuation_budget'], 'list_cost_usd': 50}}):
-                    with self.subTest(changes=changes):
-                        path.write_text(json.dumps({**card, **changes}))
-                        with self.assertRaises(ValueError): restart.plan(path, 0, 7200, '')
-                        with self.assertRaises(ValueError): key_holder.current_generation(job)
 
 
 if __name__ == '__main__':

@@ -13,8 +13,6 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
 import budget
-import founder_ruling
-import founder_decisions
 import free_models
 import model_runtime
 import registry
@@ -26,11 +24,6 @@ class QualifiedAllowanceTests(unittest.TestCase):
     patch = runtime.RuntimeTests.patch
     setUp = runtime.RuntimeTests.setUp
 
-    def test_batch_does_not_record_or_enforce_d1_call_cap(self):
-        self.c.args.max_total_calls = 9001
-        founder_decisions.record(self.c)
-        self.assertNotIn('call_cap_ruling', self.c.card)
-        self.assertIn('freshness_archive_ruling', self.c.card)
 
     def test_model_selection_never_consults_cohort_for_batch(self):
         with patch.object(free_models, 'apply', side_effect=AssertionError('legacy cohort')):
@@ -38,47 +31,6 @@ class QualifiedAllowanceTests(unittest.TestCase):
         self.assertEqual(len(selected['builder']), 1)
         self.assertNotIn('model_transition', self.c.card)
 
-    def test_final_repair_refuses_before_freshness_or_role_work(self):
-        self.c.args.resume = self.c.case_id
-        registry.atomic_json(self.work / 'attack-state.json', {'final_repair': True})
-        with patch.object(founder_ruling, 'context', side_effect=AssertionError('legacy ruling')), \
-             patch.object(run, 'freshness_lines', return_value=[{'hit': True}]), \
-             patch.object(run, 'ensure_freshness', side_effect=AssertionError('freshness work')), \
-             patch.object(run, 'resume_provider_wait', side_effect=AssertionError('provider work')), \
-             patch.object(run, 'opencode', side_effect=AssertionError('model work')):
-            for action in (lambda: run.build(self.c), lambda: run.write_and_attack(self.c, {})):
-                with self.assertRaisesRegex(budget.BudgetError, 'invalid_recovery_receipt'): action()
-
-    def test_modern_late_defect_stays_held_without_founder_context(self):
-        self.c.args.resume = self.c.case_id
-        label = 'late_defect_needs_ruling:G8'
-        registry.atomic_json(self.work / 'scorecard.json', {'terminal_stop': label})
-        registry.atomic_json(self.work / 'attack-state.json', {})
-        with patch.object(founder_ruling, 'context', side_effect=AssertionError('legacy ruling')), \
-             patch.object(run, 'freshness_lines', return_value=[{'hit': True}]), \
-             patch.object(run, 'ensure_freshness', side_effect=AssertionError('freshness work')), \
-             patch.object(run, 'write_and_attack', side_effect=AssertionError('writer work')):
-            with self.assertRaisesRegex(budget.BudgetError, label): run.build(self.c)
-
-    def test_modern_stress_replay_ignores_old_attempt_counts_and_completed_claim(self):
-        original = registry.atomic_json
-        def retained(path, value):
-            if Path(path).name == 'attack-state.json' and value.get('actor') == 'stress_tester':
-                value['rereviews'] = 7
-                value['release_review_attempts'] = [dict(round=1, binding='a' * 64,
-                    cause='infrastructure', actor='stress_tester', reason='authored retained retry') for _ in range(9)]
-            return original(path, value)
-        claim = self.work / 'diagnostic-budgets/attacker-1'
-        (claim / 'claimed').mkdir(parents=True)
-        (claim / 'status.json').write_text('{"status":"completed"}')
-        with patch.object(registry, 'atomic_json', side_effect=retained), \
-             patch.object(founder_ruling, 'feedback_allowed', side_effect=AssertionError('founder feedback')):
-            runtime.RuntimeTests.stress_rebind(self, 'pending')
-        self.assertEqual(self.c.card['stress_review']['status'], 'completed')
-
-    def test_completed_stress_findings_never_consult_founder_feedback(self):
-        with patch.object(founder_ruling, 'feedback_allowed', side_effect=AssertionError('founder feedback')):
-            runtime.RuntimeTests.stress_rebind(self, 'finished')
 
     def main_replay(self, mode):
         home = self.work / ('main-' + mode)

@@ -4,7 +4,7 @@
   delete ID --yes | list --json | ssh ID [CMD] | scp SRC DST (ID:/path) | exec ID --detach -- CMD...
 Only servers labelled unbug-bench=1 are ever listed or deleted (the project has other servers).
 Hetzner bills until a server is deleted, powered off or not: every server carries an
-expires=<epoch> label; bin/hcloud-sweep deletes expired ones. Uses the active hcloud CLI context.
+expires=<epoch> label records the requested deadline. Uses the active hcloud CLI context.
 HCLOUD_PLACES overrides the type@location fallback chain (cheapest first: cx33/cx43, then cpx32 at
 EUR 0.067/h when cx is sold out, as on 2026-10-17). The exam and bin/hcloud-bake pin cx33 themselves.
 IPv4 only: the account allows 10 primary IPs, and IPv6 would spend a second one per server.

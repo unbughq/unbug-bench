@@ -1,6 +1,6 @@
-# Shared POSIX host guards. Source after setting root, label, n, ttl_hours, max_spend.
+# POSIX exam and public smoke launch guards. Source after setting root, label, n, ttl_hours, max_spend.
 # Hetzner by default (bin/hcloud-boat, about half boat's price); UNBUG_CLOUD=boat uses boat.
-# An explicit BOAT_CMD (tests) wins. Exported so collect.sh, push-secrets and boat-spend follow.
+# An explicit BOAT_CMD (tests) wins. Exported for push-secrets and boat-spend.
 [ "${UNBUG_CLOUD:-hetzner}" = boat ] || { BOAT_CMD=${BOAT_CMD:-$root/bin/hcloud-boat}; export BOAT_CMD; }
 boat() { "$root/bin/boat-call" "$@"; }
 quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
@@ -8,15 +8,10 @@ quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 guard_init() {
   state=${UNBUG_LAUNCH_STATE:-$(mktemp -d "${TMPDIR:-/tmp}/boat-launch.XXXXXX")}
   bundle=""; spend_file=""; serial=0
-  if [ "${UNBUG_RESUME_LAUNCH:-}" = 1 ]; then
-    . "$state/monitor.sh"
-  else
-    : > "$state/ids"
-  fi
+  : > "$state/ids"
   trap 'guard_exit $?' 0
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  [ "${UNBUG_RESUME_LAUNCH:-}" != 1 ] || return 0
   poll=${BOAT_POLL_SECONDS:-120}
   stall_minutes=${BOAT_STALL_MINUTES:-45}  # matches the runner's own silence limit
   unreachable=${BOAT_UNREACHABLE_SECONDS:-600}
@@ -117,10 +112,6 @@ guard_retire() {
   fi
   [ ! -f "$state/$retire_id.deleted" ] || return "$retire_status"
   [ ! -f "$state/$retire_id.keep" ] || { echo "$retire_id: KEEPING VM: checkpoint not verified" >&2; return 1; }
-  # Pending detached startup can expose the previous DONE; retire only a fresh collection.
-  if [ -f "$state/$retire_id.restart-attempted" ] && [ ! -f "$state/$retire_id.deletion-attempted" ] && [ ! -e "$state/$retire_id.retiring.json" ]; then
-    rm -f "$state/$retire_id.collected"
-  fi
   if [ ! -f "$state/$retire_id.collected" ] && [ ! -e "$state/$retire_id.retiring.json" ]; then
     # Never delete a VM whose results did not arrive intact (2026-10-17: a cut-off scp lost a case).
     tries=0
@@ -128,16 +119,12 @@ guard_retire() {
       tries=$((tries + 1))
       if [ "$tries" -ge 3 ]; then
         echo "collect failed for $retire_id 3 times; KEEPING it running (expires label is the backstop):" \
-             "run factory/collect.sh $retire_id, then bin/hcloud-boat delete $retire_id --yes" >&2
+             "run the exam collection command for $retire_id, then bin/hcloud-boat delete $retire_id --yes" >&2
         return 1
       fi
       sleep "${BOAT_COLLECT_RETRY_SECONDS:-30}"
     done
     touch "$state/$retire_id.collected"
-  fi
-  # A resumable case keeps its VM until its paid hour ends (factory/resume-in-place.sh continues it there).
-  if [ "${BOAT_CMD:-}" = "$root/bin/hcloud-boat" ] && [ "$label" = factory ] && [ ! -f "$state/$retire_id.ttl-continuation" ] && "$root/bin/hcloud-park" "$retire_id"; then
-    touch "$state/$retire_id.deleted" "$state/$retire_id.parked"; return "$retire_status"
   fi
   # A failed/unknown Boat request is never submitted again by the exit trap.
   if [ "${UNBUG_CLOUD:-hetzner}" = boat ] && [ "${BOAT_CMD:-}" != "$root/bin/hcloud-boat" ]; then
@@ -149,9 +136,6 @@ guard_retire() {
     }
   fi
   touch "$state/$retire_id.deleted"
-  if [ "$label" = factory ] && command -v factory_ttl_retired >/dev/null 2>&1; then
-    factory_ttl_retired "$retire_id" || { echo "$retire_id: TTL deletion evidence not recorded; continuation blocked" >&2; retire_status=1; }
-  fi
   echo "deleted $retire_id" >&2
   return "$retire_status"
 }
@@ -181,9 +165,6 @@ guard_exit() {
       python3 - "$state/ids" "$state/list.json" "$state" <<'PY'
 import json, pathlib, sys
 ids = set(pathlib.Path(sys.argv[1]).read_text().split())
-parked = {i for i in ids if (pathlib.Path(sys.argv[3]) / f"{i}.parked").exists()}
-for i in sorted(parked): print(f"{i}: parked until its paid hour ends (factory/resume-in-place.sh {i}); not an orphan", file=sys.stderr)
-ids -= parked
 def walk(value):
     if isinstance(value, dict):
         if value.get("id") in ids and value.get("status", value.get("state", "")).lower() not in ("deleted", "stopped", "destroyed", "terminated"):
@@ -263,11 +244,6 @@ guard_wait() {
             guard_retire "$wait_id" || true
             touch "$state/$wait_id.retired"; continue ;;
           DONE)
-            # Factory-only hook: retain the original TTL/spend envelope and restart in place.
-            # Exams and Hetzner keep their existing retirement paths.
-            if [ "$label" = factory ] && command -v factory_auto_resume >/dev/null 2>&1 && factory_auto_resume "$wait_id"; then
-              pending=1; continue
-            fi
             guard_retire "$wait_id" || wait_status=1; touch "$state/$wait_id.retired"; continue ;;
           *[!0-9]*|'') reply="" ;;
         esac
@@ -280,9 +256,7 @@ guard_wait() {
         elif [ $((now - $(cat "$state/$wait_id.started"))) -lt "$retire_at" ]; then pending=1; continue
         else
           echo "$wait_id: TTL margin reached; collecting before boat erases it" >&2
-          if [ "$label" = factory ] && command -v factory_ttl_retire >/dev/null 2>&1; then
-            factory_ttl_retire "$wait_id" || echo "$wait_id: TTL attestation failed; collection remains a manual pause" >&2
-          fi
+
         fi
       else
         [ -f "$state/$wait_id.failed" ] || echo "$now" > "$state/$wait_id.failed"

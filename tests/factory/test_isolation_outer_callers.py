@@ -256,32 +256,6 @@ time.sleep(600)
                 if process.poll() is None: process.kill()
                 process.wait(timeout=GUARD)
 
-    def test_whole_status_and_ttl_functions_use_real_transport(self):
-        import batch_status
-        import ttl_continuation
-        with patch.dict(os.environ, self.env, clear=True):
-            self.assertEqual(batch_status._boat(['list', '--json']), LOAD('list.json'))
-            with patch.dict(os.environ, {'TEST_MODE': 'failure'}):
-                with self.assertRaises(subprocess.CalledProcessError) as error:
-                    batch_status._boat(['list', '--json'])
-                self.assertEqual(error.exception.returncode, 9)
-            launch = LOAD('launch.json')['argv']; case = launch[launch.index('--restore') + 1]
-            bounds = dict(started_at=1000, deadline=58600, max_attempts=1, max_spend=.75,
-                          launch_spend=.75, initial_spend=0, ttl_hours=16)
-            self.assertEqual(LOAD('created.json')['ttlSeconds'], bounds['deadline']-bounds['started_at'])
-            job = dict(mode='case', case=case, card=case+'.scorecard.json', archive_prefix=case,
-                       args=launch, ttl_continuation=bounds)
-            # Real copied executable/module, only output records go into tmp.
-            (self.home / 'bin').mkdir()
-            for name in ('boat-call', 'processes.py'): shutil.copy2(ROOT / 'bin' / name, self.home / 'bin' / name)
-            request = ttl_continuation.request_retirement(self.home, LOAD('created.json')['id'], job, now=2000)
-            self.assertEqual(request['runner_pid'], 12345)
-            self.assertEqual(request['case'], case)
-            with patch.dict(os.environ, {'TEST_MODE': 'failure'}):
-                with self.assertRaises(subprocess.CalledProcessError) as error:
-                    ttl_continuation.request_retirement(self.home, LOAD('created.json')['id'], job, now=2000)
-                self.assertEqual(error.exception.returncode, 9)
-
 
 if __name__ == '__main__':
     if sys.argv[1:2] == ['--site']:
