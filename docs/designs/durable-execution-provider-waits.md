@@ -1,6 +1,6 @@
 # Durable execution: provider waits and credential problems
 
-Status: proposed, revision 4 after design reviews 1–3. This records the founder's 2026-11-05 decision in the current
+Status: proposed, revision 5 after design reviews 1–4. This records the founder's 2026-11-05 decision in the current
 thread: genuine provider rate limits keep waiting, and missing or expired
 credentials are handled as a separate configuration problem. The handoff's
 generic 96-free-limit cutoff conflicts with ENGINEERING section 4 and is superseded
@@ -14,8 +14,9 @@ failures. Separately, WP4 classifies both a missing local secret and an expired
 login as `router:credential_expiring`, also a `PROVIDER_LIMIT`; waiting silently
 does not tell an operator that configuration needs attention.
 
-For genuine `PROVIDER_LIMIT` results, continue sleeping until the recorded retry
-time regardless of the number of free or paid limit results. A provider limit is
+For genuine `PROVIDER_LIMIT` results, continue waiting regardless of the number
+of free or paid limit results. Use the valid recorded retry time, or a bounded
+fallback to recheck when no recorded time is valid. A provider limit is
 not a case outcome. The ledger still bounds every paid attempt; an exhausted batch
 bound follows its ordinary wait path. The frozen `BatchSpec` field
 `max_spent_limits_per_step` remains present for compatibility but does not stop a
@@ -58,16 +59,22 @@ read a stale `provider_wait` field from a restored card. Pass only allowlisted f
 reason and valid reset metadata to `worker_step.py`: translate the current exact
 `credential_expiring` reason to the credential infra result, and keep ordinary
 quota/wait results as `PROVIDER_LIMIT`. Clear the per-step wait collection before
-the step, join its concurrent calls, and consider only waits collected during that
-step. If any joined current wait has the exact credential reason, report the
-credential infra result; otherwise report a provider wait with the latest valid
-`retry_after` among current waits. A surfaced `cancelled` with joined current
+the step and join its concurrent calls. Select only the terminal wait for each
+currently stopped logical call; earlier serial waits, including `previous_waits`,
+are usage evidence, not current results. If any current terminal wait has the
+exact credential reason, report the credential infra result. Otherwise, for each
+current quota wait, accept its reset only if it is a finite epoch timestamp,
+strictly after the classifier's clock and no more than `MAX_RESET_AHEAD_S` (eight
+days) ahead. Select the latest accepted reset; if none qualifies, use the existing
+900-second fallback, then recheck. A surfaced `cancelled` with current terminal
 provider waits uses that same selection; `cancelled` without such waits remains
 the normal cancellation outcome. Preserve interrupted-usage evidence and do not
 classify stale wait metadata from earlier attempts. Never record the account, route
 or raw provider text in DBOS. Test the real router → current runner exception →
 worker path for credential-only, quota-only, mixed credential/quota, peer
-cancellation, earlier serial waits and a stale restored card. An older generic
+cancellation, an earlier serial credential wait, an earlier longer serial reset,
+a stale restored card, mixed valid and invalid resets, past and out-of-range
+resets, and no valid reset. An older generic
 `router:provider_wait` without retained reason metadata is indistinguishable and
 stays generic; do not infer a credential fault. WP1's fake-seam tests exercise both
 credential result shapes, and this real cross-package test is a WP5a/final gate.
