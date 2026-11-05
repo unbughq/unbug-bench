@@ -13,9 +13,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "factory")]
 os.environ.setdefault("BENCH", str(ROOT))
 
-from durable.contract import (ArtifactKind as K, BatchSpec, ContractError, LimitedBy, Outcome, Ref, Step,
-                              StepKind, StepResult, Verdict)
-from durable.policy import Action, Counters, decide, decide_diagnosis, progressed, starts_replacement
+from durable.contract import (ArtifactKind as K, BatchSpec, ContractError, Grant, LimitedBy, Outcome, Ref, Step,
+                              StepKind, StepResult, Usage, Verdict)
+from durable.policy import (Action, Counters, decide, decide_diagnosis, draws_case_money, progressed,
+                            settles_as_waste, starts_replacement)
 
 A = "a" * 64
 
@@ -62,10 +63,29 @@ class Decide(unittest.TestCase):
         self.assertIs(d(STRESS, found, writer_rounds_used=3, in_extension=True), Action.DIAGNOSE)
 
     def test_batch_money_waits_case_money_diagnoses(self):
-        ex = StepResult(Outcome.EXHAUSTED, "writer:money")
-        self.assertIs(decide(GATES, ex, Counters(), SPEC, money_limited_by=LimitedBy.BATCH), Action.WAIT_FOR_BOUND)
-        self.assertIs(decide(GATES, ex, Counters(), SPEC, money_limited_by=LimitedBy.CASE), Action.DIAGNOSE)
-        self.assertIs(decide(GATES, ex, Counters(), SPEC), Action.DIAGNOSE)
+        spent = StepResult(Outcome.EXHAUSTED, "writer:money", Usage(paid_usd_micros=7))
+        self.assertIs(decide(GATES, spent, Counters(), SPEC, grant=Grant(7, LimitedBy.BATCH)), Action.WAIT_FOR_BOUND)
+        self.assertIs(decide(GATES, spent, Counters(), SPEC, grant=Grant(7, LimitedBy.CASE)), Action.DIAGNOSE)
+        self.assertIs(decide(GATES, spent, Counters(), SPEC), Action.DIAGNOSE)
+        # A round limit under a batch-limited grant is not a money wait (review 4, N1).
+        rounds = StepResult(Outcome.EXHAUSTED, "writer:rounds", Usage(paid_usd_micros=2))
+        self.assertIs(decide(GATES, rounds, Counters(), SPEC, grant=Grant(7, LimitedBy.BATCH)), Action.DIAGNOSE)
+
+    def test_diagnosis_and_extensions_never_draw_case_money(self):
+        # Review 4, finding 1: a case that ran out of its own money still gets its
+        # diagnosis and extension, paid from the batch bound.
+        out_of_money = StepResult(Outcome.EXHAUSTED, "writer:money", Usage(paid_usd_micros=5))
+        self.assertIs(decide(GATES, out_of_money, Counters(), SPEC, grant=Grant(5, LimitedBy.CASE)), Action.DIAGNOSE)
+        self.assertFalse(draws_case_money(DIAG, Counters()))
+        self.assertFalse(draws_case_money(Step(StepKind.WRITER, 4), Counters(in_extension=True)))
+        self.assertTrue(draws_case_money(Step(StepKind.WRITER, 4), Counters()))
+
+    def test_broken_runs_settle_as_waste(self):
+        self.assertTrue(settles_as_waste(StepResult(Outcome.INFRA_ERROR, "infra:attempt_busy", Usage(paid_usd_micros=3))))
+        self.assertTrue(settles_as_waste(StepResult(Outcome.PROVIDER_LIMIT, "router:claude_limit", Usage(paid_usd_micros=3), retry_at=1.0)))
+        self.assertFalse(settles_as_waste(StepResult(Outcome.PROVIDER_LIMIT, "router:claude_limit", retry_at=1.0)))
+        self.assertFalse(settles_as_waste(StepResult(Outcome.OK, "g1:pass", Usage(paid_usd_micros=3), snapshot=ref())))
+        self.assertFalse(settles_as_waste(StepResult(Outcome.EXHAUSTED, "writer:money", Usage(paid_usd_micros=3))))
 
     def test_free_limits_never_end_a_case(self):
         limit = StepResult(Outcome.PROVIDER_LIMIT, "router:claude_limit", retry_at=1.0)

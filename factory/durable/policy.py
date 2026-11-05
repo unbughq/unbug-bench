@@ -8,8 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from enum import Enum
 
-from durable.contract import (BatchSpec, ContractError, LimitedBy, Outcome, Step, StepKind, StepResult, Verdict,
-                              _nonneg_int, check_result_for)
+from durable.contract import (BatchSpec, ContractError, Grant, LimitedBy, Outcome, Step, StepKind, StepResult,
+                              Verdict, _nonneg_int, check_result_for)
 
 
 class Action(str, Enum):
@@ -47,8 +47,8 @@ class Counters:
 
 
 def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, *,
-           money_limited_by: LimitedBy = LimitedBy.NOTHING) -> Action:
-    """money_limited_by is the limit that shaped this attempt's Grant."""
+           grant: Grant = Grant(0, LimitedBy.NOTHING)) -> Action:
+    """grant is the attempt's Grant from Ledger.reserve."""
     check_result_for(step, result)
     k, o = step.kind, result.outcome
     # An extension is exactly one writer round, its stress round and the gates: it never repairs.
@@ -81,12 +81,23 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
             return Action.RETIRE                  # a scored rejection, e.g. the bug is not fresh
         return Action.REPAIR if rounds_left else give_up()
     if o is Outcome.EXHAUSTED:
-        if LimitedBy(money_limited_by) is LimitedBy.BATCH:
-            return Action.WAIT_FOR_BOUND          # the batch ran out, not the case
+        if grant.limited_by is LimitedBy.BATCH and result.usage.paid_usd_micros >= grant.amount_usd_micros:
+            return Action.WAIT_FOR_BOUND          # the batch ran out under it, not the case and not a round limit
         return give_up()
     if o is Outcome.NEEDS_FOUNDER:
         return Action.ESCALATE
     raise AssertionError(o)
+
+
+def draws_case_money(step: Step, counters: Counters) -> bool:
+    """Ordinary steps draw on the case's own money; DIAGNOSIS and extensions do not."""
+    return step.kind is not StepKind.DIAGNOSIS and not counters.in_extension
+
+
+def settles_as_waste(result: StepResult) -> bool:
+    """Broken runs are booked to the batch's waste line, never to the case's money."""
+    return result.outcome is Outcome.INFRA_ERROR or (
+        result.outcome is Outcome.PROVIDER_LIMIT and result.usage.paid_usd_micros > 0)
 
 
 def decide_diagnosis(verdict: Verdict, *, progressed: bool, counters: Counters, spec: BatchSpec) -> Action:

@@ -1,4 +1,4 @@
-"""Frozen contract shared by every durable-execution work package (version 4).
+"""Frozen contract shared by every durable-execution work package (version 5).
 
 Only what crosses a package boundary lives here: the records the engine stores, the
 worker wire protocol, key derivation, and the seams (protocols) between packages.
@@ -21,7 +21,7 @@ import math
 import re
 from typing import Any, Mapping, Optional, Protocol
 
-CONTRACT_VERSION = 4
+CONTRACT_VERSION = 5
 
 DIGEST = re.compile(r"[0-9a-f]{64}")
 CASE_ID = re.compile(r"case-[A-Za-z0-9-]{1,80}")
@@ -453,11 +453,16 @@ today): the bench tree outside factory/.
 
 Commands, run over `boat ssh` with cwd RELEASE_ROOT:
   start   stdin: start_frame(...) as one JSON object. Prints nothing. Exit 0 once the
-          attempt is detached, or already exists. If another attempt of the same case is
-          live, it writes a result at once (INFRA_ERROR "infra:attempt_busy") and exits 0.
+          attempt is detached, or its marker already exists (including a cancel
+          tombstone). Under one per-case lock, it checks for a live attempt of the same
+          case (a unit whose result does not exist yet); if there is one, it writes a
+          result at once (INFRA_ERROR "infra:attempt_busy") and exits 0.
   poll    stdin: key_frame(key). Prints one line: json.dumps(to_record(Poll)). Exit 0.
-  cancel  stdin: key_frame(key). Stops the attempt's unit if live and writes an
-          INFRA_ERROR "infra:cancelled" result if none exists. Prints nothing. Exit 0.
+  cancel  stdin: key_frame(key). Creates the attempt marker if missing (a tombstone, so a
+          late start does nothing), stops the unit if live, and writes an INFRA_ERROR
+          "infra:cancelled" result if none exists. Prints nothing. Exit 0.
+Results are written first-wins (link() or O_EXCL, never a plain rename over an existing
+file), so an attempt and a cancel can never replace each other's result.
 Any other exit status, or unparsable output, is a transport failure (see WorkerChannel).
 """
 
@@ -480,7 +485,7 @@ def attempt_paths(idempotency_key: str) -> dict:
     attempt: created with O_EXCL by `start`; its existence is the "already started" marker.
     blobs:   input ciphertexts the control side pushed before `start`, named <digest>.<kind>.age.
     out:     output ciphertexts the worker wrote, named the same way; fetched after DONE.
-    result:  the StepResult record, written once by atomic rename.
+    result:  the StepResult record, written once and first-wins (see RELEASE_MANIFEST notes).
     unit:    the systemd unit (or setsid process-group name) of the detached attempt."""
     a = attempt_id(idempotency_key)
     return {"attempt": f"{WORKER_ROOT}/attempts/{a}", "blobs": f"{WORKER_ROOT}/blobs",
@@ -616,18 +621,30 @@ class Ledger(Protocol):
     """WP6. Lives in the engine database. There are no per-step price caps: no evidence
     prices a step, and a cap would turn plumbing into a case result.
 
-    reserve() grants min(requested, the case's remaining money, the batch's remaining
-    bound) and holds it before the attempt starts, so concurrent cases can never
-    overshoot. The engine requests the case's whole remaining money. Extension attempts
-    pass draws_case_money=False: they draw only on the batch bound (ENGINEERING section 3).
-    settle() books the real usage and frees the rest. settle_lost() books the whole grant
-    for an attempt that produced no usage. Every call is idempotent on the idempotency
-    key, so replay rebuilds the same ledger."""
+    Which money an attempt draws on:
+      - Ordinary steps (ADMIT, WRITER, STRESS, GATES and SEAL outside an extension) draw
+        on the case's own money AND the batch bound: draws_case_money=True. The engine
+        requests case_money_usd_micros; the ledger caps it.
+      - DIAGNOSIS and every step of an extension draw on the batch bound only:
+        draws_case_money=False (ENGINEERING section 3; Stream D). The engine requests the
+        batch's remaining bound, or a smaller figure WP1 sets in its note.
+    reserve() grants min(requested, the case's remaining money if drawn, the batch's
+    remaining bound) and holds it before the attempt starts, so concurrent cases can never
+    overshoot. Labels: BATCH whenever the batch's remaining bound is at or below the
+    granted amount; otherwise CASE whenever the case's remaining money capped the grant;
+    otherwise NOTHING. A repeated reserve() on the same key returns the original Grant,
+    unchanged even after raise_bound().
+    settle() books the real usage and frees the rest of the grant. With waste=True the
+    usage is booked to the batch only, never against the case's own money: the engine
+    passes it for INFRA_ERROR results, for PROVIDER_LIMIT results that spent money, and
+    for cancelled or busy attempts (broken runs are never scored, ENGINEERING section 3).
+    settle_lost() books the whole grant as waste for an attempt that produced no usage.
+    Every call is idempotent on the idempotency key, so replay rebuilds the same ledger."""
     def open(self, batch_id: str, bound_usd_micros: int) -> None: ...
     def raise_bound(self, batch_id: str, bound_usd_micros: int) -> None: ...
     def reserve(self, batch_id: str, case_id: str, idempotency_key: str, requested_usd_micros: int,
                 case_limit_usd_micros: int, *, draws_case_money: bool = True) -> Grant: ...
-    def settle(self, idempotency_key: str, usage: Usage) -> None: ...
+    def settle(self, idempotency_key: str, usage: Usage, *, waste: bool = False) -> None: ...
     def settle_lost(self, idempotency_key: str) -> None: ...
 
 

@@ -1,7 +1,7 @@
 # Durable execution for the case factory
 
-Status: design for review, revision 4 (2026-11-05), after design reviews 1–3
-(`docs/reviews/durable-execution-design-{1,2,3}.md`). Branch `durable-execution`,
+Status: design for review, revision 5 (2026-11-05), after design reviews 1–4
+(`docs/reviews/durable-execution-design-{1,2,3,4}.md`). Branch `durable-execution`,
 cut from `factory-simplify` at `2df5664`. This supersedes the "no second event engine"
 direction of `docs/factory-single-path.md`.
 
@@ -30,6 +30,10 @@ contract version 4:
 - the `poll` and `cancel` frames and the release identity are frozen;
 - a transport failure can never start a second attempt beside a live one;
 - per-step price caps are gone, because no evidence prices a step.
+
+Review 4 found one more gap in the money rules, fixed in revision 5 with contract
+version 5: diagnosis and extensions draw only on the batch bound, and broken runs
+settle as waste on the batch, never against the case's own money.
 
 The trade's real costs, which revision 3 understated:
 
@@ -184,13 +188,22 @@ extensions already running finish, and their seals are kept.
 There are no per-step price caps. No evidence prices a step (Stream D's cost
 evidence), and a cap would turn plumbing into a case result.
 
-**Grants.** Before a paid attempt starts, the engine requests the case's whole
-remaining money. `Ledger.reserve` grants and holds the smallest of:
+**Which money a step draws on** (`policy.draws_case_money`):
 
-- that request;
-- the case's remaining money, `case_money_usd_micros` (default $50, today's
-  default);
+- Ordinary steps draw on the case's own money, `case_money_usd_micros` (default
+  $50, today's default), and on the batch bound. They request the case money, and
+  the ledger caps it at what remains.
+- DIAGNOSIS and every step of an extension draw only on the batch bound
+  (ENGINEERING section 3, Stream D). A case that has spent its own money still gets
+  its diagnosis and its extensions.
+
+**Grants.** `Ledger.reserve` grants and holds the smallest of:
+
+- the request;
+- the case's remaining money, when the step draws on it;
 - the batch's remaining bound, `money_bound_usd_micros`.
+
+The tie-breaking labels are in the `Ledger` docstring.
 
 The grant becomes `money_ceiling_usd_micros`. Concurrent cases can therefore never
 overshoot either limit.
@@ -198,16 +211,23 @@ overshoot either limit.
 **When the money runs out.**
 
 - If the case's own money is exhausted, that is a case outcome (DIAGNOSE).
-- If the batch bound is exhausted, the case waits for `BOUND_RAISED`
-  (WAIT_FOR_BOUND), and the batch starts no new cases.
-- Extension attempts pass `draws_case_money=False`, so they draw only on the batch
-  bound.
+- If the batch bound is exhausted, and the attempt's usage reached its grant, the
+  case waits (WAIT_FOR_BOUND), and the batch starts no new cases. A round limit
+  hit under a batch-limited grant is not a money wait.
 
-**Booking.** `settle` books the real usage and frees the rest. `settle_lost` books
-the whole grant for an attempt that produced no usage.
+**Booking.**
 
-With `max_concurrency` cases running at once, a batch bound below `max_concurrency`
-× $50 makes some cases wait. This is intended.
+- `settle` books the real usage and frees the rest.
+- Broken runs (`policy.settles_as_waste`) settle with `waste=True`: INFRA_ERROR
+  results, provider limits that spent money, and cancelled or busy attempts. They
+  are booked to the batch's waste line, never against the case's money.
+- `settle_lost` books the whole grant as waste for an attempt that produced no
+  usage.
+
+**Waking waiting cases.** Waiting cases wake on every `settle` and `settle_lost`,
+not only on `BOUND_RAISED`, so another case's finished reservation can unblock them
+without the founder. WP1 sets a minimum grant below which an attempt waits before it
+starts, rather than starting and running out. A waiting case holds no slot.
 
 ### Workers and the wire protocol
 
@@ -227,8 +247,11 @@ These are frozen in `contract.py`: `WORKER_COMMAND`, `attempt_paths`,
      `plumbing_version` and `bench_version`, and otherwise ends with
      `infra:version_mismatch`. The two versions are the factory bundle sha256 and
      `run.bench_manifest()`, as `launch.sh` computes them today. Gate code is in
-     the factory bundle, so a gate fix is a plumbing release, and `gate_state`
-     fingerprints rerun only the gates whose sources changed;
+     the factory bundle, so a gate fix arrives with a plumbing release. Bench logic
+     still stays versioned per gate (ENGINEERING section 4), because `gate_state`
+     fingerprints hash each gate's own sources, so only the changed gates rerun.
+     SEAL runs only under the same two versions as the GATES step that passed;
+     otherwise the engine reruns GATES first (WP1);
   4. restores the snapshot and runs the step;
   5. writes output ciphertexts into `out/`;
   6. writes the result once, by atomic rename.
@@ -315,7 +338,7 @@ content-free by construction:
 
 ### The frozen contract
 
-`factory/durable/contract.py` (version 4) is pure, with no I/O and no engine import.
+`factory/durable/contract.py` (version 5) is pure, with no I/O and no engine import.
 It holds:
 
 - the records: `BatchSpec`, `Step`, `StepInput`, `StepResult`, `Usage`, `Ref`,
@@ -343,8 +366,8 @@ Within a wave, no two packages write the same file.
 
 | ID | Wave | Package | Owns (writes) | Done when |
 |---|---|---|---|---|
-| WP1 | 1 | Engine core, executor and policy | `factory/durable/engine.py`, `executor.py`, `policy.py`, `report.py` | Batch and case workflows on fakes cover the step sequence, outcome routing, admission queue, replacements, diagnosis, extensions, hold, escalation, the bound wait and messages. The executor composes the seams inside `guarded_run`, and grants, cancel-before-retry and restore-from-snapshot behave as above. `report.py` generates the scorecard from `passed`. Settled in WP1's own note: <ul><li>a GATES deadline taken from evidence (real cards show over 2.5 h before G7), not the 4 h default;</li><li>an ADMIT that hits a provider limit gives up its queue slot while it sleeps;</li><li>ADMIT reads the latest registry when dequeued;</li><li>the engine seals its own stop history as a `DIAGNOSTIC` for DIAGNOSIS evidence.</li></ul> Includes the queue-order test and the constructed-instance Conductor check. The mid-term exam. |
-| WP2 | 1 | Worker pool, provisioning and channel | `factory/durable/workers.py`, `factory/durable/channel.py` | Boat creation uses idempotency labels. Release install and verification replace `launch.sh:685-707`. On restart, orphans are adopted or deleted. The channel side of the wire protocol is in place. Tests use real saved Boat CLI outputs. |
+| WP1 | 1 | Engine core, executor and policy | `factory/durable/engine.py`, `executor.py`, `policy.py`, `report.py` | Batch and case workflows on fakes cover the step sequence, outcome routing, admission queue, replacements, diagnosis, extensions, hold, escalation, the bound wait and messages. The executor composes the seams inside `guarded_run`, and grants, cancel-before-retry and restore-from-snapshot behave as above. `report.py` generates the scorecard from `passed`. Settled in WP1's own note: <ul><li>a GATES deadline taken from evidence (real cards show over 2.5 h before G7), not the 4 h default;</li><li>an ADMIT that hits a provider limit gives up its queue slot while it sleeps;</li><li>ADMIT reads the latest registry when dequeued;</li><li>the engine seals its own stop history as a `DIAGNOSTIC` for DIAGNOSIS evidence;</li><li>a cancel that hits a transport failure is retried until the worker answers, or until deadline plus grace, before attempt n+1 starts;</li><li>the minimum grant before an attempt starts;</li><li>SEAL runs only under the versions of the GATES step that passed.</li></ul> Includes the queue-order test and the constructed-instance Conductor check. The mid-term exam. |
+| WP2 | 1 | Worker pool, provisioning and channel | `factory/durable/workers.py`, `factory/durable/channel.py` | Boat creation uses idempotency labels. Release install and verification replace `launch.sh:685-707`. A release store holds each bundle once, keyed by its sha256, and the release command fills it. A tar.gz cannot be rebuilt to the same digest, and its embedded manifest ties each bundle to one bench tree. WP2's note defines whether a BENCH_RELEASE implies a new bundle. On restart, orphans are adopted or deleted. The channel side of the wire protocol is in place. Tests use real saved Boat CLI outputs. |
 | WP3 | 1 | Sealer and artifact store | `factory/durable/artifacts.py` | `Sealer` with the age CLI and `derive_keys`, plus an R2 store and a local store. A truncated upload is never visible. Ciphertext opens only with its scope key. |
 | WP4 | 1 | Failure classification | `factory/durable/classify.py` | Implements `Classifier`. Every stop kind in the 50 real scorecards maps to an outcome. A limit with no reset time gets a defined backoff from `now`. Ships the published-reason allowlist and the top `opencode_error` causes from the real logs. |
 | WP5a | 1 | Worker-side step runner | `factory/durable/worker_step.py`; the only writer of `factory/run.py` in waves 1–2 | The worker side of the wire protocol: detach, `attempt_busy`, version check, restore, run, snapshot, result. Adds the `run.py` hooks `context_for_step`, `run_step` (ADMIT through WP11's adapter, WRITER, STRESS, GATES and SEAL) and `retained_paths`. Under the engine it turns off the in-process lifecycle: <ul><li>`validate_and_repair`'s repair loop, with `late_recovery` marking;</li><li>the final builder-precheck call and `stop_defect` in the stress path;</li><li>`reselect_candidate`;</li><li>`_gate_completed`'s `checkpoint_progress`.</li></ul> Each step runs on the public practice case. The GATES snapshot-reuse test. |
@@ -406,8 +429,8 @@ The exams gate each wave, not the dates.
 
 | File | Tests | What they cover |
 |---|---|---|
-| `tests/factory/test_durable_contract.py` | 24 | passed gates; poll and cancel frames; grants; reason grammar; exception containment; Conductor check; RFC 5869 HKDF vector and keyed digests; wire layout, start frame and three-state poll; outcome and per-step rules, including who may escalate and what ADMIT and SEAL return; inputs, evidence and ruling placement; keys never collide across repairs; spec ceilings; message payloads; `Classified` shapes; strict round-trips |
-| `tests/factory/test_durable_policy.py` | 11 | an extension never repairs; batch money waits while case money diagnoses; the section 3 table; a diagnosis is never diagnosed; admission failure stops admission; one replacement per case, bounded by `max_cases_started`; diagnosis limits; progress |
+| `tests/factory/test_durable_contract.py` | 24 | passed gates; poll and cancel frames; grants; reason grammar; exception containment; Conductor check; RFC 5869 HKDF vector and keyed digests; wire layout, start frame and three-state poll; outcome and per-step rules, including who may escalate and what ADMIT and SEAL return; inputs, evidence and ruling placement; keys never collide across repairs; spec bounds; message payloads; `Classified` shapes; strict round-trips |
+| `tests/factory/test_durable_policy.py` | 13 | diagnosis and extensions never draw case money; broken runs settle as waste; an extension never repairs; batch money waits while case money diagnoses (and a round limit does not wait); the section 3 table; a diagnosis is never diagnosed; admission failure stops admission; one replacement per case, bounded by `max_cases_started`; diagnosis limits; progress |
 | `tests/factory/test_durable_replay.py` | 4 | real DBOS: a crash mid-step reruns only the open step; a provider sleep keeps its wake time (20 s limit, under 17 s after 12 s of downtime); a restart after the wake time has passed; changed step code resumes under the pinned version |
 
 Every package adds the tests in its "Done when", using the real engine and real saved
