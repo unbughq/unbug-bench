@@ -1,6 +1,6 @@
 # Durable execution WP3: sealer and artifact store
 
-Status: draft, for diff review. Package WP3 of `docs/designs/durable-execution.md`
+Status: implemented, for diff review. Package WP3 of `docs/designs/durable-execution.md`
 (brief in `docs/designs/durable-execution-wave1.md`). Branch `de/wp3`, cut from
 `durable-execution` at `db13be8`. Contract version 5.
 
@@ -96,8 +96,8 @@ header), so it cannot be handed plaintext by mistake. It never takes a key.
   point leaves at most a `.tmp-*` file, which no read ever looks at. Directories
   are `0700`, files `0600`.
 - **`R2Objects(account, access_key, secret_key, bucket)`**: S3 API calls signed with
-  SigV4 in the `Authorization` header (the same algorithm as `bin/r2-presign`, which
-  this reuses for the signing-key derivation). A PUT signs the payload's sha256 in
+  SigV4 in the `Authorization` header (the algorithm `bin/r2-presign` uses for query
+  signing, here in header form so the payload hash is signed). A PUT signs the payload's sha256 in
   `x-amz-content-sha256` and sends `Content-Length`, so the object store rejects
   any body that is truncated or altered in transit instead of storing it; S3-style
   stores commit a PUT only when the whole body arrived. After the PUT the backend
@@ -126,8 +126,8 @@ files:
 - **Identity encoding.** A real `age-keygen` identity decodes to 32 bytes and
   re-encodes to the identical string; our identity for a derived secret is accepted
   by `age-keygen -y`, and the recipient it prints equals the X25519 public key that
-  an independent RFC 7748 implementation in the test (checked against the RFC's own
-  vector) computes from the derived secret.
+  an independent RFC 7748 implementation in the test (checked against the RFC's
+  section 6.1 keys and shared secret) computes from the derived secret.
 - **Interop.** A ciphertext from `seal` decrypts with the real `age -d -i <file>`
   using our identity written to a file; a ciphertext made by the real `age -r
   <recipient>` opens with `open`.
@@ -140,9 +140,10 @@ files:
   store refuses a batch-scoped kind under a case scope and the reverse; a case key
   cannot open a batch artifact.
 - **Interrupted upload, local.** A real child process is killed with SIGKILL
-  halfway through writing a 64 MiB ciphertext: nothing is visible under the final
-  name, `exists` is false, `get_sealed` raises missing, and a later put succeeds.
-  An exception mid-write also leaves nothing visible and no temporary file.
+  halfway through writing a 64 MiB ciphertext, and again after the full write but
+  before the link: nothing is visible under the final name, `exists` is false,
+  `get_sealed` raises missing, and a later put succeeds. An I/O error during the
+  write leaves nothing visible and no temporary file.
 - **First wins.** A second put of the same Ref does not replace the first object.
 - **R2 signing.** The SigV4 header signer reproduces AWS's published S3 examples
   (GET object with Range, PUT object) exactly.
@@ -170,3 +171,15 @@ use the store on a real run (WP1, then WP9's final exam):
 - **new-batch-service-2 (card names an absent archive).** A `Ref` is returned to
   the engine only after the object is stored and verified, so a recorded Ref names
   an object that exists.
+
+## Contract observations
+
+Neither needs a contract change; both are recorded for the diff review.
+
+- `Sealer.seal` and `Sealer.open` take a scope key but no scope name, so the Sealer
+  cannot check that a `BATCH_SCOPED` kind was sealed with the batch key. WP3 enforces
+  the pairing in `SealedStore` (every method) and in `seal_into` / `open_from`.
+- `Ref.digest` covers the plaintext only, not the kind. The same bytes sealed as two
+  kinds get the same digest, and `open` accepts a ciphertext under either kind's Ref.
+  The store names objects by digest and kind, and both open to identical bytes, so
+  nothing is mixed up; callers must not read meaning into a kind beyond its slot.
