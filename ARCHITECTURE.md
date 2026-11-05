@@ -55,8 +55,9 @@ Boat worker pool/channel, worker-side steps, SQL ledger and wrapped-key service.
 `runtime.py` composes these components; `cli.py` exposes a private operator socket.
 The control units and setup script live under `control/`. ADMIT reuses the existing
 selector, registry, freshness and idea-realism screens. DIAGNOSIS uses the existing
-review contract through an isolated pilot user. These paths still need combined
-and live qualification before replacing the production release.
+review contract through an isolated pilot user. These paths passed combined offline
+qualification; live worker qualification remains before replacing the production
+release.
 
 The target is DBOS 3.4.0 on control-side Postgres. Workflow replay reuses recorded
 results, with idempotent attempts keyed by case, sequence, step and attempt.
@@ -100,5 +101,6 @@ R2 ciphertext stays in immutable storage. Normal handover requires the source fe
 Lost-source or stale archives restore into a quarantine that cannot execute work
 until external ownership and spending have been reconciled. This path does not
 claim automatic recovery from unrecorded post-backup spending. Legacy lifecycle modules and their obsolete tests have been removed from this
-candidate. Final combined offline qualification and live Boat/R2/provider fault injection
-remain before production cutover.
+candidate. The clean offline suite passed (151 scripts), along with Linux worker
+checks and a disposable PostgreSQL restore exercise. Live Boat/R2, Docker, provider
+limits and control/worker loss still require qualification before production cutover.
