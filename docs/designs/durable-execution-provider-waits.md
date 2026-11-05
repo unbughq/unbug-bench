@@ -1,6 +1,6 @@
 # Durable execution: provider waits and credential problems
 
-Status: proposed, revision 2 after design review 1. This records the founder's 2026-11-05 decision in the current
+Status: proposed, revision 3 after design reviews 1–2. This records the founder's 2026-11-05 decision in the current
 thread: genuine provider rate limits keep waiting, and missing or expired
 credentials are handled as a separate configuration problem. The handoff's
 generic 96-free-limit cutoff conflicts with ENGINEERING section 4 and is superseded
@@ -36,21 +36,31 @@ Paid provider-limit usage remains batch waste and counts against the batch bound
 The router also records credential blocks independently of the credential file.
 Replacing a file alone is not sufficient. Before claiming a repair can resume a
 real case, the credential-delivery path must distribute and verify the replacement
-for the affected workers and submit an authenticated, idempotent
-`observe(pool, healthy=True, observation_id=<renewal receipt>)` to clear the router
-block. WP8 or its credential-delivery integration owns this later rollout gate; it
-must test the real blocked → verified delivery → healthy observation → admitted
-route path without logging secrets. Until that gate is met, the wait can remain
+for the affected workers and submit an authenticated, idempotent, **scoped**
+credential-health update tied to that verified credential generation. The current
+`observe(pool, healthy=True)` clears every health entry for the pool and descendants;
+it is not sufficient by itself because it can erase independent or newer quota,
+credit, rate or outage observations. WP8 or its credential-delivery integration
+must design and review conditional clearing that preserves those blocks, then test
+stale/duplicate renewal receipts and a concurrent unrelated observation. It must
+also prove newly provisioned workers receive the verified replacement credential
+after a wait releases the old worker. Test the real blocked → verified delivery →
+scoped health update → admitted route path without logging secrets. Until that gate is met, the wait can remain
 blocked even after a file changes. This
 can wait indefinitely until configuration is repaired; it is not scored as a
 case result. Tests can shorten the wait through `Timing`.
 
-In WP5a's later review, `worker_step.py` must inspect the fixed, trusted
-`c.card["provider_wait"]["reason"]` when the stop is `provider_wait`. Translate
-only the exact value `credential_expiring` to the credential infra reason; retain
-ordinary quota/wait results as `PROVIDER_LIMIT`. Preserve valid reset metadata for
-genuine waits and never record the account, route or raw provider text. Test the
-real router → runner wait record → worker classification path. An older generic
+In WP5a's later review, enable `UNBUG_PROVIDER_WAIT=1` in the isolated engine step
+process and provide a stable job identity derived from the case ID together with
+the batch ID and **attempt** deadline. Capture the current `ProviderWait` exception
+and any joined concurrent waits before `run_step` converts them to a string; do not
+read a stale `provider_wait` field from a restored card. Pass only allowlisted fixed
+reason and valid reset metadata to `worker_step.py`: translate the current exact
+`credential_expiring` reason to the credential infra result, and keep ordinary
+quota/wait results as `PROVIDER_LIMIT`. Never record the account, route or raw
+provider text in DBOS. Test the real router → current runner exception → worker
+classification path for both credential and quota waits, including concurrent
+waits and a stale restored card. An older generic
 `router:provider_wait` without retained reason metadata is indistinguishable and
 stays generic; do not infer a credential fault. WP1's fake-seam tests exercise both
 credential result shapes, and this real cross-package test is a WP5a/final gate.
