@@ -97,6 +97,9 @@ class GatePipeline:
             ok, info = outcome.ok, outcome.info
             self.log(c, gate, "early", "pass" if ok else "FAIL", json.dumps(info), f"{outcome.elapsed_seconds:.0f}s")
             c.card.setdefault("early_gates", {})[gate] = {"ok": ok, "minutes": round((outcome.elapsed_seconds) / 60, 1)}
+            if getattr(c, 'engine', None) is not None:
+                from durable.checkpoints import checkpoint
+                checkpoint(c)
             if not ok:
                 c.early = {}
                 problems = [f"early check {gate} failed: {json.dumps(info)}"]
@@ -135,6 +138,9 @@ class GatePipeline:
             ok, info = outcome.ok, outcome.info
             self.log(c, gate, "early", "pass" if ok else "FAIL", json.dumps(info), f"{outcome.elapsed_seconds:.0f}s")
             c.card.setdefault("early_gates", {})[gate] = {"ok": ok, "minutes": round(outcome.elapsed_seconds / 60, 1)}
+            if getattr(c, 'engine', None) is not None:
+                from durable.checkpoints import checkpoint
+                checkpoint(c)
             if ok: early[gate] = (ok, info)
             else: problems.append(f"early check {gate} failed: {json.dumps(info)}; reviewer {part} findings: "
                                   + json.dumps([(v.get(part) or {}).get("findings") for v in c.votes])[:8000])
@@ -149,6 +155,9 @@ class GatePipeline:
                 if gate in getattr(c, "early", {}) and c.early_hash == self.case_hash(c):
                     ok, info = c.early[gate]
                     return ok, {**info, "reused_from_early_check": True}
+                if getattr(c, 'engine', None) is not None:
+                    from durable.checkpoints import gate_call
+                    return gate_call(c, gate, lambda: self.check(c, gate), self.case_hash(c))
                 return self.check(c, gate)
             retained = replay_gate(c, gate) if replay_gate else None
             if retained is not None:

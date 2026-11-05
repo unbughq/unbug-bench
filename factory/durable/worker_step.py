@@ -44,7 +44,7 @@ if str(FACTORY) not in sys.path:
 
 from durable.contract import (CASE_ID, RELEASE_MANIFEST, WORKER_ROOT, ArtifactKind, ContractError, Outcome, Poll,
                               PollState, StepKind, StepResult, Usage, attempt_id, attempt_paths, check_result_for,
-                              step_input_from_record, step_result_from_record, to_record)
+                              step_input_from_record, step_result_from_record, Ref, to_record)
 
 MAX_FRAME = 1 << 20
 TAG = "DURABLE_ATTEMPT"       # environment tag carried by every process of an attempt
@@ -254,7 +254,36 @@ class Worker:
         result = self.read_result(key)
         if result is not None and not self.processes(key):
             return Poll(PollState.DONE, result)
-        return Poll(PollState.RUNNING if self.processes(key) else PollState.ABSENT)
+        return Poll(PollState.RUNNING if self.processes(key) else PollState.ABSENT,
+                    checkpoint=self.read_checkpoint(key))
+
+    def read_checkpoint(self, key):
+        path = self.paths(key)["attempt"] / "checkpoint.json"
+        return Ref(**json.loads(path.read_text())) if path.exists() else None
+
+    def publish_checkpoint(self, step_input, c, sealer, case_key, runner):
+        """Publish durable ciphertext before exposing its authenticated reference."""
+        from registry import atomic_json
+        atomic_json(c.work / "scorecard.json", c.card)
+        ref, ciphertext = sealer.seal(case_key, ArtifactKind.CASE_SNAPSHOT, snapshot_bytes(c, runner))
+        attempt = self.paths(step_input.idempotency_key)["attempt"]
+        out = attempt / "out"
+        out.mkdir(parents=True, exist_ok=True)
+        self._atomic_bytes(out / blob_name(ref), ciphertext)
+        self._atomic_bytes(attempt / "checkpoint.json", json.dumps(to_record(ref)).encode())
+        return True
+
+    def _atomic_bytes(self, path, value):
+        fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".checkpoint-")
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(value)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+            self._sync_directory(path.parent)
+        finally:
+            if os.path.exists(temporary): os.unlink(temporary)
 
     def cancel(self, frame):
         key = self._key(frame)
@@ -528,6 +557,9 @@ class Worker:
         self._save_baseline(step_input, c.ledger, before)
         if before["total"] is None:
             return fail("infra:usage_unknown")
+        c.engine_checkpoint = lambda: self.publish_checkpoint(step_input, c, sealer, case_key, runner)
+        from durable.checkpoints import checkpoint
+        c.stress_checkpoint = lambda: checkpoint(c)
         out = runner.run_step(c, step_input, feedback=feedback, ruling=ruling)
         usage = usage_since(before, c.ledger, step_input.money_ceiling_usd_micros)
         if ledger_totals(c.ledger)["total"] is None:

@@ -329,8 +329,12 @@ class ModelRuntime:
 
     def call(self, c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None):
         with dispatch(c, name):
-            return self._call(c, models, text, cwd, name, user=user, timeout=timeout,
-                              deadline=deadline, before_attempt=before_attempt, lease=lease)
+            invoke = lambda: self._call(c, models, text, cwd, name, user=user, timeout=timeout,
+                                       deadline=deadline, before_attempt=before_attempt, lease=lease)
+            if getattr(c, 'engine', None) is not None:
+                from durable.checkpoints import model_call
+                return model_call(c, models, cwd, name, invoke)
+            return invoke()
 
     def _call(self, c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None):
         """One family, shared admission, preserved accounting across provider attempts."""
@@ -517,6 +521,9 @@ class ModelRuntime:
                                 error.previous_waits = prior_waits
                                 raise
             if failure is None: return code
+            if getattr(c, 'engine', None) is not None:
+                from durable.checkpoints import checkpoint
+                checkpoint(c)
             last_wait = model_router.Wait(failure['reason'], model_router.retry_at(failure['reason'], reset_at=failure.get('reset_at')),
                 evidence='interrupted', route=lease.route, account=lease.account,
                 lease_id=lease.lease_id, call_id=receipt)

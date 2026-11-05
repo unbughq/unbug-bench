@@ -773,11 +773,15 @@ class HookTests(unittest.TestCase):
             self.assertEqual(out["passed"], ("G1",))
             self.assertEqual(out.get("feedback") is not None, repairable)
 
-    def test_gate_checkpoints_and_reselection_are_off(self):
+    def test_engine_gate_checkpoint_uses_explicit_hook_and_no_legacy_upload(self):
         c, _ = self.context(StepKind.GATES)
         c.recipient = run.FOUNDER_RECIPIENT; c.args.dry_run = False; c.args.no_early_probe = True
+        completed = []
+        c.engine_checkpoint = lambda: completed.append(True)
         with patch("durable_checkpoint.checkpoint_progress", side_effect=AssertionError("checkpoint")):
             run._gate_completed(c, "G4", True, True)
+            self.assertEqual(completed, [True])
+            self.assertFalse(run.parallel_calibrators(c))
             with patch.object(run.model_runtime.ModelRuntime, "call", return_value=0):
                 run._opencode(c, ["x/y"], "text", c.case, "reviewer-1")
         with patch.object(run, "opencode", side_effect=AssertionError("selection call")):

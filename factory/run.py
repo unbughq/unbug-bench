@@ -62,6 +62,7 @@ def no_fixed_port_services(c, keys):
 
 
 def parallel_calibrators(c):
+    if under_engine(c): return False  # Quiescent checkpoints require joined role workspaces.
     if not getattr(c.args, "concurrent_roles", False): return False
     import bench
     try:
@@ -939,6 +940,9 @@ def _gate_completed(c, gate, ok, quiescent):
     if gate == "G5" and ok and not c.args.dry_run and not getattr(c.args, "no_early_probe", False):
         early_probe(c)
     update_case_budget(c)
+    if under_engine(c) and quiescent:
+        from durable.checkpoints import checkpoint as engine_checkpoint
+        engine_checkpoint(c)
     if hasattr(c, "ledger") and hasattr(c, "recipient") and not c.args.dry_run and not under_engine(c):
         from durable_checkpoint import checkpoint_progress
         checkpoint_progress(c, seal, quiescent=quiescent)
@@ -2697,6 +2701,9 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
     series = AttemptSeries(c.work / name / "results.json", identity, c.work, tries, c.models[role][0], probe=probe)
     def commit(row, ws):
         c.card.setdefault("calibration_progress", {})[name] = series.commit(row, ws)
+        if under_engine(c):
+            from durable.checkpoints import checkpoint as engine_checkpoint
+            engine_checkpoint(c)
         if getattr(a, 'late_gate_rehearsal', False):
             from late_rehearsal import after_attempt
             after_attempt(c, name)
@@ -2766,6 +2773,9 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
         if pending is None:
             ws, capped = author(i)
             series.save_pending(i, ws, capped)
+            if under_engine(c):
+                from durable.checkpoints import checkpoint as engine_checkpoint
+                engine_checkpoint(c)
         else:
             ws, capped = pending
         if not guard_submitted(ws / "guard"):
@@ -3242,7 +3252,7 @@ SNAPSHOT_RETAINED = (
     "attack-state.json", "attacks", "diagnostic-budgets", "infra-attempts.json", "selection-rejections.json", "fixes",
     "prototype.json", "public-search.json", "freshness-verdict.json", "freshness-repair.json",
     "freshness-inflight.json", "freshness-restored.jsonl", "idea-realism.json", "statements",
-    "logs", "transcripts", "engine-feedback.json", "engine-ruling.json")
+    "logs", "transcripts", "engine-feedback.json", "engine-ruling.json", "engine-checkpoints")
 # Named so a reader can see what a snapshot leaves out; anything else is dropped too.
 SNAPSHOT_DROPPED = (
     "agent-state", "durable-checkpoint.json", "stress-publication.json", "provider_wait.json", "provider_waits",
@@ -3380,7 +3390,7 @@ def context_for_step(step_input, work):
     statement = c.case / "statement.md"
     if statement.is_file(): c.statement = statement.read_text()
     if c.case.is_dir(): normalize_case_tree(c.case)
-    c.stress_checkpoint = lambda: True  # in-step checkpoints are WP5f's
+    c.stress_checkpoint = lambda: getattr(c, "engine_checkpoint", lambda: True)()
     card["engine"] = {"step": step_input.step.name, "seq": step_input.seq, "attempt": step_input.attempt}
     return c
 
