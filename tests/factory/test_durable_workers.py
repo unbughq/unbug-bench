@@ -438,19 +438,45 @@ class PoolTests(unittest.TestCase):
         self.assertEqual(lease.worker_id, "bx-d6dzvjbc")
         self.assertEqual(len([c for c in self.h.calls() if c[0] == "new"]), 1)
 
-    def test_lost_create_with_no_trace_creates_once_more_and_recover_deletes_a_late_orphan(self):
+    def test_uncertain_create_keeps_original_intent_across_retries_and_restart(self):
         pool = self.h.pool()
         self.h.flag("new-fail")
-        with self.assertRaises(W.PoolError) as caught:
-            self.acquire(pool)
-        self.assertEqual(caught.exception.reason, "infra:worker_create_failed")
+        with self.assertRaises(W.PoolError): self.acquire(pool)
+        saved = json.loads(pool._record_path(CASE).read_text())
         self.h.flag("new-fail", None)
+        with self.assertRaisesRegex(W.PoolError, "worker_create_unknown"):
+            self.acquire(self.h.pool())
+        self.assertEqual(self.h.pool().recover(), {"adopted": [], "deleted": []})
+        self.assertEqual(json.loads(pool._record_path(CASE).read_text()), saved)
+        self.assertEqual(len([c for c in self.h.calls() if c[0] == "new"]), 1)
+        self.h.add_row("bx_bykfqbyn", {W.LABEL_POOL: "wp2-test", W.LABEL_CASE: CASE,
+                                       W.LABEL_INTENT: saved["intent"]})
+        self.assertEqual(self.h.pool().recover(), {"adopted": ["bx_bykfqbyn"], "deleted": []})
+        self.assertEqual(json.loads(pool._record_path(CASE).read_text())["worker"], "bx_bykfqbyn")
+
+    def test_malformed_recorded_worker_never_authorizes_replacement(self):
+        pool = self.h.pool()
         lease = self.acquire(pool)
-        # The first request shows up late, under the abandoned intent: an orphan.
-        self.h.add_row("bx_bykfqbyn", {"unbug-durable/pool": "wp2-test", "unbug-durable/case": CASE,
-                                       "unbug-durable/intent": "0" * 32})
-        self.assertEqual(self.h.pool().recover(), {"adopted": ["bx_d6dzvjbc"], "deleted": ["bx_bykfqbyn"]})
-        self.assertEqual([r["id"] for r in self.h.inventory()], [W.boat_id(lease.worker_id)])
+        original = self.h.inventory()
+        for field, value in [("labels", None), ("state", None), ("state", "future-state"), ("id", None)]:
+            rows = json.loads(json.dumps(original)); rows[0][field] = value
+            (self.h.boat_dir / "inventory.json").write_text(json.dumps(rows))
+            self.assertTrue(pool.alive(lease))
+            with self.assertRaisesRegex(W.PoolError, "inventory_unavailable"): self.acquire(pool)
+        self.assertEqual(len([c for c in self.h.calls() if c[0] == "new"]), 1)
+
+    def test_delete_intent_survives_lost_request_response_while_worker_is_visible(self):
+        pool = self.h.pool()
+        lease = self.acquire(pool)
+        self.h.flag("delete-fail")
+        with self.assertRaises(W.PoolError): pool.release(lease)
+        self.assertEqual(pool._read(CASE)["deleting"], W.DELETE_PENDING)
+        with self.assertRaises(W.PoolError): self.acquire(self.h.pool())
+        self.assertEqual(len([c for c in self.h.calls() if c[0] == "new"]), 1)
+        self.h.flag("delete-fail", None)
+        self.h.pool().release(lease)
+        self.assertEqual(self.h.inventory(), [])
+
 
     def test_nonzero_exit_with_an_id_keeps_and_uses_the_worker(self):
         self.h.flag("new-exit-1")
@@ -485,6 +511,7 @@ class PoolTests(unittest.TestCase):
         (self.h.boat_dir / "inventory.json").write_text(json.dumps(rows))
         self.assertFalse(pool.alive(lease))
         replacement = self.acquire(pool)
+        self.assertNotIn(W.boat_id(lease.worker_id), [r["id"] for r in self.h.inventory()])
         self.assertEqual(replacement.worker_id, "bx-sk2p68qq")
         self.assertTrue(pool.alive(replacement))
 

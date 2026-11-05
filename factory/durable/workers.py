@@ -45,6 +45,8 @@ WORKER_SCRIPT = WORKER_COMMAND[-1]                  # factory/durable/worker_ste
 RELEASES = "releases"                               # ~/releases/<plumbing_version>/
 LABEL_POOL, LABEL_CASE, LABEL_INTENT = "unbug-durable/pool", "unbug-durable/case", "unbug-durable/intent"
 LIVE_STATES = frozenset({"init", "provisioning", "provisioned", "cloning", "ready", "idle", "running"})
+DEAD_STATES = frozenset({"archived", "stopped", "deleted", "failed", "error"})
+DELETE_PENDING = "pending"
 BOAT_ID = re.compile(r"bx_[a-z0-9]{8}")
 POOL_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,40}")
 NONCE = re.compile(r"[0-9a-f]{32}")
@@ -92,8 +94,7 @@ class ReleaseError(ValueError):
 
 def lease_worker_id(boat_id: str) -> str:
     """WorkerLease ids are [a-z0-9-]; Boat ids are bx_xxxxxxxx and never hold '-'."""
-    _check(type(boat_id) is str and re.fullmatch(r"[a-z0-9_]{1,63}", boat_id) is not None
-           and "-" not in boat_id, "bad provider id")
+    _check(type(boat_id) is str and BOAT_ID.fullmatch(boat_id) is not None, "bad provider id")
     return _id(boat_id.replace("_", "-"), WORKER_ID, "worker_id")
 
 
@@ -344,7 +345,10 @@ class BoatPool:
             complete = data["pageInfo"]["hasMore"] is False
         except (ValueError, KeyError, TypeError, UnicodeDecodeError):
             raise PoolError("infra:inventory_unavailable") from None
-        if not complete or not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        if (not complete or not isinstance(rows, list)
+                or not all(isinstance(r, dict) and isinstance(r.get("id"), str)
+                           and BOAT_ID.fullmatch(r["id"]) for r in rows)
+                or len({r["id"] for r in rows}) != len(rows)):
             raise PoolError("infra:inventory_unavailable")
         return rows
 
@@ -360,6 +364,10 @@ class BoatPool:
 
     def _find(self, rows, case_id, *, worker=None, intent=None):
         for row in rows:
+            if worker is not None and row.get("id") == worker:
+                labels = self._ours(row)
+                if labels is None or labels.get(LABEL_CASE) != case_id or row.get("state") not in LIVE_STATES | DEAD_STATES:
+                    raise PoolError("infra:inventory_unavailable")
             labels = self._ours(row)
             if (labels is None or labels.get(LABEL_CASE) != case_id or not self._live(row)
                     or not isinstance(row.get("id"), str)):
@@ -387,6 +395,12 @@ class BoatPool:
                 worker = (self._find(rows, case_id, worker=record["worker"]) if record["worker"]
                           else self._find(rows, case_id, intent=record["intent"]))
                 if worker is None:
+                    if record["worker"] is None and record["intent"] is not None:
+                        # An empty list response cannot prove that an earlier create
+                        # request will not appear later. Keep its original identity.
+                        raise PoolError("infra:worker_create_unknown")
+                    if record["worker"] is not None and any(r.get("id") == record["worker"] for r in rows):
+                        self._delete_locked(case_id, record["worker"])
                     self._write(case_id, {"intent": None, "worker": None, "deleting": None})
                 elif record["worker"] != worker:
                     self._write(case_id, {**record, "worker": worker})
@@ -436,6 +450,9 @@ class BoatPool:
         """On engine start: adopt pool-labelled workers a record names (by id or intent),
         delete every other pool-labelled worker, drop records whose worker is gone. Nothing
         is deleted unless the inventory is complete. Workers of other pools are untouched."""
+        for path in self.state.glob("deletions/*/intent.json"):
+            if not (path.parent / "deletion-completion.json").exists():
+                self._delete_raw(path.parent.name)
         rows = self._inventory()
         adopted, deleted = [], []
         records = self._records()
@@ -446,12 +463,16 @@ class BoatPool:
                 if record is None:
                     continue
                 if record["deleting"] is not None:
-                    with contextlib.suppress(PoolError):
-                        self._finish_delete(case_id, record)
+                    self._finish_delete(case_id, record)
                     continue
                 worker = (self._find(rows, case_id, worker=record["worker"]) if record["worker"]
                           else self._find(rows, case_id, intent=record["intent"]) if record["intent"] else None)
                 if worker is None:
+                    if record["worker"] is None and record["intent"] is not None:
+                        continue  # Keep ownership of an unresolved create across restarts.
+                    if record["worker"] is not None and any(r.get("id") == record["worker"] for r in rows):
+                        self._delete_locked(case_id, record["worker"])
+                        deleted.append(record["worker"])
                     self._record_path(case_id).unlink(missing_ok=True)
                     continue
                 claimed.add(worker)
@@ -462,8 +483,6 @@ class BoatPool:
             labels = self._ours(row)
             if labels is None or row.get("id") in claimed or not isinstance(row.get("id"), str):
                 continue
-            if not self._live(row):
-                continue
             case_id = labels.get(LABEL_CASE)
             if type(case_id) is str and CASE_ID.fullmatch(case_id):
                 with self._lock(case_id):
@@ -471,13 +490,11 @@ class BoatPool:
                     if current is not None and (row["id"] == current["worker"] or (
                             current["worker"] is None and current["intent"] == labels.get(LABEL_INTENT))):
                         continue
-                    with contextlib.suppress(PoolError):
-                        self._delete_raw(row["id"])
-                        deleted.append(row["id"])
-            else:
-                with contextlib.suppress(PoolError):
                     self._delete_raw(row["id"])
                     deleted.append(row["id"])
+            else:
+                self._delete_raw(row["id"])
+                deleted.append(row["id"])
         return {"adopted": sorted(adopted), "deleted": sorted(deleted)}
 
     # -- creation
@@ -588,21 +605,33 @@ class BoatPool:
 
     def _delete_locked(self, case_id: str, worker: str):
         record = self._read(case_id) or {"intent": None, "worker": worker, "deleting": None}
-        op = self._request_delete(worker)
-        if op is None:
-            self._record_path(case_id).unlink(missing_ok=True)
-            return
-        self._write(case_id, {**record, "worker": worker, "deleting": op})
-        self._finish_delete(case_id, {**record, "worker": worker, "deleting": op})
+        record = {**record, "worker": worker, "deleting": DELETE_PENDING}
+        self._write(case_id, record)
+        self._finish_delete(case_id, record)
 
     def _finish_delete(self, case_id: str, record: dict):
-        self._await_delete(record["worker"], record["deleting"])
+        worker = record["worker"]
+        if record["deleting"] != DELETE_PENDING:
+            self._await_delete(worker, record["deleting"])
+        else:
+            self._delete_raw(worker)
         self._record_path(case_id).unlink(missing_ok=True)
 
     def _delete_raw(self, worker: str):
-        op = self._request_delete(worker)
+        self._receipt(worker, "intent.json", {"worker": worker})
+        receipt = self.state / "deletions" / worker / "deletion-request.json"
+        if receipt.exists():
+            try:
+                operation = json.loads(receipt.read_text())
+                op = self._operation(json.dumps({"operation": operation}).encode(), worker)["id"]
+            except (OSError, ValueError, KeyError, TypeError):
+                raise PoolError("infra:worker_delete_unconfirmed") from None
+        else:
+            op = self._request_delete(worker)
         if op is not None:
             self._await_delete(worker, op)
+        else:
+            self._receipt(worker, "deletion-completion.json", {"worker": worker, "absent": True})
 
     def _receipt(self, worker: str, name: str, value):
         _atomic_json(self.state / "deletions" / worker / name, value)
