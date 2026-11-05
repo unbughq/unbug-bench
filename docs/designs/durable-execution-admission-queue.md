@@ -1,8 +1,9 @@
 # Budget-aware admission using a DBOS decision queue, revision 13
 
 Status: the queue architecture passed its latest design verification in
-`docs/reviews/durable-execution-admission-queue-design-13.md`; only the disabled
-bookkeeping checkpoint is implemented. The provider-limit boundary remains open
+`docs/reviews/durable-execution-admission-queue-design-13.md`; the disabled
+bookkeeping and initial admission probe are implemented, but terminal decisions and
+reconciliation are not. The provider-limit boundary remains open
 because the handoff and ENGINEERING section 4 conflict. Earlier queue reviews are in
 `docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8,9,10,11,12}.md`.
 WP1 owns the engine changes; WP2 must satisfy the existing idempotent `WorkerPool`
@@ -282,6 +283,9 @@ inventory proves an outstanding create cannot still complete.
 
 The first increment is test-only and disabled by an immutable internal `queue_v2`
 boolean in the recorded batch job, not an environment read inside a workflow.
+While the probe is built independently of the rest of V2, an additional recorded
+`probe_enabled` boolean is set only by disposable tests. `Engine.start_batch`
+never enables either switch; remove the temporary second switch when V2 is complete.
 Intermediate V1 batches run only in disposable test databases; no production V2
 generation may run them. Once the V2 phases pass, V2 is the only path for new
 production batches, and the old V1 functions can be deleted from the final release.

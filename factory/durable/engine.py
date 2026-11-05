@@ -42,6 +42,7 @@ APP_VERSION = "factory-engine-1"   # pinned for the life of the database: DBOS r
 CASE_EVENT = "case_event"          # internal topic: case -> batch
 WAKE = "wake"                      # internal topic: batch -> a case waiting on the bound
 PENDING_ADMISSION = "pending_admission"  # test-only V2 pending-workflow control
+PROBE_CONTROL = "probe_control"          # batch -> a V2 admission probe
 SEAM = dict(retries_allowed=True, interval_seconds=1.0, max_attempts=12, backoff_rate=2.0)
 TERMINAL = ("sealed", "retired", "held", "stopped_admission", "engine_error")
 
@@ -72,6 +73,10 @@ def admit_queue(batch_id: str) -> str:
 
 def steps_queue(batch_id: str) -> str:
     return f"steps-{batch_id}"
+
+
+def decision_queue(batch_id: str) -> str:
+    return f"decision-{batch_id}"
 
 
 def case_id_for(batch_id: str, n: int) -> str:
@@ -272,6 +277,51 @@ def slot_workflow(job: dict) -> dict:
         with SetWorkflowID(f"{si.idempotency_key}/admit"):
             return queue.enqueue(attempt_workflow, job).get_result()
     return attempt_workflow(job)
+
+
+def _probe_reply(operation: str, phase: str) -> dict:
+    while True:
+        msg = DBOS.recv(PROBE_CONTROL, timeout_seconds=_RT.timing.batch_poll_s)
+        if isinstance(msg, dict) and msg.get("operation") == operation and msg.get("phase") == phase:
+            return msg
+
+
+@DBOS.workflow(max_recovery_attempts=None)
+def admission_probe_workflow(job: dict) -> dict:
+    """A decision-queue probe; it never holds a model slot or starts a worker."""
+    si = step_input_from_record(job["input"])
+    operation = job["operation"]
+    open_key = _message_key(si.batch_id, operation, "probe", "open", "request", si.batch_id)
+    DBOS.send(si.batch_id, {"kind": "probe_open", "case": si.case_id, "operation": operation},
+              topic=CASE_EVENT, idempotency_key=open_key)
+    reply = _probe_reply(operation, "authorization")
+    if reply.get("authorized") is not True:
+        result = {"kind": "probe_result", "case": si.case_id, "operation": operation, "status": "denied"}
+    else:
+        DBOS.set_event("reserve_intent", {"input": job["input"], "request": job["request"],
+                                          "case_limit": job["case_limit"], "draws": True})
+        grant = Grant(**reserve_step(job["input"], job["request"], job["case_limit"], True))
+        now = now_step()
+        early = decide_grant(si.step, grant)
+        if now >= job["deadline"]:
+            status = "expired"
+        elif early is Action.WAIT_FOR_BOUND:
+            status = "waiting"
+        elif early is not None or grant.amount_usd_micros == 0:
+            status = "not_admitted"
+        else:
+            status = "admitted"
+        # Record the clock-based decision before any zero settlement. A replay after
+        # a clock change must never deliver a previously settled key as admitted.
+        DBOS.set_event("probe_decision", {"status": status, "grant": to_record(grant), "now": now})
+        if status != "admitted":
+            release_unstarted_step(job["input"])
+        result = {"kind": "probe_result", "case": si.case_id, "operation": operation, "status": status,
+                  "attempt": si.attempt, "key": si.idempotency_key, "grant": to_record(grant)}
+    result_key = _message_key(si.batch_id, operation, "probe", "result", "report", si.batch_id)
+    DBOS.send(si.batch_id, result, topic=CASE_EVENT, idempotency_key=result_key)
+    _probe_reply(operation, "result")
+    return result
 
 
 # ---- the case workflow ---------------------------------------------------------------------------
@@ -606,9 +656,27 @@ def case_workflow(job: dict) -> dict:
         # wait with the recorded grant handoff and preparation workflow.
         case.status = "pending_admission"
         case.card()
+        prepared_key = None
         while True:
             msg = DBOS.recv(PENDING_ADMISSION, timeout_seconds=_RT.timing.batch_poll_s)
-            if isinstance(msg, dict) and msg.get("kind") == "not_admitted":
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("kind") == "prepare" and prepared_key is None:
+                attempt, key = msg.get("attempt"), msg.get("key")
+                if (msg.get("case") != case.case_id or type(attempt) is not int or attempt < 1
+                        or key != f"{case.case_id}/1/admit/{attempt}"):
+                    continue
+                try:
+                    grant = Grant(**msg["grant"])
+                except (ContractError, KeyError, TypeError, ValueError):
+                    continue
+                if grant.amount_usd_micros <= 0:
+                    continue
+                prepared_key = key
+                DBOS.set_event("admission_grant", {"key": key, "attempt": attempt, "grant": to_record(grant)})
+                case.status = "waiting_for_worker"
+                case.card()
+            elif msg.get("kind") == "not_admitted" and prepared_key is None:
                 case.status = "not_admitted"
                 case.card()
                 key = _message_key(case.batch_id, case.case_id, "case", "done", "result", case.batch_id)
@@ -700,6 +768,15 @@ class _Batch:
     def has_pending_work(self) -> bool:
         return len(self.done) < len(self.cases)
 
+    def after_initial_cases(self) -> None:
+        pass
+
+    def after_event(self) -> None:
+        pass
+
+    def after_poll(self) -> None:
+        pass
+
     def run(self) -> dict:
         spec = self.spec
         open_ledger_step(spec.batch_id, spec.money_bound_usd_micros)
@@ -710,10 +787,12 @@ class _Batch:
             if not self.admission_open():
                 break
             self.start_case(None)
+        self.after_initial_cases()
         while self.has_pending_work():
             msg = DBOS.recv(CASE_EVENT, timeout_seconds=_RT.timing.batch_poll_s)
             if isinstance(msg, dict):
                 self.handle(msg)
+                self.after_event()
                 continue
             self.operator()
             pending = [c for c in self.cases if c not in self.done]
@@ -724,6 +803,7 @@ class _Batch:
                 else:
                     self.done[case_id] = "sealed"
                     self.sealed.append({"case_id": case_id, **seal})
+            self.after_poll()
         return {"batch_id": spec.batch_id, "sealed": self.sealed, "cases": dict(self.done)}
 
 
@@ -735,6 +815,13 @@ class _BatchV2(_Batch):
         self.admitted: set = set()
         self.released: set = set()
         self.replacement_requests: dict = {}
+        self.pending_cases: dict = {}
+        self.probe_attempts: dict = {}
+        self.probe_enabled = False
+        self.active_probe: Optional[str] = None
+        self.fence: Optional[str] = None
+        self.probe_authorizations: dict = {}
+        self.applied_probes: set = set()
 
     def start_case(self, replacement_of: Optional[str]) -> None:
         case_id = case_id_for(self.spec.batch_id, len(self.cases) + 1)
@@ -743,11 +830,137 @@ class _BatchV2(_Batch):
         with SetWorkflowID(case_id):
             DBOS.start_workflow(case_workflow, job)
         self.cases.append(case_id)
+        self.pending_cases[case_id] = {"state": "eligible", "replacement_of": replacement_of, "retry_at": None}
         DBOS.set_event("cases", list(self.cases))
 
     def has_pending_work(self) -> bool:
         # Admitted cases must also account for their worker before the batch ends.
         return super().has_pending_work() or bool(self.admitted - self.released)
+
+    def wake_waiting(self) -> None:
+        for pending in self.pending_cases.values():
+            if pending["state"] == "waiting":
+                pending["state"], pending["retry_at"] = "eligible", None
+        super().wake_waiting()
+
+    def after_initial_cases(self) -> None:
+        self._schedule_probe()
+
+    def after_event(self) -> None:
+        self._schedule_probe()
+
+    def after_poll(self) -> None:
+        if self.probe_enabled and any(p["state"] == "waiting" for p in self.pending_cases.values()):
+            now = now_step()
+            for pending in self.pending_cases.values():
+                if pending["state"] == "waiting" and now >= pending["retry_at"]:
+                    pending["state"], pending["retry_at"] = "eligible", None
+        self._schedule_probe()
+
+    def _end_pending(self, case_id: str) -> None:
+        pending = self.pending_cases[case_id]
+        if pending["state"] in ("closing", "admitted"):
+            return
+        pending["state"] = "closing"
+        key = _message_key(self.spec.batch_id, case_id, "batch", "not_admitted", "result", case_id)
+        DBOS.send(case_id, {"kind": "not_admitted"}, topic=PENDING_ADMISSION, idempotency_key=key)
+
+    def _schedule_probe(self) -> None:
+        if not self.probe_enabled or self.active_probe is not None or self.fence is not None:
+            return
+        candidates = [c for c in self.cases if c in self.pending_cases
+                      and self.pending_cases[c]["state"] in ("eligible", "waiting")]
+        if not candidates:
+            return
+        if not self.admission_open() or len(self.admitted) >= self.spec.max_cases_started:
+            for case_id in candidates:
+                self._end_pending(case_id)
+            return
+        eligible = [c for c in candidates if self.pending_cases[c]["state"] == "eligible"]
+        if not eligible:
+            return
+        eligible.sort(key=lambda c: (self.pending_cases[c]["replacement_of"] is None, self.cases.index(c)))
+        case_id = eligible[0]
+        if self.spec.case_money_usd_micros == 0:
+            for candidate in eligible:
+                self._end_pending(candidate)
+            return
+        attempt = self.probe_attempts.get(case_id, 0) + 1
+        self.probe_attempts[case_id] = attempt
+        step = Step(StepKind.ADMIT)
+        si = StepInput(self.spec.batch_id, case_id, 1, step, attempt, self.spec.plumbing_version,
+                       self.spec.bench_version, self.spec.inputs, None, deadline_s(step, self.spec), 0,
+                       registry=Ref(**self.initial_registry))
+        operation = f"{si.idempotency_key}/probe"
+        self.active_probe = operation
+        self.pending_cases[case_id]["state"] = "probing"
+        job = {"input": to_record(si), "operation": operation,
+               "request": request_usd_micros(step, Counters(), self.spec),
+               "case_limit": self.spec.case_money_usd_micros, "deadline": self.spec.deadline_epoch}
+        with SetWorkflowID(operation):
+            DBOS.retrieve_queue(decision_queue(self.spec.batch_id)).enqueue(admission_probe_workflow, job)
+
+    def _reply_probe(self, operation: str, phase: str, **fields) -> None:
+        key = _message_key(self.spec.batch_id, operation, "batch", "probe", phase, operation)
+        DBOS.send(operation, {"operation": operation, "phase": phase, **fields}, topic=PROBE_CONTROL,
+                  idempotency_key=key)
+
+    def _open_probe(self, msg: dict) -> None:
+        operation, case_id = msg.get("operation"), msg.get("case")
+        if operation != self.active_probe or case_id not in self.pending_cases:
+            return
+        if operation not in self.probe_authorizations:
+            authorized = (self.fence is None and self.pending_cases[case_id]["state"] == "probing"
+                          and len(self.admitted) < self.spec.max_cases_started and self.admission_open())
+            self.probe_authorizations[operation] = authorized
+            if authorized:
+                self.fence = operation
+        self._reply_probe(operation, "authorization", authorized=self.probe_authorizations[operation])
+
+    def _finish_probe(self, msg: dict) -> None:
+        operation, case_id, status = msg.get("operation"), msg.get("case"), msg.get("status")
+        if operation in self.applied_probes:
+            self._reply_probe(operation, "result")
+            return
+        if operation != self.active_probe or case_id not in self.pending_cases:
+            return
+        authorized = self.probe_authorizations.get(operation)
+        if status == "denied":
+            if authorized is not False:
+                return
+            self.pending_cases[case_id]["state"] = "eligible"
+        elif status in ("admitted", "waiting", "expired", "not_admitted"):
+            if authorized is not True or self.fence != operation:
+                return
+            attempt, key = msg.get("attempt"), msg.get("key")
+            if (type(attempt) is not int or attempt < 1 or key != f"{case_id}/1/admit/{attempt}"
+                    or operation != f"{key}/probe"):
+                return
+            try:
+                grant = Grant(**msg["grant"])
+            except (ContractError, KeyError, TypeError, ValueError):
+                return
+            if status == "admitted":
+                if grant.amount_usd_micros <= 0:
+                    return
+                self.admitted.add(case_id)
+                self.pending_cases[case_id]["state"] = "admitted"
+                permit = {"kind": "prepare", "case": case_id, "attempt": attempt, "key": key,
+                          "grant": to_record(grant)}
+                send_key = _message_key(self.spec.batch_id, operation, "batch", "prepare", "permit", case_id)
+                DBOS.send(case_id, permit, topic=PENDING_ADMISSION, idempotency_key=send_key)
+            elif status == "waiting":
+                self.pending_cases[case_id]["state"] = "waiting"
+                self.pending_cases[case_id]["retry_at"] = now_step() + _RT.timing.wake_poll_s
+            else:
+                self._end_pending(case_id)
+        else:
+            return
+        self.applied_probes.add(operation)
+        if self.fence == operation:
+            self.fence = None
+        self.active_probe = None
+        self._reply_probe(operation, "result")
 
     def _request_replacement(self, case_id: str, value) -> None:
         if case_id not in self.admitted or case_id in self.replaced:
@@ -766,6 +979,12 @@ class _BatchV2(_Batch):
 
     def handle(self, msg: dict) -> None:
         kind, case_id = msg.get("kind"), msg.get("case")
+        if kind == "probe_open":
+            self._open_probe(msg)
+            return
+        if kind == "probe_result":
+            self._finish_probe(msg)
+            return
         if kind in ("line_stopped", "worker_released", "done") and case_id not in self.cases:
             return
         if kind == "line_stopped":
@@ -794,8 +1013,16 @@ def batch_workflow(job: dict) -> dict:
     queue_v2 = job.get("queue_v2", False)
     if type(queue_v2) is not bool:
         raise ContractError("bad internal admission switch")
-    batch = _BatchV2 if queue_v2 else _Batch
-    return batch(batch_spec_from_record(job["spec"]), job["initial_registry"]).run()
+    spec = batch_spec_from_record(job["spec"])
+    if queue_v2:
+        probe_enabled = job.get("probe_enabled", False)
+        if type(probe_enabled) is not bool:
+            raise ContractError("bad internal probe switch")
+        batch = _BatchV2(spec, job["initial_registry"])
+        batch.probe_enabled = probe_enabled
+    else:
+        batch = _Batch(spec, job["initial_registry"])
+    return batch.run()
 
 
 # ---- the engine process --------------------------------------------------------------------------
@@ -827,15 +1054,19 @@ class Engine:
         # that enqueues first still lands on its concurrency-1 queue.
         for w in DBOS.list_workflows(name=batch_workflow.__qualname__, status=["PENDING", "ENQUEUED"]):
             try:
-                self.register_queues(batch_spec_from_record(w.input["args"][0]["spec"]))
+                job = w.input["args"][0]
+                self.register_queues(batch_spec_from_record(job["spec"]), decision=job.get("queue_v2") is True)
             except (ContractError, AttributeError, IndexError, KeyError, TypeError):
                 continue
 
-    def register_queues(self, spec: BatchSpec) -> None:
+    def register_queues(self, spec: BatchSpec, *, decision: bool = False) -> None:
         DBOS.register_queue(admit_queue(spec.batch_id), global_concurrency=1,
                             polling_interval_sec=self.timing.queue_poll_s, on_conflict="always_update")
         DBOS.register_queue(steps_queue(spec.batch_id), global_concurrency=spec.max_concurrency,
                             polling_interval_sec=self.timing.queue_poll_s, on_conflict="always_update")
+        if decision:
+            DBOS.register_queue(decision_queue(spec.batch_id), global_concurrency=1,
+                                polling_interval_sec=self.timing.queue_poll_s, on_conflict="always_update")
 
     def start_batch(self, spec: BatchSpec, initial_registry: Ref):
         """Attach to the batch if it exists (rule 3); start it otherwise. initial_registry is the
