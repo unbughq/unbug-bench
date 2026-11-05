@@ -307,6 +307,7 @@ class WorkerHome:
 
 # ---- the wire protocol -------------------------------------------------------------------------
 
+@unittest.skipUnless(sys.platform == "linux", "worker process tracking requires Linux /proc")
 class WireProtocolTests(unittest.TestCase):
     def test_practice_admit_through_the_real_worker_command(self):
         from dataclasses import replace
@@ -443,6 +444,7 @@ class WireProtocolTests(unittest.TestCase):
 
 # ---- the steps on the practice case --------------------------------------------------------------
 
+@unittest.skipUnless(sys.platform == "linux", "worker process tracking requires Linux /proc")
 class StepTests(unittest.TestCase):
     def test_writer_round_runs_on_a_case_past_its_own_money(self):
         """Done when: a snapshot with spent >= $50 and a $20 ceiling still runs a writer round."""
