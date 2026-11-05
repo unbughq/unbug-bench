@@ -31,4 +31,4 @@ Read-only review. No files were changed, no tests were run, and no database was 
 
 | Finding | Disposition |
 |---|---|
-| 1–3 | Open; checking whether this guard is needed before the un-deployed WP1 merge or belongs to reviewed WP8 rollout. |
+| 1–3 | The guard proposal is superseded for this un-deployed WP1 scope after independent scope review; its findings are not fixed and remain relevant if WP8 adopts that protocol. WP8 rollout safety remains open. |

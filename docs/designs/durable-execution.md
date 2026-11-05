@@ -1,7 +1,8 @@
 # Durable execution for the case factory
 
-Status: **reviewed: design review 5 passed** (2026-11-05). Revision 5, after design
-reviews 1–5 (`docs/reviews/durable-execution-design-{1,2,3,4,5}.md`). Branch `durable-execution`,
+Status: base revision 5 passed design review 5 (2026-11-05). The admission-cutoff
+clarification on this branch is proposed and awaits independent queue-design review.
+Revision 5 followed design reviews 1–5 (`docs/reviews/durable-execution-design-{1,2,3,4,5}.md`). Branch `durable-execution`,
 cut from `factory-simplify` at `2df5664`. This supersedes the "no second event engine"
 direction of `docs/factory-single-path.md`.
 

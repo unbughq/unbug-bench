@@ -1,8 +1,8 @@
-# Budget-aware admission using a DBOS decision queue, revision 8
+# Budget-aware admission using a DBOS decision queue, revision 9
 
 Status: proposed alternative to `durable-execution-admission-budget.md` revision 6;
 not implemented. Earlier reviews are in
-`docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7}.md`; request a fresh
+`docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8}.md`; request a fresh
 independent design review before choosing it. WP1 owns the engine changes; WP2 must satisfy the existing idempotent `WorkerPool`
 contract. No `contract.py` edit is proposed.
 
@@ -219,183 +219,46 @@ Future compatible workflow changes, including independently recovered child
 workflows, use `DBOS.patch`; a batch-only patch does not repair old child histories.
 This is one operator launch path, not a user-facing mode switch.
 
-### Older WP1 draft databases and guarded bootstrap
+### Earlier WP1 draft databases and the deployment boundary
 
-The original unreviewed WP1 draft and current fixes share `factory-engine-1`, but
-an interrupted `7d09dae` fake-worker journal restarted under `77f1e6f` returned
-`engine_error`: `reserve_step` conflicted with `DBOS.getEvent`, and
-`attempt_workflow` conflicted with `slot_workflow`. Evidence and limits are in
-`docs/reports/durable-execution-wp1-replay-compatibility.md`. A patch at batch
-entry alone cannot recover independently restarted old children.
+The unreviewed WP1 draft and current fixes have incompatible recorded operations:
+an interrupted `7d09dae` fake-worker journal restarted under `77f1e6f` ended in
+`engine_error`, as documented in
+`docs/reports/durable-execution-wp1-replay-compatibility.md`. Prior draft journals
+are incompatible and must not be opened with this code. They may exist; this design
+does not assume otherwise. The WP1 package has **no supported persistent-database
+or production launch path**. `Engine.launch` accepts an arbitrary URL and does not
+currently refuse old journals. Do not claim it automatically protects them.
 
-The handoff says real infrastructure has not been exercised; it does not prove
-that all development journals disappeared. No unknown journal is deleted or
-migrated. All cooperating control-engine entry points use one mandatory bootstrap:
+All wave-1 executions use freshly created disposable test databases, reused only
+for restart/replay within the same test and compatible code. The V1 path is only
+for migration tests and no V1 workflow may enter the later V2 production database
+if V1 support is removed. Same-generation replay, including the 20-kill exam, remains
+required. Future compatible releases must use `DBOS.patch` for changed workflows,
+including independently recovered children, while retaining the same application
+version and database for the lifetime of the production generation.
 
-1. Before constructing DBOS **or any database-mutating seam**, inspect the intended
-   dedicated system database read-only. In particular, do not construct WP6's
-   `SqlLedger` or WP7's `AgeKeyService`: both currently call `create_all` in their
-   constructors. `Engine` accepts an executor factory rather than a preconstructed
-   database-backed executor; it does not invoke the factory before this bootstrap
-   succeeds. WP8's eventual CLI uses the same bootstrap, with the identical approved
-   database URL for DBOS, ledger and key service. Direct construction of database
-   seams is for standalone tests/tools, not a supported control-engine launch path.
-2. An absent SQLite path is checked without creating the file. An unmarked database
-   with **any user table or partial schema**, whether DBOS, ledger, keys or other
-   data, is refused with fixed `engine:incompatible_database`. A missing DBOS
-   schema alone does not prove emptiness. Connection, permission, schema-inspection
-   and unexpected-object errors fail closed without printing credentials.
-3. Use the backend-specific lock and marker protocol below. Under that lock,
-   reinspect before writing, then create the marker only after proving the
-   dedicated database empty. The marker identifies a database generation, not a
-   code release; a partial or mismatched marker fails closed. A marked restart
-   accepts only the known objects and partial setup states listed below.
-4. Only then construct the ledger, key service, Executor and DBOS using that same
-   approved database, and launch. The application's new generation is pinned for
-   the lifetime of the dedicated DB. Exclusive control of that DB is a rollout
-   precondition: an old engine that ignores the marker must never concurrently
-   write between inspection and launch. Old journals remain available to their old
-   engine and are not claimed to resume under this release.
+An independent review (`docs/reviews/durable-execution-wp1-bootstrap-scope-design-1.md`)
+accepted deferring a deployment guard to WP8 for this un-deployed package. The
+previous proposed marker and schema-validation protocol and its unresolved findings
+remain in queue reviews 3–8; they are not implemented or claimed fixed.
 
-#### Bootstrap protocol, DBOS 3.4.0
-
-The only supported backends are a local SQLite file and PostgreSQL. Reject an
-in-memory SQLite URL, an unknown backend or a malformed URL with a fixed code.
-The marker is table `unbug_engine_generation` in SQLite's main database or
-PostgreSQL's `public` schema. It has exactly `singleton INTEGER PRIMARY KEY CHECK
-(singleton = 1)`, `generation TEXT NOT NULL`, `app_name TEXT NOT NULL`, and
-`app_version TEXT NOT NULL`, and exactly one row:
-`(1, "unbug-durable-db-v2", "unbug-factory-engine", "factory-engine-2")`.
-`factory-engine-2` is pinned for the lifetime of this new database. Future
-compatible code releases retain the marker and use workflow patches.
-
-For local SQLite, canonicalize the absolute database path and use an exclusive
-`fcntl.flock` on `/tmp/unbug-engine-init-<uid>/<sha256(canonical-path)>.lock`;
-the directory is owned by the current user with mode 0700. The fixed location and
-canonical path make cooperating processes use the same lock; network filesystems
-are unsupported. Hold it across reinspection, marker commit, seam construction and
-DBOS.launch. If the path is absent, inspect that fact without connecting or
-creating it; after acquiring the lock, check again, then create a new file with
-`O_CREAT|O_EXCL` and mode 0600. Existing files are inspected via SQLite URI
-`mode=ro` and `PRAGMA query_only=ON`; inspection failure, including an unreadable
-WAL, fails closed. Only an empty, accepted database is reopened writable. Execute
-`BEGIN IMMEDIATE`, reinspect under that transaction, create the marker table and
-row, and COMMIT. A rollback or killed process leaves no committed partial marker.
-After commit, release the SQL transaction before invoking the factories while
-keeping the OS lock. A marked restart validates without updating the marker.
-
-For PostgreSQL, connect to the already-existing dedicated database and take the
-session-level advisory lock `pg_advisory_lock(6930772581893188690)`, the signed
-first eight bytes of SHA-256 of `unbug-engine-bootstrap-v2`. PostgreSQL advisory
-locks are scoped to the database; all cooperating bootstraps use the same key.
-Hold that one connection and lock across read-only catalog reinspection, marker
-transaction, seam construction and DBOS.launch. If the connection/lock is lost,
-abort initialization and close the constructed seams; never continue on an assumed
-lock. The read-only inspection checks all non-system schemas, not just `dbos`.
-For an empty dedicated DB, only the built-in `public` schema may exist and it must
-contain no user objects; system `pg_*` and `information_schema` are ignored. Create
-the marker table and row in one PostgreSQL transaction only after that check.
-The external requirement remains exclusive control over the dedicated DB: an old
-engine does not honor this advisory lock and must not write concurrently.
-
-On a marked restart, accept only this marker with exactly its specified row and
-columns, the durable tables `durable_ledger_batch`, `durable_ledger_attempt` and
-`durable_scope_key` in `public` (or SQLite main), and DBOS 3.4 objects. The DBOS
-3.4 table names are `application_versions`, `dbos_migrations`, `notifications`,
-`operation_outputs`, `queues`, `streams`, `workflow_events`,
-`workflow_events_history`, `workflow_input`, `workflow_output`,
-`workflow_schedules`, and `workflow_status`; in PostgreSQL they belong to the
-`dbos` schema. PostgreSQL also has `dbos.event_dispatch_kv`, created by its first
-migration; SQLite does not. Allow indexes and constraints belonging to these tables, and only
-DBOS 3.4 PostgreSQL routines `enqueue_workflow`, `notifications_function`,
-`send_message`, `streams_function`, `workflow_events_function` and triggers
-`dbos_notifications_trigger`, `dbos_streams_trigger`,
-`dbos_workflow_events_trigger` in `dbos`. SQLite's `sqlite_*` internal objects are
-ignored. No other user tables, views, routines, triggers, or schemas are accepted.
-Validate each present durable table's complete pinned WP6/WP7 definition, including
-column names/types, nullability, primary and foreign keys, other constraints and
-required indexes. Whenever **no DBOS object exists**, every present durable table
-must be empty, even if all three tables are present: bootstrap constructors create
-tables but do not write durable data before DBOS initialization. Once any DBOS
-object exists, a missing ledger or scope-key table is refused before constructing a
-seam, even if workflow rows have since been deleted. This prevents silently
-recreating lost keys or accounting. Test marked, used SQLite and PostgreSQL
-databases with one missing durable table; a marked database with populated durable
-tables but no DBOS objects; and altered keys, nullability, foreign keys or indexes.
-Each is refused without calling a factory or changing schema or data. **Do not accept an arbitrary subset of
-DBOS tables for a recorded migration version.** A recorded version means DBOS
-will skip those migrations, so required objects or columns missing at that version
-would never be repaired.
-
-For SQLite, pinned DBOS 3.4.0 initializes its system schema and migration version
-in one transaction. A marked DB may have no DBOS objects yet, or the complete
-version-125 DBOS schema and its expected columns, indexes and constraints; any
-partial schema, a different recorded version, or a missing core object is refused
-without mutation. Check in an independent normalized full-v125 SQLite schema
-snapshot generated by a real pinned DBOS initialization. Test marked restart and
-refusal of a missing table, column or index. A durable-table subset is allowed only
-under the pre-DBOS, empty-table condition above.
-
-For PostgreSQL, pinned DBOS 3.4.0 commits ordinary migrations separately and runs
-some online-index migrations in autocommit before recording their version. Before
-implementation, generate and check in a normalized schema-state fixture from a
-disposable local PostgreSQL instance by applying the exact pinned migration list
-one recorded version at a time. The fixture records, per nonempty migration
-version, required tables, columns/types, constraints, indexes, routines and
-triggers. Include the marker-only state and the `dbos` schema plus empty
-`dbos_migrations` table before migration 1. For each next pending online migration,
-include the exact pre-DDL and post-DDL/pre-version state: both CREATE (including
-an invalid index remnant) and DROP. For example, a crash after online DROP 22 but
-before its version update leaves version 21 recorded with that index absent. Pin
-both fixture generation and runtime to DBOS 3.4.0 with `use_listen_notify=True`,
-which determines the functions and triggers. Verify this fixture against a full initialization by DBOS itself.
-On a marked restart, the catalog must match one specifically enumerated state for
-the recorded version and its next pending online CREATE or DROP; DBOS then cleans
-or retries that operation. A version not in the fixture, missing required object or
-column, unexpected object, or unknown future version is refused. During an
-incomplete initial migration, no workflow, ledger, or scope-key data may exist;
-only DBOS migration metadata is allowed. At version 125 the full expected schema
-must be present and online indexes valid. If `workflow_status` is nonempty, every
-row must carry the marker's application and version. A marked version-125 DB
-missing `operation_outputs` is always refused before constructing a mutating seam
-or launching DBOS. The same check applies to missing columns and other core tables.
-This state validation and the WP6/WP7 metadata checks run while holding the
-backend initialization lock. Only then may DBOS resume pinned migrations.
-
-Verify PostgreSQL fresh initialization, `event_dispatch_kv`, marked restart,
-interruption after migration 1 and every recorded version, an interrupted online
-index, the lock and catalog checks, and marker atomicity against a **disposable
-local PostgreSQL database** before enabling this path;
-no existing or remote database is modified by that verification. SQLite tests must
-cover both absent files and existing read-only databases. Database URLs and raw
-provider exceptions never appear in errors or logs.
-
-A regression in `tests/factory/test_durable_wp1_upgrade.py` creates the actual
-`7d09dae` fake-worker SQLite journal with a case and in-flight attempt, then checks
-that bootstrap refuses it before constructing any database-backed seam or launching
-DBOS and that the complete schema **and** data are unchanged. Test an old journal
-without ledger/key tables, unmarked databases containing only ledger or key data,
-partial markers, an absent SQLite path, inspection/connection failures, concurrent
-cooperating bootstraps, and crashes on each marker transaction boundary. A fresh
-marked DB must restart across the 20-kill exam. No error may print a database URL.
-This verifies safe refusal, not that old journals resume under the new engine.
+**WP8 rollout gate, still open:** before any production DBOS, ledger, key-service or
+other database-mutating seam is constructed, the supported initial production path
+must provision a genuinely new dedicated database, verify it is empty of all user
+objects and partial application schemas, bind all seams to it, and establish exclusive
+control against older engines and other writers. It must fail closed on uncertainty,
+leave any old or unknown database unchanged, and record and verify the new database's
+identity on subsequent starts. This is a first-generation launch requirement, not a
+request for a new database on each reboot. WP8 must design and independently review
+the actual initialization and restart mechanism, including lost ledger/key/journal
+state, then verify it against disposable PostgreSQL and old-journal fixtures before
+production use. An operator instruction or application-version change alone is not
+a sufficient guard.
 
 Files and checkpoints:
 
-1a. Implement only the SQLite guard primitive in `factory/durable/compat.py`, with
-   `tests/factory/test_durable_wp1_upgrade.py` and a checked-in normalized SQLite
-   DBOS-v125 schema snapshot. It is disabled and invoked only by disposable tests;
-   it is not wired into `Engine` or a production launch. It rejects PostgreSQL and
-   every other backend **before** calling an executor/seam factory. Correctly refuse
-   missing durable tables once any DBOS object exists, and preserve old DB schema
-   and data. The existing V1 engine remains the only runnable application path.
-1b. Implement the PostgreSQL guard and per-version schema-state fixture after local
-   disposable-PostgreSQL verification, including online CREATE/DROP crash states.
-   Only after both backend tests and fresh review may the guarded bootstrap be wired
-   before every mutating seam. Adapt WP6/WP7 construction through the guarded factory
-   when those branches are integrated. PostgreSQL production use remains disabled
-   until this gate and the later fault-injection/integration checks pass.
-1c. `factory/durable/engine.py`: add V2 pending workflows, keyed message records and
+1. `factory/durable/engine.py`: add V2 pending workflows, keyed message records and
    predecessor-fact join; `factory/durable/report.py`: whitelist `pending_admission`,
    `waiting_for_worker`, `not_admitted` and a validated boolean `cleanup_error` on
    a known seal. `tests/factory/test_durable_report.py` verifies a sealed archive
@@ -446,9 +309,10 @@ exact duplicate. The batch joins facts by predecessor or operation key and never
 assumes FIFO delivery. No plaintext or raw
 provider exception enters DBOS events.
 
-The old unguarded V1 path is test-only during the migration and is removed from
-final new-generation production launch; old draft databases are preserved and
-refused before initialization, as above. The queue serializes SEAL with ADMIT; actual production SEAL timing
+The old V1 path is test-only during the migration and is removed from the final
+new-generation production launch. WP8 must prevent old draft databases from being
+selected before initialization; WP1 alone does not enforce that boundary. The queue
+serializes SEAL with ADMIT; actual production SEAL timing
 and the incremental implementation/review effort are not measured, so the parent
 schedule estimate may increase. Tests use fakes and real DBOS 3.4 SQLite, with no
 real paid calls. Targets Murphy rows 18 and 51; closes none without the real final
