@@ -43,7 +43,8 @@ frozen contract. It provides:
 2. Strip surrounding whitespace. Then strip the runner wrappers, `Budget stopped: ` and
    `Budget ledger stopped: `, the same prefixes `calibration.interruption_label`
    strips. The real card `Budget ledger stopped: codex_error` needs this. A stored stop
-   can come back wrapped again (`budget.py:358` stores `str(error)`), so wrappers are
+   can come back wrapped again (`budget.py:1357` stores `str(error)`, and `budget.py:885`
+   raises `'Budget ledger stopped: ' + str(previous)` from it), so wrappers are
    stripped in a loop, at most 8 times.
 3. The head is the text before the first `:`. Only the head picks the outcome. The
    only part after the `:` that is ever read is a `provider_limit` route's prefix
@@ -102,17 +103,26 @@ Why each choice:
   attempt reaches its `money_ceiling_usd_micros` or the runner's own limits".
   - `money_wait` is raised when the attempt's committed money runs out:
     `budget.py:939-941` (spend plus outstanding reservations exceeds
-    `job_authority.committed_total_usd`) and `budget.py:716-717`. That money is the
-    attempt's grant, whose label may be CASE or BATCH. So `money_wait` maps like
-    `cost_limit`, to `<step stage>:money`, and the policy tells a batch money wait from a
-    case outcome by the Grant label, as the main design specifies. The reason does not
-    claim which.
-  - `money_wait` is also raised for a missing, malformed or mismatched JobAuthority:
-    `budget.py:141`, `:144`, `:714`, and `job_authority.py:51`, `:63`, `:71`, `:73`.
-    Those are plumbing faults, not money. **WP5a must not emit `money_wait` for them.**
-    Under the engine the grant replaces the JobAuthority; if any of those checks
-    survives, it must raise a plumbing label (for example `invalid_money`, which maps
-    to `infra:ledger_error`).
+    `job_authority.committed_total_usd`), `budget.py:716-717`, and `budget.py:163-165`
+    (`reserve_invocation`, before any spend, when a call's route maximum does not fit
+    in what remains). That money is the attempt's grant, whose label may be CASE or
+    BATCH. So `money_wait` maps like `cost_limit`, to `<step stage>:money`, and the
+    policy tells a batch money wait from a case outcome by the Grant label, as the main
+    design specifies. The reason does not claim which.
+  - **Edge case for WP1:** the `:165` source fires with usage below the grant (the
+    next call's maximum does not fit). The policy's WAIT_FOR_BOUND rule needs "usage
+    reached the grant", so a batch-limited grant smaller than one call's maximum gives
+    up instead of waiting. WP1 should treat a batch-limited EXHAUSTED whose remaining
+    grant is below one call's maximum as a money wait too, or set the minimum grant at
+    least one call's maximum.
+  - **The rule for WP5a:** emit `money_wait` only when spend plus reservations exceeds
+    the attempt's grant. Every other source is a plumbing fault and must raise a
+    plumbing label instead (for example `invalid_money`, which maps to
+    `infra:ledger_error`). Today's plumbing sources of `money_wait` are a missing,
+    malformed or mismatched JobAuthority or job configuration: `budget.py:141`, `:144`,
+    `:714`; `job_authority.py:51`, `:63`, `:71`, `:73`; `job_config.py:88`, `:96`,
+    `:172`; and `factory_waste.py:41`, `:314`. Under the engine the grant replaces the
+    JobAuthority, so none of them should survive.
   - `budget_exhausted` is also raised for a `codex/` route missing from
     `CODEX_PRICES` (`budget.py:720-721`). That is an unpriced route, a configuration
     fault, but it still maps to `<step stage>:money`. Under the engine WP5a turns off
@@ -125,7 +135,17 @@ Why each choice:
   `job_authority.py:46-47` and `:74`. `provider_wait_deadline` is the same deadline
   reached during a provider wait (`model_router.py:523`, `:593`, `:642`). Both map to
   the contract's existing `infra:deadline`, like the engine's own attempt deadline.
-  The engine's batch deadline then decides whether the case continues.
+  - The batch deadline does not stop a running case: `deadline_epoch` only stops new
+    cases and extensions from starting (`contract.py:346`, `durable-execution.md:180`).
+    A runner that kept enforcing it would raise `retired_batch_bound` on every attempt
+    after the deadline, burn `max_infra_retries_per_step`, and send an innocent case to
+    DIAGNOSE and then RETIRE.
+  - **Requirement on WP5a:** under the engine, the runner's call timeout comes only
+    from `StepInput.deadline_s`, and no batch-deadline check survives: not in
+    `budget.py:145`, `:834-839`, `:1220` or `:1247`, and not in
+    `job_authority.py:47` or `:74`.
+  - **Requirement on WP1:** if such a check does survive, `policy.decide` must not
+    count `infra:deadline` from it toward `max_infra_retries_per_step`.
 - **A credential expiry is PROVIDER_LIMIT.** `model_router` already treats
   `credential_expiring` as a Wait. A renewal is external, so sleeping and retrying
   beats burning infra retries in seconds. The cost: a credential that is never renewed
@@ -196,8 +216,8 @@ and `restart.py:94`.
   NEEDS_FOUNDER, and every model-CLI, stall, timeout, pause and exception stop is
   INFRA_ERROR.
 - **Runner labels.** It parses every `BudgetError` label literal raised in
-  `factory/budget.py`, `model_router.py`, `model_runtime.py`, `model_call_gate.py` and
-  `run.py`. The set must equal a reviewed list: each mapped label with its expected
+  `factory/budget.py`, `model_router.py`, `model_runtime.py`, `model_call_gate.py`,
+  `run.py`, `job_authority.py` and `job_config.py`. The set must equal a reviewed list: each mapped label with its expected
   outcome and reason, plus an explicit set of labels that stay
   `infra:unclassified_stop` (the bare wrappers and `run.py` lifecycle stops). A new or
   removed label fails the test until it is reviewed.

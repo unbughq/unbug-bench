@@ -152,7 +152,7 @@ class RealStops(unittest.TestCase):
                                   StepKind.DIAGNOSIS: "diagnosis:call_limit", StepKind.SEAL: "seal:call_limit"})
 
     def test_money_wait_is_the_attempts_money_and_the_policy_tells_case_from_batch(self):
-        # budget.py:941 (spend + reservations > job_authority.committed_total_usd) and :717.
+        # budget.py:941 (spend + reservations > job_authority.committed_total_usd), :717 and :165.
         for kind in StepKind:
             self.assertEqual(classify("money_wait", step=kind, now=NOW),
                              classify("cost_limit", step=kind, now=NOW))
@@ -168,7 +168,8 @@ class RealStops(unittest.TestCase):
                 self.assertEqual(classify(stop, step=kind, now=NOW), Classified(Outcome.INFRA_ERROR, "infra:deadline"))
         self.assertIn("infra:deadline", CONTRACT_REASONS)
 
-    RUNNER_FILES = ("budget.py", "model_router.py", "model_runtime.py", "model_call_gate.py", "run.py")
+    RUNNER_FILES = ("budget.py", "model_router.py", "model_runtime.py", "model_call_gate.py", "run.py",
+                    "job_authority.py", "job_config.py")
     # Reviewed: what every BudgetError label raised in RUNNER_FILES classifies to.
     MAPPED = {
         "Invalid budget ledger; no process started": ("infra_error", "infra:ledger_error"),

@@ -104,7 +104,7 @@ _FIXED = {
 }
 
 # The attempt's own limits: EXHAUSTED, with the step's stage. money_wait is the attempt's
-# committed money running out (budget.py:941, :717). Whether that money was the case's or
+# committed money running out (budget.py:941, :717, :165). Whether that money was the case's or
 # the batch's is the policy's call, from the Grant label, so the reason does not say.
 _CASE_LIMIT = {"cost_limit": "money", "budget_exhausted": "money", "money_wait": "money",
                "call_limit": "call_limit", "total_call_limit": "total_call_limit", "model_call_cap": "call_cap"}
@@ -135,7 +135,7 @@ if not all(REASON.fullmatch(r) for r in REASONS | CONTRACT_REASONS):
 
 def _head(stop: str) -> tuple[str, str]:
     text = stop.strip()
-    for _ in range(_MAX_WRAPPERS):   # a stored stop can come back wrapped again (budget.py:358)
+    for _ in range(_MAX_WRAPPERS):   # a stored stop can come back wrapped again (budget.py:1357, :885)
         wrapper = next((w for w in _WRAPPERS if text.startswith(w)), None)
         if wrapper is None:
             break

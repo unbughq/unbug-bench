@@ -152,7 +152,8 @@ scratch script that computed them read the same files.
      (final `roles`). They hold 206 `opencode_error` stops in 466 stops, about 6.4 per
      card.
    - The other 17 cards used only `opencode-go/`, `openrouter/`, `claude/` and `codex/`
-     routes in those roles (plus the free GLM easy calibrator that every card has).
+     routes in those roles (plus the free GLM easy calibrator, which 48 of the 49 cards have: all but `aeefd5`,
+     which records no roles).
      They hold 4 `opencode_error` stops in 45 stops: one each in `86b100` and
      `ce4d82`, and two in `7d8a30`.
    - `openrouter/` and `opencode-go/` routes also run through the OpenCode CLI, so the
@@ -198,7 +199,7 @@ of each `opencode_error` needs the error events in the encrypted transcripts.
 | Rank | Signal | Stops on those cards | Evidence |
 |---:|---|---:|---|
 | 1 | Co-occurs with free Zen routes in writer, stress or reviewer roles (MiniMax M3.1 Flash, DeepSeek V4.1 Flash). Correlation only: those cards also ran 14.6 stops per card against 2.6. | 206 of 210, on 32 cards | card `roles` and `continuation_budget.events[].configured_model` |
-| 2 | The free GLM easy-calibrator route `opencode/glm-5.3-flash-free`. Every card has it, so it is not a correlate. | ≥13 attributed by `free_model_fallback.why` (13 cards, which hold 89 stops in all) | `free_model_fallback` |
+| 2 | The free GLM easy-calibrator route `opencode/glm-5.3-flash-free`. 48 of the 49 cards (all but `aeefd5`, which records no roles) have it, so it is not a correlate. | ≥13 attributed by `free_model_fallback.why` (13 cards, which hold 89 of the 210 `opencode_error` stops) | `free_model_fallback` |
 | 3 | No signal, on cards without free Zen routes in writer, stress or reviewer roles | 4, on 3 cards | `86b100`, `ce4d82`, `7d8a30` |
 
 Rows 1 and 2 overlap: the 13 GLM attributions sit on cards also counted in row 1. The

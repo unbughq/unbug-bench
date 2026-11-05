@@ -72,4 +72,14 @@ Findings 1 and 2 from review 1 are fixed. Findings 3 and 4 are new blocking issu
 
 ## Resolution (elephant)
 
-Recorded after the fixes; see the end of this file.
+Fixes made by the WP4 writer on `de/wp4`, at the elephant's direction. Test file
+afterwards: 20 tests, OK.
+
+| # | Severity | Resolution |
+|---:|---|---|
+| 3 | BLOCKING | **Fixed.** Deleted the sentence "The engine's batch deadline then decides whether the case continues." In its place the design note states that `deadline_epoch` only stops new cases and extensions (`contract.py:346`, `durable-execution.md:180`). It adds a requirement on WP5a: under the engine, the runner's call timeout comes only from `StepInput.deadline_s`, and no batch-deadline check survives (`budget.py:145`, `:834-839`, `:1220`, `:1247`; `job_authority.py:47`, `:74`). It adds a requirement on WP1: if such a check does survive, its `infra:deadline` must not count toward `max_infra_retries_per_step`. The elephant is also passing both requirements to WP5a and WP1 directly. |
+| 4 | BLOCKING | **Fixed.** Row 2 now says "13 cards, which hold 89 of the 210 `opencode_error` stops". Both places that said every card has the free GLM route now say "48 of the 49 cards (all but `aeefd5`, which records no roles)". I recounted this: 48. |
+| 5 | NIT | **Fixed.** The note states the general rule: WP5a emits `money_wait` only when spend plus reservations exceeds the attempt's grant, and every other source must raise a plumbing label. It also lists today's plumbing sources, including `job_config.py:88`, `:96`, `:172` and `factory_waste.py:41`, `:314`. |
+| 6 | NIT | **Fixed.** `budget.py:163-165` is cited beside `:717` and `:941`, in the note and in the `classify.py` comment. The reserve-before-spend edge case is written up for WP1: usage stays below the grant, so WAIT_FOR_BOUND does not fire. The note gives two options: treat that EXHAUSTED as a money wait, or set the minimum grant to at least one call's maximum. |
+| 7 | NIT | **Fixed.** The citation is now `budget.py:1357` (the stored stop) and `:885` (the re-wrap), in the note and in `classify.py`. |
+| 8 | NIT | **Fixed.** `RUNNER_FILES` now includes `job_authority.py` and `job_config.py`. They raise only `money_wait` and `retired_batch_bound`, which are already in the reviewed mapped set, so the unclassified set is unchanged. |
