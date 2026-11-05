@@ -112,7 +112,7 @@ def render_text(card: dict) -> str:
         gates = " ".join(f"{g}={v}" for g, v in c["gates"].items()) or "-"
         extra = f" hard={c['hard']}" if "hard" in c else ""
         if c.get("cleanup_error"):
-            extra += " cleanup error"
+            extra += " cleanup unconfirmed"
         why = f" ({c['reason']})" if c["reason"] else ""
         rep = f" replaces {c['replacement_of']}" if c["replacement_of"] else ""
         lines.append(f"  {c['case']}: {c['status']} at {c['stage']}{why}{extra}; rounds {c['writer_rounds']}, "
@@ -139,7 +139,8 @@ def load_cards(batch_id: str, *, timeout_s: float = 1.0) -> list:
                 card["status"] = "engine_error"
                 card.pop("cleanup_error", None)
             else:
-                card.update(status="sealed", stage="sealed", hard=seal["hard"], cleanup_error=True)
+                cleaned = DBOS.get_event(case_id, "seal_cleanup_complete", timeout_seconds=timeout_s) is True
+                card.update(status="sealed", stage="sealed", hard=seal["hard"], cleanup_error=not cleaned)
         if card is not None:
             cards.append(card)
     return cards

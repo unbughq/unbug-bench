@@ -341,6 +341,8 @@ class _Case:
 
     def finish(self, status: str) -> None:
         self.release_worker()
+        if status == "sealed":
+            DBOS.set_event("seal_cleanup_complete", True)
         self.status = status
         self.card()
         raise _Stop(status)

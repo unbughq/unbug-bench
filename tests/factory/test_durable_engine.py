@@ -111,6 +111,14 @@ class Outcomes(unittest.TestCase):
         self.assertIs(out["scorecard"]["cases"][0]["cleanup_error"], True)
         self.assertFalse(any(x["op"] == "release" for x in r.pool_log()))
 
+    def test_failure_after_successful_release_does_not_claim_cleanup_failed(self):
+        r, out = run({"post_release_failure": True, "spec": {"max_cases_started": 1}})
+        self.addCleanup(r.close)
+        self.assertTrue(any(x["op"] == "release" and x["case"] == C1 for x in r.pool_log()))
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(out["scorecard"]["sealed"], 1)
+        self.assertIs(out["scorecard"]["cases"][0]["cleanup_error"], False)
+
     def test_executor_exception_after_dispatch_reconciles_before_retry(self):
         key = f"{C1}/2/writer:1/1"
         r, out = run({"raise_after_start": key, "spec": {"max_cases_started": 1},

@@ -70,7 +70,7 @@ class FailedWorkflow(unittest.TestCase):
         self.assertEqual([row["status"] for row in public["cases"]],
                          ["pending_admission", "waiting_for_worker", "not_admitted", "sealed"])
         self.assertIs(public["cases"][-1]["cleanup_error"], True)
-        self.assertIn("cleanup error", report.render_text(public))
+        self.assertIn("cleanup unconfirmed", report.render_text(public))
 
     def test_cleanup_error_must_be_a_boolean_on_a_sealed_card(self):
         base = {"case_id": "case-t-1", "status": "sealed", "stage": "sealed", "passed": [],

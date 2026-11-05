@@ -542,6 +542,15 @@ def engine_main(workdir):
             raise RuntimeError("simulated cleanup failure")
 
         engine_module.release_step = fail_release
+    if scenario.get("post_release_failure"):
+        original_card = engine_module._Case.card
+
+        def fail_sealed_card(case):
+            if case.status == "sealed":
+                raise RuntimeError("simulated post-cleanup reporting failure")
+            return original_card(case)
+
+        engine_module._Case.card = fail_sealed_card
     fakes = build_fakes(work / "state", scenario)
     spec_kw = dict(scenario.get("spec", {}))
     if "deadline_in" in scenario:   # a batch deadline that passes mid-run, fixed at the first launch

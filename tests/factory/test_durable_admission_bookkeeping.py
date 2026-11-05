@@ -154,10 +154,12 @@ class PendingWorkflow(unittest.TestCase):
             def init(self, spec, registry):
                 original_init(self, spec, registry)
                 self.admitted.add("case-t-1")
+                self.test_seen = []
             def handle(self, message):
                 original_handle(self, message)
+                self.test_seen.append(message.get("kind"))
                 DBOS.set_event("test_facts", {"cases": list(self.cases), "done": dict(self.done),
-                                               "released": sorted(self.released)})
+                                               "released": sorted(self.released), "seen": list(self.test_seen)})
             engine._BatchV2.__init__, engine._BatchV2.handle = init, handle
             engine._RT.executor = LedgerOnly()
             engine._RT.timing = engine.Timing(batch_poll_s=0.1, listener_poll_s=0.05)
@@ -183,25 +185,44 @@ class PendingWorkflow(unittest.TestCase):
                 assert DBOS.get_event("case-t-1", "card", timeout_seconds=15)["status"] == "pending_admission"
                 DBOS.send(spec.batch_id, {"kind": "worker_released", "case": "case-t-1"},
                           topic=engine.CASE_EVENT, idempotency_key="release")
-                await_facts(lambda f: f["released"] == ["case-t-1"])
+                facts = await_facts(lambda f: f["released"] == ["case-t-1"])
+                assert facts["seen"] == ["worker_released"], facts
                 os._exit(9)
 
             try:
-                # These facts share a DBOS send transaction; the actor may see either first.
                 done = {"kind": "done", "case": "case-t-1", "status": "retired",
                         "replacement_action": "diagnose", "worker_released": True}
                 request = {"kind": "line_stopped", "case": "case-t-1", "action": "diagnose"}
-                DBOS.send_bulk([SendMessage(spec.batch_id, done, engine.CASE_EVENT, "done"),
-                                SendMessage(spec.batch_id, request, engine.CASE_EVENT, "request")])
-                with sqlite3.connect(work / "sys.sqlite") as conn:
-                    timestamps = conn.execute("SELECT created_at_epoch_ms FROM notifications "
-                                              "WHERE message_uuid IN (?, ?)",
-                                              ("done::b-t", "request::b-t")).fetchall()
-                assert len(timestamps) == 2 and timestamps[0] == timestamps[1], timestamps
+                if mode == "resume_equal":
+                    # One DBOS transaction gives both facts the same timestamp.
+                    DBOS.send_bulk([SendMessage(spec.batch_id, done, engine.CASE_EVENT, "done"),
+                                    SendMessage(spec.batch_id, request, engine.CASE_EVENT, "request")])
+                    with sqlite3.connect(work / "sys.sqlite") as conn:
+                        timestamps = conn.execute("SELECT created_at_epoch_ms FROM notifications "
+                                                  "WHERE message_uuid IN (?, ?)",
+                                                  ("done::b-t", "request::b-t")).fetchall()
+                    assert len(timestamps) == 2 and timestamps[0] == timestamps[1], timestamps
+                else:
+                    DBOS.send(spec.batch_id, done, topic=engine.CASE_EVENT, idempotency_key="done")
+                    first = await_facts(lambda f: "done" in f["seen"])
+                    assert "line_stopped" not in first["seen"], first
+                    DBOS.send(spec.batch_id, request, topic=engine.CASE_EVENT, idempotency_key="request")
+                # Distinct IDs force duplicate facts through the actor. Reusing each
+                # original ID separately checks DBOS's same-key suppression.
+                DBOS.send(spec.batch_id, done, topic=engine.CASE_EVENT, idempotency_key="done-again")
+                DBOS.send(spec.batch_id, request, topic=engine.CASE_EVENT, idempotency_key="request-again")
                 DBOS.send(spec.batch_id, done, topic=engine.CASE_EVENT, idempotency_key="done")
                 DBOS.send(spec.batch_id, request, topic=engine.CASE_EVENT, idempotency_key="request")
-                facts = await_facts(lambda f: len(f["cases"]) == 2 and f["done"].get("case-t-1") == "retired")
+                facts = await_facts(lambda f: len(f["cases"]) == 2 and f["done"].get("case-t-1") == "retired"
+                                    and f["seen"].count("done") == 2 and f["seen"].count("line_stopped") == 2)
                 assert facts["released"] == ["case-t-1"], facts
+                assert facts["seen"].index("worker_released") < facts["seen"].index("line_stopped"), facts
+                if mode == "resume_ordered":
+                    assert facts["seen"].index("done") < facts["seen"].index("line_stopped"), facts
+                with sqlite3.connect(work / "sys.sqlite") as conn:
+                    rows = conn.execute("SELECT message_uuid FROM notifications WHERE message_uuid IN (?, ?, ?, ?)",
+                                        ("done::b-t", "request::b-t", "done-again::b-t", "request-again::b-t")).fetchall()
+                assert len(rows) == 4, rows
                 assert DBOS.get_event("case-t-2", "card", timeout_seconds=15)["status"] == "pending_admission"
                 DBOS.send("case-t-1", {"kind": "not_admitted"}, topic=engine.PENDING_ADMISSION)
                 DBOS.send("case-t-2", {"kind": "not_admitted"}, topic=engine.PENDING_ADMISSION)
@@ -211,13 +232,14 @@ class PendingWorkflow(unittest.TestCase):
             finally:
                 DBOS.destroy()
         ''')
-        with tempfile.TemporaryDirectory() as work:
-            start = subprocess.run([sys.executable, "-B", "-c", program, str(ROOT), work, "start"],
-                                   capture_output=True, text=True, timeout=45)
-            self.assertEqual(start.returncode, 9, start.stdout + start.stderr)
-            resume = subprocess.run([sys.executable, "-B", "-c", program, str(ROOT), work, "resume"],
-                                    capture_output=True, text=True, timeout=45)
-            self.assertEqual(resume.returncode, 0, resume.stdout + resume.stderr)
+        for mode in ("resume_ordered", "resume_equal"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as work:
+                start = subprocess.run([sys.executable, "-B", "-c", program, str(ROOT), work, "start"],
+                                       capture_output=True, text=True, timeout=45)
+                self.assertEqual(start.returncode, 9, start.stdout + start.stderr)
+                resume = subprocess.run([sys.executable, "-B", "-c", program, str(ROOT), work, mode],
+                                        capture_output=True, text=True, timeout=45)
+                self.assertEqual(resume.returncode, 0, resume.stdout + resume.stderr)
 
 
 if __name__ == "__main__":
