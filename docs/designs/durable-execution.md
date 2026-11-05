@@ -477,12 +477,15 @@ These all stay as work:
   sleep, and reruns of the gates outside the cache (G1, G2, G3, G7, G11 and G17),
   until WP5f.
 
-## Founder decisions needed
+## Founder decisions
+
+Wave 1 runs in batches of 2–3 packages (founder, 2026-11-05). The first batch is WP1,
+WP3 and WP4. Decisions 3–7 are still open.
 
 1. **Freeze new lifecycle work** (streams B and E) on `factory-simplify` while
-   waves 1–2 run.
+   waves 1–2 run. **Approved by the founder, 2026-11-05.**
 2. **Retire legacy checkpoints** (43, of which 30 have no case key) instead of
-   migrating them.
+   migrating them. **Approved by the founder, 2026-11-05.**
 3. **Postgres on the control VM**, with nightly encrypted backups.
 4. **DBOS over Temporal.**
 5. **The integration-branch exception.**
