@@ -36,7 +36,7 @@ conflicts with an older doc, this file wins.
    - While working, run only the test files your change touches, for example
      `BENCH="$PWD" python3 -B tests/factory/test_x.py`.
    - Run the full suite once, on the exact head you hand back for review:
-     `uv run --with numpy --with scipy python -B tests/run.py`.
+     `uv run --with numpy --with scipy --with dbos==3.4.0 python -B tests/run.py`.
    - The suite runs scripts in parallel. Every suite on the host shares one
      pool of `TEST_SLOTS` slots, so concurrent suites can't overload it. Do
      not wrap the suite in `lockf`. Use `-j 1` only to rule out a
