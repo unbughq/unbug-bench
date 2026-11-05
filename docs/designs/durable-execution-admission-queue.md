@@ -3,8 +3,9 @@
 Status: the queue architecture passed its latest design verification in
 `docs/reviews/durable-execution-admission-queue-design-13.md`; the disabled
 bookkeeping and initial admission probe are implemented, but terminal decisions and
-reconciliation are not. The provider-limit boundary remains open
-because the handoff and ENGINEERING section 4 conflict. Earlier queue reviews are in
+reconciliation are not. The founder resolved the provider-limit boundary: genuine
+limits keep waiting; see `durable-execution-provider-waits.md` for the WP5a and
+WP8 integration gates. Earlier queue reviews are in
 `docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8,9,10,11,12}.md`.
 WP1 owns the engine changes; WP2 must satisfy the existing idempotent `WorkerPool`
 contract. No `contract.py` edit is proposed.
@@ -111,7 +112,8 @@ this tradeoff. It is no guarantee of higher throughput.
   before it acknowledges. A second already-admitted case can seal after target;
   every authenticated seal is retained exactly once. The case receives the
   terminal workflow output and performs sleeps or retries after the queue is free.
-  The 96 free-limit and late-batch-deadline rules still apply.
+  Genuine provider limits keep waiting regardless of count; late batch-deadline
+  stops remain outside the infra retry allowance.
 
 ## Crash fence and reconciliation
 
@@ -363,7 +365,7 @@ Files and checkpoints:
    singleton terminal fence. `tests/factory/test_durable_admission_queue.py` checks
    actor responsiveness, no `get_result` in the batch loop, queued probe vs terminal
    ordering, terminal FIFO/ties, STOP_ADMISSION, target grandfathering, two seals
-   with one after target, 96th free limit, max-infra threshold, late deadline, and
+   with one after target, genuine limits beyond 96, max-infra threshold, late deadline, and
    release changes before preparation, in the decision queue and while waiting for
    the model slot. Test failure before/after open/result/ack and unknown fences.
 3. `engine.py` and `tests/factory/test_durable_admission_recovery.py`: add the

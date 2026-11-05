@@ -48,5 +48,5 @@ No finding relies solely on a smell heuristic. This was a read-only review; no t
 | 9 | Open; admission-budget design and implementation remain under review. |
 | 10 | Enforced the absolute extension and factory-bug-resume ceilings; fresh verification pending. |
 | 11 | Added a failed-workflow scorecard overlay; preservation of a completed SEAL during cleanup failure remains open. |
-| Free-limit wording | Changed the give-up boundary to the handoff's 96th zero-spend limit; fresh verification pending. |
+| Free-limit wording | Superseded by the founder's decision: genuine provider limits do not stop at a count; credential faults are visible configuration waits. Provider-wait diff review and integration gates are recorded separately. |
 | WP5a reset time | Open for the WP5a branch review. |
