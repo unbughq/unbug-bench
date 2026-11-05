@@ -18,6 +18,7 @@ from durable.engine import APP_VERSION
 from durable.artifacts import AgeSealer, LocalObjects
 from durable.contract import ArtifactKind, Ref, BatchSpec, to_record
 from durable.cli import dispatch, backup, main
+from durable.workers import PoolError, ownership_name
 
 
 class RuntimeTests(unittest.TestCase):
@@ -84,6 +85,31 @@ class RuntimeTests(unittest.TestCase):
                 runtime.launch()
             launch.assert_not_called()
         self.assertEqual(path.read_bytes(), original)
+
+    def test_restored_ownership_resolves_only_saved_case_hashes(self):
+        runtime = self.runtime()
+        (runtime.state / "restored.json").write_text("{}")
+        nonce = "1" * 32
+        record = dict(worker=None, intent=nonce, deleting=None)
+        runtime.pool._write("case-one", record)
+        owned = dict(id="bx_12345678", state="idle", name=ownership_name("offline", "case-one", nonce))
+        unknown = dict(id="bx_87654321", state="idle", name=ownership_name("offline", "case-newer", nonce))
+        with patch.object(runtime.pool, "_inventory", return_value=[unknown]), patch.object(runtime.engine, "launch") as launch:
+            with self.assertRaisesRegex(RuntimeErrorCode, "restore_unclaimed_worker"):
+                runtime.launch()
+            launch.assert_not_called()
+        self.assertEqual(runtime.pool._read("case-one"), record)
+        with patch.object(runtime.pool, "_inventory", return_value=[owned]), patch.object(runtime.pool, "recover") as recover, patch.object(runtime.engine, "launch") as launch:
+            runtime.launch()
+            launch.assert_called_once()
+            recover.assert_not_called()
+        runtime.launched = False
+        self.assertEqual(runtime.pool._read("case-one"), {**record, "worker": owned["id"]})
+        for name in [None, ownership_name("offline", "case-one", "2" * 32)]:
+            with patch.object(runtime.pool, "_inventory", return_value=[{**owned, "name": name}]), patch.object(runtime.engine, "launch") as launch:
+                with self.assertRaises(PoolError):
+                    runtime.launch()
+                launch.assert_not_called()
 
     def test_real_recover_empty_inventory_before_launch(self):
         runtime = self.runtime()

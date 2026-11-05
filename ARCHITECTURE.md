@@ -94,6 +94,9 @@ Poll transport failures do not prove a worker is absent. Cancel or establish tha
 the old attempt is finished before starting another. Enforce release identity and
 attempt deadlines; SEAL must use the versions under which GATES passed. Startup reconciles pool ownership before DBOS recovers workflows. Ambiguous
 creates retain their original identity rather than issuing another create.
+Boat ownership uses a versioned 106-character sandbox name containing pool and
+case hashes plus the saved create nonce. Inventory resolves case hashes only from
+saved pool journals; unknown owned hashes identify orphans, never invented case ids.
 Ciphertext publication exports the wrapped scope key first, and fetched worker
 outputs authenticate before entering immutable storage. Cold backup/restore has a disposable PostgreSQL exercise that preserves grants,
 keys, artifacts and release pins. Scheduled backups pause the controller and invalidate only their own restore fence before restarting it;

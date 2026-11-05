@@ -22,7 +22,7 @@ from durable.engine import APP_VERSION
 from durable.contract import ArtifactKind, Usage
 from durable.ledger import _make_engine
 import sqlalchemy as sa
-from durable.workers import build_bundle, LABEL_CASE, LABEL_POOL, LABEL_INTENT
+from durable.workers import build_bundle, ownership_name
 
 
 class ArchiveSafetyTests(unittest.TestCase):
@@ -112,7 +112,7 @@ class RestoreExercise(unittest.TestCase):
         ref = runtime.prepare("b-restore", ArtifactKind.INPUTS, b"synthetic evidence")
         bundle = runtime.releases.put_bundle(build_bundle(ROOT))
         runtime.releases.register_bench("a" * 64, "bench-env")
-        record = {"intent": "synthetic-intent", "worker": "bx_12345678", "deleting": None}
+        record = {"intent": "1" * 32, "worker": "bx_12345678", "deleting": None}
         runtime.pool._write("case-restored", record)
         with self.assertRaises(RuntimeErrorCode):
             backup(self.config)
@@ -186,14 +186,14 @@ class RestoreExercise(unittest.TestCase):
         # The running old worker retains its reservation; settlement stays idempotent.
         recovered.ledger.settle("case-restored/1/writer/1", Usage(3, 120, 150))
         recovered.ledger.settle("case-restored/1/writer/1", Usage(3, 120, 150))
-        labels = {LABEL_POOL: "restore-test", LABEL_CASE: "case-newer", LABEL_INTENT: "new"}
-        with patch.object(recovered.pool, "_inventory", return_value=[{"id": "bx_87654321", "labels": labels}]), patch.object(recovered.pool, "recover") as recover:
+        name = ownership_name("restore-test", "case-newer", "2" * 32)
+        with patch.object(recovered.pool, "_inventory", return_value=[{"id": "bx_87654321", "name": name}]), patch.object(recovered.pool, "recover") as recover:
             with self.assertRaises(RuntimeErrorCode):
                 recovered.launch()
             recover.assert_not_called()
-        owned_labels = {LABEL_POOL: "restore-test", LABEL_CASE: "case-restored", LABEL_INTENT: "synthetic-intent"}
+        owned_name = ownership_name("restore-test", "case-restored", record["intent"])
         from durable.workers import LIVE_STATES
-        owned = {"id": "bx_12345678", "labels": owned_labels, "state": sorted(LIVE_STATES)[0]}
+        owned = {"id": "bx_12345678", "name": owned_name, "state": sorted(LIVE_STATES)[0]}
         with patch.object(recovered.pool, "_inventory", return_value=[owned]), patch.object(recovered.pool, "recover") as orphan_cleanup, patch.object(recovered.engine, "launch") as launch:
             recovered.launch()
             launch.assert_called_once()

@@ -3,7 +3,7 @@
 Design: docs/designs/durable-execution-wp2.md. Takes over the provisioning half of
 factory/launch.sh (bundle upload and checksum, CLI pins, Medusa image, worker release
 qualification, bench fingerprint, launch.sh:685-707) and Boat creation and deletion,
-under idempotency labels and a per-case journal so a lost response or a control-VM
+under ownership names and a per-case journal so a lost response or a control-VM
 restart never leaves a duplicate or a forgotten worker.
 
 Release command:
@@ -43,7 +43,9 @@ MANIFEST_NAME = "worker-release-manifest.json"
 FACTORY_MANIFEST_NAME = "worker-release-manifest.factory.json"
 WORKER_SCRIPT = WORKER_COMMAND[-1]                  # factory/durable/worker_step.py
 RELEASES = "releases"                               # ~/releases/<plumbing_version>/
+# Internal ownership keys; Boat carries these in its supported sandbox name field.
 LABEL_POOL, LABEL_CASE, LABEL_INTENT = "unbug-durable/pool", "unbug-durable/case", "unbug-durable/intent"
+OWNERSHIP_NAME = re.compile(r"unbugd1-([0-9a-f]{32})-([0-9a-f]{32})-([0-9a-f]{32})")
 LIVE_STATES = frozenset({"init", "provisioning", "provisioned", "cloning", "ready", "idle", "running"})
 DEAD_STATES = frozenset({"archived", "stopped", "deleted", "failed", "error"})
 DELETE_PENDING = "pending"
@@ -101,6 +103,18 @@ def lease_worker_id(boat_id: str) -> str:
 def boat_id(worker_id: str) -> str:
     _id(worker_id, WORKER_ID, "worker_id")
     return "bx_" + worker_id[3:] if re.fullmatch(r"bx-[a-z0-9]{8}", worker_id) else worker_id
+
+
+def ownership_hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
+
+
+def ownership_name(pool_id: str, case_id: str, intent: str) -> str:
+    """A versioned 106-character name, within Boat's 120-character maximum."""
+    _id(pool_id, POOL_ID, "pool_id")
+    _id(case_id, CASE_ID, "case_id")
+    _id(intent, NONCE, "intent")
+    return f"unbugd1-{ownership_hash(pool_id)}-{ownership_hash(case_id)}-{intent}"
 
 
 class BoatCli:
@@ -286,7 +300,7 @@ class ReleaseStore:
 # ---- the pool --------------------------------------------------------------------------------
 
 class BoatPool:
-    """WorkerPool on Boat. One worker per case, created under three labels and a per-case
+    """WorkerPool on Boat. One worker per case, created under an ownership name and a per-case
     journal record {"intent": nonce, "worker": id|null, "deleting": op|null}."""
 
     def __init__(self, state_dir, store: ReleaseStore, pool_id: str, *, boat: BoatCli | None = None,
@@ -353,26 +367,26 @@ class BoatPool:
         return rows
 
     def _ours(self, row: dict) -> dict | None:
-        labels = row.get("labels")
-        if not isinstance(labels, dict) or labels.get(LABEL_POOL) != self.pool_id:
+        name = row.get("name")
+        match = OWNERSHIP_NAME.fullmatch(name) if type(name) is str else None
+        if match is None or match[1] != ownership_hash(self.pool_id):
             return None
-        return labels
+        # A case digest is not a case id. Only saved journals can resolve it.
+        return {LABEL_POOL: self.pool_id, LABEL_CASE: match[2], LABEL_INTENT: match[3]}
 
     @staticmethod
     def _live(row: dict) -> bool:
-        return row.get("state") in LIVE_STATES
+        return type(row.get("state")) is str and row["state"] in LIVE_STATES
 
     def _find(self, rows, case_id, *, worker=None, intent=None):
         for row in rows:
-            if worker is not None and row.get("id") == worker:
-                labels = self._ours(row)
-                if labels is None or labels.get(LABEL_CASE) != case_id or row.get("state") not in LIVE_STATES | DEAD_STATES:
-                    raise PoolError("infra:inventory_unavailable")
             labels = self._ours(row)
-            if (labels is None or labels.get(LABEL_CASE) != case_id or not self._live(row)
-                    or not isinstance(row.get("id"), str)):
-                continue
-            if (worker is not None and row["id"] == worker) or (intent is not None and labels.get(LABEL_INTENT) == intent):
+            matches = (labels is not None and labels[LABEL_CASE] == ownership_hash(case_id)
+                       and labels[LABEL_INTENT] == intent)
+            if worker is not None and row.get("id") == worker:
+                if not matches or type(row.get("state")) is not str or row["state"] not in LIVE_STATES | DEAD_STATES:
+                    raise PoolError("infra:inventory_unavailable")
+            if matches and self._live(row) and (worker is None or row["id"] == worker):
                 return row["id"]
         return None
 
@@ -392,8 +406,7 @@ class BoatPool:
             worker = None
             if record is not None:
                 rows = self._inventory()
-                worker = (self._find(rows, case_id, worker=record["worker"]) if record["worker"]
-                          else self._find(rows, case_id, intent=record["intent"]))
+                worker = self._find(rows, case_id, worker=record["worker"], intent=record["intent"])
                 if worker is None:
                     if record["worker"] is None and record["intent"] is not None:
                         # An empty list response cannot prove that an earlier create
@@ -442,13 +455,13 @@ class BoatPool:
             record = self._read(lease.case_id)
             if record is None or record["worker"] != boat_id(lease.worker_id):
                 return False
-            return self._find(self._inventory(), lease.case_id, worker=record["worker"]) is not None
+            return self._find(self._inventory(), lease.case_id, worker=record["worker"], intent=record["intent"]) is not None
         except (PoolError, ContractError, OSError, ValueError):
             return True   # unknown is never dead (a transport failure is RUNNING)
 
     def recover(self) -> dict:
-        """On engine start: adopt pool-labelled workers a record names (by id or intent),
-        delete every other pool-labelled worker, drop records whose worker is gone. Nothing
+        """On engine start: adopt owned workers a record names (by id or intent),
+        delete every other owned worker, drop records whose worker is gone. Nothing
         is deleted unless the inventory is complete. Workers of other pools are untouched."""
         for path in self.state.glob("deletions/*/intent.json"):
             if not (path.parent / "deletion-completion.json").exists():
@@ -456,6 +469,7 @@ class BoatPool:
         rows = self._inventory()
         adopted, deleted = [], []
         records = self._records()
+        cases = {ownership_hash(case_id): case_id for case_id in records}
         claimed = set()
         for case_id, record in records.items():
             with self._lock(case_id):
@@ -465,8 +479,7 @@ class BoatPool:
                 if record["deleting"] is not None:
                     self._finish_delete(case_id, record)
                     continue
-                worker = (self._find(rows, case_id, worker=record["worker"]) if record["worker"]
-                          else self._find(rows, case_id, intent=record["intent"]) if record["intent"] else None)
+                worker = self._find(rows, case_id, worker=record["worker"], intent=record["intent"])
                 if worker is None:
                     if record["worker"] is None and record["intent"] is not None:
                         continue  # Keep ownership of an unresolved create across restarts.
@@ -483,8 +496,8 @@ class BoatPool:
             labels = self._ours(row)
             if labels is None or row.get("id") in claimed or not isinstance(row.get("id"), str):
                 continue
-            case_id = labels.get(LABEL_CASE)
-            if type(case_id) is str and CASE_ID.fullmatch(case_id):
+            case_id = cases.get(labels[LABEL_CASE])
+            if case_id is not None:
                 with self._lock(case_id):
                     current = self._read(case_id)
                     if current is not None and (row["id"] == current["worker"] or (
@@ -507,8 +520,7 @@ class BoatPool:
                 "--no-snapshots", "--ttl", str(self.ttl)]
         if self.vm_type:
             args += ["--type", self.vm_type]
-        for key, value in ((LABEL_POOL, self.pool_id), (LABEL_CASE, case_id), (LABEL_INTENT, nonce)):
-            args += ["--label", f"{key}={value}"]
+        args += ["--name", ownership_name(self.pool_id, case_id, nonce)]
         code, out = self.boat.run(args + ["--json"], timeout=self.new_timeout)
         worker = None
         for line in out.decode("utf-8", "replace").splitlines():
@@ -521,7 +533,7 @@ class BoatPool:
                 worker = event["id"]
                 break
         if worker is None:
-            # A lost response may still have created it: adopt by the intent label.
+            # A lost response may still have created it: adopt by its ownership name.
             worker = self._find(self._inventory(), case_id, intent=nonce)
             if worker is None:
                 raise PoolError("infra:worker_create_failed" if code not in (0, 124) else "infra:worker_create_unknown")

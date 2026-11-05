@@ -23,7 +23,7 @@ from durable.artifacts import AgeSealer, LocalObjects, R2Objects, SealedStore, c
 from durable.contract import ArtifactKind, Ref, assert_no_conductor, batch_spec_from_record
 from durable.keys import AgeKeyService
 from durable.ledger import SqlLedger
-from durable.workers import BoatPool, ReleaseStore, LABEL_CASE, LABEL_INTENT
+from durable.workers import BoatPool, ReleaseStore, LABEL_CASE, LABEL_INTENT, ownership_hash
 
 
 class RuntimeErrorCode(ValueError):
@@ -151,12 +151,13 @@ class Runtime:
             # Restored ownership is conservative: retain missing/uncertain records
             # and never run orphan deletion against a potentially newer inventory.
             records = self.pool._records()
+            ownership = {ownership_hash(case_id): record for case_id, record in records.items()}
             rows = self.pool._inventory()
             for row in rows:
                 labels = self.pool._ours(row)
                 if labels is None:
                     continue
-                record = records.get(labels.get(LABEL_CASE))
+                record = ownership.get(labels.get(LABEL_CASE))
                 if record is None or not (record["worker"] == row["id"] or (
                         record["worker"] is None and record["intent"] is not None
                         and record["intent"] == labels.get(LABEL_INTENT))):
