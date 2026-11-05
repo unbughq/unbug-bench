@@ -118,6 +118,20 @@ def run_processes(url, mode, workers=4, n=60):
 
 
 class Concurrency(Db, unittest.TestCase):
+    def test_concurrent_first_open_keeps_largest_bound(self):
+        from concurrent.futures import ThreadPoolExecutor
+        gate = threading.Barrier(8)
+        def first_open(bound):
+            ledger = SqlLedger(self.url)
+            try:
+                gate.wait(timeout=30)
+                ledger.open("b-concurrent-first", bound)
+            finally:
+                ledger.close()
+        with ThreadPoolExecutor(8) as pool:
+            list(pool.map(first_open, range(1, 9)))
+        self.assertEqual(self.ledger.balance("b-concurrent-first")["bound"], 8)
+
     def test_threads_never_exceed_either_limit(self):
         self.ledger.open(BATCH, BOUND)
         grants, threads = [], []

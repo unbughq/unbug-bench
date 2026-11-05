@@ -20,7 +20,7 @@ import threading
 import sqlalchemy as sa
 
 from durable.contract import BATCH_ID, CASE_ID
-from durable.ledger import _make_engine
+from durable.ledger import _make_engine, _create_schema
 
 RECIPIENT = re.compile(r"age1[0-9a-z]{58}")
 FORMAT = b"unbug-durable/scope-key/v1"
@@ -92,7 +92,7 @@ class AgeKeyService:
         if public.decode("ascii", "replace").strip() != restore_recipient:
             raise KeyServiceError("restore identity does not match the restore recipient")
         self._engine = _make_engine(url)
-        _META.create_all(self._engine)
+        _create_schema(self._engine, _META)
         self._keys: dict[str, bytes] = {}
         self._lock = threading.Lock()
 
@@ -105,6 +105,18 @@ class AgeKeyService:
     # ---- the protocol ------------------------------------------------------------------------
 
     def scope_key(self, scope: str) -> bytes:
+        _scope(scope)
+        # Raise after sensitive helper frames and their exception contexts unwind.
+        failure = None
+        try:
+            return self._scope_key(scope)
+        except KeyServiceError as error:
+            failure = str(error)
+        except Exception:
+            failure = f"could not load the key for scope {scope}"
+        raise KeyServiceError(failure)
+
+    def _scope_key(self, scope: str) -> bytes:
         _scope(scope)
         with self._lock:
             key = self._keys.get(scope)

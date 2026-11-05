@@ -68,6 +68,14 @@ def _make_engine(url: str) -> sa.Engine:
     return engine
 
 
+def _create_schema(engine, metadata):
+    # One transaction owns first-use DDL, including across control processes.
+    with engine.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            conn.execute(sa.text("SELECT pg_advisory_xact_lock(719235184002)"))
+        metadata.create_all(conn)
+
+
 def _key(value: str, case_id: Optional[str] = None) -> str:
     if not (type(value) is str and value.count("/") == 3 and len(value) <= 256):
         raise LedgerError("bad idempotency key")
@@ -88,10 +96,7 @@ class SqlLedger:
 
     def __init__(self, url: str):
         self._engine = _make_engine(url)
-        try:
-            _META.create_all(self._engine)
-        except sa.exc.DBAPIError:
-            _META.create_all(self._engine)   # another process created the tables first (Postgres race)
+        _create_schema(self._engine, _META)
 
     def close(self) -> None:
         self._engine.dispose()
@@ -147,13 +152,17 @@ class SqlLedger:
         _checked(_id, batch_id, BATCH_ID, "batch_id")
         _checked(_nonneg_int, bound_usd_micros, "bound_usd_micros")
         with self._engine.begin() as conn:
-            current = conn.execute(sa.select(BATCHES.c.bound_usd_micros).where(BATCHES.c.batch_id == batch_id)
-                                   .with_for_update()).scalar_one_or_none()
-            if current is None:
-                conn.execute(BATCHES.insert().values(batch_id=batch_id, bound_usd_micros=bound_usd_micros))
-            elif bound_usd_micros > current:
+            if conn.dialect.name == "postgresql":
+                from sqlalchemy.dialects.postgresql import insert
+            else:
+                from sqlalchemy.dialects.sqlite import insert
+            conn.execute(insert(BATCHES).values(batch_id=batch_id, bound_usd_micros=bound_usd_micros)
+                         .on_conflict_do_nothing(index_elements=[BATCHES.c.batch_id]))
+            current = self._lock_batch(conn, batch_id)
+            if bound_usd_micros > current:
                 conn.execute(BATCHES.update().where(BATCHES.c.batch_id == batch_id)
                              .values(bound_usd_micros=bound_usd_micros))
+
 
     def raise_bound(self, batch_id: str, bound_usd_micros: int) -> None:
         _checked(_id, batch_id, BATCH_ID, "batch_id")

@@ -107,6 +107,25 @@ class Keys(unittest.TestCase):
         with closing(sqlite3.connect(self.dir / "engine.sqlite")) as db, db:
             return db.execute("SELECT wrapped FROM durable_scope_key WHERE scope = ?", (scope,)).fetchone()[0]
 
+    def test_swapped_scope_error_has_no_sensitive_helper_frames_or_context(self):
+        svc = self.service()
+        svc.scope_key("case-a")
+        with closing(sqlite3.connect(self.dir / "engine.sqlite")) as db, db:
+            db.execute("INSERT INTO durable_scope_key VALUES ('case-swapped', ?)", (self.stored("case-a"),))
+        try:
+            svc.scope_key("case-swapped")
+        except KeyServiceError as error:
+            self.assertIsNone(error.__context__)
+            self.assertIsNone(error.__cause__)
+            stack = traceback.TracebackException.from_exception(error, capture_locals=True).stack
+            frames = [f for f in stack if f.filename.endswith("durable/keys.py")]
+            self.assertEqual([f.name for f in frames], ["scope_key"])
+            self.assertEqual(set(frames[0].locals), {"self", "scope", "failure"})
+        else:
+            self.fail("swapped key accepted")
+        finally:
+            svc.close()
+
     def test_same_scope_same_key_after_restart(self):
         first = self.service()
         a, b, batch = first.scope_key("case-a"), first.scope_key("case-b"), first.scope_key("b-keys-test")
