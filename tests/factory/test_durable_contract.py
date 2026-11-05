@@ -1,4 +1,4 @@
-"""Durable-execution contract v3: the frozen seams every work package builds against.
+"""Durable-execution contract v4: the frozen seams every work package builds against.
 
 docs/designs/durable-execution.md. The engine records every step argument, result and
 exception, so the contract must refuse case content and round-trip exactly.
@@ -16,11 +16,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "factory"), str(ROOT / "bin")]
 os.environ.setdefault("BENCH", str(ROOT))
 
-from durable.contract import (DEFAULT_STEP_CEILINGS, ArtifactKind, BatchSpec, BenchRelease, Classified,
+from durable.contract import (RELEASE_MANIFEST, ArtifactKind, BatchSpec, BenchRelease, Classified, Grant, LimitedBy,
                               ContractError, FounderAction, FounderReply, Outcome, Poll, PollState, Ref,
                               SealedCase, Step, StepInput, StepKind, StepResult, Usage, Verdict, artifact_digest,
                               assert_no_conductor, attempt_paths, batch_spec_from_record, check_result_for,
-                              derive_keys, guarded_run, hkdf_sha256, poll_from_record, start_frame,
+                              derive_keys, guarded_run, hkdf_sha256, key_frame, poll_from_record, start_frame,
                               step_input_from_record, step_result_from_record, to_record, wait_seconds)
 
 A, B, C = "a" * 64, "b" * 64, "c" * 64
@@ -193,6 +193,33 @@ class Shapes(unittest.TestCase):
             with self.assertRaises(ContractError, msg=(step, result)):
                 check_result_for(step, result)
 
+    def test_passed_gates(self):
+        r = StepResult(Outcome.GATE_FAILED, "g11:fake_pass", gate="G11", passed=("G1", "G2", "G10"))
+        check_result_for(GATES, r)
+        self.assertEqual(step_result_from_record(json.loads(json.dumps(to_record(r)))), r)
+        for bad in (dict(passed=["G1"]), dict(passed=("G1", "G1")), dict(passed=("G99",)),
+                    dict(passed=("G11",))):                       # the failed gate did not pass
+            with self.assertRaises(ContractError, msg=bad):
+                StepResult(Outcome.GATE_FAILED, "g11:fake_pass", gate="G11", **bad)
+        with self.assertRaises(ContractError):
+            check_result_for(STRESS, StepResult(Outcome.OK, "stress:clean", snapshot=ref(), passed=("G8",)))
+
+    def test_close_to_passing_carries_guidance(self):
+        with self.assertRaises(ContractError):
+            check_result_for(DIAG, StepResult(Outcome.OK, "diagnosis:pass", snapshot=ref(), verdict=Verdict.CLOSE_TO_PASSING))
+
+    def test_wire_frames_and_release(self):
+        self.assertEqual(key_frame("case-x1/7/gates:1/1"), {"key": "case-x1/7/gates:1/1"})
+        with self.assertRaises(ContractError):
+            key_frame("../etc/passwd")
+        self.assertEqual(RELEASE_MANIFEST, "factory-release/RELEASE.json")
+
+    def test_grant(self):
+        Grant(5, LimitedBy.CASE)
+        for bad in (lambda: Grant(-1, LimitedBy.NOTHING), lambda: Grant(1, "unknown")):
+            with self.assertRaises(ContractError):
+                bad()
+
     def test_steps(self):
         self.assertEqual(Step(StepKind.GATES, 2).name, "gates:2")
         self.assertEqual(Step(StepKind.DIAGNOSIS).name, "diagnosis")
@@ -223,13 +250,10 @@ class Shapes(unittest.TestCase):
                             step_input(seq=19, snapshot=ref(d=B)).idempotency_key)
 
     def test_spec_and_output(self):
-        s = spec()
-        self.assertEqual(s.ceiling(StepKind.WRITER), 20_000_000)
-        self.assertEqual(set(DEFAULT_STEP_CEILINGS), {k.value for k in StepKind})
+        spec()
         for bad in (dict(target_sealed=0), dict(app_commit="main"), dict(inputs=ref()), dict(inputs=None),
                     dict(deadline_epoch=float("nan")), dict(max_extensions=-1), dict(step_deadline_s=0),
-                    dict(max_cases_started=0), dict(step_ceilings_usd_micros={"writer": 1}),
-                    dict(step_ceilings_usd_micros={**DEFAULT_STEP_CEILINGS, "seal": -1})):
+                    dict(max_cases_started=0), dict(case_money_usd_micros=-1)):
             with self.assertRaises(ContractError, msg=bad):
                 spec(**bad)
         SealedCase("case-x1", ref(K.SEALED_ARCHIVE), hard=False)

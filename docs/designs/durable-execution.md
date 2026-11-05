@@ -1,11 +1,11 @@
 # Durable execution for the case factory
 
-Status: design for review, revision 3 (2026-11-05), after design reviews 1 and 2
-(`docs/reviews/durable-execution-design-{1,2}.md`). Branch `durable-execution`,
+Status: design for review, revision 4 (2026-11-05), after design reviews 1–3
+(`docs/reviews/durable-execution-design-{1,2,3}.md`). Branch `durable-execution`,
 cut from `factory-simplify` at `2df5664`. This supersedes the "no second event engine"
 direction of `docs/factory-single-path.md`.
 
-## What changed in revision 3, and why
+## What changed in revisions 3 and 4, and why
 
 Review 2 found ten new blocking gaps. Most came from two choices in revision 2:
 running each gate as its own engine step, and freezing the engine's policy into the
@@ -22,6 +22,25 @@ shared contract. Revision 3 removes both instead of patching around them.
     checkpoints later without a contract change.
 - **Policy is WP1's.** `factory/durable/policy.py` is owned by WP1 and is not
   frozen. `contract.py` keeps only what crosses a package boundary.
+
+Review 3 accepted the trade and found four small gaps, fixed in revision 4 with
+contract version 4:
+
+- a GATES result now names every gate that passed (`passed`);
+- the `poll` and `cancel` frames and the release identity are frozen;
+- a transport failure can never start a second attempt beside a live one;
+- per-step price caps are gone, because no evidence prices a step.
+
+The trade's real costs, which revision 3 understated:
+
+- **Early-check reuse is partial.** Today's in-memory early reuse (`c.early`)
+  does not cross a step boundary. So G3, which is not in `gate_state.REUSABLE`,
+  reruns inside GATES. G4, G5 and G15 are reused only through `gate_state`, from
+  the evidence kept in the snapshot.
+- **Unsaved progress is lost** when the worker dies, and also when the worker is
+  released during a long sleep. Non-OK results therefore carry their snapshot
+  whenever the worker can produce one, and a retry restores it. Gates outside the
+  cache (G1, G2, G3, G7, G11 and G17) rerun.
 
 ## Problem
 
@@ -95,18 +114,26 @@ this on the real engine.
    - Clean (OK, no feedback): go to GATES.
    - Findings (OK with feedback): REPAIR, which is the next writer round.
 4. **GATES r.** Today's `run_gates`, with G10 overlap, `gate-cache` reuse and
-   G17. It ends in one of three ways:
+   G17. Every result lists the gates that passed or were reused (`passed`), which
+   is what `progressed()` and `report.py` read. It ends in one of three ways:
    - OK.
    - GATE_FAILED, naming the gate. A repairable failure carries feedback and
      REPAIRs; a non-repairable one RETIREs.
    - NEEDS_FOUNDER, from G8, G9, G16 or G17 only.
 5. **SEAL** (G12). Returns `archive` and `hard`.
 6. The control VM then generates the public scorecard from the engine tables (WP1)
-   and publishes it (WP8). No code reads a scorecard back to make a decision.
+   and publishes it (WP8). No code reads the public scorecard back to make a
+   decision. The worker's private card (`c.work/scorecard.json`) is part of the
+   snapshot and is read on every step, as today.
 
 **Extensions.** An EXTEND runs one more writer round, its stress round and GATES,
 with the diagnosis's feedback. Extension rounds count in `extensions_used`, not in
 `writer_rounds_used`.
+
+- An extension never repairs (`Counters.in_extension`). A failure inside it goes
+  straight back to diagnosis.
+- A close-to-passing verdict must carry its writer feedback.
+- Extensions draw only on the batch bound, not on the case's own money.
 
 ### What happens after each outcome
 
@@ -119,8 +146,11 @@ with the diagnosis's feedback. Extension rounds count in `extensions_used`, not 
 - **INFRA_ERROR.** RETRY, never scored. After `max_infra_retries_per_step`, give up.
 - **GATE_FAILED, repairable.** REPAIR while rounds remain, then give up.
 - **GATE_FAILED, not repairable.** RETIRE. This is a scored rejection.
-- **EXHAUSTED.** Give up. Only the worker emits it, when the attempt reaches its
+- **EXHAUSTED.** Only the worker emits it, when the attempt reaches its
   `money_ceiling_usd_micros` or the runner's own limits.
+  - If the batch bound shaped that attempt's grant, WAIT_FOR_BOUND: wait for
+    `BOUND_RAISED`, then retry.
+  - Otherwise, give up.
 - **Giving up** depends on the step:
   - an ordinary step goes to DIAGNOSE;
   - a DIAGNOSIS step RETIREs; a diagnosis is never diagnosed;
@@ -151,21 +181,33 @@ extensions already running finish, and their seals are kept.
 
 ### Money
 
-Before a paid attempt starts, `Ledger.reserve` holds the attempt's ceiling,
-`spec.ceiling(kind)`, against two limits:
+There are no per-step price caps. No evidence prices a step (Stream D's cost
+evidence), and a cap would turn plumbing into a case result.
 
-- the batch bound, `money_bound_usd_micros`;
-- the case's own money, `case_money_usd_micros` (default $50, today's default).
+**Grants.** Before a paid attempt starts, the engine requests the case's whole
+remaining money. `Ledger.reserve` grants and holds the smallest of:
 
-Concurrent cases can therefore never overshoot either limit together.
+- that request;
+- the case's remaining money, `case_money_usd_micros` (default $50, today's
+  default);
+- the batch's remaining bound, `money_bound_usd_micros`.
 
-- `settle` books the real usage and frees the rest.
-- `settle_lost` books the whole ceiling for an attempt that produced no usage.
-- A refused reservation is not a case outcome. That case waits, and the batch stops
-  starting cases until `BoundRaised` arrives.
-- The default per-attempt ceilings (`DEFAULT_STEP_CEILINGS`) are writer $20 (one
-  round has cost $15.05), gates $20, stress $10, admit $5, diagnosis $5 and seal $0.
-  The founder may change them per batch.
+The grant becomes `money_ceiling_usd_micros`. Concurrent cases can therefore never
+overshoot either limit.
+
+**When the money runs out.**
+
+- If the case's own money is exhausted, that is a case outcome (DIAGNOSE).
+- If the batch bound is exhausted, the case waits for `BOUND_RAISED`
+  (WAIT_FOR_BOUND), and the batch starts no new cases.
+- Extension attempts pass `draws_case_money=False`, so they draw only on the batch
+  bound.
+
+**Booking.** `settle` books the real usage and frees the rest. `settle_lost` books
+the whole grant for an attempt that produced no usage.
+
+With `max_concurrency` cases running at once, a batch bound below `max_concurrency`
+× $50 makes some cases wait. This is intended.
 
 ### Workers and the wire protocol
 
@@ -181,15 +223,27 @@ These are frozen in `contract.py`: `WORKER_COMMAND`, `attempt_paths`,
   1. creates the attempt directory with O_EXCL, so a second start does nothing;
   2. detaches the attempt as a systemd unit `durable-<id16>` (or setsid), so ssh
      drops and control-VM restarts never stop it;
-  3. checks that its installed release matches `plumbing_version` and
-     `bench_version`, and otherwise ends with `infra:version_mismatch`;
+  3. checks that its installed release (`RELEASE.json`, written by WP2) matches
+     `plumbing_version` and `bench_version`, and otherwise ends with
+     `infra:version_mismatch`. The two versions are the factory bundle sha256 and
+     `run.bench_manifest()`, as `launch.sh` computes them today. Gate code is in
+     the factory bundle, so a gate fix is a plumbing release, and `gate_state`
+     fingerprints rerun only the gates whose sources changed;
   4. restores the snapshot and runs the step;
   5. writes output ciphertexts into `out/`;
   6. writes the result once, by atomic rename.
-- **poll.** Returns RUNNING, DONE (with the result) or ABSENT. ABSENT means never
-  started or lost; the engine treats it as an INFRA_ERROR and retries at once, with
-  no waiting for the deadline. DONE output blobs go into the ArtifactStore before
-  poll returns.
+- **poll and cancel** read `key_frame(key)` on stdin. `poll` prints one line, the
+  `Poll` record. Exit codes and outputs are in the `RELEASE_MANIFEST` docstring
+  in the contract.
+- **poll results.** RUNNING, DONE (with the result) or ABSENT.
+  - ABSENT only when the worker answered and has neither a result nor a live unit.
+    The engine then retries at once.
+  - A transport failure is RUNNING, bounded by the deadline plus a grace period,
+    so a network flake can never start a second attempt beside a live one.
+  - Before attempt n+1, the engine cancels attempt n.
+  - `start` refuses (`infra:attempt_busy`) while another attempt of the same case
+    is live.
+  - DONE output blobs go into the ArtifactStore before poll returns.
 - **Deadlines.** The worker kills an attempt at `deadline_s` (`infra:deadline`). The
   control side stops polling at the deadline plus a grace period, then cancels.
 - **No R2 on workers.** The control side moves every blob, so workers need no R2
@@ -203,10 +257,17 @@ These are frozen in `contract.py`: `WORKER_COMMAND`, `attempt_paths`,
   A case keeps its worker between steps as a cache. If the worker dies, the next
   attempt gets a new one and restores the snapshot.
 - **The snapshot** (`CASE_SNAPSHOT`) is `c.case` plus the retained `c.work`
-  subset, which WP5a lists exactly. The subset starts with `gate-cache/`,
-  `attack-state.json`, `prototype.json`, `infra-attempts.json` and the admission
-  files. Test: a fresh worker restoring a GATES snapshot reuses that snapshot's
-  passed gates.
+  subset, which WP5a lists exactly. The subset starts with:
+  - `gate-cache/`, and the evidence `gate_state.load` checks (`gate-details/`,
+    `judge_breadth/`, `review-*/`, `bench-results/`);
+  - G10's attempt receipts;
+  - the private card `scorecard.json`;
+  - `attack-state.json`, `prototype.json` and `infra-attempts.json`;
+  - the admission files.
+
+  Non-OK results carry their snapshot when the worker can produce one, and a retry
+  restores it. Test: a fresh worker restoring a GATES snapshot reuses that
+  snapshot's passed gates.
 
 ### Versions and messages
 
@@ -254,7 +315,7 @@ content-free by construction:
 
 ### The frozen contract
 
-`factory/durable/contract.py` (version 3) is pure, with no I/O and no engine import.
+`factory/durable/contract.py` (version 4) is pure, with no I/O and no engine import.
 It holds:
 
 - the records: `BatchSpec`, `Step`, `StepInput`, `StepResult`, `Usage`, `Ref`,
@@ -282,11 +343,11 @@ Within a wave, no two packages write the same file.
 
 | ID | Wave | Package | Owns (writes) | Done when |
 |---|---|---|---|---|
-| WP1 | 1 | Engine core, executor and policy | `factory/durable/engine.py`, `executor.py`, `policy.py`, `report.py` | Batch and case workflows on fakes cover the step sequence, outcome routing, admission queue, replacements, diagnosis, extensions, hold, escalation and messages. The executor composes the seams inside `guarded_run`. `report.py` generates the scorecard. Includes the queue-order test and the constructed-instance Conductor check. The mid-term exam. |
+| WP1 | 1 | Engine core, executor and policy | `factory/durable/engine.py`, `executor.py`, `policy.py`, `report.py` | Batch and case workflows on fakes cover the step sequence, outcome routing, admission queue, replacements, diagnosis, extensions, hold, escalation, the bound wait and messages. The executor composes the seams inside `guarded_run`, and grants, cancel-before-retry and restore-from-snapshot behave as above. `report.py` generates the scorecard from `passed`. Settled in WP1's own note: <ul><li>a GATES deadline taken from evidence (real cards show over 2.5 h before G7), not the 4 h default;</li><li>an ADMIT that hits a provider limit gives up its queue slot while it sleeps;</li><li>ADMIT reads the latest registry when dequeued;</li><li>the engine seals its own stop history as a `DIAGNOSTIC` for DIAGNOSIS evidence.</li></ul> Includes the queue-order test and the constructed-instance Conductor check. The mid-term exam. |
 | WP2 | 1 | Worker pool, provisioning and channel | `factory/durable/workers.py`, `factory/durable/channel.py` | Boat creation uses idempotency labels. Release install and verification replace `launch.sh:685-707`. On restart, orphans are adopted or deleted. The channel side of the wire protocol is in place. Tests use real saved Boat CLI outputs. |
 | WP3 | 1 | Sealer and artifact store | `factory/durable/artifacts.py` | `Sealer` with the age CLI and `derive_keys`, plus an R2 store and a local store. A truncated upload is never visible. Ciphertext opens only with its scope key. |
 | WP4 | 1 | Failure classification | `factory/durable/classify.py` | Implements `Classifier`. Every stop kind in the 50 real scorecards maps to an outcome. A limit with no reset time gets a defined backoff from `now`. Ships the published-reason allowlist and the top `opencode_error` causes from the real logs. |
-| WP5a | 1 | Worker-side step runner | `factory/durable/worker_step.py`; the only writer of `factory/run.py` in waves 1–2 | The worker side of the wire protocol: detach, version check, restore, run, snapshot, result. Adds the `run.py` hooks `context_for_step`, `run_step` (ADMIT through WP11's adapter, WRITER, STRESS, GATES and SEAL) and `retained_paths`, and turns off the in-process lifecycle when under the engine. Each step runs on the public practice case. The GATES snapshot-reuse test. |
+| WP5a | 1 | Worker-side step runner | `factory/durable/worker_step.py`; the only writer of `factory/run.py` in waves 1–2 | The worker side of the wire protocol: detach, `attempt_busy`, version check, restore, run, snapshot, result. Adds the `run.py` hooks `context_for_step`, `run_step` (ADMIT through WP11's adapter, WRITER, STRESS, GATES and SEAL) and `retained_paths`. Under the engine it turns off the in-process lifecycle: <ul><li>`validate_and_repair`'s repair loop, with `late_recovery` marking;</li><li>the final builder-precheck call and `stop_defect` in the stress path;</li><li>`reselect_candidate`;</li><li>`_gate_completed`'s `checkpoint_progress`.</li></ul> Each step runs on the public practice case. The GATES snapshot-reuse test. |
 | WP6 | 1 | Ledger | `factory/durable/ledger.py` | Implements `Ledger` in the engine database. Replay gives an identical ledger. Concurrent reservations never exceed either limit. |
 | WP7 | 1 | Key service | `factory/durable/keys.py` | The scoped VM key (approved 2026-10-29) wraps 32-byte scope keys. A key reaches a worker only inside `start_frame`. |
 | WP10 | 2 | Diagnosis and extensions | `factory/durable/steps/diagnosis.py`; adapts `diagnosis.py`, `diagnosis_dispatch.py`, `extensions.py`, `extension_package.py` and `extension_*.py` | A DIAGNOSIS step returns a verdict, and close-to-passing feedback. The modules' dispatch and state parts are listed for WP9. |
@@ -345,8 +406,8 @@ The exams gate each wave, not the dates.
 
 | File | Tests | What they cover |
 |---|---|---|
-| `tests/factory/test_durable_contract.py` | 20 | reason grammar; exception containment; Conductor check; RFC 5869 HKDF vector and keyed digests; wire layout, start frame and three-state poll; outcome and per-step rules, including who may escalate and what ADMIT and SEAL return; inputs, evidence and ruling placement; keys never collide across repairs; spec ceilings; message payloads; `Classified` shapes; strict round-trips |
-| `tests/factory/test_durable_policy.py` | 9 | the section 3 table; a diagnosis is never diagnosed; admission failure stops admission; one replacement per case, bounded by `max_cases_started`; diagnosis limits; progress |
+| `tests/factory/test_durable_contract.py` | 24 | passed gates; poll and cancel frames; grants; reason grammar; exception containment; Conductor check; RFC 5869 HKDF vector and keyed digests; wire layout, start frame and three-state poll; outcome and per-step rules, including who may escalate and what ADMIT and SEAL return; inputs, evidence and ruling placement; keys never collide across repairs; spec ceilings; message payloads; `Classified` shapes; strict round-trips |
+| `tests/factory/test_durable_policy.py` | 11 | an extension never repairs; batch money waits while case money diagnoses; the section 3 table; a diagnosis is never diagnosed; admission failure stops admission; one replacement per case, bounded by `max_cases_started`; diagnosis limits; progress |
 | `tests/factory/test_durable_replay.py` | 4 | real DBOS: a crash mid-step reruns only the open step; a provider sleep keeps its wake time (20 s limit, under 17 s after 12 s of downtime); a restart after the wake time has passed; changed step code resumes under the pinned version |
 
 Every package adds the tests in its "Done when", using the real engine and real saved
@@ -372,6 +433,9 @@ package's test, on real artifacts, proves it.
 Rows 2 and 47 need a batch-wide account scheduler. That is router work outside this
 design.
 
+**Planned contract change outside wave 1.** A `BatchSpec` input for HOLD cases a
+later batch resumes, carrying their lineage counters, will be designed with WP10.
+
 ## What this does not fix
 
 These all stay as work:
@@ -381,7 +445,9 @@ These all stay as work:
 - Docker and SQL hangs inside a step;
 - stray-process cleanup;
 - the causes of model-CLI errors;
-- loss of unsaved in-step progress when a worker dies, until WP5f.
+- loss of unsaved in-step progress when a worker dies or is released during a long
+  sleep, and reruns of the gates outside the cache (G1, G2, G3, G7, G11 and G17),
+  until WP5f.
 
 ## Founder decisions needed
 
@@ -392,7 +458,7 @@ These all stay as work:
 3. **Postgres on the control VM**, with nightly encrypted backups.
 4. **DBOS over Temporal.**
 5. **The integration-branch exception.**
-6. **The default money settings:** per-case money ($50), the per-attempt ceilings
-   above, and `max_cases_started` (24).
+6. **The default money settings:** per-case money ($50, extensions excluded) and
+   `max_cases_started` (24).
 7. **The overnight stopgap.** Does a supervisor around today's same-worker resume
    still run while this is built?

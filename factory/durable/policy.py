@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from enum import Enum
 
-from durable.contract import (BatchSpec, ContractError, Outcome, Step, StepKind, StepResult, Verdict,
+from durable.contract import (BatchSpec, ContractError, LimitedBy, Outcome, Step, StepKind, StepResult, Verdict,
                               _nonneg_int, check_result_for)
 
 
@@ -24,6 +24,7 @@ class Action(str, Enum):
     RETIRE = "retire"                  # stop this case
     ESCALATE = "escalate"              # park and wait for FOUNDER_REPLY
     STOP_ADMISSION = "stop_admission"  # ADMIT cannot find a bug: retire this case and start no new cases
+    WAIT_FOR_BOUND = "wait_for_bound"  # the batch bound ran out under this attempt: wait for BOUND_RAISED, then RETRY
 
 
 @dataclass(frozen=True)
@@ -35,16 +36,23 @@ class Counters:
     extensions_used: int = 0
     factory_bug_resumes: int = 0   # carried across batches in the case's lineage
     diagnoses_used: int = 0
+    in_extension: bool = False     # the step belongs to an extension (one writer round + stress + gates)
 
     def __post_init__(self):
         for f in fields(self):
-            _nonneg_int(getattr(self, f.name), f"Counters.{f.name}")
+            if f.name == "in_extension":
+                if type(self.in_extension) is not bool: raise ContractError("in_extension must be a bool")
+            else:
+                _nonneg_int(getattr(self, f.name), f"Counters.{f.name}")
 
 
-def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec) -> Action:
+def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, *,
+           money_limited_by: LimitedBy = LimitedBy.NOTHING) -> Action:
+    """money_limited_by is the limit that shaped this attempt's Grant."""
     check_result_for(step, result)
     k, o = step.kind, result.outcome
-    rounds_left = counters.writer_rounds_used < spec.max_writer_rounds
+    # An extension is exactly one writer round, its stress round and the gates: it never repairs.
+    rounds_left = counters.writer_rounds_used < spec.max_writer_rounds and not counters.in_extension
 
     def give_up():
         # Never diagnose a diagnosis (Stream D: a broken diagnosis is infrastructure, and
@@ -73,6 +81,8 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec) 
             return Action.RETIRE                  # a scored rejection, e.g. the bug is not fresh
         return Action.REPAIR if rounds_left else give_up()
     if o is Outcome.EXHAUSTED:
+        if LimitedBy(money_limited_by) is LimitedBy.BATCH:
+            return Action.WAIT_FOR_BOUND          # the batch ran out, not the case
         return give_up()
     if o is Outcome.NEEDS_FOUNDER:
         return Action.ESCALATE

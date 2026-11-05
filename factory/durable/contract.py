@@ -1,4 +1,4 @@
-"""Frozen contract shared by every durable-execution work package (version 3).
+"""Frozen contract shared by every durable-execution work package (version 4).
 
 Only what crosses a package boundary lives here: the records the engine stores, the
 worker wire protocol, key derivation, and the seams (protocols) between packages.
@@ -21,7 +21,7 @@ import math
 import re
 from typing import Any, Mapping, Optional, Protocol
 
-CONTRACT_VERSION = 3
+CONTRACT_VERSION = 4
 
 DIGEST = re.compile(r"[0-9a-f]{64}")
 CASE_ID = re.compile(r"case-[A-Za-z0-9-]{1,80}")
@@ -216,7 +216,7 @@ class StepInput:
     inputs: Ref                  # INPUTS: the promise, app pin and rotation
     snapshot: Optional[Ref]      # CASE_SNAPSHOT to restore; None exactly for ADMIT
     deadline_s: float            # wall-clock budget of this attempt on the worker
-    money_ceiling_usd_micros: int  # paid spend this attempt may use; the worker stops at it
+    money_ceiling_usd_micros: int  # the Grant for this attempt; the worker stops at it (EXHAUSTED)
     feedback: Optional[Ref] = None   # WRITER_FEEDBACK: WRITER steps only
     registry: Optional[Ref] = None   # STATEMENT_REGISTRY: exactly for ADMIT
     ruling: Optional[Ref] = None     # FOUNDER_RULING: STRESS or GATES after an escalation
@@ -271,6 +271,7 @@ class StepResult:
     archive: Optional[Ref] = None      # SEALED_ARCHIVE: OK of SEAL only
     hard: Optional[bool] = None        # OK of SEAL only: strong calibrators solved zero tries
     diagnostic: Optional[Ref] = None   # DIAGNOSTIC
+    passed: tuple = ()                 # GATES only: every gate that passed or was reused in this step
 
     def __post_init__(self):
         object.__setattr__(self, "outcome", _enum(Outcome, self.outcome, "outcome"))
@@ -279,6 +280,9 @@ class StepResult:
         _check(isinstance(self.usage, Usage), "usage must be a Usage")
         _check(type(self.repairable) is bool, "repairable must be a bool")
         _check(self.gate is None or (type(self.gate) is str and GATE.fullmatch(self.gate) is not None), "bad gate")
+        _check(type(self.passed) is tuple and all(type(g) is str and GATE.fullmatch(g) for g in self.passed)
+               and len(set(self.passed)) == len(self.passed), "passed is a tuple of distinct gate names")
+        _check(self.gate is None or self.gate not in self.passed, "a failed or escalated gate did not pass")
         for name, kind in (("snapshot", ArtifactKind.CASE_SNAPSHOT), ("receipt", ArtifactKind.GATE_RECEIPT),
                            ("feedback", ArtifactKind.WRITER_FEEDBACK), ("report", ArtifactKind.DIAGNOSIS_REPORT),
                            ("registry", ArtifactKind.STATEMENT_REGISTRY), ("archive", ArtifactKind.SEALED_ARCHIVE),
@@ -313,6 +317,9 @@ def check_result_for(step: Step, result: StepResult) -> None:
            "a verdict comes exactly from a successful DIAGNOSIS step")
     _check(o is not Outcome.GATE_FAILED or k is StepKind.GATES, "only the gates step fails as GATE_FAILED")
     _check(result.gate is None or k is StepKind.GATES, "only the gates step names a gate")
+    _check(not result.passed or k is StepKind.GATES, "only the gates step reports passed gates")
+    _check(result.verdict is not Verdict.CLOSE_TO_PASSING or result.feedback is not None,
+           "a close-to-passing verdict carries the extension's writer feedback")
     _check(o is not Outcome.NEEDS_FOUNDER or k in (StepKind.STRESS, StepKind.GATES),
            "only stress review or a gate review escalates")
     _check(o is not Outcome.NEEDS_FOUNDER or k is not StepKind.GATES or result.gate in ("G8", "G9", "G16", "G17"),
@@ -324,11 +331,6 @@ def check_result_for(step: Step, result: StepResult) -> None:
 
 
 # ---- batch input and output ----------------------------------------------------------------
-
-DEFAULT_STEP_CEILINGS = {  # paid micro-dollars per attempt; a writer round has cost up to $15.05
-    "admit": 5_000_000, "writer": 20_000_000, "stress": 10_000_000,
-    "gates": 20_000_000, "diagnosis": 5_000_000, "seal": 0}
-
 
 @dataclass(frozen=True)
 class BatchSpec:
@@ -344,8 +346,7 @@ class BatchSpec:
     deadline_epoch: float        # no new case or extension starts after this
     max_concurrency: int = 1
     max_cases_started: int = 24  # originals plus replacements; bounds replacement chains
-    case_money_usd_micros: int = 50_000_000   # one case's own paid money (today's default)
-    step_ceilings_usd_micros: dict = field(default_factory=lambda: dict(DEFAULT_STEP_CEILINGS))
+    case_money_usd_micros: int = 50_000_000   # one case's own paid money, extensions excluded (today's default)
     max_writer_rounds: int = 8          # the runner's --rounds is set from this
     max_infra_retries_per_step: int = 5
     max_spent_limits_per_step: int = 50  # limit attempts of one step that each spent money
@@ -370,16 +371,9 @@ class BatchSpec:
         for name in ("money_bound_usd_micros", "case_money_usd_micros", "max_infra_retries_per_step",
                      "max_extensions", "max_factory_bug_resumes"):
             _nonneg_int(getattr(self, name), name)
-        _check(type(self.step_ceilings_usd_micros) is dict and set(self.step_ceilings_usd_micros) == {k.value for k in StepKind},
-               "step_ceilings_usd_micros has exactly one entry per step kind")
-        for k, v in self.step_ceilings_usd_micros.items():
-            _nonneg_int(v, f"step ceiling {k}")
         _finite(self.deadline_epoch, "deadline_epoch")
         _finite(self.step_deadline_s, "step_deadline_s", positive=True)
         _finite(self.release_worker_after_sleep_s, "release_worker_after_sleep_s", positive=True)
-
-    def ceiling(self, kind: StepKind) -> int:
-        return self.step_ceilings_usd_micros[StepKind(kind).value]
 
 
 @dataclass(frozen=True)
@@ -442,8 +436,36 @@ class FounderReply:
 
 # ---- the worker wire protocol (WP2 control side, WP5a worker side) ---------------------------
 
-WORKER_COMMAND = ("python3", "-B", "factory/durable/worker_step.py")  # + start | poll | cancel; cwd ~/factory-release
+WORKER_COMMAND = ("python3", "-B", "factory/durable/worker_step.py")  # + start | poll | cancel; cwd RELEASE_ROOT
 WORKER_ROOT = "durable"            # relative to the worker user's home
+RELEASE_ROOT = "factory-release"   # relative to the worker user's home; WP2 installs here
+RELEASE_MANIFEST = "factory-release/RELEASE.json"
+"""RELEASE.json holds exactly {"plumbing_version": ..., "bench_version": ...}. WP2 writes it
+at install; WP5a reads it and ends any attempt whose StepInput disagrees with
+infra:version_mismatch.
+
+plumbing_version is the sha256 of the uploaded factory bundle (launch.sh's bundle_sha
+today). It covers factory/, including the gate code in factory/run.py, so a gate fix ships
+as a PlumbingRelease. gate_state fingerprints hash their source inputs, so only the gates
+whose code changed rerun.
+bench_version is run.bench_manifest() of the clean installed bench (launch.sh's bench_sha
+today): the bench tree outside factory/.
+
+Commands, run over `boat ssh` with cwd RELEASE_ROOT:
+  start   stdin: start_frame(...) as one JSON object. Prints nothing. Exit 0 once the
+          attempt is detached, or already exists. If another attempt of the same case is
+          live, it writes a result at once (INFRA_ERROR "infra:attempt_busy") and exits 0.
+  poll    stdin: key_frame(key). Prints one line: json.dumps(to_record(Poll)). Exit 0.
+  cancel  stdin: key_frame(key). Stops the attempt's unit if live and writes an
+          INFRA_ERROR "infra:cancelled" result if none exists. Prints nothing. Exit 0.
+Any other exit status, or unparsable output, is a transport failure (see WorkerChannel).
+"""
+
+
+def key_frame(idempotency_key: str) -> dict:
+    """The JSON object `poll` and `cancel` read on stdin."""
+    _check(type(idempotency_key) is str and idempotency_key.count("/") == 3, "bad idempotency key")
+    return {"key": idempotency_key}
 
 
 def attempt_id(idempotency_key: str) -> str:
@@ -479,9 +501,9 @@ def start_frame(step_input: StepInput, keys: Mapping[str, bytes]) -> dict:
 
 
 class PollState(str, Enum):
-    RUNNING = "running"   # the attempt exists and has not finished
+    RUNNING = "running"   # the attempt is live, or the worker could not be reached (bounded by the deadline)
     DONE = "done"         # the result record exists
-    ABSENT = "absent"     # never started, or the worker lost it: the engine retries at once
+    ABSENT = "absent"     # the worker answered: no result and no live unit (never started, or lost)
 
 
 @dataclass(frozen=True)
@@ -562,23 +584,49 @@ class WorkerChannel(Protocol):
     the attempt before replying. A start for an existing attempt does nothing.
     poll(): returns RUNNING, DONE with the result, or ABSENT. It fetches DONE output blobs
     into the ArtifactStore before returning.
-    No method raises on worker errors; transport failures come back as ABSENT or RUNNING."""
+    A transport failure (ssh error, bad exit status, unparsable output) is RUNNING, never
+    ABSENT, so a network flake can never start a second attempt beside a live one. The
+    engine bounds RUNNING by deadline_s plus a grace period, then calls cancel().
+    ABSENT is returned only when the worker answered and has neither a result nor a live
+    unit. Before starting attempt n+1 of a seq, the engine cancels attempt n.
+    No method raises on worker errors."""
     def start(self, lease: WorkerLease, step_input: StepInput, keys: Mapping[str, bytes],
               blobs: Mapping[str, bytes]) -> None: ...
     def poll(self, lease: WorkerLease, step_input: StepInput) -> Poll: ...
     def cancel(self, lease: WorkerLease, step_input: StepInput) -> None: ...
 
 
+class LimitedBy(str, Enum):
+    NOTHING = "nothing"   # the whole request was granted
+    CASE = "case"         # the case's own money ran short: exhausting it is a case outcome
+    BATCH = "batch"       # the batch bound ran short: exhausting it waits for BOUND_RAISED
+
+
+@dataclass(frozen=True)
+class Grant:
+    amount_usd_micros: int
+    limited_by: LimitedBy
+
+    def __post_init__(self):
+        _nonneg_int(self.amount_usd_micros, "Grant.amount_usd_micros")
+        object.__setattr__(self, "limited_by", _enum(LimitedBy, self.limited_by, "limit"))
+
+
 class Ledger(Protocol):
-    """WP6. Lives in the engine database. reserve() holds an attempt's ceiling against both
-    the batch bound and the case's own money before it starts, so concurrent cases can
-    never overshoot. settle() books the real usage and frees the rest. settle_lost() books
-    the whole ceiling for an attempt that produced no usage. Every call is idempotent on
-    the idempotency key, so replay rebuilds the same ledger."""
+    """WP6. Lives in the engine database. There are no per-step price caps: no evidence
+    prices a step, and a cap would turn plumbing into a case result.
+
+    reserve() grants min(requested, the case's remaining money, the batch's remaining
+    bound) and holds it before the attempt starts, so concurrent cases can never
+    overshoot. The engine requests the case's whole remaining money. Extension attempts
+    pass draws_case_money=False: they draw only on the batch bound (ENGINEERING section 3).
+    settle() books the real usage and frees the rest. settle_lost() books the whole grant
+    for an attempt that produced no usage. Every call is idempotent on the idempotency
+    key, so replay rebuilds the same ledger."""
     def open(self, batch_id: str, bound_usd_micros: int) -> None: ...
     def raise_bound(self, batch_id: str, bound_usd_micros: int) -> None: ...
-    def reserve(self, batch_id: str, case_id: str, idempotency_key: str, ceiling_usd_micros: int,
-                case_limit_usd_micros: int) -> bool: ...
+    def reserve(self, batch_id: str, case_id: str, idempotency_key: str, requested_usd_micros: int,
+                case_limit_usd_micros: int, *, draws_case_money: bool = True) -> Grant: ...
     def settle(self, idempotency_key: str, usage: Usage) -> None: ...
     def settle_lost(self, idempotency_key: str) -> None: ...
 
@@ -654,8 +702,9 @@ def _ref_from(d):
 def step_result_from_record(d: dict) -> StepResult:
     _exact(d, StepResult, "StepResult")
     refs = ("snapshot", "receipt", "feedback", "report", "registry", "archive", "diagnostic")
+    _check(isinstance(d["passed"], list), "passed record must be a list")
     return StepResult(**{**d, "usage": Usage(**_exact(d["usage"], Usage, "Usage")),
-                         **{k: _ref_from(d[k]) for k in refs}})
+                         **{k: _ref_from(d[k]) for k in refs}, "passed": tuple(d["passed"])})
 
 
 def step_input_from_record(d: dict) -> StepInput:
@@ -668,8 +717,7 @@ def step_input_from_record(d: dict) -> StepInput:
 
 def batch_spec_from_record(d: dict) -> BatchSpec:
     _exact(d, BatchSpec, "BatchSpec")
-    return BatchSpec(**{**d, "inputs": _ref_from(d["inputs"]),
-                        "step_ceilings_usd_micros": dict(d["step_ceilings_usd_micros"])})
+    return BatchSpec(**{**d, "inputs": _ref_from(d["inputs"])})
 
 
 def poll_from_record(d: dict) -> Poll:

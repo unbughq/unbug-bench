@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "factory")]
 os.environ.setdefault("BENCH", str(ROOT))
 
-from durable.contract import (ArtifactKind as K, BatchSpec, ContractError, Outcome, Ref, Step, StepKind,
-                              StepResult, Verdict)
+from durable.contract import (ArtifactKind as K, BatchSpec, ContractError, LimitedBy, Outcome, Ref, Step,
+                              StepKind, StepResult, Verdict)
 from durable.policy import Action, Counters, decide, decide_diagnosis, progressed, starts_replacement
 
 A = "a" * 64
@@ -54,6 +54,18 @@ class Decide(unittest.TestCase):
         self.assertIs(d(GATES, StepResult(Outcome.GATE_FAILED, "g2:public_fix", gate="G2")), Action.RETIRE)
         self.assertIs(d(GATES, StepResult(Outcome.EXHAUSTED, "writer:money")), Action.DIAGNOSE)
         self.assertIs(d(GATES, StepResult(Outcome.NEEDS_FOUNDER, "g16:split_review", gate="G16")), Action.ESCALATE)
+
+    def test_an_extension_never_repairs(self):
+        rep = StepResult(Outcome.GATE_FAILED, "g4:not_real", gate="G4", feedback=FB, repairable=True)
+        self.assertIs(d(GATES, rep, writer_rounds_used=3, extensions_used=1, in_extension=True), Action.DIAGNOSE)
+        found = StepResult(Outcome.OK, "stress:findings", snapshot=ref(), feedback=FB)
+        self.assertIs(d(STRESS, found, writer_rounds_used=3, in_extension=True), Action.DIAGNOSE)
+
+    def test_batch_money_waits_case_money_diagnoses(self):
+        ex = StepResult(Outcome.EXHAUSTED, "writer:money")
+        self.assertIs(decide(GATES, ex, Counters(), SPEC, money_limited_by=LimitedBy.BATCH), Action.WAIT_FOR_BOUND)
+        self.assertIs(decide(GATES, ex, Counters(), SPEC, money_limited_by=LimitedBy.CASE), Action.DIAGNOSE)
+        self.assertIs(decide(GATES, ex, Counters(), SPEC), Action.DIAGNOSE)
 
     def test_free_limits_never_end_a_case(self):
         limit = StepResult(Outcome.PROVIDER_LIMIT, "router:claude_limit", retry_at=1.0)
@@ -111,7 +123,8 @@ class Replacements(unittest.TestCase):
         self.assertFalse(self.r(Action.RETIRE, started=True))
         for a in (Action.RETIRE, Action.ESCALATE, Action.HOLD):
             self.assertTrue(self.r(a))
-        for a in (Action.ADVANCE, Action.RETRY, Action.SLEEP, Action.REPAIR, Action.EXTEND, Action.STOP_ADMISSION):
+        for a in (Action.ADVANCE, Action.RETRY, Action.SLEEP, Action.REPAIR, Action.EXTEND, Action.STOP_ADMISSION,
+                  Action.WAIT_FOR_BOUND):
             self.assertFalse(self.r(a))
 
     def test_bounded_by_cases_started_and_admission(self):
