@@ -12,9 +12,10 @@ that builds sealed exam cases. This describes the implementation on this branch.
 | `factory/run.py` | One case's builder, qualification gates and scientific criteria. |
 | `factory/gate_pipeline.py`, `factory/calibration.py` | Gate sequencing, reusable passes and calibrator attempts. |
 | `factory/model_runtime.py`, `factory/model_router.py` | Model execution, routing, usage accounting and provider handling. |
-| `factory/batch*.py`, `factory/key_holder.py` | Approved batch releases, control-side admission, budgets and dispatch. |
-| `factory/launch.sh`, `factory/collect.sh`, `factory/control_resume.py` | Worker launch, collection and checkpoint continuation. |
-| `factory/run_artifacts.py`, `factory/restore*.py` | Sealed evidence and authenticated restoration. |
+| `factory/durable/engine.py`, `executor.py`, `runtime.py` | Durable scheduling, execution and control-side composition. |
+| `factory/durable/workers.py`, `channel.py`, `worker_step.py` | Worker provisioning, authenticated transport and execution. |
+| `factory/durable/ledger.py`, `keys.py`, `artifacts.py` | Money reservations, scoped keys and encrypted artifacts. |
+| `factory/durable/checkpoints.py` | In-step snapshots and evidence-bound completion receipts. |
 | `control/` | Control VM setup and services. |
 | `harbor/` | Harbor task packaging and adapters. |
 | `tests/` | Offline regressions, explicit live probes and retained evidence fixtures. |
@@ -22,9 +23,9 @@ that builds sealed exam cases. This describes the implementation on this branch.
 A batch is built from a clean, pinned Git commit and admitted through the control
 service. Workers run the case builder, then the configured gate pipeline. The
 runner records scorecards and checkpoints; collection returns encrypted evidence
-and publishes the allowed summary. The existing control service and checkpoint machinery remain the production path.
-This branch also contains the durable runtime candidate described below; it has
-not yet qualified a live cutover.
+and publishes the allowed summary. The existing production release remains pinned for rollback. This candidate has
+removed its legacy launchers and controllers; remaining shared runner and budget
+callers are being converted to the durable path. Live cutover is not yet qualified.
 
 The benchmark resets its own Postgres/Redis stack for each trial. The checker uses
 read-only database access. Parallel factory slots have separate Compose projects,
@@ -67,7 +68,11 @@ recovered work can enqueue. Attach to existing workflow IDs when resuming.
 The case sequence is ADMIT → WRITER → STRESS → GATES → SEAL, with bounded repair,
 diagnosis, extension and reviewer-escalation paths. ADMIT is serialized per batch;
 GATES retains the existing pipeline and per-gate cache rather than duplicating it.
-A worker loss can lose progress not included in the last encrypted snapshot.
+Workers publish encrypted snapshots at model and gate boundaries. The channel
+fetches the latest committed snapshot; progress not fetched before a worker loss
+can still be lost. Completion receipts reuse work only under matching instructions,
+inputs and release bindings. Same-case mutable model calls serialize for coherent
+snapshots, and isolated calibrator snapshots wait until their workspaces join.
 
 DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control
@@ -91,5 +96,6 @@ creates retain their original identity rather than issuing another create.
 Ciphertext publication exports the wrapped scope key first, and fetched worker
 outputs authenticate before entering immutable storage. Encrypted backups exist;
 automated restore and a consistent database/filesystem restore exercise remain
-unqualified. Live Boat/R2/provider fault injection and retirement of the legacy
-recovery paths are still required before production cutover.
+unqualified. Legacy lifecycle modules and their obsolete tests have been removed from this
+candidate. Shared caller cleanup, backup restoration, final offline qualification
+and live Boat/R2/provider fault injection remain before production cutover.
