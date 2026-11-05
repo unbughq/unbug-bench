@@ -3330,7 +3330,7 @@ def invoke_diagnosis(c, *, model, prompt, inputs, output):
 
 def context_for_step(step_input, work):
     """Run context for one engine step, from a work tree the worker has just restored."""
-    from budget import case_spending, resume_ledger
+    from budget import case_spending, resume_ledger, reconcile_reservations
     from case_permissions import normalize_case_tree
     work = pathlib.Path(work)
     c = Ctx()
@@ -3340,6 +3340,8 @@ def context_for_step(step_input, work):
     if not isinstance(card, dict) or card.get("case") != c.case_id or type(card.get("seed")) is not int:
         raise ValueError("snapshot card does not belong to this case")
     c.card = card
+    if card.get("admission_binding") is not None:
+        c.admission_binding = card["admission_binding"]
     a = argument_parser().parse_args(["--source", "port"])
     config = card.get("recovery_config") or {}
     for key in ENGINE_SETTINGS:
@@ -3358,6 +3360,7 @@ def context_for_step(step_input, work):
     # The ledger lives in the snapshot. A previous attempt's stop is archived, not sticky.
     c.ledger = work / "continuation-budget.json"
     resume_ledger(c.ledger)
+    if c.ledger.exists(): reconcile_reservations(work, c.ledger)
     spent = case_spending(jload(c.ledger, {}), card.get("models_used"))["spent_usd"]
     c.engine = EngineStep(step_input, spent)
     a.agent_timeout = max(0.001, c.engine.deadline_monotonic - time.monotonic())

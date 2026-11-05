@@ -2,7 +2,7 @@
 import sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
+sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(Path(__file__).resolve().parent)]
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
@@ -87,6 +87,27 @@ class AttemptBudget(unittest.TestCase):
         # Cancellation/missing final usage retains ownership of the whole maximum.
         with self.assertRaisesRegex(budget.BudgetError, 'grant_insufficient'):
             self.reserve(second)
+
+    def test_hard_worker_death_preserves_pending_authorizations(self):
+        from durable.worker_step import Worker, ledger_totals
+        from durable.policy import settles_as_waste
+        self.ledger.write_text(json.dumps({'calls': 0, 'events': [], 'cost': 0}))
+        worker = Worker(self.root)
+        si = SimpleNamespace(idempotency_key=self.attempt.key, money_ceiling_usd_micros=50_000_000)
+        worker.paths(si.idempotency_key)['attempt'].mkdir(parents=True)
+        worker._save_baseline(si, self.ledger, ledger_totals(self.ledger))
+        lease = self.lease()
+        self.reserve(lease)
+        for reason in ('infra:deadline', 'infra:step_crashed', 'infra:worker_error'):
+            result = worker._failure_result(si.idempotency_key, reason)
+            self.assertEqual(result.usage.paid_usd_micros, 50_000_000)
+            self.assertTrue(settles_as_waste(result))
+        # The next exclusive attempt reconciles the same hold, without charging twice.
+        budget.reconcile_reservations(self.root, self.ledger)
+        self.assertEqual(ledger_totals(self.ledger)['total'], 50)
+        self.assertEqual(worker.usage_so_far(si.idempotency_key).paid_usd_micros, 50_000_000)
+        self.attempt = SimpleNamespace(key='attempt-2', baseline_spent_usd=50, ceiling_usd=50)
+        self.reserve(self.lease())
 
     def test_atomic_reservation_and_idempotent_honest_settlement(self):
         leases = [self.lease(), self.lease()]

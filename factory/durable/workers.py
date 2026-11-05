@@ -617,7 +617,22 @@ class BoatPool:
             self._delete_raw(worker)
         self._record_path(case_id).unlink(missing_ok=True)
 
+    def _delete_completed(self, worker: str):
+        completion = self.state / "deletions" / worker / "deletion-completion.json"
+        if completion.exists():
+            try:
+                saved = json.loads(completion.read_text())
+                if saved != {"worker": worker, "absent": True}:
+                    import boat_lifecycle
+                    boat_lifecycle.completion(saved, worker, saved["id"])
+            except (OSError, ValueError, KeyError, TypeError):
+                raise PoolError("infra:worker_delete_unconfirmed") from None
+            return True
+        return False
+
     def _delete_raw(self, worker: str):
+        if self._delete_completed(worker):
+            return
         self._receipt(worker, "intent.json", {"worker": worker})
         receipt = self.state / "deletions" / worker / "deletion-request.json"
         if receipt.exists():
@@ -660,6 +675,8 @@ class BoatPool:
         return operation["id"]
 
     def _await_delete(self, worker: str, op_id: str):
+        if self._delete_completed(worker):
+            return
         import boat_lifecycle
         deadline = time.monotonic() + self.delete_timeout
         while True:

@@ -607,7 +607,7 @@ def restore(snapshot, work):
 
 
 def ledger_totals(path):
-    from budget import _event_components, case_spending
+    from budget import _event_components, case_spending, outstanding_reservations
     try:
         ledger = json.loads(pathlib.Path(path).read_text())
     except (OSError, ValueError):
@@ -621,8 +621,14 @@ def ledger_totals(path):
         except Exception:
             pass
     calls = ledger.get("calls", 0)
-    return {"calls": calls if type(calls) is int else 0, "total": summary.get("total_spent_usd"),
-            "known": summary.get("known_total_spent_usd", summary.get("total_spent_usd")) or 0, "list": listed}
+    # A hard death can prevent the call's final receipt from being written. Keep
+    # its unspent authorization held; an absent receipt is never evidence of $0.
+    pending = outstanding_reservations(ledger)
+    total = summary.get("total_spent_usd")
+    known = summary.get("known_total_spent_usd", total) or 0
+    return {"calls": calls if type(calls) is int else 0,
+            "total": None if total is None else Decimal(str(total)) + pending,
+            "known": Decimal(str(known)) + pending, "list": listed}
 
 
 def usage_since(before, path, ceiling_micros):

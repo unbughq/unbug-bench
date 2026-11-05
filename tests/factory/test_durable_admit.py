@@ -159,6 +159,7 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual((work / "case/statement.md").read_text(), statement)
         self.assertEqual(json.loads((work / "case/case.json").read_text())["app"]["commit"], "a" * 40)
         self.assertIn("passed", c.card["admission"]["status"])
+        self.assertEqual(c.admission_binding, {k: entry[k] for k in ("reservation", "registry_revision")})
 
         # A retry restores the same registry snapshot: the same case, statement and revision.
         retry_registry = result.registry

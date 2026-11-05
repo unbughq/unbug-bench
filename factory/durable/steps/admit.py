@@ -257,7 +257,7 @@ def _screen(c, runner, registry, refs, sealer, batch_key, step_input):
         # A replay can retain the earlier randomized ciphertext for the same statement.
         if entry["cipher_sha256"] == hashlib.sha256(ciphertext).hexdigest():
             refs[entry["cipher_sha256"]] = ref.digest
-        c.admission_binding = {k: entry[k] for k in ("reservation", "registry_revision")}
+        c.admission_binding = c.card["admission_binding"] = {k: entry[k] for k in ("reservation", "registry_revision")}
         return prior
 
     c.engine_reserve_candidate = reserve

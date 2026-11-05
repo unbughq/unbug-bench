@@ -494,6 +494,25 @@ class PoolTests(unittest.TestCase):
         self.assertTrue(restarted.alive(lease))
         self.assertEqual(self.acquire(restarted), lease)
 
+    def test_completed_deletion_receipt_survives_crash_before_record_removal(self):
+        from unittest.mock import patch
+        pool = self.h.pool()
+        lease = self.acquire(pool)
+        worker = W.boat_id(lease.worker_id)
+        saved = pool._read(CASE)
+        pool.release(lease)
+        # Crash window: completion is durable, but the old pending record remains.
+        pool._write(CASE, {**saved, "deleting": W.DELETE_PENDING})
+        real_run = pool.boat.run
+        def unavailable_status(argv, **kwargs):
+            if argv[:2] == ["deletion", "status"]:
+                raise AssertionError("a confirmed deletion must not be re-polled")
+            return real_run(argv, **kwargs)
+        with patch.object(pool.boat, "run", side_effect=unavailable_status):
+            pool.recover()
+        self.assertIsNone(pool._read(CASE))
+        self.assertEqual(self.h.inventory(), [])
+
     def test_incomplete_inventory_deletes_nothing(self):
         self.acquire(self.h.pool())
         self.h.add_row("bx_sk2p68qq", {"unbug-durable/pool": "wp2-test", "unbug-durable/case": CASE})
