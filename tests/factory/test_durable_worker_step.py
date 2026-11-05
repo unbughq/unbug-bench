@@ -571,6 +571,57 @@ class HookTests(unittest.TestCase):
                        Ref("2" * 64, ArtifactKind.CASE_SNAPSHOT), deadline, ceiling)
         return run.context_for_step(si, work), si
 
+    def test_start_dies_before_unit_publication_without_running_child(self):
+        c, si = self.context()
+        worker = worker_step.Worker(self.root)
+        marker = self.root / "child-ran"
+        children = []
+        def fail_publication(step, pid):
+            children.append(pid)
+            raise RuntimeError("injected start failure")
+        with patch.object(worker, "_publish_unit", side_effect=fail_publication), \
+                patch.object(worker, "supervise", side_effect=lambda *args: marker.write_text("ran")):
+            with self.assertRaisesRegex(RuntimeError, "injected start failure"):
+                worker.start(start_frame(si, {CASE: b"k" * 32}))
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if os.waitpid(children[0], os.WNOHANG)[0]: break
+            time.sleep(0.01)
+        else:
+            os.kill(children[0], signal.SIGKILL); os.waitpid(children[0], 0)
+            self.fail("child remained live after the start command failed")
+        self.assertFalse(marker.exists())
+
+    def test_card_write_failure_cannot_publish_ok(self):
+        c, si = self.context()
+        with patch.object(run, "engine_writer_round", return_value={"outcome": Outcome.OK, "reason": "writer:done"}), \
+                patch("registry.atomic_json", side_effect=OSError("injected card failure")):
+            result = run.run_step(c, si)
+        self.assertEqual(result["outcome"], Outcome.INFRA_ERROR)
+        self.assertEqual(result["reason"], "infra:card_write_failed")
+
+    def test_post_execution_error_keeps_booked_usage_and_syncs_outputs_before_result(self):
+        c, si = self.context()
+        worker = worker_step.Worker(self.root)
+        worker.paths(si.idempotency_key)["attempt"].mkdir(parents=True)
+        worker.paths(si.idempotency_key)["out"].mkdir()
+        worker._save_baseline(si, c.ledger, worker_step.ledger_totals(c.ledger))
+        def priced_then_fail(*args):
+            with budget.ledger_transaction(c.ledger) as ledger:
+                ledger["calls"] = ledger.get("calls", 0) + 1
+                ledger["events"].append({"id": "priced-failure", "cost": 0.75,
+                                          "configured_model": "x/y", "role": "writer"})
+            raise RuntimeError("injected output failure")
+        order = []
+        with patch.object(worker, "execute", side_effect=priced_then_fail), \
+                patch.object(worker, "_sync_directory", side_effect=lambda path: order.append("outputs")), \
+                patch.object(worker, "write_result", side_effect=lambda key, result: order.append(result)):
+            worker.run_attempt(si, {CASE: b"k" * 32})
+        self.assertEqual(order[0], "outputs")
+        self.assertEqual(order[1].outcome, Outcome.INFRA_ERROR)
+        self.assertEqual(order[1].usage.calls, 1)
+        self.assertEqual(order[1].usage.paid_usd_micros, 750000)
+
     def test_context_is_never_a_legacy_job_and_only_the_attempt_deadline_bounds_calls(self):
         with patch.dict(os.environ, {"FACTORY_BATCH_DEADLINE": "2020-01-01T00:00:00Z"}):
             c, _ = self.context(deadline=120.0)

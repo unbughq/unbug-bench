@@ -3252,8 +3252,12 @@ class EngineStep:
         self.ceiling_usd = step_input.money_ceiling_usd_micros / 1_000_000
         self.baseline_spent_usd = baseline_spent_usd
         # The attempt's own deadline (the supervisor kills the attempt at the same instant).
-        self.deadline_monotonic = time.monotonic() + step_input.deadline_s
-        self.deadline_epoch = time.time() + step_input.deadline_s
+        now = time.time()
+        inherited_deadline = float(os.environ.get("UNBUG_DURABLE_DEADLINE_EPOCH", now + step_input.deadline_s))
+        if not 0 < inherited_deadline < float("inf"):
+            raise ValueError("invalid engine attempt deadline")
+        self.deadline_epoch = min(now + step_input.deadline_s, inherited_deadline)
+        self.deadline_monotonic = time.monotonic() + max(0.0, self.deadline_epoch - now)
 
 
 def under_engine(c):
@@ -3318,6 +3322,9 @@ def context_for_step(step_input, work):
     a.seed, a.rotation_slot, a.case_id = card["seed"], card.get("rotation_slot"), c.case_id
     a.resume = a.batch_release_sha256 = a.factory_job_config = a.factory_job_config_sha256 = None
     a.max_cost = ENGINE_COST_CAP
+    # Remaining attempt time replaces the old operator timeout. Scientific
+    # role-specific caps remain in their callers.
+    a.agent_timeout = step_input.deadline_s
     c.args, c.seed, c.t0 = a, card["seed"], time.time() - 1
     if model_runtime.factory_job(c) or hasattr(c, "authenticated_job_config"):
         raise ValueError("the engine never runs a legacy factory job")  # no JobAuthority, job_config or batch deadline
@@ -3326,6 +3333,7 @@ def context_for_step(step_input, work):
     resume_ledger(c.ledger)
     spent = case_spending(jload(c.ledger, {}), card.get("models_used"))["spent_usd"]
     c.engine = EngineStep(step_input, spent)
+    a.agent_timeout = max(0.001, c.engine.deadline_monotonic - time.monotonic())
     # The router's admission end is the attempt's deadline, not FACTORY_BATCH_DEADLINE.
     c.batch_id, c.batch_deadline = step_input.batch_id, c.engine.deadline_epoch
     # The attempt's own spend against its ceiling: cumulative spend against baseline + ceiling.
@@ -3537,6 +3545,8 @@ def run_step(c, step_input, *, feedback=None, ruling=None):
         try: action()
         except Exception as error:
             c.card.setdefault("cleanup_errors", []).append({"stage": stage, "error": type(error).__name__})
+            if stage == "card":
+                return {"outcome": Outcome.INFRA_ERROR, "reason": "infra:card_write_failed", "stop": None}
     return result
 
 

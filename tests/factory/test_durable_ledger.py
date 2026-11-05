@@ -103,10 +103,10 @@ PROC = textwrap.dedent('''
 ''')
 
 
-def run_processes(url, mode, workers=4, n=60):
+def run_processes(url, mode, workers=4, n=60, worker_offset=0):
     with tempfile.TemporaryDirectory() as tmp:
         go = Path(tmp) / "go"
-        procs = [subprocess.Popen([sys.executable, "-B", "-c", PROC, str(ROOT / "factory"), url, str(w), str(n),
+        procs = [subprocess.Popen([sys.executable, "-B", "-c", PROC, str(ROOT / "factory"), url, str(w + worker_offset), str(n),
                                    str(100 + w), str(go), mode], stdout=subprocess.PIPE, text=True)
                  for w in range(workers)]
         time.sleep(1.0)   # let every process import and connect, then release them together
@@ -214,11 +214,8 @@ class PostgresConcurrency(unittest.TestCase):
         for t in threads: t.join()
         # Raise the bound so the processes compete for a fresh 1000 on the same batch.
         ledger.raise_bound(BATCH, 2 * BOUND)
-        # The process phase is independent contention, not a replay with changed
-        # random arguments under the thread phase's existing idempotency keys.
-        with ledger._engine.begin() as conn:
-            conn.execute(sa.text("DELETE FROM durable_ledger_attempt WHERE batch_id = :b"), {"b": BATCH})
-        outs = run_processes(url, "random", n=40)
+        # Keep the thread reservations held, using fresh keys for the processes.
+        outs = run_processes(url, "random", n=40, worker_offset=8)
         grants += [(c, d, Grant(a, l)) for out in outs for c, d, a, l, _ in out]
         check_limits(self, grants, bound=2 * BOUND, case_limit=CASE_LIMIT)
         ledger.close()

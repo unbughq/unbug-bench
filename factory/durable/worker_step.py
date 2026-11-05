@@ -247,12 +247,7 @@ class Worker:
                 self.write_result(key, StepResult(Outcome.INFRA_ERROR, "infra:attempt_busy"))
                 return
             (p["attempt"] / "out").mkdir()
-            pid = self._detach(step_input, keys, lock)
-            info = _stat(pid)
-            unit = {"unit": p["unit"], "pid": pid, "starttime": info[2] if info else None}
-            staged = p["attempt"] / "unit.json.tmp"
-            staged.write_text(json.dumps(unit))
-            staged.replace(p["attempt"] / "unit.json")
+            self._detach(step_input, keys, lock)
 
     def poll(self, frame):
         key = self._key(frame)
@@ -313,16 +308,50 @@ class Worker:
         return keys
 
     # the detached attempt
+    def _publish_unit(self, step_input, pid):
+        p = self.paths(step_input.idempotency_key)
+        info = _stat(pid)
+        unit = {"unit": p["unit"], "pid": pid, "starttime": info[2] if info else None}
+        staged = p["attempt"] / "unit.json.tmp"
+        with staged.open("w") as stream:
+            json.dump(unit, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        staged.replace(p["attempt"] / "unit.json")
+        self._sync_directory(p["attempt"])
+
+    @staticmethod
+    def _sync_directory(path):
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
     def _detach(self, step_input, keys, lock):
         aid = attempt_id(step_input.idempotency_key)
         log_path = self.paths(step_input.idempotency_key)["attempt"] / "supervisor.log"
         sys.stdout.flush()
         sys.stderr.flush()
+        reader, writer = os.pipe()
         pid = os.fork()
         if pid:
+            os.close(reader)
+            try:
+                self._publish_unit(step_input, pid)
+                os.write(writer, b"1")
+            finally:
+                os.close(writer)
             return pid
         code = 1
         try:
+            os.close(writer)
+            # EOF means the start command died before committing the unit record.
+            # No supervisor or step may run in that case.
+            ready = os.read(reader, 1)
+            os.close(reader)
+            if ready != b"1":
+                os._exit(1)
             os.setsid()
             os.close(lock)  # the lock belongs to the start command
             log = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
@@ -343,6 +372,7 @@ class Worker:
     def supervise(self, step_input, keys):
         key = step_input.idempotency_key
         deadline = time.monotonic() + step_input.deadline_s
+        os.environ["UNBUG_DURABLE_DEADLINE_EPOCH"] = str(self.clock() + step_input.deadline_s)
         pid = os.fork()
         if pid == 0:
             code = 1
@@ -374,7 +404,8 @@ class Worker:
             result, outputs = self.execute(step_input, keys)
         except BaseException:
             traceback.print_exc()
-            result, outputs = StepResult(Outcome.INFRA_ERROR, "infra:worker_error"), {}
+            result, outputs = StepResult(Outcome.INFRA_ERROR, "infra:worker_error",
+                                         usage=self.usage_so_far(step_input.idempotency_key)), {}
         out = self.paths(step_input.idempotency_key)["out"]
         for name, ciphertext in outputs.items():
             staged = out / (name + ".tmp")
@@ -383,6 +414,7 @@ class Worker:
                 f.flush()
                 os.fsync(f.fileno())
             staged.replace(out / name)
+        self._sync_directory(out)
         self.write_result(step_input.idempotency_key, result)
 
     # one step
@@ -627,6 +659,6 @@ def main(argv=None, *, worker=None, stdin=None, stdout=None):
 
 
 if __name__ == "__main__":
-    # run.py reads BENCH at import: the installed release is the bench (RELEASE_ROOT, the cwd).
-    os.environ.setdefault("BENCH", str(FACTORY.parent))
+    # Factory code is installed separately from the qualified baked bench.
+    os.environ.setdefault("BENCH", str(pathlib.Path.home() / "unbug-bench"))
     sys.exit(main())
