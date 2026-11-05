@@ -1,6 +1,7 @@
 # Preserve received results across verification outages
 
-Status: proposed for independent review. WP1; no `contract.py` change.
+Status: revision 2 after design review 1; fresh verification pending. WP1; no
+`contract.py` change.
 
 ## Problem
 
@@ -32,7 +33,16 @@ Transient storage, key-service and age errors retry the same verification. An
 A malformed age header or a digest mismatch is conclusive; reject it. A local
 `stat` I/O failure is not proof of absence. A sustained verification outage holds
 the grant and the model slot; this change does not claim automatic progress while
-the store, key service or decryptor remains unavailable.
+the store, key service or decryptor remains unavailable. For a conclusively
+missing or invalid DONE output, construct a fixed `INFRA_ERROR` with every
+output ref removed and the original parsed usage retained; settle that actual
+usage once as batch waste. Unknown-usage outcomes still use lost settlement.
+
+Both recorded steps contain their exception boundaries: arbitrary exceptions
+and their context never reach the journal or logs. A malformed result is
+reconciled on the exact original lease; it is not accepted or used to release
+the grant. Unknown or transient verification errors keep the grant held and
+retry the same verification rather than authorize another model call.
 
 This replaces the monolithic receive-and-verify step rather than adding a separate
 recovery store. Earlier unpublished WP1 journals remain unsupported; the WP8
@@ -47,6 +57,12 @@ fresh-generation database gate and future compatible `DBOS.patch` rule remain.
 - A killed age decrypt followed by a successful decrypt does not rerun the worker;
   conclusively malformed or digest-mismatched output is rejected.
 - A real local store distinguishes a missing file from a transient stat EIO.
+- Missing or invalid DONE outputs with nonzero usage yield a ref-free infra
+  result, book actual usage as waste exactly once across crash/replay, and do
+  not apply the invalid reference.
 - A lost worker with an invalid checkpoint still uses lost settlement.
+- Inject private sentinel text through a malformed result and a verifier
+  exception. Inspect the DBOS journal and logs for the sentinel; the grant stays
+  held pending safe reconciliation or verification.
 
 Targets Murphy rows 5, 18 and 51; closes none without the real final exam.
