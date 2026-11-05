@@ -25,6 +25,11 @@ MIN_GRANT_USD_MICROS = 1_000_000
 # A batch-only step requests at least this: Stream D's ceiling of the largest authenticated CLI
 # aggregate observed ($32.6137984). Finite, so one step never holds the whole bound.
 BATCH_ONLY_FLOOR_USD_MICROS = 33_000_000
+# PROVIDER_LIMIT attempts of one step that spent nothing, before the step gives up. A limit that
+# never clears (the runner raises credential_expiring for a missing local secret too) would
+# otherwise sleep forever. 96 is 24 h at WP4's 900 s flat backoff; a real reset time sleeps once
+# per window, so 96 windows is far past any real limit.
+MAX_FREE_LIMITS_PER_STEP = 96
 # An operator pause (WP4 classify.py maps PauseRequested and paused to it). Not a fault of
 # the step: it retries without using the infra-retry allowance, after the engine's pause wait.
 PAUSE_REASONS = frozenset({"infra:paused"})
@@ -54,6 +59,7 @@ class Counters:
     """Per-case counts the engine derives from the journal, never from a worker."""
     step_infra_errors: int = 0     # INFRA_ERROR attempts of this seq, this one included
     step_spent_limits: int = 0     # PROVIDER_LIMIT attempts of this seq that spent money, this one included
+    step_free_limits: int = 0      # PROVIDER_LIMIT attempts of this seq that spent nothing, this one included
     writer_rounds_used: int = 0    # ordinary writer rounds; extension rounds are counted separately
     extensions_used: int = 0
     factory_bug_resumes: int = 0   # carried across batches in the case's lineage
@@ -87,8 +93,13 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
         return Action.ADVANCE
     if o is Outcome.PROVIDER_LIMIT:
         # Waiting spends no allowance; only a run of limits that each spent money (a likely
-        # misclassification) gives up.
-        return Action.SLEEP if counters.step_spent_limits <= spec.max_spent_limits_per_step else give_up()
+        # misclassification) gives up, or a run of free limits that never clears (a missing
+        # local secret raised as credential_expiring).
+        if counters.step_spent_limits > spec.max_spent_limits_per_step:
+            return give_up()
+        if counters.step_free_limits > MAX_FREE_LIMITS_PER_STEP:
+            return give_up()
+        return Action.SLEEP
     if o is Outcome.INFRA_ERROR:
         if is_pause(result):
             return Action.RETRY                   # never scored, never counted, never diagnosed

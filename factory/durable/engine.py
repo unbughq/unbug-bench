@@ -253,8 +253,9 @@ class _Case:
 
     # -- records and messages --
 
-    def counters(self, infra=0, limits=0) -> Counters:
-        return Counters(step_infra_errors=infra, step_spent_limits=limits, writer_rounds_used=self.writer_rounds_used,
+    def counters(self, infra=0, limits=0, free=0) -> Counters:
+        return Counters(step_infra_errors=infra, step_spent_limits=limits, step_free_limits=free,
+                        writer_rounds_used=self.writer_rounds_used,
                         extensions_used=self.extensions_used, diagnoses_used=self.diagnoses_used,
                         in_extension=self.in_extension)
 
@@ -290,7 +291,7 @@ class _Case:
         action is None for a DIAGNOSIS verdict."""
         self.seq += 1
         self.stage = step.name
-        attempt, infra, limits, prev = 0, 0, 0, None
+        attempt, infra, limits, free, prev = 0, 0, 0, 0, None
         admit = step.kind is StepKind.ADMIT
         while True:
             attempt += 1
@@ -301,7 +302,7 @@ class _Case:
                            money_ceiling_usd_micros=0, feedback=feedback,
                            registry=Ref(**self.initial_registry) if admit else None, ruling=ruling,
                            evidence=tuple(evidence))
-            counters = self.counters(infra, limits)
+            counters = self.counters(infra, limits, free)
             job = {"input": to_record(si), "initial_registry": self.initial_registry,
                    "request": request_usd_micros(step, counters, self.spec),
                    "case_limit": self.spec.case_money_usd_micros, "draws": draws_case_money(step, counters),
@@ -332,11 +333,14 @@ class _Case:
                 continue
             if result.outcome is Outcome.INFRA_ERROR:
                 infra += 1
-            if result.outcome is Outcome.PROVIDER_LIMIT and result.usage.paid_usd_micros > 0:
-                limits += 1
+            if result.outcome is Outcome.PROVIDER_LIMIT:
+                if result.usage.paid_usd_micros > 0:
+                    limits += 1
+                else:
+                    free += 1
             if step.kind is StepKind.DIAGNOSIS and result.outcome is Outcome.OK:
                 return None, result
-            action = decide(step, result, self.counters(infra, limits), self.spec, grant=grant)
+            action = decide(step, result, self.counters(infra, limits, free), self.spec, grant=grant)
             if action is Action.RETRY:
                 continue
             if action is Action.SLEEP:

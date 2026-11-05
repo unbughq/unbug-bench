@@ -15,7 +15,8 @@ os.environ.setdefault("BENCH", str(ROOT))
 
 from durable.contract import (ArtifactKind as K, BatchSpec, ContractError, Grant, LimitedBy, Outcome, Ref, Step,
                               StepKind, StepResult, Usage, Verdict)
-from durable.policy import (BATCH_ONLY_FLOOR_USD_MICROS, GATES_DEADLINE_S, MIN_GRANT_USD_MICROS, Action, Counters,
+from durable.policy import (BATCH_ONLY_FLOOR_USD_MICROS, GATES_DEADLINE_S, MAX_FREE_LIMITS_PER_STEP, MIN_GRANT_USD_MICROS,
+                            Action, Counters,
                             deadline_s, decide, decide_diagnosis, decide_grant, draws_case_money, is_pause, progressed,
                             request_usd_micros, settles_as_waste, settles_lost, starts_replacement)
 
@@ -104,9 +105,17 @@ class Decide(unittest.TestCase):
         self.assertFalse(settles_as_waste(StepResult(Outcome.OK, "g1:pass", Usage(paid_usd_micros=3), snapshot=ref())))
         self.assertFalse(settles_as_waste(StepResult(Outcome.EXHAUSTED, "writer:money", Usage(paid_usd_micros=3))))
 
-    def test_free_limits_never_end_a_case(self):
+    def test_free_limits_sleep_until_a_cap(self):
         limit = StepResult(Outcome.PROVIDER_LIMIT, "router:claude_limit", retry_at=1.0)
         self.assertIs(d(GATES, limit), Action.SLEEP)
+        self.assertIs(d(GATES, limit, step_free_limits=MAX_FREE_LIMITS_PER_STEP), Action.SLEEP)
+        # A limit that never clears (credential_expiring for a missing local secret) gives up
+        # like any other exhausted retry, instead of sleeping forever.
+        never = StepResult(Outcome.PROVIDER_LIMIT, "router:credential_expiring", retry_at=1.0)
+        self.assertEqual(MAX_FREE_LIMITS_PER_STEP, 96)
+        self.assertIs(d(GATES, never, step_free_limits=97), Action.DIAGNOSE)
+        self.assertIs(d(DIAG, never, step_free_limits=97), Action.RETIRE)
+        self.assertIs(d(ADMIT, never, step_free_limits=97), Action.STOP_ADMISSION)
 
     def test_a_diagnosis_is_never_diagnosed(self):
         for r, counts in ((StepResult(Outcome.INFRA_ERROR, "diagnosis:malformed"), dict(step_infra_errors=6)),

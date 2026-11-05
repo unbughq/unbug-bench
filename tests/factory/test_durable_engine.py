@@ -158,6 +158,18 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(out["ledger"]["batches"]["b-t"]["waste"], 8000)   # waste, not case money
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
+    def test_a_free_limit_that_never_clears_gives_up(self):
+        # credential_expiring for a missing local secret: free, never clears. After 96 free limits
+        # on one step the 97th gives up to diagnosis instead of sleeping forever.
+        never = {"outcome": "provider_limit", "reason": "router:credential_expiring", "retry_in": 0.01,
+                 "paid": 0, "dur": 0.01}
+        r, out = run({"spec": {"max_cases_started": 1},
+                      "script": {"1/writer:1/*": never, "1/diagnosis/1": {"verdict": "not_converging"}}},
+                     timeout=600)
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 97 + ["diagnosis"])
+        self.assertEqual(out["result"]["cases"], {C1: "retired"})
+
     def test_long_sleep_releases_the_worker(self):
         r, out = run({"spec": {"release_worker_after_sleep_s": 0.5},
                       "script": {"1/stress:1/1": {"outcome": "provider_limit", "reason": "router:claude_limit",
