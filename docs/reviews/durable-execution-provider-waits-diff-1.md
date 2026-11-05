@@ -25,6 +25,6 @@ No tests were run; this was a read-only review.
 
 | Finding | Disposition |
 |---|---|
-| Repeated short waits | The real-DBOS 97-wait test now checks a distinct lease and recorded release for every short wait; it passes. |
+| Repeated short waits | The real-DBOS 97-wait test checks a distinct lease and recorded release for every short wait; diff review 2 confirms this finding.  |
 | Credential result shapes | A real-DBOS fake-worker test covers both result shapes, visible waits and releases, and a subsequent ordinary infra retry; it passes. |
 | Kill during durable wait | The kill/restart test waits for the recorded future sleep, verifies its journal row and wake boundary after restart, and passes. |

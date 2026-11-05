@@ -238,6 +238,39 @@ class Run(Setup):
         self.assertEqual((r.reason, r.usage.paid_usd_micros), ("infra:deadline", 900))
         self.assertEqual(ch.cancels, 3)
 
+    def test_transient_output_verification_keeps_the_completed_attempt(self):
+        from durable.artifacts import ArtifactError
+        completed = self.ok()
+        ch = Channel([Poll(PollState.DONE, completed)])
+        original_poll = ch.poll
+        armed = False
+
+        def fail_once(target, name, error):
+            original = getattr(target, name)
+            failed = False
+            def call(*args, **kwargs):
+                nonlocal failed
+                if not failed:
+                    failed = True
+                    raise error
+                return original(*args, **kwargs)
+            setattr(target, name, call)
+
+        def poll(lease, si):
+            nonlocal armed
+            if not armed:
+                armed = True
+                fail_once(self.store, "exists", OSError("temporary store failure"))
+                fail_once(self.keys, "scope_key", OSError("temporary key failure"))
+                fail_once(self.sealer, "open", ArtifactError("age_timeout"))
+            return original_poll(lease, si)
+
+        ch.poll = poll
+        result = self.ex(ch).run(self.si())
+        self.assertEqual(result, completed)
+        self.assertEqual(len(ch.started), 1)
+        self.assertGreaterEqual(self.clock(), 30.0)
+
     def test_missing_outputs_are_infra(self):
         missing = self.sealer.seal(self.keys.scope_key("case-t-1"), K.GATE_RECEIPT, b"never stored")[0]
         r = self.ex(Channel([Poll(PollState.DONE, self.ok(receipt=missing))])).run(self.si())

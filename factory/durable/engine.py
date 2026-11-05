@@ -536,10 +536,10 @@ class _Case:
             if step.kind is StepKind.DIAGNOSIS and result.outcome is Outcome.OK:
                 return None, result
             action = decide(step, result, self.counters(infra, limits, free, late), self.spec, grant=grant, now=now)
-            if (action is Action.RETRY and is_money_stop(result) and result.usage.paid_usd_micros == 0
+            if (action is Action.RETRY and is_money_stop(result)
                     and grant.limited_by is LimitedBy.NOTHING and not job["draws"]):
-                # The next call did not fit even though the whole request was granted.
-                # Grow only until the ledger applies the batch bound; never spin on the same grant.
+                # A later call may not fit even after earlier calls spent money.
+                # Grow only until the ledger applies the batch bound.
                 requested_minimum = min(2**63 - 1, max(job["request"] * 2, 1))
             if is_credential_problem(result):
                 self.status = "waiting_for_credentials"

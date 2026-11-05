@@ -132,6 +132,14 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(steps(r, 1)[:3], ["admit", "writer:1", "writer:1"])
         self.assertFalse([x for x in log if x["op"] == "start" and x["mode"] != "run"])
 
+    def test_transient_output_verification_does_not_repeat_completed_admit(self):
+        r, out = run({"verification_failures": 2, "spec": {"max_cases_started": 1}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(steps(r, 1), ["admit", "writer:1", "stress:1", "gates:1", "seal"])
+        self.assertEqual(len([x for x in r.starts() if x["key"] == f"{C1}/1/admit/1"]), 1)
+        self.assertEqual(start(r, f"{C1}/2/writer:1/1")["opened"]["snapshot"], f"snapshot {C1}/1/admit/1")
+
     def test_pool_failure_releases_the_grant_and_retries(self):
         r, out = run({"pool_failures": 1, "spec": {"max_cases_started": 1}})
         self.addCleanup(r.close)
@@ -163,6 +171,18 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1: "retired"})
         grants = [x["amount"] for x in r.ledger_log() if x["op"] == "reserve" and "/diagnosis/" in x["key"]]
         self.assertEqual(grants, [50 * M, 100 * M])
+
+    def test_batch_only_paid_money_stops_increase_the_next_grant(self):
+        r, out = run({"spec": {"max_cases_started": 1, "money_bound_usd_micros": 500 * M},
+                      "script": {"1/writer:1/1": {"outcome": "exhausted", "reason": "writer:rounds"},
+                                 "1/diagnosis/1": {"outcome": "exhausted", "reason": "diagnosis:money", "paid": M},
+                                 "1/diagnosis/2": {"outcome": "exhausted", "reason": "diagnosis:money", "paid": 2 * M},
+                                 "1/diagnosis/3": {"verdict": "not_converging"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "retired"})
+        grants = [x["amount"] for x in r.ledger_log() if x["op"] == "reserve" and "/diagnosis/" in x["key"]]
+        self.assertEqual(grants, [50 * M, 100 * M, 200 * M])
+        self.assertGreaterEqual(out["ledger"]["batches"]["b-t"]["spent"], 3 * M)
 
     def test_infra_retries_then_diagnosis_with_the_engine_history(self):
         r, out = run({"spec": {"max_infra_retries_per_step": 2, "max_cases_started": 2},
@@ -261,7 +281,7 @@ class Outcomes(unittest.TestCase):
 
     def test_credential_wait_is_visible_releases_worker_and_resumes(self):
         credential = {"outcome": "infra_error", "reason": "router:credential_expiring", "paid": 0}
-        r = EngineRun({"spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 5.0},
+        r = EngineRun({"spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 8.0},
                        "script": {"1/writer:1/1": credential, "1/writer:1/2": {"dur": 0.6}},
                        "actions": [{"when": {"case": 1, "status": "waiting_for_credentials"}},
                                    {"when": {"case": 1, "status": "running", "started": f"{C1}/2/writer:1/2"}}]})
@@ -289,6 +309,8 @@ class Outcomes(unittest.TestCase):
             self.fail("credential wait was not observed: " + r.tail())
         process.send_signal(signal.SIGKILL)
         process.wait()
+        time.sleep(5.0)
+        self.assertGreater(sleep_row[2] / 1000, time.time() + 0.25)
         out = r.run()
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
         with sqlite3.connect(r.work / "sys.sqlite") as db:
@@ -297,7 +319,9 @@ class Outcomes(unittest.TestCase):
                 "WHERE workflow_uuid = ? AND function_id = ? AND function_name = 'DBOS.sleep'",
                 (C1, sleep_row[0])).fetchone()
         self.assertEqual(replayed_sleep, sleep_row)
-        self.assertGreaterEqual(start(r, f"{C1}/2/writer:1/2")["t"], sleep_row[2] / 1000 - 0.05)
+        retry_started = start(r, f"{C1}/2/writer:1/2")["t"]
+        self.assertGreaterEqual(retry_started, sleep_row[2] / 1000 - 0.05)
+        self.assertLess(retry_started, sleep_row[2] / 1000 + 3.0)
         actions = [json.loads(line)["i"] for line in actions_path.read_text().splitlines()]
         self.assertEqual(set(actions), {0, 1})
         self.assertTrue(any(x["op"] == "release" and x["case"] == C1 for x in r.pool_log()))
@@ -315,8 +339,13 @@ class Outcomes(unittest.TestCase):
                       "actions": [{"when": {"case": 1, "status": "waiting_for_credentials", "ran": first}},
                                   {"when": {"case": 1, "status": "waiting_for_credentials", "ran": second}}]})
         self.addCleanup(r.close)
-        actions = [json.loads(line)["i"] for line in (r.work / "state/worker/actions.log").read_text().splitlines()]
+        actions = {row["i"]: row for row in
+                   (json.loads(line) for line in (r.work / "state/worker/actions.log").read_text().splitlines())}
         self.assertEqual(set(actions), {0, 1})
+        for index, next_attempt in ((0, 2), (1, 3)):
+            self.assertEqual((actions[index]["status"], actions[index]["reason"]),
+                             ("waiting_for_credentials", reason))
+            self.assertLess(actions[index]["t"], start(r, f"{C1}/2/writer:1/{next_attempt}")["t"])
         workers = [start(r, f"{C1}/2/writer:1/{n}")["worker"] for n in range(1, 4)]
         releases = {x["worker"] for x in r.pool_log() if x["op"] == "release" and x["case"] == C1}
         self.assertEqual(len(set(workers)), 3)

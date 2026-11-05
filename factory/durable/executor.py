@@ -15,7 +15,7 @@ import json
 import time
 from typing import Optional
 
-from durable.artifacts import open_from, scope_for
+from durable.artifacts import ArtifactError, open_from, scope_for
 from durable.contract import (ArtifactKind, ArtifactStore, Grant, KeyService, Ledger, Outcome, Poll,
                               PollState, Ref, Sealer, StepInput, StepKind, StepResult, WorkerChannel, WorkerLease,
                               WorkerPool)
@@ -152,11 +152,27 @@ class Executor:
         except Exception:
             return True   # unknown is not gone: never start a second attempt on a guess
 
-    def _exists(self, si, ref) -> bool:
-        try:
-            return bool(self.store.exists(scope_of(si, ref), ref))
-        except Exception:
-            return False
+    def _verify_ref(self, si, ref) -> str:
+        """Retry unavailable seams without discarding a completed result or checkpoint."""
+        invalid = {"open_failed", "digest_mismatch", "ciphertext_not_bytes",
+                   "bad_ref", "bad_scope", "wrong_scope"}
+        while True:
+            try:
+                exists = self.store.exists(scope_of(si, ref), ref)
+            except Exception:
+                self.sleep(self.poll_interval_s)
+                continue
+            if not exists:
+                return "missing"
+            try:
+                open_from(self.store, self.keys, self.sealer, ref, case_id=si.case_id, batch_id=si.batch_id)
+                return "ok"
+            except ArtifactError as error:
+                if error.code in invalid:
+                    return "invalid"
+            except Exception:
+                pass
+            self.sleep(self.poll_interval_s)
 
     def _check_outputs(self, si: StepInput, result: StepResult) -> StepResult:
         """DONE outputs must exist and authenticate under their prescribed scope."""
@@ -164,22 +180,14 @@ class Executor:
             return StepResult(Outcome.INFRA_ERROR, "engine:executor_bad_result")
         for name in OUTPUT_REFS:
             ref = getattr(result, name)
-            if ref is not None and not self._exists(si, ref):
-                return StepResult(Outcome.INFRA_ERROR, "infra:output_missing", result.usage)
-            if ref is not None and not self._authentic(si, ref):
-                return StepResult(Outcome.INFRA_ERROR, "infra:output_invalid", result.usage)
+            if ref is not None:
+                state = self._verify_ref(si, ref)
+                if state != "ok":
+                    return StepResult(Outcome.INFRA_ERROR, f"infra:output_{state}", result.usage)
         return result
 
-    def _authentic(self, si, ref) -> bool:
-        try:
-            open_from(self.store, self.keys, self.sealer, ref, case_id=si.case_id, batch_id=si.batch_id)
-            return True
-        except Exception:
-            return False
-
     def _lost(self, si, reason, checkpoint) -> StepResult:
-        snap = (checkpoint if checkpoint is not None and self._exists(si, checkpoint)
-                and self._authentic(si, checkpoint) else None)
+        snap = checkpoint if checkpoint is not None and self._verify_ref(si, checkpoint) == "ok" else None
         return StepResult(Outcome.INFRA_ERROR, reason, snapshot=snap)
 
     def _cancel_confirm(self, lease, si, until) -> Optional[StepResult]:

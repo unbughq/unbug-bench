@@ -35,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "factory")]
 os.environ.setdefault("BENCH", str(ROOT))
 
+from durable.artifacts import ArtifactError
 from durable.contract import (BATCH_SCOPED, ArtifactKind, BatchSpec, Grant, LimitedBy, Outcome, Poll, PollState,
                               Ref, StepKind, StepResult, Usage, Verdict, WorkerLease, artifact_digest, derive_keys,
                               poll_from_record, start_frame, step_input_from_record, step_result_from_record,
@@ -110,11 +111,11 @@ class FakeSealer:
     def open(self, scope_key, ref, ciphertext):
         age, mac = derive_keys(scope_key)
         if ciphertext[:8] != b"FAKEAGE1" or ciphertext[8:16] != hashlib.sha256(b"tag" + age).digest()[:8]:
-            raise ValueError("wrong key")
+            raise ArtifactError("open_failed")
         body = ciphertext[16:]
         plaintext = bytes(a ^ b for a, b in zip(body, _stream(age, len(body))))
         if artifact_digest(mac, plaintext) != ref.digest:
-            raise ValueError("digest mismatch")
+            raise ArtifactError("digest_mismatch")
         return plaintext
 
 
@@ -552,6 +553,15 @@ def engine_main(workdir):
 
         engine_module._Case.card = fail_sealed_card
     fakes = build_fakes(work / "state", scenario)
+    if scenario.get("verification_failures"):
+        original_exists = fakes["store"].exists
+        remaining = [scenario["verification_failures"]]
+        def flaky_exists(scope, ref):
+            if remaining[0]:
+                remaining[0] -= 1
+                raise OSError("temporary store failure")
+            return original_exists(scope, ref)
+        fakes["store"].exists = flaky_exists
     spec_kw = dict(scenario.get("spec", {}))
     if "deadline_in" in scenario:   # a batch deadline that passes mid-run, fixed at the first launch
         fixed = work / "deadline.txt"
@@ -614,7 +624,10 @@ def engine_main(workdir):
                     engine.send(spec.batch_id, Topic.PLUMBING_RELEASE, PlumbingRelease(act["plumbing"]))
                 if "bench" in act:
                     engine.send(spec.batch_id, Topic.BENCH_RELEASE, BenchRelease(act["bench"]))
-                fakes["worker"].f.append("actions.log", {"i": i})
+                observed = {"i": i}
+                if "case" in when:
+                    observed.update(status=card.get("status"), reason=card.get("reason"))
+                fakes["worker"].f.append("actions.log", observed)
             stop.wait(0.05)
 
     t = threading.Thread(target=actions, daemon=True)

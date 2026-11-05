@@ -110,7 +110,7 @@ text, so WP1 does not call it.
 | **`reset_at`** | The engine never sees stop text and does not call the Classifier: the worker classifies the runner's stop before writing its result (contract `Classifier` docstring; design, "Workers and the wire protocol"). So the call site that can pass a known reset time (the ledger's `claude_resets_at`, `provider_failure.reset_at`) is WP5a's `worker_step.py`. The engine uses `StepResult.retry_at` as given, through `wait_seconds`. Nothing changes in WP1; WP5a should pass `reset_at` when it holds one. |
 | **Provider limits and credentials** | The founder's 2026-11-05 decision supersedes the handoff's generic 96-limit cutoff: genuine provider limits wait without a count-based stop, and credential problems are visible, unscored configuration waits. See `durable-execution-provider-waits.md`; WP5a and WP8 integration gates remain open. |
 | **Batch-deadline stops** | At or after `deadline_epoch`, `infra:deadline` does not count against the infra allowance and never causes a diagnosis. The engine waits `pause_retry_s` before each retry. The same code can mean a worker deadline, so after the batch deadline such a worker timeout also retries without a cap; WP5a must remove batch-deadline checks in the step path. |
-| **A money stop before any spend** | `money_wait` can occur when the next call cannot fit, even if the current grant has not been spent. Under a positive BATCH-limited grant it waits; a round limit is not a money wait. Batch-only work with a fully granted request retries, increasing a zero-spend request as described above. Ordinary case-limited work gives up. |
+| **A money stop before any spend** | `money_wait` can occur when the next call cannot fit, even if the current grant has not been spent. Under a positive BATCH-limited grant it waits; a round limit is not a money wait. Batch-only work with a fully granted request retries with an increased request, even when the prior attempt spent money. Ordinary case-limited work gives up. |
 | **`money_wait`, other cases** | The same routing applies when some, but not all, of a batch-only grant has been spent. A fresh attempt gets a fresh grant; there is no per-step monetary cap. |
 | **GATES-level EXHAUSTED under `engine:`** | Noted. The engine routes on outcome, not stage, so `engine:` changes nothing here; `report.py` shows it only if allowlisted. |
 
@@ -124,14 +124,16 @@ text, so WP1 does not call it.
 - **The first registry is a launch argument.** `BatchSpec` has no registry Ref, and
   ADMIT requires one. `Engine.start_batch(spec, initial_registry)` takes it; WP8's
   launch command seals it. Contract finding (below).
-- **Worker release.** A sleep longer than `release_worker_after_sleep_s` releases the
-  case's last lease first, as do terminal and escalated states. A worker that `alive()` reports gone while its attempt
+- **Worker release.** Every provider or credential wait releases the worker. Other
+  sleeps longer than `release_worker_after_sleep_s`, and terminal and escalated
+  states, also release the case's last lease. A worker that `alive()` reports gone while its attempt
   polls RUNNING ends the attempt as `infra:worker_lost`; n+1 acquires a new worker
   and restores the snapshot.
 - **ABSENT** is tombstoned and confirmed before it becomes `infra:attempt_absent`.
-  A DONE result whose output Refs are missing becomes `infra:output_missing`; one
-  with a failed scope, key or digest check becomes `infra:output_invalid`. Both
-  keep the worker's recorded usage. A checkpoint is kept only after the same check.
+  A DONE result whose output Refs are confirmed missing becomes `infra:output_missing`;
+  conclusively invalid ciphertext becomes `infra:output_invalid`. Temporary store,
+  key-service or age failures retry verification of the same result rather than
+  launching another attempt. A checkpoint is kept only after the same check.
 - **Restoring from snapshot.** Every attempt restores the case's latest snapshot. A
   non-OK result that carries a snapshot replaces it, so a retry restores it (design,
   "The snapshot").
@@ -167,7 +169,7 @@ directory artifact store, a keyed-stream sealer using `derive_keys` and
 
 | File | Tests | Covers |
 |---|---|---|
-| `tests/factory/test_durable_policy.py` | Policy routing, deadlines, exact free-limit boundary, money-stop cases, absolute extension and resume ceilings, and settlement. |
+| `tests/factory/test_durable_policy.py` | Policy routing, deadlines, genuine provider waits, money-stop cases, absolute extension and resume ceilings, and settlement. |
 | `tests/factory/test_durable_engine_fakes.py` | Contract-oriented worker, ledger and artifact fakes and the DBOS test harness. |
 | `tests/factory/test_durable_engine_executor.py` | Worker reconciliation after lost transport or replay; original leases; safe pool reasons; real age/store scope and output authentication; settlement. |
 | `tests/factory/test_durable_engine.py` | DBOS sequences, failures, retries, provider sleeps, releases, money, queued version changes, global concurrency, worker cleanup, and recovery. |
