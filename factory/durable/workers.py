@@ -70,6 +70,11 @@ fi
 [ "$("$codex_cli" --version)" = 'codex-cli 0.162.1' ]
 """
 # launch.sh: fresh images may lack Medusa; build before qualification.
+PREPARE_IMAGE_SCRIPT = ("set -eu; p=~/bench-source/prepare.py; "
+                        "if [ -e \"$p\" ] || [ -L \"$p\" ]; then "
+                        "[ ! -e ~/factory-release/RELEASE.json ] && [ ! -L ~/factory-release/RELEASE.json ] || exit 3; "
+                        "[ ! -e ~/durable/attempts ] && [ ! -L ~/durable/attempts ] || exit 3; "
+                        "[ -f \"$p\" ] && [ ! -L \"$p\" ] || exit 3; python3 -B \"$p\"; fi")
 IMAGE_SCRIPT = ("cd ~/unbug-bench; docker image inspect unbug-bench-medusa:latest >/dev/null 2>&1 || "
                 "{ docker compose -f projects/medusa/compose.yaml pull postgres redis && "
                 "docker compose -f projects/medusa/compose.yaml build medusa; }")
@@ -418,6 +423,7 @@ class BoatPool:
                     self._write(case_id, {"intent": None, "worker": None, "deleting": None})
                 elif record["worker"] != worker:
                     self._write(case_id, {**record, "worker": worker})
+            installed = None
             if worker is not None:
                 installed = self._installed(worker)
                 if installed == {"plumbing_version": plumbing_version, "bench_version": bench_version}:
@@ -426,13 +432,14 @@ class BoatPool:
                     # The bench comes from the image: this worker can never serve it.
                     self._delete_locked(case_id, worker)
                     worker = None
+            prepare_image = worker is None or installed is None
             fresh = worker is None
             if fresh:
                 worker = self._create(case_id, bench_version)
             try:
                 if fresh:
                     self._wait_ready(worker)
-                self._install(worker, plumbing_version, bench_version)
+                self._install(worker, plumbing_version, bench_version, prepare_image=prepare_image)
             except PoolError as error:
                 if fresh or error.reason == "infra:bench_mismatch":
                     with contextlib.suppress(PoolError):
@@ -579,7 +586,7 @@ class BoatPool:
                 time.sleep(1)
         raise PoolError(f"infra:{name}")
 
-    def _install(self, worker: str, p: str, b: str):
+    def _install(self, worker: str, p: str, b: str, *, prepare_image=False):
         data = self.store.bundle(p)
         rel = f"{RELEASES}/{p}"
         q = shlex.quote
@@ -597,6 +604,8 @@ class BoatPool:
         self._step(worker, "release_unpack_failed", unpack, 300)
         script, timeout = self.steps["pin"]
         self._step(worker, "cli_pin_failed", script, timeout, retry=True)
+        if prepare_image:
+            self._step(worker, "image_source_prepare_failed", PREPARE_IMAGE_SCRIPT, 120)
         script, timeout = self.steps["image"]
         self._step(worker, "image_prepare_failed", script, timeout)
         script, timeout = self.steps["qualify"]

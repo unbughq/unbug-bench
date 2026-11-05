@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import py_compile
+import runpy
 from pathlib import Path
 import subprocess
 import sys
@@ -195,6 +196,31 @@ class DeploymentTests(unittest.TestCase):
         files = namespace['load_manifest'](manifest)
         with self.assertRaisesRegex(ValueError, 'unqualified bundle'):
             namespace['bundle_modes'](self.release / 'public-source.tar.gz', files)
+
+    def test_image_prunes_resurrected_files_and_refuses_source_drift(self):
+        installer = runpy.run_path(str(self.release / 'install-source.py'))
+        files = installer['load_manifest'](self.release / 'source-manifest.json')
+        root = self.home / 'unbug-bench'
+        bundle = self.release / 'public-source.tar.gz'
+        installer['install'](bundle, root, files)
+        extra = root / 'retired/launcher.py'
+        extra.parent.mkdir(); extra.write_text('old snapshot file')
+        dependency = root / 'projects/medusa/node_modules/keep'
+        dependency.parent.mkdir(parents=True); dependency.write_text('generated dependency')
+        installer['prune_image'](root, files, bundle)
+        self.assertFalse(extra.exists())
+        self.assertEqual(dependency.read_text(), 'generated dependency')
+        installer['prune_image'](root, files, bundle)  # a replay is harmless
+        extra.write_text('must survive refused preparation')
+        source = root / 'bin/check'; original = source.read_bytes()
+        source.write_bytes(b'changed scientific source')
+        with self.assertRaises(ValueError): installer['prune_image'](root, files, bundle)
+        self.assertTrue(extra.exists())
+        self.assertEqual(source.read_bytes(), b'changed scientific source')
+        source.write_bytes(original)
+        link = root / 'unexpected-link'; link.symlink_to(self.home)
+        with self.assertRaises(ValueError): installer['prune_image'](root, files, bundle)
+        self.assertTrue(extra.exists()); self.assertTrue(link.is_symlink())
 
 
     def test_destination_recreation_at_swap_refuses_with_incomplete_marker(self):

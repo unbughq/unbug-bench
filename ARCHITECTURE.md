@@ -56,6 +56,9 @@ Boat worker pool/channel, worker-side steps, SQL ledger and wrapped-key service.
 Plumbing bundles include their authenticated `bin/processes.py` runtime helper;
 factory imports and qualification use that release copy. Scientific bench files
 remain on the separately pinned worker image.
+Images may supply `~/bench-source/prepare.py` to verify their bound public source
+and prune obsolete files restored by a snapshot overlay. This runs before release
+qualification and key delivery; changed source fails preparation.
 The control units and setup script live under `control/`. ADMIT reuses the existing
 selector, registry, freshness and idea-realism screens. DIAGNOSIS uses the existing
 review contract through an isolated pilot user. These paths passed combined offline

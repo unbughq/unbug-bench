@@ -6,6 +6,7 @@ copy. Unbound copies fail closed. The CLI alternatively requires those explicit
 expected values. This source does not qualify or alter any historical release.
 """
 import argparse
+import fcntl
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
@@ -109,6 +110,32 @@ def verify(root, files, factory_root=None, bundle=None):
         if actual != expected:
             raise ValueError('unqualified files in transferred factory')
     return {'source_files_verified': len(files), 'factory_copy_verified': factory_root is not None}
+
+
+def prune_image(root, files, bundle):
+    """Fresh image only: remove files resurrected by snapshot overlay restoration.
+
+    Validate pinned source before deleting anything. Never repair changed source;
+    generated dependencies stay in place and get their separate release checks.
+    Run before any case starts, using this image's bound manifest and bundle.
+    """
+    root = root.absolute()
+    if any(p.is_symlink() for p in (root, *root.parents)):
+        raise ValueError('symlink source root')
+    fd = os.open(root.parent / '.bench-source-prepare.lock', os.O_CREAT | os.O_RDWR, 0o600)
+    with os.fdopen(fd, 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        modes = bundle_modes(bundle, files)
+        actual = source_inventory(root, {'.'}, GENERATED_PATHS)
+        for name, digest in files.items():
+            p = root / name
+            if sha(p) != digest or stat.S_IMODE(p.stat().st_mode) != modes[name]:
+                raise ValueError('source mismatch: ' + name)
+        for name in sorted(actual - set(files)):
+            (root / name).unlink()
+        if source_inventory(root, {'.'}, GENERATED_PATHS) != set(files):
+            raise ValueError('source changed during image preparation')
+        return verify(root, files, bundle=bundle)
 
 
 def install(bundle, root, files):

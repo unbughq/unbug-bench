@@ -697,6 +697,44 @@ class PoolTests(unittest.TestCase):
         self.assertIn("--root ~/unbug-bench", W.QUALIFY_SCRIPT)
         self.assertIn("--drivers opencode,codex", W.QUALIFY_SCRIPT)
 
+    def test_image_preparation_is_skipped_for_a_plumbing_upgrade(self):
+        pool = self.h.pool()
+        lease = self.acquire(pool)
+        home = self.h.boat_dir / 'homes' / W.boat_id(lease.worker_id)
+        output = home / 'unbug-bench/results/keep.txt'; output.write_text('existing case output')
+        (self.h.tree / 'factory/upgrade-marker.py').write_text('# new plumbing\n')
+        plumbing = self.h.store.put_bundle(W.build_bundle(self.h.tree))
+        prepared = len([c for c in self.h.calls() if c[0] == 'ssh' and 'bench-source/prepare.py' in c[2]])
+        self.assertEqual(prepared, 1)
+        pool.acquire(CASE, plumbing, self.h.benches['bench-env'])
+        self.assertEqual(len([c for c in self.h.calls() if c[0] == 'ssh' and 'bench-source/prepare.py' in c[2]]), prepared)
+        self.assertEqual(output.read_text(), 'existing case output')
+
+    def test_image_preparation_failure_refuses_activation(self):
+        self.h.flag('ssh-exit', 'bench-source/prepare.py')
+        with self.assertRaises(W.PoolError) as caught:
+            self.acquire(self.h.pool())
+        self.assertEqual(caught.exception.reason, 'infra:image_source_prepare_failed')
+        self.assertEqual(self.h.inventory(), [])
+
+    def test_image_helper_refuses_an_occupied_worker_with_a_corrupt_manifest(self):
+        pool = self.h.pool()
+        lease = self.acquire(pool)
+        home = self.h.boat_dir / 'homes' / W.boat_id(lease.worker_id)
+        output = home / 'unbug-bench/results/keep.txt'; output.write_text('existing case output')
+        helper = home / 'bench-source/prepare.py'; helper.parent.mkdir()
+        marker = home / 'helper-executed'
+        helper.write_text('from pathlib import Path\nPath(' + repr(str(marker)) + ').touch()\n')
+        (home / RELEASE_MANIFEST).write_text('corrupt manifest')
+        (self.h.tree / 'factory/upgrade-marker.py').write_text('# new plumbing\n')
+        plumbing = self.h.store.put_bundle(W.build_bundle(self.h.tree))
+        with self.assertRaises(W.PoolError) as caught:
+            pool.acquire(CASE, plumbing, self.h.benches['bench-env'])
+        self.assertEqual(caught.exception.reason, 'infra:image_source_prepare_failed')
+        self.assertFalse(marker.exists())
+        self.assertEqual(output.read_text(), 'existing case output')
+        self.assertEqual(len(self.h.inventory()), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
