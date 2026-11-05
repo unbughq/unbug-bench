@@ -158,6 +158,17 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(out["ledger"]["batches"]["b-t"]["waste"], 8000)   # waste, not case money
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
+    def test_batch_deadline_stops_after_the_deadline_never_diagnose(self):
+        # The deadline passes while case 1 writes; four batch-deadline stops follow, with an infra
+        # allowance of one. The running case still seals: the deadline only stops new work.
+        stop = {"outcome": "infra_error", "reason": "infra:deadline", "paid": 0}
+        r, out = run({"deadline_in": 4.0, "spec": {"max_infra_retries_per_step": 1},
+                      "timing": {"pause_retry_s": 0.2},
+                      "script": {"1/2/writer:1/1": {"dur": 5.0}, **{f"1/3/stress:1/{n}": stop for n in range(1, 5)}}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ["admit", "writer:1"] + ["stress:1"] * 5 + ["gates:1", "seal"])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
     def test_a_free_limit_that_never_clears_gives_up(self):
         # credential_expiring for a missing local secret: free, never clears. After 96 free limits
         # on one step the 97th gives up to diagnosis instead of sleeping forever.
@@ -294,6 +305,16 @@ class Money(unittest.TestCase):
         first = next(x for x in r.worker_log() if x["op"] == "ran" and x["key"] == f"{C1}/1/admit/1")
         self.assertEqual(first["outcome"], "exhausted")
         self.assertIn(f"{C1}/1/admit/2", [x["key"] for x in r.starts(1)])
+
+    def test_a_money_stop_before_any_spend_waits_on_the_bound(self):
+        # The runner refused the first call (its maximum did not fit the BATCH grant): no usage,
+        # yet it is a bound wait, not a case result.
+        r, out = run({"spec": {"money_bound_usd_micros": 2 * M},
+                      "script": {"1/admit/1": {"outcome": "exhausted", "reason": "admit:money", "paid": 0}},
+                      "actions": [{"when": {"case": 1, "status": "waiting_for_bound"}, "bound": 10_000 * M}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(steps(r, 1)[:2], ["admit", "admit"])
 
     def test_sub_minimum_case_grant_diagnoses_without_starting(self):
         r, out = run({"spec": {"case_money_usd_micros": 1_500_000, "max_cases_started": 1},

@@ -523,7 +523,13 @@ def engine_main(workdir):
     from durable import report
     from durable.contract import BenchRelease, BoundRaised, FounderReply, PlumbingRelease, Topic
     fakes = build_fakes(work / "state", scenario)
-    spec, registry = seed_batch(fakes, scenario.get("spec", {}))
+    spec_kw = dict(scenario.get("spec", {}))
+    if "deadline_in" in scenario:   # a batch deadline that passes mid-run, fixed at the first launch
+        fixed = work / "deadline.txt"
+        if not fixed.exists():
+            fixed.write_text(repr(time.time() + scenario["deadline_in"]))
+        spec_kw["deadline_epoch"] = float(fixed.read_text())
+    spec, registry = seed_batch(fakes, spec_kw)
     ex = Executor(fakes["pool"], fakes["worker"], fakes["ledger"], fakes["store"], fakes["sealer"], fakes["keys"],
                   poll_interval_s=scenario.get("poll_s", 0.02), grace_s=scenario.get("grace_s", 0.3))
     timing = Timing(**{"batch_poll_s": 0.5, "wake_poll_s": 5.0, "founder_poll_s": 2.0, "queue_poll_s": 0.05,

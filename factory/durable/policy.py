@@ -33,6 +33,12 @@ MAX_FREE_LIMITS_PER_STEP = 96
 # An operator pause (WP4 classify.py maps PauseRequested and paused to it). Not a fault of
 # the step: it retries without using the infra-retry allowance, after the engine's pause wait.
 PAUSE_REASONS = frozenset({"infra:paused"})
+# WP4 maps the runner's batch-deadline stops (retired_batch_bound, provider_wait_deadline) to
+# this code, which a worker's own deadline kill also uses. After deadline_epoch the two cannot be
+# told apart; the batch deadline only stops new cases and extensions, so after it such a stop
+# retries outside the infra allowance, up to the same cap as free limits.
+DEADLINE_REASON = "infra:deadline"
+MAX_DEADLINE_STOPS_PER_STEP = 96
 # Results whose usage the engine cannot know: they book the whole grant as waste (settle_lost).
 LOST_REASONS = frozenset({"infra:cancelled", "infra:worker_lost", "infra:attempt_absent",
                           "engine:executor_raised", "engine:executor_bad_result"})
@@ -60,6 +66,7 @@ class Counters:
     step_infra_errors: int = 0     # INFRA_ERROR attempts of this seq, this one included
     step_spent_limits: int = 0     # PROVIDER_LIMIT attempts of this seq that spent money, this one included
     step_free_limits: int = 0      # PROVIDER_LIMIT attempts of this seq that spent nothing, this one included
+    step_deadline_stops: int = 0   # infra:deadline attempts of this seq after the batch deadline, this one included
     writer_rounds_used: int = 0    # ordinary writer rounds; extension rounds are counted separately
     extensions_used: int = 0
     factory_bug_resumes: int = 0   # carried across batches in the case's lineage
@@ -75,8 +82,9 @@ class Counters:
 
 
 def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, *,
-           grant: Grant = Grant(0, LimitedBy.NOTHING)) -> Action:
-    """grant is the attempt's Grant from Ledger.reserve."""
+           grant: Grant = Grant(0, LimitedBy.NOTHING), now: Optional[float] = None) -> Action:
+    """grant is the attempt's Grant from Ledger.reserve. now (from a step) is needed only to
+    recognise a batch-deadline stop; without it an infra:deadline counts as an ordinary infra error."""
     check_result_for(step, result)
     k, o = step.kind, result.outcome
     # An extension is exactly one writer round, its stress round and the gates: it never repairs.
@@ -103,6 +111,9 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
     if o is Outcome.INFRA_ERROR:
         if is_pause(result):
             return Action.RETRY                   # never scored, never counted, never diagnosed
+        if is_batch_deadline_stop(result, spec, now):
+            # The batch deadline stops new cases and extensions, not a running case's step.
+            return Action.RETRY if counters.step_deadline_stops <= MAX_DEADLINE_STOPS_PER_STEP else give_up()
         return Action.RETRY if counters.step_infra_errors <= spec.max_infra_retries_per_step else give_up()
     if o is Outcome.GATE_FAILED:
         if not result.repairable:
@@ -112,8 +123,11 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
         # A zero grant is never "used up": the engine does not start attempts below its minimum
         # grant, and treating $0 as spent would retry forever.
         used_grant = grant.amount_usd_micros > 0 and result.usage.paid_usd_micros >= grant.amount_usd_micros
-        if grant.limited_by is LimitedBy.BATCH and used_grant:
-            return Action.WAIT_FOR_BOUND          # the batch ran out under it, not the case and not a round limit
+        if grant.limited_by is LimitedBy.BATCH and (used_grant or (grant.amount_usd_micros > 0 and is_money_stop(result))):
+            # The batch ran out under it, not the case and not a round limit. A money stop counts
+            # even below the grant: the runner refuses a call whose route maximum does not fit what
+            # is left (budget.py money_wait), so usage never reaches a grant smaller than one call.
+            return Action.WAIT_FOR_BOUND
         if used_grant and not draws_case_money(step, counters):
             return Action.RETRY                   # a batch-only step outgrew its grant: plumbing, not a case result
         return give_up()
@@ -163,6 +177,16 @@ def is_pause(result: StepResult) -> bool:
     """An operator pause. The engine waits Timing.pause_retry_s, then retries the same seq, and
     does not count it in Counters.step_infra_errors. It still settles as waste."""
     return result.outcome is Outcome.INFRA_ERROR and result.reason in PAUSE_REASONS
+
+
+def is_batch_deadline_stop(result: StepResult, spec: BatchSpec, now: Optional[float]) -> bool:
+    return (result.outcome is Outcome.INFRA_ERROR and result.reason == DEADLINE_REASON and now is not None
+            and now >= spec.deadline_epoch)
+
+
+def is_money_stop(result: StepResult) -> bool:
+    """EXHAUSTED because money ran out (WP4: "<stage>:money"), not a round limit."""
+    return result.outcome is Outcome.EXHAUSTED and result.reason.split(":", 1)[1] == "money"
 
 
 def settles_lost(result: StepResult) -> bool:

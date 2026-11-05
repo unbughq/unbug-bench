@@ -31,8 +31,8 @@ from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised
                               guarded_run, step_input_from_record, step_result_from_record, to_record,
                               wait_seconds)
 from durable.executor import Executor, SeamError
-from durable.policy import (ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
-                            draws_case_money, is_pause, progressed, request_usd_micros, starts_replacement)
+from durable.policy import (DEADLINE_REASON, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
+                            draws_case_money, is_batch_deadline_stop, is_pause, progressed, request_usd_micros, starts_replacement)
 
 APP_NAME = "unbug-factory-engine"
 APP_VERSION = "factory-engine-1"   # pinned for the life of the database: DBOS recovers only matching versions
@@ -253,8 +253,9 @@ class _Case:
 
     # -- records and messages --
 
-    def counters(self, infra=0, limits=0, free=0) -> Counters:
+    def counters(self, infra=0, limits=0, free=0, late=0) -> Counters:
         return Counters(step_infra_errors=infra, step_spent_limits=limits, step_free_limits=free,
+                        step_deadline_stops=late,
                         writer_rounds_used=self.writer_rounds_used,
                         extensions_used=self.extensions_used, diagnoses_used=self.diagnoses_used,
                         in_extension=self.in_extension)
@@ -291,7 +292,7 @@ class _Case:
         action is None for a DIAGNOSIS verdict."""
         self.seq += 1
         self.stage = step.name
-        attempt, infra, limits, free, prev = 0, 0, 0, 0, None
+        attempt, infra, limits, free, late, prev = 0, 0, 0, 0, 0, None
         admit = step.kind is StepKind.ADMIT
         while True:
             attempt += 1
@@ -302,7 +303,7 @@ class _Case:
                            money_ceiling_usd_micros=0, feedback=feedback,
                            registry=Ref(**self.initial_registry) if admit else None, ruling=ruling,
                            evidence=tuple(evidence))
-            counters = self.counters(infra, limits, free)
+            counters = self.counters(infra, limits, free, late)
             job = {"input": to_record(si), "initial_registry": self.initial_registry,
                    "request": request_usd_micros(step, counters, self.spec),
                    "case_limit": self.spec.case_money_usd_micros, "draws": draws_case_money(step, counters),
@@ -324,14 +325,13 @@ class _Case:
             prev = {"input": out["input"], "started_at": out["started_at"]}
             self.worker_id = out["worker_id"]
             self.absorb(step, attempt, result)
-            if is_pause(result):
-                # An operator pause: wait, then retry, without using the infra-retry allowance.
-                if _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s and self.worker_id is not None:
-                    release_step(self.case_id, self.worker_id)
-                    self.worker_id = None
-                DBOS.sleep(_RT.timing.pause_retry_s)
-                continue
-            if result.outcome is Outcome.INFRA_ERROR:
+            # A batch-deadline stop after deadline_epoch (or an operator pause) is never counted as
+            # an infra error: the batch deadline stops new cases and extensions, not this step.
+            now = now_step() if result.reason == DEADLINE_REASON else None
+            late_stop = is_batch_deadline_stop(result, self.spec, now)
+            if late_stop:
+                late += 1
+            elif result.outcome is Outcome.INFRA_ERROR and not is_pause(result):
                 infra += 1
             if result.outcome is Outcome.PROVIDER_LIMIT:
                 if result.usage.paid_usd_micros > 0:
@@ -340,7 +340,14 @@ class _Case:
                     free += 1
             if step.kind is StepKind.DIAGNOSIS and result.outcome is Outcome.OK:
                 return None, result
-            action = decide(step, result, self.counters(infra, limits, free), self.spec, grant=grant)
+            action = decide(step, result, self.counters(infra, limits, free, late), self.spec, grant=grant, now=now)
+            if action is Action.RETRY and (late_stop or is_pause(result)):
+                # Wait before the retry, so a stop that repeats does not spin.
+                if _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s and self.worker_id is not None:
+                    release_step(self.case_id, self.worker_id)
+                    self.worker_id = None
+                DBOS.sleep(_RT.timing.pause_retry_s)
+                continue
             if action is Action.RETRY:
                 continue
             if action is Action.SLEEP:

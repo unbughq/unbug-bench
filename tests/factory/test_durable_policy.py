@@ -16,7 +16,7 @@ os.environ.setdefault("BENCH", str(ROOT))
 from durable.contract import (ArtifactKind as K, BatchSpec, ContractError, Grant, LimitedBy, Outcome, Ref, Step,
                               StepKind, StepResult, Usage, Verdict)
 from durable.policy import (BATCH_ONLY_FLOOR_USD_MICROS, GATES_DEADLINE_S, MAX_FREE_LIMITS_PER_STEP, MIN_GRANT_USD_MICROS,
-                            Action, Counters,
+                            MAX_DEADLINE_STOPS_PER_STEP, Action, Counters, is_money_stop,
                             deadline_s, decide, decide_diagnosis, decide_grant, draws_case_money, is_pause, progressed,
                             request_usd_micros, settles_as_waste, settles_lost, starts_replacement)
 
@@ -179,6 +179,32 @@ class Settlements(unittest.TestCase):
         self.assertIs(d(DIAG, paused, step_infra_errors=100), Action.RETRY)
         self.assertTrue(settles_as_waste(paused))   # never against the case's money
         self.assertFalse(is_pause(StepResult(Outcome.INFRA_ERROR, "infra:stalled")))
+
+    def test_a_batch_deadline_stop_never_diagnoses_a_running_case(self):
+        # WP4 maps retired_batch_bound and provider_wait_deadline to infra:deadline. After
+        # deadline_epoch (2e9 here) it retries outside the infra allowance, up to its own cap.
+        stop = StepResult(Outcome.INFRA_ERROR, "infra:deadline")
+        late = dict(grant=Grant(0, LimitedBy.NOTHING), now=2e9 + 1)
+        self.assertIs(decide(GATES, stop, Counters(step_infra_errors=50, step_deadline_stops=1), SPEC, **late),
+                      Action.RETRY)
+        self.assertIs(decide(GATES, stop, Counters(step_deadline_stops=MAX_DEADLINE_STOPS_PER_STEP), SPEC, **late),
+                      Action.RETRY)
+        self.assertIs(decide(GATES, stop, Counters(step_deadline_stops=MAX_DEADLINE_STOPS_PER_STEP + 1), SPEC, **late),
+                      Action.DIAGNOSE)
+        # Before the deadline (or without a clock) it is an ordinary counted infra error.
+        self.assertIs(decide(GATES, stop, Counters(step_infra_errors=6), SPEC, now=2e9 - 1), Action.DIAGNOSE)
+        self.assertIs(decide(GATES, stop, Counters(step_infra_errors=6), SPEC), Action.DIAGNOSE)
+
+    def test_a_money_stop_below_a_batch_grant_waits(self):
+        # budget.py money_wait: the next call's route maximum does not fit, so usage never
+        # reaches a grant smaller than one call. Under a BATCH grant that is a bound wait.
+        for paid in (0, 3):
+            money = StepResult(Outcome.EXHAUSTED, "writer:money", Usage(paid_usd_micros=paid))
+            self.assertIs(decide(GATES, money, Counters(), SPEC, grant=Grant(7, LimitedBy.BATCH)), Action.WAIT_FOR_BOUND)
+            self.assertIs(decide(GATES, money, Counters(), SPEC, grant=Grant(7, LimitedBy.CASE)), Action.DIAGNOSE)
+        rounds = StepResult(Outcome.EXHAUSTED, "writer:rounds")
+        self.assertIs(decide(GATES, rounds, Counters(), SPEC, grant=Grant(7, LimitedBy.BATCH)), Action.DIAGNOSE)
+        self.assertTrue(is_money_stop(StepResult(Outcome.EXHAUSTED, "admit:money")))
 
     def test_cancelled_and_unknown_usage_settle_lost(self):
         self.assertTrue(settles_lost(StepResult(Outcome.INFRA_ERROR, "infra:cancelled")))
