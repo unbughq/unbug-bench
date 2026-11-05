@@ -21,5 +21,5 @@ I did not run tests, edit files, or assess later queue, reconciliation, limit, o
 
 | Finding | Disposition |
 |---|---|
-| DBOS ordering and duplicate delivery | Added observed done-before-request and release-before-request cases, equal timestamps, distinct duplicate IDs and same-key suppression across restart; fresh verification pending. |
-| Cleanup evidence | Added an independent cleanup-complete event and a real DBOS post-release fault test; fresh verification pending. |
+| DBOS ordering and duplicate delivery | Added observed done-before-request and release-before-request cases, equal timestamps, distinct duplicate IDs and same-key suppression across restart; verified by checkpoint diff review 3. |
+| Cleanup evidence | Added an independent cleanup-complete event and a real DBOS post-release fault test; verified by checkpoint diff review 3. |

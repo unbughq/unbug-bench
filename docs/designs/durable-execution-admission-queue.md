@@ -1,9 +1,11 @@
 # Budget-aware admission using a DBOS decision queue, revision 13
 
-Status: proposed alternative to `durable-execution-admission-budget.md` revision 6;
-not implemented. Earlier reviews are in
-`docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8,9,10,11,12}.md`; request a fresh
-independent design review before choosing it. WP1 owns the engine changes; WP2 must satisfy the existing idempotent `WorkerPool`
+Status: the queue architecture passed its latest design verification in
+`docs/reviews/durable-execution-admission-queue-design-13.md`; only the disabled
+bookkeeping checkpoint is implemented. The provider-limit boundary remains open
+because the handoff and ENGINEERING section 4 conflict. Earlier queue reviews are in
+`docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8,9,10,11,12}.md`.
+WP1 owns the engine changes; WP2 must satisfy the existing idempotent `WorkerPool`
 contract. No `contract.py` edit is proposed.
 
 ## Problem and choice
