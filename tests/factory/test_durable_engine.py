@@ -101,6 +101,16 @@ class StepSequence(unittest.TestCase):
 
 
 class Outcomes(unittest.TestCase):
+    def test_seal_is_counted_if_worker_cleanup_fails_after_the_verified_result(self):
+        r, out = run({"release_step_failure": True, "spec": {"max_cases_started": 1}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual([seal["case_id"] for seal in out["result"]["sealed"]], [C1])
+        self.assertEqual(out["scorecard"]["sealed"], 1)
+        self.assertEqual(out["scorecard"]["cases"][0]["status"], "sealed")
+        self.assertIs(out["scorecard"]["cases"][0]["cleanup_error"], True)
+        self.assertFalse(any(x["op"] == "release" for x in r.pool_log()))
+
     def test_executor_exception_after_dispatch_reconciles_before_retry(self):
         key = f"{C1}/2/writer:1/1"
         r, out = run({"raise_after_start": key, "spec": {"max_cases_started": 1},

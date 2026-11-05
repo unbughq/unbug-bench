@@ -530,9 +530,18 @@ def engine_main(workdir):
     work = Path(workdir)
     scenario = json.loads((work / "scenario.json").read_text())
     from durable.engine import Engine, Timing
+    from durable import engine as engine_module
     from durable.executor import Executor
     from durable import report
     from durable.contract import BenchRelease, BoundRaised, FounderReply, PlumbingRelease, Topic
+    if scenario.get("release_step_failure"):
+        from dbos import DBOS
+
+        @DBOS.step()
+        def fail_release(_case_id, _worker_id):
+            raise RuntimeError("simulated cleanup failure")
+
+        engine_module.release_step = fail_release
     fakes = build_fakes(work / "state", scenario)
     spec_kw = dict(scenario.get("spec", {}))
     if "deadline_in" in scenario:   # a batch deadline that passes mid-run, fixed at the first launch

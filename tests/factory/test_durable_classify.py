@@ -20,7 +20,7 @@ os.environ.setdefault("BENCH", str(ROOT))
 
 from durable import classify as wp4
 from durable.classify import (BACKOFF_S, CONTRACT_REASONS, MAX_RESET_AHEAD_S, PUBLISHED_REASONS, REASONS,
-                              UNCLASSIFIED, classify)
+                              UNCLASSIFIED, WORKER_POOL_REASONS, classify)
 from durable.contract import (REASON, ArtifactKind, Classified, ContractError, Outcome, Ref, Step, StepKind,
                               StepResult, check_result_for)
 
@@ -328,7 +328,7 @@ class Secrecy(unittest.TestCase):
                          Classified(Outcome.INFRA_ERROR, UNCLASSIFIED))
 
     def test_published_allowlist(self):
-        self.assertTrue(PUBLISHED_REASONS <= REASONS | CONTRACT_REASONS)
+        self.assertTrue(PUBLISHED_REASONS <= REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS)
         self.assertTrue(all(REASON.fullmatch(r) for r in PUBLISHED_REASONS))
         self.assertNotIn("router:refusal", PUBLISHED_REASONS)
         self.assertEqual(REASONS - PUBLISHED_REASONS, {"router:refusal"})

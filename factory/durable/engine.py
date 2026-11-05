@@ -35,6 +35,7 @@ from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised
 from durable.executor import Executor, SeamError
 from durable.policy import (DEADLINE_REASON, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
                             draws_case_money, is_batch_deadline_stop, is_money_stop, is_pause, progressed, request_usd_micros, starts_replacement)
+from durable.report import verified_seal
 
 APP_NAME = "unbug-factory-engine"
 APP_VERSION = "factory-engine-1"   # pinned for the life of the database: DBOS recovers only matching versions
@@ -526,6 +527,9 @@ class _Case:
                     continue
                 if action is Action.ADVANCE:
                     self.sealed = {"archive": to_record(r.archive), "hard": r.hard}
+                    # The attempt has authenticated this archive. Preserve that fact
+                    # before release so a cleanup failure cannot erase a valid seal.
+                    DBOS.set_event("verified_seal", self.sealed)
                     self.stage = "sealed"
                     self.finish("sealed")
                 phase, feedback = self.stopped(action)
@@ -712,7 +716,12 @@ class _Batch:
             self.operator()
             pending = [c for c in self.cases if c not in self.done]
             for case_id in failed_cases_step(pending):
-                self.done[case_id] = "engine_error"
+                seal = verified_seal(DBOS.get_event(case_id, "verified_seal", timeout_seconds=0.001))
+                if seal is None:
+                    self.done[case_id] = "engine_error"
+                else:
+                    self.done[case_id] = "sealed"
+                    self.sealed.append({"case_id": case_id, **seal})
         return {"batch_id": spec.batch_id, "sealed": self.sealed, "cases": dict(self.done)}
 
 

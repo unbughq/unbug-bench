@@ -131,6 +131,94 @@ class PendingWorkflow(unittest.TestCase):
                                        capture_output=True, text=True, timeout=45)
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
+    def test_switched_batch_replays_out_of_order_predecessor_facts_after_kill(self):
+        program = textwrap.dedent('''
+            import logging, os, sqlite3, sys, time
+            from pathlib import Path
+            logging.disable(logging.CRITICAL)
+            for key in ("DBOS_CONDUCTOR_KEY", "DBOS_CONDUCTOR_URL"):
+                os.environ.pop(key, None)
+            root, work, mode = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+            sys.path[:0] = [str(root / "factory"), str(root / "tests/factory")]
+            from dbos import DBOS, SendMessage, SetWorkflowID
+            from durable.contract import ArtifactKind, Ref, to_record
+            from durable import engine
+            from test_durable_engine_fakes import make_spec
+
+            class LedgerOnly:
+                def open_batch(self, _batch_id, _bound): pass
+                def __getattr__(self, name): raise AssertionError("unexpected executor call: " + name)
+
+            # Controlled stand-in for the admission probe in this disabled increment.
+            original_init, original_handle = engine._BatchV2.__init__, engine._BatchV2.handle
+            def init(self, spec, registry):
+                original_init(self, spec, registry)
+                self.admitted.add("case-t-1")
+            def handle(self, message):
+                original_handle(self, message)
+                DBOS.set_event("test_facts", {"cases": list(self.cases), "done": dict(self.done),
+                                               "released": sorted(self.released)})
+            engine._BatchV2.__init__, engine._BatchV2.handle = init, handle
+            engine._RT.executor = LedgerOnly()
+            engine._RT.timing = engine.Timing(batch_poll_s=0.1, listener_poll_s=0.05)
+            DBOS(config={"name": "unbug-factory-engine", "application_version": "factory-engine-2",
+                         "system_database_url": f"sqlite:///{work}/sys.sqlite",
+                         "notification_listener_polling_interval_sec": 0.05})
+            DBOS.launch()
+            spec = make_spec(target_sealed=1, max_cases_started=2)
+            registry = Ref("a" * 64, ArtifactKind.STATEMENT_REGISTRY)
+
+            def await_facts(predicate):
+                until = time.monotonic() + 15
+                while time.monotonic() < until:
+                    facts = DBOS.get_event(spec.batch_id, "test_facts", timeout_seconds=0.2)
+                    if facts and predicate(facts): return facts
+                    time.sleep(0.02)
+                raise AssertionError("timed out waiting for recorded facts")
+
+            if mode == "start":
+                with SetWorkflowID(spec.batch_id):
+                    DBOS.start_workflow(engine.batch_workflow, {"spec": to_record(spec),
+                                        "initial_registry": to_record(registry), "queue_v2": True})
+                assert DBOS.get_event("case-t-1", "card", timeout_seconds=15)["status"] == "pending_admission"
+                DBOS.send(spec.batch_id, {"kind": "worker_released", "case": "case-t-1"},
+                          topic=engine.CASE_EVENT, idempotency_key="release")
+                await_facts(lambda f: f["released"] == ["case-t-1"])
+                os._exit(9)
+
+            try:
+                # These facts share a DBOS send transaction; the actor may see either first.
+                done = {"kind": "done", "case": "case-t-1", "status": "retired",
+                        "replacement_action": "diagnose", "worker_released": True}
+                request = {"kind": "line_stopped", "case": "case-t-1", "action": "diagnose"}
+                DBOS.send_bulk([SendMessage(spec.batch_id, done, engine.CASE_EVENT, "done"),
+                                SendMessage(spec.batch_id, request, engine.CASE_EVENT, "request")])
+                with sqlite3.connect(work / "sys.sqlite") as conn:
+                    timestamps = conn.execute("SELECT created_at_epoch_ms FROM notifications "
+                                              "WHERE message_uuid IN (?, ?)",
+                                              ("done::b-t", "request::b-t")).fetchall()
+                assert len(timestamps) == 2 and timestamps[0] == timestamps[1], timestamps
+                DBOS.send(spec.batch_id, done, topic=engine.CASE_EVENT, idempotency_key="done")
+                DBOS.send(spec.batch_id, request, topic=engine.CASE_EVENT, idempotency_key="request")
+                facts = await_facts(lambda f: len(f["cases"]) == 2 and f["done"].get("case-t-1") == "retired")
+                assert facts["released"] == ["case-t-1"], facts
+                assert DBOS.get_event("case-t-2", "card", timeout_seconds=15)["status"] == "pending_admission"
+                DBOS.send("case-t-1", {"kind": "not_admitted"}, topic=engine.PENDING_ADMISSION)
+                DBOS.send("case-t-2", {"kind": "not_admitted"}, topic=engine.PENDING_ADMISSION)
+                result = DBOS.retrieve_workflow(spec.batch_id).get_result()
+                assert result["cases"] == {"case-t-1": "retired", "case-t-2": "not_admitted"}, result
+                assert not DBOS.list_workflows(name=engine.attempt_workflow.__qualname__)
+            finally:
+                DBOS.destroy()
+        ''')
+        with tempfile.TemporaryDirectory() as work:
+            start = subprocess.run([sys.executable, "-B", "-c", program, str(ROOT), work, "start"],
+                                   capture_output=True, text=True, timeout=45)
+            self.assertEqual(start.returncode, 9, start.stdout + start.stderr)
+            resume = subprocess.run([sys.executable, "-B", "-c", program, str(ROOT), work, "resume"],
+                                    capture_output=True, text=True, timeout=45)
+            self.assertEqual(resume.returncode, 0, resume.stdout + resume.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

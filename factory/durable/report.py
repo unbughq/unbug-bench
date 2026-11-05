@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-from durable.contract import CASE_ID, GATE, REASON, ContractError
+from durable.contract import CASE_ID, GATE, REASON, ArtifactKind, ContractError, Ref
 
 STATUSES = ("sealed", "running", "waiting_for_bound", "escalated", "held", "retired", "stopped_admission",
             "engine_error", "pending_admission", "waiting_for_worker", "not_admitted")
@@ -37,6 +37,19 @@ def _count(value, name) -> int:
     if type(value) is not int or value < 0:
         raise ContractError(f"bad {name}")
     return value
+
+
+def verified_seal(value) -> Optional[dict]:
+    """Validate a seal event written only after the engine authenticates the archive."""
+    if not isinstance(value, dict) or set(value) != {"archive", "hard"} or type(value["hard"]) is not bool:
+        return None
+    try:
+        archive = Ref(**value["archive"])
+    except (ContractError, TypeError):
+        return None
+    if archive.kind is not ArtifactKind.SEALED_ARCHIVE:
+        return None
+    return {"archive": {"digest": archive.digest, "kind": archive.kind.value}, "hard": value["hard"]}
 
 
 def case_entry(card: dict, allowlist: Iterable[str] = ()) -> dict:
@@ -98,6 +111,8 @@ def render_text(card: dict) -> str:
     for c in card["cases"]:
         gates = " ".join(f"{g}={v}" for g, v in c["gates"].items()) or "-"
         extra = f" hard={c['hard']}" if "hard" in c else ""
+        if c.get("cleanup_error"):
+            extra += " cleanup error"
         why = f" ({c['reason']})" if c["reason"] else ""
         rep = f" replaces {c['replacement_of']}" if c["replacement_of"] else ""
         lines.append(f"  {c['case']}: {c['status']} at {c['stage']}{why}{extra}; rounds {c['writer_rounds']}, "
@@ -116,10 +131,15 @@ def load_cards(batch_id: str, *, timeout_s: float = 1.0) -> list:
         failed = workflow is not None and workflow.status in ("ERROR", "CANCELLED", "MAX_RECOVERY_ATTEMPTS_EXCEEDED")
         if failed:
             # A failed workflow cannot update its own event. Keep any previously
-            # published, content-free facts but show the actual terminal status.
+            # published, content-free facts and trust only a recorded verified seal.
             card = dict(card or {"case_id": case_id, "stage": "admit", "passed": [], "failed_gate": None,
                                  "writer_rounds": 0, "extensions": 0, "replacement_of": None})
-            card["status"] = "engine_error"
+            seal = verified_seal(DBOS.get_event(case_id, "verified_seal", timeout_seconds=timeout_s))
+            if seal is None:
+                card["status"] = "engine_error"
+                card.pop("cleanup_error", None)
+            else:
+                card.update(status="sealed", stage="sealed", hard=seal["hard"], cleanup_error=True)
         if card is not None:
             cards.append(card)
     return cards
