@@ -611,7 +611,7 @@ def ledger_totals(path):
     try:
         ledger = json.loads(pathlib.Path(path).read_text())
     except (OSError, ValueError):
-        ledger = {}
+        return {"calls": 0, "total": None, "known": 0, "list": Decimal(0)}
     summary = case_spending(ledger)
     events = {e["id"]: e for e in ledger.get("events", []) if isinstance(e, dict) and isinstance(e.get("id"), str)}
     listed = Decimal(0)

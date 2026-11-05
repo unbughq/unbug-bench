@@ -202,7 +202,7 @@ def practice_tree(root, case_id, *, ledger=None, extra=(), card=None):
     run.build_fixture(types.SimpleNamespace(case=work / "case"))
     (work / "logs").mkdir()
     (work / "scorecard.json").write_text(json.dumps(card or practice_card(case_id)))
-    if ledger is not None: (work / "continuation-budget.json").write_text(json.dumps(ledger))
+    (work / "continuation-budget.json").write_text(json.dumps(ledger if ledger is not None else {"calls": 0, "events": [], "cost": 0}))
     for name in extra:
         path = work / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -691,6 +691,11 @@ class HookTests(unittest.TestCase):
         self.assertEqual(out.reason, "infra:usage_unknown")
         from durable.policy import settles_lost
         self.assertTrue(settles_lost(out))
+
+    def test_missing_usage_ledger_is_unknown_before_paid_execution(self):
+        c, _ = self.context()
+        c.ledger.unlink()
+        self.assertIsNone(worker_step.ledger_totals(c.ledger)["total"])
 
     def test_context_is_never_a_legacy_job_and_only_the_attempt_deadline_bounds_calls(self):
         with patch.dict(os.environ, {"FACTORY_BATCH_DEADLINE": "2020-01-01T00:00:00Z"}):

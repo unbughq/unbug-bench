@@ -19,6 +19,9 @@ import os
 import pathlib
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import budget
 
 os.environ.setdefault("BENCH", str(_ROOT))
 
@@ -42,6 +45,32 @@ class AdmitTests(unittest.TestCase):
         (self.home / "durable/blobs").mkdir(parents=True)
         self.worker = worker_step.Worker(self.home, sealer=AgeSealer(), runner=run)
         self.case_key, self.batch_key = os.urandom(32), os.urandom(32)
+        self.calls, self.duplicate, self.model_error = [], None, None
+        # External search/model boundaries only; statement_precheck and idea_realism are real.
+        self.freshness = patch.object(run, "g2", return_value=(True, {"outcome": "fresh"})).start()
+        self.addCleanup(patch.stopall)
+        patch.object(run, "model_call", side_effect=self.model).start()
+        patch.object(run, "opencode", side_effect=self.model).start()
+        self.selected = "# Candidate\n\nA selected checkout failure."
+
+    def model(self, c, models, text, cwd, name, **kwargs):
+        self.calls.append(name)
+        if self.model_error is not None:
+            with budget.ledger_transaction(c.ledger) as ledger:
+                ledger["calls"] = ledger.get("calls", 0) + 1
+                ledger.setdefault("events", []).append({"id": name, "cost": .75,
+                    "configured_model": models[0], "role": "writer"})
+            raise self.model_error
+        if name.startswith("builder-selection"):
+            (c.case / "statement.md").write_text(self.selected)
+        elif name == "easy-calibrator-dedup":
+            target = json.loads(text.rsplit("\n", 1)[-1])["result_path"]
+            pathlib.Path(target).write_text(json.dumps({"duplicate_of": self.duplicate, "reason": "same bug" if self.duplicate else "distinct"}))
+        elif name == "reviewer-idea-realism":
+            (cwd / "verdict.json").write_text(json.dumps({"approve": True, "reason": "plausible"}))
+        else:
+            raise AssertionError("unexpected model invocation: " + name)
+        return 0
 
     def push(self, kind, key, plaintext):
         ref, ciphertext = self.worker.sealer().seal(key, kind, plaintext)
@@ -53,7 +82,8 @@ class AdmitTests(unittest.TestCase):
                          inputs, None, 600.0, 10_000_000, registry=registry)
 
     def run_admit(self, step_input):
-        return admit.run(self.worker, step_input, {CASE: self.case_key, BATCH: self.batch_key})
+        self.worker.paths(step_input.idempotency_key)["attempt"].mkdir(parents=True, exist_ok=True)
+        return admit.run(self.worker, step_input, {step_input.case_id: self.case_key, BATCH: self.batch_key})
 
     def output(self, ref, outputs):
         return self.worker.sealer().open(
@@ -149,20 +179,82 @@ class AdmitTests(unittest.TestCase):
         conflict = self.step(conflict_inputs, retry_registry, attempt=3)
         refused, refused_outputs = self.run_admit(conflict)
         self.assertEqual((refused.outcome, refused.reason), (Outcome.EXHAUSTED, "admit:conflict"))
-        self.assertIsNone(refused.snapshot)
         self.assertIsNone(refused.registry)
-        self.assertEqual(refused_outputs, {})
+        self.assertIsNotNone(refused.snapshot)
         check_result_for(conflict.step, refused)
 
-    def test_real_inputs_without_a_candidate_never_fall_back_to_practice(self):
-        value = self.real_inputs("# Candidate\n\nUnused.")
+    def test_real_inputs_select_and_run_existing_screens(self):
+        value = self.real_inputs("unused")
         value.pop("candidate")
         inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
         registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
-        step_input = self.step(inputs, registry)
-        result, outputs = self.run_admit(step_input)
-        self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "admit:selection_required"))
-        self.assertEqual(outputs, {})
+        si = self.step(inputs, registry)
+        result, outputs = self.run_admit(si)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:selected"))
+        self.assertEqual(self.calls, ["builder-selection", "reviewer-idea-realism"])
+        self.freshness.assert_called_once()
+        work, c = self.restore(si, result, outputs)
+        self.assertEqual((work / "case/statement.md").read_text(), self.selected)
+        self.assertEqual(c.card["admission"]["status"], "passed")
+        self.assertEqual(len({c.card["roles"][r]["family"] for r in
+            ("writer", "stress_tester", "reviewer", "strong_calibrator")}), 4)
+
+    def test_second_case_screens_against_authenticated_prior_statement(self):
+        from dataclasses import replace
+        text = "# Candidate\n\nOversell under checkout."
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(self.real_inputs(text)).encode())
+        empty = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        first, blobs = self.run_admit(self.step(inputs, empty))
+        (self.home / "durable/blobs" / worker_step.blob_name(first.registry)).write_bytes(blobs[worker_step.blob_name(first.registry)])
+        self.duplicate = CASE
+        self.selected = "# Candidate\n\nDifferent words for the same underlying checkout bug."
+        second_input = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(self.real_inputs(self.selected)).encode())
+        second = replace(self.step(second_input, first.registry), case_id="case-second")
+        result, outputs = self.run_admit(second)
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:exhausted"))
+        self.assertIsNone(result.registry)
+        check_result_for(second.step, result)
+        work, c = self.restore(second, result, outputs)
+        self.assertEqual(c.card["dedup"]["duplicate_of"], CASE)
+        self.assertIn("easy-calibrator-dedup", self.calls)
+        self.assertEqual((work / "statements" / (CASE + ".md")).read_text(), text)
+        self.assertEqual(c.card["admission"]["status"], "exhausted")
+        self.assertEqual(c.card["candidate_attempts"], 3)
+
+    def test_paid_failure_and_snapshot_failure_preserve_usage(self):
+        from budget import BudgetError
+        value = self.real_inputs("unused")
+        value.pop("candidate")
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        self.model_error = BudgetError("provider_wait")
+        si = self.step(inputs, registry)
+        result, _ = self.run_admit(si)
+        self.assertEqual(result.outcome, Outcome.PROVIDER_LIMIT)
+        self.assertEqual((result.usage.calls, result.usage.paid_usd_micros), (1, 750000))
+        self.assertIsNotNone(result.snapshot)
+        self.assertEqual(self.worker.usage_so_far(si.idempotency_key), result.usage)
+        self.model_error = RuntimeError("post-payment model failure")
+        with patch.object(worker_step, "snapshot_bytes", side_effect=OSError("disk full")):
+            result, _ = self.run_admit(self.step(inputs, registry, attempt=2))
+        self.assertEqual(result.outcome, Outcome.INFRA_ERROR)
+        self.assertEqual(result.usage.paid_usd_micros, 750000)
+        self.assertIsNone(result.snapshot)
+
+    def test_explicit_models_keep_efforts_and_reject_overlapping_families(self):
+        from test_durable_worker_step import E15450
+        value = self.real_inputs("# Candidate\n\nA bug.", models=E15450["models"], roles=E15450["roles"])
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        si = self.step(inputs, registry)
+        result, blobs = self.run_admit(si)
+        self.assertEqual(result.outcome, Outcome.OK)
+        _, c = self.restore(si, result, blobs)
+        self.assertEqual(c.models, value["models"])
+        self.assertEqual(c.card["roles"], value["roles"])
+        value["models"]["attacker"] = value["models"]["builder"]
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        self.assertEqual(self.run_admit(self.step(inputs, registry, attempt=2))[0].outcome, Outcome.INFRA_ERROR)
 
 
 if __name__ == "__main__":

@@ -22,9 +22,9 @@ that builds sealed exam cases. This describes the implementation on this branch.
 A batch is built from a clean, pinned Git commit and admitted through the control
 service. Workers run the case builder, then the configured gate pipeline. The
 runner records scorecards and checkpoints; collection returns encrypted evidence
-and publishes the allowed summary. The existing control service and checkpoint
-machinery own recovery. This branch has the durable-execution contract, classifier and artifact store;
-the workflow engine and worker integration are not yet merged.
+and publishes the allowed summary. The existing control service and checkpoint machinery remain the production path.
+This branch also contains the durable runtime candidate described below; it has
+not yet qualified a live cutover.
 
 The benchmark resets its own Postgres/Redis stack for each trial. The checker uses
 read-only database access. Parallel factory slots have separate Compose projects,
@@ -49,11 +49,13 @@ automatically recoverable. Unit tests do not qualify a live worker release.
 ## Durable-execution migration
 
 `factory/durable/contract.py` v5 defines the shared records, wire protocol, keyed
-references and package interfaces. It remains unchanged by this cleanup.
-`classify.py`, `artifacts.py` and `policy.py` are present. Engine/executor work is
-on `de/wp1`; worker provisioning/channel on `de/wp2`; worker-side execution on
-`de/wp5a`; ledger/key service on `de/wp6-wp7`. These are unfinished integration
-work, not an operational replacement for the existing launcher.
+references and package interfaces. It remains unchanged. The candidate integrates the DBOS engine, executor,
+Boat worker pool/channel, worker-side steps, SQL ledger and wrapped-key service.
+`runtime.py` composes these components; `cli.py` exposes a private operator socket.
+The control units and setup script live under `control/`. ADMIT reuses the existing
+selector, registry, freshness and idea-realism screens. DIAGNOSIS uses the existing
+review contract through an isolated pilot user. These paths still need combined
+and live qualification before replacing the existing launcher.
 
 The target is DBOS 3.4.0 on control-side Postgres. Workflow replay reuses recorded
 results, with idempotent attempts keyed by case, sequence, step and attempt.
@@ -72,7 +74,10 @@ Case material belongs in encrypted artifacts, opened in worker RAM. The control
 side transfers blobs; workers receive no R2 credentials. Invoke executors through
 `guarded_run`; sanitize exception paths and disable Conductor/DBOS Cloud.
 
-Reserve allowance before dispatch and settle actual usage idempotently. Lost
+Reserve allowance before dispatch and settle actual usage idempotently. Worker
+model calls atomically reserve their router Lease maxima against that attempt
+before launch, including parallel roles. Supported provider gates must enforce
+those maxima; unbounded routes are refused. This requires live qualification. Lost
 attempts book the grant as infrastructure waste; broken runs charge the batch's
 waste line, not the case. Ordinary work draws on case and batch money; diagnosis,
 extensions and post-diagnosis work draw only on the batch bound. Batch exhaustion
@@ -81,6 +86,10 @@ without an attempt-count cutoff; they never retire a case merely for recurring.
 
 Poll transport failures do not prove a worker is absent. Cancel or establish that
 the old attempt is finished before starting another. Enforce release identity and
-attempt deadlines; SEAL must use the versions under which GATES passed. Adoption,
-publication and retirement of legacy recovery paths still need implementation and
-live fault-injection validation before production use.
+attempt deadlines; SEAL must use the versions under which GATES passed. Startup reconciles pool ownership before DBOS recovers workflows. Ambiguous
+creates retain their original identity rather than issuing another create.
+Ciphertext publication exports the wrapped scope key first, and fetched worker
+outputs authenticate before entering immutable storage. Encrypted backups exist;
+automated restore and a consistent database/filesystem restore exercise remain
+unqualified. Live Boat/R2/provider fault injection and retirement of the legacy
+recovery paths are still required before production cutover.

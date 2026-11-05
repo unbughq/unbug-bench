@@ -51,6 +51,7 @@ class DiagnosisTests(unittest.TestCase):
                          models=card['models'], roles=card['roles'], gates={},
                          failed_gate='G1', failed_detail=['actual gate finding'])
         (source / 'scorecard.json').write_text(json.dumps(self.card))
+        (source / 'continuation-budget.json').write_text(json.dumps({'calls': 0, 'events': [], 'cost': 0}))
         archive = io.BytesIO()
         with tarfile.open(fileobj=archive, mode='w:gz') as tar:
             for path in source.iterdir(): tar.add(path, arcname=path.name)

@@ -78,6 +78,8 @@ def run(worker, step_input, keys):
         c = runner.context_for_step(step_input, work)
         before = worker_step.ledger_totals(c.ledger)
         worker._save_baseline(step_input, c.ledger, before)
+        if before["total"] is None:
+            return StepResult(Outcome.INFRA_ERROR, "infra:usage_unknown"), {}
         invoke = getattr(runner, 'invoke_diagnosis', None)
         if invoke is None:
             return StepResult(Outcome.INFRA_ERROR, 'engine:diagnosis_unavailable'), {}
