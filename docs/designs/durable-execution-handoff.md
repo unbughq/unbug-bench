@@ -17,7 +17,7 @@ contract is `factory/durable/contract.py` (v5). Wave 1 has seven packages, brief
 | `de/wp4` | Failure classification | `eb4707c` | **Merged** (diff reviews 1–3, PASS on 3) | none |
 | `de/wp3` | Sealer and artifact store | `9bd0836` | **Merged**, with follow-up (diff reviews 1–2, both PASS) | none |
 | `de/wp1` | Engine core, executor, policy, report | `7d09dae` | Built, not yet reviewed. Agent may still have been finishing its full-suite run. | Diff review, then merge |
-| `de/wp2` | Worker pool, release store, channel | `18b2d2c` | Built, not yet reviewed. Agent was finishing its full-suite run. | Diff review, then merge |
+| `de/wp2` | Worker pool, release store, channel | `18b2d2c` | Built: 35 tests pass, and the full suite shows only the known failures. Not yet reviewed. Targets Boat, not the Hetzner shim. | Diff review, then merge |
 | `de/wp5a` | Worker-side step runner, `run.py` hooks | `63d01f1` | Built, not yet reviewed | Check the two requirements below, diff review, then merge |
 | `de/wp6-wp7` | Ledger, key service | `4cabb42` | Built, not yet reviewed. Agent was finishing its full-suite run. | Diff review, then merge |
 
@@ -59,6 +59,26 @@ them in review:
 
 **WP1/WP2, from WP3's review.** Verify each worker-output Ref with `open_from`, scope from
 `scope_for`, before the engine records it.
+
+## WP2's contract findings, to settle before WP1 and WP2 merge
+
+1. **Real Boat ids do not match `WORKER_ID`.** They contain `_` (`bx_d6dzvjbc`). WP2
+   maps them to `bx-...` and back. Consider allowing `_` in the next contract revision.
+2. **Today's bundle does not ship `factory/durable/worker_step.py`.**
+   `launch_manifest.WORKER_GLOBS` skips subdirectories. WP2's `build_bundle` adds the
+   durable files; WP5a and WP9 should know.
+3. **The meaning of the `blobs` keys in `WorkerChannel.start` is not frozen.** WP2 uses
+   `<digest>.<kind>.age` via `channel.blob_name(ref)`, which WP1 should use too.
+   Checkpoint blobs are assumed to sit in the attempt's `out/`.
+4. **`WorkerPool.acquire` failures are unspecified.** WP2 raises `PoolError` with
+   `.reason` set to an `infra:<code>`. WP1's executor should turn that into an
+   INFRA_ERROR with that reason, not `engine:executor_raised`.
+5. **`cancel()` returns None.** WP1 learns that a cancel landed from the next poll, so it
+   can retry a cancel after a transport failure.
+
+WP2 has not been checked against the real Boat CLI:
+- `boat new --label`, and whether `labels` appear in `boat list --json`;
+- the real CLI pin, the Medusa image build and `worker_release.py`.
 
 ## How to resume
 
