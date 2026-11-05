@@ -11,6 +11,7 @@ import http.client
 import http.server
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -29,6 +30,7 @@ os.environ["no_proxy"] = os.environ["NO_PROXY"] = ",".join(
 
 import datetime  # noqa: E402
 
+import durable.artifacts as artifacts  # noqa: E402
 from durable.artifacts import (ArtifactError, ArtifactMissing, AgeSealer, LocalObjects, R2Objects,  # noqa: E402
                                SealedStore, age_identity, bech32_encode, identity_secret, local_store,
                                open_from, scope_for, seal_into, sigv4_headers, urllib_transport)
@@ -180,6 +182,18 @@ class Sealing(unittest.TestCase):
             ref, ciphertext = self.sealer.seal(CASE_KEY, K.SEALED_ARCHIVE, plaintext)
             self.assertEqual(self.sealer.open(CASE_KEY, ref, ciphertext), plaintext)
 
+    def test_a_stuck_age_times_out(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stuck = Path(tmp) / "age"
+            stuck.write_text("#!/bin/sh\nexec sleep 60\n")
+            stuck.chmod(0o700)
+            sealer = AgeSealer(age=str(stuck), timeout_s=1)
+            for call in (lambda: sealer.seal(CASE_KEY, K.CASE_SNAPSHOT, b"x"),
+                         lambda: sealer.open(CASE_KEY, Ref("a" * 64, K.CASE_SNAPSHOT), b"y")):
+                with self.assertRaises(ArtifactError) as raised:
+                    call()
+                self.assertEqual(str(raised.exception), "age_timeout")
+
     def test_identity_never_on_disk_argv_or_env(self):
         seen = []
         real = subprocess.run
@@ -280,6 +294,32 @@ class LocalStore(unittest.TestCase):
             store.put_sealed(CASE, ref, second)
             self.assertEqual(store.get_sealed(CASE, ref), first)
             self.assertEqual((Path(tmp) / "durable" / CASE / f"{ref.digest}.case.age").stat().st_ino, inode)
+
+    def test_a_lost_race_keeps_the_first_inode_and_fsyncs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = local_store(tmp)
+            ref, first = self.sealer.seal(CASE_KEY, K.CASE_SNAPSHOT, b"same bytes")
+            _, second = self.sealer.seal(CASE_KEY, K.CASE_SNAPSHOT, b"same bytes")
+            store.put_sealed(CASE, ref, first)
+            path = Path(tmp) / "durable" / CASE / f"{ref.digest}.case.age"
+            inode = path.stat().st_ino
+            real_is_file = Path.is_file
+
+            def unseen(p):   # the second writer checked before the first linked
+                return False if p == path else real_is_file(p)
+            with mock.patch.object(Path, "is_file", unseen), \
+                    mock.patch("durable.artifacts._fsync_dir", wraps=artifacts._fsync_dir) as synced, \
+                    mock.patch("durable.artifacts.os.link", wraps=os.link) as linked:
+                store.put_sealed(CASE, ref, second)   # reaches os.link -> FileExistsError
+            self.assertEqual(linked.call_count, 1)
+            self.assertIn(mock.call(path.parent), synced.call_args_list)
+            self.assertEqual(path.stat().st_ino, inode)
+            self.assertEqual(path.read_bytes(), first)
+            self.assertEqual([p.name for p in path.parent.iterdir()], [path.name])   # temp removed
+            with mock.patch("durable.artifacts._fsync_dir", wraps=artifacts._fsync_dir) as synced:
+                store.put_sealed(CASE, ref, second)   # the is_file shortcut
+            self.assertEqual(synced.call_args_list, [mock.call(path.parent)])
+            self.assertEqual(path.read_bytes(), first)
 
     def _killed_put(self, tmp, fault):
         """Run put_sealed in a real child process that SIGKILLs itself at `fault`."""
@@ -387,14 +427,19 @@ class SigV4(unittest.TestCase):
             "Signature=98ad721746da40c64f1a55b78f14c238d841ea1380cd77a1b5971af0ece108bd"))
 
 
+EMPTY = hashlib.sha256(b"").hexdigest()
+
+
 class FakeS3(http.server.ThreadingHTTPServer):
     """An S3-like server over real sockets. Like S3 and R2, it commits a PUT only when the whole
-    Content-Length body arrived and its sha256 matches the signed x-amz-content-sha256."""
+    Content-Length body arrived and its sha256 matches the signed x-amz-content-sha256, keeps an
+    existing object under If-None-Match: *, and checks every request's SigV4 signature."""
     daemon_threads = True
 
     def __init__(self):
         super().__init__(("127.0.0.1", 0), S3Handler)
-        self.objects, self.requests, self.corrupt_reads = {}, [], False
+        self.objects, self.requests, self.corrupt_reads, self.redirect_to = {}, [], False, None
+        self.put_headers = []
         self.put_done = threading.Event()
         threading.Thread(target=self.serve_forever, daemon=True).start()
 
@@ -416,9 +461,33 @@ class S3Handler(http.server.BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
-    def _signed(self):
+    def _signed(self, body_sha256=None):
+        """Recompute the SigV4 signature from what actually arrived, with the test secret."""
+        body_sha256 = body_sha256 or EMPTY
         auth = self.headers.get("Authorization", "")
-        return auth.startswith("AWS4-HMAC-SHA256 Credential=ak/") and "x-amz-content-sha256" in auth
+        m = re.fullmatch(r"AWS4-HMAC-SHA256 Credential=ak/(\d{8})/([a-z0-9-]+)/s3/aws4_request, "
+                         r"SignedHeaders=([a-z0-9;-]+), Signature=[0-9a-f]{64}", auth)
+        if not m or self.headers.get("x-amz-content-sha256") != body_sha256:
+            return False
+        names = m.group(3).split(";")
+        if not {"host", "x-amz-date", "x-amz-content-sha256"} <= set(names) or \
+                any(self.headers.get(n) is None for n in names):
+            return False
+        others = {n: self.headers[n] for n in names if n not in ("host", "x-amz-date", "x-amz-content-sha256")}
+        now = datetime.datetime.strptime(self.headers["x-amz-date"], "%Y%m%dT%H%M%SZ").replace(
+            tzinfo=datetime.timezone.utc)
+        want = sigv4_headers(self.command, self.headers["host"], self.path, others, body_sha256,
+                             access_key="ak", secret_key="sk-secret", now=now, region=m.group(2))
+        return m.group(1) == self.headers["x-amz-date"][:8] and hmac.compare_digest(want["Authorization"], auth)
+
+    def _redirected(self):
+        if self.server.redirect_to is None:
+            return False
+        self.send_response(302)
+        self.send_header("Location", self.server.redirect_to + self.path)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return True
 
     def do_PUT(self):
         try:
@@ -430,17 +499,25 @@ class S3Handler(http.server.BaseHTTPRequestHandler):
                     self.close_connection = True
                     return   # the client went away: nothing is committed
                 body += chunk
-            if not self._signed():
-                return self._reply(403)
+            if self._redirected():
+                return
+            self.server.put_headers.append({k.lower(): v for k, v in self.headers.items()})
             if hashlib.sha256(body).hexdigest() != self.headers.get("x-amz-content-sha256"):
                 return self._reply(400, b"<Code>XAmzContentSHA256Mismatch</Code>")
-            self.server.objects[urllib.parse.unquote(self.path)] = body
+            if not self._signed(self.headers["x-amz-content-sha256"]):
+                return self._reply(403)
+            key = urllib.parse.unquote(self.path)
+            if self.headers.get("If-None-Match") == "*" and key in self.server.objects:
+                return self._reply(412)   # conditional PUT: the first object is kept
+            self.server.objects[key] = body
             self._reply(200)
         finally:
             self.server.put_done.set()
 
     def do_GET(self):
         self.server.requests.append(("GET", self.path))
+        if self._redirected():
+            return
         body = self.server.objects.get(urllib.parse.unquote(self.path))
         if not self._signed():
             return self._reply(403)
@@ -452,6 +529,8 @@ class S3Handler(http.server.BaseHTTPRequestHandler):
 
     def do_HEAD(self):
         self.server.requests.append(("HEAD", self.path))
+        if self._redirected():
+            return
         body = self.server.objects.get(urllib.parse.unquote(self.path))
         if not self._signed():
             return self._reply(403)
@@ -560,6 +639,58 @@ class R2Store(unittest.TestCase):
                                    "R2_SECRET_ACCESS_KEY": "sk-secret", "R2_BUCKET": "bucket"})
         self.assertEqual(made.endpoint, "https://acct.r2.cloudflarestorage.com")
         self.assertNotIn("sk-secret", repr(made))
+
+    def test_put_headers_are_signed_and_conditional(self):
+        store = SealedStore(self.objects())
+        ref, ct = self.sealer.seal(CASE_KEY, K.CASE_SNAPSHOT, b"snapshot")
+        store.put_sealed(CASE, ref, ct)
+        (sent,) = self.server.put_headers
+        self.assertEqual(sent["content-type"], "application/octet-stream")
+        self.assertEqual(sent["if-none-match"], "*")
+        signed = re.search(r"SignedHeaders=([^,]+)", sent["authorization"]).group(1).split(";")
+        self.assertEqual(signed, ["content-type", "host", "if-none-match", "x-amz-content-sha256", "x-amz-date"])
+
+    def test_a_wrong_secret_is_refused_by_the_signature_check(self):
+        bad = R2Objects("acct", "ak", "not-the-secret", "bucket", endpoint=self.server.endpoint)
+        with self.assertRaises(ArtifactError) as raised:
+            bad.exists("durable/x")
+        self.assertEqual(str(raised.exception), "store_unavailable")
+
+    def test_a_concurrent_writer_keeps_the_first_object(self):
+        plaintext = b"same snapshot from two writers"
+        ref, mine = self.sealer.seal(CASE_KEY, K.CASE_SNAPSHOT, plaintext)
+        _, theirs = self.sealer.seal(CASE_KEY, K.CASE_SNAPSHOT, plaintext)
+        key = f"/bucket/durable/{CASE}/{ref.digest}.case.age"
+
+        def racing(method, url, headers, body):
+            if method == "PUT":   # the other writer commits between our HEAD and our PUT
+                self.server.objects[key] = theirs
+            return urllib_transport(method, url, headers, body)
+        store = SealedStore(self.objects(transport=racing))
+        store.put_sealed(CASE, ref, mine)   # 412: already present, confirmed, kept
+        self.assertEqual(self.server.objects[key], theirs)
+        self.assertEqual(self.sealer.open(CASE_KEY, ref, store.get_sealed(CASE, ref)), plaintext)
+
+    def test_a_redirect_is_never_followed(self):
+        other = FakeS3()
+        self.addCleanup(other.server_close)
+        self.addCleanup(other.shutdown)
+        self.server.redirect_to = f"http://localhost:{other.server_address[1]}"
+        objects = self.objects()
+        store = SealedStore(objects)
+        ref, ct = self.sealer.seal(CASE_KEY, K.CASE_SNAPSHOT, b"x")
+        for call, code in ((lambda: store.exists(CASE, ref), "store_unavailable"),
+                           (lambda: store.get_sealed(CASE, ref), "download_failed"),
+                           (lambda: store.put_sealed(CASE, ref, ct), "store_unavailable")):
+            with self.assertRaises(ArtifactError) as raised:
+                call()
+            self.assertEqual(str(raised.exception), code)
+        with mock.patch.object(objects, "exists", return_value=False):   # reach the PUT itself
+            with self.assertRaises(ArtifactError) as raised:
+                store.put_sealed(CASE, ref, ct)
+        self.assertEqual(str(raised.exception), "upload_failed")
+        self.assertEqual([m for m, _ in self.server.requests], ["HEAD", "GET", "HEAD", "PUT"])
+        self.assertEqual(other.requests, [])   # nothing, signed or not, reached the other host
 
     def test_requests_carry_no_plaintext_or_key(self):
         seen = []
