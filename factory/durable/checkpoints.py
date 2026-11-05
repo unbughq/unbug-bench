@@ -118,6 +118,7 @@ def _model_effect(c, models, root, name, invoke, text):
 def gate_call(c, gate, invoke, binding):
     # G3 establishes host-local Docker state, which an archive cannot restore.
     if gate in ('G2', 'G3'): return invoke()
+    binding = json.loads(json.dumps(binding))  # Scientific inventories contain tuples; receipts contain JSON lists.
     path = directory(c) / ('gate-' + gate + '.json')
     if path.exists():
         saved = json.loads(path.read_text())

@@ -188,6 +188,30 @@ class Checkpoints(unittest.TestCase):
         cp.gate_call(self.c, 'G2', invoke, 'same-case')
         self.assertEqual(len(calls), 2)
 
+    def test_real_scientific_gate_binding_replays_after_encrypted_restore(self):
+        import run
+        from gate_state import inputs
+        from test_durable_worker_step import practice_tree
+        si = dataclasses.replace(self.si, step=Step(StepKind.GATES, 1))
+        work = practice_tree(self.home / 'initial-gate', si.case_id)
+        c = run.context_for_step(si, work)
+        self.worker.bind_checkpoint(si, c, AgeSealer(), self.key, run)
+        binding = {'science': inputs(c, 'G1', run.BENCH), 'ruling': None}
+        expected = cp.gate_call(c, 'G1', lambda: (True, {'verified': True}), binding)
+        cp.checkpoint(c)
+        ref = self.worker.read_checkpoint(si.idempotency_key)
+        ciphertext = (self.worker.paths(si.idempotency_key)['out'] / blob_name(ref)).read_bytes()
+        fresh = self.home / 'replacement-gate' / si.case_id
+        restore(AgeSealer().open(self.key, ref, ciphertext), fresh)
+        retry = run.context_for_step(dataclasses.replace(si, attempt=2, snapshot=ref), fresh)
+        actual = cp.gate_call(retry, 'G1', lambda: self.fail('completed scientific gate repeated'),
+                              {'science': inputs(retry, 'G1', run.BENCH), 'ruling': None})
+        self.assertEqual(actual, expected)
+        changed = {'science': inputs(retry, 'G1', run.BENCH), 'ruling': 'changed owner requirement'}
+        invoked = []
+        cp.gate_call(retry, 'G1', lambda: (invoked.append(True) or (False, {})), changed)
+        self.assertEqual(invoked, [True])
+
     @unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX process control; also runs on Linux')
     def test_sigkill_then_restore_on_fresh_worker(self):
         read_fd, write_fd = os.pipe()
