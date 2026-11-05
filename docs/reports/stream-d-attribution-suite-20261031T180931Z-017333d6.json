@@ -1,8 +1,0 @@
-{
-  "command": "uv run --with numpy --with scipy python -B tests/run.py",
-  "head": "1412b21",
-  "exit_code": 143,
-  "log": "docs/reports/stream-d-attribution-suite-20261031T180931Z-017333d6.log",
-  "finished": "2026-10-31T18:15:53.859942+00:00",
-  "interrupted": "Stopped deliberately after independent offline replay check reproduced money_wait masking InvalidInfra. No full-suite verdict."
-}

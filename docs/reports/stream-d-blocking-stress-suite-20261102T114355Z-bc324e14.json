@@ -1,8 +1,0 @@
-{
-  "command": "lockf -t 7000 /tmp/unbug-suite.lock uv run --with numpy --with scipy python -B tests/run.py",
-  "head": "978ea2a4b0ba69fc1485210964575d4461bd1a03",
-  "started_at": "2026-11-02T11:43:55.316207+00:00",
-  "log": "docs/reports/stream-d-blocking-stress-suite-20261102T114355Z-bc324e14.log",
-  "exit_code": 0,
-  "finished_at": "2026-11-02T12:54:25.987551+00:00"
-}
