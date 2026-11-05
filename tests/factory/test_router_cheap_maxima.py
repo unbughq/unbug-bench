@@ -20,7 +20,7 @@ import unittest
 from unittest.mock import patch
 import uuid
 import budget
-import factory_waste as job_authority
+from types import SimpleNamespace
 import model_call_gate as gate
 import model_router as router
 from token_prices import GATED_OPENROUTER,openrouter_gate_cost,openrouter_gate_maximum,runtime_prices
@@ -97,14 +97,13 @@ class CheapTests(unittest.TestCase):
                 if event.get('configured_model') in GATED_OPENROUTER:sessions.setdefault(event['id'].split(':')[0],[]).append(event)
             work=self.root/card['case'];work.mkdir();(work/'usage-receipts').mkdir();path=work/'ledger.json'
             path.write_text(json.dumps(dict(cost=0,calls=0,events=[])))
-            channel=json.loads((ROOT/'tests/fixtures/factory/stream-d/job-money.json').read_text())
-            channel['committed_total_usd']='3.000000000';authority=job_authority._owner(channel,copy.deepcopy(channel))
+            attempt=SimpleNamespace(key='replay', baseline_spent_usd=0, ceiling_usd=3)
             total=peak=Decimal(0)
             for index,(session,events) in enumerate(sessions.items()):
                 route=events[0]['configured_model'];self.assertTrue(all(e['configured_model']==route for e in events))
                 actual=lease(route);allowance=gate.Allowance(actual)
                 peak=max(peak,total+Decimal(str(actual.max_usd)))
-                row=budget.reserve_invocation(path,actual,actual.max_usd,authority,operation_id=str(uuid.uuid4()),call_name='builder-'+str(index))
+                row=budget.reserve_invocation(path,actual,actual.max_usd,attempt=attempt,operation_id=str(uuid.uuid4()),call_name='builder-'+str(index))
                 priced=[];inputs=0
                 for event in events:
                     tokens=event['tokens'];incoming=tokens['input']+tokens['cache']['read']+tokens['cache']['write']

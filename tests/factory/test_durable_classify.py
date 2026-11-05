@@ -151,7 +151,7 @@ class RealStops(unittest.TestCase):
                                   StepKind.DIAGNOSIS: "diagnosis:call_limit", StepKind.SEAL: "seal:call_limit"})
 
     def test_money_wait_is_the_attempts_money_and_the_policy_tells_case_from_batch(self):
-        # budget.py:941 (spend + reservations > job_authority.committed_total_usd), :717 and :165.
+        # Historical money_wait receipts retain their meaning after authority removal.
         for kind in StepKind:
             self.assertEqual(classify("money_wait", step=kind, now=NOW),
                              classify("cost_limit", step=kind, now=NOW))
@@ -160,15 +160,14 @@ class RealStops(unittest.TestCase):
         self.assertNotIn("batch:money_bound", REASONS)
 
     def test_batch_deadline_stops_are_the_contracts_deadline_not_money(self):
-        # retired_batch_bound: budget.py:145, :837, :1220, :1247; job_authority.py:47, :74.
+        # Retained legacy deadline stops still classify as infrastructure failures.
         # provider_wait_deadline: model_router.py:523, :593, :642.
         for stop in ("retired_batch_bound", "provider_wait_deadline"):
             for kind in StepKind:
                 self.assertEqual(classify(stop, step=kind, now=NOW), Classified(Outcome.INFRA_ERROR, "infra:deadline"))
         self.assertIn("infra:deadline", CONTRACT_REASONS)
 
-    RUNNER_FILES = ("budget.py", "model_router.py", "model_runtime.py", "model_call_gate.py", "run.py",
-                    "job_authority.py", "job_config.py")
+    RUNNER_FILES = ("budget.py", "model_router.py", "model_runtime.py", "model_call_gate.py", "run.py")
     # Reviewed: what every BudgetError label raised in RUNNER_FILES classifies to.
     MAPPED = {
         "engine_reselection_disabled": ("infra_error", "infra:runner_error"),
@@ -195,7 +194,6 @@ class RealStops(unittest.TestCase):
         "invalid_waste_attribution": ("infra_error", "infra:ledger_error"),
         "missing_usage": ("infra_error", "infra:usage_unknown"),
         "model_call_cap": ("exhausted", "writer:call_cap"),
-        "money_wait": ("exhausted", "writer:money"),
         "opencode_error": ("infra_error", "router:opencode_error"),
         "ordinary_limit_unknown": ("infra_error", "infra:ledger_error"),
         "process_error": ("infra_error", "router:process_error"),
@@ -207,7 +205,6 @@ class RealStops(unittest.TestCase):
         "reservation_already_invoked": ("infra_error", "infra:ledger_error"),
         "reservation_mismatch": ("infra_error", "infra:ledger_error"),
         "resume_while_active": ("infra_error", "infra:ledger_error"),
-        "retired_batch_bound": ("infra_error", "infra:deadline"),
         "route_maximum_unknown": ("infra_error", "infra:ledger_error"),
         "router_batch_unconfigured": ("infra_error", "infra:router_unavailable"),
         "shared_paid_spend_wait": ("provider_limit", "router:provider_wait"),
@@ -242,7 +239,7 @@ class RealStops(unittest.TestCase):
         "extension_comparison_pending", "extension_execution_mode_invalid", "extension_reservation_mismatch",
         "freshness_evidence_unavailable", "freshness_public_match", "freshness_repair_state_invalid",
         "freshness_review_unavailable", "freshness_statement_changed", "freshness_unresolved",
-        "ordinary_limit_mismatch", "owner_parent_not_active", "provider_wait_archive_mismatch",
+        "ordinary_limit_mismatch", "provider_wait_archive_mismatch",
         "provider_wait_record_missing", "provider_wait_unsettled", "route_feature_unsupported",
         "selection_board_unavailable", "statement-ready", "stress_publication_configuration_missing",
         "stress_review_unresolved:", "stress_validation_exhausted", "writer_intent_missing",

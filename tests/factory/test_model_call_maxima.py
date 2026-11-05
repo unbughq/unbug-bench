@@ -29,7 +29,6 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 import calibration
 import budget
-import factory_waste as job_authority
 import model_call_gate as gate
 import model_router as router
 import model_runtime
@@ -82,7 +81,7 @@ class MaximaTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
 
     def test_codex_batch_call_currently_waits_unbounded(self):
-        # Real batch authority, runtime and router; no CLI/provider call.
+        # Real attempt grant, runtime and router; no CLI/provider call.
         deadline = float(int(time.time()) + 3600)
         channel = dict(schema=1, batch='synthetic', job='job', case='case-synthetic',
             reservation_id=str(uuid.uuid4()), revision=1, source_generation=None,
@@ -94,8 +93,7 @@ class MaximaTests(unittest.TestCase):
             args=run.argument_parser().parse_args(['--source', 'hunt']),
             card={'roles': {'strong_calibrator': {'model': model}}},
             case_id=channel['case'], batch_id=channel['batch'], job_id=channel['job'],
-            batch_deadline=deadline, source_generation=None, job_money=copy.deepcopy(channel),
-            authenticated_job_config={'job_money': copy.deepcopy(channel)},
+            batch_deadline=deadline, source_generation=None, engine=SimpleNamespace(key="attempt", baseline_spent_usd=0, ceiling_usd=Decimal(channel["committed_total_usd"])),
             router_accounts=('codex-auth.json',))
         store = router.Store(self.root / 'router.sqlite')
         runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(), Mock(), Mock())
@@ -426,7 +424,7 @@ class MaximaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'unbounded'):store.rpc('renew',{'lease_id':identity})
         store.rpc('finish',dict(lease_id=identity,outcome='denied',receipt=None))
 
-    def test_real_route_maximum_fits_D_decimal_authority_and_unknown_settlement_once(self):
+    def test_real_route_maximum_fits_attempt_grant_and_unknown_settlement_once(self):
         # Synthetic B binding/interrupt, actual A policy and D reader/accountant.
         # B's installer is separate; D admission uses the validated Lease maximum.
         store=router.Store(self.root/'router.sqlite')
@@ -442,16 +440,15 @@ class MaximaTests(unittest.TestCase):
                 reservation_id=str(uuid.uuid4()),revision=1,source_generation=None,
                 committed_total_usd=limit,batch_deadline=datetime.fromtimestamp(deadline,timezone.utc).isoformat())
             c=SimpleNamespace(card={},case_id=channel['case'],batch_id=channel['batch'],job_id=suffix,
-                batch_deadline=deadline,source_generation=None,job_money=copy.deepcopy(channel),
-                authenticated_job_config={'job_money':copy.deepcopy(channel)})
-            authority=job_authority.for_case(c);operation=str(uuid.uuid4())
+                batch_deadline=deadline,source_generation=None,engine=SimpleNamespace(key="attempt", baseline_spent_usd=0, ceiling_usd=Decimal(channel["committed_total_usd"])))
+            attempt=c.engine;operation=str(uuid.uuid4())
             if suffix=='short':
-                with self.assertRaisesRegex(budget.BudgetError,'^money_wait$'):
-                    budget.reserve_invocation(path,actual,model_runtime.invocation_maximum(c,actual),authority,
+                with self.assertRaisesRegex(budget.BudgetError,'grant_insufficient'):
+                    budget.reserve_invocation(path,actual,model_runtime.invocation_maximum(c,actual),attempt=attempt,
                         operation_id=operation,call_name='builder-1')
                 self.assertEqual(path.read_bytes(),before)
             else:
-                row=budget.reserve_invocation(path,actual,model_runtime.invocation_maximum(c,actual),authority,
+                row=budget.reserve_invocation(path,actual,model_runtime.invocation_maximum(c,actual),attempt=attempt,
                     operation_id=operation,call_name='builder-1')
                 self.assertEqual(row['maximum_usd'],'50.000000000')
                 self.assertEqual(budget.outstanding_reservations(json.loads(path.read_text())),Decimal(50))
@@ -471,8 +468,9 @@ class MaximaTests(unittest.TestCase):
                 self.assertEqual(Decimal(str(budget.case_spending(ledger)['total_spent_usd'])),bound)
                 self.assertEqual(Decimal(ledger['invocation_reservations'][actual.lease_id]['estimated_gap_usd']),bound)
                 self.assertEqual(ledger['events'],[])  # Settlement never invents billed events.
-                c.job_money['revision']=2
-                with self.assertRaisesRegex(budget.BudgetError,'^money_wait$'):job_authority.for_case(c)
+                attempt.ceiling_usd = Decimal(51)
+                with self.assertRaisesRegex(budget.BudgetError, 'reservation_mismatch'):
+                    budget.attempt_limit(ledger, attempt)
             store.rpc('finish',dict(lease_id=actual.lease_id,outcome='denied',receipt=None))
 
     def test_fractional_lease_maximum_reserves_upward_to_nine_places(self):
@@ -482,14 +480,13 @@ class MaximaTests(unittest.TestCase):
         with patch.object(router, 'route_maximum', return_value=maximum):
             rounded = model_runtime.invocation_maximum(SimpleNamespace(), actual)
         self.assertEqual(rounded, Decimal('0.123456790'))
-        channel = json.loads((ROOT / 'tests/fixtures/factory/stream-d/job-money.json').read_text())
-        authority = job_authority._owner(channel, copy.deepcopy(channel))
+        attempt = SimpleNamespace(key='rounding', baseline_spent_usd=0, ceiling_usd=50)
         path = self.root / 'ledger.json'
         path.write_text(json.dumps({'cost': 0, 'calls': 0, 'events': []}))
         for amount in (rounded, actual.max_usd):
             with self.subTest(amount=amount):
                 row = budget.reserve_invocation(path, replace(actual, lease_id=uuid.uuid4().hex), amount,
-                    authority, operation_id=str(uuid.uuid4()), call_name='builder-rounding')
+                    attempt=attempt, operation_id=str(uuid.uuid4()), call_name='builder-rounding')
                 self.assertEqual(row['maximum_usd'], '0.123456790')
 
     def test_factory_dispatch_preserves_lease_maximum_gate_and_invocation_identity(self):
@@ -514,13 +511,13 @@ class MaximaTests(unittest.TestCase):
                     card={'roles': {'writer': {'model': GATED_CLAUDE}}},
                     case_id=channel['case'], batch_id=channel['batch'], job_id=outcome,
                     batch_deadline=deadline, source_generation=None,
-                    job_money=copy.deepcopy(channel), authenticated_job_config={'job_money': copy.deepcopy(channel)},
+                    engine=SimpleNamespace(key="attempt", baseline_spent_usd=0, ceiling_usd=Decimal(channel["committed_total_usd"])),
                     router_accounts=('claude-factory-token-2',))
                 def process(cmd, cwd, env, transcript, ledger, timeout, **kw):
                     row = json.loads(path.read_text())['invocation_reservations'][kw['lease_id']]
                     self.assertEqual(row['maximum_usd'], '50.000000000')
                     self.assertEqual(kw['invocation_id'], row['invocation_id'])
-                    self.assertEqual(kw['job_authority'].committed_total_usd, Decimal(50))
+                    self.assertIs(kw['attempt'], c.engine)
                     self.assertIsNone(kw['max_cost']); self.assertTrue(kw['concurrent'])
                     self.assertTrue(env['ANTHROPIC_BASE_URL'].startswith('http://127.0.0.1:'))
                     self.assertIsNotNone(kw['cancel'])
@@ -783,7 +780,7 @@ class ProtocolTests(unittest.TestCase):
     def _runtime_close_mid_response_retains_hold_once(self,close_header,model,*,real_cli=False,content_length=True):
         # Synthetic transport fault through the real gate, runtime receipt writer
         # and accountant. Optional real local client process, never a provider CLI
-        # or live worker. Protocol bytes and job authority are synthetic.
+        # or live worker. Protocol bytes and attempt grants are synthetic.
         paid = model == MINIMAX
         maximum = Decimal('0.690001') if paid else CLAUDE_PROFILES[model]
         hold = Decimal('0.23' if paid else '2.409600' if model.startswith(GATED_CLAUDE45) else '8.655360')
@@ -816,7 +813,7 @@ class ProtocolTests(unittest.TestCase):
                 card={'roles':{'writer':{'model':model}}},
                 case_id=channel['case'],batch_id=channel['batch'],job_id=channel['job'],
                 batch_deadline=deadline,source_generation=None,
-                job_money=copy.deepcopy(channel),authenticated_job_config={'job_money':copy.deepcopy(channel)},
+                engine=SimpleNamespace(key="attempt", baseline_spent_usd=0, ceiling_usd=Decimal(channel["committed_total_usd"])),
                 router_accounts=(account,))
             c.role_cancel=threading.Event()
             c.ledger.write_text(json.dumps({'cost':0,'calls':0,'events':[]}))

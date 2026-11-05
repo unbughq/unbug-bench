@@ -164,15 +164,14 @@ class AttemptBudget(unittest.TestCase):
                      total_cost_usd=.25, usage=usage)
         def transport(cmd, cwd, env, *args, **kwargs):
             self.assertIs(kwargs['attempt'], self.attempt)
-            self.assertIsNone(kwargs.get('job_authority'))
+            self.assertNotIn('job_authority', kwargs)
             command = [sys.executable, '-c', 'print('+repr(json.dumps(event))+')']
             return budget.run_budgeted(command, cwd, env, *args,
                                        **{**kwargs, 'containment': False})
         # Replace only CLI transport; keep runtime reservation, real provider gate,
         # usage monitor, receipt generation and settlement.
         with patch.object(model_runtime, 'pinned_cli', return_value='synthetic'), \
-             patch.object(model_runtime, 'run_budgeted', side_effect=transport), \
-             patch('job_authority.for_case', side_effect=AssertionError('legacy authority')):
+             patch.object(model_runtime, 'run_budgeted', side_effect=transport):
             self.runtime.call(self.c, [ROUTE], 'synthetic', self.root, 'builder-1')
         ledger = json.loads(self.ledger.read_text())
         self.assertEqual(budget.case_spending(ledger)['total_spent_usd'], .25)
@@ -207,6 +206,51 @@ class AttemptBudget(unittest.TestCase):
                       Action.DIAGNOSE)
         self.assertIs(decide(DIAG, result, Counters(), SPEC, grant=Grant(1_000_000, LimitedBy.NOTHING)),
                       Action.RETRY)
+
+    def test_monitor_refuses_mismatched_reservation_before_process_start(self):
+        lease = self.lease()
+        row = self.reserve(lease)
+        started = Mock()
+        settings = dict(max_cost=None, configured_model=lease.route, attempt=self.attempt,
+            invocation_id=row['invocation_id'], lease_id=lease.lease_id,
+            on_started=started, containment=False)
+        for change in (dict(invocation_id='wrong'), dict(lease_id='wrong'),
+                       dict(configured_model='claude/unknown')):
+            with self.subTest(change=change), patch.object(budget.subprocess, 'Popen') as spawn:
+                with self.assertRaisesRegex(budget.BudgetError, 'reservation_mismatch'):
+                    budget.run_budgeted([sys.executable, '-c', 'raise AssertionError()'],
+                        self.root, {}, self.root/'refused-transcript', self.ledger, 3,
+                        **{**settings, **change})
+                spawn.assert_not_called()
+                started.assert_not_called()
+
+    def test_replayed_reservation_refuses_each_changed_binding(self):
+        lease = self.lease()
+        row = self.reserve(lease)
+        before = self.ledger.read_bytes()
+        settings = dict(attempt=self.attempt, operation_id=row['operation_id'],
+                        call_name=row['call_name'], parent_call_name=None)
+        for change in (dict(operation_id=str(uuid.uuid4())), dict(call_name='builder-other'),
+                       dict(parent_call_name='other-owner')):
+            with self.subTest(change=change), self.assertRaisesRegex(budget.BudgetError, 'reservation_mismatch'):
+                budget.reserve_invocation(self.ledger, lease, lease.max_usd, **{**settings, **change})
+        with self.assertRaisesRegex(budget.BudgetError, 'reservation_mismatch'):
+            budget.reserve_invocation(self.ledger, lease, lease.max_usd + 1, **settings)
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+    def test_attempt_ceiling_cannot_change_after_reservation(self):
+        self.reserve(self.lease())
+        before = self.ledger.read_bytes()
+        self.attempt.ceiling_usd = 100
+        with self.assertRaisesRegex(budget.BudgetError, 'reservation_mismatch'):
+            self.reserve(self.lease())
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+    def test_missing_attempt_baseline_refuses_before_funding(self):
+        self.attempt.baseline_spent_usd = None
+        with self.assertRaisesRegex(budget.BudgetError, 'usage_unknown'):
+            self.reserve(self.lease())
+        self.assertFalse(self.ledger.exists())
 
     def test_real_provider_gate_refuses_after_unknown_usage(self):
         lease = self.lease()

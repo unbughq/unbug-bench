@@ -157,6 +157,25 @@ class ModelRuntimeTests(unittest.TestCase):
             self.assertTrue(all(e['configured_model'] == target for e in ledger['events']))
             self.assertAlmostEqual(c.card['case_budget']['spent_usd'], 1.12)
 
+    def test_checkpoint_hook_requires_engine_and_callable_binding(self):
+        runtime = model_runtime.ModelRuntime(None, None, None, None, None)
+        hook = mock.Mock()
+        for engine, bound in ((None, hook), (object(), None), (object(), hook)):
+            with self.subTest(engine=engine, bound=bound):
+                c = types.SimpleNamespace(engine=engine, engine_checkpoint=bound)
+                with mock.patch.object(model_runtime.ModelRuntime, '_call', return_value=7) as invoke, \
+                     mock.patch('durable.checkpoints.model_call', return_value=8) as checkpoint:
+                    result = runtime.call(c, ['synthetic'], 'bound prompt', '/case', 'builder-1')
+                    if engine is not None and callable(bound):
+                        self.assertEqual(result, 8)
+                        self.assertEqual(checkpoint.call_args.kwargs['text'], 'bound prompt')
+                        self.assertEqual(checkpoint.call_args.args[:4], (c, ['synthetic'], '/case', 'builder-1'))
+                        invoke.assert_not_called()
+                    else:
+                        self.assertEqual(result, 7)
+                        checkpoint.assert_not_called()
+                        invoke.assert_called_once()
+
     def test_import_does_not_probe_or_install_a_cli(self):
         self.addCleanup(offline_router()[0].close)
         code = ("import sys; from unittest.mock import patch; "
