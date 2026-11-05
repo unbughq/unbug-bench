@@ -180,14 +180,16 @@ its own line of work stops (DIAGNOSE, RETIRE, ESCALATE or HOLD). No replacement 
 after STOP_ADMISSION, after the deadline, or beyond `max_cases_started`. If both an
 extended original and its replacement seal, both are kept.
 
-For these case limits, "starts" means a recorded admission decision under the cutoff;
-workflow creation and execution can occur later during recovery or queueing.
+For these case limits, "starts" means a recorded admission decision under the cutoff.
+A replacement may be launched immediately as a non-paid waiting workflow before
+admission; execution can occur later during recovery or queueing.
 
 **Slots.** A case holds a `max_concurrency` slot while it runs model steps,
 including DIAGNOSIS and EXTEND. A parked, held or retired case holds none.
 
 **Target reached.** When `target_sealed` is reached, no new case starts. Cases and
-extensions already running finish, and their seals are kept.
+extensions already running, and cases already admitted whose execution has not
+begun, finish, and their seals are kept.
 
 ### Money
 
@@ -302,8 +304,10 @@ These are frozen in `contract.py`: `WORKER_COMMAND`, `attempt_paths`,
 
 ### Versions and messages
 
-- **The engine version.** `application_version` is pinned (`factory-engine-1`)
-  for the life of the database, because DBOS recovers only matching versions.
+- **The engine version.** `application_version` is pinned for the life of a
+  dedicated system database, because DBOS recovers only matching versions. The
+  reviewed queue migration uses a new generation and refuses old draft journals
+  before DBOS launch; it does not delete or migrate those journals.
 - **Workflow functions.** Changes go behind `DBOS.patch()`.
 - **Messages.** The engine waits for these with `DBOS.recv` in a loop, because a
   receive times out after 60 s by default:
