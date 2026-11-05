@@ -19,4 +19,4 @@ Deletion request and completion match sandbox bx_d6dzvjbc and operation
 bdop_fdc58246dcdd44348ec9d206bd38abca. Completion is 2026-10-29T11:18:20.705Z.
 The public readiness record precedes deletion. These bytes establish one observed
 lifecycle, not an outage upper bound, current inventory absence, or final billing.
-See docs/reports/isolation-settlement-cloud.md for missing qualification evidence.
+This fixture does not qualify the live cloud settlement path.

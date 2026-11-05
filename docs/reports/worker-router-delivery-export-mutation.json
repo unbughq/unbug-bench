@@ -1,9 +1,0 @@
-{
-  "mutation": "omit_worker_export",
-  "replacement": ":",
-  "killed": true,
-  "failures": 1,
-  "errors": 0,
-  "seconds": 19.16,
-  "timeout": false
-}

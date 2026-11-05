@@ -1,7 +1,0 @@
-{
-  "command": "uv run --with numpy --with scipy python -B tests/run.py",
-  "head": "637a75c34c2d5b919f96ed2010f4249f150ca4d3",
-  "exit_code": 1,
-  "log": "docs/reports/stream-d-outcome-routes-suite-20261031T153951Z-0f26cedb.log",
-  "finished_at": "2026-10-31T16:10:10.316099+00:00"
-}

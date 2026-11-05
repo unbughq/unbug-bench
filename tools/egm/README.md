@@ -1,1 +1,0 @@
-Reviewer personas (agents/) and standards (document_standards/) copied from https://github.com/google/elephant-goldfish-model at commit f0ba151 (Apache-2.0, see LICENSE). Only change: standard paths point at tools/egm/document_standards/. Re-copy to update.

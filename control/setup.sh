@@ -29,7 +29,7 @@ EOF
     # Use the official installer's binary/config contract without running its shell-profile
     # edits, self-update or interactive onboarding. The prod download endpoint serves the
     # latest CLI (1.0.88 on 2026-11-02), so install the exact asset bin/boat-call pins.
-    # Only the x64 asset's SHA-256 is recorded (docs/reports/practice-run-20261102.md).
+    # Pinned upstream x64 asset; other architectures need separate verification.
     case $(uname -m) in
       x86_64) arch=x64; boat_sha256=5d7933a238dcea0446bbbee0e2506692961d16537b9960003e4ece9ecb1ec498 ;;
       *) echo 'Unsupported Boat CLI architecture' >&2; exit 1 ;;

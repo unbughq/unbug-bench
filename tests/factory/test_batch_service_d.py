@@ -170,9 +170,9 @@ class RealDTests(unittest.TestCase):
 
     def test_retired_inventory_preserves_every_saved_case_and_digest(self):
         root = fixtures.ROOT
-        path = root / 'docs/reports/batch-service-inventory-20261030.json'
+        path = root / 'tests/factory/fixtures/retained-evidence/batch-service-inventory-20261030.json'
         source = json.loads(path.read_text())
-        retired = json.loads((root / 'docs/reports/stream-b-legacy-retirements-20261031.json').read_text())
+        retired = json.loads((root / 'tests/factory/fixtures/retained-evidence/stream-b-legacy-retirements-20261031.json').read_text())
         expected = dict(schema=1, decision_date='2026-10-30', disposition='retired',
             reason='pre-new-schema', inventory_path=str(path.relative_to(root)),
             inventory_sha256=hashlib.sha256(path.read_bytes()).hexdigest(), inventories={})
