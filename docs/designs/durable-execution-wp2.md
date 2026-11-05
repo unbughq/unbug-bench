@@ -87,8 +87,9 @@ hashes of the stamp tree, which are kept in the bundle as evidence only. Gate co
      that recovery deletes if it ever appears.
   4. Otherwise create: `boat new --from <image for b> --no-env --no-monitoring
      --no-snapshots --ttl <ttl> [--type T] --label k=v ... --json`, then parse the
-     `created` event as `guard_new` does. An exit status other than 0 with an id still
-     records the id (it exists and must be adopted or deleted).
+     `created` event as `guard_new` does. An exit status other than 0 that still names
+     an id records and uses that worker: it exists, and the readiness wait and
+     verification decide whether it is kept or deleted.
   5. Install and verify (below). A failed install or verification deletes the worker
      and raises `PoolError` with a fixed reason; the engine retries (`INFRA_ERROR`).
 - *Install and verify* (takes over `launch.sh:685-707`), on the worker, each a separate
@@ -213,7 +214,8 @@ scope; a second start does nothing; ssh failure, timeout, bad exit, garbage and 
 output are RUNNING; ABSENT only from an answering worker; DONE with a missing or
 corrupt output blob is RUNNING and stores nothing; cancel of a live attempt and a
 tombstone before start; `attempt_busy`; a failed blob push sends no frame; no key in
-any Boat argument; nothing raises.
+any Boat argument; nothing raises. The stand-in worker never reports a `checkpoint`
+(WP5f), so checkpoint fetching is not exercised.
 
 ## Murphy rows
 
