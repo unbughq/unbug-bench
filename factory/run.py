@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Sealed case factory: builds ONE case on this VM, runs gates G1-G15 (FACTORY.md section 4),
-seals everything and prints ONLY the scorecard on stdout. Python standard library only.
+"""Scientific case builder and gates for durable worker steps.
 
-  python3 factory/run.py --source port|hunt|plant [--rounds 1] [--runs 10] [--scenario-runs 3]
-                         [--pilot-tries 3] [--pilot-runs 5] [--dry-run]
-
-Everything else (model transcripts, bench output, gate evidence) goes to ~/work/<case>/ and is
-sealed into ~/sealed/<case>.tar.gz.age, then shredded. See factory/README.md.
+Standalone CLI execution supports restored-case audits and rehearsals only.
+Case admission, execution, retries and sealing run through the durable Engine.
 """
+import os, pathlib, sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bin"))
+
 import copy, threading, contextlib, contextvars, hashlib, uuid
 from gate_pipeline import GatePipeline
 from case_contract import CaseContract, ingredient_problems as case_ingredients
@@ -15,9 +14,9 @@ from run_artifacts import RunArtifacts, shred_tree
 import model_runtime
 import model_router
 from model_runtime import (family, model_effort, rotation, update_case_budget,
-                           case_budget_boundary, writer_round_estimate, pinned_cli, OPENCODE_BIN)
+                           case_budget_boundary, pinned_cli, OPENCODE_BIN)
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import argparse, datetime, json, os, pathlib, re, secrets, shutil, signal, subprocess, sys, tempfile, time, traceback
+import argparse, datetime, json, os, pathlib, re, shutil, signal, subprocess, sys, tempfile, time, traceback
 from budget import BudgetError, case_spending
 from calibration import attempt_summary, interruption_label, tree_digest, prepare_delivery, guard_submitted
 
@@ -230,10 +229,9 @@ def install_publication_barrier(c):
             hook = getattr(c, 'stress_checkpoint', None)
             if hook is not None: return hook()
             if c.args.dry_run: return True
-            if not hasattr(c, 'recipient'): raise BudgetError('stress_publication_configuration_missing')
-            from durable_checkpoint import checkpoint_progress
-            checkpoint_progress(c, seal, quiescent=True, interval=0)
-            return c.card.get('durable_checkpoint', {}).get('remote_durable') is True
+            from durable.checkpoints import checkpoint as engine_checkpoint
+            if not under_engine(c): raise BudgetError('stress_publication_configuration_missing')
+            return engine_checkpoint(c)
         publication(c, checkpoint)
     c.model_publication_barrier = barrier
 
@@ -250,7 +248,6 @@ def opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None,
         # Under the engine a call's time comes only from StepInput.deadline_s, never a batch deadline.
         timeout, deadline = engine_call_window(c, timeout, deadline)
     with model_runtime.dispatch(c, name):
-        if model_runtime.factory_job(c): resume_provider_wait(c)
         return _opencode(c, models, text, cwd, name, user=user, timeout=timeout, deadline=deadline,
                          before_attempt=before_attempt, lease=lease, on_complete=on_complete)
 
@@ -271,12 +268,7 @@ def _opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None
             c.router_waits.append({'role': error.role, **model_runtime.asdict(error.wait)})
         raise
     if on_complete is not None: on_complete()
-    if (not user and hasattr(c, "recipient") and not c.args.dry_run and not under_engine(c)
-            and not hasattr(c, "calibrator_slot_offset") and not getattr(c, "stress_category_call", False)):
-        # A completed serial author/reviewer call is a safe snapshot boundary.
-        # Concurrent calibration is checkpointed only after the gate executor joins.
-        from durable_checkpoint import checkpoint_progress
-        checkpoint_progress(c, seal, quiescent=True)
+
     return result
 
 
@@ -332,179 +324,9 @@ def model_call(c, models, *args, **kw):  # tester and dedup calls; same backup r
     return opencode(c, models, *args, **kw)
 
 
-def retained_answer(c, chain, text, cwd, name, out, identity, kind, schema, validate, **kwargs):
-    """Batch JSON callers share durable schema repair; legacy call contracts stay intact."""
-    if not model_runtime.factory_job(c):
-        opencode(c, chain, text, cwd, name, **kwargs)
-        return jload(out, {})
-    from ordinary_retry import answer
-    from registry import atomic_json
-    value = answer(c, chain, identity, kind, schema,
-        lambda target: text.replace(str(out), str(target)),
-        lambda context, request, target, done: opencode(context, chain, request, cwd, name,
-                                                       on_complete=done, **kwargs), validate)
-    atomic_json(out, value)
-    return value
-
-
 def case_inventory(c):
     return {str(p.relative_to(c.case)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(c.case.rglob('*')) if p.is_file()}
-
-
-def resume_provider_wait(c):
-    """Settle before any model admission; archive only after the pending reset."""
-    model_runtime.prepare_dispatch(c)
-    state = getattr(c, 'model_resume_state', {})
-    if state.get('done') or getattr(c, 'provider_resume_done', False): return
-    if getattr(c, 'active_model_calls', set()): raise BudgetError('usage_reconciliation_while_active')
-    from budget import settle, reconcile_reservations
-    from registry import atomic_json
-    work = model_runtime.accounting_work(c)
-    live = work / 'provider_wait.json'
-    if live.exists():
-        record = jload(live)
-        batch, job, deadline = model_router.metadata(c)
-        if (not isinstance(record, dict) or record.get('case') != c.case_id or record.get('batch') != batch
-                or record.get('job') != job or model_router.epoch(record.get('batch_deadline')) != deadline):
-            raise BudgetError('invalid_provider_wait')
-        settle(record, work=work, ledger_path=c.ledger)
-        path = c.work / 'attack-state.json'
-        pending = jload(path, {})
-        role = ('writer' if pending.get('repair_pending') else 'stress_tester' if pending.get('review_pending') else None)
-        matched = (role is not None and pending.get('phase') == 'pending'
-                   and pending.get('lease_id') == record.get('lease_id')
-                   and (record.get('lease_id') is not None or role == record.get('role')))
-        if matched:
-            pending.update(lease_id=None, invocation_id=None, resumed_from_wait=record['wait_id'])
-            atomic_json(path, pending)
-        archive = work / 'provider_waits'; archive.mkdir(exist_ok=True)
-        target = archive / (record['wait_id'] + '.json')
-        if target.exists() and jload(target) != record: raise BudgetError('provider_wait_archive_mismatch')
-        live.replace(target)
-    if model_runtime.factory_job(c): reconcile_reservations(work, c.ledger)
-    c.provider_resume_done = True
-    state['done'] = True
-
-
-def provider_continuation(c, receipt, role):
-    """A verified archive proves a kill while waiting for the next lease."""
-    identity = receipt.get('resumed_from_wait')
-    if not isinstance(identity, str): return False
-    try:
-        if str(uuid.UUID(identity)) != identity or uuid.UUID(identity).version != 4: return False
-    except ValueError: return False
-    record = jload(c.work / 'provider_waits' / (identity + '.json'), {})
-    ledger = jload(c.ledger, {})
-    return (record.get('settled') is True and record.get('wait_id') == identity and record.get('case') == c.case_id
-            and record.get('role') == role and identity in ledger.get('wait_settlements', {})
-            and record.get('batch') == getattr(c, 'batch_id', None) and record.get('job') == getattr(c, 'job_id', None)
-            and receipt.get('lease_id') is None)
-
-
-def writer_intent_valid(receipt):
-    """Durable writer intent: written before admission, required on every resume."""
-    return (type(receipt.get('repair_requested')) is bool and isinstance(receipt.get('before_repair_sha256'), str)
-            and re.fullmatch(r'[0-9a-f]{64}', receipt['before_repair_sha256']) is not None
-            and 'findings_report' in receipt and 'input_problems' in receipt)
-
-
-def complete_writer(c, receipt, path):
-    from registry import atomic_json
-    receipt.update(phase='completed', repair_pending=False, output_sha256=case_hash(c),
-                   binding=attack_binding(c), next_phase='G1')
-    receipt['binding_sha256'] = hashlib.sha256(json.dumps(receipt['binding'], sort_keys=True).encode()).hexdigest()
-    c.card['builder_rounds'] = receipt['round']
-    atomic_json(path, receipt)
-
-
-def writer_call_done(c, receipt):
-    """The CLI exited 0 for this operation, but the kill came before on_complete."""
-    lease = receipt.get('lease_id')
-    if not isinstance(lease, str) or not re.fullmatch(r'[a-f0-9]{32}', lease): return False
-    usage = jload(c.work / 'usage-receipts' / (lease + '.json'), {})
-    row = jload(c.ledger, {}).get('invocation_reservations', {}).get(lease)
-    return (isinstance(usage, dict) and isinstance(row, dict) and usage.get('lease_id') == lease
-            and usage.get('invocation') == f"builder-{receipt['round']}" and usage.get('outcome') == 'done'
-            and row.get('operation_id') == receipt['operation_id'] and row.get('invocation_id') == receipt.get('invocation_id'))
-
-
-def pending_call(c, models, text, cwd, name, receipt, *, role, on_complete, on_admitted=None, deadline=None,
-                 extension_proposal=None):
-    """One logical writer/stress unit, including all admitted fallback attempts."""
-    from budget import reserve_invocation, release_uninvoked
-    import job_authority
-    from registry import atomic_json
-    path = c.work / 'attack-state.json'
-    install_publication_barrier(c)
-    with model_runtime.dispatch(c, name):
-        resume_provider_wait(c)
-        authority = job_authority.for_case(c)
-        if role == 'writer' and not (isinstance(receipt, dict) and writer_intent_valid(receipt)):
-            raise BudgetError('writer_intent_missing')
-        if extension_proposal is not None:
-            import copy
-            import extensions
-            if (role != 'writer' or not isinstance(receipt, dict) or receipt.get('actor') != 'writer' or
-                    not isinstance(receipt.get('binding'), dict) or
-                    type(receipt.get('round')) is not int or receipt['round'] < 1 or
-                    set(receipt) & {'schema_version', 'operation_id', 'phase', 'lease_id',
-                                    'invocation_id', 'resumed_from_wait', 'extension_id'}):
-                raise BudgetError('extension_reservation_mismatch')
-            extension_proposal = copy.deepcopy(extension_proposal)
-            extensions.verify_proposal(c, extension_proposal)
-            if receipt['round'] != extension_proposal['round'] or name != 'builder-' + str(receipt['round']):
-                raise BudgetError('extension_reservation_mismatch')
-        continuation = False
-        if role == 'writer' and extension_proposal is None:
-            import extensions
-            continuation = extensions.writer_continuation(c, receipt, name)
-        lease = model_router.await_lease(role, c, deadline)
-        operation = (str(uuid.uuid4()) if extension_proposal is not None else
-                     receipt.get('operation_id') or str(uuid.uuid4()))
-        prior_operation = getattr(c, 'model_operation_id', None)
-        c.model_operation_id = operation
-        try:
-            maximum = model_runtime.invocation_maximum(c, lease)
-            if extension_proposal is not None:
-                extensions.verify_proposal(c, extension_proposal)
-            elif continuation:
-                if not extensions.writer_continuation(c, receipt, name):
-                    raise BudgetError('extension_reservation_mismatch')
-            elif role == 'writer':
-                _, summary = update_case_budget(c)
-                if summary['spent_usd'] is None or summary['spent_usd'] + float(maximum) > summary['ordinary_limit_usd']:
-                    raise BudgetError('budget_exhausted')
-            reservation = reserve_invocation(c.ledger, lease, maximum, job_authority.for_case(c),
-                operation_id=operation, call_name=name)
-            if extension_proposal is not None:
-                extensions.retain_writer(c, {**receipt, 'schema_version': 2, 'operation_id': operation,
-                    'phase': 'pending', 'lease_id': lease.lease_id, 'invocation_id': reservation['invocation_id'],
-                    'extension_id': extension_proposal['extension_id'],
-                    'binding_sha256': hashlib.sha256(json.dumps(receipt['binding'], sort_keys=True).encode()).hexdigest()})
-                extension = extensions.admit(c, extension_proposal, lease, operation)
-                receipt['extension_id'] = extension['extension_id']
-            elif on_admitted is not None: on_admitted()
-            def admitted():
-                row = c.invocation_reservation
-                receipt.update(schema_version=2, operation_id=operation, phase='pending', lease_id=c.model_lease.lease_id,
-                    invocation_id=row['invocation_id'], binding_sha256=hashlib.sha256(json.dumps(receipt['binding'], sort_keys=True).encode()).hexdigest())
-                atomic_json(path, receipt)
-                if role == 'writer': c.card['builder_rounds'] = receipt['round']
-            c.model_lease, c.invocation_reservation = lease, reservation
-            admitted()
-            if extension_proposal is not None and on_admitted is not None: on_admitted()
-            return opencode(c, models, text, cwd, name, lease=lease, before_attempt=admitted,
-                            on_complete=on_complete, deadline=deadline)
-        except BaseException:
-            # Before opencode takes over, no wrapper owns lease release.
-            if lease.lease_id not in {row.get('lease_id') for row in c.card.get('route_receipts', [])}:
-                try: release_uninvoked(c.ledger, lease.lease_id)
-                finally: model_router.finish(lease.lease_id, 'denied', None)
-            raise
-        finally:
-            if prior_operation is None: c.__dict__.pop('model_operation_id', None)
-            else: c.model_operation_id = prior_operation
 
 
 def attack_diagnostic_context(c, name):
@@ -555,59 +377,6 @@ def provider_preflight(c):
             raise BudgetError("provider_preflight_failed") from error
         finally:
             row["elapsed_seconds"] = round(time.monotonic() - started, 3)
-
-
-def build(c):
-    """Writer and stress tester rounds, then a search top-up for whichever role logged too few (G2)."""
-    prev = jload(c.work / "scorecard.json", {}) if getattr(c.args, 'resume', None) else {}
-    from founder_ruling import context as ruling_context
-    ruling = None if model_runtime.factory_job(c) else ruling_context(c)
-    reject_legacy_final_repair(c)
-    if model_runtime.factory_job(c) and str(prev.get('terminal_stop', '')).startswith('late_defect_needs_ruling:'):
-        raise BudgetError(prev['terminal_stop'])
-    # Resumed after a failure that was not the case's content (G2 search log, G3 bench build): keep the
-    # written case, skip writer and stress tester; G2 gets its search top-up below.
-    if prev.get("failed_gate") in ("G2", "G3"):
-        c.card["dedup"] = prev.get("dedup", {"checked_against": 0, "duplicate_of": None, "retried": False})
-        if "dedup_skipped" in prev: c.card["dedup_skipped"] = prev["dedup_skipped"]
-        if (c.case / "statement.md").is_file(): c.statement = (c.case / "statement.md").read_text()
-        else: c.card["dedup_skipped"] = "legacy case has no statement"
-    # A case stopped during its gates (no gate failed) was complete when they began: keep it as is.
-    stopped_in_gates = bool(prev.get("gates")) and not prev.get("failed_gate")
-    # A complete saved case with an unresolved public match must reach G2 before
-    # spending another author/stress-tester pass. G2 retains reviewer confirmation.
-    freshness_first = (bool(getattr(c.args, 'resume', None)) and not c.args.dry_run
-                       and (ruling or any(row.get('hit') or row.get('ambiguous') for row in freshness_lines(c)))
-                       and not g1(c)[1]['problems'])
-    if freshness_first:
-        c.card['build_deferred'] = 'existing_public_match_requires_G2'
-        ok, info = ensure_freshness(c)
-        if not ok:
-            # Keep the rejection for the gate loop; repeated confirmation cannot
-            # authorize construction, and would only spend another reviewer call.
-            from admission import search_binding
-            c.rejected_freshness = (search_binding(c, freshness_lines(c)), info)
-            return
-    recovery_required = (c.work / "attack-state.json").exists()
-    if (recovery_required or freshness_first or
-            (prev.get("failed_gate") not in ("G2", "G3") and not stopped_in_gates
-             and not getattr(c.args, "skip_build", False))):
-        # G2/G3 failures do not request a case rewrite. A retained stress receipt
-        # still needs validation before either infrastructure resume can proceed.
-        attack_prev = prev
-        if prev.get("failed_gate") in ("G2", "G3"):
-            attack_prev = {k: v for k, v in prev.items() if k not in ("failed_gate", "failed_detail")}
-        if str(prev.get('terminal_stop', '')).startswith('late_defect_needs_ruling:'):
-            from restore_ledger import read_object
-            late = read_object(c.work / 'late-defect.json')
-            if not ruling or ruling['authorization']['record'].get('version') != 3:
-                raise BudgetError(prev['terminal_stop'])
-            attack_prev = {**attack_prev, 'failed_gate': late['gate'], 'failed_detail': late['detail']}
-        write_and_attack(c, attack_prev)
-    st = c.case / "statement.md"
-    if hasattr(c, "statement") and st.is_file() and st.read_text() != c.statement:
-        c.precheck_problems = ["statement.md changed after admission"]
-    if not g1(c)[1]["problems"]: ensure_freshness(c)  # invalid cases fail G1 without research calls
 
 
 def finish_freshness_repair(c):
@@ -720,10 +489,7 @@ def freshness_topup(c, *, reverify_timeout=None, completed_roles=(), role_comple
 
 
 def ensure_freshness(c):
-    """Batch refresh is durable; legacy keeps its historical repair policy."""
-    if model_runtime.factory_job(c):
-        from ordinary_freshness import ensure
-        return ensure(sys.modules[__name__], c)
+    """Refresh and independently confirm the same admitted idea."""
     from registry import atomic_json
     finish_freshness_repair(c)
     statement = c.case / 'statement.md'
@@ -843,10 +609,6 @@ def statement_precheck(c):
     c.card.setdefault("candidate_attempts", 1)
     if any(row.get("statement_sha256") == c.card["statement_sha256"] for row in c.card.get("rejected_candidates", [])):
         c.precheck_problems = ["candidate was already rejected"]; return False
-    # Statement-only is a publication barrier, never permission for full construction.
-    if getattr(c.args, "statement_only", False):
-        c.card["admission"] = {"status": "awaiting_shared_reservation"}
-        return True
     try: prior = prior_statements(c)
     except (OSError, ValueError, RuntimeError) as error:
         c.card["admission"] = {"status": "waiting", "reason": str(error)}
@@ -868,14 +630,9 @@ def statement_precheck(c):
         valid = lambda v: (isinstance(v, dict) and 'duplicate_of' in v and
             isinstance(v.get('reason'), str) and bool(v['reason'].strip()) and
             (v['duplicate_of'] is None or v['duplicate_of'] in prior))
-        if model_runtime.factory_job(c):
-            verdict = retained_answer(c, c.models['easy_calibrator'], request, c.work / 'statements',
-                'easy-calibrator-dedup', result, {'statement': c.statement, 'prior': {k: pathlib.Path(v).read_text() for k, v in prior.items()}},
-                'dedup', '{duplicate_of: case ID or null, reason: nonempty string}', valid)
-        else:
-            if model_call(c, c.models["easy_calibrator"], request, c.work / "statements", "easy-calibrator-dedup"):
-                raise BudgetError("admission_dedup_unavailable")
-            verdict = jload(result)
+        if model_call(c, c.models["easy_calibrator"], request, c.work / "statements", "easy-calibrator-dedup"):
+            raise BudgetError("admission_dedup_unavailable")
+        verdict = jload(result)
         if (not isinstance(verdict, dict) or "duplicate_of" not in verdict or
                 not isinstance(verdict.get("reason"), str) or not verdict["reason"].strip() or
                 (verdict["duplicate_of"] is not None and verdict["duplicate_of"] not in prior)):
@@ -919,15 +676,9 @@ def idea_realism(c):
             "benchmark-only requirements, unsupported app behavior and ideas too vague to judge. "
             "Do not build anything or review unrelated cases. Write JSON to " + str(out) +
             ': {"approve": true | false, "reason": "specific short rationale"}.')
-    if model_runtime.factory_job(c):
-        verdict = retained_answer(c, chain, text, directory, 'reviewer-idea-realism', out,
-            {'statement': c.statement, 'contract': 'idea-realism-v1'}, 'idea',
-            '{approve: boolean, reason: nonempty string}', lambda v: isinstance(v, dict) and
-            type(v.get('approve')) is bool and isinstance(v.get('reason'), str) and bool(v['reason'].strip()))
-    else:
-        if model_call(c, chain, text, directory, "reviewer-idea-realism"):
-            raise BudgetError("admission_idea_review_unavailable")
-        verdict = jload(out, {})
+    if model_call(c, chain, text, directory, "reviewer-idea-realism"):
+        raise BudgetError("admission_idea_review_unavailable")
+    verdict = jload(out, {})
     if (not isinstance(verdict, dict) or type(verdict.get("approve")) is not bool or
             not isinstance(verdict.get("reason"), str) or not verdict["reason"].strip()):
         raise BudgetError("admission_idea_review_invalid")
@@ -952,9 +703,6 @@ def _gate_completed(c, gate, ok, quiescent):
     if under_engine(c) and quiescent:
         from durable.checkpoints import checkpoint as engine_checkpoint
         engine_checkpoint(c)
-    if hasattr(c, "ledger") and hasattr(c, "recipient") and not c.args.dry_run and not under_engine(c):
-        from durable_checkpoint import checkpoint_progress
-        checkpoint_progress(c, seal, quiescent=quiescent)
 
 
 def _gate_pipeline():
@@ -968,43 +716,6 @@ def _gate_pipeline():
 
 def checked_gate(c, gate):
     return _gate_pipeline().check(c, gate)
-
-
-
-
-def restore_gate_crash(c, previous):
-    """A type-only public stop is provisional until its restored diagnostic matches."""
-    from restart import crash_stop
-    salvage = crash_stop(previous)
-    if salvage is None: return
-    gate = salvage["gate"]
-    # A failed verification must retain the failure, never become a writer resume.
-    c.card["failed_gate"] = gate
-    c.card["failed_detail"] = {"error": salvage["error_type"]}
-    c.card["gates"][gate] = "fail"
-    directory = c.work / "gate-details"
-    records = [(int(p.stem.split("-", 1)[1]), p) for p in directory.glob(f"{gate}.crash-*.json")
-               if re.fullmatch(gate + r"\.crash-[1-9][0-9]*\.json", p.name)]
-    if not records or directory.is_symlink(): raise ValueError("missing restored gate crash")
-    attempt, path = max(records)
-    detail = jload(path)
-    if (path.is_symlink() or not isinstance(detail, dict) or detail.get("error") != salvage["error_type"] or
-            not all(isinstance(detail.get(key), str) for key in ("message", "traceback"))):
-        raise ValueError("invalid restored gate crash")
-    statement = c.case / "statement.md"
-    if statement.is_file():
-        c.statement = statement.read_text()
-        identity = hashlib.sha256(c.statement.encode()).hexdigest()
-        if previous.get("statement_sha256", identity) != identity: raise ValueError("restored statement changed")
-        c.card["statement_sha256"] = identity
-    elif previous.get("statement_sha256"):
-        raise ValueError("missing restored statement")
-    for key in ("builder_rounds", "dedup", "dedup_skipped", "admission", "candidate_attempts", "rejected_candidates", "idea_realism"):
-        if key in previous: c.card[key] = copy.deepcopy(previous[key])
-    c.card["failed_gate"] = None
-    c.card.pop("failed_detail", None)
-    c.card["salvaged_from"] = {**salvage, "attempt": attempt}
-    c.args.skip_build = True  # a crash is never case feedback or a writer round
 
 
 def early_checks(c, *, on_rejection=None):
@@ -1131,8 +842,6 @@ def loop_freshness(c, result, report):
         raise BudgetError('freshness_unresolved')
     previous = jload(c.work / 'scorecard.json', {})
     retained = (previous.get('loop_freshness') or {}).get('verdict_path') if getattr(c.args, 'resume', None) else None
-    recorder = getattr(c, 'extension_public_match_recorder', None)
-    if recorder is not None: recorder(c, rows, report)
     try:
         blocked = confirm_hits(c, rows, retained_path=retained)
     finally:
@@ -1156,32 +865,14 @@ def loop_freshness(c, result, report):
     result = {**result, 'blocking': blocking}
     from registry import atomic_json
     writer_report = report.with_name(report.stem + '-writer.json')
-    from late_recovery import sha, invalidate
-    clearance_path = report.with_suffix('.clearance.json')
-    prior = jload(clearance_path, {})
-    marker = c.card.get('gate_continuation') or {}
-    # Renewal may use a new G2 receipt. Keep the unchanged evidence already
-    # authenticated by a gate-only continuation; never mutate its pinned proof.
-    if (marker.get('clearance_sha256') and clearance_path.is_file() and
-            marker['clearance_sha256'] == sha(clearance_path) and
-            prior.get('source_sha256') == sha(report) and prior.get('case_sha256') == case_hash(c) and
-            writer_report.is_file() and prior.get('resolved_sha256') == sha(writer_report) and
-            jload(writer_report) == result):
-        return result, writer_report
-    invalidate(c)
+    sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     atomic_json(writer_report, result)  # retain the attacker's original report unchanged
     confirmation = jload(c.work / 'freshness-verdict.json', {})
     if confirmation.get('verdict_path') == c.freshness_verdict_path:
-        from late_recovery import sha
         atomic_json(report.with_suffix('.clearance.json'), dict(source_sha256=sha(report),
             resolved_sha256=sha(writer_report), case_sha256=case_hash(c), rows=rows,
             verdict_path=c.freshness_verdict_path, confirmation=confirmation))
     return result, writer_report
-
-
-def reject_legacy_final_repair(c):
-    if model_runtime.factory_job(c) and jload(c.work / "attack-state.json", {}).get("final_repair"):
-        attack_unresolved(c, "invalid_recovery_receipt")
 
 
 def writer_feedback(c, previous):
@@ -1192,592 +883,6 @@ def writer_feedback(c, previous):
         details = c.work / "gate-details" / f"{previous['failed_gate']}.json"  # sealed-side specifics, e.g. which keys
         if details.is_file(): problems.append(f"details: {details.read_text()[:8000]}")
     return problems
-
-
-def writer_request(c, n, round_limit, findings, problems, release_rereviews,
-                   release_review_attempts, before_repair, repair_requested):
-    """One fresh intent and prompt for ordinary and extension writer admission."""
-    receipt = dict(round=n, binding=attack_binding(c), report=f'round-{n}.json',
-        round_limit=round_limit, repair_pending=True, release_rereviews=release_rereviews,
-        release_review_attempts=release_review_attempts, actor='writer',
-        before_repair_sha256=before_repair, repair_requested=repair_requested,
-        findings_report=findings.name if findings else None, input_problems=problems,
-        next_phase='G1', output_sha256=None)
-    text = prompt('builder', run_context(c, round=n,
-        attack_report=str(findings) if findings else None, precheck_problems=problems))
-    return receipt, text
-
-
-def write_and_attack(c, prev, *, extension_id=None, writer_g1=None, writer_early=None):
-    """Alternate within whole-case list-price budget and the safety round cap."""
-    from founder_ruling import context as ruling_context, feedback_allowed
-    modern = model_runtime.factory_job(c)
-    if modern:
-        import job_authority
-        job_authority.for_case(c)
-        reject_legacy_final_repair(c)
-        with model_runtime.dispatch(c, 'resume'): resume_provider_wait(c)
-    extension = None
-    if extension_id is not None:
-        import extensions
-        if not modern or type(extension_id) is not int:
-            raise BudgetError('extension_reservation_mismatch')
-        extension = extensions.active(c)
-        if extension is None or extension['extension_id'] != extension_id:
-            raise BudgetError('extension_reservation_mismatch')
-        extensions.writer_receipt(c)
-        saved = extensions._writer_json(c.work / 'attack-state.json', c.work)
-        if (type(saved.get('round')) is not int or saved['round'] != extension['round'] or
-                type(saved.get('round_limit')) is not int or saved['round_limit'] != extension['round'] or
-                saved.get('schema_version') != 2 or saved.get('actor') not in ('writer', 'stress_tester') or
-                saved.get('phase') not in ('pending', 'completed', 'validated')):
-            raise BudgetError('extension_reservation_mismatch')
-        # Terminal markers authorize only a stop, never a gate pass or reroll.
-        if saved.get('next_phase') == 'extension_comparison':
-            report = c.work / 'attacks' / f"round-{extension['round']}.json"
-            completed = saved.get('review_completed')
-            if (not isinstance(completed, dict) or saved['actor'] != 'stress_tester' or saved['phase'] != 'validated' or
-                    saved.get('report') != report.name or not report.is_file() or
-                    completed.get('attempt') != saved.get('review_attempt') or
-                    completed.get('binding') != hashlib.sha256(json.dumps(saved.get('binding'), sort_keys=True).encode()).hexdigest() or
-                    completed.get('report_sha256') != hashlib.sha256(report.read_bytes()).hexdigest()):
-                raise BudgetError('extension_reservation_mismatch')
-            raise BudgetError('extension_comparison_pending')
-        if saved.get('exhausted') is True:
-            if saved.get('stop_reason') == 'budget_exhausted': raise BudgetError('budget_exhausted')
-            if saved.get('stop_reason') != 'rounds_exhausted':
-                raise BudgetError('extension_reservation_mismatch')
-            attack_unresolved(c, 'rounds_exhausted')
-        prev = {k: v for k, v in prev.items() if k not in ('failed_gate', 'failed_detail')}
-    ruling = None if modern else ruling_context(c)
-    complete = False
-    if extension is None:
-        if prev.get("rejected_candidates"):
-            c.card.setdefault("rejected_candidates", prev["rejected_candidates"])
-        if prev.get("candidate_attempts"):
-            c.card.setdefault("candidate_attempts", prev["candidate_attempts"])
-        complete = ((c.case / "case.json").is_file() and (c.case / "answer-key.json").is_file()
-                    and any((c.case / "scenarios").glob("*/key.json")))
-        complete = complete or (bool(getattr(c.args, "resume", None))
-                                and any(k.startswith("attacker") for k in (prev.get("models_used") or {}))
-                                and not g1(c)[1]["problems"])
-        if not c.args.dry_run and not complete:
-            from admission import prototype, MAX_PROTOTYPE_ATTEMPTS
-            if not statement_precheck(c):
-                return reselect_candidate(c, prev)
-            receipt = jload(c.work / "prototype.json", {})
-            attempts = receipt.get("attempts", 0) if receipt.get("statement_sha256") == c.card["statement_sha256"] else 0
-            ok = receipt.get("ok") is True and receipt.get("case_hash") == case_hash(c)
-            info = receipt.get("info", {})
-            if attempts and receipt.get("pending") is True and receipt.get("before_hash") != case_hash(c):
-                # A completed author call may have checkpointed before prototype validation.
-                # Check its retained files before spending another construction call.
-                ok, info = prototype(sys.modules[__name__], c)
-                receipt.update(ok=ok, info=info, case_hash=case_hash(c), pending=False)
-                (c.work / "prototype.json").write_text(json.dumps(receipt))
-            while not ok and attempts < MAX_PROTOTYPE_ATTEMPTS:
-                attempts += 1
-                before_repair = case_hash(c)
-                # Persist the attempt before a call so interruption cannot reset its bound.
-                receipt = {"statement_sha256": c.card["statement_sha256"], "attempts": attempts, "ok": False,
-                           "pending": True, "before_hash": before_repair}
-                (c.work / "prototype.json").write_text(json.dumps(receipt))
-                failed = opencode(c, c.models["builder"], prompt("prototype", run_context(c, round="prototype",
-                                  precheck_problems=info)), c.case, "builder-prototype" if attempts == 1 else "builder-prototype-repair")
-                if not (c.case / "statement.md").is_file() or (c.case / "statement.md").read_text() != c.statement:
-                    c.precheck_problems = ["prototype changed selected statement"]; return reselect_candidate(c, prev)
-                if attempts > 1 and case_hash(c) == before_repair:
-                    info = {"unchanged_repair": True}
-                    break
-                ok, info = (False, {"construction_failed": True}) if failed else prototype(sys.modules[__name__], c)
-                receipt.update(ok=ok, info=info, case_hash=case_hash(c), pending=False)
-                (c.work / "prototype.json").write_text(json.dumps(receipt))
-            c.card["prototype"] = {"ok": ok, "attempts": attempts, **info}
-            if not ok:
-                c.precheck_problems = ["minimal prototype failed; full construction withheld"]
-                return reselect_candidate(c, prev)
-        elif not c.args.dry_run:
-            # Completed saved artifacts do not need another prototype; final gates and freshness still apply.
-            c.card["admission"] = prev.get("admission", {"status": "legacy_completed_case"})
-            if (c.case / "statement.md").is_file(): c.statement = (c.case / "statement.md").read_text()
-    (c.work / "attacks").mkdir(exist_ok=True)
-    report = problems = None
-    authorized_feedback = False
-    problems = writer_feedback(c, prev)
-    # Resumed after a stop that came once the stress tester had started on a valid case: the writing is
-    # done, so round 1 starts with the stress tester instead of rewriting.
-    skip_writer = (extension is None and bool(getattr(c.args, 'resume', None)) and not prev.get("failed_gate")
-                   and (complete or any(k.startswith("attacker") for k in (prev.get("models_used") or {}))) and not g1(c)[1]["problems"])
-    # Saved before execution; sealing retains the receipt, reports and allowances.
-    from registry import atomic_json
-    receipt_path = c.work / "attack-state.json"
-    start_round = c.card.get('builder_rounds', 0) + 1 if modern else 1
-    rereview_round, rereviews = None, 0
-    release_rereviews, release_rereview = [], False
-    release_review_attempts = []
-    round_limit = extension['round'] if extension else c.args.rounds
-    resume_unit, modern_writer_unit, resume_writer_validation = None, False, False
-    if receipt_path.exists():
-        # Case/report recovery gets two retries for the saved stress round.
-        # Release-only migrations use their separate persistent binding history.
-        rereview_limit = 2
-        try:
-            receipt = json.loads(receipt_path.read_text())
-            if modern and receipt.get('schema_version') == 2:
-                if (receipt.get('phase') not in ('pending', 'completed', 'validated')
-                        or str(uuid.UUID(receipt['operation_id'])) != receipt['operation_id']):
-                    raise ValueError('invalid operation receipt')
-                resume_unit = copy.deepcopy(receipt)
-                modern_writer_unit = receipt.get('actor') == 'writer'
-                resume_writer_validation = modern_writer_unit and receipt['phase'] == 'completed'
-                if receipt['phase'] == 'pending':
-                    role = receipt.get('actor')
-                    c.card['resume_operation'] = {'operation_id': receipt['operation_id'],
-                        'kind': 'provider_wait' if provider_continuation(c, receipt, role) else 'crash'}
-            n = receipt["round"]
-            saved_limit = receipt["round_limit"]
-            if type(saved_limit) is not int or saved_limit < 1:
-                raise ValueError("invalid round limit")
-            raised = not modern and bool(getattr(c, 'limits_raised', {}))
-            round_limit = (extension['round'] if extension else
-                           ruling['authorization']['record']['allowances']['round_limit'] if ruling else
-                           max(round_limit, saved_limit + 1) if raised else min(round_limit, saved_limit))
-            if raised and round_limit > c.args.rounds:
-                c.args.rounds = round_limit
-                if 'recovery_config' in c.card: c.card['recovery_config']['rounds'] = round_limit
-            if type(n) is not int or not 0 <= n <= saved_limit:
-                raise ValueError("invalid round")
-            if receipt["report"] != f"round-{n}.json" or not isinstance(receipt["binding"], dict):
-                raise ValueError("invalid receipt")
-            if set(receipt["binding"]) != set(attack_binding(c)):
-                raise ValueError("invalid binding")
-            rereviews = receipt.get('rereviews', 0)
-            if type(rereviews) is not int or rereviews < 0 or (not modern and rereviews > rereview_limit):
-                raise ValueError('invalid re-review count')
-            release_rereviews = receipt.get('release_rereviews', [])
-            if (not isinstance(release_rereviews, list) or
-                    any(not isinstance(v, str) or not re.fullmatch(r'[0-9a-f]{64}', v) for v in release_rereviews) or
-                    len(set(release_rereviews)) != len(release_rereviews)):
-                raise ValueError('invalid release re-review history')
-            release_review_attempts = receipt.get('release_review_attempts', [])
-            if (not isinstance(release_review_attempts, list) or (not modern and len(release_review_attempts) > 8) or
-                    any(not isinstance(v, dict) or type(v.get('round')) is not int or v['round'] < 1 or
-                        not isinstance(v.get('binding'), str) or not re.fullmatch(r'[0-9a-f]{64}', v['binding']) or
-                        v.get('cause') != 'infrastructure' or v.get('actor') != 'stress_tester' or
-                        not isinstance(v.get('reason'), str) or not v['reason'] for v in release_review_attempts)):
-                raise ValueError('invalid release review attempts')
-        except (OSError, ValueError, KeyError, TypeError):
-            attack_unresolved(c, "invalid_recovery_receipt")
-        start_round = n + 1
-        from restart import RETRY, freshness_retry_stop
-        resume_stop = prev.get('terminal_stop')
-        if not resume_stop and hasattr(c, 'ledger'):
-            resume_stop = jload(c.ledger, {}).get('terminal_stop')
-        transient_resume = (bool(getattr(c.args, 'resume', None)) and not prev.get('failed_gate')
-                            and 'fail' not in (prev.get('gates') or {}).values()
-                            and (bool(RETRY.fullmatch(resume_stop or '')) or freshness_retry_stop(prev)))
-        binding_changed = sorted(k for k, v in attack_binding(c).items() if receipt['binding'][k] != v)
-        # Carried authority may finish its named pending repair within the granted cap.
-        ruled_pending_writer = (receipt.get('final_repair') and receipt.get('stop_reason') == 'budget_exhausted' and
-            ruling and n < round_limit and
-            (ruling['authorization']['record'].get('resume') or {}).get('pending_writer') is True and
-            n == (ruling['authorization']['record'].get('resume') or {}).get('round'))
-        final_resume = receipt.get("final_repair") and (raised or ruled_pending_writer)
-        if receipt.get("final_repair") and not (raised or ruled_pending_writer):
-            if receipt.get('stop_reason') == 'budget_exhausted':
-                c.card['stress_review'] = {'status': 'unresolved', 'reason': 'budget_exhausted'}
-                raise BudgetError('budget_exhausted')
-            attack_unresolved(c, "rounds_exhausted")
-        if receipt.get("repair_pending") and not modern_writer_unit:
-            attack_unresolved(c, "interrupted_repair")
-        awaiting_stress = receipt.get('awaiting_stress') and receipt['binding'] == attack_binding(c)
-        if (modern_writer_unit and receipt['phase'] == 'validated' and receipt.get('awaiting_stress')):
-            if receipt.get('output_sha256') != case_hash(c): attack_unresolved(c, 'writer_output_changed')
-            awaiting_stress = True
-            if binding_changed: rereview_round = n
-        if final_resume: skip_writer = False
-        if awaiting_stress:
-            start_round, skip_writer = n, True
-        if modern_writer_unit and not awaiting_stress:
-            start_round = n if receipt['phase'] in ('pending', 'completed') else n + 1
-            skip_writer = resume_writer_validation
-            if resume_writer_validation and receipt.get('output_sha256') != case_hash(c):
-                attack_unresolved(c, 'writer_output_changed')
-            if receipt['phase'] in ('pending', 'completed') and not writer_intent_valid(receipt):
-                attack_unresolved(c, 'invalid_recovery_receipt')
-            if receipt['phase'] == 'pending' and writer_call_done(c, receipt):
-                # The retained final bytes and done receipt share one generation.
-                complete_writer(c, receipt, receipt_path)
-                resume_unit, resume_writer_validation, skip_writer = copy.deepcopy(receipt), True, True
-                c.card.pop('resume_operation', None)
-            if resume_writer_validation:
-                # Completion checkpoints precede validation, including this refusal.
-                # Check before retained findings can trigger freshness/model work.
-                if (receipt['before_repair_sha256'] == receipt['output_sha256'] and
-                        (extensions.digest(extensions.tree(c.case)) == extension['entry']['case_sha256']
-                         if extension is not None else receipt['repair_requested'])):
-                    attack_unresolved(c, 'unchanged_repair')
-            problems = receipt.get('validation_problems') or receipt.get('input_problems')
-            source = receipt.get('findings_report')
-            if source is not None:
-                if not isinstance(source, str) or pathlib.PurePath(source).name != source:
-                    attack_unresolved(c, 'invalid_recovery_receipt')
-                report = c.work / 'attacks' / source
-        if not awaiting_stress and not modern_writer_unit and (modern or not binding_changed or final_resume or transient_resume or ruling) and not prev.get("failed_gate") and n > 0:
-            saved_report = receipt.get('findings_report', receipt['report']) if final_resume else receipt['report']
-            if saved_report is not None and (not isinstance(saved_report, str) or not re.fullmatch(r'round-\d+\.json', saved_report)):
-                attack_unresolved(c, 'invalid_recovery_receipt')
-            report = c.work / "attacks" / saved_report if saved_report else None
-            saved = attack_report(report) if report else None
-            pending_review = receipt.get('review_pending') is True
-            if modern and receipt.get('category_mode') == 1 and receipt.get('phase') == 'pending':
-                pending_review = True
-            authenticated = False
-            if 'review_attempt' in receipt:
-                if (not isinstance(receipt['review_attempt'], str) or
-                        not re.fullmatch(r'[0-9a-f]{32}', receipt['review_attempt']) or
-                        type(receipt.get('review_pending')) is not bool):
-                    attack_unresolved(c, 'invalid_recovery_receipt')
-                completed = receipt.get('review_completed') or {}
-                authenticated = (isinstance(completed, dict) and report is not None and report.is_file() and
-                    completed.get('attempt') == receipt['review_attempt'] and
-                    completed.get('binding') == hashlib.sha256(json.dumps(receipt['binding'], sort_keys=True).encode()).hexdigest() and
-                    completed.get('report_sha256') == hashlib.sha256(report.read_bytes()).hexdigest())
-                pending_review = pending_review or not authenticated
-            findings = [v for v in saved["blocking"] if v.strip().lower() != "review incomplete"] if saved else []
-            if saved and saved["unfinished_validation"] and not findings and not (modern and receipt.get("category_mode") == 1):
-                attack_unresolved(c, "unfinished_validation")
-            # The founder retains these findings as writer feedback only. They
-            # cannot grant a stress pass under this release's judging binding.
-            authorized_feedback = (not modern and not pending_review and saved is not None and
-                not set(binding_changed) - {'source', 'bench', 'prompt', 'models'} and
-                feedback_allowed(c, receipt, report, findings))
-            if authorized_feedback:
-                binding_changed = []
-            unusable = ('missing_or_malformed_report' if saved is None else
-                        'interrupted_review' if pending_review else
-                        'interrupted_review' if not findings and (not saved['complete'] or saved['blocking']) else None)
-            current = attack_binding(c)
-            release_key = hashlib.sha256(json.dumps(current, sort_keys=True).encode()).hexdigest()
-            # The reservation changed the receipt binding before the call. Its
-            # durable cause must survive a kill, even with no binding change now.
-            previous_release_key = hashlib.sha256(json.dumps(receipt['binding'], sort_keys=True).encode()).hexdigest()
-            continued_release = bool(not authorized_feedback and release_review_attempts and
-                set(binding_changed) <= {'source', 'bench', 'prompt', 'models'} and
-                release_review_attempts[-1]['round'] == n and release_review_attempts[-1]['binding'] == previous_release_key and
-                (pending_review or not authenticated and (saved is None or not saved['complete'])))
-            if unusable or binding_changed or continued_release:
-                reason = unusable or ('interrupted_review' if continued_release else 'binding_changed')
-                release_rereview = continued_release or (unusable is None and bool(binding_changed) and
-                                    set(binding_changed) <= {'source', 'bench', 'prompt', 'models'})
-                # Legacy distinct-binding reservations count as at least one
-                # attempt each; new repeated reservations consume a finite bound.
-                infrastructure_attempts = len(release_rereviews) + len(release_review_attempts) - len(
-                    {v['binding'] for v in release_review_attempts})
-                exhausted = (((release_key in release_rereviews and not continued_release) or infrastructure_attempts >= 8)
-                             if release_rereview else rereviews >= rereview_limit)
-                if not modern and (not ((raised and getattr(c.args, 'resume', None)) or transient_resume) or exhausted):
-                    attack_unresolved(c, reason)
-                # Old reports cannot authorize findings or a pass under a new
-                # binding. Review the current case, including pending writer edits.
-                c.card['resume_rereview'] = {'round': n, 'reason': reason, 'binding_changed': binding_changed}
-                rereview_round = n
-                start_round, skip_writer, report, problems = n, True, None, None
-            elif not saved["blocking"] and not final_resume:
-                if saved.get('freshness_review') or saved.get('freshness_review_malformed'):
-                    saved, report = loop_freshness(c, saved, report)
-                if attack_diagnostic_unfinished(c, n):
-                    if receipt.get("category_mode"): raise BudgetError("stress_validation_exhausted")
-                    attack_unresolved(c, "unfinished_diagnostic")
-                problems = None if c.args.dry_run or extension else early_review(c)
-                if not problems:
-                    if extension:
-                        receipt.update(phase='validated', next_phase='extension_comparison')
-                        atomic_json(receipt_path, receipt)
-                    c.card["stress_review"] = {"status": "completed", "round": n}
-                    return
-            else:
-                problems = findings
-            if not (unusable or binding_changed or continued_release): skip_writer = False
-        elif not modern_writer_unit:
-            # Historical findings/passes cannot authorize a verdict about changed files.
-            report = None
-    # A modern writer receipt carries the exact, already freshness-checked inputs.
-    if report and problems and not modern_writer_unit:
-        saved = attack_report(report)
-        if saved is not None:
-            if saved["unfinished_validation"] and not any(
-                    v.strip().lower() != "review incomplete" for v in saved["blocking"]):
-                attack_unresolved(c, "unfinished_validation")
-            saved, report = loop_freshness(c, saved, report)
-            problems = [v for v in saved['blocking'] if v.strip().lower() != 'review incomplete'] or None
-            if saved['unfinished_validation'] and not problems:
-                attack_unresolved(c, 'unfinished_validation')
-            if not problems and authorized_feedback:
-                # Clearing a freshness-only request removes writer work, not the
-                # need for a stress verdict under this release's binding.
-                start_round -= 1
-                rereview_round, skip_writer, release_rereview = start_round, True, True
-                report = None
-                c.card['resume_rereview'] = {'round': start_round,
-                    'reason': 'founder_feedback_cleared_requires_current_stress', 'binding_changed': ['bench']}
-            elif not problems:
-                if not saved['complete']: attack_unresolved(c, 'interrupted_review')
-                if attack_diagnostic_unfinished(c, start_round - 1): attack_unresolved(c, 'unfinished_diagnostic')
-                problems = None if c.args.dry_run or extension else early_review(c)
-                if not problems:
-                    if extension:
-                        receipt.update(phase='validated', next_phase='extension_comparison')
-                        atomic_json(receipt_path, receipt)
-                    c.card['stress_review'] = {'status': 'completed', 'round': start_round - 1}
-                    return
-    if getattr(c.args, "skip_build", False):
-        attack_unresolved(c, "review_required")
-    stop_reason = 'rounds_exhausted'
-    last_round = start_round - 1
-    for n in range(start_round, round_limit + 1):
-        _, summary = update_case_budget(c)
-        # Under the engine the attempt's money ceiling is the only money stop: no round reservation.
-        engine = under_engine(c)
-        estimate = None if modern or engine else writer_round_estimate(c)
-        if not modern and not engine and not (n == start_round and skip_writer) and (summary['spent_usd'] is None or summary['limit_usd'] - summary['spent_usd'] < estimate):
-            c.card['case_budget']['next_round_estimate_usd'] = estimate
-            stop_reason = 'budget_exhausted'
-            break
-        last_round = n
-        if not (n == start_round and skip_writer):
-            from late_recovery import invalidate
-            invalidate(c)
-            before_repair = case_hash(c)
-            repair_requested = bool(report or problems)
-            if modern:
-                continuing = bool(resume_unit and modern_writer_unit and resume_unit['round'] == n
-                                  and resume_unit['phase'] == 'pending')
-                if continuing:
-                    before_repair = resume_unit['before_repair_sha256']
-                    repair_requested = resume_unit['repair_requested']
-                writer_receipt, text = writer_request(c, n, round_limit, report, problems,
-                    release_rereviews, release_review_attempts, before_repair, repair_requested)
-                if continuing:
-                    writer_receipt = (copy.deepcopy(resume_unit) if extension else
-                                      {**resume_unit, **writer_receipt})
-                writer_receipt.update(actor='writer', before_repair_sha256=before_repair, repair_requested=repair_requested,
-                    findings_report=report.name if report else None, input_problems=problems,
-                    next_phase='G1', output_sha256=None)
-                pending_call(c, c.models['builder'], text, c.case,
-                    f'builder-{n}', writer_receipt, role='writer', on_complete=lambda: complete_writer(c, writer_receipt, receipt_path))
-            else:
-                writer_receipt = {"round": n, "binding": attack_binding(c),
-                    "report": f"round-{n}.json", "round_limit": round_limit, "repair_pending": True,
-                    "release_rereviews": release_rereviews, "release_review_attempts": release_review_attempts}
-                atomic_json(receipt_path, writer_receipt)
-                opencode(c, c.models["builder"], prompt("builder", run_context(c, round=n, attack_report=str(report) if report else None,
-                         precheck_problems=problems)), c.case, f"builder-{n}")
-            c.card["builder_rounds"] = n
-            if (case_hash(c) == before_repair and
-                    (extensions.digest(extensions.tree(c.case)) == extension['entry']['case_sha256']
-                     if extension is not None else repair_requested)):
-                attack_unresolved(c, "unchanged_repair")
-            # Invalid cases go straight back to the builder; never spend an attack on them.
-            problems = (writer_g1 or g1)(c)[1]["problems"] or None
-            if problems:
-                if modern:
-                    writer_receipt.update(phase='validated', validation_problems=problems, next_phase='writer')
-                    atomic_json(receipt_path, writer_receipt)
-                continue
-            problems = None if c.args.dry_run else (writer_early or early_checks)(c)
-            if problems:
-                if modern:
-                    writer_receipt.update(phase='validated', validation_problems=problems, next_phase='writer')
-                    atomic_json(receipt_path, writer_receipt)
-                continue
-            if modern:
-                binding = attack_binding(c)
-                writer_receipt.update(phase='validated', awaiting_stress=True, next_phase='stress', binding=binding,
-                    binding_sha256=hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest())
-                atomic_json(receipt_path, writer_receipt)
-            else: atomic_json(receipt_path, {"round": n, "binding": attack_binding(c),
-                "report": f"round-{n}.json", "round_limit": round_limit, "awaiting_stress": True,
-                "release_rereviews": release_rereviews, "release_review_attempts": release_review_attempts})
-        elif modern and resume_writer_validation:
-            problems = (writer_g1 or g1)(c)[1]['problems'] or None
-            if not problems: problems = None if c.args.dry_run else (writer_early or early_checks)(c)
-            binding = attack_binding(c)
-            resume_unit.update(binding=binding, binding_sha256=hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest(),
-                               phase='validated', validation_problems=problems,
-                               awaiting_stress=not bool(problems), next_phase='writer' if problems else 'stress')
-            atomic_json(receipt_path, resume_unit)
-            if problems: continue
-        if not modern and (c.work / "diagnostic-budgets" / f"attacker-{n}" / "claimed").exists() and n != rereview_round:
-            attack_unresolved(c, "diagnostic_allowance_exhausted")
-        case_budget_boundary(c)
-        attack_id = f"round-{n}"
-        report = c.work / "attacks" / (attack_id + ".json")
-        binding = attack_binding(c)
-        if not modern and n == rereview_round and release_rereview:
-            # Reserve before the paid call. This history survives later rounds,
-            # interruptions and switching back to a previously reviewed release.
-            if release_key not in release_rereviews: release_rereviews.append(release_key)
-            release_review_attempts.append({"round": n, "binding": release_key, "actor": "stress_tester",
-                "cause": "infrastructure", "reason": c.card['resume_rereview']['reason']})
-        review_receipt = {"round": n, "binding": binding, "report": report.name, "round_limit": round_limit,
-                                  "rereviews": rereviews + int(not release_rereview) if n == rereview_round else 0,
-                                  "release_rereviews": release_rereviews, "release_review_attempts": release_review_attempts,
-                                  "review_pending": True, "review_attempt": secrets.token_hex(16)}
-        same_review_unit = bool(modern and resume_unit and resume_unit.get('actor') == 'stress_tester'
-                                and resume_unit.get('round') == n)
-        continuing_review = same_review_unit and resume_unit.get('phase') == 'pending'
-        if same_review_unit:
-            review_receipt = {**resume_unit, **review_receipt, 'review_attempt': resume_unit['review_attempt'],
-                              'rereviews': resume_unit.get('rereviews', 0)}
-        from late_recovery import invalidate
-        invalidate(c)
-        if modern:
-            review_receipt.update(actor='stress_tester', next_phase='gates', output_sha256=None)
-            def review_admitted():
-                if n == rereview_round and release_rereview and not continuing_review:
-                    if release_key not in release_rereviews: release_rereviews.append(release_key)
-                    release_review_attempts.append({'round': n, 'binding': release_key, 'actor': 'stress_tester',
-                        'cause': 'infrastructure', 'reason': c.card['resume_rereview']['reason']})
-                if not continuing_review:
-                    if report.exists(): report.rename(report.with_name(report.stem + '-superseded-' + uuid.uuid4().hex + '.json'))
-                    atomic_json(report, {'complete': False, 'blocking': ['review incomplete']})
-            def review_completed():
-                review_receipt.update(phase='completed', review_pending=False,
-                    output_sha256=hashlib.sha256(report.read_bytes()).hexdigest() if report.is_file() else None)
-                review_receipt['review_completed'] = {'attempt': review_receipt['review_attempt'],
-                    'binding': hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest(),
-                    'report_sha256': review_receipt['output_sha256']}
-                atomic_json(receipt_path, review_receipt)
-            if same_review_unit and resume_unit.get('binding') != binding:
-                for key in ('operation_id', 'category_state', 'category_mode'):
-                    review_receipt.pop(key, None)
-            if not continuing_review and review_receipt.get('category_mode') != 1:
-                review_admitted()
-            from factory_waste import attempt
-            with attempt(c, 'stress', case_hash(c)):
-                stress_categories(c, n, report, review_receipt, review_completed)
-        else:
-            atomic_json(receipt_path, review_receipt)
-            atomic_json(report, {"complete": False, "blocking": ["review incomplete"]})
-            opencode(c, c.models["attacker"], stress_request(c, n, report), c.work, f"attacker-{n}")
-        if binding != attack_binding(c):
-            attack_unresolved(c, "case_changed_during_review")
-        result = attack_report(report)
-        if result is None:
-            attack_unresolved(c, "missing_or_malformed_report")
-        review_receipt.update(review_pending=False, review_completed={"attempt": review_receipt['review_attempt'],
-            "binding": hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest(),
-            "report_sha256": hashlib.sha256(report.read_bytes()).hexdigest()})
-        if modern: review_receipt['phase'] = 'validated'
-        atomic_json(receipt_path, review_receipt)
-        result, report = loop_freshness(c, result, report)
-        findings = [v for v in result["blocking"] if v.strip().lower() != "review incomplete"]
-        # Defects can prevent diagnostics; repair them before requiring validation.
-        if result["unfinished_validation"] and not findings:
-            attack_unresolved(c, "unfinished_validation")
-        if (not result["complete"] or result["blocking"]) and not findings:
-            attack_unresolved(c, "interrupted_review")
-        problems = findings or None
-        if not result["blocking"]:
-            if attack_diagnostic_unfinished(c, n):
-                if review_receipt.get("category_mode"): raise BudgetError("stress_validation_exhausted")
-                attack_unresolved(c, "unfinished_diagnostic")
-            # The stress tester is satisfied: review now, so complaints reach the writer in this run.
-            problems = None if c.args.dry_run or extension else early_review(c)
-            if not problems:
-                if extension:
-                    review_receipt.update(phase='validated', next_phase='extension_comparison')
-                    atomic_json(receipt_path, review_receipt)
-                c.card["stress_review"] = {"status": "completed", "round": n}
-                return
-    if modern:
-        if receipt_path.exists():
-            receipt = jload(receipt_path, {})
-            receipt.update(stop_reason=stop_reason, exhausted=True)
-            atomic_json(receipt_path, receipt)
-        if stop_reason == 'budget_exhausted': raise BudgetError('budget_exhausted')
-        attack_unresolved(c, 'rounds_exhausted')
-    if under_engine(c):
-        # No round reservation, final builder-precheck call or stop_defect: the engine decides what follows.
-        attack_unresolved(c, stop_reason)
-    # The last stress round can return findings without entering another loop
-    # iteration. Apply the same writer reservation to its final repair too.
-    _, summary = update_case_budget(c)
-    estimate = writer_round_estimate(c)
-    if summary['spent_usd'] is None or summary['limit_usd'] - summary['spent_usd'] < estimate:
-        c.card['case_budget']['next_round_estimate_usd'] = estimate
-        stop_reason = 'budget_exhausted'
-    # Persist before the final repair so an interruption cannot reset its bound.
-    from late_recovery import invalidate
-    invalidate(c)
-    atomic_json(receipt_path, {"round": last_round, "binding": attack_binding(c),
-                              "report": f"round-{last_round}.json", "round_limit": round_limit,
-                              "final_repair": True, "stop_reason": stop_reason,
-                              "findings_report": report.name if report else None, "precheck_problems": problems,
-                              "release_rereviews": release_rereviews, "release_review_attempts": release_review_attempts})
-    c.card['stress_review'] = {'status': 'unresolved', 'reason': stop_reason}
-    # A failed round reservation must not fall through to an unreserved writer
-    # call under the name "final fix". Review-only restores stop here.
-    panel_gate = next((gate for gate in ('G8','G9')
-        if problems and c.card.get('early_gates', {}).get(gate, {}).get('ok') is False), None)
-    late_gate = prev.get('failed_gate') or panel_gate
-    if late_gate and last_round >= round_limit:
-        from late_recovery import stop_defect
-        if panel_gate and not prev.get('failed_gate'): c.card['failed_detail'] = {'problems': problems}
-        stop_defect(c, late_gate)
-    if stop_reason == 'budget_exhausted': raise BudgetError('budget_exhausted')
-    opencode(c, c.models["builder"], prompt("builder", run_context(c, round="precheck-fix",
-             attack_report=str(report) if report else None, precheck_problems=problems)), c.case, "builder-precheck")
-    problems = g1(c)[1]["problems"]
-    if not problems and not c.args.dry_run:
-        problems = early_checks(c) or []
-    c.card["builder_note"] = "final prechecks failed" if problems else "final builder fix passed prechecks; stress review unresolved"
-    attack_unresolved(c, "rounds_exhausted")
-
-
-def reselect_candidate(c, prev):
-    """Publish the next bounded candidate; only a new shared reservation permits construction."""
-    if under_engine(c): raise BudgetError("engine_reselection_disabled")  # reselection is ADMIT's (WP11)
-    from admission import MAX_CANDIDATES
-    rejected = c.card.setdefault("rejected_candidates", list(prev.get("rejected_candidates", [])))
-    digest = c.card.get("statement_sha256")
-    if not any(row["statement_sha256"] == digest for row in rejected):
-        rejected.append({"statement_sha256": digest, "screen": c.card.get("admission", {}).get("screen", "prototype")})
-    attempts = c.card.setdefault("candidate_attempts", max(1, len(rejected)))
-    if attempts >= MAX_CANDIDATES:
-        c.card["admission"] = {"status": "exhausted", "candidates": attempts}
-        return
-    occupied = getattr(c, 'selection_prior', None)
-    if occupied is None: occupied = prior_statements(c)
-    problems = getattr(c, 'precheck_problems', [])
-    c.card["candidate_attempts"] = attempts + 1
-    old = c.work / f"rejected-candidate-{len(rejected)}-{time.time_ns()}"
-    c.case.rename(old); c.case.mkdir()
-    feedback_path = c.work / 'selection-rejections.json'
-    feedback = jload(feedback_path, [])
-    details = getattr(c, 'duplicate_feedback', {})
-    feedback.append({'statement_sha256': digest, 'screen': c.card.get('admission', {}).get('screen', 'prototype'),
-        'rejected_statement_path': str(old / 'statement.md'), 'problems': problems,
-        **details, 'matched_statement_path': occupied.get(details.get('duplicate_of'))})
-    from registry import atomic_json
-    atomic_json(feedback_path, feedback)
-    c.__dict__.pop("precheck_problems", None)
-    # Selection can inspect its own rejected ideas, but cannot construct before delivery.
-    request = prompt("selection", selection_context(c, occupied, round="reselection", rejected_candidate_dir=str(old),
-                     rejection_feedback_path=str(feedback_path),
-                     rejected_statement_hashes=[row["statement_sha256"] for row in rejected]))
-    if opencode(c, c.models["builder"], request, c.case, f"builder-selection-{attempts + 1}"):
-        c.precheck_problems = ["candidate reselection failed"]; return
-    statement = c.case / "statement.md"
-    if not statement.is_file() or not statement.read_text().strip():
-        c.precheck_problems = ["candidate reselection missing statement"]; return
-    c.statement = statement.read_text()
-    c.card["statement_sha256"] = hashlib.sha256(c.statement.encode()).hexdigest()
-    if any(row["statement_sha256"] == c.card["statement_sha256"] for row in rejected):
-        c.precheck_problems = ["candidate reselection repeated rejected statement"]; return
-    c.card["admission"] = {"status": "awaiting_shared_reservation", "candidate": attempts + 1}
-    raise BudgetError("admission_registry_unavailable")
 
 
 def build_fixture(c):
@@ -2194,7 +1299,6 @@ def freshness_counts(c):
     return {"builder_web": n("builder", "web"), "builder_github": n("builder", "github"), "attacker": n("attacker")}
 
 def g2(c):
-    if model_runtime.factory_job(c): return ensure_freshness(c)
     return _g2(c)
 
 
@@ -2220,14 +1324,9 @@ def _g2(c):
         for index, row in enumerate(lines):
             target = directory / str(index)
             def obtain():
-                if model_runtime.factory_job(c):
-                    from ordinary_freshness import obtain as batch_obtain
-                    return batch_obtain(c, [row], target, flagged=bool(row.get('hit') or row.get('ambiguous')))
                 try: return load_retrieval(target, [row])
                 except RuntimeError: return retrieve([row], target)
-            if (row.get('hit') is True or row.get('ambiguous') is True) and model_runtime.factory_job(c):
-                result = obtain()
-            elif row.get('hit') is True or row.get('ambiguous') is True:
+            if row.get('hit') is True or row.get('ambiguous') is True:
                 result = retry(c.work / 'infra-attempts.json',
                     {'operation': 'search-retrieval', 'binding': binding, 'row': index},
                     obtain, interruption=BudgetError)
@@ -2242,8 +1341,6 @@ def _g2(c):
                     result = []
             if any(receipt['retrieved_from'] == 'none' for receipt in result):
                 c.freshness_unfetched.add(row['url'])
-                if model_runtime.factory_job(c) and any(access_failure(r) for r in result):
-                    transport_failures += 1
             fetched.extend(result)
         counted = freshness_counts(c)
         retrieval_sha256 = retrieval_digest(fetched)
@@ -2368,16 +1465,9 @@ def confirm_hits(c, flagged, *, retained_path=None):
     out = d / "verdict.json"
     from freshness_retrieval import retrieve, load, digest
     from run_validity import retry
-    if model_runtime.factory_job(c):
-        from ordinary_freshness import obtain, semantic_binding
-        from ordinary_retry import digest as retry_digest
-        target = c.work / ('confirmation-retrieval-' + retry_digest(semantic_binding(binding, flagged)))
-        c.freshness_retrieval = obtain(c, flagged, target, flagged=True)
-        shutil.copytree(target, d / 'retrieval')
-    else:
-        c.freshness_retrieval = retry(c.work / 'infra-attempts.json',
-            {"operation": "freshness-retrieval", "binding": binding},
-            lambda: retrieve(flagged, d / 'retrieval'), interruption=BudgetError)
+    c.freshness_retrieval = retry(c.work / 'infra-attempts.json',
+        {"operation": "freshness-retrieval", "binding": binding},
+        lambda: retrieve(flagged, d / 'retrieval'), interruption=BudgetError)
     retrieval_sha256 = digest(c.freshness_retrieval)
     rows = [{k: x.get(k) for k in ("who", "kind", "query", "url", "note", "app_version", "version_scope")} for x in flagged]
     text = (f"Freshness confirmation only; change nothing. Read `statement.md` and any existing `disclosure.md`, `provenance.json` and `promise.md` in "
@@ -2420,37 +1510,9 @@ def confirm_hits(c, flagged, *, retained_path=None):
         c.card['freshness_confirmation'] = {'flagged_urls': len(flagged), 'timeout_seconds': seconds,
                                            'status': 'running'}
     try:
-        if model_runtime.factory_job(c):
-            from ordinary_freshness import semantic_binding
-            from freshness_retrieval import judgment_digest
-            text = text.replace('Timeouts, access errors, ambiguous archive responses,',
-                                'Ambiguous archive responses,')
-            text = text.replace('"deleted" | null',
-                '"deleted" | "http_401" | "http_403" | "http_451" | "http_429" | "http_500" through "http_599" | "network_error" | null')
-            text += (' Copy live_failure exactly from the runner receipt (including the actual three-digit HTTP status). '
-                     ' Access failures http_401/http_403/http_451/http_429/http_500–http_599/network_error '
-                     'are not dead pages. Their archived snapshots can confirm a match but cannot clear one. '
-                     'Keep a false or uncertain archived comparison unresolved while live access fails. '
-                     'No snapshot clears only HTTP 404/410, DNS failure or confirmed deletion; '
-                     'an access failure with no snapshot stays unresolved.')
-            retained_answer(c, c.models['reviewers'][0], text, d, 'reviewer-g2-confirm', out,
-                {'binding': semantic_binding(binding, flagged),
-                 'judgment': judgment_digest(c.freshness_retrieval)}, 'freshness',
-                'Object with hits array in supplied URL order; every row has url, resolved boolean, '
-                'same_bug boolean or null, retrieved boolean, app_version, version_scope, why and retrieval/archive fields.',
-                lambda v: isinstance(v, dict) and isinstance(v.get('hits'), list) and len(v['hits']) == len(flagged)
-                    and all(isinstance(a, dict) and a.get('url') == r['url'] and
-                            type(a.get('resolved')) is bool and type(a.get('retrieved')) is bool and
-                            all(isinstance(a.get(k), str) for k in ('app_version', 'version_scope', 'why')) and
-                            bool(a['why'].strip()) and
-                            'same_bug' in a and (a['same_bug'] is None or type(a['same_bug']) is bool)
-                            for a,r in zip(v['hits'], flagged)),
-                timeout=seconds)
-            code = 0
-        else:
-            code = opencode(c, c.models["reviewers"][0], text, d, "reviewer-g2-confirm",
-                            timeout=seconds, deadline=time.monotonic() + seconds,
-                            before_attempt=lambda: out.unlink(missing_ok=True))
+        code = opencode(c, c.models["reviewers"][0], text, d, "reviewer-g2-confirm",
+                        timeout=seconds, deadline=time.monotonic() + seconds,
+                        before_attempt=lambda: out.unlink(missing_ok=True))
     except BudgetError as error:
         if hasattr(c, 'card'):
             c.card['freshness_confirmation']['status'] = 'interrupted'
@@ -2638,15 +1700,8 @@ def review(c):
         out = d / "verdict.json"
         text = prompt('reviewer', run_context(c, case_dir=str(d / 'case'), mode='case', verdict_path=str(out)))
         text += engine_review_ruling(c)
-        if model_runtime.factory_job(c):
-            vote = retained_answer(c, chain, text, d, f'reviewer-{i}', out,
-                {'index': i, 'case': case_inventory(c), 'prompt': prompt('reviewer', '')},
-                'panel', '{fairness: {approve: boolean, findings: array}, realism: {approve: boolean, findings: array}}',
-                lambda v: isinstance(v, dict) and all(isinstance(v.get(k), dict) and
-                    type(v[k].get('approve')) is bool for k in ('fairness', 'realism')))
-        else:
-            opencode(c, chain, text, d, f'reviewer-{i}')
-            vote = jload(out, {}) or {}
+        opencode(c, chain, text, d, f'reviewer-{i}')
+        vote = jload(out, {}) or {}
         c.votes.append(vote)
     c.votes_hash = case_hash(c)
     return c.votes
@@ -2718,9 +1773,6 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
         if under_engine(c):
             from durable.checkpoints import checkpoint as engine_checkpoint
             engine_checkpoint(c)
-        if getattr(a, 'late_gate_rehearsal', False):
-            from late_rehearsal import after_attempt
-            after_attempt(c, name)
     def author(i):
         if getattr(c, "role_cancel", None) is not None and c.role_cancel.is_set(): raise BudgetError("cancelled")
         if hasattr(c, "factory_slot"):
@@ -2758,8 +1810,7 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
                 call_context.budget_resumed = True
                 call_context.args.concurrent_roles = True
                 call_context.role_cancel = getattr(c, "role_cancel", None) or threading.Event()
-                channel = owner_channel(call_context, sys.modules[__name__], ws, dest, user,
-                    **({'parent_call_name': call_name} if model_runtime.factory_job(c) else {}))
+                channel = owner_channel(call_context, sys.modules[__name__], ws, dest, user)
             else:
                 channel = contextlib.nullcontext("")
             try:
@@ -2827,34 +1878,16 @@ def stop_pilot(c, user):
     return True
 
 
-def archive_pilot_state(c):
-    """Quiesce every old identity before archiving it or reconciling usage."""
-    history = c.work / f'previous-gate-runs-{time.time_ns()}'
-    for user, home in pilot_homes():
-        present = stop_pilot(c, user)
-        if present or home.exists():
-            pilot_wall(c, user, None, remove=True)
-        if home.exists():
-            history.mkdir(exist_ok=True)
-            sh(c, ['sudo', 'mv', home, history / f'{user}-home'], check=True)
-            sh(c, ['sudo', 'chown', '-R', f'{os.getuid()}:{os.getgid()}', history], check=True)
-        if present: sh(c, ['sudo', 'userdel', user], check=True)
-    if (c.work / 'pilot').exists():
-        history.mkdir(exist_ok=True)
-        shutil.move(c.work / 'pilot', history / 'pilot')
-    from diagnosis_dispatch import cleanup_tasks
-    cleanup_tasks(c)
 
 
 def dispose_diagnosis_pilot(c):
-    from diagnosis_dispatch import DiagnosisTaskCleanupError
     try:
         present = stop_pilot(c, 'pilot')
         pilot_wall(c, 'pilot', None, remove=True)
         shred_tree(pilot_home('pilot'), sudo=True)
         if present: sh(c, ['sudo', 'userdel', 'pilot'], check=True)
     except Exception:
-        raise DiagnosisTaskCleanupError('pilot disposal failed') from None
+        raise RuntimeError('pilot disposal failed') from None
 
 
 def make_pilots(c, identities, concurrent, *, diagnosis=False):
@@ -3111,144 +2144,27 @@ class PauseRequested(BaseException):
 
 
 def pause_on_term(signum, frame):
-    """SIGTERM = pause: stop the current step, seal a checkpoint, write DONE (factory/collect.sh sends it before
-    any VM is released, so no stop path throws work away). One request only; sealing is never interrupted."""
+    """Interrupt an audit without allowing broad gate exception handlers to swallow it."""
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
-    # Only the launcher installs this short-lived, process-bound public marker.
-    from ttl_continuation import runner_request
-    context = frame
-    while context and not (context.f_code.co_name == 'main' and 'c' in context.f_locals):
-        context = context.f_back
-    c = context.f_locals['c'] if context else None
-    retirement = runner_request(SEALED / '.ttl-retirement.json', os.getpid(), getattr(c, 'case_id', None))
-    raise PauseRequested(retirement)
-
-
-def pause_terminal(error, case):
-    if error.retirement and error.retirement.get('case') == case:
-        return {'terminal_stop': 'ttl_retired', 'retirement': error.retirement}
-    return {'terminal_stop': 'paused'}
+    raise PauseRequested()
 
 
 def run_gates(c, *, replay_gate=None, around_gate=None, serial=False, replay_only=False):
     model_runtime.prepare_dispatch(c)
     pipeline = _gate_pipeline()
-    if replay_gate is None and around_gate is None:
-        from extension_package import observation_enabled, observe
-        if observation_enabled(c): return observe(c, sys.modules[__name__], pipeline)
-    if serial: pipeline.overlap_reason = lambda c: 'extension evidence capture'
+    if serial: pipeline.overlap_reason = lambda c: 'serial gate evaluation'
     if replay_only: pipeline.budget_boundary = lambda c: None
     return pipeline.run(c, replay_gate=replay_gate, around_gate=around_gate)
 
 
 def validate_and_repair(c):
-    """Repair case defects on this worker; infrastructure and budget errors propagate."""
-    if under_engine(c):
-        # One gate pass: no repair loop, late_recovery marks or stop_defect. The engine REPAIRs.
-        run_gates(c)
-        return
-    repairable = REPAIRABLE_GATES
-    modern = model_runtime.factory_job(c)
-    limit = None if modern else getattr(c.args, "max_repairs", 2)
-    attempt = 0
-    while True:
-        if not c.args.dry_run:
-            from late_recovery import mark_gates
-            mark_gates(c)
-        run_gates(c)
-        failed = c.card.get("failed_gate")
-        if c.args.dry_run or failed not in repairable:
-            return
-        detail = c.card.get("failed_detail") or {}
-        if isinstance(detail, dict) and detail.get("review_inconclusive"):
-            return  # Unknown is not evidence the writer should change the case.
-        if isinstance(detail, dict) and "error" in detail:
-            return  # Operational failure is not a request to rewrite the case.
-        if c.card.get('builder_rounds', 0) >= c.args.rounds:
-            from late_recovery import stop_defect
-            stop_defect(c, failed)
-        if not modern and attempt == limit: return
-        before = case_hash(c)
-        previous = copy.deepcopy(c.card)
-        log(c, "REPAIR", failed, str(attempt + 1) if modern else f"{attempt + 1}/{limit}")
-        # G10's executor has joined before any writer can mutate shared case files.
-        for key in ("role_cancel", "calibrator_slot_offset", "votes", "review_hash",
-                    "strategies", "early", "early_hash", "pilot_passes", "precheck_problems"):
-            c.__dict__.pop(key, None)
-        from late_recovery import invalidate
-        invalidate(c)
-        write_and_attack(c, previous)
-        if case_hash(c) == before:
-            c.card["repair_blocked"] = "repair made no case changes"
-            return
-        attempt += 1
-        c.card.setdefault("repairs", []).append({"attempt": attempt, "failed_gate": failed})
-        c.card["gates"] = {}
-        c.card["gate_results"] = {}
-        c.card["gate_minutes"] = {}
-        c.card["failed_gate"] = None
-        c.card.pop("failed_detail", None)
-        c.__dict__.pop("audit_gates", None)
-        c.__dict__.pop("audit_keep_easy", None)
-        c.card.pop("kept_gate_source", None)
+    """Run one scientific gate pass; the durable Engine owns repair scheduling."""
+    run_gates(c)
         # Gate receipts validate actual dependencies; G7 deliberately runs afresh.
 
 
-def inherit_recovery_history(c, previous):
-    for key in ('builder_rounds', 'models_used', 'budget_raised', 'rounds_raised', 'founder_ruling'):
-        if key in previous and key not in c.card: c.card[key] = copy.deepcopy(previous[key])
-    if model_runtime.factory_job(c):
-        import diagnosis
-        history = diagnosis.extension_history(previous)
-        if history is None or ('diagnosis_state' in previous and diagnosis._state(previous, history) is None):
-            raise BudgetError('diagnosis_state_invalid')
-        # route_receipts carry process-start evidence (diagnosis.actual_model_work).
-        for key in ('diagnosis_state', 'extension_history', 'factory_bug', 'factory_bug_resume_count', 'route_receipts'):
-            if key in previous: c.card[key] = copy.deepcopy(previous[key])
-        ordinary = (previous.get('case_budget') or {}).get('ordinary_limit_usd')
-        configured = (previous.get('recovery_config') or {}).get('ordinary_limit_usd')
-        if ordinary is not None and configured is not None and ordinary != configured:
-            raise BudgetError('ordinary_limit_mismatch')
-        ordinary = ordinary if ordinary is not None else configured
-        if ordinary is not None:
-            from budget import usd
-            if usd(ordinary) <= 0: raise BudgetError('ordinary_limit_unknown')
-            c.card.setdefault('case_budget', {})['ordinary_limit_usd'] = ordinary
-            c.args.ordinary_case_budget = ordinary
-
-
-def finalize_accounting(c):
-    """Best-effort final accounting cannot replace an already recorded stop."""
-    if model_runtime.factory_job(c) and c.card.get('terminal_stop') != 'provider_wait':
-        try:
-            from budget import reconcile_reservations
-            reconcile_reservations(c.work, c.ledger)
-        except Exception as error:
-            c.card.setdefault('cleanup_errors', []).append({'stage': 'usage_reconciliation', 'error': type(error).__name__})
-    for stage, action in (
-            ('budget_summary', lambda: update_case_budget(c)),
-            ('budget_snapshot', lambda: c.card.update(continuation_budget=jload(
-                c.ledger, {'cost': 0, 'calls': 0, 'events': []} if getattr(getattr(c, 'args', None), 'dry_run', False) else None))),
-            ('budget_checkpoint', lambda: (c.work / 'continuation-budget.json').write_text(
-                json.dumps(c.card['continuation_budget'], indent=2))
-                if c.card.get('continuation_budget') is not None else None)):
-        try: action()
-        except Exception as error:
-            c.card.setdefault('cleanup_errors', []).append({'stage':stage, 'error':type(error).__name__})
-            c.card.setdefault('terminal_stop', 'runner_error:' + type(error).__name__)
-            c.stopped = True
-    if model_runtime.factory_job(c) and getattr(c, 'stopped', False):
-        # The first exhausted run stops and checkpoints a pending request. Model
-        # diagnosis belongs to a later same-owner resume, after B collection.
-        import diagnosis
-        try: diagnosis.record_exhaustion(c.card, new_exhaustion=getattr(c, 'exhaustion_occurred', False))
-        except BudgetError:
-            c.card.setdefault('cleanup_errors', []).append({'stage': 'diagnosis_state', 'error': 'BudgetError'})
-
-
 # ---------------------------------------------------------------- durable engine steps (WP5a)
-# docs/designs/durable-execution-wp5a.md. Only context_for_step sets c.engine; main() never
-# does, so every branch below and every under_engine() switch is inert without the engine.
+# Only context_for_step sets c.engine; standalone audits use the same scientific helpers.
 
 # Cumulative opencode-only cap under the engine: off. Constant, because gate fingerprints and
 # the stress binding hash c.args.max_cost; the attempt's money ceiling is the only money stop.
@@ -3314,7 +2230,7 @@ ENGINE_PLUMBING_STOPS = {"retired_batch_bound": "infra:batch_deadline", "router_
 
 def engine_stop(c, stop):
     """A stop as the engine may see it: money_wait only when this attempt's spend plus its open
-    reservations exceeds its grant; legacy JobAuthority/job_config faults are INFRA_ERROR."""
+    reservations exceeds its grant; retired authority faults are INFRA_ERROR."""
     from durable.contract import Outcome
     head = stop.split(":", 1)[0].strip()
     for wrapper in ("Budget stopped", "Budget ledger stopped"):
@@ -3377,14 +2293,12 @@ def context_for_step(step_input, work):
     a.dry_run = bool(card.get("dry_run"))
     a.source = None if a.dry_run else card.get("source")
     a.seed, a.rotation_slot, a.case_id = card["seed"], card.get("rotation_slot"), c.case_id
-    a.resume = a.batch_release_sha256 = a.factory_job_config = a.factory_job_config_sha256 = None
+    a.resume = None
     a.max_cost = ENGINE_COST_CAP
     # Remaining attempt time replaces the old operator timeout. Scientific
     # role-specific caps remain in their callers.
     a.agent_timeout = step_input.deadline_s
     c.args, c.seed, c.t0 = a, card["seed"], time.time() - 1
-    if model_runtime.factory_job(c) or hasattr(c, "authenticated_job_config"):
-        raise ValueError("the engine never runs a legacy factory job")  # no JobAuthority, job_config or batch deadline
     # The ledger lives in the snapshot. A previous attempt's stop is archived, not sticky.
     c.ledger = work / "continuation-budget.json"
     resume_ledger(c.ledger)
@@ -3414,7 +2328,7 @@ def context_for_step(step_input, work):
 
 
 def engine_prepare_bench(c):
-    """The worker's shop for a writer or stress step, as main() prepares it at startup. Needs Docker."""
+    """Prepare the worker shop for a writer or stress step. Needs Docker."""
     sh(c, ["find", BENCH, "-name", "._*", "-delete"])
     import factory_pool
     factory_pool.prepare(1, fresh=True, execute=lambda cmd, **kw: sh(c, cmd, **{**kw, "check": True}))
@@ -3667,24 +2581,17 @@ def retained_paths(c):
 
 
 def argument_parser():
-    """The production CLI schema, also used by offline launch compatibility checks."""
+    """Scientific settings shared by Engine contexts and restored-case audits."""
     p = argparse.ArgumentParser()
-    p.add_argument("--source", choices=["port", "hunt", "plant"], help="bug source (FACTORY.md section 2); required unless --dry-run")
+    p.add_argument("--source", choices=["port", "hunt", "plant"], help="bug source for scientific step contexts (FACTORY.md section 2)")
     # Founder 2026-10-24: list-price budget is the economic ceiling; rounds remain a safety cap.
     p.add_argument("--rounds", type=int, default=8, help="high safety cap on writer/stress rounds")
     p.add_argument("--case-budget", type=float, default=50.0, help="whole-case USD list-price ceiling across all roles")
-    p.add_argument("--max-repairs", type=int, default=2, help="bounded same-worker repairs after later case gate failures")
+    p.add_argument("--max-repairs", type=int, default=2, help="retained repair setting for scientific step contexts")
     p.add_argument("--runs", type=int, default=10, help="runs per G4-G7 checkpoint")
     p.add_argument("--scenario-runs", type=int, default=3)
     p.add_argument("--bench-workers", type=int, default=1, help="factory-only parallel bench instances; 1 preserves serial scheduling")
-    p.add_argument("--skip-build", action="store_true",
-                   help="resume only: the case is finished (e.g. it passed gates before a crash that lost the record); go to the gates")
-    p.add_argument("--statement-only", action="store_true",
-                   help="statements round: write statement.md, dedup against earlier cases, then pause (factory/statements-round.sh resumes)")
     p.add_argument("--audit-g11", action="store_true", help="restored case only: sealed reviewer audit, no build or gate changes")
-    p.add_argument("--late-gate-rehearsal", action="store_true", help="paid throwaway public-case late paths; isolated namespace only")
-    p.add_argument("--rehearsal-recipient", help="throwaway public age recipient for paid rehearsal checkpoints and seal")
-    p.add_argument("--rehearsal-interrupt-g10", action="store_true", help="late rehearsal only: pause once after first committed strong G10 attempt")
     p.add_argument("--audit-fairness", action="store_true", help="audit a separate copy of a sealed case")
     p.add_argument("--rehearse-only", action="store_true", help="fresh-worker build, plain-app and reference checks only")
     p.add_argument("--continue-g11-review", action="store_true", help="continue a restored sealed audit, preserving its notes and remaining budget")
@@ -3712,281 +2619,82 @@ def argument_parser():
     p.add_argument("--max-cost", type=float, default=5.0, help="observed spend ceiling on priced (opencode) events; in-flight responses may overshoot")
     p.add_argument("--max-role-calls", type=int, default=400)  # founder, 2026-10-17: a MiMo writer hit 246 of 250
     p.add_argument("--max-total-calls", type=int, default=5000)  # D1: whole-case ceiling; lower explicit caps stay lower
-    p.add_argument("--resume", help="preserved case directory name; reruns all gates")
+    p.add_argument("--resume", help="restored case directory for an audit")
     p.add_argument("--case-id", help="stable approved batch job identity")
-    p.add_argument("--batch-release-sha256", help="complete approved batch release digest")
-    p.add_argument('--factory-job-config', help='holder-installed RAM job configuration')
-    p.add_argument('--factory-job-config-sha256', help='holder-authenticated job configuration digest')
     p.add_argument("--resume-bench-sha", help="trusted clean-template bench fingerprint, required with --resume")
     p.add_argument("--agent-timeout", type=int, default=4 * 3600)
     p.add_argument("--no-progress-minutes", type=float, default=float(os.environ.get("FACTORY_NO_PROGRESS_MINUTES", "45")),
                    help="stop a model call after this many minutes without output (FACTORY_NO_PROGRESS_MINUTES)")
     p.add_argument("--max-zero-tokens", type=int, default=3, help="stop after N consecutive zero-token responses")
-    p.add_argument("--dry-run", action="store_true", help="no model calls; practice case as fixture; throwaway key")
-    p.add_argument("--probe", action="append", metavar="MODEL", help="one 'reply READY' call per model through opencode(); prints the ledger")
+    p.add_argument("--dry-run", action="store_true", help="practice fixture setting for durable step contexts")
     return p
 
 
 def main():
-    os.environ.setdefault("UNBUG_JUDGE", "1")  # gates judge blind steps as the administrator (as Harbor's test.sh)
+    """Standalone restored-case audits; case lifecycle runs through durable.run_step."""
+    os.environ.setdefault("UNBUG_JUDGE", "1")
     p = argument_parser()
     c = Ctx()
     c.args = a = p.parse_args()
-    if any(getattr(a, k) < 1 for k in ('rounds', 'runs', 'scenario_runs', 'pilot_tries', 'pilot_runs', 'max_zero_tokens', 'bench_workers')):
-        p.error("rounds, runs, tries and zero-token limit must be positive")
-    if a.max_repairs < 0:
-        p.error("--max-repairs must be nonnegative")
-    if a.bench_workers > 1 and not (BENCH / "bin/factory_pool.py").is_file():
-        # A server from an image older than the parallel bench (resume in place on it): run serially.
-        a.bench_workers, a.concurrent_roles = 1, False
-    if not all(0 < v < float('inf') for v in (a.no_progress_minutes, a.agent_timeout, a.case_budget)):
+    modes = (a.audit_g11, a.continue_g11_review, a.audit_fairness, a.rehearse_only)
+    if a.dry_run:
+        p.error("practice fixtures run through the durable Engine")
+    if sum(modes) != 1 or not a.resume:
+        p.error("choose one restored-case audit mode; case execution requires the durable Engine")
+    if not re.fullmatch(r"case-[A-Za-z0-9-]+", a.resume) or not a.resume_bench_sha:
+        p.error("audit requires a case directory name and trusted --resume-bench-sha")
+    if bench_manifest() != a.resume_bench_sha:
+        p.error("bench differs from trusted clean template; no model started")
+    if any(getattr(a, key) < 1 for key in ('runs', 'scenario_runs', 'pilot_tries', 'pilot_runs',
+                                         'max_zero_tokens', 'bench_workers')):
+        p.error("runs, tries, zero-token limit and bench workers must be positive")
+    if not all(0 < value < float('inf') for value in (a.no_progress_minutes, a.agent_timeout, a.case_budget)):
         p.error("timeouts and --case-budget must be positive and finite")
-    if a.probe:  # no case, no gates: checks a driver's auth and usage events on this VM
-        c.work = pathlib.Path(tempfile.mkdtemp(prefix="factory-probe-")); c.card = {}
-        for d in ("logs", "transcripts"): (c.work / d).mkdir()
-        errors, ledgers = {}, {}
-        for i, m in enumerate(a.probe):  # own ledger per model, so one failure still reports the others
-            c.ledger = c.work / f"probe-{i}-budget.json"
-            try: opencode(c, [m], "Reply with exactly the word READY and nothing else. Do not use tools.", c.work, f"probe-{i}")
-            except Exception as e:  # plus the CLI's last event (provider message); probes carry no case content
-                if str(e) == 'model_call_cap': raise
-                tail = [l for t in sorted((c.work / "transcripts").glob(f"probe-{i}.*")) for l in t.read_text().splitlines()][-1:]
-                errors[m] = f"{type(e).__name__}: {str(e)[:200]} | {''.join(tail)[:600]}"
-            ledgers[m] = jload(c.ledger)
-        out = json.dumps({"kind": "provider-preflight", "scope": "availability_only",
-                          "work": str(c.work), "errors": errors, "ledgers": ledgers}, indent=2)
-        print(out)
-        if SEALED.is_dir():  # under launch.sh: collect.sh copies the scorecard, DONE retires the VM
-            (SEALED / "probe.scorecard.json").write_text(out); (SEALED / "DONE").write_text("probe\n")
-        return
-    if not (a.source or a.dry_run): p.error("--source is required")
-    if a.resume and (not re.fullmatch(r"case-[A-Za-z0-9-]+", a.resume) or not a.resume_bench_sha):
-        p.error("--resume needs a case directory name and trusted --resume-bench-sha")
-    c.t0, c.seed = time.time() - 1, a.seed
-    if a.case_id and (not a.batch_release_sha256 or not re.fullmatch(r'case-[A-Za-z0-9-]+', a.case_id) or
-                      (a.resume and a.resume != a.case_id)):
-        p.error('--case-id requires the matching approved batch job')
-    if a.batch_release_sha256:
-        manifest = HOME / 'batch-release.json'
-        if (not re.fullmatch('[0-9a-f]{64}', a.batch_release_sha256) or manifest.is_symlink() or
-                not manifest.is_file() or hashlib.sha256(manifest.read_bytes()).hexdigest() != a.batch_release_sha256):
-            p.error('batch release differs before case execution')
-        a.max_cost = None  # Job money authority replaces the paid cap; --max-cost is historical.
-        if a.audit_g11 or a.continue_g11_review: p.error('a batch job cannot run a G11 audit')
-    c.case_id = a.resume or a.case_id or "case-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(3)
-    if a.rehearsal_interrupt_g10 and not a.late_gate_rehearsal:
-        p.error("G10 interruption is restricted to late-gate rehearsal")
-    if a.late_gate_rehearsal and (not a.resume or not c.case_id.startswith('case-late-rehearsal-')):
-        p.error("late-gate rehearsal requires an isolated public-practice resume namespace")
-    if a.late_gate_rehearsal:
-        from late_rehearsal import recipient as rehearsal_recipient
-        try: rehearsal_recipient(a.rehearsal_recipient)
-        except ValueError as error: p.error(str(error))
-    elif a.rehearsal_recipient:
-        p.error("rehearsal recipient is restricted to late-gate rehearsal")
+    c.case_id = a.resume
     c.work = HOME / "work" / c.case_id
     c.case = c.work / "case"
-    if a.resume and not a.batch_release_sha256 and not any(v == '--max-total-calls' or v.startswith('--max-total-calls=') for v in sys.argv[1:]):
-        saved = jload(c.work / ('g11-audit/scorecard.json' if a.continue_g11_review else 'scorecard.json'), {})
-        # Omission preserves the issued ceiling; a new default cannot raise a restored case's allowance.
-        a.max_total_calls = (saved.get('recovery_config') or saved.get('limits') or {}).get('max_total_calls', 1000)
-    if a.resume and not a.continue_g11_review and not c.case.is_dir(): p.error("preserved case does not exist")
-    if a.resume and bench_manifest() != a.resume_bench_sha: p.error("bench differs from trusted clean template; no model started")
-    if a.resume:
-        from case_permissions import normalize_case_tree
-        normalize_case_tree(c.work / "g11-audit/case" if a.continue_g11_review else c.case)
-    if a.audit_fairness or a.rehearse_only:
-        if not a.resume or sum((a.audit_fairness, a.rehearse_only, a.audit_g11, a.continue_g11_review)) != 1:
-            p.error("choose one restored-case audit mode")
-        from sealed_audit import prepare
-        prepare(c, sys.modules[__name__])
+    target = c.work / "g11-audit/case" if a.continue_g11_review else c.case
+    if not target.is_dir(): p.error("preserved audit case does not exist")
+    from case_permissions import normalize_case_tree
+    normalize_case_tree(target)
+    c.t0, c.seed, c.stopped = time.time() - 1, a.seed, False
     if a.audit_g11 or a.continue_g11_review:
-        if not a.resume: p.error("--audit-g11 requires --resume")
-        if a.audit_g11 and a.continue_g11_review: p.error("choose a new audit or its continuation")
         from g11_review import review
         review(c, sys.modules[__name__])
         return
-    if a.resume:
-        c.t0 = min(c.work.stat().st_mtime, (c.work / 'logs').stat().st_mtime) - 1
-    for d in ("logs", "transcripts"): (c.work / d).mkdir(parents=True, exist_ok=bool(a.resume))
-    c.ledger = SEALED / f"{c.case_id}.continuation-budget.json"
+    from sealed_audit import prepare, run as audit
+    prepare(c, sys.modules[__name__])
+    for name in ('logs', 'transcripts'): (c.work / name).mkdir(exist_ok=True)
+    c.ledger = c.work / "continuation-budget.json"
+    c.card = {"case": c.case_id, "source": a.source, "seed": c.seed, "dry_run": a.dry_run,
+              "gates": {}, "failed_gate": None, "audit_source": c.audit_source}
+    c.recipient = FOUNDER_RECIPIENT
+    c.card["recovery_config"] = {key: getattr(a, key) for key in ENGINE_SETTINGS}
+    c.prepared_factory_slots = 1
+    c.manifest0 = a.resume_bench_sha
     signal.signal(signal.SIGTERM, pause_on_term)
-    if os.environ.get('FACTORY_RUNNER_READY'):
-        pathlib.Path(os.environ['FACTORY_RUNNER_READY']).touch()
-    c.stopped = False
-    if a.resume: (SEALED / 'DONE').unlink(missing_ok=True)
-    if a.resume and not c.ledger.exists() and (c.work / "continuation-budget.json").exists():
-        SEALED.mkdir(exist_ok=True)
-        shutil.copy(c.work / "continuation-budget.json", c.ledger)
-    # Only the scorecard may reach stdout: fds 1 and 2 (and every child process) go to the sealed log.
-    real_stdout = os.fdopen(os.dup(1), "w")
-    stdio = os.open(c.work / "logs/stdio.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    os.dup2(stdio, 1); os.dup2(stdio, 2)
-    c.card = {"case": c.case_id, "dry_run": a.dry_run, "source": "fixture (dry-run)" if a.dry_run else a.source, "seed": a.seed, "gates": {}, "failed_gate": None,
-              "rotation_slot": getattr(a, "rotation_slot", None)}
-    c.card["recovery_config"] = {"version": 1, **{key: getattr(a, key) for key in (
-        "rounds", "case_budget", "runs", "scenario_runs", "pilot_tries", "pilot_runs", "calibrator_minutes",
-        "max_role_calls", "max_total_calls", "max_cost", "no_progress_minutes",
-        "max_zero_tokens", "agent_timeout", "max_repairs")}}
-    if os.environ.get('FACTORY_ACCOUNT_STATE'):
-        accounts = json.loads(os.environ['FACTORY_ACCOUNT_STATE'])
-        c.card['provider_accounts'] = accounts['accounts']
-        c.card['account_handoffs'] = accounts['history']
-    prev_card = jload(c.work / "scorecard.json", {}) if a.resume else {}
-    if a.batch_release_sha256:
-        c.card['batch_release_sha256'] = a.batch_release_sha256
-    if a.resume and not a.batch_release_sha256:
-        from founder_ruling import context as ruling_context
-        ruling_context(c)
-    inherit_recovery_history(c, prev_card)
-    if prev_card.get("audit_source") and not hasattr(c, "audit_source"):
-        # Ordinary recovery may revalidate more gates, but must retain lineage and
-        # must never publish the audit copy as a new independently chosen bug.
-        c.audit_source = prev_card["audit_source"]
-    if hasattr(c, "audit_source"):
-        c.card["audit_source"] = c.audit_source
-    prepared = prev_card.get('factory_slots_prepared', 1)
-    c.prepared_factory_slots = prepared if type(prepared) is int and prepared >= 1 else 1
-    c.card['factory_slots_prepared'] = c.prepared_factory_slots
-    # Every gate reenters; only verified receipts authorize reuse of earlier work.
-    if a.resume: c.card['resume'] = {"fresh_gates": True, "legacy_transcripts_preserved": True, "legacy_cost_excluded_from_continuation_ceiling": True}
-    c.recipient = a.rehearsal_recipient if a.late_gate_rehearsal else FOUNDER_RECIPIENT
-    extension_id = None
     try:
-        from founder_decisions import record as record_founder_decisions
-        record_founder_decisions(c)
-        if a.resume:
-            from late_recovery import authenticate_gates
-            authenticate_gates(c, prev_card)
-        if a.batch_release_sha256 or a.factory_job_config or a.factory_job_config_sha256:
-            from job_config import install
-            c.checkpoint_card = prev_card
-            install(c, a)
-            c.card.get('recovery_config', {}).pop('max_total_calls', None)
-        if a.resume:
-            if model_runtime.factory_job(c):
-                from diagnosis_dispatch import carry_context
-                carry_context(c)
-            archive_pilot_state(c)
-            if model_runtime.factory_job(c):
-                from diagnosis_dispatch import dispatch
-                routed = dispatch(c, sys.modules[__name__], comparison_route=True)
-                if type(routed) is int:
-                    extension_id = routed
-                    if (any(getattr(a, name, False) for name in ('dry_run', 'rehearse_only', 'audit_fairness',
-                            'late_gate_rehearsal', 'statement_only', 'skip_build')) or
-                            hasattr(c, 'audit_source') or c.card.get('salvaged_from') or prev_card.get('salvaged_from')):
-                        raise BudgetError('extension_execution_mode_invalid')
-        if a.resume and not model_runtime.factory_job(c):
-            from restart import raised_limits
-            explicit = lambda name: any(v == name or v.startswith(name + '=') for v in sys.argv[1:])
-            c.limits_raised = raised_limits({**prev_card, 'continuation_budget': jload(c.ledger)}, a.case_budget, a.rounds,
-                explicit_budget=explicit('--case-budget'), explicit_rounds=explicit('--rounds'))
-            c.card.update(c.limits_raised)
-            restore_gate_crash(c, prev_card)
-        if hasattr(c, "audit_source"):
-            from sealed_audit import recover
-            recover(c, sys.modules[__name__])
-        if not shutil.which("age"):
-            sh(c, ["sudo", "apt-get", "update", "-qq"]); sh(c, ["sudo", "apt-get", "install", "-y", "-qq", "age"])
-        if a.dry_run:  # never the founder key in a dry run
-            SEALED.mkdir(exist_ok=True)
-            c.keyfile = SEALED / f"{c.case_id}.throwaway-key.txt"
-            if not (a.resume and c.keyfile.is_file()):
-                sh(c, ["age-keygen", "-o", c.keyfile], check=True)
-            c.recipient = sh(c, ["age-keygen", "-y", c.keyfile], capture=True, check=True).stdout.strip()
-        sh(c, ["find", BENCH, "-name", "._*", "-delete"])  # macOS AppleDouble junk in the snapshot breaks bin/checkpoint
-        import factory_pool
-        factory_pool.prepare(1, fresh=True,
-                             execute=lambda cmd, **kw: sh(c, cmd, **{**kw, 'check': True}))
-        c.manifest0 = bench_manifest()
-        if a.dry_run:
-            if not (a.resume and (c.case / "case.json").exists()): build_fixture(c)  # a resumed dry run keeps its fixture
-        elif not a.rehearse_only:
-            c.models = c.card["models"] = pick_models(c)
+        if not a.rehearse_only:
+            c.models = c.card['models'] = pick_models(c)
             from worker_release import verify_selected_drivers
-            c.card["driver_qualification"] = verify_selected_drivers(
-                c.models, lambda driver: pinned_cli(driver) if driver in ("codex", "claude") else OPENCODE_BIN)
-            c.case.mkdir(exist_ok=bool(a.resume))
-            if not (a.resume or a.audit_fairness or a.statement_only): provider_preflight(c)
-            if a.statement_only:  # statements round: pick the bug, write statement.md, pause (the VM parks)
-                statement_precheck(c); raise BudgetError("statement-ready")
-            if extension_id is not None:
-                if extension_id == 0:
-                    from diagnosis_dispatch import admit_extension
-                    extension_id = admit_extension(c, sys.modules[__name__], prev_card)
-                import extension_package
-                extension_package.run(c, sys.modules[__name__], prev_card, extension_id)
-            elif not a.audit_fairness and not a.late_gate_rehearsal and not c.card.get("salvaged_from"):
-                build(c)
-        if a.late_gate_rehearsal:
-            from late_rehearsal import run as rehearse
-            rehearse(c, sys.modules[__name__])
-        elif a.audit_fairness or a.rehearse_only:
-            from sealed_audit import run as audit
-            audit(c, sys.modules[__name__])
-        elif extension_id is None:
-            validate_and_repair(c)
-    except (BudgetError, PauseRequested) as error:
+            c.card['driver_qualification'] = verify_selected_drivers(
+                c.models, lambda driver: pinned_cli(driver) if driver in ('codex', 'claude') else OPENCODE_BIN)
+        with (c.work / "logs/stdio.log").open("a") as output:
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+                audit(c, sys.modules[__name__])
+    except (Exception, PauseRequested) as error:
         c.stopped = True
-        from diagnosis import FactoryBugHeldWait
-        if isinstance(error, FactoryBugHeldWait):
-            c.card.update(status='stopped', terminal_stop='factory_bug_held', factory_bug_wait_reason=error.reason)
-        elif str(error) == 'provider_wait' or (str(error) == 'cancelled' and getattr(c, 'router_waits', [])):
-            write_provider_wait(c, error)
-        else:
-            c.card['terminal_stop'] = 'paused' if isinstance(error, PauseRequested) else str(error)
-            # The producer still filters non-exhaustion BudgetError stop labels.
-            c.exhaustion_occurred = getattr(c, 'exhaustion_occurred', False) or isinstance(error, BudgetError)
-        if isinstance(error, PauseRequested): c.card.update(pause_terminal(error, c.case_id))
-        if str(error) == 'budget_exhausted' and (c.work / 'attack-state.json').exists() and c.card.get('stress_review', {}).get('status') != 'completed':
-            c.card['stress_review'] = {'status': 'unresolved', 'reason': 'budget_exhausted'}
-        log(c, 'STOPPED', c.card['terminal_stop'])
-    except Exception as error:
+        c.card.update(status='stopped', terminal_stop='paused' if isinstance(error, PauseRequested)
+                      else interruption_label(error))
         log(c, traceback.format_exc())
-        c.card["error"] = type(error).__name__
-        c.card['error_evidence'] = 'logs/runner.log'
-        c.stopped = True
-        from run_validity import InfrastructureExhausted
-        c.card['terminal_stop'] = ('infrastructure_exhausted' if isinstance(error, InfrastructureExhausted)
-                                   else 'runner_error:' + type(error).__name__)
-        c.exhaustion_occurred = getattr(c, 'exhaustion_occurred', False) or isinstance(error, InfrastructureExhausted)
     finally:
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)  # finishing up: a late pause request must not break the seal
-        c.card["wall_minutes"] = round((time.time() - c.t0) / 60, 1)
-        finalize_accounting(c)
-        if not c.stopped:
-            try:
-                seal(c)
-                c.card["gates"]["G12"] = "pass"
-            except Exception as error:
-                c.card["gates"]["G12"] = "fail"
-                c.card["error"] = f"seal: {type(error).__name__}"
-                c.stopped = True
-                c.card['terminal_stop'] = 'seal_error:' + type(error).__name__
-        if c.stopped:
-            c.card['status'] = 'stopped'
-            c.card['resume'] = {"case": c.case_id, "bench_sha": getattr(c, 'manifest0', a.resume_bench_sha),
-                                "work": str(c.work), "usage_preserved": True}
-            try: seal(c, checkpoint=True)
-            except Exception as error: c.card['checkpoint_error'] = type(error).__name__
-            # Preserve plaintext if checkpointing failed; DONE still lets the host retire the VM.
-        elif os.environ.get("FACTORY_DEFER_WIPE") and c.card.get("failed_gate"):
-            # A failed gate's work stays on the VM so factory/resume-in-place.sh can continue it; the sealed archive
-            # is already written, and deleting the VM (park expiry / sweeper) erases the plaintext.
-            c.card["wipe"] = "deferred: VM parked for an in-place resume"
-        else:
-            try: wipe(c)
-            except Exception as error: c.card["wipe"] = {"error": type(error).__name__}
-        SEALED.mkdir(exist_ok=True)
-        try:
-            from registry import atomic_json
-            atomic_json(SEALED / f"{c.case_id}.scorecard.json", c.card)
-            text = scorecard_text(c.card)
-            (SEALED / f"{c.case_id}.scorecard.txt").write_text(text + "\n")
-            print(text, file=real_stdout, flush=True)
-        finally:
-            (SEALED / "DONE").write_text(c.case_id + "\n")
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        c.card['continuation_budget'] = jload(c.ledger)
+        c.card['wall_minutes'] = round((time.time() - c.t0) / 60, 1)
+        seal(c, checkpoint=c.stopped)
+        from registry import atomic_json
+        atomic_json(SEALED / (c.case_id + '.scorecard.json'), c.card)
+        print(scorecard_text(c.card))
 
 
 if __name__ == "__main__":

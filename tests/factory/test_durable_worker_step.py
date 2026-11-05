@@ -744,13 +744,11 @@ class HookTests(unittest.TestCase):
     def test_validate_and_repair_runs_one_gate_pass(self):
         c, _ = self.context(StepKind.GATES)
         def gates(c): c.card.update(failed_gate="G5", failed_detail={"problems": ["x"]})
-        with patch.object(run, "run_gates", side_effect=gates) as runner, \
-                patch.object(run, "write_and_attack") as writer, \
-                patch("late_recovery.mark_gates", side_effect=AssertionError("mark_gates")), \
-                patch("late_recovery.stop_defect", side_effect=AssertionError("stop_defect")):
+        with patch.object(run, "run_gates", side_effect=gates) as runner:
             c.args.dry_run = False
             run.validate_and_repair(c)
-        runner.assert_called_once(); writer.assert_not_called()
+        runner.assert_called_once()
+        self.assertFalse(hasattr(run, "write_and_attack"))
 
     def test_engine_gates_failure_shapes(self):
         c, _ = self.context(StepKind.GATES)
@@ -778,26 +776,36 @@ class HookTests(unittest.TestCase):
         c.recipient = run.FOUNDER_RECIPIENT; c.args.dry_run = False; c.args.no_early_probe = True
         completed = []
         c.engine_checkpoint = lambda: completed.append(True)
-        with patch("durable_checkpoint.checkpoint_progress", side_effect=AssertionError("checkpoint")):
-            run._gate_completed(c, "G4", True, True)
-            self.assertEqual(completed, [True])
-            self.assertFalse(run.parallel_calibrators(c))
-            with patch.object(run.model_runtime.ModelRuntime, "call", return_value=0):
-                run._opencode(c, ["x/y"], "text", c.case, "reviewer-1")
-        with patch.object(run, "opencode", side_effect=AssertionError("selection call")):
-            with self.assertRaisesRegex(budget.BudgetError, "engine_reselection_disabled"):
-                run.reselect_candidate(c, {})
+        run._gate_completed(c, "G4", True, True)
+        self.assertEqual(completed, [True])
+        self.assertFalse(run.parallel_calibrators(c))
+        with patch.object(run.model_runtime.ModelRuntime, "call", return_value=0):
+            run._opencode(c, ["x/y"], "text", c.case, "reviewer-1")
+        self.assertFalse(hasattr(run, "reselect_candidate"))
 
-    def test_write_and_attack_has_no_final_repair_or_round_reservation(self):
-        # $52.79 spent and a $5 grant: today's $8 round reservation would refuse the writer.
-        c, _ = self.context(ledger=E15450["continuation_budget"], card=practice_card(CASE, recovery_config={"rounds": 1}))
+    def test_engine_writer_has_no_case_round_reservation_or_final_repair(self):
+        c, _ = self.context(ledger=E15450["continuation_budget"],
+                            card=practice_card(CASE, recovery_config={"rounds": 1}))
+        c.args.dry_run = False
         self.assertGreater(model_runtime.writer_round_estimate(c), c.engine.ceiling_usd)
-        record = self.root / "calls.jsonl"
-        with patch.object(run, "opencode", stub_model({"attacker": {"blocking": ["still broken"]}}, record)):
-            with self.assertRaisesRegex(budget.BudgetError, "stress_review_unresolved:rounds_exhausted"):
-                run.write_and_attack(c, {})
-        names = [json.loads(l)["name"] for l in record.read_text().splitlines()]
+        names = []
+        def model(c, models, text, cwd, name):
+            model_runtime.case_budget_boundary(c, models[0])
+            names.append(name)
+            if name.startswith("attacker"):
+                (c.work / "attacks/round-1.json").write_text(json.dumps(
+                    {"complete": True, "blocking": ["still broken"], "unfinished_validation": []}))
+            return 0
+        with patch.object(run, "opencode", model), patch.object(run, "engine_prepare_bench"), \
+                patch.object(run, "g1", return_value=(True, {"problems": []})), \
+                patch.object(run, "early_checks", return_value=None), patch.object(run, "ensure_freshness"), \
+                patch.object(run, "loop_freshness", side_effect=lambda c, result, report: (result, report)):
+            self.assertEqual(run.engine_writer_round(c, 1, None)["outcome"], Outcome.OK)
+            result = run.engine_stress_round(c, 1)
         self.assertEqual(names, ["builder-1", "attacker-1"])
+        self.assertEqual(result["reason"], "stress:findings")
+        self.assertIn("still broken", json.loads(result["feedback"])["problems"])
+        self.assertFalse(hasattr(run, "write_and_attack"))
 
     def test_retained_subset(self):
         legacy = ("agent-state/x", "durable-checkpoint.json", "stress-publication.json", "job-money.json",

@@ -47,7 +47,7 @@ with tempfile.TemporaryDirectory() as tmp:
     argv = ["run.py", "--source", "port", "--resume", "case-synthetic", "--resume-bench-sha", "0" * 64, "--audit-g11"]
     with mock.patch.object(sys, "argv", argv), mock.patch.object(run, "HOME", root), \
          mock.patch.object(run, "bench_manifest", return_value="0" * 64), \
-         mock.patch.object(g11_review, "review") as audit, mock.patch.object(run, "build") as build, \
+         mock.patch.object(g11_review, "review") as audit, mock.patch.object(run, "engine_writer_round") as build, \
          mock.patch.object(run, "sh") as command:
         run.main()
         audit.assert_called_once(); build.assert_not_called(); command.assert_not_called()
@@ -184,6 +184,6 @@ with tempfile.TemporaryDirectory() as tmp:
     argv = ["run.py", "--source", "port", "--resume", "case-synthetic", "--resume-bench-sha", "0" * 64, "--continue-g11-review"]
     with mock.patch.object(sys, "argv", argv), mock.patch.object(run, "HOME", root), \
          mock.patch.object(run, "bench_manifest", return_value="0" * 64), \
-         mock.patch.object(g11_review, "review") as audit, mock.patch.object(run, "build") as build, mock.patch.object(run, "sh") as command:
+         mock.patch.object(g11_review, "review") as audit, mock.patch.object(run, "engine_writer_round") as build, mock.patch.object(run, "sh") as command:
         run.main(); audit.assert_called_once(); build.assert_not_called(); command.assert_not_called()
 print("PASS standalone continuation bypasses builders, original-case requirement and gates")
