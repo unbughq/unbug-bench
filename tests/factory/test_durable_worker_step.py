@@ -645,6 +645,17 @@ class HookTests(unittest.TestCase):
         self.assertEqual(c.job_id, CASE)
         self.assertTrue(model_router._deadlines(c, None)[0])
 
+    def test_durable_context_inherits_the_administrator_judge_without_main(self):
+        import factory_pool
+        probe = ('import sys; sys.path.insert(0, ' + repr(str(REPO / 'bin')) +
+                 '); import bench; print(bench.CHECKER_ROLE)')
+        with patch.dict(os.environ), patch.object(run, 'main', side_effect=AssertionError('standalone entry')):
+            os.environ.pop('UNBUG_JUDGE', None)
+            c, _ = self.context(StepKind.GATES)
+            for env in (None, factory_pool.worker_env(0)):
+                result = run.sh(c, [sys.executable, '-B', '-c', probe], capture=True, check=True, env=env)
+                self.assertEqual(result.stdout.strip(), 'medusa')
+
     def test_provider_limit_reset_and_credential_fault_are_distinct(self):
         c, si = self.context()
         for reason, expected in (("quota", "provider_wait"), ("credential_expiring", "credential_expiring")):

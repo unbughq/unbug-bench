@@ -2353,6 +2353,7 @@ def invoke_diagnosis(c, *, model, prompt, inputs, output):
 
 def context_for_step(step_input, work):
     """Run context for one engine step, from a work tree the worker has just restored."""
+    os.environ.setdefault("UNBUG_JUDGE", "1")  # Factory gates retain truth when contestant monitors are blinded.
     from budget import case_spending, resume_ledger, reconcile_reservations
     from case_permissions import normalize_case_tree
     work = pathlib.Path(work)

@@ -58,7 +58,7 @@ class ModelRuntimeTests(unittest.TestCase):
             home = c.work / "codex-home"; home.mkdir()  # the boat VM's config shape
             (home / "config.toml").write_text('model_provider = "boat-openai"\n[mcp_servers.computer]\ncommand = "x"\n'
                                               '[model_providers.boat-openai]\nbase_url = "https://relay/v1"\n')
-            fake_env = {"FACTORY_ROUTER_TOKEN":"public-router-sentinel", "FACTORY_ROUTER_URL":"https://router.invalid", "FACTORY_ROUTER_CA_FILE":"/public/ca", "OPENAI_API_KEY": "x", "ANTHROPIC_API_KEY": "x", "CODEX_HOME": str(home), "PATH": os.environ["PATH"]}
+            fake_env = {"FACTORY_ROUTER_TOKEN":"public-router-sentinel", "FACTORY_ROUTER_URL":"https://router.invalid", "FACTORY_ROUTER_CA_FILE":"/public/ca", "OPENAI_API_KEY": "x", "ANTHROPIC_API_KEY": "x", "CODEX_HOME": str(home), "PATH": os.environ["PATH"], "UNBUG_JUDGE": "1"}
             def budgeted(cmd, cwd, env, *a, **k):
                 self.assertFalse(any(k.startswith("FACTORY_ROUTER_") for k in env))
                 self.assertNotIn("public-case-router-sentinel", str(env))
@@ -71,6 +71,7 @@ class ModelRuntimeTests(unittest.TestCase):
                 runtime.call(c, ["claude/claude-opus-5-5"], "hi", c.work, "reviewer-1")
             (codex, cenv, d1, config), (claude, aenv, d2, _), (claude_reviewer, *_) = seen
             assert (d1, d2) == ("codex", "claude")
+            assert cenv['UNBUG_JUDGE'] == aenv['UNBUG_JUDGE'] == '1'
             assert "mcp_servers" not in config and 'model_provider = "boat-openai"' in config and "https://relay/v1" in config
             assert codex[:2] == ["codex", "exec"] and 'web_search="disabled"' in codex and 'model_reasoning_effort="high"' in codex
             assert codex[codex.index("-m") + 1] == "gpt-6.1-sol" and "--ephemeral" in codex and "OPENAI_API_KEY" not in cenv
@@ -84,9 +85,11 @@ class ModelRuntimeTests(unittest.TestCase):
             runtime = model_runtime.ModelRuntime(root, fake_sh, mock.Mock(),
                 lambda path, sudo=False: shutil.rmtree(path), lambda user: tester_home)
             with mock.patch.object(model_runtime, 'pinned_cli', lambda kind: kind), \
+                 mock.patch.dict(os.environ, {'UNBUG_JUDGE': '1'}), \
                  mock.patch.object(model_runtime, 'run_budgeted', budgeted):
                 runtime.call(c, ["claude/claude-opus-5-5"], "hi", c.work, "strong-calibrator-1", user="pilot")
             assert seen[-1][0][0] == 'sudo'
+            assert 'UNBUG_JUDGE' not in seen[-1][1], 'isolated calibrators keep the contestant view'
             assert {'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_BASE_URL',
                     'CLAUDE_CODE_MAX_OUTPUT_TOKENS', 'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS'} <= set(seen[-1][0][1].split('=', 1)[1].split(','))
             assert '-u' in seen[-1][0] and 'pilot' in seen[-1][0], 'Claude tester uses the isolated Unix user'
