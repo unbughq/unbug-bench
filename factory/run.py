@@ -36,6 +36,8 @@ GATES = ["G1", "G2", "G3", "G4", "G5", "G16", "G8", "G9", "G6", "G13", "G14", "G
 EARLY_GATES = ["G3", "G4", "G5"]  # also run right after the writer, before the stress tester (results reused if unchanged)
 DRY_SKIP = {"G2": "model gate", "G8": "model gate", "G9": "model gate", "G10": "model gate", "G15": "v1 fixture has no v2 baseline or pending ingredients"}
 DRY_SKIP.update({"G16": "independent model fix", "G17": "model diagnosis"})
+# Later gate failures the writer may repair (validate_and_repair; a repairable GATE_FAILED under the engine).
+REPAIRABLE_GATES = frozenset({"G4", "G5", "G6", "G8", "G9", "G11", "G13", "G14", "G15", "G16", "G17"})
 # Model state that holds transcripts: archived into the seal, then shredded.
 AGENT_STATE = [".local/share/opencode/storage", ".local/share/opencode/log", ".local/share/opencode/snapshot",
                ".local/share/opencode/project", ".local/state/opencode", ".local/share/factory-opencode"]
@@ -243,6 +245,9 @@ def stress_categories(c, number, report, receipt, completed):
 
 def opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None, on_complete=None):
     install_publication_barrier(c)
+    if under_engine(c):
+        # Under the engine a call's time comes only from StepInput.deadline_s, never a batch deadline.
+        timeout, deadline = engine_call_window(c, timeout, deadline)
     with model_runtime.dispatch(c, name):
         if model_runtime.factory_job(c): resume_provider_wait(c)
         return _opencode(c, models, text, cwd, name, user=user, timeout=timeout, deadline=deadline,
@@ -265,7 +270,7 @@ def _opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None
             c.router_waits.append({'role': error.role, **model_runtime.asdict(error.wait)})
         raise
     if on_complete is not None: on_complete()
-    if (not user and hasattr(c, "recipient") and not c.args.dry_run
+    if (not user and hasattr(c, "recipient") and not c.args.dry_run and not under_engine(c)
             and not hasattr(c, "calibrator_slot_offset") and not getattr(c, "stress_category_call", False)):
         # A completed serial author/reviewer call is a safe snapshot boundary.
         # Concurrent calibration is checkpointed only after the gate executor joins.
@@ -928,7 +933,7 @@ def _gate_completed(c, gate, ok, quiescent):
     if gate == "G5" and ok and not c.args.dry_run and not getattr(c.args, "no_early_probe", False):
         early_probe(c)
     update_case_budget(c)
-    if hasattr(c, "ledger") and hasattr(c, "recipient") and not c.args.dry_run:
+    if hasattr(c, "ledger") and hasattr(c, "recipient") and not c.args.dry_run and not under_engine(c):
         from durable_checkpoint import checkpoint_progress
         checkpoint_progress(c, seal, quiescent=quiescent)
 
@@ -1513,8 +1518,10 @@ def write_and_attack(c, prev, *, extension_id=None, writer_g1=None, writer_early
     last_round = start_round - 1
     for n in range(start_round, round_limit + 1):
         _, summary = update_case_budget(c)
-        estimate = None if modern else writer_round_estimate(c)
-        if not modern and not (n == start_round and skip_writer) and (summary['spent_usd'] is None or summary['limit_usd'] - summary['spent_usd'] < estimate):
+        # Under the engine the attempt's money ceiling is the only money stop: no round reservation.
+        engine = under_engine(c)
+        estimate = None if modern or engine else writer_round_estimate(c)
+        if not modern and not engine and not (n == start_round and skip_writer) and (summary['spent_usd'] is None or summary['limit_usd'] - summary['spent_usd'] < estimate):
             c.card['case_budget']['next_round_estimate_usd'] = estimate
             stop_reason = 'budget_exhausted'
             break
@@ -1672,6 +1679,9 @@ def write_and_attack(c, prev, *, extension_id=None, writer_g1=None, writer_early
             atomic_json(receipt_path, receipt)
         if stop_reason == 'budget_exhausted': raise BudgetError('budget_exhausted')
         attack_unresolved(c, 'rounds_exhausted')
+    if under_engine(c):
+        # No round reservation, final builder-precheck call or stop_defect: the engine decides what follows.
+        attack_unresolved(c, stop_reason)
     # The last stress round can return findings without entering another loop
     # iteration. Apply the same writer reservation to its final repair too.
     _, summary = update_case_budget(c)
@@ -1709,6 +1719,7 @@ def write_and_attack(c, prev, *, extension_id=None, writer_g1=None, writer_early
 
 def reselect_candidate(c, prev):
     """Publish the next bounded candidate; only a new shared reservation permits construction."""
+    if under_engine(c): raise BudgetError("engine_reselection_disabled")  # reselection is ADMIT's (WP11)
     from admission import MAX_CANDIDATES
     rejected = c.card.setdefault("rejected_candidates", list(prev.get("rejected_candidates", [])))
     digest = c.card.get("statement_sha256")
@@ -3101,7 +3112,11 @@ def run_gates(c, *, replay_gate=None, around_gate=None, serial=False, replay_onl
 
 def validate_and_repair(c):
     """Repair case defects on this worker; infrastructure and budget errors propagate."""
-    repairable = {"G4", "G5", "G6", "G8", "G9", "G11", "G13", "G14", "G15", "G16", "G17"}
+    if under_engine(c):
+        # One gate pass: no repair loop, late_recovery marks or stop_defect. The engine REPAIRs.
+        run_gates(c)
+        return
+    repairable = REPAIRABLE_GATES
     modern = model_runtime.factory_job(c)
     limit = None if modern else getattr(c.args, "max_repairs", 2)
     attempt = 0
@@ -3198,6 +3213,347 @@ def finalize_accounting(c):
         try: diagnosis.record_exhaustion(c.card, new_exhaustion=getattr(c, 'exhaustion_occurred', False))
         except BudgetError:
             c.card.setdefault('cleanup_errors', []).append({'stage': 'diagnosis_state', 'error': 'BudgetError'})
+
+
+# ---------------------------------------------------------------- durable engine steps (WP5a)
+# docs/designs/durable-execution-wp5a.md. Only context_for_step sets c.engine; main() never
+# does, so every branch below and every under_engine() switch is inert without the engine.
+
+# Cumulative opencode-only cap under the engine: off. Constant, because gate fingerprints and
+# the stress binding hash c.args.max_cost; the attempt's money ceiling is the only money stop.
+ENGINE_COST_CAP = 1e9
+# Runner settings a case keeps across steps, from the private card's recovery_config.
+ENGINE_SETTINGS = ("rounds", "runs", "scenario_runs", "pilot_tries", "pilot_runs", "calibrator_minutes",
+                   "max_role_calls", "max_total_calls", "no_progress_minutes", "max_zero_tokens",
+                   "agent_timeout", "max_repairs", "bench_workers", "concurrent_roles", "no_early_probe")
+# The CASE_SNAPSHOT subset of c.work, exactly (top-level names and globs).
+SNAPSHOT_RETAINED = (
+    "case", "scorecard.json", "continuation-budget.json", "usage-receipts",
+    "gate-cache", "gate-details", "judge_breadth", "review-*", "bench-results", "fairness-*", "g11-evidence",
+    "g2-url-retrieval", "strategy-g14-checkpoints", "delivery-provenance.json",
+    "strong_calibrator", "easy_calibrator", "early_probe",
+    "attack-state.json", "attacks", "diagnostic-budgets", "infra-attempts.json", "selection-rejections.json", "fixes",
+    "prototype.json", "public-search.json", "freshness-verdict.json", "freshness-repair.json",
+    "freshness-inflight.json", "freshness-restored.jsonl", "idea-realism.json", "statements",
+    "logs", "transcripts", "engine-feedback.json", "engine-ruling.json")
+# Named so a reader can see what a snapshot leaves out; anything else is dropped too.
+SNAPSHOT_DROPPED = (
+    "agent-state", "durable-checkpoint.json", "stress-publication.json", "provider_wait.json", "provider_waits",
+    "operational-effects.json", "job-money*.json", "gate-continuation.json", "late-defect.json",
+    "founder-ruling-applied.json", "extension-*", "rehearsal-*", "rejected-candidate-*", "continuation-budget.json.*")
+FEEDBACK_VERSION = 1
+
+
+class EngineStep:
+    """The engine attempt this context runs. Holds no key and no case content."""
+    def __init__(self, step_input, baseline_spent_usd):
+        self.kind, self.round = step_input.step.kind.value, step_input.step.round
+        self.key = step_input.idempotency_key
+        self.ceiling_usd = step_input.money_ceiling_usd_micros / 1_000_000
+        self.baseline_spent_usd = baseline_spent_usd
+        # The attempt's own deadline (the supervisor kills the attempt at the same instant).
+        self.deadline_monotonic = time.monotonic() + step_input.deadline_s
+        self.deadline_epoch = time.time() + step_input.deadline_s
+
+
+def under_engine(c):
+    return getattr(c, "engine", None) is not None
+
+
+def engine_call_window(c, timeout, deadline):
+    """(timeout, monotonic deadline) of one model call: the time left in the attempt. A caller's own
+    shorter role cap (a calibrator try, the stress exploration cap) still applies inside it."""
+    remaining = c.engine.deadline_monotonic - time.monotonic()
+    if remaining <= 0: raise BudgetError("timeout")
+    return (remaining if timeout is None else min(timeout, remaining),
+            c.engine.deadline_monotonic if deadline is None else min(deadline, c.engine.deadline_monotonic))
+
+
+# Stops that only the legacy job-money and batch-deadline plumbing raises. Under the engine none
+# may stop a running case or count as money: a batch deadline only stops new cases (BatchSpec).
+ENGINE_PLUMBING_STOPS = {"retired_batch_bound": "infra:batch_deadline", "router_batch_unconfigured": "infra:router_unconfigured"}
+
+
+def engine_stop(c, stop):
+    """A stop as the engine may see it: money_wait only when this attempt's spend plus its open
+    reservations exceeds its grant; legacy JobAuthority/job_config faults are INFRA_ERROR."""
+    from durable.contract import Outcome
+    head = stop.split(":", 1)[0].strip()
+    for wrapper in ("Budget stopped", "Budget ledger stopped"):
+        if head == wrapper: head = stop.split(":", 1)[1].strip().split(":", 1)[0]
+    if head in ENGINE_PLUMBING_STOPS:
+        return {"outcome": Outcome.INFRA_ERROR, "reason": ENGINE_PLUMBING_STOPS[head]}
+    if head == "provider_wait_deadline":
+        return {"outcome": Outcome.INFRA_ERROR, "reason": "infra:deadline"}  # the router's end is the attempt's deadline
+    if head == "money_wait":
+        from budget import case_spending, outstanding_reservations
+        ledger = jload(c.ledger, {})
+        total = case_spending(ledger).get("spent_usd")  # the valuation the ceiling is enforced on
+        try: pending = float(outstanding_reservations(ledger))
+        except (BudgetError, TypeError, ValueError): pending = 0.0
+        baseline = c.engine.baseline_spent_usd
+        if total is None or baseline is None or total - baseline + pending <= c.engine.ceiling_usd:
+            return {"outcome": Outcome.INFRA_ERROR, "reason": "infra:money_authority"}
+    return None
+
+
+def context_for_step(step_input, work):
+    """Run context for one engine step, from a work tree the worker has just restored."""
+    from budget import case_spending, resume_ledger
+    from case_permissions import normalize_case_tree
+    work = pathlib.Path(work)
+    c = Ctx()
+    c.case_id, c.work, c.case = step_input.case_id, work, work / "case"
+    for d in ("logs", "transcripts"): (work / d).mkdir(parents=True, exist_ok=True)
+    card = jload(work / "scorecard.json", None)
+    if not isinstance(card, dict) or card.get("case") != c.case_id or type(card.get("seed")) is not int:
+        raise ValueError("snapshot card does not belong to this case")
+    c.card = card
+    a = argument_parser().parse_args(["--source", "port"])
+    config = card.get("recovery_config") or {}
+    for key in ENGINE_SETTINGS:
+        if key in config: setattr(a, key, config[key])
+    a.dry_run = bool(card.get("dry_run"))
+    a.source = None if a.dry_run else card.get("source")
+    a.seed, a.rotation_slot, a.case_id = card["seed"], card.get("rotation_slot"), c.case_id
+    a.resume = a.batch_release_sha256 = a.factory_job_config = a.factory_job_config_sha256 = None
+    a.max_cost = ENGINE_COST_CAP
+    c.args, c.seed, c.t0 = a, card["seed"], time.time() - 1
+    if model_runtime.factory_job(c) or hasattr(c, "authenticated_job_config"):
+        raise ValueError("the engine never runs a legacy factory job")  # no JobAuthority, job_config or batch deadline
+    # The ledger lives in the snapshot. A previous attempt's stop is archived, not sticky.
+    c.ledger = work / "continuation-budget.json"
+    resume_ledger(c.ledger)
+    spent = case_spending(jload(c.ledger, {}), card.get("models_used"))["spent_usd"]
+    c.engine = EngineStep(step_input, spent)
+    # The router's admission end is the attempt's deadline, not FACTORY_BATCH_DEADLINE.
+    c.batch_id, c.batch_deadline = step_input.batch_id, c.engine.deadline_epoch
+    # The attempt's own spend against its ceiling: cumulative spend against baseline + ceiling.
+    # Unpriced spend (None) keeps today's refusal of the next call.
+    a.case_budget = (spent or 0.0) + c.engine.ceiling_usd
+    c.stopped = False
+    if card.get("models"): c.models = card["models"]
+    prepared = card.get("factory_slots_prepared", 1)
+    c.prepared_factory_slots = prepared if type(prepared) is int and prepared >= 1 else 1
+    c.manifest0 = bench_manifest()
+    statement = c.case / "statement.md"
+    if statement.is_file(): c.statement = statement.read_text()
+    if c.case.is_dir(): normalize_case_tree(c.case)
+    c.stress_checkpoint = lambda: True  # in-step checkpoints are WP5f's
+    card["engine"] = {"step": step_input.step.name, "seq": step_input.seq, "attempt": step_input.attempt}
+    return c
+
+
+def engine_prepare_bench(c):
+    """The worker's shop for a writer or stress step, as main() prepares it at startup. Needs Docker."""
+    sh(c, ["find", BENCH, "-name", "._*", "-delete"])
+    import factory_pool
+    factory_pool.prepare(1, fresh=True, execute=lambda cmd, **kw: sh(c, cmd, **{**kw, "check": True}))
+
+
+def _feedback_input(c, feedback):
+    """(problems, attack report path) from a WRITER_FEEDBACK plaintext."""
+    if feedback is None: return None, None
+    value = json.loads(feedback)
+    if (not isinstance(value, dict) or value.get("version") != FEEDBACK_VERSION
+            or value.get("source") not in ("stress", "gates", "diagnosis")
+            or not isinstance(value.get("problems"), list) or not all(isinstance(p, str) for p in value["problems"])):
+        raise ValueError("invalid writer feedback")
+    from registry import atomic_json
+    atomic_json(c.work / "engine-feedback.json", value)
+    report = value.get("attack_report")
+    if report is not None:
+        if not isinstance(report, str) or not re.fullmatch(r"round-[0-9]+(?:-writer)?\.json", report):
+            raise ValueError("invalid writer feedback report")
+        report = c.work / "attacks" / report
+        if not report.is_file(): raise ValueError("writer feedback report missing")
+    return value["problems"] or None, report
+
+
+def _feedback(source, problems, report=None):
+    return json.dumps({"version": FEEDBACK_VERSION, "source": source, "problems": list(problems),
+                       "attack_report": report.name if report else None}, sort_keys=True).encode()
+
+
+def engine_writer_round(c, n, feedback):
+    """WRITER round n: today's writer call, G1 and early checks; a G1 or early-check failure goes back
+    to the writer within the round, bounded by the runner's round cap."""
+    from durable.contract import Outcome
+    from registry import atomic_json
+    problems, report = _feedback_input(c, feedback)
+    engine_prepare_bench(c)
+    (c.work / "attacks").mkdir(exist_ok=True)
+    receipt_path = c.work / "attack-state.json"
+    requested = bool(problems or report)
+    for call in range(1, c.args.rounds + 1):
+        before = case_hash(c)
+        atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
+                                   "report": f"round-{n}.json", "repair_pending": True})
+        opencode(c, c.models["builder"], prompt("builder", run_context(c, round=n,
+                 attack_report=str(report) if report else None, precheck_problems=problems)),
+                 c.case, f"builder-{n}" if call == 1 else f"builder-{n}-fix-{call - 1}")
+        c.card["builder_rounds"] = n
+        if requested and case_hash(c) == before:
+            return {"outcome": Outcome.EXHAUSTED, "reason": "writer:unchanged_repair"}
+        problems = g1(c)[1]["problems"] or None
+        if not problems and not c.args.dry_run: problems = early_checks(c)
+        if not problems:
+            atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
+                                       "report": f"round-{n}.json", "awaiting_stress": True})
+            return {"outcome": Outcome.OK, "reason": "writer:validated"}
+        report, requested = None, True
+    return {"outcome": Outcome.EXHAUSTED, "reason": "writer:rounds_exhausted"}
+
+
+def engine_stress_round(c, n):
+    """STRESS round n: today's stress call and report checks, then today's early reviews after a clean round."""
+    from durable.contract import Outcome
+    from registry import atomic_json
+    infra = lambda code: {"outcome": Outcome.INFRA_ERROR, "reason": "stress:" + code}
+    engine_prepare_bench(c)
+    (c.work / "attacks").mkdir(exist_ok=True)
+    report = c.work / "attacks" / f"round-{n}.json"
+    if report.exists(): report.rename(report.with_name(f"{report.stem}-superseded-{uuid.uuid4().hex}.json"))
+    receipt_path = c.work / "attack-state.json"
+    binding = attack_binding(c)
+    receipt = {"engine": True, "round": n, "binding": binding, "report": report.name, "review_pending": True}
+    atomic_json(receipt_path, receipt)
+    atomic_json(report, {"complete": False, "blocking": ["review incomplete"]})
+    case_budget_boundary(c)
+    opencode(c, c.models["attacker"], stress_request(c, n, report), c.work, f"attacker-{n}")
+    if binding != attack_binding(c): return infra("case_changed")
+    result = attack_report(report)
+    if result is None: return infra("malformed_report")
+    receipt.update(review_pending=False, report_sha256=hashlib.sha256(report.read_bytes()).hexdigest())
+    atomic_json(receipt_path, receipt)
+    result, report = loop_freshness(c, result, report)
+    findings = [v for v in result["blocking"] if v.strip().lower() != "review incomplete"]
+    if result["unfinished_validation"] and not findings: return infra("unfinished_validation")
+    if (not result["complete"] or result["blocking"]) and not findings: return infra("interrupted_review")
+    if findings:
+        c.card["stress_review"] = {"status": "findings", "round": n}
+        return {"outcome": Outcome.OK, "reason": "stress:findings", "feedback": _feedback("stress", findings, report)}
+    if attack_diagnostic_unfinished(c, n): return infra("unfinished_diagnostic")
+    problems = None if c.args.dry_run else early_review(c)
+    if problems:
+        c.card["stress_review"] = {"status": "early_review_findings", "round": n}
+        return {"outcome": Outcome.OK, "reason": "stress:findings", "feedback": _feedback("stress", problems, report)}
+    c.card["stress_review"] = {"status": "completed", "round": n}
+    return {"outcome": Outcome.OK, "reason": "stress:clean"}
+
+
+def _split_panel(c, gate):
+    """Independent reviewers genuinely disagree: some, but not all, approve."""
+    match = re.fullmatch(r"([0-9]+)/([0-9]+)", str(c.card.get("reviewers_fairness" if gate == "G8" else "reviewers_realism")))
+    return bool(match) and 0 < int(match[1]) < int(match[2])
+
+
+def engine_gates(c):
+    """GATES: today's whole gate pipeline, once. gate_state reuses what the snapshot's evidence still proves."""
+    from durable.contract import Outcome
+    for key in ("gates", "gate_results", "gate_minutes"): c.card[key] = {}
+    c.card["failed_gate"] = None
+    for key in ("failed_detail", "infrastructure_gate", "terminal_stop", "kept_gate_source"): c.card.pop(key, None)
+    validate_and_repair(c)
+    passed = tuple(g for g in GATES if c.card["gates"].get(g) == "pass")
+    receipt = json.dumps({key: c.card.get(key) for key in (
+        "gates", "gate_results", "gate_minutes", "failed_gate", "failed_detail", "early_gates", "infrastructure_gate",
+        "reviewers_fairness", "reviewers_realism", "calibrators", "difficulty")}, sort_keys=True, default=str).encode()
+    base = {"passed": passed, "receipt": receipt}
+    if c.stopped or c.card.get("infrastructure_gate"):
+        return {**base, "stop": c.card.get("terminal_stop") or "infrastructure_exhausted"}
+    failed = c.card.get("failed_gate")
+    if not failed: return {**base, "outcome": Outcome.OK, "reason": "engine:gates_passed"}
+    detail = c.card.get("failed_detail")
+    stage = failed.lower()
+    if failed in ("G8", "G9") and _split_panel(c, failed):
+        return {**base, "outcome": Outcome.NEEDS_FOUNDER, "reason": stage + ":reviewers_disagree", "gate": failed}
+    if failed in ("G16", "G17") and isinstance(detail, dict) and detail.get("review_inconclusive"):
+        return {**base, "outcome": Outcome.NEEDS_FOUNDER, "reason": stage + ":review_inconclusive", "gate": failed}
+    if isinstance(detail, dict) and "error" in detail:
+        return {**base, "outcome": Outcome.INFRA_ERROR, "reason": "infra:gate_error"}
+    repairable = failed in REPAIRABLE_GATES
+    return {**base, "outcome": Outcome.GATE_FAILED, "reason": stage + ":failed", "gate": failed, "repairable": repairable,
+            "feedback": _feedback("gates", writer_feedback(c, c.card) or []) if repairable else None}
+
+
+def engine_seal(c):
+    """G12 under the engine: today's evidence gathering, then the whole work tree as one tar.gz.
+    The worker seals it under the case key; nothing is uploaded from the worker."""
+    import io, tarfile
+    from durable.contract import Outcome
+    from registry import atomic_json
+    if c.card.get("failed_gate") or any(v == "fail" for v in c.card.get("gates", {}).values()):
+        return {"outcome": Outcome.INFRA_ERROR, "reason": "seal:gates_not_passed"}
+    gather_bench_results(c)
+    for d in AGENT_STATE:
+        if (HOME / d).exists():
+            (c.work / "agent-state").mkdir(exist_ok=True)
+            sh(c, ["cp", "-a", "--parents", d, str(c.work / "agent-state")], cwd=HOME, check=True)
+    for user, home in pilot_homes():
+        if home.exists():
+            (c.work / "agent-state").mkdir(exist_ok=True)
+            sh(c, ["sudo", "cp", "-a", str(home), str(c.work / f"agent-state/{user}-home")], check=True)
+            sh(c, ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", str(c.work / "agent-state")], check=True)
+    if not c.args.dry_run: _retain_delivery(c)
+    c.card["gates"]["G12"] = "pass"
+    atomic_json(c.work / "scorecard.json", c.card)
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.PAX_FORMAT) as tar:
+        tar.add(c.work, arcname=c.work.name)
+    return {"outcome": Outcome.OK, "reason": "seal:sealed", "archive": buffer.getvalue(),
+            "hard": c.card.get("difficulty") == "hard"}
+
+
+def run_step(c, step_input, *, feedback=None, ruling=None):
+    """Run one engine step on the context from context_for_step. Returns a dict the worker turns into
+    a StepResult: outcome and reason, or a stop string for the Classifier. Never raises."""
+    from durable.contract import Outcome, StepKind
+    from registry import atomic_json
+    kind, n = step_input.step.kind, step_input.step.round
+    if kind is StepKind.ADMIT: return {"outcome": Outcome.INFRA_ERROR, "reason": "engine:admit_unavailable"}
+    if kind is StepKind.DIAGNOSIS: return {"outcome": Outcome.INFRA_ERROR, "reason": "engine:diagnosis_unavailable"}
+    try:
+        if ruling is not None:
+            c.engine_ruling = json.loads(ruling)
+            atomic_json(c.work / "engine-ruling.json", c.engine_ruling)
+        if kind is StepKind.WRITER: result = engine_writer_round(c, n, feedback)
+        elif kind is StepKind.STRESS: result = engine_stress_round(c, n)
+        elif kind is StepKind.GATES: result = engine_gates(c)
+        else: result = engine_seal(c)
+    except (BudgetError, PauseRequested) as error:
+        stop = "paused" if isinstance(error, PauseRequested) else str(error)
+        log(c, "ENGINE STOPPED", stop)
+        result = {"stop": stop, "traceback": traceback.format_exc()}
+    except Exception as error:
+        log(c, traceback.format_exc())
+        result = {"stop": type(error).__name__, "traceback": traceback.format_exc()}
+    if isinstance(result.get("stop"), str):
+        try: translated = engine_stop(c, result["stop"])
+        except Exception: translated = {"outcome": Outcome.INFRA_ERROR, "reason": "infra:money_authority"}
+        if translated is not None: result = {**result, **translated, "stop": None}
+    for stage, action in (("budget_summary", lambda: update_case_budget(c)),
+                          ("card", lambda: atomic_json(c.work / "scorecard.json", c.card))):
+        try: action()
+        except Exception as error:
+            c.card.setdefault("cleanup_errors", []).append({"stage": stage, "error": type(error).__name__})
+    return result
+
+
+def gather_bench_results(c):
+    """Move this step's bench results into c.work/bench-results, where gate_state.load and the seal look."""
+    for f in _run_artifacts().results_since(c):
+        dest = c.work / "bench-results" / f.relative_to(BENCH / "results")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(f, dest)
+
+
+def retained_paths(c):
+    """The CASE_SNAPSHOT subset, as top-level paths relative to c.work. Gathers bench results first."""
+    gather_bench_results(c)
+    names = {p.name for pattern in SNAPSHOT_RETAINED for p in c.work.glob(pattern)
+             if not p.is_symlink() and (p.is_file() or p.is_dir())}
+    return [pathlib.Path(name) for name in sorted(names)]
 
 
 def argument_parser():
