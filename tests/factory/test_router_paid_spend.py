@@ -255,7 +255,6 @@ class PaidWireTests(unittest.TestCase):
                 self.assertEqual(store.rpc('status', {})['paid']['total_usd'], '0.230000000' if lost else '0.000000000')
 
     def test_worker_and_diagnosis_runtime_share_one_ledger_across_batches(self):
-        import copy
         import shutil
         from types import SimpleNamespace
         from unittest.mock import Mock
@@ -290,16 +289,20 @@ class PaidWireTests(unittest.TestCase):
                 return SimpleNamespace(returncode=0)
             def context(index):
                 work = root/str(index); work.mkdir(); (work/'transcripts').mkdir()
-                deadline = router.utc(float(int(time.time())+3600))
-                auth = dict(schema=1,batch='batch-'+str(index),job='job-'+str(index),case='case-'+str(index),
-                    reservation_id=str(uuid.uuid4()),revision=1,source_generation=None,
-                    committed_total_usd='0.690001000',batch_deadline=deadline)
-                c = SimpleNamespace(work=work,case=work,ledger=work/'ledger.json',
+                from durable.contract import ArtifactKind, Ref, Step, StepInput, StepKind
+                batch, case_id = 'b-paid-' + str(index), 'case-' + str(index)
+                step = Step(StepKind.DIAGNOSIS) if index == 2 else Step(StepKind.WRITER, 1)
+                maximum = Decimal(str(router.route_maximum(MINIMAX)['max_usd']))
+                si = StepInput(batch, case_id, 1, step, 1, 'a' * 64, 'b' * 64,
+                    Ref('a' * 64, ArtifactKind.INPUTS), Ref('b' * 64, ArtifactKind.CASE_SNAPSHOT),
+                    3600, int(maximum * 1_000_000) + 1)
+                attempt = core.run.EngineStep(si, 0)
+                c = SimpleNamespace(work=work, case=work, ledger=work/'ledger.json',
                     args=core.run.argument_parser().parse_args(['--source','hunt']),
-                    card={'roles': {role: {'model':MINIMAX} for role in ('writer','reviewer')}},
-                    case_id=auth['case'],batch_id=auth['batch'],job_id=auth['job'],batch_deadline=deadline,
-                    source_generation=None,job_money=copy.deepcopy(auth),
-                    authenticated_job_config={'job_money':copy.deepcopy(auth)},router_accounts=('openrouter-key',))
+                    card={'roles': {role: {'model': MINIMAX} for role in ('writer', 'reviewer')}},
+                    case_id=case_id, batch_id=batch, job_id=case_id,
+                    batch_deadline=attempt.deadline_epoch, engine=attempt,
+                    router_accounts=('openrouter-key',))
                 c.ledger.write_text(json.dumps({'cost':0,'calls':0,'events':[]}))
                 return c
             event = dict(id='synthetic',model='minimax/minimax-m3.1-flash',
@@ -317,7 +320,7 @@ class PaidWireTests(unittest.TestCase):
                     c = context(index)
                     self.assertEqual(runtime.call(c,[MINIMAX],'synthetic',c.work,name,user=user),0)
                     self.assertEqual(store.rpc('status',{})['paid']['total_usd'],f'{Decimal(".23")*index:.9f}')
-                # A third batch gets no replenishment, even with separate job authority.
+                # A third funded Engine attempt cannot replenish the shared provider wallet.
                 c = context(3)
                 with self.assertRaises(router.ProviderWait):
                     runtime.call(c,[MINIMAX],'synthetic',c.work,'builder-1')

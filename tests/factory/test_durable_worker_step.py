@@ -148,21 +148,27 @@ def stub_model(behaviour, record=None):
             if cfg.get("edit", True):
                 with open(c.case / "BUILD-NOTES.md", "a") as f: f.write(f"{name}\n")
         if role == "attacker":
-            n = name.split("-")[1]
-            (c.work / "attacks" / f"round-{n}.json").write_text(json.dumps(
-                {"complete": True, "blocking": cfg.get("blocking", []), "unfinished_validation": []}))
+            category = json.loads(text.split('CATEGORY MODE (overrides whole-review completion instructions):\n')[1].split('\n')[0])
+            pathlib.Path(category['category_output']).write_text(json.dumps({
+                "category": category['category'], "category_complete": True,
+                "completed_subchecks": category['required_subchecks'], "blocking": cfg.get("blocking", []),
+                "unfinished_validation": [], "non_blocking": [], "freshness_review": [], "cheats_tried": []}))
         event = {"type": "step_finish", "sessionID": "s", "part": {
             "id": uuid.uuid4().hex, "messageID": uuid.uuid4().hex, "cost": cfg.get("cost", 0.25), "reason": "stop",
             "tokens": {"input": 10, "output": 20, "reasoning": 0, "cache": {"read": 0, "write": 0}}}}
         sleep = cfg.get("sleep_second", 0) if "-fix-" in name else cfg.get("sleep", 0)
         code = f"import time\ntime.sleep({sleep})\nprint({json.dumps(json.dumps(event))}, flush=True)\n"
-        return budget.run_budgeted([sys.executable, "-c", code], cwd, os.environ.copy(),
+        result = budget.run_budgeted([sys.executable, "-c", code], cwd, os.environ.copy(),
             c.work / "transcripts" / f"{name}.jsonl", c.ledger, timeout or c.args.agent_timeout,
             max_cost=c.args.max_cost, max_calls=c.args.max_role_calls, max_total_calls=c.args.max_total_calls,
             driver="opencode", progress_timeout=c.args.no_progress_minutes * 60,
             max_zero_tokens=c.args.max_zero_tokens, configured_model=model,
             concurrent=c.args.concurrent_roles, case_budget=c.args.case_budget,
             role=budget.invocation_role(name), invocation_name=name, containment=False)
+        if kw.get("on_complete"):
+            c.model_lease = types.SimpleNamespace(route=model)
+            kw["on_complete"]()
+        return result
     return call
 
 
@@ -545,7 +551,7 @@ class StepTests(unittest.TestCase):
         first.start(si)
         result = first.wait(si, 4 * 3600)
         self.assertEqual(result.outcome, Outcome.OK, first.log(si))
-        reusable = sorted(set(result.passed) & run.gate_state.REUSABLE)
+        reusable = sorted(set(result.passed) & __import__("gate_state").REUSABLE)
         self.assertTrue(reusable, result.passed)
         fresh = WorkerHome(self)
         fresh.case_key = first.case_key

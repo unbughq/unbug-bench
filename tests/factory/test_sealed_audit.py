@@ -102,7 +102,7 @@ run.HOME = root; run.SEALED = sealed; run.BENCH = root / "bench"
 run.sh = lambda *a, **kw: 0; run.bench_manifest = lambda: "trusted"
 run.pilot_homes = lambda: []; run.wipe = lambda c: None
 def forbidden(*a, **kw): raise AssertionError("audit must not build")
-run.build = forbidden
+run.engine_writer_round = forbidden
 def pick(c): c.card["roles"] = {}; return {}
 run.pick_models = pick
 worker_release.verify_selected_drivers = lambda *a, **kw: {}

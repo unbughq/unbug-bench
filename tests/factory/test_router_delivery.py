@@ -102,7 +102,7 @@ class DeliveryTests(unittest.TestCase):
 
 
     def test_shared_secrets_default_and_override(self):
-        code='import worker_secrets,model_router,job_config,account_handoff,run; print(worker_secrets.SECRETS); assert all(x==worker_secrets.SECRETS for x in (model_router.SECRETS,job_config.SECRETS,account_handoff.SECRETS)); assert run.STATEMENTS_KEY==worker_secrets.SECRETS/"statements-key"'
+        code='import worker_secrets,model_router,run; print(worker_secrets.SECRETS); assert all(x==worker_secrets.SECRETS for x in (model_router.SECRETS,run.SECRETS)); assert run.STATEMENTS_KEY==worker_secrets.SECRETS/"statements-key"'
         env={k:v for k,v in os.environ.items() if k!='UNBUG_TEST_WORKER_SECRETS'}
         env['PYTHONPATH']=os.pathsep.join((str(ROOT/'factory'),str(ROOT/'bin')))
         for expected in ('/dev/shm/secrets','/offline-only/ram'):

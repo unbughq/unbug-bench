@@ -170,7 +170,6 @@ class RealStops(unittest.TestCase):
     RUNNER_FILES = ("budget.py", "model_router.py", "model_runtime.py", "model_call_gate.py", "run.py")
     # Reviewed: what every BudgetError label raised in RUNNER_FILES classifies to.
     MAPPED = {
-        "engine_reselection_disabled": ("infra_error", "infra:runner_error"),
         "Invalid budget ledger; no process started": ("infra_error", "infra:ledger_error"),
         "budget_exhausted": ("exhausted", "writer:money"),
         "call_limit": ("exhausted", "writer:call_limit"),
@@ -195,7 +194,6 @@ class RealStops(unittest.TestCase):
         "missing_usage": ("infra_error", "infra:usage_unknown"),
         "model_call_cap": ("exhausted", "writer:call_cap"),
         "opencode_error": ("infra_error", "router:opencode_error"),
-        "ordinary_limit_unknown": ("infra_error", "infra:ledger_error"),
         "process_error": ("infra_error", "router:process_error"),
         "provider_limit:": ("provider_limit", "router:provider_limit"),
         "provider_preflight_failed": ("infra_error", "router:preflight_failed"),
@@ -220,7 +218,6 @@ class RealStops(unittest.TestCase):
         "usage_unknown": ("infra_error", "infra:usage_unknown"),
         "usage_reservation_exceeded": ("infra_error", "infra:usage_unknown"),
         "usage_receipt_regressed": ("infra_error", "infra:usage_unknown"),
-        "usage_reconciliation_while_active": ("infra_error", "infra:usage_unknown"),
         "usage_reservation_missing": ("infra_error", "infra:usage_unknown"),
         "wait_receipt_mismatch": ("infra_error", "infra:ledger_error"),
         "waste_attribution_mismatch": ("infra_error", "infra:ledger_error"),
@@ -235,14 +232,14 @@ class RealStops(unittest.TestCase):
     UNCLASSIFIED_BY_DESIGN = {
         "Budget ledger stopped: ", "Budget stopped: ",
         "admission_dedup_invalid", "admission_dedup_unavailable", "admission_idea_review_invalid",
-        "admission_idea_review_unavailable", "admission_registry_unavailable", "diagnosis_state_invalid",
-        "extension_comparison_pending", "extension_execution_mode_invalid", "extension_reservation_mismatch",
+        "admission_idea_review_unavailable", "admission_registry_unavailable",
+
         "freshness_evidence_unavailable", "freshness_public_match", "freshness_repair_state_invalid",
         "freshness_review_unavailable", "freshness_statement_changed", "freshness_unresolved",
-        "ordinary_limit_mismatch", "provider_wait_archive_mismatch",
+
         "provider_wait_record_missing", "provider_wait_unsettled", "route_feature_unsupported",
-        "selection_board_unavailable", "statement-ready", "stress_publication_configuration_missing",
-        "stress_review_unresolved:", "stress_validation_exhausted", "writer_intent_missing",
+        "selection_board_unavailable", "stress_publication_configuration_missing",
+        "stress_review_unresolved:",
     }
 
     def runner_labels(self):

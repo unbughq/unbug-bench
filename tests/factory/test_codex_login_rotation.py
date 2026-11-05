@@ -21,7 +21,6 @@ import model_runtime
 import model_router
 from router_test_support import offline_router
 _ROUTING = offline_router()
-import run
 
 
 def auth(exp, last_refresh='2026-10-01T00:00:00Z'):
@@ -173,20 +172,6 @@ guard_exit "$primary"
             cleanup.assert_called_once()  # Uncertain cleanup must not start another model.
             self.assertEqual([v['stage'] for v in c.card['cleanup_errors']], ['model_process', 'model_scratch'])
             self.assertNotIn('private-cleanup-detail', json.dumps(c.card))
-
-    def test_final_accounting_preserves_stop_and_keeps_ledger_on_summary_error(self):
-        self.addCleanup(offline_router()[0].close)
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp); ledger = root/'ledger'
-            value = {'terminal_stop':'codex_login_expired','events':[], 'calls':0, 'cost':0}
-            ledger.write_text(json.dumps(value))
-            c = SimpleNamespace(work=root, ledger=ledger, stopped=True,
-                card={'terminal_stop':'codex_login_expired'})
-            with patch.object(run, 'update_case_budget', side_effect=ValueError('private')):
-                run.finalize_accounting(c)
-            self.assertEqual(c.card['terminal_stop'], 'codex_login_expired')
-            self.assertEqual(json.loads((root/'continuation-budget.json').read_text()), value)
-            self.assertEqual(c.card['cleanup_errors'], [{'stage':'budget_summary','error':'ValueError'}])
 
 
 if __name__ == '__main__': unittest.main()

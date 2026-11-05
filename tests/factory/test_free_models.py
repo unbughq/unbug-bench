@@ -82,7 +82,7 @@ with tempfile.TemporaryDirectory() as tmp:
         after['writer'] = copy.deepcopy(before['writer']); save()
         config['expires_utc'] = '2000-01-01T00:00:00Z'; save()
         rejected(lambda: free_models.selected('case-fixture', args))
-    c = SimpleNamespace(card={'model_transition': {'kind': 'approved-paid-to-free'}})
+    c = SimpleNamespace(work=root, card={'model_transition': {'kind': 'approved-paid-to-free'}})
     with mock.patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=run.BudgetError('provider_limit')) as call:
         try:
             run.opencode(c, ['opencode/glm-5.3-flash-free'], 'synthetic', '.', 'fixture')

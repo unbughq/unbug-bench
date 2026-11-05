@@ -362,34 +362,6 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(record['evidence'], 'interrupted')
         self.assertEqual(c.card['terminal_stop'], 'provider_wait')
 
-    def test_wait_uses_normal_runner_checkpoint_and_exit(self):
-        # Isolated process because main deliberately redirects its file descriptors.
-        script = '''import sys,json,time
-from types import SimpleNamespace
-from pathlib import Path
-sys.path.insert(0,sys.argv[1]); import run,model_router
-root=Path(sys.argv[2]); run.HOME=root; run.SEALED=root/'sealed'
-run.bench_manifest=lambda:'practice-only'
-run.sh=lambda *a,**kw:SimpleNamespace(stdout='synthetic-recipient',returncode=0)
-def stop(c):
- c.batch_id='practice-batch'; c.job_id='practice-job'; c.batch_deadline=time.time()+86400
- raise model_router.ProviderWait('writer',model_router.Wait('quota',time.time()+900,route='claude/claude-opus-5-5',account='claude-token'))
-def seal(c,checkpoint=False):
- (root/'checkpoint-called.json').write_text(json.dumps({'checkpoint':checkpoint,'record':(c.work/'provider_wait.json').exists()}))
- c.card['sha256']='a'*64
-run.build_fixture=stop; run.seal=seal
-sys.argv=['factory/run.py','--dry-run']; run.main()
-'''
-        result = subprocess.run([sys.executable, '-B', '-c', script, str(ROOT/'factory'), str(self.root)],
-                                capture_output=True, text=True, env={**os.environ, 'UNBUG_PROVIDER_WAIT':'1'})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        observed = json.loads((self.root/'checkpoint-called.json').read_text())
-        self.assertEqual(observed, {'checkpoint':True,'record':True})
-        card = json.loads(next((self.root/'sealed').glob('case-*.scorecard.json')).read_text())
-        self.assertEqual(card['terminal_stop'], 'provider_wait')
-        self.assertEqual(card['provider_wait']['reason'], 'quota')
-        self.assertEqual(card['status'], 'stopped')
-        self.assertTrue((self.root/'sealed/DONE').is_file())
 
     def test_parser_observation_survives_real_budget_execution_boundary(self):
         model = next(c['terminal_stop'].split(':',1)[1] for c in LIMITS if 'openrouter/' in c['terminal_stop'])

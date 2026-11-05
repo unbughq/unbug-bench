@@ -27,6 +27,7 @@ class WorkerReleaseTests(unittest.TestCase):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('public synthetic source')
+        (self.root / 'factory/worker-release.json').write_bytes(release.POLICY.read_bytes())
         self.manifest = self.root / 'manifest.json'
         release.stamp(self.root, self.manifest)
         self.policy = json.loads(self.manifest.read_text())

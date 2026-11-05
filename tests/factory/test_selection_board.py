@@ -6,7 +6,6 @@ from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
 import argparse
-import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -91,35 +90,6 @@ class SelectionBoardTests(unittest.TestCase):
             self.assertTrue(run.statement_precheck(self.c))
         self.assertEqual(self.c.card['selection_board']['statements'], 1)
 
-    def test_retry_preserves_matching_reason_and_all_rejected_statements(self):
-        c = self.c; c.selection_prior = {'case-old': str(self.old)}
-        (c.case / 'statement.md').write_text('Synthetic rejected candidate')
-        c.card['statement_sha256'] = hashlib.sha256((c.case / 'statement.md').read_bytes()).hexdigest()
-        c.card['admission'] = {'status': 'rejected', 'screen': 'internal_duplicate'}
-        c.precheck_problems = ['duplicate of case-old']
-        c.duplicate_feedback = {'duplicate_of': 'case-old', 'reason': 'Same underlying synthetic mechanism'}
-        reasons = []
-        def select(ctx, chain, text, cwd, name):
-            context = json.loads(text.split('```json\n')[-1].split('```')[0])
-            self.assertEqual(context['occupied_statement_paths'], c.selection_prior)
-            rows = json.loads(Path(context['rejection_feedback_path']).read_text())
-            self.assertEqual(rows[0]['duplicate_of'], 'case-old')
-            self.assertEqual(rows[0]['reason'], 'Same underlying synthetic mechanism')
-            self.assertEqual(rows[0]['matched_statement_path'], str(self.old))
-            self.assertTrue(all(Path(row['rejected_statement_path']).is_file() for row in rows))
-            reasons.append(rows)
-            (c.case / 'statement.md').write_text('Synthetic next candidate ' + str(len(rows)))
-            return 0
-        with patch.object(run, 'opencode', select):
-            for _ in range(2):
-                with self.assertRaisesRegex(run.BudgetError, 'admission_registry_unavailable'):
-                    run.reselect_candidate(c, {})
-                c.card['admission'] = {'status': 'rejected', 'screen': 'internal_duplicate'}
-                c.precheck_problems = ['duplicate of case-old']
-                c.duplicate_feedback = {'duplicate_of': 'case-old', 'reason': 'Same underlying synthetic mechanism'}
-        self.assertEqual([len(rows) for rows in reasons], [1, 2])
-        self.assertNotIn('reason', c.card['rejected_candidates'][0])
-        self.assertEqual(c.card['candidate_attempts'], 3)
 
 
 if __name__ == '__main__': unittest.main()

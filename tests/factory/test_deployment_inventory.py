@@ -32,7 +32,9 @@ class InventoryTests(unittest.TestCase):
         for name in inv.SOURCES:
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / name, target)
+            # The observer also inventories retired deployment paths. Synthetic
+            # source bytes keep this metadata check independent of live launchers.
+            target.write_bytes(b"# synthetic deployment source metadata\n")
 
     def report(self):
         return inv.inventory(self.root, self.home, NOW)
@@ -80,7 +82,7 @@ class InventoryTests(unittest.TestCase):
             self.assertFalse(result['snapshot_atomic'])
             self.assertEqual(result['ledger']['state'], 'missing')
             for name in inv.SOURCES:
-                self.assertEqual(result['sources'][name]['sha256'], hashlib.sha256((ROOT / name).read_bytes()).hexdigest())
+                self.assertEqual(result['sources'][name]['sha256'], hashlib.sha256((self.root / name).read_bytes()).hexdigest())
         self.assertEqual(snapshot(), before)
 
     def test_guard_layout_states_markers_and_secret_contents_never_read(self):

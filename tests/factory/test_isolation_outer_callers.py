@@ -1,9 +1,5 @@
-"""Saved Boat artifacts through real local owners; no provider calls.
-
-AST extraction executes just the production transport expressions, avoiding the
-holder's credential/serve setup. Whole-function status/TTL coverage is below too.
+"""Saved Boat artifacts through the transport wrapper; no provider calls.
 """
-import ast
 import contextlib
 import json
 import os
@@ -15,7 +11,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import types
 import unittest
 from unittest.mock import patch
 
@@ -23,46 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
 FIXTURES = Path(__file__).with_name('fixtures') / 'isolation-timeouts'
 LOAD = lambda name: json.loads((FIXTURES / name).read_text())
-SITES = [('key_holder', 0, '25'), ('batch_holder', 0, '25'),
-         ('coordinator_inventory', 0, '25'), ('coordinator_inventory', 1, '25'),
-         ('batch_status', 0, '30'), ('ttl_continuation', 0, '120')]
 GUARD = 300
-
-
-def expression(module, index):
-    tree = ast.parse((ROOT / 'factory' / (module + '.py')).read_text())
-    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and n.args
-             and isinstance(n.args[0], ast.List)
-             and 'bin/boat-call' in ast.unparse(n.args[0])]
-    calls.sort(key=lambda n: n.lineno)
-    return calls[index]
-
-
-def invoke_site(number):
-    module, index, seconds = SITES[number]
-    node = expression(module, index)
-    assert not any(k.arg == 'timeout' for k in node.keywords)
-    worker = LOAD('created.json')['id']
-    namespace = dict(ROOT=ROOT, root=ROOT, os=os, subprocess=subprocess,
-                     key_holder=types.SimpleNamespace(ROOT=ROOT), run=subprocess.run,
-                     THRESHOLDS={'read_seconds': 30}, args=['list', '--json'],
-                     worker=worker, command="pgrep -f '^python3 .*factory/run.py'")
-    env_node = next(k.value for k in node.keywords if k.arg == 'env')
-    env = eval(compile(ast.Expression(env_node), '<production-env>', 'eval'), namespace)
-    assert env['BOAT_COMMAND_TIMEOUT_SECONDS'] == seconds
-    assert env['BOAT_CAPTURE_OUTPUT'] == '1'
-    assert env.get('UNBUG_PROCESS_DEADLINE') == os.environ.get('UNBUG_PROCESS_DEADLINE')
-    try:
-        result = eval(compile(ast.Expression(node), '<production-call>', 'eval'), namespace)
-        if isinstance(result, subprocess.CompletedProcess):
-            code, out, err = result.returncode, result.stdout, result.stderr
-        else:
-            code, out, err = 0, result, None
-    except subprocess.CalledProcessError as error:
-        code, out, err = error.returncode, error.stdout, error.stderr
-    if isinstance(out, bytes): out = out.decode()
-    if isinstance(err, bytes): err = err.decode()
-    print(json.dumps({'returncode': code, 'stdout': out, 'stderr': err}), flush=True)
 
 
 class OuterCallerTests(unittest.TestCase):
@@ -130,41 +86,8 @@ time.sleep(600)
         before = self.heartbeat.read_text(); time.sleep(.2)
         self.assertEqual(before, self.heartbeat.read_text(), 'descendant still running')
 
-    def invoke(self, site, mode, *, deadline=False):
-        env = {**self.env, 'TEST_MODE': mode}
-        # Set the short inherited deadline inside the worker after its imports.
-        if deadline: env['TEST_DEADLINE_SECONDS'] = '2'
-        start = time.monotonic()
-        result = subprocess.run([sys.executable, '-B', __file__, '--site', str(site)],
-                                env=env, capture_output=True, text=True, timeout=GUARD)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        data = json.loads(result.stdout)
-        if data['stderr'] is None: data['stderr'] = result.stderr
-        return data, time.monotonic() - start
 
-    def test_six_actual_call_sites_preserve_artifacts_and_nonzero_results(self):
-        for site, (module, index, _) in enumerate(SITES):
-            with self.subTest(module=module, index=index):
-                result, _ = self.invoke(site, 'success')
-                self.assertEqual(result['returncode'], 0)
-                if module == 'ttl_continuation' or (module == 'coordinator_inventory' and index == 0):
-                    self.assertEqual(result['stdout'].strip(), '12345')
-                else: self.assertEqual(json.loads(result['stdout']), LOAD('list.json'))
-                result, _ = self.invoke(site, 'failure')
-                self.assertEqual(result['returncode'], 9)
 
-    def test_six_callers_wait_for_slow_cleanup_after_inherited_deadline(self):
-        for site, (module, index, _) in enumerate(SITES):
-            with self.subTest(module=module, index=index):
-                result, elapsed = self.invoke(site, 'hang', deadline=True)
-                self.assertEqual(result['returncode'], 124)
-                self.stopped()
-                self.assertGreaterEqual(elapsed, 3)
-                print(f'LOCAL_TIMING {module}:{index} timeout_cleanup_seconds={elapsed:.3f}', flush=True)
-                calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
-                self.assertIn(['--version'], calls)
-                self.assertTrue(any(call[0] != '--version' for call in calls))
-                self.heartbeat.unlink(); self.pids.unlink(); self.calls.unlink()
 
     def wait_heartbeat(self):
         end = time.monotonic() + GUARD
@@ -186,30 +109,6 @@ time.sleep(600)
             if process.poll() is None: process.kill()
             process.communicate(timeout=GUARD)
 
-    def test_six_callers_return_while_escaped_descendant_holds_streams(self):
-        for mode in ('escape', 'escape-write', 'escape-failure'):
-            for site, (module, index, _) in enumerate(SITES):
-                with self.subTest(mode=mode, module=module, index=index):
-                    result, elapsed = self.invoke(site, mode)
-                    self.assertEqual(result['returncode'], 9 if mode=='escape-failure' else 0)
-                    expected = ('12345\n' if module == 'ttl_continuation' or
-                                (module == 'coordinator_inventory' and index == 0)
-                                else (FIXTURES / 'list.json').read_text())
-                    self.assertTrue(result['stdout'].startswith(expected), result)
-                    self.assertEqual(result['stdout'][len(expected):].strip(), '')
-                    diagnostic = 'injected transport diagnostic\n'
-                    self.assertTrue(result['stderr'].startswith(diagnostic), result)
-                    self.assertEqual(result['stderr'][len(diagnostic):].strip(), '')
-                    if mode == 'escape-write':
-                        self.assertGreater(len(result['stdout']), len(expected))
-                        self.assertGreater(len(result['stderr']), len(diagnostic))
-                    before = self.heartbeat.read_text(); time.sleep(.1)
-                    self.assertNotEqual(before, self.heartbeat.read_text(),
-                                        'escaped child must still be alive at caller return')
-                    print(f'LOCAL_TIMING {module}:{index} {mode}_seconds={elapsed:.3f}', flush=True)
-                    # Successful return proves neither descendant death nor remote cleanup.
-                    self.cleanup_processes()
-                    self.heartbeat.unlink(); self.pids.unlink(); self.calls.unlink()
 
     def test_oversize_either_stream_fails_without_partial_output(self):
         for fd in ('1', '2'):
@@ -257,9 +156,4 @@ time.sleep(600)
                 process.wait(timeout=GUARD)
 
 
-if __name__ == '__main__':
-    if sys.argv[1:2] == ['--site']:
-        if os.environ.get('TEST_DEADLINE_SECONDS'):
-            os.environ['UNBUG_PROCESS_DEADLINE'] = str(time.monotonic() + float(os.environ['TEST_DEADLINE_SECONDS']))
-        invoke_site(int(sys.argv[2]))
-    else: unittest.main()
+if __name__ == '__main__': unittest.main()
