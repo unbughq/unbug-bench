@@ -19,7 +19,7 @@ scorecard.
 | File | What it is |
 |---|---|
 | `factory/durable/policy.py` | The routing table (unchanged behaviour), plus the settlements below: request figures, minimum grant, deadlines, how each result settles. Pure. |
-| `factory/durable/executor.py` | `Executor`: composes `WorkerPool`, `WorkerChannel`, `Ledger`, `ArtifactStore`, `Sealer` and `KeyService`. `run()` is the `StepExecutor` the engine calls only through `guarded_run`. The other methods (reserve, settle, cancel, release, seal history, rescope inputs) are the engine's other side effects; each raises only a fixed `SeamError` code. |
+| `factory/durable/executor.py` | `Executor`: composes `WorkerPool`, `WorkerChannel`, `Ledger`, `ArtifactStore`, `Sealer` and `KeyService`. `run()` is the `StepExecutor` the engine calls only through `guarded_run`. The other methods (reserve, settle, cancel, release, seal history) are the engine's other side effects; each raises only a fixed `SeamError` code. |
 | `factory/durable/engine.py` | `Engine` (construction, Conductor checks, launch, queue registration, attach-or-start, operator messages) and the DBOS workflows: `batch_workflow`, `case_workflow`, and one `attempt_workflow` per attempt. |
 | `factory/durable/report.py` | The public scorecard, generated from the engine's own records (each case workflow's `card` event). Pure renderer plus a loader. |
 
@@ -53,18 +53,18 @@ text, so WP1 does not call it.
   extensions, diagnoses, snapshot, feedback, ruling, evidence, passed gates, the GATES
   versions, the stop history) lives in workflow locals, rebuilt by replay. After every
   step it sets a content-free `card` event, which `report.py` reads.
-- **`attempt_workflow(...)`**, workflow ID = the attempt's idempotency key
-  `case/seq/step/attempt`, enqueued by the case on a DBOS queue:
-  - ADMIT attempts on `admit-<batch>` (global concurrency 1);
-  - every other attempt on `steps-<batch>` (global concurrency `max_concurrency`).
+- **`slot_workflow(...)`**, workflow ID = the attempt's idempotency key
+  `case/seq/step/attempt`, is enqueued on `steps-<batch>` (global concurrency
+  `max_concurrency`). An ADMIT additionally enqueues `attempt_workflow` on
+  `admit-<batch>` (global concurrency 1); other steps invoke it directly.
 
   Once dequeued it runs these recorded steps: read the latest registry (ADMIT only),
   reserve, the minimum-grant check, cancel the previous attempt, `now`, the attempt
   itself (`guarded_run`), settle. It returns the result, the grant and whether it
   started. Holding the queue slot only for one attempt is how slots work: a case holds
   a slot while one of its attempts runs and none while it sleeps, waits, parks or
-  retires. ADMIT is serialized by its own queue and takes no `steps` slot, so at most
-  `max_concurrency + 1` attempts run at once.
+  retires. ADMIT holds both slots while it runs, so it is serialized and the
+  global limit includes every model attempt.
 
 ### Engine rules, as built
 
@@ -92,10 +92,10 @@ text, so WP1 does not call it.
 | **ADMIT gives up its queue slot while it sleeps** | Each ADMIT attempt is its own `attempt_workflow` on the admit queue, and a PROVIDER_LIMIT result ends it. The case workflow sleeps outside the queue, then enqueues attempt n+1. Tested: a second case admits while the first sleeps. |
 | **ADMIT reads the latest registry when dequeued** | The first step of a dequeued ADMIT attempt lists this batch's finished ADMIT attempt workflows and takes the newest successful registry, or the batch's initial registry. Because the queue runs one ADMIT at a time and recovery re-enqueues a pending attempt onto its own queue (`reenqueue_for_recovery` keeps `queue_name`), the newest successful ADMIT is the one every later ADMIT must build on. Tested: three cases admit in a chain, each reading the previous output, including after kills. |
 | **The engine's stop history as a DIAGNOSTIC** | Each finished attempt adds `{seq, step, attempt, outcome, reason, paid}` to the case's history (codes and numbers only). On DIAGNOSE, a step seals it with the case key as a `DIAGNOSTIC` (`Sealer`, stored in the case scope) and adds its Ref to the evidence, after every receipt, diagnostic and report the case's results carried. Tested: the diagnosis input carries it, and it opens with the case key to the recorded history. |
-| **Retrying a cancel after a transport failure** | `cancel` returns nothing, so the executor confirms a cancel with a poll: it calls `cancel` then `poll` until the poll is DONE (the worker answered and holds a result, its own or `infra:cancelled`), or the worker is gone (`alive` false), or attempt n's `started + deadline_s + POLL_GRACE_S` has passed (the worker has killed it itself by then). Only then does attempt n+1 start. It runs inside n+1's queue slot, before n+1's `now` step. Tested with a channel that drops the first cancels. |
+| **Retrying a cancel after a transport failure** | A cancel is confirmed by a DONE result or by proven worker death. If a start returns ABSENT, cancel creates a tombstone before another attempt may begin. The control-side deadline begins no earlier than the end of input transfer, so it cannot cancel a newly started worker early. Reattachment may postpone the control-side cancel; the worker still enforces its original deadline. After deadline plus grace, repeated cancel/poll continues while a live worker is unreachable. A late DONE result is kept with its usage. This favors safety over liveness during an indefinite outage. |
 | **The minimum grant** | `policy.MIN_GRANT_USD_MICROS = 1_000_000` ($1). The cheapest identified writer round in Stream D's cost evidence is $0.4463424, so a smaller grant cannot finish one. `policy.decide_grant`: a sub-minimum grant labelled CASE is the case's give-up (DIAGNOSE; STOP_ADMISSION for ADMIT) without starting, because case money never comes back; labelled BATCH it waits (WAIT_FOR_BOUND); labelled NOTHING it starts, since the request itself was that small. An unstarted reservation is released with `settle(key, Usage())`. Tested, each label. |
-| **A finite request figure for batch-only steps** | `policy.request_usd_micros`: an ordinary step requests `case_money_usd_micros` (the ledger caps it at what the case has left); a batch-only step requests `max(case_money_usd_micros, BATCH_ONLY_FLOOR_USD_MICROS)`, with the floor $33, Stream D's ceiling of the largest authenticated CLI aggregate ($32.6137984). With the default $50 case money, a batch-only step requests $50: it never holds the whole bound, and `settle_lost` books at most $50. A batch-only step that uses it all RETRIES with a fresh grant (already in `decide`). |
-| **SEAL only under the GATES versions** | The case records the `(plumbing, bench)` of the GATES step that passed. Before SEAL it reads the current releases; if either differs (a PLUMBING_RELEASE, or a BENCH_RELEASE the case has not adopted), it reruns GATES under the new versions instead (a new seq; `gate_state` reuses unchanged gates). SEAL's StepInput carries exactly the GATES versions. Tested. |
+| **A request figure for batch-only steps** | A batch-only step starts with the larger of the case money and $33. A money stop under a whole, unlimited grant retries; if no money was spent, the next request doubles until the call fits or the ledger limits it by the remaining batch bound. A BATCH-limited money stop waits. A lost attempt books its full grant as waste, which can exceed the starting request. |
+| **SEAL only under the GATES versions** | Plumbing is selected when an attempt is dequeued, and the bench when GATES is dequeued. The case records the actual successful GATES versions. SEAL checks both versions again after dequeue; if either changed, it returns without starting and the case reruns GATES. |
 | **Waking waiting cases on settle** | After every settle and `settle_lost`, the attempt workflow sends `settled` to the batch. A case in WAIT_FOR_BOUND sends `waiting` and then waits on `recv("wake")`. The batch wakes every waiting case on each `settled` and each `BOUND_RAISED`, then forgets them (a case still short sends `waiting` again). A waiting case also rechecks every `wake_poll_s` (default 300 s), which covers a `settled` that raced ahead of its `waiting`. A waiting case holds no slot (it is outside the queue). Tested: a case waits on the bound and resumes when another case settles, with no `BOUND_RAISED`. |
 | **Registering queues before recovery enqueues** | Rule 6 above. Test: a batch is killed while a case's ADMIT is enqueued but not yet run; the restart registers queues after `launch()`, and the recovered ADMITs still never overlap. |
 | **Checking the constructed instance for Conductor** | `assert_no_conductor(os.environ, config)` before construction; `engine.check_instance(dbos)` after: `conductor_key` and `conductor_url` are None and `GlobalParams.dbos_cloud` is false, else `ContractError` before `launch()`. Tested both ways. |
@@ -108,29 +108,30 @@ text, so WP1 does not call it.
 |---|---|
 | **Operator pauses** | WP4 maps `PauseRequested` and `paused` to INFRA_ERROR `infra:paused`. `policy.is_pause` names that code (`PAUSE_REASONS`), and `decide` RETRIES it whatever the infra count. The engine does not count it in `step_infra_errors`, waits `Timing.pause_retry_s` (default 900 s, WP4's flat backoff; releasing the worker if that exceeds `release_worker_after_sleep_s`), then starts attempt n+1. A pause therefore never uses the infra-retry allowance, never leads to DIAGNOSE and is never scored; it settles as waste, never against the case's money. Tested in policy and on DBOS (four pauses with an allowance of one still seal). |
 | **`reset_at`** | The engine never sees stop text and does not call the Classifier: the worker classifies the runner's stop before writing its result (contract `Classifier` docstring; design, "Workers and the wire protocol"). So the call site that can pass a known reset time (the ledger's `claude_resets_at`, `provider_failure.reset_at`) is WP5a's `worker_step.py`. The engine uses `StepResult.retry_at` as given, through `wait_seconds`. Nothing changes in WP1; WP5a should pass `reset_at` when it holds one. |
-| **A free limit that never clears** | WP4 maps `credential_expiring` to PROVIDER_LIMIT, and the runner also raises it for a missing local secret (`model_call_gate.py:699`, `model_runtime.py:405-407`). Those limits spend nothing, so the spent-limit rule never fires. `Counters.step_free_limits` counts PROVIDER_LIMIT attempts of one seq that spent nothing; above `policy.MAX_FREE_LIMITS_PER_STEP = 96` the step gives up like any other exhausted retry (DIAGNOSE; RETIRE for a diagnosis; STOP_ADMISSION for ADMIT). 96 is 24 h at WP4's 900 s flat backoff. A real limit with a known reset sleeps once per window, so 96 windows is far past any real limit (WP4 accepts resets at most 8 days ahead). Counting attempts rather than summing sleep time keeps the rule a pure function of the journal. Tested in policy and on DBOS (97 free limits, then diagnosis). |
-| **Batch-deadline stops** | WP4 maps `retired_batch_bound` and `provider_wait_deadline` to INFRA_ERROR `infra:deadline`, the same code as a worker's own deadline kill. `deadline_epoch` stops only new cases and extensions, so such a stop must never use a running case's infra allowance. `decide` takes `now` (read through a step, only when the reason is `infra:deadline`). At or after `deadline_epoch`, `infra:deadline` is RETRY outside the allowance, counted in `Counters.step_deadline_stops` and capped at `MAX_DEADLINE_STOPS_PER_STEP = 96` like free limits; the engine waits `Timing.pause_retry_s` before each retry so it cannot spin. Before the deadline it stays an ordinary counted infra error, as WP4 classified it. This holds whether or not WP5a removes those checks from the step path: if they are gone, the rule only ever sees worker deadline kills. The cost: after the deadline, a step that keeps hitting its own `deadline_s` also retries up to 96 times. Tested in policy and on DBOS (the deadline passes mid-run; four stops with an allowance of one; the case seals). |
-| **A money stop before any spend** | `budget.py:165` raises `money_wait` (WP4: EXHAUSTED `<stage>:money`) before calling when one call's route maximum does not fit, so usage never reaches a grant smaller than one call. The engine cannot know route maxima, so the minimum grant cannot be set to one call's maximum. Instead `decide` treats a money stop (`policy.is_money_stop`: the code is `money`) under a positive BATCH-limited grant as WAIT_FOR_BOUND, whatever the usage. A round limit under a BATCH grant still gives up, as review 4 N1 requires. Under a CASE or NOTHING grant a money stop still gives up, because the case's money does not come back. A zero grant never starts, so the existing "a zero grant cannot loop" rule holds. Tested in policy and on DBOS (an ADMIT refused with no usage waits, then runs after `BOUND_RAISED`). |
-| **`money_wait`, other cases** | EXHAUSTED `<stage>:money` with usage that reached the grant is routed as before: WAIT_FOR_BOUND under BATCH, RETRY for a batch-only step, otherwise give-up. |
+| **A free limit that never clears** | WP4 can classify a missing local secret as a zero-spend provider limit. On the 96th such result for a step, the case gives up (DIAGNOSE, or RETIRE for diagnosis, or STOP_ADMISSION for ADMIT), as specified in the handoff. Earlier free limits sleep until `retry_at`. |
+| **Batch-deadline stops** | At or after `deadline_epoch`, `infra:deadline` does not count against the infra allowance and never causes a diagnosis. The engine waits `pause_retry_s` before each retry. The same code can mean a worker deadline, so after the batch deadline such a worker timeout also retries without a cap; WP5a must remove batch-deadline checks in the step path. |
+| **A money stop before any spend** | `money_wait` can occur when the next call cannot fit, even if the current grant has not been spent. Under a positive BATCH-limited grant it waits; a round limit is not a money wait. Batch-only work with a fully granted request retries, increasing a zero-spend request as described above. Ordinary case-limited work gives up. |
+| **`money_wait`, other cases** | The same routing applies when some, but not all, of a batch-only grant has been spent. A fresh attempt gets a fresh grant; there is no per-step monetary cap. |
 | **GATES-level EXHAUSTED under `engine:`** | Noted. The engine routes on outcome, not stage, so `engine:` changes nothing here; `report.py` shows it only if allowlisted. |
 
 ### Other decisions
 
-- **INPUTS reach non-ADMIT steps in the case scope.** `INPUTS` is `BATCH_SCOPED`,
-  but only ADMIT carries the batch key (design, "Workers and the wire protocol"). At
-  case start a step opens the batch INPUTS and seals the same plaintext with the case
-  key into the case scope; every non-ADMIT StepInput carries that Ref. This is a
-  contract finding (below); WP3 and WP5a need it.
+- **INPUTS keep their batch scope.** Each StepInput carries the original batch INPUTS
+  Ref and its ciphertext is fetched from the batch scope. Only ADMIT gets the batch
+  key. Non-ADMIT steps use the case settings restored from their snapshot; WP11 must
+  put the required settings in that snapshot. See the rejected alternative and its
+  review in `durable-execution-case-inputs.md` and the corresponding review record.
 - **The first registry is a launch argument.** `BatchSpec` has no registry Ref, and
   ADMIT requires one. `Engine.start_batch(spec, initial_registry)` takes it; WP8's
   launch command seals it. Contract finding (below).
 - **Worker release.** A sleep longer than `release_worker_after_sleep_s` releases the
-  case's last lease first. A worker that `alive()` reports gone while its attempt
+  case's last lease first, as do terminal and escalated states. A worker that `alive()` reports gone while its attempt
   polls RUNNING ends the attempt as `infra:worker_lost`; n+1 acquires a new worker
   and restores the snapshot.
-- **ABSENT** becomes `infra:attempt_absent` (RETRY at once). A DONE result whose
-  output Refs are not in the store becomes `infra:output_missing` (waste, with the
-  worker's usage).
+- **ABSENT** is tombstoned and confirmed before it becomes `infra:attempt_absent`.
+  A DONE result whose output Refs are missing becomes `infra:output_missing`; one
+  with a failed scope, key or digest check becomes `infra:output_invalid`. Both
+  keep the worker's recorded usage. A checkpoint is kept only after the same check.
 - **Restoring from snapshot.** Every attempt restores the case's latest snapshot. A
   non-OK result that carries a snapshot replaces it, so a retry restores it (design,
   "The snapshot").
@@ -141,9 +142,11 @@ text, so WP1 does not call it.
   `ENDS_LINE_OF_WORK`; the batch applies `starts_replacement` with admission open
   meaning: no STOP_ADMISSION, before the deadline, and fewer than `target_sealed`
   sealed.
-- **Seam failures.** Ledger, pool, store and key calls retry inside their DBOS step
-  (12 attempts, backoff 2 from 1 s, about an hour), raising only `SeamError` with a
-  fixed code, so the engine database never records a seam's message.
+- **Seam failures.** Ledger and other engine-side seam errors carry only fixed codes.
+  Pool failures preserve WP2's fixed `PoolError.reason`, free the unstarted grant,
+  and follow the normal infra retry policy. Replay uses the already-recorded worker
+  lease; if inputs cannot be fetched, it still reconciles that worker and never
+  assumes a previous execution spent zero.
 
 ## What it deletes
 
@@ -151,8 +154,8 @@ Nothing yet. WP9 deletes the old paths after the final exam.
 
 ## Tests
 
-All on real DBOS 3.4.0 on SQLite, against fakes of every other seam written in the
-test files from the contract protocols: a file-backed worker (`start` with O_EXCL
+Workflow tests use real DBOS 3.4.0 on SQLite with the following seam fakes; executor
+tests also exercise the real WP3 age sealer and local store: a file-backed worker (`start` with O_EXCL
 markers, per-case `attempt_busy`, tombstoning `cancel`, first-wins results, a
 deadline, injectable transport failures and worker death), a file-backed ledger
 following the `Ledger` docstring (labels, waste, `settle_lost`, idempotent replay), a
@@ -161,11 +164,12 @@ directory artifact store, a keyed-stream sealer using `derive_keys` and
 
 | File | Tests | Covers |
 |---|---|---|
-| `tests/factory/test_durable_policy.py` | 22 | the 15 baseline tests, plus: request figures; the minimum grant per label; deadlines; which results settle as lost; operator pauses; the free-limit cap; batch-deadline stops; money stops below a BATCH grant. |
-| `tests/factory/test_durable_engine_fakes.py` | 3 | the fakes themselves against the contract docstrings: ledger labels, waste, `settle_lost`, replay and re-reserve after `raise_bound`; the sealer opens only with its scope key; the worker's O_EXCL start, `attempt_busy`, first-wins results and cancel tombstone. It is also the engine program the DBOS tests run. |
-| `tests/factory/test_durable_engine_executor.py` | 13 | the executor alone: keys and blobs per scope; DONE, ABSENT, RUNNING through transport failures until deadline + grace, worker lost (keeping a stored checkpoint), missing outputs, a dispatch failure that never raises; cancel-before-retry retried through dropped cancels, bounded by deadline + grace, skipped for a dead worker; settle routing; seam errors carry no content or `__context__`; history sealing; inputs rescoping. |
-| `tests/factory/test_durable_engine.py` | 26 | real DBOS: operator pauses retrying without diagnosis; a free limit that never clears giving up; batch-deadline stops after the deadline never diagnosing; a money stop before any spend waiting on the bound; the step sequence to SEAL with ceilings, deadlines and inputs opened per scope; REPAIR from stress findings and a repairable gate, restoring the failed GATES snapshot; the scorecard from `passed` with the allowlist; infra retries giving up to a diagnosis whose evidence ends with the engine history, booked as waste; ADMIT giving up its queue slot while it sleeps and reading the newest registry; a long sleep releasing the worker; STOP_ADMISSION; one replacement bounded by `max_cases_started`; HOLD; a lost worker replaced and its snapshot restored; extensions that never repair and draw batch money, with and without progress; ESCALATE with CONTINUE and with RETIRE; the bound wait woken by another case's settle, by `BOUND_RAISED`, and after an exhausted BATCH grant; a sub-minimum CASE grant diagnosing without starting; SEAL rerunning GATES after a release; a PLUMBING_RELEASE reaching the next step while bench waits for GATES; queue registration before recovered ADMITs; the Conductor checks. |
-| `tests/factory/test_durable_engine_exam.py` | 1 | **The mid-term exam**: a batch of three cases (one repairs after stress findings, one has an infra retry and a provider sleep, one is retired by a gate and replaced) runs to the end while the engine process is killed with SIGKILL at 20 random points (after 0-2 new worker events plus 0-300 ms, so some land during startup and recovery). Checks: the result equals an unkilled reference run; no attempt key ran twice on the worker and none was refused as busy; no attempt step was entered again after its settle; each case started the same attempts in the same order as the reference; ADMITs never overlapped; the final ledger equals the reference ledger. `EXAM_SEED` replays a set of kill points. |
+| `tests/factory/test_durable_policy.py` | Policy routing, deadlines, exact free-limit boundary, money-stop cases, absolute extension and resume ceilings, and settlement. |
+| `tests/factory/test_durable_engine_fakes.py` | Contract-oriented worker, ledger and artifact fakes and the DBOS test harness. |
+| `tests/factory/test_durable_engine_executor.py` | Worker reconciliation after lost transport or replay; original leases; safe pool reasons; real age/store scope and output authentication; settlement. |
+| `tests/factory/test_durable_engine.py` | DBOS sequences, failures, retries, provider sleeps, releases, money, queued version changes, global concurrency, worker cleanup, and recovery. |
+| `tests/factory/test_durable_report.py` | Failed or missing case cards reflect the DBOS workflow failure. |
+| `tests/factory/test_durable_engine_exam.py` | The 20-kill mid-term exam: same case sequence and ledger as an uninterrupted batch, without duplicate worker execution or overlapping ADMIT. Must be rerun after these changes. |
 
 The fake ledger labels a tie between the request and the case's remaining money as
 NOTHING ("capped" read strictly), and a tie with the batch's remaining bound as BATCH, as
@@ -194,8 +198,7 @@ They close with WP9's live final exam.
 
 1. **INPUTS scope.** `BATCH_SCOPED` holds `INPUTS`, `StepInput.inputs` is required
    on every step, and the design sends the batch key only to ADMIT. A non-ADMIT worker
-   cannot open its inputs as specified. WP1 rescopes INPUTS into the case scope at case
-   start (above). The contract should say which key opens `inputs` on non-ADMIT steps.
+   keeps the Ref for provenance but obtains its settings from the case snapshot.
 2. **No initial registry.** `BatchSpec` ("the factory's whole input") has no
    `STATEMENT_REGISTRY` Ref, but the first ADMIT needs one. WP1 takes it as a launch
    argument.

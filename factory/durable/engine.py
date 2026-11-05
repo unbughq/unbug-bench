@@ -26,13 +26,13 @@ from typing import Any, Mapping, Optional
 from dbos import DBOS, SetWorkflowID
 
 from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised, ContractError, FounderAction,
-                              FounderReply, Grant, Outcome, PlumbingRelease, Ref, Step, StepInput, StepKind,
+                              FounderReply, Grant, LimitedBy, Outcome, PlumbingRelease, Ref, Step, StepInput, StepKind,
                               StepResult, Topic, WorkerLease, assert_no_conductor, batch_spec_from_record,
                               guarded_run, step_input_from_record, step_result_from_record, to_record,
                               wait_seconds)
 from durable.executor import Executor, SeamError
 from durable.policy import (DEADLINE_REASON, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
-                            draws_case_money, is_batch_deadline_stop, is_pause, progressed, request_usd_micros, starts_replacement)
+                            draws_case_money, is_batch_deadline_stop, is_money_stop, is_pause, progressed, request_usd_micros, starts_replacement)
 
 APP_NAME = "unbug-factory-engine"
 APP_VERSION = "factory-engine-1"   # pinned for the life of the database: DBOS recovers only matching versions
@@ -108,18 +108,16 @@ def raise_bound_step(batch_id: str, bound: int) -> None:
 
 
 @DBOS.step(**SEAM)
-def rescope_inputs_step(batch_id: str, case_id: str, inputs: dict) -> dict:
-    return to_record(_ex().rescope_inputs(batch_id, case_id, Ref(**inputs)))
-
-
-@DBOS.step(**SEAM)
 def seal_history_step(case_id: str, history: list) -> dict:
     return to_record(_ex().seal_history(case_id, history))
 
 
 @DBOS.step(**SEAM)
-def lease_step(case_id: str, plumbing_version: str, bench_version: str) -> str:
-    return _ex().lease_for(case_id, plumbing_version, bench_version).worker_id
+def lease_step(case_id: str, plumbing_version: str, bench_version: str) -> dict:
+    try:
+        return {"worker_id": _ex().lease_for(case_id, plumbing_version, bench_version).worker_id, "reason": None}
+    except SeamError as error:
+        return {"worker_id": None, "reason": error.code}
 
 
 @DBOS.step(**SEAM)
@@ -139,18 +137,18 @@ def release_unstarted_step(si: dict) -> None:
 
 
 @DBOS.step(**SEAM)
-def cancel_step(si: dict, started_at: float) -> bool:
-    return _ex().cancel(step_input_from_record(si), started_at)
+def cancel_step(si: dict, started_at: float, worker_id: str) -> bool:
+    return _ex().cancel(step_input_from_record(si), started_at, worker_id)
 
 
 @DBOS.step()
-def attempt_step(si: dict, started_at: float) -> dict:
+def attempt_step(si: dict, started_at: float, worker_id: str) -> dict:
     """The attempt itself. Rerun after a crash, it attaches to the same worker attempt: the
     worker refuses a second start of the same key, and poll returns the first result."""
     step_input = step_input_from_record(si)
     if _RT.executor is None:
         return to_record(StepResult(Outcome.INFRA_ERROR, "engine:executor_raised"))
-    return to_record(guarded_run(_RT.executor.bound(started_at), step_input))
+    return to_record(guarded_run(_RT.executor.bound(started_at, WorkerLease(worker_id, step_input.case_id)), step_input))
 
 
 @DBOS.step(**SEAM)
@@ -193,23 +191,53 @@ def attempt_workflow(job: dict) -> dict:
     """One attempt, run while holding one queue slot: read the registry (ADMIT), reserve, check
     the minimum grant, cancel attempt n-1, run, settle."""
     si = step_input_from_record(job["input"])
+    # Events are read only once this attempt has both of its queue slots. A release
+    # received while it was queued must apply to the step that starts afterwards.
+    plumbing = DBOS.get_event(si.batch_id, "plumbing", timeout_seconds=5.0) or si.plumbing_version
+    bench = si.bench_version
+    if si.step.kind in (StepKind.GATES, StepKind.SEAL):
+        bench = DBOS.get_event(si.batch_id, "bench", timeout_seconds=5.0) or bench
+    if si.step.kind is StepKind.SEAL and (plumbing, bench) != (si.plumbing_version, si.bench_version):
+        return {"started": False, "action": Action.RERUN_GATES.value}
+    si = replace(si, plumbing_version=plumbing, bench_version=bench)
     if si.step.kind is StepKind.ADMIT:
         si = replace(si, registry=Ref(**latest_registry_step(si.batch_id, job["initial_registry"])))
     grant = Grant(**reserve_step(to_record(si), job["request"], job["case_limit"], job["draws"]))
     early = decide_grant(si.step, grant)
     if early is not None:
         release_unstarted_step(to_record(si))
+        DBOS.send(si.batch_id, {"kind": "settled"}, topic=CASE_EVENT)
         return {"started": False, "grant": to_record(grant), "action": early.value}
     si = replace(si, money_ceiling_usd_micros=grant.amount_usd_micros)
     if job["prev"] is not None:
-        cancel_step(job["prev"]["input"], job["prev"]["started_at"])
-    worker_id = lease_step(si.case_id, si.plumbing_version, si.bench_version)
+        cancel_step(job["prev"]["input"], job["prev"]["started_at"], job["prev"]["worker_id"])
+    lease = lease_step(si.case_id, si.plumbing_version, si.bench_version)
+    worker_id = lease["worker_id"]
+    if worker_id is None:
+        # No worker attempt can precede this recorded lease step. Free its grant,
+        # then let the case apply the normal infra retry policy to the safe reason.
+        release_unstarted_step(to_record(si))
+        DBOS.send(si.batch_id, {"kind": "settled"}, topic=CASE_EVENT)
+        return {"started": True, "grant": to_record(grant), "input": to_record(si),
+                "result": to_record(StepResult(Outcome.INFRA_ERROR, lease["reason"])),
+                "started_at": None, "worker_id": None}
     started_at = now_step()
-    result = attempt_step(to_record(si), started_at)
+    result = attempt_step(to_record(si), started_at, worker_id)
     settle_step(to_record(si), result)
     DBOS.send(si.batch_id, {"kind": "settled"}, topic=CASE_EVENT)   # waiting cases wake on every settle
     return {"started": True, "grant": to_record(grant), "input": to_record(si), "result": result,
             "started_at": started_at, "worker_id": worker_id}
+
+
+@DBOS.workflow(max_recovery_attempts=None)
+def slot_workflow(job: dict) -> dict:
+    """Every attempt holds a global slot; ADMIT additionally holds the serial queue."""
+    si = step_input_from_record(job["input"])
+    if si.step.kind is StepKind.ADMIT:
+        queue = DBOS.retrieve_queue(admit_queue(si.batch_id))
+        with SetWorkflowID(f"{si.idempotency_key}/admit"):
+            return queue.enqueue(attempt_workflow, job).get_result()
+    return attempt_workflow(job)
 
 
 # ---- the case workflow ---------------------------------------------------------------------------
@@ -277,9 +305,15 @@ class _Case:
             self.tell("line_stopped", action=action.value)
 
     def finish(self, status: str) -> None:
+        self.release_worker()
         self.status = status
         self.card()
         raise _Stop(status)
+
+    def release_worker(self) -> None:
+        if self.worker_id is not None:
+            release_step(self.case_id, self.worker_id)
+            self.worker_id = None
 
     def current(self, name: str) -> str:
         value = DBOS.get_event(self.batch_id, name, timeout_seconds=5.0)
@@ -293,6 +327,7 @@ class _Case:
         self.seq += 1
         self.stage = step.name
         attempt, infra, limits, free, late, prev = 0, 0, 0, 0, 0, None
+        requested_minimum = 0
         admit = step.kind is StepKind.ADMIT
         while True:
             attempt += 1
@@ -305,14 +340,16 @@ class _Case:
                            evidence=tuple(evidence))
             counters = self.counters(infra, limits, free, late)
             job = {"input": to_record(si), "initial_registry": self.initial_registry,
-                   "request": request_usd_micros(step, counters, self.spec),
+                   "request": max(requested_minimum, request_usd_micros(step, counters, self.spec)),
                    "case_limit": self.spec.case_money_usd_micros, "draws": draws_case_money(step, counters),
                    "prev": prev}
-            queue = DBOS.retrieve_queue(admit_queue(self.batch_id) if admit else steps_queue(self.batch_id))
+            queue = DBOS.retrieve_queue(steps_queue(self.batch_id))
             with SetWorkflowID(si.idempotency_key):
-                out = queue.enqueue(attempt_workflow, job).get_result()
+                out = queue.enqueue(slot_workflow, job).get_result()
             if not out["started"]:
                 action = Action(out["action"])
+                if action is Action.RERUN_GATES:
+                    return action, None
                 self.history.append({"seq": self.seq, "step": step.name, "attempt": attempt,
                                      "outcome": "not_started", "action": action.value})
                 if action is Action.WAIT_FOR_BOUND:
@@ -322,8 +359,12 @@ class _Case:
                 return action, None
             result = step_result_from_record(out["result"])
             grant = Grant(**out["grant"])
-            prev = {"input": out["input"], "started_at": out["started_at"]}
-            self.worker_id = out["worker_id"]
+            if out["worker_id"] is not None:
+                prev = {"input": out["input"], "started_at": out["started_at"], "worker_id": out["worker_id"]}
+                self.worker_id = out["worker_id"]
+            if step.kind is StepKind.GATES:
+                self.bench = out["input"]["bench_version"]
+                self.gates_versions = (out["input"]["plumbing_version"], self.bench)
             self.absorb(step, attempt, result)
             # A batch-deadline stop after deadline_epoch (or an operator pause) is never counted as
             # an infra error: the batch deadline stops new cases and extensions, not this step.
@@ -341,6 +382,11 @@ class _Case:
             if step.kind is StepKind.DIAGNOSIS and result.outcome is Outcome.OK:
                 return None, result
             action = decide(step, result, self.counters(infra, limits, free, late), self.spec, grant=grant, now=now)
+            if (action is Action.RETRY and is_money_stop(result) and result.usage.paid_usd_micros == 0
+                    and grant.limited_by is LimitedBy.NOTHING and not job["draws"]):
+                # The next call did not fit even though the whole request was granted.
+                # Grow only until the ledger applies the batch bound; never spin on the same grant.
+                requested_minimum = min(2**63 - 1, max(job["request"] * 2, 1))
             if action is Action.RETRY and (late_stop or is_pause(result)):
                 # Wait before the retry, so a stop that repeats does not spin.
                 if _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s and self.worker_id is not None:
@@ -376,6 +422,7 @@ class _Case:
             self.failed_gate = r.gate if r.outcome is Outcome.GATE_FAILED else None
 
     def wait_for_bound(self) -> None:
+        self.release_worker()
         self.status = "waiting_for_bound"
         self.card()
         self.tell("waiting")
@@ -390,7 +437,6 @@ class _Case:
             self.tell("stop_admission")
             self.finish("stopped_admission")
         assert action is Action.ADVANCE, action
-        self.inputs = Ref(**rescope_inputs_step(self.batch_id, self.case_id, to_record(self.spec.inputs)))
         self.card()
         phase, feedback, ruling = "writer", None, None
         while True:
@@ -429,7 +475,6 @@ class _Case:
                     self.ext_after = r.passed               # the extension ends at its GATES result
                 self.in_extension = False
                 if action is Action.ADVANCE:
-                    self.gates_versions = versions
                     phase = "seal"
                 elif action is Action.REPAIR:
                     self.round += 1
@@ -442,6 +487,9 @@ class _Case:
                     phase = "gates"                          # SEAL runs only under the passing GATES versions
                     continue
                 action, r = self.run_seq(Step(StepKind.SEAL), versions=self.gates_versions)
+                if action is Action.RERUN_GATES:
+                    phase = "gates"
+                    continue
                 if action is Action.ADVANCE:
                     self.sealed = {"archive": to_record(r.archive), "hard": r.hard}
                     self.stage = "sealed"
@@ -488,6 +536,7 @@ class _Case:
     def escalate(self) -> Ref:
         """Park until a FOUNDER_REPLY. CONTINUE returns the ruling for the rerun; RETIRE retires."""
         self.stop_line(Action.ESCALATE)
+        self.release_worker()
         self.status = "escalated"
         self.card()
         while True:

@@ -50,11 +50,14 @@ class StepSequence(unittest.TestCase):
                                      ("4", "gates:1", "1"), ("5", "seal", "1")])
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
         self.assertEqual([s["case_id"] for s in out["result"]["sealed"]], [C1])
-        # Every input opened on the worker with the keys it was sent. Only ADMIT got the batch
-        # key; the other steps opened INPUTS resealed in the case scope.
+        self.assertTrue(any(x["op"] == "release" and x["case"] == C1 for x in r.pool_log()))
+        # Only ADMIT receives the batch key. Later steps use their restored case snapshot.
         for x in r.starts(1):
             self.assertIsNotNone(x["opened"], x["key"])
-            self.assertEqual(x["opened"]["inputs"], "inputs: app pin and promise")
+            if x["key"].split("/")[2] == "admit":
+                self.assertEqual(x["opened"]["inputs"], "inputs: app pin and promise")
+            else:
+                self.assertNotIn("inputs", x["opened"])
         self.assertEqual(start(r, f"{C1}/2/writer:1/1")["opened"]["snapshot"], f"snapshot {C1}/1/admit/1")
         # The grant is the ceiling: what the case's own money has left (each attempt pays 1000).
         self.assertEqual([x["ceiling"] for x in r.starts(1)], [50 * M - 1000 * i for i in range(5)])
@@ -98,6 +101,38 @@ class StepSequence(unittest.TestCase):
 
 
 class Outcomes(unittest.TestCase):
+    def test_pool_failure_releases_the_grant_and_retries(self):
+        r, out = run({"pool_failures": 1, "spec": {"max_cases_started": 1}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        key = f"{C1}/1/admit/1"
+        self.assertFalse(any(x["key"] == key for x in r.starts()))
+        self.assertEqual([x["op"] for x in r.ledger_log() if x.get("key") == key], ["reserve", "settle"])
+        self.assertEqual(out["ledger"]["batches"]["b-t"]["held"], 0)
+
+    def test_admit_and_other_steps_share_the_concurrency_limit(self):
+        r, out = run({"spec": {"target_sealed": 2, "max_concurrency": 1},
+                      "script": {"1/admit/1": {"outcome": "provider_limit", "reason": "router:claude_limit",
+                                               "retry_in": 1.5, "paid": 0},
+                                 "2/writer:1/1": {"dur": 3.0}}})
+        self.addCleanup(r.close)
+        self.assertEqual(set(out["result"]["cases"].values()), {"sealed"})
+        ran = {x["key"]: x["done_at"] for x in r.worker_log() if x["op"] == "ran"}
+        spans = sorted((x["t"], ran[x["key"]], x["key"]) for x in r.starts())
+        for previous, current in zip(spans, spans[1:]):
+            self.assertGreaterEqual(current[0], previous[1], (previous, current))
+
+    def test_batch_only_zero_spend_money_stop_increases_the_next_grant(self):
+        # A single call can exceed the finite request before any money is spent.
+        r, out = run({"spec": {"max_cases_started": 1, "money_bound_usd_micros": 500 * M},
+                      "script": {"1/writer:1/1": {"outcome": "exhausted", "reason": "writer:rounds"},
+                                 "1/diagnosis/1": {"outcome": "exhausted", "reason": "diagnosis:money", "paid": 0},
+                                 "1/diagnosis/2": {"verdict": "not_converging"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "retired"})
+        grants = [x["amount"] for x in r.ledger_log() if x["op"] == "reserve" and "/diagnosis/" in x["key"]]
+        self.assertEqual(grants, [50 * M, 100 * M])
+
     def test_infra_retries_then_diagnosis_with_the_engine_history(self):
         r, out = run({"spec": {"max_infra_retries_per_step": 2, "max_cases_started": 2},
                       "script": {"1/writer:1/*": {"outcome": "infra_error", "reason": "infra:stalled", "paid": 7000,
@@ -170,15 +205,15 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
     def test_a_free_limit_that_never_clears_gives_up(self):
-        # credential_expiring for a missing local secret: free, never clears. After 96 free limits
-        # on one step the 97th gives up to diagnosis instead of sleeping forever.
+        # credential_expiring for a missing local secret: free, never clears. The 96th
+        # free limit gives up to diagnosis instead of sleeping forever.
         never = {"outcome": "provider_limit", "reason": "router:credential_expiring", "retry_in": 0.01,
                  "paid": 0, "dur": 0.01}
         r, out = run({"spec": {"max_cases_started": 1},
                       "script": {"1/writer:1/*": never, "1/diagnosis/1": {"verdict": "not_converging"}}},
                      timeout=600)
         self.addCleanup(r.close)
-        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 97 + ["diagnosis"])
+        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 96 + ["diagnosis"])
         self.assertEqual(out["result"]["cases"], {C1: "retired"})
 
     def test_long_sleep_releases_the_worker(self):
@@ -270,6 +305,7 @@ class Escalation(unittest.TestCase):
                       "actions": [{"when": {"case": 1, "status": "escalated"}, "reply": {"action": "retire"}}]})
         self.addCleanup(r.close)
         self.assertEqual(out["result"]["cases"], {C1: "retired"})
+        self.assertTrue(any(x["op"] == "release" and x["case"] == C1 for x in r.pool_log()))
 
 
 class Money(unittest.TestCase):
@@ -329,6 +365,18 @@ class Money(unittest.TestCase):
 
 
 class Releases(unittest.TestCase):
+    def test_a_plumbing_release_reaches_a_step_waiting_in_the_queue(self):
+        p3 = "3" * 64
+        r, out = run({"spec": {"target_sealed": 2, "max_concurrency": 1},
+                      "script": {"2/admit/1": {"dur": 3.0}},
+                      "actions": [{"when": {"started": f"{C2}/1/admit/1"}, "plumbing": p3}]})
+        self.addCleanup(r.close)
+        release_at = start(r, f"{C2}/1/admit/1")["t"]
+        for x in r.starts():
+            if x["t"] > release_at + 2.0:
+                self.assertEqual(x["pv"], "3333", x["key"])
+        self.assertEqual(set(out["result"]["cases"].values()), {"sealed"})
+
     def test_seal_reruns_gates_after_a_release(self):
         p3, b4 = "3" * 64, "4" * 64
         r, out = run({"script": {"1/4/gates:1/1": {"dur": 1.5}},

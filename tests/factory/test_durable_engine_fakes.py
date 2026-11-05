@@ -232,11 +232,16 @@ def case_number(case_id):
 
 
 class FakePool:
-    def __init__(self, root):
+    def __init__(self, root, fail_acquires=0):
         self.f = _Files(root)
+        self.fail_acquires = fail_acquires
 
     def acquire(self, case_id, plumbing_version, bench_version):
         with self.f.locked():
+            failures = self.f.read("acquire-failures.json", 0)
+            if failures < self.fail_acquires:
+                self.f.write("acquire-failures.json", failures + 1)
+                raise RuntimeError("provider error containing a private path")
             s = self.f.read("pool.json", {})
             w = s.get(case_id)
             if w is None or w["dead"]:
@@ -354,6 +359,12 @@ class FakeWorker:
             if ref is None:
                 continue
             blob = frame["blobs"].get(f"{ref.digest}.{ref.kind.value}.age")
+            if name == "inputs" and si.step.kind is not StepKind.ADMIT:
+                # WP5a restores the runner settings from the case snapshot. The batch
+                # inputs ref is present, but later workers never receive the batch key.
+                if blob is None or si.batch_id in keys:
+                    return None
+                continue
             if ref.kind in BATCH_SCOPED and (si.step.kind is StepKind.ADMIT or ref.kind is ArtifactKind.STATEMENT_REGISTRY):
                 scope = si.batch_id
             else:
@@ -489,7 +500,7 @@ class FakeWorker:
 def build_fakes(state_dir, scenario):
     state = Path(state_dir)
     keys, sealer, store = FakeKeys(), FakeSealer(), FakeStore(state / "store")
-    pool, ledger = FakePool(state / "pool"), FakeLedger(state / "ledger")
+    pool, ledger = FakePool(state / "pool", scenario.get("pool_failures", 0)), FakeLedger(state / "ledger")
     worker = FakeWorker(state / "worker", pool, store, sealer, keys, scenario)
     return dict(keys=keys, sealer=sealer, store=store, pool=pool, ledger=ledger, worker=worker)
 
@@ -611,8 +622,9 @@ class EngineRun:
 
     def spawn(self, **popen):
         import subprocess
-        return subprocess.Popen([uv_python(), "-B", str(Path(__file__).resolve()), "engine", str(self.work)],
-                                stdout=open(self.work / "engine.out", "ab"), stderr=subprocess.STDOUT, **popen)
+        with open(self.work / "engine.out", "ab") as out:
+            return subprocess.Popen([uv_python(), "-B", str(Path(__file__).resolve()), "engine", str(self.work)],
+                                    stdout=out, stderr=subprocess.STDOUT, **popen)
 
     def run(self, timeout=120):
         p = self.spawn()

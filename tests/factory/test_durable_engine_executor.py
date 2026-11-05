@@ -1,16 +1,17 @@
 """WP1 executor (factory/durable/executor.py) against in-memory fakes of its seams.
 
 docs/designs/durable-execution-wp1.md: the executor composes pool, channel, ledger, store,
-sealer and keys; a transport failure is RUNNING; cancel-before-retry is confirmed by a poll and
-retried until the worker answers or deadline plus grace; unknown usage settles as lost; seam
-errors carry only a fixed code.
+sealer and keys; a transport failure is RUNNING; cancellation is reconciled until the worker
+answers or is proven dead; unknown usage settles as lost; seam errors carry only a fixed code.
 """
 import json
 import os
 from pathlib import Path
 import sys
 import tempfile
+from types import ModuleType
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "factory"), str(Path(__file__).resolve().parent)]
@@ -87,7 +88,6 @@ class Setup(unittest.TestCase):
         self.registry, ct = self.sealer.seal(bk, K.STATEMENT_REGISTRY, b"registry")
         self.store.put_sealed("b-t", self.registry, ct)
         self.snap = self.put("case-t-1", K.CASE_SNAPSHOT, b"snapshot")
-        self.case_inputs = None
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -104,9 +104,7 @@ class Setup(unittest.TestCase):
     def si(self, step=None, attempt=1, deadline=600.0, **kw):
         step = step or Step(StepKind.WRITER, 1)
         admit = step.kind is StepKind.ADMIT
-        if not admit and self.case_inputs is None:
-            self.case_inputs = self.ex(Channel([Poll(PollState.ABSENT)])).rescope_inputs("b-t", "case-t-1", self.inputs)
-        return StepInput("b-t", "case-t-1", 2, step, attempt, P, B, self.inputs if admit else self.case_inputs,
+        return StepInput("b-t", "case-t-1", 2, step, attempt, P, B, self.inputs,
                          None if admit else self.snap, deadline, 5_000_000,
                          registry=self.registry if admit else None, **kw)
 
@@ -121,7 +119,7 @@ class Run(Setup):
         self.assertIs(r.outcome, Outcome.OK)
         key, keys, blobs = ch.started[0]
         self.assertEqual(keys, ["case-t-1"])                          # only the case key
-        self.assertEqual(blobs, sorted([blob_name(self.case_inputs), blob_name(self.snap)]))
+        self.assertEqual(blobs, sorted([blob_name(self.inputs), blob_name(self.snap)]))
         self.assertEqual(self.pool.acquired, [("case-t-1", P, B)])
         ch = Channel([Poll(PollState.DONE, StepResult(Outcome.OK, "admit:pass", snapshot=self.snap,
                                                        registry=self.registry))])
@@ -130,19 +128,50 @@ class Run(Setup):
         self.assertEqual(ch.started[0][2], sorted([blob_name(self.inputs), blob_name(self.registry)]))
 
     def test_absent_and_lost_workers(self):
-        r = self.ex(Channel([Poll(PollState.ABSENT)])).run(self.si())
+        cancelled = Poll(PollState.DONE, StepResult(Outcome.INFRA_ERROR, "infra:cancelled"))
+        r = self.ex(Channel([Poll(PollState.ABSENT)], on_cancel=cancelled)).run(self.si())
         self.assertEqual(r.reason, "infra:attempt_absent")
         self.pool.dead = True
         ckpt = self.put("case-t-1", K.CASE_SNAPSHOT, b"checkpoint")
         r = self.ex(Channel([Poll(PollState.RUNNING, checkpoint=ckpt), None])).run(self.si())
         self.assertEqual((r.reason, r.snapshot), ("infra:worker_lost", ckpt))   # a retry may restore it
 
-    def test_transport_failure_is_running_until_deadline_plus_grace(self):
-        ch = Channel([None])
-        r = self.ex(ch).run(self.si(deadline=600.0), started_at=self.clock())
-        self.assertEqual(r.reason, "infra:cancelled")
-        self.assertGreaterEqual(self.clock.t, 1000.0 + 600.0 + 100.0)
-        self.assertGreater(ch.cancels, 1)                              # the cancel was retried
+    def test_late_done_survives_a_prolonged_unconfirmed_cancel(self):
+        late = self.ok()
+        ch = Channel([None] * 30 + [Poll(PollState.DONE, late)])
+        r = self.ex(ch).run(self.si(deadline=1.0), started_at=self.clock())
+        self.assertEqual(r, late)
+        self.assertGreater(ch.cancels, 10)
+
+    def test_long_transfer_does_not_cancel_a_newly_started_worker(self):
+        clock = self.clock
+        class SlowStart(Channel):
+            def start(self, lease, si, keys, blobs):
+                clock.sleep(700.0)  # transfer lasted beyond the control-side deadline
+                super().start(lease, si, keys, blobs)
+        late = self.ok()
+        ch = SlowStart([Poll(PollState.RUNNING)] * 15 + [Poll(PollState.DONE, late)])
+        result = self.ex(ch).run(self.si(deadline=600.0), started_at=clock())
+        self.assertEqual(result, late)
+        self.assertEqual(ch.cancels, 0)
+
+    def test_replay_with_unavailable_inputs_recovers_the_worker_result(self):
+        late = self.ok()
+        ch = Channel([Poll(PollState.RUNNING), Poll(PollState.DONE, late)])
+        class FlakyStore:
+            def __init__(self, store):
+                self.store = store
+            def get_sealed(self, scope, ref):
+                if ref.kind is K.INPUTS:
+                    raise OSError("temporary read failure")
+                return self.store.get_sealed(scope, ref)
+            def exists(self, scope, ref):
+                return self.store.exists(scope, ref)
+        ex = self.ex(ch)
+        ex.store = FlakyStore(self.store)
+        result = ex.run(self.si(), lease=WorkerLease("w-1", "case-t-1"))
+        self.assertEqual(result, late)
+        self.assertFalse(ch.started)
 
     def test_cancel_after_the_deadline_takes_a_confirmed_result(self):
         late = StepResult(Outcome.INFRA_ERROR, "infra:deadline", Usage(1, 900, 900))
@@ -155,6 +184,23 @@ class Run(Setup):
         missing = self.sealer.seal(self.keys.scope_key("case-t-1"), K.GATE_RECEIPT, b"never stored")[0]
         r = self.ex(Channel([Poll(PollState.DONE, self.ok(receipt=missing))])).run(self.si())
         self.assertEqual((r.reason, r.usage.paid_usd_micros), ("infra:output_missing", 300))
+
+    def test_corrupt_output_or_checkpoint_is_never_recorded(self):
+        si = self.si()
+        self.store._path(si.case_id, self.snap).write_bytes(b"corrupt ciphertext")
+        r = self.ex(Channel([Poll(PollState.DONE, self.ok())])).run(si)
+        self.assertEqual((r.outcome, r.reason, r.usage.paid_usd_micros),
+                         (Outcome.INFRA_ERROR, "infra:output_invalid", 300))
+        self.pool.dead = True
+        r = self.ex(Channel([Poll(PollState.RUNNING, checkpoint=self.snap)])).run(si)
+        self.assertIsNone(r.snapshot)
+
+    def test_ciphertext_encrypted_for_another_case_is_not_valid_output(self):
+        si = self.si()
+        wrong = self.sealer.seal(self.keys.scope_key("case-t-2"), K.CASE_SNAPSHOT, b"other")[1]
+        self.store._path(si.case_id, self.snap).write_bytes(wrong)
+        r = self.ex(Channel([Poll(PollState.DONE, self.ok())])).run(si)
+        self.assertEqual(r.reason, "infra:output_invalid")
 
     def test_dispatch_failure_never_raises(self):
         class Broken(Pool):
@@ -185,6 +231,27 @@ class CancelBeforeRetry(Setup):
 
 
 class Settle(Setup):
+    def test_only_the_pool_error_type_can_supply_a_reason(self):
+        workers = ModuleType("durable.workers")
+        class PoolError(Exception):
+            def __init__(self, reason):
+                self.reason = reason
+        workers.PoolError = PoolError
+        class Broken(Pool):
+            def __init__(self, error):
+                super().__init__()
+                self.error = error
+            def acquire(self, *args):
+                raise self.error
+        for error, expected in ((PoolError("infra:release_missing"), "infra:release_missing"),
+                                (RuntimeError("private/path"), "infra:pool_failed")):
+            ex = Executor(Broken(error), None, self.ledger, self.store, self.sealer, self.keys)
+            with patch.dict(sys.modules, {"durable.workers": workers}):
+                with self.assertRaises(SeamError) as caught:
+                    ex.lease_for("case-t-1", P, B)
+            self.assertEqual(caught.exception.code, expected)
+            self.assertIsNone(caught.exception.__context__)
+
     def reserve(self, si):
         return self.ex(None).reserve(si, request=5_000_000, case_limit=50_000_000, draws_case_money=True)
 
@@ -218,6 +285,23 @@ class Settle(Setup):
 
 
 class Sealing(Setup):
+    def test_real_store_rejects_output_with_the_wrong_digest(self):
+        from durable.artifacts import AgeSealer, local_store
+        sealer, store = AgeSealer(), local_store(Path(self.tmp.name) / "real-output-store")
+        batch_key, case_key = self.keys.scope_key("b-t"), self.keys.scope_key("case-t-1")
+        inputs, ct = sealer.seal(batch_key, K.INPUTS, b"public practice input")
+        store.put_sealed("b-t", inputs, ct)
+        snapshot, _ = sealer.seal(case_key, K.CASE_SNAPSHOT, b"expected")
+        _, wrong_ct = sealer.seal(case_key, K.CASE_SNAPSHOT, b"different bytes")
+        store.put_sealed("case-t-1", snapshot, wrong_ct)
+        si = StepInput("b-t", "case-t-1", 2, Step(StepKind.WRITER, 1), 1, P, B,
+                       inputs, snapshot, 600, 5_000_000)
+        done = StepResult(Outcome.OK, "writer:pass", Usage(1, 300, 300), snapshot=snapshot)
+        ex = Executor(self.pool, Channel([Poll(PollState.DONE, done)]), self.ledger, store, sealer, self.keys,
+                      poll_interval_s=10, grace_s=100, clock=self.clock, sleep=self.clock.sleep)
+        result = ex.run(si)
+        self.assertEqual((result.reason, result.usage.paid_usd_micros), ("infra:output_invalid", 300))
+
     def test_history_is_a_case_scoped_diagnostic(self):
         history = [{"seq": 1, "step": "admit", "attempt": 1, "outcome": "ok", "reason": "admit:pass"}]
         ref = self.ex(None).seal_history("case-t-1", history)
@@ -227,13 +311,29 @@ class Sealing(Setup):
         with self.assertRaises(ValueError):
             self.sealer.open(self.keys.scope_key("b-t"), ref, ct)
 
-    def test_inputs_are_resealed_into_the_case_scope(self):
-        ref = self.ex(None).rescope_inputs("b-t", "case-t-1", self.inputs)
-        self.assertIs(ref.kind, K.INPUTS)
-        self.assertNotEqual(ref.digest, self.inputs.digest)
-        ct = self.store.get_sealed("case-t-1", ref)
-        self.assertEqual(self.sealer.open(self.keys.scope_key("case-t-1"), ref, ct), b"inputs")
-        self.assertEqual(self.ex(None).rescope_inputs("b-t", "case-t-1", self.inputs), ref)   # idempotent
+    def test_inputs_keep_the_batch_scope_with_the_real_store(self):
+        from durable.artifacts import AgeSealer, ArtifactError, local_store
+        sealer, store = AgeSealer(), local_store(Path(self.tmp.name) / "real-store")
+        inputs, ciphertext = sealer.seal(self.keys.scope_key("b-t"), K.INPUTS, b"public practice input")
+        store.put_sealed("b-t", inputs, ciphertext)
+        snapshot, ciphertext = sealer.seal(self.keys.scope_key("case-t-1"), K.CASE_SNAPSHOT, b"snapshot")
+        store.put_sealed("case-t-1", snapshot, ciphertext)
+        si = StepInput("b-t", "case-t-1", 2, Step(StepKind.WRITER, 1), 1, P, B,
+                       inputs, snapshot, 600, 5_000_000)
+        class Capture(Channel):
+            def start(self, lease, step_input, keys, blobs):
+                self.keys, self.blobs = keys, blobs
+        cancelled = Poll(PollState.DONE, StepResult(Outcome.INFRA_ERROR, "infra:cancelled"))
+        channel = Capture([Poll(PollState.ABSENT)], on_cancel=cancelled)
+        ex = Executor(self.pool, channel, self.ledger, store, sealer, self.keys,
+                      poll_interval_s=10, grace_s=100, clock=self.clock, sleep=self.clock.sleep)
+        self.assertEqual(ex.run(si).reason, "infra:attempt_absent")
+        self.assertEqual(set(channel.keys), {"case-t-1"})
+        self.assertEqual(channel.blobs[blob_name(inputs)], store.get_sealed("b-t", inputs))
+        with self.assertRaises(ArtifactError):
+            sealer.open(channel.keys["case-t-1"], inputs, channel.blobs[blob_name(inputs)])
+        with self.assertRaises(ArtifactError):
+            store.get_sealed("case-t-1", inputs)
 
 
 if __name__ == "__main__":

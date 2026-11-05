@@ -180,6 +180,9 @@ its own line of work stops (DIAGNOSE, RETIRE, ESCALATE or HOLD). No replacement 
 after STOP_ADMISSION, after the deadline, or beyond `max_cases_started`. If both an
 extended original and its replacement seal, both are kept.
 
+For these case limits, "starts" means a recorded admission decision under the cutoff;
+workflow creation and execution can occur later during recovery or queueing.
+
 **Slots.** A case holds a `max_concurrency` slot while it runs model steps,
 including DIAGNOSIS and EXTEND. A parked, held or retired case holds none.
 

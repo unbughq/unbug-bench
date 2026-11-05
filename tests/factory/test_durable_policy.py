@@ -16,7 +16,7 @@ os.environ.setdefault("BENCH", str(ROOT))
 from durable.contract import (ArtifactKind as K, BatchSpec, ContractError, Grant, LimitedBy, Outcome, Ref, Step,
                               StepKind, StepResult, Usage, Verdict)
 from durable.policy import (BATCH_ONLY_FLOOR_USD_MICROS, GATES_DEADLINE_S, MAX_FREE_LIMITS_PER_STEP, MIN_GRANT_USD_MICROS,
-                            MAX_DEADLINE_STOPS_PER_STEP, Action, Counters, is_money_stop,
+                            Action, Counters, is_money_stop,
                             deadline_s, decide, decide_diagnosis, decide_grant, draws_case_money, is_pause, progressed,
                             request_usd_micros, settles_as_waste, settles_lost, starts_replacement)
 
@@ -72,6 +72,8 @@ class Decide(unittest.TestCase):
         # A round limit under a batch-limited grant is not a money wait (review 4, N1).
         rounds = StepResult(Outcome.EXHAUSTED, "writer:rounds", Usage(paid_usd_micros=2))
         self.assertIs(decide(GATES, rounds, Counters(), SPEC, grant=Grant(7, LimitedBy.BATCH)), Action.DIAGNOSE)
+        rounds = StepResult(Outcome.EXHAUSTED, "writer:rounds", Usage(paid_usd_micros=7))
+        self.assertIs(decide(GATES, rounds, Counters(), SPEC, grant=Grant(7, LimitedBy.BATCH)), Action.DIAGNOSE)
 
     def test_diagnosis_and_extensions_never_draw_case_money(self):
         # Review 4, finding 1: a case that ran out of its own money still gets its
@@ -98,6 +100,13 @@ class Decide(unittest.TestCase):
         none = StepResult(Outcome.EXHAUSTED, "diagnosis:money")
         self.assertIs(decide(DIAG, none, Counters(), SPEC, grant=Grant(0, LimitedBy.BATCH)), Action.RETIRE)
 
+    def test_a_batch_only_money_stop_before_the_grant_retries(self):
+        # A call can be refused before it starts when its maximum exceeds the remaining grant.
+        for paid in (0, 49_000_000):
+            stop = StepResult(Outcome.EXHAUSTED, "diagnosis:money", Usage(paid_usd_micros=paid))
+            self.assertIs(decide(DIAG, stop, Counters(), SPEC,
+                                 grant=Grant(50_000_000, LimitedBy.NOTHING)), Action.RETRY)
+
     def test_broken_runs_settle_as_waste(self):
         self.assertTrue(settles_as_waste(StepResult(Outcome.INFRA_ERROR, "infra:attempt_busy", Usage(paid_usd_micros=3))))
         self.assertTrue(settles_as_waste(StepResult(Outcome.PROVIDER_LIMIT, "router:claude_limit", Usage(paid_usd_micros=3), retry_at=1.0)))
@@ -108,14 +117,14 @@ class Decide(unittest.TestCase):
     def test_free_limits_sleep_until_a_cap(self):
         limit = StepResult(Outcome.PROVIDER_LIMIT, "router:claude_limit", retry_at=1.0)
         self.assertIs(d(GATES, limit), Action.SLEEP)
-        self.assertIs(d(GATES, limit, step_free_limits=MAX_FREE_LIMITS_PER_STEP), Action.SLEEP)
+        self.assertIs(d(GATES, limit, step_free_limits=MAX_FREE_LIMITS_PER_STEP - 1), Action.SLEEP)
         # A limit that never clears (credential_expiring for a missing local secret) gives up
         # like any other exhausted retry, instead of sleeping forever.
         never = StepResult(Outcome.PROVIDER_LIMIT, "router:credential_expiring", retry_at=1.0)
         self.assertEqual(MAX_FREE_LIMITS_PER_STEP, 96)
-        self.assertIs(d(GATES, never, step_free_limits=97), Action.DIAGNOSE)
-        self.assertIs(d(DIAG, never, step_free_limits=97), Action.RETIRE)
-        self.assertIs(d(ADMIT, never, step_free_limits=97), Action.STOP_ADMISSION)
+        self.assertIs(d(GATES, never, step_free_limits=96), Action.DIAGNOSE)
+        self.assertIs(d(DIAG, never, step_free_limits=96), Action.RETIRE)
+        self.assertIs(d(ADMIT, never, step_free_limits=96), Action.STOP_ADMISSION)
 
     def test_a_diagnosis_is_never_diagnosed(self):
         for r, counts in ((StepResult(Outcome.INFRA_ERROR, "diagnosis:malformed"), dict(step_infra_errors=6)),
@@ -182,15 +191,13 @@ class Settlements(unittest.TestCase):
 
     def test_a_batch_deadline_stop_never_diagnoses_a_running_case(self):
         # WP4 maps retired_batch_bound and provider_wait_deadline to infra:deadline. After
-        # deadline_epoch (2e9 here) it retries outside the infra allowance, up to its own cap.
+        # deadline_epoch (2e9 here) it retries outside the infra allowance without diagnosis.
         stop = StepResult(Outcome.INFRA_ERROR, "infra:deadline")
         late = dict(grant=Grant(0, LimitedBy.NOTHING), now=2e9 + 1)
         self.assertIs(decide(GATES, stop, Counters(step_infra_errors=50, step_deadline_stops=1), SPEC, **late),
                       Action.RETRY)
-        self.assertIs(decide(GATES, stop, Counters(step_deadline_stops=MAX_DEADLINE_STOPS_PER_STEP), SPEC, **late),
-                      Action.RETRY)
-        self.assertIs(decide(GATES, stop, Counters(step_deadline_stops=MAX_DEADLINE_STOPS_PER_STEP + 1), SPEC, **late),
-                      Action.DIAGNOSE)
+        for count in (96, 97, 1000):
+            self.assertIs(decide(GATES, stop, Counters(step_deadline_stops=count), SPEC, **late), Action.RETRY)
         # Before the deadline (or without a clock) it is an ordinary counted infra error.
         self.assertIs(decide(GATES, stop, Counters(step_infra_errors=6), SPEC, now=2e9 - 1), Action.DIAGNOSE)
         self.assertIs(decide(GATES, stop, Counters(step_infra_errors=6), SPEC), Action.DIAGNOSE)
@@ -226,6 +233,13 @@ class Diagnosis(unittest.TestCase):
         self.assertIs(self.dd(Verdict.CLOSE_TO_PASSING, True, extensions_used=4), Action.EXTEND)
         self.assertIs(self.dd(Verdict.CLOSE_TO_PASSING, True, extensions_used=5), Action.RETIRE)
         self.assertIs(self.dd(Verdict.NOT_CONVERGING, True), Action.RETIRE)
+
+    def test_founder_maxima_cannot_be_raised_by_a_batch_spec(self):
+        spec = BatchSpec(**{**SPEC.__dict__, "max_extensions": 99, "max_factory_bug_resumes": 99})
+        self.assertIs(decide_diagnosis(Verdict.CLOSE_TO_PASSING, progressed=True,
+                                       counters=Counters(extensions_used=5), spec=spec), Action.RETIRE)
+        self.assertIs(decide_diagnosis(Verdict.FACTORY_BUG, progressed=True,
+                                       counters=Counters(factory_bug_resumes=3), spec=spec), Action.RETIRE)
 
     def test_progress(self):
         self.assertTrue(progressed(("G1", "G2"), ("G1", "G2", "G3")))

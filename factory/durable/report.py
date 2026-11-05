@@ -108,6 +108,14 @@ def load_cards(batch_id: str, *, timeout_s: float = 1.0) -> list:
     cards = []
     for case_id in case_ids:
         card = DBOS.get_event(case_id, "card", timeout_seconds=timeout_s)
+        workflow = DBOS.get_workflow_status(case_id)
+        failed = workflow is not None and workflow.status in ("ERROR", "CANCELLED", "MAX_RECOVERY_ATTEMPTS_EXCEEDED")
+        if failed:
+            # A failed workflow cannot update its own event. Keep any previously
+            # published, content-free facts but show the actual terminal status.
+            card = dict(card or {"case_id": case_id, "stage": "admit", "passed": [], "failed_gate": None,
+                                 "writer_rounds": 0, "extensions": 0, "replacement_of": None})
+            card["status"] = "engine_error"
         if card is not None:
             cards.append(card)
     return cards

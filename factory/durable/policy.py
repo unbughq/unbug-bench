@@ -36,9 +36,8 @@ PAUSE_REASONS = frozenset({"infra:paused"})
 # WP4 maps the runner's batch-deadline stops (retired_batch_bound, provider_wait_deadline) to
 # this code, which a worker's own deadline kill also uses. After deadline_epoch the two cannot be
 # told apart; the batch deadline only stops new cases and extensions, so after it such a stop
-# retries outside the infra allowance, up to the same cap as free limits.
+# retries outside the infra allowance and must not be diagnosed as a case defect.
 DEADLINE_REASON = "infra:deadline"
-MAX_DEADLINE_STOPS_PER_STEP = 96
 # Results whose usage the engine cannot know: they book the whole grant as waste (settle_lost).
 LOST_REASONS = frozenset({"infra:cancelled", "infra:worker_lost", "infra:attempt_absent",
                           "engine:executor_raised", "engine:executor_bad_result"})
@@ -58,6 +57,7 @@ class Action(str, Enum):
     STOP_ADMISSION = "stop_admission"  # ADMIT cannot find a bug: retire this case and start no new cases
     WAIT_FOR_BOUND = "wait_for_bound"  # usage reached a BATCH grant, or a BATCH grant was below the minimum:
                                        # wait for any settle or BOUND_RAISED, then RETRY
+    RERUN_GATES = "rerun_gates"        # a release changed before a queued SEAL could start
 
 
 @dataclass(frozen=True)
@@ -105,7 +105,7 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
         # local secret raised as credential_expiring).
         if counters.step_spent_limits > spec.max_spent_limits_per_step:
             return give_up()
-        if counters.step_free_limits > MAX_FREE_LIMITS_PER_STEP:
+        if counters.step_free_limits >= MAX_FREE_LIMITS_PER_STEP:
             return give_up()
         return Action.SLEEP
     if o is Outcome.INFRA_ERROR:
@@ -113,7 +113,7 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
             return Action.RETRY                   # never scored, never counted, never diagnosed
         if is_batch_deadline_stop(result, spec, now):
             # The batch deadline stops new cases and extensions, not a running case's step.
-            return Action.RETRY if counters.step_deadline_stops <= MAX_DEADLINE_STOPS_PER_STEP else give_up()
+            return Action.RETRY
         return Action.RETRY if counters.step_infra_errors <= spec.max_infra_retries_per_step else give_up()
     if o is Outcome.GATE_FAILED:
         if not result.repairable:
@@ -122,13 +122,13 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
     if o is Outcome.EXHAUSTED:
         # A zero grant is never "used up": the engine does not start attempts below its minimum
         # grant, and treating $0 as spent would retry forever.
-        used_grant = grant.amount_usd_micros > 0 and result.usage.paid_usd_micros >= grant.amount_usd_micros
-        if grant.limited_by is LimitedBy.BATCH and (used_grant or (grant.amount_usd_micros > 0 and is_money_stop(result))):
+        money_stop = grant.amount_usd_micros > 0 and is_money_stop(result)
+        if grant.limited_by is LimitedBy.BATCH and money_stop:
             # The batch ran out under it, not the case and not a round limit. A money stop counts
             # even below the grant: the runner refuses a call whose route maximum does not fit what
             # is left (budget.py money_wait), so usage never reaches a grant smaller than one call.
             return Action.WAIT_FOR_BOUND
-        if used_grant and not draws_case_money(step, counters):
+        if money_stop and not draws_case_money(step, counters):
             return Action.RETRY                   # a batch-only step outgrew its grant: plumbing, not a case result
         return give_up()
     if o is Outcome.NEEDS_FOUNDER:
@@ -211,9 +211,9 @@ def decide_diagnosis(verdict: Verdict, *, progressed: bool, counters: Counters, 
     """What a diagnosis verdict allows. Code enforces the limits; the agent only proposes."""
     verdict = Verdict(verdict)
     if verdict is Verdict.FACTORY_BUG:
-        return Action.HOLD if counters.factory_bug_resumes < spec.max_factory_bug_resumes else Action.RETIRE
+        return Action.HOLD if counters.factory_bug_resumes < min(spec.max_factory_bug_resumes, 3) else Action.RETIRE
     if verdict is Verdict.CLOSE_TO_PASSING:
-        allowed = counters.extensions_used < spec.max_extensions
+        allowed = counters.extensions_used < min(spec.max_extensions, 5)
         needs_progress = counters.extensions_used >= 1   # a further extension needs progress
         return Action.EXTEND if allowed and (progressed or not needs_progress) else Action.RETIRE
     return Action.RETIRE
