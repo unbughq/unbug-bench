@@ -76,10 +76,15 @@ class BudgetDebitTests(unittest.TestCase):
         resolve=Path.resolve; is_dir=Path.is_dir; iterdir=Path.iterdir
         with tempfile.TemporaryDirectory() as temporary:
             base=Path(temporary).resolve()
+            spend=Path(decision['spend_path']); state=Path(decision['state_path'])
+            # Map only the synthetic VM paths this test builds. The spend path shares
+            # the /home/user/unbug-bench prefix with a checkout there, so a blanket
+            # /home/user mapping would also capture the repository's own files.
+            vm_roots=(spend,spend.with_suffix('.deletions'),state)
+            def vm(path): return any(Path(path).is_relative_to(root) for root in vm_roots)
             def mapped(path):
                 path=Path(path)
-                return base/path.relative_to('/home/user') if path.is_relative_to('/home/user') else path
-            spend=Path(decision['spend_path']); state=Path(decision['state_path'])
+                return base/path.relative_to('/home/user') if vm(path) else path
             mapped(state).mkdir(parents=True); mapped(spend).parent.mkdir(parents=True)
             data=deepcopy(SAVED['spend_metadata'])
             if selector=='smoke': data.pop('finished_at',None)
@@ -102,7 +107,7 @@ class BudgetDebitTests(unittest.TestCase):
                 if selector=='smoke' and path.name in ('deletion-request.json','deletion-completion.json'):
                     return decision['deletion_request_sha256' if path.name=='deletion-request.json' else 'deletion_completion_sha256']
                 return original_sha(path)
-            with patch.object(life,'regular',side_effect=lambda path:original_regular(mapped(path))), patch.object(life,'sha256',side_effect=digest), patch.object(Path,'resolve',lambda path,*a,**k:path if path.is_relative_to('/home/user') else resolve(path,*a,**k)), patch.object(Path,'is_dir',lambda path:is_dir(mapped(path))), patch.object(Path,'iterdir',lambda path:iterdir(mapped(path))):
+            with patch.object(life,'regular',side_effect=lambda path:original_regular(mapped(path))), patch.object(life,'sha256',side_effect=digest), patch.object(Path,'resolve',lambda path,*a,**k:path if vm(path) else resolve(path,*a,**k)), patch.object(Path,'is_dir',lambda path:is_dir(mapped(path))), patch.object(Path,'iterdir',lambda path:iterdir(mapped(path))):
                 before={p:p.read_bytes() for p in base.rglob('*') if p.is_file()}
                 bad=dict(done,id='wrong'); (evidence/'deletion-completion.json').write_text(json.dumps(bad))
                 with self.assertRaises(ValueError): life.record_approved_debit(ledger,selector)
