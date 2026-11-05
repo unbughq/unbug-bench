@@ -19,6 +19,8 @@ Engine rules, as built:
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import hashlib
+import json
 import os
 import time
 from typing import Any, Mapping, Optional
@@ -38,6 +40,7 @@ APP_NAME = "unbug-factory-engine"
 APP_VERSION = "factory-engine-1"   # pinned for the life of the database: DBOS recovers only matching versions
 CASE_EVENT = "case_event"          # internal topic: case -> batch
 WAKE = "wake"                      # internal topic: batch -> a case waiting on the bound
+PENDING_ADMISSION = "pending_admission"  # test-only V2 pending-workflow control
 SEAM = dict(retries_allowed=True, interval_seconds=1.0, max_attempts=12, backoff_rate=2.0)
 TERMINAL = ("sealed", "retired", "held", "stopped_admission", "engine_error")
 
@@ -72,6 +75,11 @@ def steps_queue(batch_id: str) -> str:
 
 def case_id_for(batch_id: str, n: int) -> str:
     return f"case-{batch_id[2:]}-{n}"
+
+
+def _message_key(batch_id: str, operation: str, role: str, kind: str, phase: str, destination: str) -> str:
+    parts = (batch_id, operation, role, kind, phase, destination)
+    return hashlib.sha256(json.dumps(parts, separators=(",", ":")).encode()).hexdigest()
 
 
 def check_instance(dbos: Any) -> None:
@@ -321,8 +329,9 @@ class _Case:
             "extensions": self.extensions_used, "diagnoses": self.diagnoses_used, "verdict": self.verdict,
             "hard": None if self.sealed is None else self.sealed["hard"]})
 
-    def tell(self, kind: str, **fields) -> None:
-        DBOS.send(self.batch_id, {"kind": kind, "case": self.case_id, **fields}, topic=CASE_EVENT)
+    def tell(self, kind: str, *, _idempotency_key: Optional[str] = None, **fields) -> None:
+        DBOS.send(self.batch_id, {"kind": kind, "case": self.case_id, **fields}, topic=CASE_EVENT,
+                  idempotency_key=_idempotency_key)
 
     def stop_line(self, action: Action) -> None:
         if action in ENDS_LINE_OF_WORK and not self.line_stopped:
@@ -583,6 +592,22 @@ class _Case:
 def case_workflow(job: dict) -> dict:
     spec = batch_spec_from_record(job["spec"])
     case = _Case(spec, job["case_id"], job["initial_registry"], job.get("replacement_of"))
+    queue_v2 = job.get("queue_v2", False)
+    if type(queue_v2) is not bool:
+        raise ContractError("bad internal admission switch")
+    if queue_v2:
+        # The first V2 increment cannot admit work. Later increments replace this
+        # wait with the recorded grant handoff and preparation workflow.
+        case.status = "pending_admission"
+        case.card()
+        while True:
+            msg = DBOS.recv(PENDING_ADMISSION, timeout_seconds=_RT.timing.batch_poll_s)
+            if isinstance(msg, dict) and msg.get("kind") == "not_admitted":
+                case.status = "not_admitted"
+                case.card()
+                key = _message_key(case.batch_id, case.case_id, "case", "done", "result", case.batch_id)
+                case.tell("done", status=case.status, sealed=None, worker_released=True, _idempotency_key=key)
+                return {"case_id": case.case_id, "status": case.status, "sealed": None}
     case.card()
     try:
         case.run()
@@ -666,6 +691,9 @@ class _Batch:
                 except (ContractError, TypeError):
                     continue
 
+    def has_pending_work(self) -> bool:
+        return len(self.done) < len(self.cases)
+
     def run(self) -> dict:
         spec = self.spec
         open_ledger_step(spec.batch_id, spec.money_bound_usd_micros)
@@ -676,7 +704,7 @@ class _Batch:
             if not self.admission_open():
                 break
             self.start_case(None)
-        while len(self.done) < len(self.cases):
+        while self.has_pending_work():
             msg = DBOS.recv(CASE_EVENT, timeout_seconds=_RT.timing.batch_poll_s)
             if isinstance(msg, dict):
                 self.handle(msg)
@@ -688,9 +716,75 @@ class _Batch:
         return {"batch_id": spec.batch_id, "sealed": self.sealed, "cases": dict(self.done)}
 
 
+class _BatchV2(_Batch):
+    """Disabled admission bookkeeping; no V2 grant or model dispatch exists yet."""
+
+    def __init__(self, spec: BatchSpec, initial_registry: dict):
+        super().__init__(spec, initial_registry)
+        self.admitted: set = set()
+        self.released: set = set()
+        self.replacement_requests: dict = {}
+
+    def start_case(self, replacement_of: Optional[str]) -> None:
+        case_id = case_id_for(self.spec.batch_id, len(self.cases) + 1)
+        job = {"spec": to_record(self.spec), "case_id": case_id, "initial_registry": self.initial_registry,
+               "replacement_of": replacement_of, "queue_v2": True}
+        with SetWorkflowID(case_id):
+            DBOS.start_workflow(case_workflow, job)
+        self.cases.append(case_id)
+        DBOS.set_event("cases", list(self.cases))
+
+    def has_pending_work(self) -> bool:
+        # Admitted cases must also account for their worker before the batch ends.
+        return super().has_pending_work() or bool(self.admitted - self.released)
+
+    def _request_replacement(self, case_id: str, value) -> None:
+        if case_id not in self.admitted or case_id in self.replaced:
+            return
+        try:
+            action = Action(value)
+        except (TypeError, ValueError):
+            return
+        if action not in ENDS_LINE_OF_WORK:
+            return
+        self.replacement_requests.setdefault(case_id, action.value)
+        if starts_replacement(action, replacement_started=False, cases_started=len(self.admitted),
+                              spec=self.spec, admission_open=self.admission_open()):
+            self.replaced.append(case_id)
+            self.start_case(case_id)
+
+    def handle(self, msg: dict) -> None:
+        kind, case_id = msg.get("kind"), msg.get("case")
+        if kind in ("line_stopped", "worker_released", "done") and case_id not in self.cases:
+            return
+        if kind == "line_stopped":
+            self._request_replacement(case_id, msg.get("action"))
+        elif kind == "worker_released":
+            if case_id in self.admitted:
+                self.released.add(case_id)
+        elif kind == "done":
+            status = msg.get("status")
+            allowed = (("retired", "held", "stopped_admission", "engine_error")
+                       if case_id in self.admitted else ("not_admitted",))
+            if status not in allowed:
+                return
+            # Process facts even when an earlier copy already marked the case done.
+            if msg.get("worker_released") is True and case_id in self.admitted:
+                self.released.add(case_id)
+            self._request_replacement(case_id, msg.get("replacement_action"))
+            # No V2 seal can be established until the terminal-fence increment.
+            super().handle(msg)
+        else:
+            super().handle(msg)
+
+
 @DBOS.workflow(max_recovery_attempts=None)
 def batch_workflow(job: dict) -> dict:
-    return _Batch(batch_spec_from_record(job["spec"]), job["initial_registry"]).run()
+    queue_v2 = job.get("queue_v2", False)
+    if type(queue_v2) is not bool:
+        raise ContractError("bad internal admission switch")
+    batch = _BatchV2 if queue_v2 else _Batch
+    return batch(batch_spec_from_record(job["spec"]), job["initial_registry"]).run()
 
 
 # ---- the engine process --------------------------------------------------------------------------
@@ -742,7 +836,8 @@ class Engine:
             return DBOS.retrieve_workflow(spec.batch_id)
         with SetWorkflowID(spec.batch_id):
             return DBOS.start_workflow(batch_workflow, {"spec": to_record(spec),
-                                                        "initial_registry": to_record(initial_registry)})
+                                                        "initial_registry": to_record(initial_registry),
+                                                        "queue_v2": False})
 
     def send(self, batch_id: str, topic: Topic, payload) -> None:
         """The operator messages (WP8 wraps this). FOUNDER_REPLY goes to its case; the rest to

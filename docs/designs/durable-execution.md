@@ -307,8 +307,9 @@ These are frozen in `contract.py`: `WORKER_COMMAND`, `attempt_paths`,
 
 - **The engine version.** `application_version` is pinned for the life of a
   dedicated system database, because DBOS recovers only matching versions. The
-  reviewed queue migration uses a new generation and refuses old draft journals
-  before DBOS launch; it does not delete or migrate those journals.
+  proposed queue migration does not support earlier draft journals. WP1 uses
+  disposable test databases and does not itself refuse an old database; WP8 must
+  review and implement the fresh-generation rollout gate before production launch.
 - **Workflow functions.** Changes go behind `DBOS.patch()`.
 - **Messages.** The engine waits for these with `DBOS.recv` in a loop, because a
   receive times out after 60 s by default:

@@ -16,7 +16,7 @@ from typing import Iterable, Optional
 from durable.contract import CASE_ID, GATE, REASON, ContractError
 
 STATUSES = ("sealed", "running", "waiting_for_bound", "escalated", "held", "retired", "stopped_admission",
-            "engine_error")
+            "engine_error", "pending_admission", "waiting_for_worker", "not_admitted")
 STAGE_KINDS = ("admit", "writer", "stress", "gates", "seal", "diagnosis", "sealed")
 
 
@@ -69,6 +69,10 @@ def case_entry(card: dict, allowlist: Iterable[str] = ()) -> dict:
         if type(card.get("hard")) is not bool:
             raise ContractError("a sealed card says whether it is hard")
         entry["hard"] = card["hard"]
+    if "cleanup_error" in card:
+        if status != "sealed" or type(card["cleanup_error"]) is not bool:
+            raise ContractError("cleanup_error is a boolean on a sealed card")
+        entry["cleanup_error"] = card["cleanup_error"]
     return entry
 
 

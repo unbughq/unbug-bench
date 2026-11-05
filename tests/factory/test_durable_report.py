@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT / "factory"))
 os.environ.setdefault("BENCH", str(ROOT))
 
 from durable import report
+from durable.contract import ContractError
 
 
 class FailedWorkflow(unittest.TestCase):
@@ -28,6 +29,29 @@ class FailedWorkflow(unittest.TestCase):
         self.assertEqual([row["status"] for row in public["cases"]], ["engine_error", "engine_error"])
         self.assertEqual(public["cases"][0]["gates"], {"G1": "pass"})
         self.assertEqual(public["cases"][1]["stage"], "admit")
+
+    def test_admission_waits_and_cleanup_error_are_public_without_scoring_a_wait(self):
+        base = {"case_id": "case-t-1", "stage": "admit", "passed": [], "failed_gate": None,
+                "writer_rounds": 0, "extensions": 0, "replacement_of": None}
+        cards = [dict(base, case_id=f"case-t-{i}", status=status) for i, status in enumerate(
+            ("pending_admission", "waiting_for_worker", "not_admitted"), 1)]
+        cards.append(dict(base, case_id="case-t-4", status="sealed", stage="sealed", hard=True,
+                          cleanup_error=True))
+        public = report.scorecard("b-t", cards)
+        self.assertEqual(public["sealed"], 1)
+        self.assertEqual([row["status"] for row in public["cases"]],
+                         ["pending_admission", "waiting_for_worker", "not_admitted", "sealed"])
+        self.assertIs(public["cases"][-1]["cleanup_error"], True)
+
+    def test_cleanup_error_must_be_a_boolean_on_a_sealed_card(self):
+        base = {"case_id": "case-t-1", "status": "sealed", "stage": "sealed", "passed": [],
+                "failed_gate": None, "writer_rounds": 0, "extensions": 0, "replacement_of": None,
+                "hard": False}
+        for value in (1, "yes", None):
+            with self.subTest(value=value), self.assertRaises(ContractError):
+                report.case_entry(dict(base, cleanup_error=value))
+        with self.assertRaises(ContractError):
+            report.case_entry(dict(base, status="running", cleanup_error=True))
 
 
 if __name__ == "__main__":
