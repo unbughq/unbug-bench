@@ -40,5 +40,13 @@ No finding relies solely on a smell heuristic. This was a read-only review; no t
 
 | Finding | Disposition |
 |---|---|
-| 1–11 | Open; fix and fresh verification required. |
-| Free-limit wording and WP5a reset time | Open; reconcile before the relevant merge. |
+| 1–2 | Implemented batch-scoped INPUTS and authenticated output/checkpoint checks, with real-store tests; fresh verification pending. |
+| 3–4 | Implemented fixed pool reasons, unstarted-grant settlement, and exact-worker recovery on replay and unexpected executor errors; fresh verification pending. |
+| 5 | Select versions after dequeue and rerun GATES if a queued SEAL sees changed releases; fresh verification pending. |
+| 6–7 | Wait for cancellation/death proof and remove the late batch-deadline retry cap; fresh verification pending. |
+| 8 | Retry batch-only money stops and increase a zero-spend grant request when needed; fresh verification pending. |
+| 9 | Open; admission-budget design and implementation remain under review. |
+| 10 | Enforced the absolute extension and factory-bug-resume ceilings; fresh verification pending. |
+| 11 | Added a failed-workflow scorecard overlay; preservation of a completed SEAL during cleanup failure remains open. |
+| Free-limit wording | Changed the give-up boundary to the handoff's 96th zero-spend limit; fresh verification pending. |
+| WP5a reset time | Open for the WP5a branch review. |

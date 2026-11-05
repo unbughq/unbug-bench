@@ -146,7 +146,10 @@ text, so WP1 does not call it.
   Pool failures preserve WP2's fixed `PoolError.reason`, free the unstarted grant,
   and follow the normal infra retry policy. Replay uses the already-recorded worker
   lease; if inputs cannot be fetched, it still reconciles that worker and never
-  assumes a previous execution spent zero.
+  assumes a previous execution spent zero. If `guarded_run` catches an unexpected
+  executor failure or invalid result, the attempt reconciles that same lease before
+  settlement, accepting a late valid result or waiting for a tombstone or proven
+  worker death. An unreachable worker retains its grant rather than racing a retry.
 
 ## What it deletes
 

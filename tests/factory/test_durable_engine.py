@@ -101,6 +101,18 @@ class StepSequence(unittest.TestCase):
 
 
 class Outcomes(unittest.TestCase):
+    def test_executor_exception_after_dispatch_reconciles_before_retry(self):
+        key = f"{C1}/2/writer:1/1"
+        r, out = run({"raise_after_start": key, "spec": {"max_cases_started": 1},
+                      "script": {"1/writer:1/1": {"dur": 2.0}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        log = r.worker_log()
+        self.assertTrue(any(x["op"] == "cancelled" and x["key"] == key for x in log))
+        self.assertEqual([x["op"] for x in r.ledger_log() if x.get("key") == key], ["reserve", "settle_lost"])
+        self.assertEqual(steps(r, 1)[:3], ["admit", "writer:1", "writer:1"])
+        self.assertFalse([x for x in log if x["op"] == "start" and x["mode"] != "run"])
+
     def test_pool_failure_releases_the_grant_and_retries(self):
         r, out = run({"pool_failures": 1, "spec": {"max_cases_started": 1}})
         self.addCleanup(r.close)

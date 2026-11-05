@@ -36,5 +36,12 @@ Verbatim response:
 
 | Finding | Disposition |
 |---|---|
-| 1–9 | Open; fix and fresh verification required. |
-| Minor | Open; evaluate with the fixes. |
+| 1 | Implemented batch-scoped INPUTS and a real-store regression; fresh verification pending. |
+| 2 | Implemented scope, decryption and digest checks for outputs and checkpoints; fresh verification pending. |
+| 3 | Implemented fixed-code pool failures and zero settlement for unstarted grants; fresh verification pending. |
+| 4–5 | Implemented exact-lease reconciliation, tombstones and late-result recovery without assuming time proves death; fresh verification pending. |
+| 6 | Removed the late batch-deadline retry cap; fresh verification pending. |
+| 7 | Open; admission-budget design and implementation remain under review. |
+| 8 | Implemented a shared global attempt slot plus the serialized ADMIT slot; fresh verification pending. |
+| 9 | Added worker release on terminal, escalation and bound wait; failure during cleanup requires further recovery design and verification. |
+| Minor | Implemented a wake after zero settlement; fresh verification pending. |

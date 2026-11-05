@@ -28,7 +28,7 @@ from dbos import DBOS, SetWorkflowID
 from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised, ContractError, FounderAction,
                               FounderReply, Grant, LimitedBy, Outcome, PlumbingRelease, Ref, Step, StepInput, StepKind,
                               StepResult, Topic, WorkerLease, assert_no_conductor, batch_spec_from_record,
-                              guarded_run, step_input_from_record, step_result_from_record, to_record,
+                              check_result_for, guarded_run, step_input_from_record, step_result_from_record, to_record,
                               wait_seconds)
 from durable.executor import Executor, SeamError
 from durable.policy import (DEADLINE_REASON, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
@@ -146,9 +146,34 @@ def attempt_step(si: dict, started_at: float, worker_id: str) -> dict:
     """The attempt itself. Rerun after a crash, it attaches to the same worker attempt: the
     worker refuses a second start of the same key, and poll returns the first result."""
     step_input = step_input_from_record(si)
-    if _RT.executor is None:
-        return to_record(StepResult(Outcome.INFRA_ERROR, "engine:executor_raised"))
-    return to_record(guarded_run(_RT.executor.bound(started_at, WorkerLease(worker_id, step_input.case_id)), step_input))
+    # A recorded lease may refer to an attempt that ran before a crash. A missing
+    # runtime cannot prove it stopped, so keep its grant until a runtime can inspect it.
+    while _RT.executor is None:
+        time.sleep(30)
+    lease = WorkerLease(worker_id, step_input.case_id)
+    try:
+        result = guarded_run(_RT.executor.bound(started_at, lease), step_input)
+    except Exception:
+        result = StepResult(Outcome.INFRA_ERROR, "engine:executor_raised")
+    if result.reason in ("engine:executor_raised", "engine:executor_bad_result"):
+        # The guard cannot know whether dispatch happened before an exception or
+        # invalid response. Reconcile the original lease before releasing its grant.
+        while True:
+            try:
+                result = _RT.executor.reconcile(step_input, lease)
+                if not isinstance(result, StepResult):
+                    result = StepResult(Outcome.INFRA_ERROR, "engine:executor_bad_result")
+                else:
+                    try:
+                        check_result_for(step_input.step, result)
+                    except ContractError:
+                        result = StepResult(Outcome.INFRA_ERROR, "engine:executor_bad_result")
+                break
+            except Exception:
+                # No exception or its context reaches the DBOS journal. An
+                # unconfirmed worker remains quarantined on the same grant.
+                time.sleep(30)
+    return to_record(result)
 
 
 @DBOS.step(**SEAM)

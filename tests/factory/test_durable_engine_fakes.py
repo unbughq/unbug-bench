@@ -541,8 +541,17 @@ def engine_main(workdir):
             fixed.write_text(repr(time.time() + scenario["deadline_in"]))
         spec_kw["deadline_epoch"] = float(fixed.read_text())
     spec, registry = seed_batch(fakes, spec_kw)
-    ex = Executor(fakes["pool"], fakes["worker"], fakes["ledger"], fakes["store"], fakes["sealer"], fakes["keys"],
-                  poll_interval_s=scenario.get("poll_s", 0.02), grace_s=scenario.get("grace_s", 0.3))
+    class FaultInjectingExecutor(Executor):
+        def _poll(self, lease, step_input):
+            fault = work / "executor-fault-fired"
+            if scenario.get("raise_after_start") == step_input.idempotency_key and not fault.exists():
+                fault.touch()
+                raise RuntimeError("simulated failure after dispatch")
+            return super()._poll(lease, step_input)
+
+    ex = FaultInjectingExecutor(fakes["pool"], fakes["worker"], fakes["ledger"], fakes["store"], fakes["sealer"],
+                                fakes["keys"], poll_interval_s=scenario.get("poll_s", 0.02),
+                                grace_s=scenario.get("grace_s", 0.3))
     timing = Timing(**{"batch_poll_s": 0.5, "wake_poll_s": 5.0, "founder_poll_s": 2.0, "queue_poll_s": 0.05,
                        "listener_poll_s": 0.05, **scenario.get("timing", {})})
     engine = Engine(system_database_url=f"sqlite:///{work}/sys.sqlite", executor=ex, timing=timing)

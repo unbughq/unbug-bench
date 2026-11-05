@@ -201,6 +201,19 @@ class Executor:
             self.sleep(self.poll_interval_s)
         return None
 
+    def reconcile(self, si: StepInput, lease: WorkerLease) -> StepResult:
+        """After an unexpected executor failure, resolve the exact prior worker.
+
+        The failure may have happened after dispatch. Do not start another attempt
+        or settle its unknown spend until the worker returns a result or is gone.
+        """
+        while True:
+            done = self._cancel_confirm(lease, si, self.clock() + self.grace_s)
+            if done is not None:
+                return self._check_outputs(si, done)
+            if not self._alive(lease):
+                return self._lost(si, "infra:worker_lost", None)
+
     # ---- the engine's other side effects -------------------------------------------------------
 
     def cancel(self, si: StepInput, started_at: float, worker_id: Optional[str] = None) -> bool:

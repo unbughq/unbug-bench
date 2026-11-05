@@ -18,7 +18,7 @@ sys.path[:0] = [str(ROOT / "factory"), str(Path(__file__).resolve().parent)]
 os.environ.setdefault("BENCH", str(ROOT))
 
 from durable.contract import (ArtifactKind as K, Grant, LimitedBy, Outcome, Poll, PollState, Step, StepInput,
-                              StepKind, StepResult, Usage, WorkerLease, guarded_run)
+                              StepKind, StepResult, Usage, WorkerLease, guarded_run, step_result_from_record, to_record)
 from durable.executor import Executor, SeamError, blob_name
 from test_durable_engine_fakes import FakeKeys, FakeLedger, FakeSealer, FakeStore  # noqa: E402
 
@@ -172,6 +172,64 @@ class Run(Setup):
         result = ex.run(self.si(), lease=WorkerLease("w-1", "case-t-1"))
         self.assertEqual(result, late)
         self.assertFalse(ch.started)
+
+    def test_an_unexpected_executor_exception_reconciles_before_settlement(self):
+        from durable.engine import _RT, attempt_step
+        late = self.ok()
+        channel = Channel([None] * 15 + [Poll(PollState.DONE, late)])
+        class BrokenExecutor(Executor):
+            def run(self, *args, **kwargs):
+                raise RuntimeError("after dispatch")
+        ex = BrokenExecutor(self.pool, channel, self.ledger, self.store, self.sealer, self.keys,
+                            poll_interval_s=10, grace_s=100, clock=self.clock, sleep=self.clock.sleep)
+        old = _RT.executor
+        _RT.executor = ex
+        try:
+            result = step_result_from_record(attempt_step(to_record(self.si()), self.clock(), "w-1"))
+        finally:
+            _RT.executor = old
+        self.assertEqual(result, late)
+        self.assertGreater(channel.cancels, 1)
+
+    def test_an_unreachable_worker_is_not_declared_lost_until_death_is_proven(self):
+        from durable.engine import _RT, attempt_step
+        clock = self.clock
+        class EventuallyDead(Pool):
+            def alive(self, lease):
+                return clock.t < 1300
+        class BrokenExecutor(Executor):
+            def run(self, *args, **kwargs):
+                raise RuntimeError("after dispatch")
+        channel = Channel([None])
+        ex = BrokenExecutor(EventuallyDead(), channel, self.ledger, self.store, self.sealer, self.keys,
+                            poll_interval_s=10, grace_s=100, clock=clock, sleep=clock.sleep)
+        old = _RT.executor
+        _RT.executor = ex
+        try:
+            result = step_result_from_record(attempt_step(to_record(self.si()), clock(), "w-1"))
+        finally:
+            _RT.executor = old
+        self.assertEqual(result.reason, "infra:worker_lost")
+        self.assertGreaterEqual(clock.t, 1300)
+        self.assertGreater(channel.cancels, 10)
+
+    def test_binding_failure_also_reconciles_the_recorded_worker(self):
+        from durable.engine import _RT, attempt_step
+        late = self.ok()
+        channel = Channel([Poll(PollState.DONE, late)])
+        class BrokenBinding(Executor):
+            def bound(self, *args):
+                raise RuntimeError("binding failed after a restart")
+        ex = BrokenBinding(self.pool, channel, self.ledger, self.store, self.sealer, self.keys,
+                           poll_interval_s=10, grace_s=100, clock=self.clock, sleep=self.clock.sleep)
+        old = _RT.executor
+        _RT.executor = ex
+        try:
+            result = step_result_from_record(attempt_step(to_record(self.si()), self.clock(), "w-1"))
+        finally:
+            _RT.executor = old
+        self.assertEqual(result, late)
+        self.assertEqual(channel.cancels, 1)
 
     def test_cancel_after_the_deadline_takes_a_confirmed_result(self):
         late = StepResult(Outcome.INFRA_ERROR, "infra:deadline", Usage(1, 900, 900))
