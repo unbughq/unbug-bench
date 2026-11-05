@@ -1,10 +1,14 @@
 # Durable execution: provider waits and credential problems
 
-Status: proposed, revision 5 after design reviews 1–4. This records the founder's 2026-11-05 decision in the current
-thread: genuine provider rate limits keep waiting, and missing or expired
-credentials are handled as a separate configuration problem. The handoff's
-generic 96-free-limit cutoff conflicts with ENGINEERING section 4 and is superseded
-by this decision.
+Status: revision 5 was reviewed in `durable-execution-provider-waits-design-5.md`.
+The WP1 policy and fake-seam slice may proceed; two WP5a integration blockers
+remain open: incomplete prior usage can become a false case-budget stop, and an
+excluded quota lane can be mistaken for an expired credential. Do not treat the
+real router-to-worker path as ready until both are resolved and tested. This
+records the founder's 2026-11-05 decision: genuine provider rate limits keep
+waiting, and missing or expired credentials are a separate configuration problem.
+The handoff's generic 96-free-limit cutoff conflicts with ENGINEERING section 4
+and is superseded by this decision.
 
 ## Problem and change
 
