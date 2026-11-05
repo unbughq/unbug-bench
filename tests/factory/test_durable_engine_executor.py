@@ -393,6 +393,61 @@ class Sealing(Setup):
         result = ex.run(si)
         self.assertEqual((result.reason, result.usage.paid_usd_micros), ("infra:output_invalid", 300))
 
+    def test_killed_age_decrypt_retries_the_same_completed_result(self):
+        import subprocess
+        from durable.artifacts import AgeSealer, local_store
+        sealer, store = AgeSealer(), local_store(Path(self.tmp.name) / "interrupted-age")
+        batch_key, case_key = self.keys.scope_key("b-t"), self.keys.scope_key("case-t-1")
+        inputs, ciphertext = sealer.seal(batch_key, K.INPUTS, b"inputs")
+        store.put_sealed("b-t", inputs, ciphertext)
+        snapshot, ciphertext = sealer.seal(case_key, K.CASE_SNAPSHOT, b"snapshot")
+        store.put_sealed("case-t-1", snapshot, ciphertext)
+        si = StepInput("b-t", "case-t-1", 2, Step(StepKind.WRITER, 1), 1, P, B, inputs, snapshot, 600, 5_000_000)
+        done = StepResult(Outcome.OK, "writer:pass", Usage(1, 300, 300), snapshot=snapshot)
+        channel = Channel([Poll(PollState.DONE, done)])
+        ex = Executor(self.pool, channel, self.ledger, store, sealer, self.keys,
+                      poll_interval_s=10, grace_s=100, clock=self.clock, sleep=self.clock.sleep)
+        original = subprocess.run
+        killed = []
+        def run(*args, **kwargs):
+            if not killed and "--decrypt" in args[0]:
+                killed.append(True)
+                return subprocess.CompletedProcess(args[0], -9, b"", b"")
+            return original(*args, **kwargs)
+        with patch("durable.artifacts.subprocess.run", side_effect=run):
+            result = ex.run(si)
+        self.assertEqual(result, done)
+        self.assertTrue(killed)
+        self.assertEqual(len(channel.started), 1)
+
+    def test_local_stat_io_error_does_not_discard_completed_result(self):
+        import errno
+        from durable.artifacts import AgeSealer, local_store
+        sealer, store = AgeSealer(), local_store(Path(self.tmp.name) / "flaky-stat")
+        batch_key, case_key = self.keys.scope_key("b-t"), self.keys.scope_key("case-t-1")
+        inputs, ciphertext = sealer.seal(batch_key, K.INPUTS, b"inputs")
+        store.put_sealed("b-t", inputs, ciphertext)
+        snapshot, ciphertext = sealer.seal(case_key, K.CASE_SNAPSHOT, b"snapshot")
+        store.put_sealed("case-t-1", snapshot, ciphertext)
+        si = StepInput("b-t", "case-t-1", 2, Step(StepKind.WRITER, 1), 1, P, B, inputs, snapshot, 600, 5_000_000)
+        done = StepResult(Outcome.OK, "writer:pass", Usage(1, 300, 300), snapshot=snapshot)
+        channel = Channel([Poll(PollState.DONE, done)])
+        ex = Executor(self.pool, channel, self.ledger, store, sealer, self.keys,
+                      poll_interval_s=10, grace_s=100, clock=self.clock, sleep=self.clock.sleep)
+        target = store.objects._path(store.key("case-t-1", snapshot))
+        original = Path.stat
+        failed = []
+        def stat(path, *args, **kwargs):
+            if path == target and not failed:
+                failed.append(True)
+                raise OSError(errno.EIO, "simulated I/O failure")
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "stat", stat):
+            result = ex.run(si)
+        self.assertEqual(result, done)
+        self.assertTrue(failed)
+        self.assertEqual(len(channel.started), 1)
+
     def test_history_is_a_case_scoped_diagnostic(self):
         history = [{"seq": 1, "step": "admit", "attempt": 1, "outcome": "ok", "reason": "admit:pass"}]
         ref = self.ex(None).seal_history("case-t-1", history)

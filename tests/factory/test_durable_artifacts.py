@@ -189,7 +189,7 @@ class Sealing(unittest.TestCase):
             stuck.chmod(0o700)
             sealer = AgeSealer(age=str(stuck), timeout_s=1)
             for call in (lambda: sealer.seal(CASE_KEY, K.CASE_SNAPSHOT, b"x"),
-                         lambda: sealer.open(CASE_KEY, Ref("a" * 64, K.CASE_SNAPSHOT), b"y")):
+                         lambda: sealer.open(CASE_KEY, Ref("a" * 64, K.CASE_SNAPSHOT), artifacts.AGE_HEADER + b"y")):
                 with self.assertRaises(ArtifactError) as raised:
                     call()
                 self.assertEqual(str(raised.exception), "age_timeout")

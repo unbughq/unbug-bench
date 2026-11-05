@@ -111,7 +111,7 @@ class FakeSealer:
     def open(self, scope_key, ref, ciphertext):
         age, mac = derive_keys(scope_key)
         if ciphertext[:8] != b"FAKEAGE1" or ciphertext[8:16] != hashlib.sha256(b"tag" + age).digest()[:8]:
-            raise ArtifactError("open_failed")
+            raise ArtifactError("digest_mismatch")
         body = ciphertext[16:]
         plaintext = bytes(a ^ b for a, b in zip(body, _stream(age, len(body))))
         if artifact_digest(mac, plaintext) != ref.digest:
@@ -577,6 +577,14 @@ def engine_main(workdir):
                 raise RuntimeError("simulated failure after dispatch")
             return super()._poll(lease, step_input)
 
+    if scenario.get("trace_credential_sleep"):
+        from dbos import DBOS
+        original_sleep = DBOS.sleep
+        def trace_sleep(seconds):
+            if seconds == scenario["timing"]["credential_retry_s"]:
+                fakes["worker"].f.append("credential-sleep.log", {"seconds": seconds})
+            return original_sleep(seconds)
+        DBOS.sleep = staticmethod(trace_sleep)
     ex = FaultInjectingExecutor(fakes["pool"], fakes["worker"], fakes["ledger"], fakes["store"], fakes["sealer"],
                                 fakes["keys"], poll_interval_s=scenario.get("poll_s", 0.02),
                                 grace_s=scenario.get("grace_s", 0.3))
@@ -596,6 +604,10 @@ def engine_main(workdir):
                 if i in done:
                     continue
                 when = act["when"]
+                if "ran" in when or "started" in when:
+                    op, key = ("ran", when["ran"]) if "ran" in when else ("start", when["started"])
+                    if not [x for x in fakes["worker"].f.lines("worker.log") if x["op"] == op and x["key"] == key]:
+                        continue
                 if "case" in when:
                     case_id = f"case-{spec.batch_id[2:]}-{when['case']}"
                     try:
@@ -603,10 +615,6 @@ def engine_main(workdir):
                     except Exception:
                         card = None
                     if not card or card.get("status") != when["status"]:
-                        continue
-                if "ran" in when or "started" in when:
-                    op, key = ("ran", when["ran"]) if "ran" in when else ("start", when["started"])
-                    if not [x for x in fakes["worker"].f.lines("worker.log") if x["op"] == op and x["key"] == key]:
                         continue
                 done.add(i)
                 if "reply" in act:

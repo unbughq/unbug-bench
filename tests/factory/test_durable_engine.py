@@ -281,7 +281,7 @@ class Outcomes(unittest.TestCase):
 
     def test_credential_wait_is_visible_releases_worker_and_resumes(self):
         credential = {"outcome": "infra_error", "reason": "router:credential_expiring", "paid": 0}
-        r = EngineRun({"spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 8.0},
+        r = EngineRun({"spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 12.0}, "trace_credential_sleep": True,
                        "script": {"1/writer:1/1": credential, "1/writer:1/2": {"dur": 0.6}},
                        "actions": [{"when": {"case": 1, "status": "waiting_for_credentials"}},
                                    {"when": {"case": 1, "status": "running", "started": f"{C1}/2/writer:1/2"}}]})
@@ -319,6 +319,10 @@ class Outcomes(unittest.TestCase):
                 "WHERE workflow_uuid = ? AND function_id = ? AND function_name = 'DBOS.sleep'",
                 (C1, sleep_row[0])).fetchone()
         self.assertEqual(replayed_sleep, sleep_row)
+        sleep_entries = [json.loads(line) for line in
+                         (r.work / "state/worker/credential-sleep.log").read_text().splitlines()]
+        self.assertEqual(len(sleep_entries), 2)
+        self.assertLess(sleep_entries[1]["t"], sleep_row[2] / 1000)
         retry_started = start(r, f"{C1}/2/writer:1/2")["t"]
         self.assertGreaterEqual(retry_started, sleep_row[2] / 1000 - 0.05)
         self.assertLess(retry_started, sleep_row[2] / 1000 + 3.0)
@@ -334,18 +338,25 @@ class Outcomes(unittest.TestCase):
         r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
                       "timing": {"credential_retry_s": 1.0},
                       "script": {"1/writer:1/1": {"outcome": "provider_limit", "reason": reason},
-                                 "1/writer:1/2": {"outcome": "infra_error", "reason": reason},
+                                 "1/writer:1/2": {"outcome": "infra_error", "reason": reason, "dur": 0.8},
                                  "1/writer:1/3": {"outcome": "infra_error", "reason": "infra:stalled"}},
                       "actions": [{"when": {"case": 1, "status": "waiting_for_credentials", "ran": first}},
+                                  {"when": {"case": 1, "status": "running", "started": second}},
                                   {"when": {"case": 1, "status": "waiting_for_credentials", "ran": second}}]})
         self.addCleanup(r.close)
         actions = {row["i"]: row for row in
                    (json.loads(line) for line in (r.work / "state/worker/actions.log").read_text().splitlines())}
-        self.assertEqual(set(actions), {0, 1})
-        for index, next_attempt in ((0, 2), (1, 3)):
+        self.assertEqual(set(actions), {0, 1, 2})
+        for index, next_attempt in ((0, 2), (2, 3)):
             self.assertEqual((actions[index]["status"], actions[index]["reason"]),
                              ("waiting_for_credentials", reason))
             self.assertLess(actions[index]["t"], start(r, f"{C1}/2/writer:1/{next_attempt}")["t"])
+        self.assertEqual((actions[1]["status"], actions[1]["reason"]), ("running", None))
+        ran = {x["key"]: x["t"] for x in r.worker_log() if x["op"] == "ran"}
+        self.assertLess(ran[first], actions[0]["t"])
+        self.assertLess(start(r, second)["t"], actions[1]["t"])
+        self.assertLess(actions[1]["t"], ran[second])
+        self.assertLess(ran[second], actions[2]["t"])
         workers = [start(r, f"{C1}/2/writer:1/{n}")["worker"] for n in range(1, 4)]
         releases = {x["worker"] for x in r.pool_log() if x["op"] == "release" and x["case"] == C1}
         self.assertEqual(len(set(workers)), 3)

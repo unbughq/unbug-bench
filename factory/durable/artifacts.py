@@ -27,6 +27,7 @@ import http.client
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import tempfile
 from typing import Callable, Mapping, Optional, Protocol
@@ -149,6 +150,8 @@ class AgeSealer:
             raise ArtifactError("bad_ref")
         if type(ciphertext) is not bytes:
             raise ArtifactError("ciphertext_not_bytes")
+        if not ciphertext.startswith(AGE_HEADER):
+            raise ArtifactError("not_age_ciphertext")
         secret, hmac_key = derive_keys(scope_key)
         plaintext = self._run("--decrypt", secret, ciphertext, "open_failed")
         if not hmac.compare_digest(artifact_digest(hmac_key, plaintext), ref.digest):
@@ -322,7 +325,12 @@ class LocalObjects:
             raise ArtifactError("store_failed") from None
 
     def exists(self, key: str) -> bool:
-        return self._path(key).is_file()
+        try:
+            return stat.S_ISREG(self._path(key).stat().st_mode)
+        except (FileNotFoundError, NotADirectoryError):
+            return False
+        except OSError:
+            raise ArtifactError("store_failed") from None
 
 
 def _mkdirs(path: Path) -> None:

@@ -154,7 +154,7 @@ class Executor:
 
     def _verify_ref(self, si, ref) -> str:
         """Retry unavailable seams without discarding a completed result or checkpoint."""
-        invalid = {"open_failed", "digest_mismatch", "ciphertext_not_bytes",
+        invalid = {"not_age_ciphertext", "digest_mismatch", "ciphertext_not_bytes",
                    "bad_ref", "bad_scope", "wrong_scope"}
         while True:
             try:
