@@ -320,7 +320,16 @@ def admission_probe_workflow(job: dict) -> dict:
                   "attempt": si.attempt, "key": si.idempotency_key, "grant": to_record(grant)}
     result_key = _message_key(si.batch_id, operation, "probe", "result", "report", si.batch_id)
     DBOS.send(si.batch_id, result, topic=CASE_EVENT, idempotency_key=result_key)
-    _probe_reply(operation, "result")
+    acknowledgement = _probe_reply(operation, "result")
+    if acknowledgement.get("cancel") is True and result["status"] == "admitted":
+        # STOP or target won before the batch accepted this grant. Only this holder
+        # releases it; the decision fence stays closed until the batch sees that fact.
+        release_unstarted_step(job["input"])
+        DBOS.set_event("cancel_settled", {"key": si.idempotency_key})
+        cancel_key = _message_key(si.batch_id, operation, "probe", "cancel", "settled", si.batch_id)
+        DBOS.send(si.batch_id, {"kind": "probe_cancelled", "case": si.case_id, "operation": operation},
+                  topic=CASE_EVENT, idempotency_key=cancel_key)
+        _probe_reply(operation, "cancelled")
     return result
 
 
@@ -822,6 +831,9 @@ class _BatchV2(_Batch):
         self.fence: Optional[str] = None
         self.probe_authorizations: dict = {}
         self.applied_probes: set = set()
+        self.wake_generation = 0
+        self.probe_wake_generation: dict = {}
+        self.cancelling_probes: set = set()
 
     def start_case(self, replacement_of: Optional[str]) -> None:
         case_id = case_id_for(self.spec.batch_id, len(self.cases) + 1)
@@ -838,6 +850,7 @@ class _BatchV2(_Batch):
         return super().has_pending_work() or bool(self.admitted - self.released)
 
     def wake_waiting(self) -> None:
+        self.wake_generation += 1
         for pending in self.pending_cases.values():
             if pending["state"] == "waiting":
                 pending["state"], pending["retry_at"] = "eligible", None
@@ -893,6 +906,7 @@ class _BatchV2(_Batch):
                        registry=Ref(**self.initial_registry))
         operation = f"{si.idempotency_key}/probe"
         self.active_probe = operation
+        self.probe_wake_generation[operation] = self.wake_generation
         self.pending_cases[case_id]["state"] = "probing"
         job = {"input": to_record(si), "operation": operation,
                "request": request_usd_micros(step, Counters(), self.spec),
@@ -922,6 +936,9 @@ class _BatchV2(_Batch):
         if operation in self.applied_probes:
             self._reply_probe(operation, "result")
             return
+        if operation in self.cancelling_probes:
+            self._reply_probe(operation, "result", cancel=True)
+            return
         if operation != self.active_probe or case_id not in self.pending_cases:
             return
         authorized = self.probe_authorizations.get(operation)
@@ -943,6 +960,11 @@ class _BatchV2(_Batch):
             if status == "admitted":
                 if grant.amount_usd_micros <= 0:
                     return
+                if self.admission_stopped or len(self.sealed) >= self.spec.target_sealed:
+                    self.cancelling_probes.add(operation)
+                    self.pending_cases[case_id]["state"] = "cancelling"
+                    self._reply_probe(operation, "result", cancel=True)
+                    return
                 self.admitted.add(case_id)
                 self.pending_cases[case_id]["state"] = "admitted"
                 permit = {"kind": "prepare", "case": case_id, "attempt": attempt, "key": key,
@@ -950,8 +972,12 @@ class _BatchV2(_Batch):
                 send_key = _message_key(self.spec.batch_id, operation, "batch", "prepare", "permit", case_id)
                 DBOS.send(case_id, permit, topic=PENDING_ADMISSION, idempotency_key=send_key)
             elif status == "waiting":
-                self.pending_cases[case_id]["state"] = "waiting"
-                self.pending_cases[case_id]["retry_at"] = now_step() + _RT.timing.wake_poll_s
+                if self.wake_generation > self.probe_wake_generation[operation]:
+                    self.pending_cases[case_id]["state"] = "eligible"
+                    self.pending_cases[case_id]["retry_at"] = None
+                else:
+                    self.pending_cases[case_id]["state"] = "waiting"
+                    self.pending_cases[case_id]["retry_at"] = now_step() + _RT.timing.wake_poll_s
             else:
                 self._end_pending(case_id)
         else:
@@ -961,6 +987,21 @@ class _BatchV2(_Batch):
             self.fence = None
         self.active_probe = None
         self._reply_probe(operation, "result")
+
+    def _cancelled_probe(self, msg: dict) -> None:
+        operation, case_id = msg.get("operation"), msg.get("case")
+        if operation in self.applied_probes:
+            self._reply_probe(operation, "cancelled")
+            return
+        if (operation != self.active_probe or operation not in self.cancelling_probes
+                or self.fence != operation or case_id not in self.pending_cases):
+            return
+        self._end_pending(case_id)
+        self.cancelling_probes.remove(operation)
+        self.applied_probes.add(operation)
+        self.fence = None
+        self.active_probe = None
+        self._reply_probe(operation, "cancelled")
 
     def _request_replacement(self, case_id: str, value) -> None:
         if case_id not in self.admitted or case_id in self.replaced:
@@ -985,13 +1026,17 @@ class _BatchV2(_Batch):
         if kind == "probe_result":
             self._finish_probe(msg)
             return
+        if kind == "probe_cancelled":
+            self._cancelled_probe(msg)
+            return
         if kind in ("line_stopped", "worker_released", "done") and case_id not in self.cases:
             return
         if kind == "line_stopped":
             self._request_replacement(case_id, msg.get("action"))
         elif kind == "worker_released":
-            if case_id in self.admitted:
+            if case_id in self.admitted and case_id not in self.released:
                 self.released.add(case_id)
+                self.wake_waiting()
         elif kind == "done":
             status = msg.get("status")
             allowed = (("retired", "held", "stopped_admission", "engine_error")
@@ -999,8 +1044,9 @@ class _BatchV2(_Batch):
             if status not in allowed:
                 return
             # Process facts even when an earlier copy already marked the case done.
-            if msg.get("worker_released") is True and case_id in self.admitted:
+            if msg.get("worker_released") is True and case_id in self.admitted and case_id not in self.released:
                 self.released.add(case_id)
+                self.wake_waiting()
             self._request_replacement(case_id, msg.get("replacement_action"))
             # No V2 seal can be established until the terminal-fence increment.
             super().handle(msg)

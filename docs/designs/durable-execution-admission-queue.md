@@ -53,7 +53,12 @@ this tradeoff. It is no guarantee of higher throughput.
   authorized probe reserves the real first ADMIT key, then records `now_step`.
   A deadline or sub-minimum BATCH grant is zero-settled; WAIT uses a new key after
   a real settlement, bound raise or bounded poll, and its own zero settlement never
-  wakes itself. Positive sub-minimum NOTHING remains allowed; zero case money stops
+  wakes itself. The batch records a wake generation when a real settlement, bound
+  raise or confirmed predecessor release is processed. Each probe captures that
+  generation when enqueued; if it returns WAIT after the generation advanced, its
+  candidate is immediately eligible for a fresh-key retry instead of waiting for
+  the next poll. A wake after WAIT makes the waiting candidate eligible as usual.
+  Positive sub-minimum NOTHING remains allowed; zero case money stops
   admission without a worker. An admitted grant is counted before the queue
   workflow receives its acknowledgement. A recorded pre-deadline clock decision
   is grandfathered across crash/recovery, even if execution occurs later.
@@ -68,6 +73,14 @@ this tradeoff. It is no guarantee of higher throughput.
   recorded steps and the same send key reconstruct that sequence. An ambiguous
   handoff retains the hold. A recorded clock decision precedes any zero-settlement,
   so a backward clock step cannot change a replayed WAIT/EXPIRED decision.
+- If STOP_ADMISSION or the target is processed while an authorized probe is still
+  reserving, and its positive grant reaches the batch before admission is recorded,
+  the batch replies `cancel` instead of issuing a permit. The probe zero-settles its
+  own grant, records that settlement and reports it back; the batch holds the same
+  decision fence until it records the report and acknowledges it. The batch actor
+  does not call the ledger while handling the message. The candidate then ends as
+  `not_admitted`. A previously recorded admission remains grandfathered. Test STOP
+  during a delayed reservation and a wake both before and after a WAIT result.
 - ADMIT and SEAL are enqueued only when their worker is prepared. The terminal
   workflow then takes one global model-step slot. The authoritative release read
   happens in that model child **after both slots are held**, immediately before
