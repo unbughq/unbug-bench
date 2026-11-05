@@ -264,7 +264,7 @@ class Worker:
             attempt.mkdir(parents=True, exist_ok=True)  # tombstone: a late start does nothing
             self._index(case_id, key)
             self.stop(key)
-            self.write_result(key, StepResult(Outcome.INFRA_ERROR, "infra:cancelled", usage=self.usage_so_far(key)))
+            self.write_result(key, self._failure_result(key, "infra:cancelled"))
 
     def stop(self, key):
         """SIGTERM every process of the attempt, then SIGKILL what is left after the grace period."""
@@ -393,11 +393,11 @@ class Worker:
                 self.stop(key)
                 with contextlib.suppress(ChildProcessError):
                     os.waitpid(pid, 0)
-                self.write_result(key, StepResult(Outcome.INFRA_ERROR, "infra:deadline", usage=self.usage_so_far(key)))
+                self.write_result(key, self._failure_result(key, "infra:deadline"))
                 return 0
             time.sleep(POLL_INTERVAL_S)
         if not self.paths(key)["result"].exists():
-            self.write_result(key, StepResult(Outcome.INFRA_ERROR, "infra:step_crashed", usage=self.usage_so_far(key)))
+            self.write_result(key, self._failure_result(key, "infra:step_crashed"))
         return 0
 
     def run_attempt(self, step_input, keys):
@@ -405,8 +405,7 @@ class Worker:
             result, outputs = self.execute(step_input, keys)
         except BaseException:
             traceback.print_exc()
-            result, outputs = StepResult(Outcome.INFRA_ERROR, "infra:worker_error",
-                                         usage=self.usage_so_far(step_input.idempotency_key)), {}
+            result, outputs = self._failure_result(step_input.idempotency_key, "infra:worker_error"), {}
         out = self.paths(step_input.idempotency_key)["out"]
         for name, ciphertext in outputs.items():
             staged = out / (name + ".tmp")
@@ -464,8 +463,19 @@ class Worker:
             before = {"calls": saved["calls"], "total": saved["total"], "known": saved["known"],
                       "list": Decimal(saved["list"])}
             return usage_since(before, saved["ledger"], saved["ceiling"])
+        except FileNotFoundError:
+            if not (self.paths(key)["attempt"] / "baseline.json").exists():
+                return Usage()  # Model execution cannot precede baseline publication.
+            raise FrameError("usage unavailable") from None
         except Exception:
-            return Usage()
+            raise FrameError("usage unavailable") from None
+
+    def _failure_result(self, key, reason):
+        try:
+            usage = self.usage_so_far(key)
+        except Exception:
+            return StepResult(Outcome.INFRA_ERROR, "infra:usage_unknown")
+        return StepResult(Outcome.INFRA_ERROR, reason, usage=usage)
 
     def open_blob(self, sealer, scope_key, ref):
         if ref is None:
@@ -516,8 +526,12 @@ class Worker:
             return fail("infra:context_failed")
         before = ledger_totals(c.ledger)
         self._save_baseline(step_input, c.ledger, before)
+        if before["total"] is None:
+            return fail("infra:usage_unknown")
         out = runner.run_step(c, step_input, feedback=feedback, ruling=ruling)
         usage = usage_since(before, c.ledger, step_input.money_ceiling_usd_micros)
+        if ledger_totals(c.ledger)["total"] is None:
+            out = {"outcome": Outcome.INFRA_ERROR, "reason": "infra:usage_unknown"}
         return self.result(step_input, c, out, usage, sealer, case_key, classifier, runner)
 
     def result(self, step_input, c, out, usage, sealer, case_key, classifier, runner):
@@ -612,6 +626,7 @@ def ledger_totals(path):
 
 
 def usage_since(before, path, ceiling_micros):
+    json.loads(pathlib.Path(path).read_text())  # Missing or corrupt usage is never zero spend.
     after = ledger_totals(path)
     calls = max(0, after["calls"] - before["calls"])
     if after["total"] is None or before["total"] is None:

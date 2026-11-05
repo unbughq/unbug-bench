@@ -10,7 +10,7 @@ from enum import Enum
 
 from typing import Optional
 
-from durable.contract import (BatchSpec, ContractError, Grant, LimitedBy, Outcome, Step, StepKind, StepResult,
+from durable.contract import (BatchSpec, ContractError, Grant, LimitedBy, Outcome, Step, StepKind, StepResult, Usage,
                               Verdict, _nonneg_int, check_result_for)
 
 # ---- figures settled in docs/designs/durable-execution-wp1.md --------------------------------
@@ -190,7 +190,8 @@ def is_money_stop(result: StepResult) -> bool:
 def settles_lost(result: StepResult) -> bool:
     """Every infra:cancelled result, and every result the executor made for an attempt whose
     usage it cannot know, settles with settle_lost (design review 5, N6)."""
-    return result.reason in LOST_REASONS
+    return result.reason in LOST_REASONS or (result.reason == "infra:usage_unknown"
+                                             and result.usage == Usage())
 
 
 def draws_case_money(step: Step, counters: Counters) -> bool:

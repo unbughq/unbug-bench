@@ -745,7 +745,7 @@ def ensure_freshness(c):
         c.card['admission'] = {'status': 'evidence_incomplete', 'screen': info.get('outcome', 'evidence_incomplete')}
         if info.get('outcome') == 'review_unresolved': raise BudgetError('freshness_review_unavailable')
         reasons = info.get('invalid_evidence_reasons') or {}
-        if (getattr(c.args, 'resume', None) and unchanged and
+        if ((getattr(c.args, 'resume', None) or under_engine(c)) and unchanged and
                 set(reasons) == {'evidence_expired'} and reasons['evidence_expired'] > 0 and
                 getattr(c, 'freshness_reverify_statement', None) != digest):
             # One re-search per restore, independent of the two real-defect repairs.
@@ -2619,6 +2619,7 @@ def review(c):
         shutil.copytree(c.case, d / "case")  # a copy: reviewers cannot change the case
         out = d / "verdict.json"
         text = prompt('reviewer', run_context(c, case_dir=str(d / 'case'), mode='case', verdict_path=str(out)))
+        text += engine_review_ruling(c)
         if model_runtime.factory_job(c):
             vote = retained_answer(c, chain, text, d, f'reviewer-{i}', out,
                 {'index': i, 'case': case_inventory(c), 'prompt': prompt('reviewer', '')},
@@ -3295,6 +3296,10 @@ def engine_stop(c, stop):
         return {"outcome": Outcome.INFRA_ERROR, "reason": ENGINE_PLUMBING_STOPS[head]}
     if head == "provider_wait_deadline":
         return {"outcome": Outcome.INFRA_ERROR, "reason": "infra:deadline"}  # the router's end is the attempt's deadline
+    if head in ("budget_exhausted", "cost_limit", "money_wait"):
+        from budget import case_spending
+        if case_spending(jload(c.ledger, {})).get("spent_usd") is None:
+            return {"outcome": Outcome.INFRA_ERROR, "reason": "infra:usage_unknown"}
     if head == "money_wait":
         from budget import case_spending, outstanding_reservations
         ledger = jload(c.ledger, {})
@@ -3305,6 +3310,17 @@ def engine_stop(c, stop):
         if total is None or baseline is None or total - baseline + pending <= c.engine.ceiling_usd:
             return {"outcome": Outcome.INFRA_ERROR, "reason": "infra:money_authority"}
     return None
+
+
+def engine_review_ruling(c, gate=None):
+    if not under_engine(c) or not hasattr(c, "engine_ruling"):
+        return ""
+    bound = getattr(c, "engine_ruling_gate", None)
+    if gate is not None and bound is not None and gate != bound:
+        return ""
+    return ("\nApply the founder's ruling when interpreting the disputed evidence, "
+            "and assess the case using the gate's rules.\nFounder ruling:\n"
+            + json.dumps(c.engine_ruling, sort_keys=True) + "\n")
 
 
 def invoke_diagnosis(c, *, model, prompt, inputs, output):
@@ -3425,6 +3441,8 @@ def engine_writer_round(c, n, feedback):
         problems = g1(c)[1]["problems"] or None
         if not problems and not c.args.dry_run: problems = early_checks(c)
         if not problems:
+            if not c.args.dry_run:
+                ensure_freshness(c)
             atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
                                        "report": f"round-{n}.json", "awaiting_stress": True})
             return {"outcome": Outcome.OK, "reason": "writer:validated"}
@@ -3438,6 +3456,8 @@ def engine_stress_round(c, n):
     from registry import atomic_json
     if c.args.dry_run and c.card.get("admission", {}).get("status") == "practice_dry_run":
         return {"outcome": Outcome.OK, "reason": "stress:practice"}
+    if (c.card.get("admission_freshness") or {}).get("outcome") == "public_match":
+        return {"outcome": Outcome.OK, "reason": "stress:public_match"}
     infra = lambda code: {"outcome": Outcome.INFRA_ERROR, "reason": "stress:" + code}
     engine_prepare_bench(c)
     (c.work / "attacks").mkdir(exist_ok=True)
@@ -3455,7 +3475,12 @@ def engine_stress_round(c, n):
     if result is None: return infra("malformed_report")
     receipt.update(review_pending=False, report_sha256=hashlib.sha256(report.read_bytes()).hexdigest())
     atomic_json(receipt_path, receipt)
-    result, report = loop_freshness(c, result, report)
+    try:
+        result, report = loop_freshness(c, result, report)
+    except BudgetError as error:
+        if str(error) == "freshness_public_match":
+            return {"outcome": Outcome.OK, "reason": "stress:public_match"}
+        raise
     findings = [v for v in result["blocking"] if v.strip().lower() != "review incomplete"]
     if result["unfinished_validation"] and not findings: return infra("unfinished_validation")
     if (not result["complete"] or result["blocking"]) and not findings: return infra("interrupted_review")
@@ -3480,6 +3505,8 @@ def _split_panel(c, gate):
 def engine_gates(c):
     """GATES: today's whole gate pipeline, once. gate_state reuses what the snapshot's evidence still proves."""
     from durable.contract import Outcome
+    if not c.args.dry_run and not g1(c)[1]["problems"]:
+        ensure_freshness(c)
     for key in ("gates", "gate_results", "gate_minutes"): c.card[key] = {}
     c.card["failed_gate"] = None
     for key in ("failed_detail", "infrastructure_gate", "terminal_stop", "kept_gate_source"): c.card.pop(key, None)
@@ -3544,7 +3571,16 @@ def run_step(c, step_input, *, feedback=None, ruling=None):
     if kind is StepKind.DIAGNOSIS: return {"outcome": Outcome.INFRA_ERROR, "reason": "engine:diagnosis_unavailable"}
     try:
         if ruling is not None:
-            c.engine_ruling = json.loads(ruling)
+            try:
+                c.engine_ruling = json.loads(ruling)
+            except ValueError:
+                c.engine_ruling = ruling.decode("utf-8")
+            if not isinstance(c.engine_ruling, (str, dict)) or not c.engine_ruling:
+                raise ValueError("invalid founder ruling")
+            c.engine_ruling_gate = (c.engine_ruling.get("gate", c.card.get("failed_gate"))
+                                    if isinstance(c.engine_ruling, dict) else c.card.get("failed_gate"))
+            for name in ("votes", "votes_hash"):
+                c.__dict__.pop(name, None)
             atomic_json(c.work / "engine-ruling.json", c.engine_ruling)
         if kind is StepKind.WRITER: result = engine_writer_round(c, n, feedback)
         elif kind is StepKind.STRESS: result = engine_stress_round(c, n)

@@ -655,6 +655,43 @@ class HookTests(unittest.TestCase):
             self.assertEqual(run.engine_writer_round(c, 1, None)["outcome"], Outcome.OK)
             self.assertEqual(run.engine_stress_round(c, 1)["outcome"], Outcome.OK)
 
+    def test_confirmed_public_match_routes_to_scientific_gate_without_stress_spend(self):
+        c, _ = self.context(StepKind.STRESS)
+        c.args.dry_run = False
+        c.card["admission_freshness"] = {"outcome": "public_match"}
+        with patch.object(run, "opencode", side_effect=AssertionError("public match stress call")):
+            self.assertEqual(run.engine_stress_round(c, 1)["reason"], "stress:public_match")
+
+    def test_founder_ruling_reaches_new_reviewer_call(self):
+        c, si = self.context(StepKind.GATES)
+        c.card["failed_gate"] = "G8"
+        c.votes, c.votes_hash = [], run.case_hash(c)
+        seen = []
+        def model(c, models, text, cwd, name, **kwargs):
+            seen.append(text)
+            (cwd / "verdict.json").write_text(json.dumps({"fairness": {"approve": True}, "realism": {"approve": True}}))
+            return 0
+        def gates(c):
+            run.review(c)
+            return {"outcome": Outcome.OK, "reason": "engine:gates_passed"}
+        with patch.object(run, "engine_gates", side_effect=gates), patch.object(run, "opencode", side_effect=model):
+            out = run.run_step(c, si, ruling=b"The disputed owner fact is available in the statement.")
+        self.assertEqual(out["outcome"], Outcome.OK)
+        self.assertTrue(seen)
+        self.assertTrue(all("disputed owner fact" in text for text in seen))
+        self.assertEqual(run.engine_review_ruling(c, "G16"), "")
+
+    def test_corrupt_usage_never_reports_zero_cost(self):
+        c, si = self.context()
+        worker = worker_step.Worker(self.root)
+        worker.paths(si.idempotency_key)["attempt"].mkdir(parents=True)
+        worker._save_baseline(si, c.ledger, worker_step.ledger_totals(c.ledger))
+        c.ledger.write_text("{invalid")
+        out = worker._failure_result(si.idempotency_key, "infra:worker_error")
+        self.assertEqual(out.reason, "infra:usage_unknown")
+        from durable.policy import settles_lost
+        self.assertTrue(settles_lost(out))
+
     def test_context_is_never_a_legacy_job_and_only_the_attempt_deadline_bounds_calls(self):
         with patch.dict(os.environ, {"FACTORY_BATCH_DEADLINE": "2020-01-01T00:00:00Z"}):
             c, _ = self.context(deadline=120.0)
