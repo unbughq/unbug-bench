@@ -15,8 +15,8 @@ os.environ.setdefault("BENCH", str(ROOT))
 
 from durable.contract import (ArtifactKind as K, BatchSpec, ContractError, Grant, LimitedBy, Outcome, Ref, Step,
                               StepKind, StepResult, Usage, Verdict)
-from durable.policy import (BATCH_ONLY_FLOOR_USD_MICROS, GATES_DEADLINE_S, MAX_FREE_LIMITS_PER_STEP, MIN_GRANT_USD_MICROS,
-                            Action, Counters, is_money_stop,
+from durable.policy import (BATCH_ONLY_FLOOR_USD_MICROS, GATES_DEADLINE_S, MIN_GRANT_USD_MICROS,
+                            Action, Counters, is_credential_problem, is_money_stop,
                             deadline_s, decide, decide_diagnosis, decide_grant, draws_case_money, is_pause, progressed,
                             request_usd_micros, settles_as_waste, settles_lost, starts_replacement)
 
@@ -47,7 +47,7 @@ class Decide(unittest.TestCase):
         self.assertIs(d(STRESS, found, writer_rounds_used=8), Action.DIAGNOSE)
         limit = StepResult(Outcome.PROVIDER_LIMIT, "router:claude_limit", retry_at=1.0)
         self.assertIs(d(GATES, limit, step_spent_limits=50), Action.SLEEP)
-        self.assertIs(d(GATES, limit, step_spent_limits=51), Action.DIAGNOSE)
+        self.assertIs(d(GATES, limit, step_spent_limits=51), Action.SLEEP)
         infra = StepResult(Outcome.INFRA_ERROR, "infra:stalled")
         self.assertIs(d(GATES, infra, step_infra_errors=5), Action.RETRY)
         self.assertIs(d(GATES, infra, step_infra_errors=6), Action.DIAGNOSE)
@@ -114,22 +114,23 @@ class Decide(unittest.TestCase):
         self.assertFalse(settles_as_waste(StepResult(Outcome.OK, "g1:pass", Usage(paid_usd_micros=3), snapshot=ref())))
         self.assertFalse(settles_as_waste(StepResult(Outcome.EXHAUSTED, "writer:money", Usage(paid_usd_micros=3))))
 
-    def test_free_limits_sleep_until_a_cap(self):
-        limit = StepResult(Outcome.PROVIDER_LIMIT, "router:claude_limit", retry_at=1.0)
-        self.assertIs(d(GATES, limit), Action.SLEEP)
-        self.assertIs(d(GATES, limit, step_free_limits=MAX_FREE_LIMITS_PER_STEP - 1), Action.SLEEP)
-        # A limit that never clears (credential_expiring for a missing local secret) gives up
-        # like any other exhausted retry, instead of sleeping forever.
-        never = StepResult(Outcome.PROVIDER_LIMIT, "router:credential_expiring", retry_at=1.0)
-        self.assertEqual(MAX_FREE_LIMITS_PER_STEP, 96)
-        self.assertIs(d(GATES, never, step_free_limits=96), Action.DIAGNOSE)
-        self.assertIs(d(DIAG, never, step_free_limits=96), Action.RETIRE)
-        self.assertIs(d(ADMIT, never, step_free_limits=96), Action.STOP_ADMISSION)
+    def test_genuine_limits_wait_beyond_free_and_paid_thresholds(self):
+        for paid in (0, 1):
+            limit = StepResult(Outcome.PROVIDER_LIMIT, "router:claude_limit", Usage(paid_usd_micros=paid), retry_at=1.0)
+            for step in (GATES, DIAG, ADMIT):
+                self.assertIs(d(step, limit, step_free_limits=1000, step_spent_limits=1000), Action.SLEEP)
+
+    def test_credential_problem_retries_without_becoming_a_case_outcome(self):
+        old = StepResult(Outcome.PROVIDER_LIMIT, "router:credential_expiring", retry_at=1.0)
+        current = StepResult(Outcome.INFRA_ERROR, "router:credential_expiring")
+        for result in (old, current):
+            self.assertTrue(is_credential_problem(result))
+            for step in (GATES, DIAG, ADMIT):
+                self.assertIs(d(step, result, step_infra_errors=1000, step_free_limits=1000), Action.RETRY)
 
     def test_a_diagnosis_is_never_diagnosed(self):
         for r, counts in ((StepResult(Outcome.INFRA_ERROR, "diagnosis:malformed"), dict(step_infra_errors=6)),
-                          (StepResult(Outcome.EXHAUSTED, "diagnosis:money"), {}),
-                          (StepResult(Outcome.PROVIDER_LIMIT, "router:claude_limit", retry_at=1.0), dict(step_spent_limits=51))):
+                          (StepResult(Outcome.EXHAUSTED, "diagnosis:money"), {})):
             self.assertIs(d(DIAG, r, **counts), Action.RETIRE)
         self.assertIs(d(DIAG, StepResult(Outcome.INFRA_ERROR, "diagnosis:malformed"), step_infra_errors=1), Action.RETRY)
         with self.assertRaises(ContractError):

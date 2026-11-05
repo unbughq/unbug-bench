@@ -25,11 +25,6 @@ MIN_GRANT_USD_MICROS = 1_000_000
 # A batch-only step requests at least this: Stream D's ceiling of the largest authenticated CLI
 # aggregate observed ($32.6137984). Finite, so one step never holds the whole bound.
 BATCH_ONLY_FLOOR_USD_MICROS = 33_000_000
-# PROVIDER_LIMIT attempts of one step that spent nothing, before the step gives up. A limit that
-# never clears (the runner raises credential_expiring for a missing local secret too) would
-# otherwise sleep forever. 96 is 24 h at WP4's 900 s flat backoff; a real reset time sleeps once
-# per window, so 96 windows is far past any real limit.
-MAX_FREE_LIMITS_PER_STEP = 96
 # An operator pause (WP4 classify.py maps PauseRequested and paused to it). Not a fault of
 # the step: it retries without using the infra-retry allowance, after the engine's pause wait.
 PAUSE_REASONS = frozenset({"infra:paused"})
@@ -81,6 +76,12 @@ class Counters:
                 _nonneg_int(getattr(self, f.name), f"Counters.{f.name}")
 
 
+def is_credential_problem(result: StepResult) -> bool:
+    """Both current and older worker result shapes carry the same fixed reason."""
+    return (result.outcome in (Outcome.INFRA_ERROR, Outcome.PROVIDER_LIMIT)
+            and result.reason == "router:credential_expiring")
+
+
 def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, *,
            grant: Grant = Grant(0, LimitedBy.NOTHING), now: Optional[float] = None) -> Action:
     """grant is the attempt's Grant from Ledger.reserve. now (from a step) is needed only to
@@ -99,14 +100,11 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
         if k is StepKind.STRESS and result.feedback is not None:
             return Action.REPAIR if rounds_left else give_up()
         return Action.ADVANCE
+    if is_credential_problem(result):
+        return Action.RETRY
     if o is Outcome.PROVIDER_LIMIT:
-        # Waiting spends no allowance; only a run of limits that each spent money (a likely
-        # misclassification) gives up, or a run of free limits that never clears (a missing
-        # local secret raised as credential_expiring).
-        if counters.step_spent_limits > spec.max_spent_limits_per_step:
-            return give_up()
-        if counters.step_free_limits >= MAX_FREE_LIMITS_PER_STEP:
-            return give_up()
+        # A real capacity limit never turns into a case result. The ledger still
+        # bounds paid attempts and the batch waits when its bound is exhausted.
         return Action.SLEEP
     if o is Outcome.INFRA_ERROR:
         if is_pause(result):

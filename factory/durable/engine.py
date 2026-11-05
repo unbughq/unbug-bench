@@ -34,7 +34,8 @@ from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised
                               wait_seconds)
 from durable.executor import Executor, SeamError
 from durable.policy import (DEADLINE_REASON, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
-                            draws_case_money, is_batch_deadline_stop, is_money_stop, is_pause, progressed, request_usd_micros, starts_replacement)
+                            draws_case_money, is_batch_deadline_stop, is_credential_problem, is_money_stop, is_pause,
+                            progressed, request_usd_micros, starts_replacement)
 from durable.report import verified_seal
 
 APP_NAME = "unbug-factory-engine"
@@ -57,6 +58,7 @@ class Timing:
     listener_poll_s: float = 1.0    # DBOS notification listener polling interval
     pause_retry_s: float = 900.0    # after an operator pause (infra:paused), wait this long before the retry
                                     # (WP4's flat backoff); a pause never counts as an infra retry
+    credential_retry_s: float = 900.0  # retry a visible credential configuration wait
 
 
 class _Runtime:
@@ -459,7 +461,7 @@ class _Case:
             late_stop = is_batch_deadline_stop(result, self.spec, now)
             if late_stop:
                 late += 1
-            elif result.outcome is Outcome.INFRA_ERROR and not is_pause(result):
+            elif result.outcome is Outcome.INFRA_ERROR and not (is_pause(result) or is_credential_problem(result)):
                 infra += 1
             if result.outcome is Outcome.PROVIDER_LIMIT:
                 if result.usage.paid_usd_micros > 0:
@@ -474,6 +476,15 @@ class _Case:
                 # The next call did not fit even though the whole request was granted.
                 # Grow only until the ledger applies the batch bound; never spin on the same grant.
                 requested_minimum = min(2**63 - 1, max(job["request"] * 2, 1))
+            if is_credential_problem(result):
+                self.status = "waiting_for_credentials"
+                self.card()
+                self.release_worker()
+                DBOS.sleep(max(0.001, _RT.timing.credential_retry_s))
+                self.status = "running"
+                self.last_reason = None
+                self.card()
+                continue
             if action is Action.RETRY and (late_stop or is_pause(result)):
                 # Wait before the retry, so a stop that repeats does not spin.
                 if _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s and self.worker_id is not None:
@@ -485,9 +496,8 @@ class _Case:
                 continue
             if action is Action.SLEEP:
                 seconds = wait_seconds(result.retry_at, now_step())
-                if seconds > self.spec.release_worker_after_sleep_s and self.worker_id is not None:
-                    release_step(self.case_id, self.worker_id)
-                    self.worker_id = None
+                # A sequence of short waits must not monopolize worker capacity.
+                self.release_worker()
                 DBOS.sleep(seconds)
                 continue
             if action is Action.WAIT_FOR_BOUND:
