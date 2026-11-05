@@ -82,8 +82,9 @@ worker-private files, all under `durable/`:
 - **cancel.** Reads `key_frame`. Under the per-case lock: creates the attempt marker if
   missing (a tombstone, so a late `start` does nothing), kills the attempt's processes
   (SIGTERM, then SIGKILL after 5 s; `sudo -n kill` for processes of the isolated
-  calibrator users), and writes `INFRA_ERROR infra:cancelled` with `Usage()` if no result
-  exists. WP1 settles every `infra:cancelled` with `settle_lost` (review 5, N6).
+  calibrator users), and writes `INFRA_ERROR infra:cancelled`, with the usage booked so
+  far, if no result exists. WP1 settles every `infra:cancelled` with `settle_lost`
+  (review 5, N6).
 - **Exit codes.** `start`, `poll` and `cancel` exit 0 whenever they answered. Anything
   else (bad frame, I/O error) exits non-zero, which the channel treats as a transport
   failure (RUNNING).
@@ -187,6 +188,47 @@ its own spend reaches $20 (`budget_exhausted`, EXHAUSTED `writer:money`). As tod
 in-flight model call is not interrupted, so an attempt can overshoot its ceiling by the
 call in flight (contract finding 3).
 
+**Time: only `deadline_s` bounds a running step** (elephant, after WP4's diff reviews).
+`BatchSpec.deadline_epoch` only stops new cases and extensions; it must never stop a
+running case. Under the engine:
+
+- `context_for_step` refuses a context that is a legacy factory job
+  (`model_runtime.factory_job`, `authenticated_job_config`), so no `JobAuthority` is ever
+  built and `budget.reserve_invocation`, `run_budgeted`'s batch-limited timeout
+  (`retired_batch_bound`, budget.py :145, :834-839, :1220, :1247) and
+  `job_authority.read`/`for_case` (:47, :74) are unreachable: `run_budgeted` gets
+  `job_authority=None`, so its timeout is the call's own and ends as `timeout`.
+- `run.opencode` replaces the call window with `engine_call_window`: the call's timeout is
+  the time left in the attempt (`deadline_s` from the attempt's start), and its monotonic
+  deadline is the attempt's. A shorter role cap that a caller passes (a calibrator try's
+  `calibrator_minutes`, and the stress exploration cap that `model_runtime._invoke`
+  applies) stays inside that window: those are role science, not a batch or global
+  timeout. `agent_timeout` no longer bounds a call (it stays in `c.args` only because gate
+  fingerprints hash it).
+- The router's admission end (`model_router._deadlines`, which prefers
+  `c.batch_deadline` over `FACTORY_BATCH_DEADLINE`) is set to the attempt's deadline, so a
+  passed batch deadline in the environment cannot stop the step either.
+- As a last guard, `run_step` translates any stop that only the legacy plumbing raises:
+  `retired_batch_bound` becomes `INFRA_ERROR infra:batch_deadline`,
+  `router_batch_unconfigured` becomes `infra:router_unconfigured`, and the router's
+  `provider_wait_deadline` (now the attempt's own end) becomes `infra:deadline`.
+
+**`money_wait` only past the grant.** Under the engine the ceiling stop is today's
+`budget_exhausted` (EXHAUSTED `<stage>:money`). `money_wait` can come only from the
+JobAuthority/job_config/factory_waste paths (budget.py :141, :144, :714; job_authority.py
+:51, :63, :71, :73; job_config.py :88, :96, :172; factory_waste.py :41, :314), which the
+engine never reaches (`factory_waste.attempt` is a no-op outside a legacy job). If one
+appears anyway, `run_step` keeps it as `money_wait` (EXHAUSTED `batch:money_bound`) only
+when the attempt's spend since its baseline plus the ledger's open reservations exceeds
+its grant; otherwise it is `INFRA_ERROR infra:money_authority`.
+
+**Usage of a killed attempt.** After the restore the step process records the ledger's
+position at the attempt's start in `<attempt>/baseline.json` (numbers only). A deadline,
+cancel or crash result carries the usage booked since then, so WP1 can settle what a
+killed attempt spent (review 5, N6) instead of `Usage()`; settling `infra:cancelled` with
+`settle_lost` stays WP1's conservative choice. A call still in flight when the attempt is
+killed has booked nothing yet, so this usage can be below the real spend.
+
 The engine's WRITER and STRESS bodies are new functions (`engine_writer_round`,
 `engine_stress_round`) built from today's pieces (`prompt`, `run_context`, `opencode`,
 `g1`, `early_checks`, `attack_report`, `loop_freshness`, `early_review`), rather than
@@ -213,7 +255,13 @@ with a local process standing in for the model CLI (no provider is called).
   case; a unit whose result exists is not live;
 - first-wins: a cancel after DONE keeps the result; a cancel of a live attempt kills its
   processes and its late result cannot replace `infra:cancelled`;
-- the deadline kills the attempt (`infra:deadline`);
+- the deadline kills the attempt (`infra:deadline`); a cancelled attempt reports the
+  usage it booked;
+- the engine context is never a legacy job; a call's window is the attempt's time left,
+  even with a past `FACTORY_BATCH_DEADLINE`; a model call times out at the attempt
+  deadline as `timeout`, never `retired_batch_bound`; `money_wait`, `retired_batch_bound`
+  and `provider_wait_deadline` translate as above, and `money_wait` survives only past the
+  grant;
 - version mismatch and an unreadable `RELEASE.json`;
 - restore and snapshot round trip: exact retained subset, dropped names, bench evidence
   copied into `bench-results/`, ledger and card restored;
