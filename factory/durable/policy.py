@@ -8,8 +8,26 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from enum import Enum
 
+from typing import Optional
+
 from durable.contract import (BatchSpec, ContractError, Grant, LimitedBy, Outcome, Step, StepKind, StepResult,
                               Verdict, _nonneg_int, check_result_for)
+
+# ---- figures settled in docs/designs/durable-execution-wp1.md --------------------------------
+
+# A GATES attempt runs the whole gate pipeline. The slowest observed minutes per gate on the 52
+# non-dry-run cards in sealed/ sum to 363 min with G10 serial; 12 h is twice that.
+GATES_DEADLINE_S = 43_200.0
+# The control side polls until deadline_s plus this, then cancels (the worker kills at deadline_s).
+POLL_GRACE_S = 900.0
+# Below this an attempt does not start. The cheapest identified writer round is $0.4463424.
+MIN_GRANT_USD_MICROS = 1_000_000
+# A batch-only step requests at least this: Stream D's ceiling of the largest authenticated CLI
+# aggregate observed ($32.6137984). Finite, so one step never holds the whole bound.
+BATCH_ONLY_FLOOR_USD_MICROS = 33_000_000
+# Results whose usage the engine cannot know: they book the whole grant as waste (settle_lost).
+LOST_REASONS = frozenset({"infra:cancelled", "infra:worker_lost", "infra:attempt_absent",
+                          "engine:executor_raised", "engine:executor_bad_result"})
 
 
 class Action(str, Enum):
@@ -24,7 +42,8 @@ class Action(str, Enum):
     RETIRE = "retire"                  # stop this case
     ESCALATE = "escalate"              # park and wait for FOUNDER_REPLY
     STOP_ADMISSION = "stop_admission"  # ADMIT cannot find a bug: retire this case and start no new cases
-    WAIT_FOR_BOUND = "wait_for_bound"  # the batch bound ran out under this attempt: wait for any settle or BOUND_RAISED, then RETRY
+    WAIT_FOR_BOUND = "wait_for_bound"  # usage reached a BATCH grant, or a BATCH grant was below the minimum:
+                                       # wait for any settle or BOUND_RAISED, then RETRY
 
 
 @dataclass(frozen=True)
@@ -55,14 +74,7 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
     rounds_left = counters.writer_rounds_used < spec.max_writer_rounds and not counters.in_extension
 
     def give_up():
-        # Never diagnose a diagnosis (Stream D: a broken diagnosis is infrastructure, and
-        # once its retries are spent the case retires); an admission that cannot finish
-        # stops admission instead of chaining replacements.
-        if k is StepKind.ADMIT:
-            return Action.STOP_ADMISSION
-        if k is StepKind.DIAGNOSIS:
-            return Action.RETIRE
-        return Action.DIAGNOSE
+        return _give_up(k)
 
     if o is Outcome.OK:
         if k is StepKind.DIAGNOSIS:
@@ -92,6 +104,49 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
     if o is Outcome.NEEDS_FOUNDER:
         return Action.ESCALATE
     raise AssertionError(o)
+
+
+def _give_up(k: StepKind) -> Action:
+    # Never diagnose a diagnosis (Stream D: a broken diagnosis is infrastructure, and once its
+    # retries are spent the case retires); an admission that cannot finish stops admission
+    # instead of chaining replacements.
+    if k is StepKind.ADMIT:
+        return Action.STOP_ADMISSION
+    if k is StepKind.DIAGNOSIS:
+        return Action.RETIRE
+    return Action.DIAGNOSE
+
+
+def request_usd_micros(step: Step, counters: Counters, spec: BatchSpec) -> int:
+    """What the engine asks Ledger.reserve for. An ordinary step asks for the case's money and
+    the ledger caps it at what is left; a batch-only step asks for a finite figure."""
+    if draws_case_money(step, counters):
+        return spec.case_money_usd_micros
+    return max(spec.case_money_usd_micros, BATCH_ONLY_FLOOR_USD_MICROS)
+
+
+def decide_grant(step: Step, grant: Grant, *, minimum: int = MIN_GRANT_USD_MICROS) -> Optional[Action]:
+    """Before an attempt starts. None: start it. A sub-minimum CASE grant gives up without
+    starting, because the case's own money never comes back; a sub-minimum BATCH grant waits
+    for a settle or BOUND_RAISED; a NOTHING grant is the whole request and always starts."""
+    if grant.amount_usd_micros >= minimum or grant.limited_by is LimitedBy.NOTHING:
+        return None
+    if grant.limited_by is LimitedBy.BATCH:
+        return Action.WAIT_FOR_BOUND
+    return _give_up(step.kind)
+
+
+def deadline_s(step: Step, spec: BatchSpec) -> float:
+    """StepInput.deadline_s. GATES runs the whole pipeline, so it gets its own figure."""
+    if step.kind is StepKind.GATES:
+        return max(spec.step_deadline_s, GATES_DEADLINE_S)
+    return spec.step_deadline_s
+
+
+def settles_lost(result: StepResult) -> bool:
+    """Every infra:cancelled result, and every result the executor made for an attempt whose
+    usage it cannot know, settles with settle_lost (design review 5, N6)."""
+    return result.reason in LOST_REASONS
 
 
 def draws_case_money(step: Step, counters: Counters) -> bool:

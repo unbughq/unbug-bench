@@ -15,8 +15,9 @@ os.environ.setdefault("BENCH", str(ROOT))
 
 from durable.contract import (ArtifactKind as K, BatchSpec, ContractError, Grant, LimitedBy, Outcome, Ref, Step,
                               StepKind, StepResult, Usage, Verdict)
-from durable.policy import (Action, Counters, decide, decide_diagnosis, draws_case_money, progressed,
-                            settles_as_waste, starts_replacement)
+from durable.policy import (BATCH_ONLY_FLOOR_USD_MICROS, GATES_DEADLINE_S, MIN_GRANT_USD_MICROS, Action, Counters,
+                            deadline_s, decide, decide_diagnosis, decide_grant, draws_case_money, progressed,
+                            request_usd_micros, settles_as_waste, settles_lost, starts_replacement)
 
 A = "a" * 64
 
@@ -125,6 +126,48 @@ class Decide(unittest.TestCase):
                    Outcome.GATE_FAILED: dict(gate="G5"), Outcome.NEEDS_FOUNDER: dict(gate="G16")}
         for o in Outcome:
             self.assertIsInstance(d(GATES, StepResult(o, "g5:x", **samples.get(o, {}))), Action)
+
+
+class Settlements(unittest.TestCase):
+    """WP1's settlements (docs/designs/durable-execution-wp1.md)."""
+
+    def test_request_figures(self):
+        writer = Step(StepKind.WRITER, 1)
+        self.assertEqual(request_usd_micros(writer, Counters(), SPEC), SPEC.case_money_usd_micros)
+        # Batch-only steps ask for a finite figure, never the whole bound.
+        self.assertEqual(request_usd_micros(DIAG, Counters(), SPEC), 50_000_000)
+        self.assertEqual(request_usd_micros(writer, Counters(in_extension=True), SPEC), 50_000_000)
+        self.assertEqual(request_usd_micros(Step(StepKind.SEAL), Counters(diagnoses_used=1), SPEC), 50_000_000)
+        small = BatchSpec(**{**SPEC.__dict__, "case_money_usd_micros": 2_000_000})
+        self.assertEqual(request_usd_micros(DIAG, Counters(), small), BATCH_ONLY_FLOOR_USD_MICROS)
+        self.assertEqual(request_usd_micros(writer, Counters(), small), 2_000_000)
+
+    def test_minimum_grant_by_label(self):
+        writer = Step(StepKind.WRITER, 2)
+        low = MIN_GRANT_USD_MICROS - 1
+        self.assertIsNone(decide_grant(writer, Grant(MIN_GRANT_USD_MICROS, LimitedBy.CASE)))
+        # Case money never comes back: diagnose without starting.
+        self.assertIs(decide_grant(writer, Grant(low, LimitedBy.CASE)), Action.DIAGNOSE)
+        self.assertIs(decide_grant(ADMIT, Grant(0, LimitedBy.CASE)), Action.STOP_ADMISSION)
+        # The batch bound comes back with any settle or BOUND_RAISED: wait.
+        self.assertIs(decide_grant(writer, Grant(low, LimitedBy.BATCH)), Action.WAIT_FOR_BOUND)
+        self.assertIs(decide_grant(DIAG, Grant(0, LimitedBy.BATCH)), Action.WAIT_FOR_BOUND)
+        # NOTHING means the whole (small) request was granted: start.
+        self.assertIsNone(decide_grant(writer, Grant(low, LimitedBy.NOTHING)))
+
+    def test_deadlines(self):
+        self.assertEqual(deadline_s(GATES, SPEC), GATES_DEADLINE_S)
+        self.assertEqual(GATES_DEADLINE_S, 43_200.0)
+        self.assertEqual(deadline_s(STRESS, SPEC), SPEC.step_deadline_s)
+        longer = BatchSpec(**{**SPEC.__dict__, "step_deadline_s": 50_000.0})
+        self.assertEqual(deadline_s(GATES, longer), 50_000.0)
+
+    def test_cancelled_and_unknown_usage_settle_lost(self):
+        self.assertTrue(settles_lost(StepResult(Outcome.INFRA_ERROR, "infra:cancelled")))
+        for code in ("infra:worker_lost", "infra:attempt_absent", "engine:executor_raised"):
+            self.assertTrue(settles_lost(StepResult(Outcome.INFRA_ERROR, code)))
+        self.assertFalse(settles_lost(StepResult(Outcome.INFRA_ERROR, "infra:deadline", Usage(paid_usd_micros=4))))
+        self.assertFalse(settles_lost(StepResult(Outcome.INFRA_ERROR, "infra:attempt_busy")))
 
 
 class Diagnosis(unittest.TestCase):
