@@ -138,6 +138,11 @@ class RealStops(unittest.TestCase):
         self.assertEqual(classify(wrapped[0], step=StepKind.STRESS, now=NOW),
                          classify("codex_error", step=StepKind.STRESS, now=NOW))
         self.assertEqual(classify("Budget stopped: stalled", step=StepKind.WRITER, now=NOW).reason, "infra:stalled")
+        # A stored stop can come back wrapped again (budget.py:358 stores str(error)).
+        rewrapped = "Budget ledger stopped: " + wrapped[0]
+        self.assertEqual(classify(rewrapped, step=StepKind.STRESS, now=NOW).reason, "router:codex_error")
+        self.assertEqual(classify("Budget stopped: " * 9 + "stalled", step=StepKind.WRITER, now=NOW).reason,
+                         UNCLASSIFIED)   # the loop is bounded
 
     def test_case_limits_name_the_step(self):
         stop = next(s for _, s in STOPS if s == "call_limit")
@@ -145,23 +150,129 @@ class RealStops(unittest.TestCase):
         self.assertEqual(stages, {StepKind.ADMIT: "admit:call_limit", StepKind.WRITER: "writer:call_limit",
                                   StepKind.STRESS: "stress:call_limit", StepKind.GATES: "engine:call_limit",
                                   StepKind.DIAGNOSIS: "diagnosis:call_limit", StepKind.SEAL: "seal:call_limit"})
-        self.assertEqual(classify("money_wait", step=StepKind.GATES, now=NOW),
-                         Classified(Outcome.EXHAUSTED, "batch:money_bound"))
 
-    def test_every_runner_label_in_budget_py_is_in_the_table(self):
-        """The runner's own BudgetError labels (real source, factory/budget.py)."""
+    def test_money_wait_is_the_attempts_money_and_the_policy_tells_case_from_batch(self):
+        # budget.py:941 (spend + reservations > job_authority.committed_total_usd) and :717.
+        for kind in StepKind:
+            self.assertEqual(classify("money_wait", step=kind, now=NOW),
+                             classify("cost_limit", step=kind, now=NOW))
+        self.assertEqual(classify("money_wait", step=StepKind.WRITER, now=NOW),
+                         Classified(Outcome.EXHAUSTED, "writer:money"))
+        self.assertNotIn("batch:money_bound", REASONS)
+
+    def test_batch_deadline_stops_are_the_contracts_deadline_not_money(self):
+        # retired_batch_bound: budget.py:145, :837, :1220, :1247; job_authority.py:47, :74.
+        # provider_wait_deadline: model_router.py:523, :593, :642.
+        for stop in ("retired_batch_bound", "provider_wait_deadline"):
+            for kind in StepKind:
+                self.assertEqual(classify(stop, step=kind, now=NOW), Classified(Outcome.INFRA_ERROR, "infra:deadline"))
+        self.assertIn("infra:deadline", CONTRACT_REASONS)
+
+    RUNNER_FILES = ("budget.py", "model_router.py", "model_runtime.py", "model_call_gate.py", "run.py")
+    # Reviewed: what every BudgetError label raised in RUNNER_FILES classifies to.
+    MAPPED = {
+        "Invalid budget ledger; no process started": ("infra_error", "infra:ledger_error"),
+        "budget_exhausted": ("exhausted", "writer:money"),
+        "call_limit": ("exhausted", "writer:call_limit"),
+        "cancellation_failed": ("infra_error", "infra:cleanup_failed"),
+        "cancelled": ("infra_error", "infra:cancelled"),
+        "claude_error": ("infra_error", "router:claude_error"),
+        "cleanup_failed": ("infra_error", "infra:cleanup_failed"),
+        "codex_error": ("infra_error", "router:codex_error"),
+        "codex_login_expired": ("provider_limit", "router:credential_expiring"),
+        "cost_limit": ("exhausted", "writer:money"),
+        "credential_expiring": ("provider_limit", "router:credential_expiring"),
+        "invalid_money": ("infra_error", "infra:ledger_error"),
+        "invalid_operation": ("infra_error", "infra:ledger_error"),
+        "invalid_provider_wait": ("infra_error", "infra:ledger_error"),
+        "invalid_usage": ("infra_error", "infra:usage_unknown"),
+        "invalid_usage_binding": ("infra_error", "infra:usage_unknown"),
+        "invalid_usage_event": ("infra_error", "infra:usage_unknown"),
+        "invalid_usage_price": ("infra_error", "infra:usage_unknown"),
+        "invalid_usage_receipt": ("infra_error", "infra:usage_unknown"),
+        "invalid_waste_attribution": ("infra_error", "infra:ledger_error"),
+        "missing_usage": ("infra_error", "infra:usage_unknown"),
+        "model_call_cap": ("exhausted", "writer:call_cap"),
+        "money_wait": ("exhausted", "writer:money"),
+        "opencode_error": ("infra_error", "router:opencode_error"),
+        "ordinary_limit_unknown": ("infra_error", "infra:ledger_error"),
+        "process_error": ("infra_error", "router:process_error"),
+        "provider_limit:": ("provider_limit", "router:provider_limit"),
+        "provider_preflight_failed": ("infra_error", "router:preflight_failed"),
+        "provider_routes_exhausted": ("provider_limit", "router:provider_wait"),
+        "provider_wait_deadline": ("infra_error", "infra:deadline"),
+        "refusal:": ("infra_error", "router:refusal"),
+        "reservation_already_invoked": ("infra_error", "infra:ledger_error"),
+        "reservation_mismatch": ("infra_error", "infra:ledger_error"),
+        "resume_while_active": ("infra_error", "infra:ledger_error"),
+        "retired_batch_bound": ("infra_error", "infra:deadline"),
+        "route_maximum_unknown": ("infra_error", "infra:ledger_error"),
+        "router_batch_unconfigured": ("infra_error", "infra:router_unavailable"),
+        "shared_paid_spend_wait": ("provider_limit", "router:provider_wait"),
+        "stalled": ("infra_error", "infra:stalled"),
+        "timeout": ("infra_error", "infra:timeout"),
+        "total_call_limit": ("exhausted", "writer:total_call_limit"),
+        "unbounded_route": ("infra_error", "infra:router_unavailable"),
+        "unpriced_usage": ("infra_error", "infra:usage_unknown"),
+        "usage_event_conflict": ("infra_error", "infra:usage_unknown"),
+        "usage_event_missing": ("infra_error", "infra:usage_unknown"),
+        "usage_event_shared": ("infra_error", "infra:usage_unknown"),
+        "usage_monitor:": ("infra_error", "infra:usage_unknown"),
+        "usage_receipt_regressed": ("infra_error", "infra:usage_unknown"),
+        "usage_reconciliation_while_active": ("infra_error", "infra:usage_unknown"),
+        "usage_reservation_missing": ("infra_error", "infra:usage_unknown"),
+        "wait_receipt_mismatch": ("infra_error", "infra:ledger_error"),
+        "waste_attribution_mismatch": ("infra_error", "infra:ledger_error"),
+        "waste_operations_pending": ("infra_error", "infra:ledger_error"),
+        "x_cli_not_x": ("infra_error", "infra:cli_version"),   # f'{kind}_cli_not_{want}', model_runtime.py
+        "zero_tokens": ("infra_error", "router:zero_tokens"),
+    }
+    # Reviewed: labels that stay infra:unclassified_stop (still INFRA_ERROR, never scored).
+    # The two bare wrappers only ever prefix a cause. The rest are run.py lifecycle stops
+    # (admission, freshness, extension, stress review, provider-wait records) that the
+    # engine replaces, or dispatch faults with no engine meaning.
+    UNCLASSIFIED_BY_DESIGN = {
+        "Budget ledger stopped: ", "Budget stopped: ",
+        "admission_dedup_invalid", "admission_dedup_unavailable", "admission_idea_review_invalid",
+        "admission_idea_review_unavailable", "admission_registry_unavailable", "diagnosis_state_invalid",
+        "extension_comparison_pending", "extension_execution_mode_invalid", "extension_reservation_mismatch",
+        "freshness_evidence_unavailable", "freshness_public_match", "freshness_repair_state_invalid",
+        "freshness_review_unavailable", "freshness_statement_changed", "freshness_unresolved",
+        "ordinary_limit_mismatch", "owner_parent_not_active", "provider_wait_archive_mismatch",
+        "provider_wait_record_missing", "provider_wait_unsettled", "route_feature_unsupported",
+        "selection_board_unavailable", "statement-ready", "stress_publication_configuration_missing",
+        "stress_review_unresolved:", "stress_validation_exhausted", "writer_intent_missing",
+    }
+
+    def runner_labels(self):
+        """Every BudgetError label literal raised in the runner's real source files."""
         labels = set()
-        for node in ast.walk(ast.parse((ROOT / "factory" / "budget.py").read_text())):
-            if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "BudgetError" and node.args):
+        for name in self.RUNNER_FILES:
+            for node in ast.walk(ast.parse((ROOT / "factory" / name).read_text())):
+                if not (isinstance(node, ast.Call) and node.args and
+                        getattr(node.func, "id", getattr(node.func, "attr", None)) == "BudgetError"):
+                    continue
                 arg = node.args[0]
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     labels.add(arg.value)
                 elif isinstance(arg, ast.BinOp) and isinstance(arg.left, ast.Constant):
                     labels.add(arg.left.value)   # 'provider_limit:' + route, 'Budget stopped: ' + cause
-        labels -= {"Budget stopped: ", "Budget ledger stopped: "}   # wrappers, tested above
-        self.assertGreater(len(labels), 30)
-        for label in labels:
-            self.assertNotEqual(classify(label, step=StepKind.WRITER, now=NOW).reason, UNCLASSIFIED, label)
+                elif isinstance(arg, ast.IfExp):
+                    labels |= {x.value for x in (arg.body, arg.orelse) if isinstance(x, ast.Constant)}
+                elif isinstance(arg, ast.JoinedStr):
+                    labels.add("".join(v.value if isinstance(v, ast.Constant) else "x" for v in arg.values))
+        return labels
+
+    def test_every_runner_label_has_its_reviewed_outcome(self):
+        labels = self.runner_labels()
+        self.assertEqual(labels, set(self.MAPPED) | self.UNCLASSIFIED_BY_DESIGN,
+                         "a runner label was added or removed: review its mapping")
+        for label, want in self.MAPPED.items():
+            c = classify(label, step=StepKind.WRITER, now=NOW)
+            self.assertEqual((c.outcome.value, c.reason), want, label)
+        for label in self.UNCLASSIFIED_BY_DESIGN:
+            self.assertEqual(classify(label, step=StepKind.WRITER, now=NOW),
+                             Classified(Outcome.INFRA_ERROR, UNCLASSIFIED), label)
 
 
 class RetryAt(unittest.TestCase):

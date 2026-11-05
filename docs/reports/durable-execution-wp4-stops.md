@@ -88,11 +88,10 @@ runner's two wrappers, as `calibration.interruption_label` does.
   `infra:attempt_busy`, `infra:cancelled`, `engine:executor_raised` and
   `engine:executor_bad_result`.
 
-The 56 entries:
+The 55 entries:
 
 ```
 admit:call_cap admit:call_limit admit:money admit:total_call_limit
-batch:money_bound
 diagnosis:call_cap diagnosis:call_limit diagnosis:money diagnosis:total_call_limit
 engine:call_cap engine:call_limit engine:executor_bad_result engine:executor_raised
 engine:money engine:total_call_limit
@@ -145,7 +144,9 @@ list, so `report.py` shows them as their gate and outcome only.
 All of these are counts from the public cards. The test does not pin them; the
 scratch script that computed them read the same files.
 
-1. **Free OpenCode Zen routes account for 206 of the 210 (98%).**
+1. **206 of the 210 (98%) are on cards with free MiniMax or DeepSeek Zen routes.**
+   This is co-occurrence at card level, not attribution: stop history records no route,
+   so no single stop is tied to a call on these routes.
    - 32 of the 49 cards gave `opencode/minimax-m3.1-flash-free` or
      `opencode/deepseek-v4.1-flash-free` to the writer, stress tester or reviewer
      (final `roles`). They hold 206 `opencode_error` stops in 466 stops, about 6.4 per
@@ -154,8 +155,11 @@ scratch script that computed them read the same files.
      routes in those roles (plus the free GLM easy calibrator that every card has).
      They hold 4 `opencode_error` stops in 45 stops: one each in `86b100` and
      `ce4d82`, and two in `7d8a30`.
-   - `openrouter/` and `opencode-go/` routes also run through the OpenCode CLI. So the
-     difference is the free Zen routes, not the CLI.
+   - `openrouter/` and `opencode-go/` routes also run through the OpenCode CLI, so the
+     correlation is with the free Zen route assignments, not with the CLI as such. It
+     is confounded: the 32 cards average 14.6 stops per card and the 17 others 2.6, so
+     the two groups ran very different amounts of work, and their role assignments
+     differ too. The correlation does not show that the free routes caused the errors.
    - By role, among the 32 cards (a card can count under two roles): stress tester,
      26 cards and 178 stops; writer, 19 cards and 102 stops; reviewer, 19 cards and
      132 stops.
@@ -188,15 +192,19 @@ the factory itself, but it is no evidence about the 210.
 
 ### Top causes, as far as the repo supports
 
-| Rank | Cause | Stops | Evidence |
-|---:|---|---:|---|
-| 1 | Calls on free OpenCode Zen routes (`opencode/*-free`: MiniMax M3.1 Flash, DeepSeek V4.1 Flash, GLM 5.3 Flash). The underlying error text is unknown. | 206 of 210 are in the 32 cards that use them; at least 13 are attributed by name to `opencode/glm-5.3-flash-free` | card `roles` and `continuation_budget.events[].configured_model`; `free_model_fallback.why` |
-| 2 | Unattributed, on cards without free Zen routes in writer, stress or reviewer roles | 4 | `86b100`, `ce4d82`, `7d8a30` |
+The repo supports correlations and one direct attribution, not causes. The real cause
+of each `opencode_error` needs the error events in the encrypted transcripts.
 
-The repo cannot rank the causes inside rank 1, such as free-tier throttling without a
-429, a model withdrawn from the free tier, malformed or oversized requests, or the
-factory's own gate refusing a call. That needs the error events from the encrypted
-transcripts.
+| Rank | Signal | Stops on those cards | Evidence |
+|---:|---|---:|---|
+| 1 | Co-occurs with free Zen routes in writer, stress or reviewer roles (MiniMax M3.1 Flash, DeepSeek V4.1 Flash). Correlation only: those cards also ran 14.6 stops per card against 2.6. | 206 of 210, on 32 cards | card `roles` and `continuation_budget.events[].configured_model` |
+| 2 | The free GLM easy-calibrator route `opencode/glm-5.3-flash-free`. Every card has it, so it is not a correlate. | ≥13 attributed by `free_model_fallback.why` (13 cards, which hold 89 stops in all) | `free_model_fallback` |
+| 3 | No signal, on cards without free Zen routes in writer, stress or reviewer roles | 4, on 3 cards | `86b100`, `ce4d82`, `7d8a30` |
+
+Rows 1 and 2 overlap: the 13 GLM attributions sit on cards also counted in row 1. The
+repo cannot rank causes such as free-tier throttling without a 429, a model withdrawn
+from the free tier, malformed or oversized requests, or the factory's own gate
+refusing a call. That needs the error events from the encrypted transcripts.
 
 **To get them,** someone holding the case keys would open the 33 affected cases'
 checkpoint archives on the control VM and count the `error.name`, `statusCode` and

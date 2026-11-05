@@ -31,6 +31,7 @@ BACKOFF_S = 900.0
 MAX_RESET_AHEAD_S = 8 * 24 * 3600.0
 
 _WRAPPERS = ("Budget stopped: ", "Budget ledger stopped: ")
+_MAX_WRAPPERS = 8
 
 # The stage of an EXHAUSTED case limit is the step's own. REASON has no stage for the
 # GATES step as a whole, so it uses "engine" (WP4 contract finding 2).
@@ -95,17 +96,21 @@ _FIXED = {
     "complete": (_I, "infra:stop_without_failure"),
     "running": (_I, "infra:stop_without_failure"),
     "": (_I, "infra:stop_without_failure"),
-    # The batch bound ran out under this attempt; the policy reads the Grant label.
-    "money_wait": (_E, "batch:money_bound"),
-    "retired_batch_bound": (_E, "batch:money_bound"),
+    # The batch deadline (a clock, not money) passed before or during the call, or during a
+    # provider wait: budget.py:145, :837, :1220, :1247; job_authority.py:47, :74;
+    # model_router.py:523, :593, :642. It is the contract's attempt-deadline code.
+    "retired_batch_bound": (_I, "infra:deadline"),
+    "provider_wait_deadline": (_I, "infra:deadline"),
 }
 
-# The case's own limits: EXHAUSTED, with the step's stage.
-_CASE_LIMIT = {"cost_limit": "money", "budget_exhausted": "money", "call_limit": "call_limit",
-               "total_call_limit": "total_call_limit", "model_call_cap": "call_cap"}
+# The attempt's own limits: EXHAUSTED, with the step's stage. money_wait is the attempt's
+# committed money running out (budget.py:941, :717). Whether that money was the case's or
+# the batch's is the policy's call, from the Grant label, so the reason does not say.
+_CASE_LIMIT = {"cost_limit": "money", "budget_exhausted": "money", "money_wait": "money",
+               "call_limit": "call_limit", "total_call_limit": "total_call_limit", "model_call_cap": "call_cap"}
 
 _USAGE = re.compile(r"(invalid_usage|usage)_[a-z_]+")
-_CLI_VERSION = re.compile(r"(codex|claude|opencode)_cli_not_.*", re.S)
+_CLI_VERSION = re.compile(r"[a-z]+_cli_not_.*", re.S)   # model_runtime.pinned_cli
 _EXCEPTION = re.compile(r"[A-Z][A-Za-z0-9]*(Error|Exception|Exit|Interrupt)")
 
 UNCLASSIFIED = "infra:unclassified_stop"
@@ -130,10 +135,11 @@ if not all(REASON.fullmatch(r) for r in REASONS | CONTRACT_REASONS):
 
 def _head(stop: str) -> tuple[str, str]:
     text = stop.strip()
-    for wrapper in _WRAPPERS:
-        if text.startswith(wrapper):
-            text = text[len(wrapper):].strip()
+    for _ in range(_MAX_WRAPPERS):   # a stored stop can come back wrapped again (budget.py:358)
+        wrapper = next((w for w in _WRAPPERS if text.startswith(w)), None)
+        if wrapper is None:
             break
+        text = text[len(wrapper):].strip()
     head, _, rest = text.partition(":")
     return head, rest
 

@@ -133,4 +133,15 @@ Contract finding 2 already reports this.
 
 ## Resolution (elephant)
 
-Recorded after the fixes; see the end of this file.
+Fixes made by the WP4 writer on `de/wp4`, at the elephant's direction. Test file
+afterwards: 20 tests, OK.
+
+| # | Severity | Resolution |
+|---:|---|---|
+| 1 | BLOCKING | **Fixed.** `retired_batch_bound` now maps to INFRA_ERROR `infra:deadline`, the contract's code. `provider_wait_deadline` is the same batch-deadline stop (`model_router.py:523`, `:593`, `:642`), so it maps the same way. `money_wait` maps like `cost_limit`, to EXHAUSTED `<step stage>:money`, and batch versus case is left to the policy's Grant label. `batch:money_bound` is gone from `REASONS` and from the allowlist, which now has 55 entries. The design note cites each source (`budget.py:143-145`, `:836-837`, `:1220`, `:1247`, `:939-941`, `:716-717`; `job_authority.py:46-47`, `:74`). It lists the JobAuthority plumbing-fault sources of `money_wait` (`budget.py:141`, `:144`, `:714`; `job_authority.py:51`, `:63`, `:71`, `:73`) and states that WP5a must not emit `money_wait` for them. New tests assert both mappings for every step. |
+| 2 | BLOCKING | **Fixed (wording).** Rank 1 now reads "Co-occurs with free Zen routes in writer, stress or reviewer roles (MiniMax, DeepSeek)". The column is "Stops on those cards". GLM has its own row ("≥13 attributed by `free_model_fallback.why`"). The "not the CLI" sentence now states the correlation and the 14.6 against 2.6 stops-per-card confounder. The report still says the real cause needs the encrypted transcripts. |
+| 3 | NIT | **Fixed.** The AST sweep now covers `budget.py`, `model_router.py`, `model_runtime.py`, `model_call_gate.py` and `run.py`. The test asserts the expected outcome and reason for each mapped label. It also asserts an explicit, reviewed set of labels that stay unclassified: the bare wrappers and the `run.py` lifecycle stops. Any added or removed label fails the test. The CLI-version pattern now also matches the f-string label generically. |
+| 4 | NIT | **Handed to WP1.** No Murphy row was added. The design note states a requirement on WP1: `policy.decide` must cap PROVIDER_LIMIT attempts on one step that spend nothing, by count or by sleep time, and then give up. The reason: a missing local secret raises the same `credential_expiring` as a real expiry, and the classifier cannot tell them apart. |
+| 5 | NIT | **Fixed (doc).** The design note records `budget_exhausted`'s unpriced-`codex/` source (`budget.py:720-721`). It is legacy under the engine; WP5a should raise `unpriced_usage` there if it survives. |
+| 6 | NIT | **No change.** Already contract finding 2. The elephant carries the `gates` stage into the next contract revision. |
+| 7 | NIT | **Fixed.** Wrappers are stripped in a loop bounded at 8. A test checks that a doubly wrapped `codex_error` classifies as its cause, and that the loop stops at the bound. |

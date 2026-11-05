@@ -40,9 +40,11 @@ frozen contract. It provides:
 ### Normalising the stop
 
 1. If the stop is not a string, the result is `infra:unclassified_stop`.
-2. Strip surrounding whitespace. Then strip one runner wrapper, `Budget stopped: ` or
+2. Strip surrounding whitespace. Then strip the runner wrappers, `Budget stopped: ` and
    `Budget ledger stopped: `, the same prefixes `calibration.interruption_label`
-   strips. The real card `Budget ledger stopped: codex_error` needs this.
+   strips. The real card `Budget ledger stopped: codex_error` needs this. A stored stop
+   can come back wrapped again (`budget.py:358` stores `str(error)`), so wrappers are
+   stripped in a loop, at most 8 times.
 3. The head is the text before the first `:`. Only the head picks the outcome. The
    only part after the `:` that is ever read is a `provider_limit` route's prefix
    (`claude/`, `codex/`, `opencode-go/`, `opencode/`, `openrouter/`), and it only
@@ -54,8 +56,8 @@ of `REASONS`.
 
 ### Mapping
 
-The stage is `router` for a fault on the model or provider side, `infra` for a fault
-in the runner or plumbing, and `batch` for the batch bound. For an EXHAUSTED case
+The stage is `router` for a fault on the model or provider side, and `infra` for a
+fault in the runner or plumbing. For an EXHAUSTED
 limit, the stage is the step's own: `admit`, `writer`, `stress`, `diagnosis`, `seal`,
 or `engine` for GATES. The grammar has no `gates` stage; see contract finding 2.
 
@@ -80,9 +82,9 @@ or `engine` for GATES. The grammar has no `gates` stage; see contract finding 2.
 | `runner_error`, `seal_error` | INFRA_ERROR | `infra:runner_error` |
 | a Python exception class name (`PermissionError`, `LookupError`, …) | INFRA_ERROR | `infra:runner_exception` |
 | `complete`, `running`, empty | INFRA_ERROR | `infra:stop_without_failure` |
-| `cost_limit`, `budget_exhausted` | EXHAUSTED | `<step stage>:money` |
+| `retired_batch_bound`, `provider_wait_deadline` (the batch deadline) | INFRA_ERROR | `infra:deadline` |
+| `cost_limit`, `budget_exhausted`, `money_wait` | EXHAUSTED | `<step stage>:money` |
 | `call_limit`, `total_call_limit`, `model_call_cap` | EXHAUSTED | `<step stage>:call_limit`, `:total_call_limit`, `:call_cap` |
-| `money_wait`, `retired_batch_bound` | EXHAUSTED | `batch:money_bound` |
 | anything else | INFRA_ERROR | `infra:unclassified_stop` |
 
 Why each choice:
@@ -98,14 +100,48 @@ Why each choice:
   engine's own attempt deadline is a separate code, `infra:deadline`.
 - **Call limits and money limits are EXHAUSTED.** The design says EXHAUSTED is "the
   attempt reaches its `money_ceiling_usd_micros` or the runner's own limits".
-  `money_wait` and `retired_batch_bound` are the batch bound, so they become
-  EXHAUSTED with `batch:money_bound`. The policy then tells a money wait from a case
-  outcome by the Grant label, as the design specifies.
+  - `money_wait` is raised when the attempt's committed money runs out:
+    `budget.py:939-941` (spend plus outstanding reservations exceeds
+    `job_authority.committed_total_usd`) and `budget.py:716-717`. That money is the
+    attempt's grant, whose label may be CASE or BATCH. So `money_wait` maps like
+    `cost_limit`, to `<step stage>:money`, and the policy tells a batch money wait from a
+    case outcome by the Grant label, as the main design specifies. The reason does not
+    claim which.
+  - `money_wait` is also raised for a missing, malformed or mismatched JobAuthority:
+    `budget.py:141`, `:144`, `:714`, and `job_authority.py:51`, `:63`, `:71`, `:73`.
+    Those are plumbing faults, not money. **WP5a must not emit `money_wait` for them.**
+    Under the engine the grant replaces the JobAuthority; if any of those checks
+    survives, it must raise a plumbing label (for example `invalid_money`, which maps
+    to `infra:ledger_error`).
+  - `budget_exhausted` is also raised for a `codex/` route missing from
+    `CODEX_PRICES` (`budget.py:720-721`). That is an unpriced route, a configuration
+    fault, but it still maps to `<step stage>:money`. Under the engine WP5a turns off
+    the in-process case budget (`require_case_budget`'s non-authority branch), so this
+    source is legacy. If it survives, WP5a should raise `unpriced_usage` there instead.
+- **The batch deadline is `infra:deadline`, not money.** `retired_batch_bound` is a
+  clock: the batch deadline passed before or during the call. It is raised at
+  `budget.py:143-145` and `:836-837`, and at `:1220` and `:1247`, where the per-call
+  timeout is cut short by the batch deadline. It is also raised at
+  `job_authority.py:46-47` and `:74`. `provider_wait_deadline` is the same deadline
+  reached during a provider wait (`model_router.py:523`, `:593`, `:642`). Both map to
+  the contract's existing `infra:deadline`, like the engine's own attempt deadline.
+  The engine's batch deadline then decides whether the case continues.
 - **A credential expiry is PROVIDER_LIMIT.** `model_router` already treats
   `credential_expiring` as a Wait. A renewal is external, so sleeping and retrying
   beats burning infra retries in seconds. The cost: a credential that is never renewed
   sleeps in 15-minute cycles instead of reaching DIAGNOSE. It holds no slot while it
   sleeps.
+  - `credential_expiring` is also raised for a missing local secret: an empty token
+    variable (`model_call_gate.py:699`) or a missing secret file
+    (`model_runtime.py:405-407`). Those are configuration faults that no wait fixes.
+    Because such limits spend nothing, the policy's only give-up rule (more than
+    `max_spent_limits_per_step` limits that spent money) never fires, and the step
+    would sleep forever.
+  - **Requirement on WP1:** `policy.decide` must also cap PROVIDER_LIMIT attempts on
+    one step that spend nothing, by count or by total sleep time, and then give up
+    (DIAGNOSE). WP4 cannot tell a missing secret from an expiring one: the stop text is
+    the same, and the classifier never reads more of it. No Murphy row is added here;
+    the elephant decides whether this becomes one.
 - **`refusal` is INFRA_ERROR** (the router switches route; it is never scored). Its
   reason is kept off the public card, because "a model refused this case" hints at the
   case's content.
@@ -159,6 +195,16 @@ and `restart.py:94`.
 - **Broken runs are never scored.** No real stop gives OK, GATE_FAILED or
   NEEDS_FOUNDER, and every model-CLI, stall, timeout, pause and exception stop is
   INFRA_ERROR.
+- **Runner labels.** It parses every `BudgetError` label literal raised in
+  `factory/budget.py`, `model_router.py`, `model_runtime.py`, `model_call_gate.py` and
+  `run.py`. The set must equal a reviewed list: each mapped label with its expected
+  outcome and reason, plus an explicit set of labels that stay
+  `infra:unclassified_stop` (the bare wrappers and `run.py` lifecycle stops). A new or
+  removed label fails the test until it is reviewed.
+- **Money and deadline.** `money_wait` classifies exactly like `cost_limit` for every
+  step. `retired_batch_bound` and `provider_wait_deadline` are INFRA_ERROR
+  `infra:deadline` for every step.
+- **Wrappers.** A doubly wrapped stop classifies as its cause, and the loop is bounded.
 - **Backoff.** Every real `provider_limit` stop gets `now + 900`, equal to
   `model_router.retry_at`. A real `claude_resets_at` from the cards is used when it
   is passed. A stale, non-finite or far-future `reset_at` falls back to the backoff.
