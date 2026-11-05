@@ -1,8 +1,8 @@
-# Budget-aware admission using a DBOS decision queue, revision 10
+# Budget-aware admission using a DBOS decision queue, revision 11
 
 Status: proposed alternative to `durable-execution-admission-budget.md` revision 6;
 not implemented. Earlier reviews are in
-`docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8,9}.md`; request a fresh
+`docs/reviews/durable-execution-admission-queue-design-{1,2,3,4,5,6,7,8,9,10}.md`; request a fresh
 independent design review before choosing it. WP1 owns the engine changes; WP2 must satisfy the existing idempotent `WorkerPool`
 contract. No `contract.py` edit is proposed.
 
@@ -101,8 +101,11 @@ workflow ID. If that workflow dies before its acknowledged result, the batch kee
 the fence. A later queued probe or terminal attempt must ask the batch before it
 can reserve or dispatch; it is refused or waits while an older unresolved fence
 exists. The event loop continues processing operator and case messages. A clean
-holder's result is applied, fence closed, then acknowledged; duplicate or stale
-messages keyed to a closed operation cannot close a different fence. No new
+holder's result is applied, fence closed, then acknowledged. The batch records
+each applied decision by operation ID as part of its replayed state. A duplicate
+or recovered result for an already-applied operation can redeliver its case
+response, but must never reapply its registry, stop, target or seal decision and
+must never close a different fence. No new
 admission or terminal work is permitted on an unknown result.
 
 On each bounded batch poll and after recovery, the batch independently monitors
@@ -142,7 +145,19 @@ A queued/running model child is attached to and awaited; cancellation is request
 only as part of reconciliation and is never itself taken as proof of termination.
 Once an exact lease is known, poll/cancel it without starting another attempt. If
 no worker execution can still occur, a confirmed unstarted grant can be
-zero-settled. A recorded ordinary result is authenticated and its usage is settled
+zero-settled. Before settlement the reaper records the `no_dispatch` decision and
+the exact key; replay repeats that same zero-settlement idempotently. It reconciles
+any acquired lease and does not clear the preparation token until release or
+confirmed absence. The batch then closes the matching fence and the case receives
+an operation-keyed `no_dispatch` response rather than a nonexistent `StepResult`.
+The case continues the same step with the next attempt number and a fresh ledger
+key; a settled key is never reused. An initial ADMIT remains counted as admitted,
+including after its deadline, and does not repeat the admission probe. A new
+BATCH-limited grant can make the already-admitted case wait for the bound. A
+retried SEAL rechecks the current releases against passing GATES before dispatch.
+Test child failure before dispatch and crashes before/after zero settlement, with
+and without an acquired lease; the case progresses only after quiescence and never
+reuses a settled key. A recorded ordinary result is authenticated and its usage is settled
 idempotently. **Every** unknown-usage result, whether recorded or synthesized,
 keeps the grant and fence: poll/cancel the exact recorded lease and key without
 starting a new attempt until an authenticated DONE, confirmed tombstone, or proven
@@ -160,8 +175,13 @@ The case catches a failed terminal-child result and waits on a deterministic,
 idempotently keyed reconciliation response. After applying the batch decision,
 the reconciler sends the authenticated `StepResult` (including its snapshot),
 the derived action and post-result counters; the case acknowledges and continues
-from that result without rerunning ADMIT or incrementing counters twice. Replay
-redelivers the same response until acknowledged. If the case itself is terminal
+from that result without rerunning ADMIT or incrementing counters twice. The case
+accepts a response only for its currently awaited operation and attempt, records
+which result it applied, and ignores later duplicates even across reaper generations.
+Replay redelivers the same response until acknowledged. Test an already-applied
+ADMIT A whose holder fails after the batch acknowledgement, then a successful
+ADMIT B and delayed A recovery: B's registry remains current. Deliver A's response
+again while the case waits for a later attempt and prove it is ignored. If the case itself is terminal
 and cannot consume it, the batch retains the authenticated result and registry,
 reports the case as `engine_error`, and safely reconciles its worker and grant;
 it neither invents a continuation nor reruns the paid step. This exceptional
@@ -330,8 +350,10 @@ Refs: `replacement_request(case, action)`, `worker_released(case)`,
 Each send key is derived from `(batch, operation key, sender role, message kind,
 phase, destination)`, because DBOS deduplicates by key and destination, not topic
 or kind. Request, result, acknowledgement and token-release keys must all differ;
-retries of the same phase reuse its key, while a genuinely new attempt or reaper
-generation uses a new one. Test delivery of distinct phases and suppression of an
+retries of the same phase reuse its key, while a genuinely new attempt uses a new
+one. Reaper-control messages may include the generation; a recovered response's
+delivery key is instead stable across generations for the same operation, attempt,
+phase and destination. Test delivery of distinct phases and suppression of an
 exact duplicate. The batch joins facts by predecessor or operation key and never
 assumes FIFO delivery. No plaintext or raw
 provider exception enters DBOS events.
