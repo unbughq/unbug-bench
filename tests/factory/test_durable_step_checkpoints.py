@@ -155,9 +155,11 @@ class Checkpoints(unittest.TestCase):
             restore(AgeSealer().open(self.key, ref, raw), fresh)
             retry = dataclasses.replace(si, attempt=2, snapshot=ref)
             c = run.context_for_step(retry, fresh)
+            c.engine_checkpoint = lambda: True
             self.assertEqual(run.review(c), first)
             self.assertEqual(len(seen), len(c.models['reviewers']))
             c = run.context_for_step(dataclasses.replace(retry, attempt=3), fresh)
+            c.engine_checkpoint = lambda: True
             c.engine_ruling = 'Judge the newly clarified owner requirement.'
             run.review(c)
             self.assertEqual(len(seen), 2 * len(c.models['reviewers']))

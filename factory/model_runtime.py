@@ -331,7 +331,7 @@ class ModelRuntime:
         with dispatch(c, name):
             invoke = lambda: self._call(c, models, text, cwd, name, user=user, timeout=timeout,
                                        deadline=deadline, before_attempt=before_attempt, lease=lease)
-            if getattr(c, 'engine', None) is not None:
+            if getattr(c, 'engine', None) is not None and callable(getattr(c, 'engine_checkpoint', None)):
                 from durable.checkpoints import model_call
                 return model_call(c, models, cwd, name, invoke, text=text)
             return invoke()
