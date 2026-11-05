@@ -14,9 +14,12 @@ import hashlib
 import json
 import re
 import shlex
+import time
 from typing import Mapping
 
-from durable.contract import (BATCH_SCOPED, RELEASE_ROOT, WORKER_COMMAND, ArtifactKind, ArtifactStore, Poll,
+from durable.artifacts import ArtifactError
+
+from durable.contract import (BATCH_SCOPED, RELEASE_ROOT, WORKER_COMMAND, ArtifactKind, ArtifactStore, Outcome, Poll,
                               PollState, Ref, StepInput, StepResult, WorkerLease, _check, attempt_paths, key_frame,
                               poll_from_record, start_frame)
 from durable.workers import BoatCli, boat_id
@@ -49,10 +52,14 @@ def worker_command(verb: str) -> str:
 class BoatChannel:
     """WorkerChannel on Boat. Workers hold no R2 credentials: blobs move over ssh here."""
 
-    def __init__(self, store: ArtifactStore, *, boat: BoatCli | None = None, command_timeout: float = 120.0,
-                 blob_timeout: float = 600.0):
+    def __init__(self, store: ArtifactStore, *, keys, sealer, boat: BoatCli | None = None,
+                 command_timeout: float = 120.0, blob_timeout: float = 600.0,
+                 output_retry_s: float = 60.0, clock=time.monotonic):
         self.store, self.boat = store, boat or BoatCli()
+        self.keys, self.sealer = keys, sealer
         self.command_timeout, self.blob_timeout = command_timeout, blob_timeout
+        self.output_retry_s, self.clock = output_retry_s, clock
+        self._missing_since = {}
 
     # -- WorkerChannel
 
@@ -92,7 +99,16 @@ class BoatChannel:
             if poll.state is PollState.DONE:
                 for ref in output_refs(poll.result):
                     if not self._fetch(worker, out_dir, scope_of(step_input, ref), ref):
+                        identity = (lease.worker_id, key)
+                        since = self._missing_since.setdefault(identity, self.clock())
+                        if self.clock() - since >= self.output_retry_s:
+                            # The worker explicitly confirmed completion. A missing
+                            # blob is infrastructure failure, not a live attempt.
+                            result = StepResult(Outcome.INFRA_ERROR, "infra:output_unavailable",
+                                                usage=poll.result.usage)
+                            return Poll(PollState.DONE, result)
                         return RUNNING
+                self._missing_since.pop((lease.worker_id, key), None)
             if poll.checkpoint is not None and not self._fetch(worker, out_dir, step_input.case_id, poll.checkpoint):
                 return Poll(poll.state, poll.result)
             return poll
@@ -119,7 +135,13 @@ class BoatChannel:
         return code == 0
 
     def _fetch(self, worker: str, out_dir: str, scope: str, ref: Ref) -> bool:
+        key = self.keys.scope_key(scope)
         if self.store.exists(scope, ref):
+            data = self.store.get_sealed(scope, ref)
+            try:
+                self.sealer.open(key, ref, data)
+            except ArtifactError:
+                return False
             return True
         name = blob_name(ref)
         script = f"set -eu; f=~/{out_dir}/{name}; test -f \"$f\"; sha256sum < \"$f\" | cut -c1-64; cat \"$f\""
@@ -129,5 +151,16 @@ class BoatChannel:
         digest, data = out[:64].decode("ascii", "replace"), out[65:]
         if hashlib.sha256(data).hexdigest() != digest:
             return False
+        # The worker's checksum is only a transport check. Authenticate before
+        # first-wins publication, so bad ciphertext cannot poison a valid Ref.
+        try:
+            self.sealer.open(key, ref, data)
+        except ArtifactError:
+            return False
         self.store.put_sealed(scope, ref, data)
+        stored = self.store.get_sealed(scope, ref)
+        try:
+            self.sealer.open(key, ref, stored)
+        except ArtifactError:
+            return False
         return True

@@ -214,6 +214,10 @@ class PostgresConcurrency(unittest.TestCase):
         for t in threads: t.join()
         # Raise the bound so the processes compete for a fresh 1000 on the same batch.
         ledger.raise_bound(BATCH, 2 * BOUND)
+        # The process phase is independent contention, not a replay with changed
+        # random arguments under the thread phase's existing idempotency keys.
+        with ledger._engine.begin() as conn:
+            conn.execute(sa.text("DELETE FROM durable_ledger_attempt WHERE batch_id = :b"), {"b": BATCH})
         outs = run_processes(url, "random", n=40)
         grants += [(c, d, Grant(a, l)) for out in outs for c, d, a, l, _ in out]
         check_limits(self, grants, bound=2 * BOUND, case_limit=CASE_LIMIT)

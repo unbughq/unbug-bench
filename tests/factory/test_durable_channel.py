@@ -4,7 +4,7 @@ Runs against a worker the real pool provisioned through the stand-in Boat of
 test_durable_workers.py (real saved Boat CLI outputs; `boat ssh` runs locally per worker
 home), with the stand-in worker command written there from the contract docstring. The
 ArtifactStore is a fake written from the contract protocol. Ciphertexts are opaque random
-bytes: the channel never opens them.
+bytes in transport-only tests; authentication also has a real-store/sealer regression.
 """
 import base64
 import json
@@ -13,6 +13,7 @@ from pathlib import Path
 import sys
 import time
 import unittest
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "tests/factory"), str(ROOT / "factory"), str(ROOT / "bin")]
@@ -56,7 +57,10 @@ class ChannelTests(unittest.TestCase):
         self.lease = self.pool.acquire(CASE, self.h.plumbing, self.bench)
         self.home = self.h.home(W.boat_id(self.lease.worker_id))
         self.store = FakeStore()
-        self.channel = BoatChannel(self.store, boat=self.h.boat, command_timeout=20, blob_timeout=20)
+        self.keys = SimpleNamespace(scope_key=lambda scope: b"k" * 32)
+        self.sealer = SimpleNamespace(open=lambda key, ref, data: data)
+        self.channel = BoatChannel(self.store, keys=self.keys, sealer=self.sealer,
+                                   boat=self.h.boat, command_timeout=20, blob_timeout=20)
         self.inputs = Ref(digest(1), K.INPUTS)
         self.snapshot = Ref(digest(2), K.CASE_SNAPSHOT)
         self.blobs = {blob_name(self.inputs): os.urandom(4096), blob_name(self.snapshot): os.urandom(70_000)}
@@ -160,7 +164,7 @@ class ChannelTests(unittest.TestCase):
             self.assertEqual(self.channel.poll(self.lease, si).state, PollState.RUNNING, flag)
             self.h.flag(flag, None)
         self.h.flag("ssh-hang", "worker_step.py poll")
-        slow = BoatChannel(self.store, boat=self.h.boat, command_timeout=2)
+        slow = BoatChannel(self.store, keys=self.keys, sealer=self.sealer, boat=self.h.boat, command_timeout=2)
         self.assertEqual(slow.poll(self.lease, si).state, PollState.RUNNING)
         self.h.flag("ssh-hang", None)
         gone = WorkerLease("bx-z4wktrbn", CASE)   # a worker the provider does not know
@@ -189,6 +193,44 @@ class ChannelTests(unittest.TestCase):
         self.assertEqual(poll.result, result)
         self.assertEqual(self.store.get_sealed(CASE, receipt), b"receipt bytes")
         self.assertEqual(self.store.get_sealed(CASE, snap), b"snapshot bytes")
+
+    def test_confirmed_done_missing_output_finishes_with_usage_after_retry_window(self):
+        from durable.contract import Usage
+        now = [100.0]
+        self.channel.clock = lambda: now[0]
+        self.channel.output_retry_s = 5
+        si = self.step()
+        snap = Ref(digest(90), K.CASE_SNAPSHOT)
+        usage = Usage(calls=1, paid_usd_micros=1234)
+        self.plan(si, StepResult(Outcome.OK, "writer:done", snapshot=snap, usage=usage))
+        self.start(si)
+        time.sleep(1)
+        self.assertEqual(self.channel.poll(self.lease, si).state, PollState.RUNNING)
+        now[0] += 6
+        poll = self.channel.poll(self.lease, si)
+        self.assertEqual(poll.state, PollState.DONE)
+        self.assertEqual(poll.result.outcome, Outcome.INFRA_ERROR)
+        self.assertEqual(poll.result.reason, "infra:output_unavailable")
+        self.assertEqual(poll.result.usage, usage)
+
+    def test_corrupt_output_cannot_poison_real_immutable_store(self):
+        from durable.artifacts import AgeSealer, LocalObjects, SealedStore, open_from
+        key = b"k" * 32
+        sealer = AgeSealer()
+        store = SealedStore(LocalObjects(self.h.tmp / "real-objects"))
+        ref, good = sealer.seal(key, K.CASE_SNAPSHOT, b"saved case data")
+        self.channel.store, self.channel.sealer = store, sealer
+        si = self.step()
+        self.plan(si, StepResult(Outcome.OK, "writer:done", snapshot=ref),
+                  {ref: b"age-encryption.org/v1\ninvalid ciphertext"})
+        self.start(si)
+        time.sleep(1)
+        self.assertEqual(self.channel.poll(self.lease, si).state, PollState.RUNNING)
+        self.assertFalse(store.exists(CASE, ref))
+        out = self.home / attempt_paths(si.idempotency_key)["out"]
+        (out / blob_name(ref)).write_bytes(good)
+        self.assertEqual(self.channel.poll(self.lease, si).state, PollState.DONE)
+        self.assertEqual(open_from(store, self.keys, sealer, ref, case_id=CASE, batch_id=BATCH), b"saved case data")
 
     def test_cancel_stops_a_live_attempt_and_tombstones_an_unstarted_one(self):
         si = self.step()
@@ -233,7 +275,7 @@ class ChannelTests(unittest.TestCase):
 
     def test_nothing_raises_when_boat_itself_is_broken(self):
         env = {**self.h.env, "BOAT_CMD": str(self.h.tmp / "no-such-boat")}
-        broken = BoatChannel(self.store, boat=W.BoatCli(env=env), command_timeout=5)
+        broken = BoatChannel(self.store, keys=self.keys, sealer=self.sealer, boat=W.BoatCli(env=env), command_timeout=5)
         si = self.step()
         broken.start(self.lease, si, {CASE: self.case_key}, self.blobs)
         self.assertEqual(broken.poll(self.lease, si).state, PollState.RUNNING)
