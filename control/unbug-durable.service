@@ -1,0 +1,21 @@
+[Unit]
+Description=Unbug durable factory
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=user
+Group=user
+WorkingDirectory=/home/user/unbug-bench
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PATH=/home/user/.ascii/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/user/.unbug-durable/venv/bin/python -B factory/durable/operator.py --config /home/user/.unbug-durable/config.json run
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=120
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
