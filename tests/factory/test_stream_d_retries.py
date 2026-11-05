@@ -97,7 +97,7 @@ class RetryTests(unittest.TestCase):
         self.channel['batch_deadline'] = '2000-01-01T00:00:00Z'
         self.c.authenticated_job_config['job_money'] = copy.deepcopy(self.channel)
         self.c.batch_deadline = self.channel['batch_deadline']
-        with self.assertRaisesRegex(budget.BudgetError, 'retired_batch_bound'):
+        with self.assertRaisesRegex(budget.BudgetError, 'provider_wait_deadline'):
             ordinary_retry.transport(self.c, {}, fetch)
         self.assertEqual(len(count), 5)
 
@@ -213,6 +213,8 @@ class RetryTests(unittest.TestCase):
         self.patch(run, 'g1', return_value=(True, {'problems': []}))
         self.patch(run, 'early_checks', return_value=None)
         self.patch(run, 'early_review', return_value=None)
+        self.patch(run, 'ensure_freshness', return_value=(True, {}))
+        self.patch(run, 'engine_prepare_bench', return_value=None)
         self.patch(run, 'loop_freshness', lambda c,r,p:(r,p))
         def output(c, text, name):
             if name.startswith('builder-'): (self.case/'draft.txt').write_text('authored writer completion'); return
@@ -224,6 +226,11 @@ class RetryTests(unittest.TestCase):
             Path(config['category_output']).write_text(json.dumps(value))
         self.cli(output)
 
+    def stress_round(self, c, previous=None):
+        if not c.card.get('builder_rounds'):
+            self.assertEqual(run.engine_writer_round(c, 1, None)['reason'], 'writer:validated')
+        return run.engine_stress_round(c, 1)
+
     def timeout_report(self, category, raw):
         timed_out = [False]
         def emit(config, value):
@@ -234,7 +241,7 @@ class RetryTests(unittest.TestCase):
                 raise budget.BudgetError('timeout')
         self.stress_setup(emit)
         with self.assertRaisesRegex(budget.BudgetError, '^timeout$'):
-            run.write_and_attack(self.c, {})
+            self.stress_round(self.c, {})
         report = run.attack_report(self.work/'attacks/round-1.json')
         receipt = run.jload(self.work/'attack-state.json')
         self.assertEqual((report['status'], report['complete'], report['stop_reason']), ('pending', False, 'timeout'))
@@ -262,7 +269,7 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(run.attack_report(self.work/'attacks/round-1.json'), report)
         self.fresh_context()
         resumed = len(self.calls)
-        run.write_and_attack(self.c, copy.deepcopy(self.c.card))
+        self.stress_round(self.c, copy.deepcopy(self.c.card))
         final = run.attack_report(self.work/'attacks/round-1.json')
         self.assertEqual((final['status'], final['complete'], final['stop_reason']), ('scored', True, None))
         self.assertEqual(final['operation_id'], receipt['operation_id'])
@@ -287,13 +294,13 @@ class RetryTests(unittest.TestCase):
                 Path(config['category_output']).write_text(json.dumps({**value, 'category_complete': False}))
                 raise runtime_fixture.Killed()
         self.stress_setup(emit)
-        with self.assertRaises(runtime_fixture.Killed): run.write_and_attack(self.c, {})
+        with self.assertRaises(runtime_fixture.Killed): self.stress_round(self.c, {})
         old = run.jload(self.work/'attack-state.json')
         self.assertEqual(old['phase'], 'pending')
         self.assertEqual(self.c.card['builder_rounds'],1)
         before = {p: p.read_bytes() for p in self.work.glob('attacks/round-1-categories/*/*-0.json')}
         self.fresh_context()
-        run.write_and_attack(self.c, copy.deepcopy(self.c.card))
+        self.stress_round(self.c, copy.deepcopy(self.c.card))
         after = run.jload(self.work/'attack-state.json')
         self.assertEqual(old['operation_id'], after['operation_id'])
         self.assertEqual(after['phase'], 'validated')
@@ -306,7 +313,7 @@ class RetryTests(unittest.TestCase):
         def emit(config, value):
             value.update(category_complete=False, completed_subchecks=[], unfinished_validation=['authored diagnostic needed'])
         self.stress_setup(emit)
-        with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): run.write_and_attack(self.c,{})
+        with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): self.stress_round(self.c,{})
         self.assertEqual(len(self.calls),2)
         self.c.card.update(terminal_stop='stress_validation_exhausted',status='stopped',gates={})
         self.assertTrue(diagnosis.exhaustion(self.c.card))
@@ -314,14 +321,12 @@ class RetryTests(unittest.TestCase):
     def test_publication_retries_before_next_dispatch(self):
         uploaded, failures = [], [0]
         def checkpoint():
-            self.assertTrue(self.c.model_dispatch_lock._is_owned())
-            self.assertFalse(self.c.active_model_calls)
             uploaded.append(len(self.calls)); failures[0] += 1
             return failures[0] > 3
         self.c.stress_checkpoint = checkpoint
         self.patch(ordinary_retry, 'backoff', lambda *a,**k:None)
         self.stress_setup(lambda *a: None)
-        run.write_and_attack(self.c,{})
+        self.stress_round(self.c,{})
         self.assertEqual(uploaded[:4],[2,2,2,2])
         self.assertEqual(len(self.calls),5)
         self.assertFalse(run.jload(self.work/'stress-publication.json')['pending'])
@@ -406,7 +411,7 @@ class RetryTests(unittest.TestCase):
             value.update(category_complete=False, completed_subchecks=config['required_subchecks'][:count[0]],
                          unfinished_validation=['authored unexecuted check'])
         self.stress_setup(emit)
-        with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): run.write_and_attack(self.c,{})
+        with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): self.stress_round(self.c,{})
         self.assertEqual(count[0],len(stress_progress.CATEGORIES['wrong_fixes']))
         self.assertEqual(self.c.card['builder_rounds'],1)
 
@@ -415,7 +420,7 @@ class RetryTests(unittest.TestCase):
         claimed = self.work/'diagnostic-budgets/attacker-1/claimed'
         claimed.mkdir(parents=True)
         atomic_json(claimed.parent/'status.json',{'status':'timeout'})
-        with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): run.write_and_attack(self.c,{})
+        with self.assertRaisesRegex(budget.BudgetError,'stress_validation_exhausted'): self.stress_round(self.c,{})
         self.assertEqual(len(self.calls),1) # writer only; no impossible stress retry
 
     def test_broad_outage_retries_without_buying_topup(self):
@@ -441,8 +446,9 @@ class RetryTests(unittest.TestCase):
             value.update(category_complete=False, completed_subchecks=[],
                          blocking=['authored definite defect'], unfinished_validation=['authored diagnostic needed'])
         self.stress_setup(emit)
-        with self.assertRaisesRegex(budget.BudgetError,'stress_review_unresolved:rounds_exhausted'):
-            run.write_and_attack(self.c,{})
+        result = self.stress_round(self.c,{})
+        self.assertEqual(result['reason'], 'stress:findings')
+        self.assertIn('authored definite defect', result['feedback'].decode())
         self.assertEqual(len(self.calls),2)
         self.assertEqual(run.jload(self.work/'attacks/round-1.json')['blocking'],['authored definite defect'])
 
@@ -453,11 +459,11 @@ class RetryTests(unittest.TestCase):
             return True
         self.c.stress_checkpoint=checkpoint
         self.stress_setup(lambda *a:None)
-        with self.assertRaises(runtime_fixture.Killed): run.write_and_attack(self.c,{})
+        with self.assertRaises(runtime_fixture.Killed): self.stress_round(self.c,{})
         self.assertTrue(run.jload(self.work/'stress-publication.json')['pending'])
         self.assertEqual(len(self.calls),2)
         self.fresh_context()
-        run.write_and_attack(self.c,copy.deepcopy(self.c.card))
+        self.stress_round(self.c,copy.deepcopy(self.c.card))
         self.assertEqual(len(self.calls),5)
         self.assertFalse(run.jload(self.work/'stress-publication.json')['pending'])
 
@@ -490,7 +496,7 @@ class RetryTests(unittest.TestCase):
         (self.case/'freshness.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
         held, live = rows[0]['url'], rows[1]['url']
         clock, cycles, requests = [0.0], [0], []
-        self.patch(ordinary_freshness, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
+        self.patch(ordinary_freshness, 'time', SimpleNamespace(monotonic=lambda: clock[0], time=__import__('time').time))
         def wait(c, failures=1, *, deadline=None):
             if deadline is not None:
                 clock[0] = deadline
@@ -563,7 +569,7 @@ class RetryTests(unittest.TestCase):
         for attempt in range(2):
             if attempt: self.fresh_context()
             with self.assertRaisesRegex(budget.BudgetError,'^stress_validation_exhausted$'):
-                run.write_and_attack(self.c,copy.deepcopy(self.c.card) if attempt else {})
+                self.stress_round(self.c,copy.deepcopy(self.c.card) if attempt else {})
             self.assertEqual(len(self.calls),5)
 
     def test_publication_marker_precedes_category_state_commit(self):
@@ -578,11 +584,11 @@ class RetryTests(unittest.TestCase):
             return real(path,value)
         self.patch(stress_progress,'atomic_json',write)
         self.stress_setup(lambda *a:None)
-        with self.assertRaises(runtime_fixture.Killed): run.write_and_attack(self.c,{})
+        with self.assertRaises(runtime_fixture.Killed): self.stress_round(self.c,{})
         uploads=[]
         self.fresh_context()
         self.c.stress_checkpoint=lambda: uploads.append(len(self.calls)) or True
-        run.write_and_attack(self.c,copy.deepcopy(self.c.card))
+        self.stress_round(self.c,copy.deepcopy(self.c.card))
         self.assertEqual(uploads[0],2)
         self.assertEqual(len(self.calls),5) # retained completed answer repairs the state without a paid call
 
@@ -613,12 +619,12 @@ class RetryTests(unittest.TestCase):
                 killed[0]=True
                 raise runtime_fixture.Killed()
         self.stress_setup(emit)
-        with self.assertRaises(runtime_fixture.Killed): run.write_and_attack(self.c,{})
+        with self.assertRaises(runtime_fixture.Killed): self.stress_round(self.c,{})
         old=run.jload(self.work/'attack-state.json')
         binding=run.attack_binding(self.c)
         self.patch(run,'attack_binding',return_value={**binding,'prompt':'f'*64})
         self.fresh_context()
-        run.write_and_attack(self.c,copy.deepcopy(self.c.card))
+        self.stress_round(self.c,copy.deepcopy(self.c.card))
         self.assertEqual(seen[3:],list(stress_progress.CATEGORIES))
         self.assertNotEqual(old['operation_id'],run.jload(self.work/'attack-state.json')['operation_id'])
         self.assertEqual([name for name,_,_ in self.calls].count('builder-1'),1)
@@ -650,16 +656,16 @@ class RetryTests(unittest.TestCase):
         self.stress_setup(emit)
         operation=None
         for _ in range(5):
-            with self.assertRaises(runtime_fixture.Killed): run.write_and_attack(self.c,copy.deepcopy(self.c.card))
+            with self.assertRaises(runtime_fixture.Killed): self.stress_round(self.c,copy.deepcopy(self.c.card))
             receipt=run.jload(self.work/'attack-state.json')
             if operation is None: operation=receipt['operation_id']
             self.assertEqual(receipt['operation_id'],operation)
             self.fresh_context()
-        run.write_and_attack(self.c,copy.deepcopy(self.c.card))
+        self.stress_round(self.c,copy.deepcopy(self.c.card))
         self.assertEqual(self.c.card['builder_rounds'],1)
         self.assertEqual(run.jload(self.work/'attack-state.json')['operation_id'],operation)
 
-    def test_new_production_context_has_barrier_before_direct_dispatch(self):
+    def test_new_production_context_installs_publication_barrier(self):
         fresh=run.Ctx()
         vars(fresh).update(copy.deepcopy(self.context_inputs))
         fresh.card=copy.deepcopy(self.c.card)
@@ -667,9 +673,10 @@ class RetryTests(unittest.TestCase):
         calls=[]
         fresh.stress_checkpoint=lambda: calls.append('published') or True
         atomic_json(self.work/'stress-publication.json',{'pending':True,'identity':'authored-crash'})
-        with model_runtime.dispatch(fresh,'direct-runtime-entry'):
-            self.assertEqual(calls,['published'])
-            self.assertFalse(run.jload(self.work/'stress-publication.json')['pending'])
+        run.install_publication_barrier(fresh)
+        fresh.model_publication_barrier()
+        self.assertEqual(calls,['published'])
+        self.assertFalse(run.jload(self.work/'stress-publication.json')['pending'])
 
 
 if __name__ == '__main__': unittest.main()

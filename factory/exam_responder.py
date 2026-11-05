@@ -81,7 +81,6 @@ def owner_server(c, r, workspace, host="127.0.0.1", *, parent_call_name=None):
     failure = []
     cancel = threading.Event()
     import model_runtime
-    model_runtime.prepare_dispatch(c)
     owner = copy.copy(c)
     owner.args = copy.copy(c.args)
     owner.card = {**c.card, "model_transition": True}  # owner identity is pinned; no route substitution

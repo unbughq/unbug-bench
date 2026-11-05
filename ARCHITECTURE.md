@@ -24,8 +24,8 @@ A batch is built from a clean, pinned Git commit and admitted through the contro
 service. Workers run the case builder, then the configured gate pipeline. The
 runner records scorecards and checkpoints; collection returns encrypted evidence
 and publishes the allowed summary. The existing production release remains pinned for rollback. This candidate has
-removed its legacy launchers and controllers; remaining shared runner and budget
-callers are being converted to the durable path. Live cutover is not yet qualified.
+removed its legacy launchers and controllers; shared runner and budget callers
+now use the durable path. Live cutover is not yet qualified.
 
 The benchmark resets its own Postgres/Redis stack for each trial. The checker uses
 read-only database access. Parallel factory slots have separate Compose projects,
@@ -56,7 +56,7 @@ Boat worker pool/channel, worker-side steps, SQL ledger and wrapped-key service.
 The control units and setup script live under `control/`. ADMIT reuses the existing
 selector, registry, freshness and idea-realism screens. DIAGNOSIS uses the existing
 review contract through an isolated pilot user. These paths still need combined
-and live qualification before replacing the existing launcher.
+and live qualification before replacing the production release.
 
 The target is DBOS 3.4.0 on control-side Postgres. Workflow replay reuses recorded
 results, with idempotent attempts keyed by case, sequence, step and attempt.
@@ -94,8 +94,11 @@ the old attempt is finished before starting another. Enforce release identity an
 attempt deadlines; SEAL must use the versions under which GATES passed. Startup reconciles pool ownership before DBOS recovers workflows. Ambiguous
 creates retain their original identity rather than issuing another create.
 Ciphertext publication exports the wrapped scope key first, and fetched worker
-outputs authenticate before entering immutable storage. Encrypted backups exist;
-automated restore and a consistent database/filesystem restore exercise remain
-unqualified. Legacy lifecycle modules and their obsolete tests have been removed from this
-candidate. Shared caller cleanup, backup restoration, final offline qualification
-and live Boat/R2/provider fault injection remain before production cutover.
+outputs authenticate before entering immutable storage. Cold backup/restore has a disposable PostgreSQL exercise that preserves grants,
+keys, artifacts and release pins. Scheduled backups pause the controller and invalidate only their own restore fence before restarting it;
+R2 ciphertext stays in immutable storage. Normal handover requires the source fence.
+Lost-source or stale archives restore into a quarantine that cannot execute work
+until external ownership and spending have been reconciled. This path does not
+claim automatic recovery from unrecorded post-backup spending. Legacy lifecycle modules and their obsolete tests have been removed from this
+candidate. Final combined offline qualification and live Boat/R2/provider fault injection
+remain before production cutover.

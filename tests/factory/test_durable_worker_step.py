@@ -671,7 +671,10 @@ class HookTests(unittest.TestCase):
         seen = []
         def model(c, models, text, cwd, name, **kwargs):
             seen.append(text)
-            (cwd / "verdict.json").write_text(json.dumps({"fairness": {"approve": True}, "realism": {"approve": True}}))
+            target = pathlib.Path(text.split('verdict_path": "')[1].split('"')[0])
+            target.write_text(json.dumps({"fairness": {"approve": True}, "realism": {"approve": True}}))
+            c.model_lease = types.SimpleNamespace(route=models[0])
+            kwargs["on_complete"]()
             return 0
         def gates(c):
             run.review(c)
@@ -702,7 +705,8 @@ class HookTests(unittest.TestCase):
     def test_context_is_never_a_legacy_job_and_only_the_attempt_deadline_bounds_calls(self):
         with patch.dict(os.environ, {"FACTORY_BATCH_DEADLINE": "2020-01-01T00:00:00Z"}):
             c, _ = self.context(deadline=120.0)
-            self.assertFalse(model_runtime.factory_job(c))
+            self.assertIsNotNone(c.engine)
+            self.assertFalse(hasattr(c, "authenticated_job_config"))
             self.assertEqual(c.args.max_cost, run.ENGINE_COST_CAP)
             _, batch_end, stop_at = run.model_router._deadlines(c, None)
             self.assertAlmostEqual(batch_end, time.time() + 120, delta=5)
@@ -789,12 +793,16 @@ class HookTests(unittest.TestCase):
         c.args.dry_run = False
         self.assertGreater(model_runtime.writer_round_estimate(c), c.engine.ceiling_usd)
         names = []
-        def model(c, models, text, cwd, name):
+        def model(c, models, text, cwd, name, **kwargs):
             model_runtime.case_budget_boundary(c, models[0])
             names.append(name)
             if name.startswith("attacker"):
-                (c.work / "attacks/round-1.json").write_text(json.dumps(
-                    {"complete": True, "blocking": ["still broken"], "unfinished_validation": []}))
+                cfg = json.loads(text.split('CATEGORY MODE (overrides whole-review completion instructions):\n')[1].split('\n')[0])
+                pathlib.Path(cfg['category_output']).write_text(json.dumps({
+                    "category": cfg['category'], "category_complete": True, "completed_subchecks": cfg['required_subchecks'],
+                    "blocking": ["still broken"], "unfinished_validation": [], "non_blocking": [], "freshness_review": [], "cheats_tried": []}))
+                c.model_lease = types.SimpleNamespace(route=models[0])
+                kwargs["on_complete"]()
             return 0
         with patch.object(run, "opencode", model), patch.object(run, "engine_prepare_bench"), \
                 patch.object(run, "g1", return_value=(True, {"problems": []})), \
@@ -808,10 +816,10 @@ class HookTests(unittest.TestCase):
         self.assertFalse(hasattr(run, "write_and_attack"))
 
     def test_retained_subset(self):
-        legacy = ("agent-state/x", "durable-checkpoint.json", "stress-publication.json", "job-money.json",
+        legacy = ("agent-state/x", "durable-checkpoint.json", "job-money.json",
                   "rejected-candidate-1-5/statement.md", "extension-history.json")
         evidence = ("gate-cache/G4.json", "gate-details/G4.json", "review-1/verdict.json", "strong_calibrator/results.json",
-                    "attacks/round-1.json", "infra-attempts.json", "prototype.json")
+                    "attacks/round-1.json", "infra-attempts.json", "prototype.json", "stress-publication.json", "ordinary-retries/state.json")
         c, _ = self.context(extra=legacy + evidence)
         bench = self.root / "bench"; (bench / "results/run-a").mkdir(parents=True)
         (bench / "results/run-a/trial.json").write_text("{}")
@@ -819,7 +827,7 @@ class HookTests(unittest.TestCase):
         with patch.object(run, "BENCH", bench):
             names = {p.as_posix() for p in run.retained_paths(c)}
         self.assertTrue({"case", "scorecard.json", "logs", "bench-results", "gate-cache", "gate-details", "review-1",
-                         "strong_calibrator", "attacks", "infra-attempts.json", "prototype.json"} <= names, names)
+                         "strong_calibrator", "attacks", "infra-attempts.json", "prototype.json", "ordinary-retries", "stress-publication.json"} <= names, names)
         self.assertFalse({p.split("/")[0] for p in legacy} & names)
         self.assertTrue((c.work / "bench-results/run-a/trial.json").is_file())
         for name in {p.name for p in c.work.iterdir()} - names:

@@ -1,13 +1,15 @@
-"""Cold local restore points. No online snapshot or source-host-loss recovery.
+"""Fenced cold restore points with non-activating lost-source data recovery.
 
 Stop the controller, backup, then either resume (invalidates the restore point)
-or restore with the original fenced source-state directory still accessible.
+or hand over using the original fenced source-state directory. Quarantine mode
+can recover data without that directory; it cannot resume cases or spend money.
 A restored database must be pre-created and empty; activation remains a separate
 operator run command. Workers can keep using their already-reserved grants.
 """
 from __future__ import annotations
 
 from functools import wraps
+from contextlib import ExitStack
 import hashlib
 import io
 import json
@@ -99,6 +101,7 @@ def _objects(config):
     from durable.artifacts import sigv4_headers, EMPTY_SHA256
     objects = objects_for(config)
     token, seen, files = None, set(), {}
+    tokens = set()
     while True:
         query = {"list-type": "2", "prefix": "durable/"}
         if token:
@@ -120,21 +123,21 @@ def _objects(config):
             if not key or not key.startswith("durable/") or key in seen:
                 raise RuntimeErrorCode("backup_object_inventory_failed")
             seen.add(key)
-            data = objects.get(key)
-            if data is None:
-                raise RuntimeErrorCode("backup_object_missing")
-            files[key.removeprefix("durable/")] = data
+            # Immutable R2 objects already have off-host durability. Archive the
+            # inventory, not a RAM-sized copy of every case/checkpoint ciphertext.
+            files[key.removeprefix("durable/")] = None
         truncated = root.findtext("s:IsTruncated", namespaces=ns)
         if truncated == "false":
             return files
         next_token = root.findtext("s:NextContinuationToken", namespaces=ns)
-        if truncated != "true" or not next_token or next_token == token:
+        if truncated != "true" or not next_token or next_token in tokens:
             raise RuntimeErrorCode("backup_object_inventory_failed")
+        tokens.add(next_token)
         token = next_token
 
 
 @_operator
-def backup(config):
+def backup(config, *, resume_after=False):
     identity = _identity(config)
     state = Path(config["state_dir"]).resolve()
     with runtime_lock(state), database_lock(config):
@@ -144,26 +147,34 @@ def backup(config):
         token = uuid.uuid4().hex
         # Fence before taking the dump: even failed backup requires explicit resume.
         _atomic_json(fence, {"token": token, "retired": False})
-        files = {"database.dump": _pg(config, ["pg_dump", "--format=custom"])}
-        for name in ("pool", "releases"):
-            files.update({name + "/" + k: v for k, v in _files(state / name).items()})
-        files.update({"objects/" + k: v for k, v in _objects(config).items()})
-        manifest = {"format": 1, "identity": identity, "source": str(state), "token": token,
-                    "files": {k: hashlib.sha256(v).hexdigest() for k, v in files.items()}}
-        files["manifest.json"] = json.dumps(manifest, sort_keys=True).encode()
-        buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w") as archive:
-            for name, data in files.items():
-                info = tarfile.TarInfo(name)
-                info.mode, info.size = 0o600, len(data)
-                archive.addfile(info, io.BytesIO(data))
-        encrypted = _age(config, buf.getvalue())
-        key = f"backups/{token}.tar.age"
-        objects = objects_for(config)
-        objects.put(key, encrypted)
-        if objects.get(key) != encrypted:
-            raise RuntimeErrorCode("backup_publication_failed")
-        return {"backup": key, "source_fenced": True}
+        try:
+            files = {"database.dump": _pg(config, ["pg_dump", "--format=custom"])}
+            for name in ("pool", "releases"):
+                files.update({name + "/" + k: v for k, v in _files(state / name).items()})
+            objects_snapshot = _objects(config)
+            files.update({"objects/" + k: v for k, v in objects_snapshot.items() if v is not None})
+            manifest = {"format": 2, "remote_objects": [k for k, v in objects_snapshot.items() if v is None], "identity": identity, "source": str(state), "token": token,
+                        "files": {k: hashlib.sha256(v).hexdigest() for k, v in files.items()}}
+            files["manifest.json"] = json.dumps(manifest, sort_keys=True).encode()
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w") as archive:
+                for name, data in files.items():
+                    info = tarfile.TarInfo(name)
+                    info.mode, info.size = 0o600, len(data)
+                    archive.addfile(info, io.BytesIO(data))
+            encrypted = _age(config, buf.getvalue())
+            key = f"backups/{token}.tar.age"
+            objects = objects_for(config)
+            objects.put(key, encrypted)
+            if objects.get(key) != encrypted:
+                raise RuntimeErrorCode("backup_publication_failed")
+            return {"backup": key, "source_fenced": not resume_after}
+        finally:
+            # Only this invocation's fence may be invalidated, under the same lock.
+            # A failed or killed handover backup still stays fenced by default.
+            if resume_after and json.loads(private_bytes(fence)) == {"token": token, "retired": False}:
+                fence.unlink()
+
 
 
 @_operator
@@ -189,7 +200,12 @@ def _unpack(data):
                 raise RuntimeErrorCode("backup_unsafe_archive")
             files[name] = archive.extractfile(member).read()
     manifest = json.loads(files.pop("manifest.json"))
-    if (manifest["format"] != 1 or "database.dump" not in files or
+    remote = manifest.get("remote_objects", [])
+    if (not isinstance(remote, list) or not all(isinstance(n, str) and n == PurePosixPath(n).as_posix()
+            and len(PurePosixPath(n).parts) == 2 and ".." not in PurePosixPath(n).parts and not n.startswith("/") for n in remote)
+            or len(set(remote)) != len(remote)):
+        raise RuntimeErrorCode("backup_unsafe_object_inventory")
+    if (manifest["format"] not in (1, 2) or "database.dump" not in files or
             manifest["files"] != {k: hashlib.sha256(v).hexdigest() for k, v in files.items()}):
         raise RuntimeErrorCode("backup_incomplete_or_corrupt")
     return manifest, files
@@ -205,25 +221,29 @@ def _private_directory(path):
 
 
 @_operator
-def restore(config, archive_file, source_state):
+def restore(config, archive_file, source_state=None, *, quarantine=False):
     identity = _identity(config)
     data = private_bytes(archive_file)
     manifest, files = _unpack(_age(config, data, decrypt=True))
     if manifest["identity"] != identity:
         raise RuntimeErrorCode("backup_identity_mismatch")
-    source = Path(source_state).resolve()
+    source = Path(source_state or manifest["source"]).resolve()
     destination = Path(config["state_dir"]).absolute()
-    if str(source) != manifest["source"] or source == destination.resolve():
+    if (not quarantine and (source_state is None or str(source) != manifest["source"])) or source == destination.resolve():
         raise RuntimeErrorCode("restore_requires_original_source_and_fresh_destination")
     if destination.exists() or destination.is_symlink():
         raise RuntimeErrorCode("restore_destination_exists")
     object_root = Path(config["local_objects"]).absolute() if "local_objects" in config else None
     if object_root and (object_root.exists() or object_root.is_symlink()):
         raise RuntimeErrorCode("restore_objects_destination_exists")
-    with runtime_lock(source), runtime_lock(destination), database_lock(config):
+    with ExitStack() as stack:
+        if not quarantine:
+            stack.enter_context(runtime_lock(source))
+        stack.enter_context(runtime_lock(destination))
+        stack.enter_context(database_lock(config))
         _atomic_json(destination / "cold-backup.json", {"retired": True})
         fence = source / "cold-backup.json"
-        if not fence.exists() or json.loads(private_bytes(fence)) != {"token": manifest["token"], "retired": False}:
+        if not quarantine and (not fence.exists() or json.loads(private_bytes(fence)) != {"token": manifest["token"], "retired": False}):
             raise RuntimeErrorCode("restore_point_invalidated")
         engine = _make_engine(config["database_url"])
         try:
@@ -251,12 +271,15 @@ def restore(config, archive_file, source_state):
                 stream.write(content)
         for directory in ("pool", "releases"):
             _private_directory(destination / directory)
-        _validate(config, [n.removeprefix("objects/") for n in files if n.startswith("objects/")])
-        # Only a completely validated destination can consume source ownership.
-        _atomic_json(fence, {"token": manifest["token"], "retired": True})
-        _atomic_json(destination / "restored.json", {"token": manifest["token"]})
-        (destination / "cold-backup.json").unlink()
-    return {"restored": True, "activation_required": True}
+        _validate(config, [n.removeprefix("objects/") for n in files if n.startswith("objects/")] + manifest.get("remote_objects", []))
+        # Lost-host/stale archives can recover data, but never authorize spending.
+        # Their destination remains fenced for external ownership/spend reconciliation.
+        if not quarantine:
+            _atomic_json(fence, {"token": manifest["token"], "retired": True})
+        _atomic_json(destination / "restored.json", {"token": manifest["token"], "quarantined": quarantine})
+        if not quarantine:
+            (destination / "cold-backup.json").unlink()
+    return {"restored": True, "activation_required": True, "quarantined": quarantine}
 
 
 def _validate(config, object_names):
@@ -277,9 +300,11 @@ def _validate(config, object_names):
     try:
         with keys._engine.connect() as conn:
             scopes = conn.execute(sa.select(SCOPE_KEYS.c.scope)).scalars().all()
+        published = {n.split("/", 1)[0] for n in object_names}
         for scope in scopes:
             keys.scope_key(scope)  # authenticate every restored wrapped key
-            if objects_for(config).get(f"durable/{scope}/scope-key.age") != keys.wrapped_key(scope):
+            wrapped = objects_for(config).get(f"durable/{scope}/scope-key.age")
+            if (wrapped is not None or scope in published) and wrapped != keys.wrapped_key(scope):
                 raise RuntimeErrorCode("restore_wrapped_key_missing")
         for name in object_names:
             scope, filename = name.split("/")

@@ -244,12 +244,12 @@ def stress_categories(c, number, report, receipt, completed):
 
 def opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None, on_complete=None):
     install_publication_barrier(c)
+    c.model_publication_barrier()
     if under_engine(c):
         # Under the engine a call's time comes only from StepInput.deadline_s, never a batch deadline.
         timeout, deadline = engine_call_window(c, timeout, deadline)
-    with model_runtime.dispatch(c, name):
-        return _opencode(c, models, text, cwd, name, user=user, timeout=timeout, deadline=deadline,
-                         before_attempt=before_attempt, lease=lease, on_complete=on_complete)
+    return _opencode(c, models, text, cwd, name, user=user, timeout=timeout, deadline=deadline,
+                     before_attempt=before_attempt, lease=lease, on_complete=on_complete)
 
 
 def _opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None, on_complete=None):
@@ -259,7 +259,7 @@ def _opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None
     if not hasattr(c, 'router_waits'): c.router_waits = []
     if not hasattr(c, 'router_interrupted_calls'): c.router_interrupted_calls = []
     try:
-        result = runtime.call(c, models, text, cwd, name, user=user, timeout=timeout, deadline=deadline,
+        result = runtime.call(c, models, text, cwd, name, user=user, timeout=timeout, deadline=deadline, on_complete=on_complete,
                               **({'before_attempt': before_attempt} if before_attempt is not None else {}),
                               **({'lease': lease} if lease is not None else {}))
     except model_router.ProviderWait as error:
@@ -267,8 +267,6 @@ def _opencode(c, models, text, cwd, name, user=None, timeout=None, deadline=None
             c.router_waits.extend(getattr(error, 'previous_waits', []))
             c.router_waits.append({'role': error.role, **model_runtime.asdict(error.wait)})
         raise
-    if on_complete is not None: on_complete()
-
     return result
 
 
@@ -322,6 +320,23 @@ def write_provider_wait(c, error):
 
 def model_call(c, models, *args, **kw):  # tester and dedup calls; same backup routes as every role
     return opencode(c, models, *args, **kw)
+
+
+def retained_answer(c, chain, text, cwd, name, out, identity, kind, schema, validate, **kwargs):
+    """Engine JSON callers retain validated answers and repair malformed schema."""
+    if not under_engine(c):
+        opencode(c, chain, text, cwd, name, **kwargs)
+        return jload(out, {})
+    from ordinary_retry import answer
+    from registry import atomic_json
+    binding = {"inputs": identity, "source": c.engine.source_binding, "ruling": getattr(c, "engine_ruling", None)}
+    value = answer(c, chain, binding, kind, schema,
+        lambda target: text.replace(str(out), str(target)),
+        lambda context, request, target, done: opencode(context, chain, request, cwd, name,
+                                                       on_complete=done, **kwargs), validate)
+    atomic_json(out, value)
+    return value
+
 
 
 def case_inventory(c):
@@ -489,7 +504,10 @@ def freshness_topup(c, *, reverify_timeout=None, completed_roles=(), role_comple
 
 
 def ensure_freshness(c):
-    """Refresh and independently confirm the same admitted idea."""
+    """Refresh the admitted idea; Engine attempts retain completed roles and judgments."""
+    if under_engine(c):
+        from ordinary_freshness import ensure
+        return ensure(sys.modules[__name__], c)
     from registry import atomic_json
     finish_freshness_repair(c)
     statement = c.case / 'statement.md'
@@ -609,6 +627,10 @@ def statement_precheck(c):
     c.card.setdefault("candidate_attempts", 1)
     if any(row.get("statement_sha256") == c.card["statement_sha256"] for row in c.card.get("rejected_candidates", [])):
         c.precheck_problems = ["candidate was already rejected"]; return False
+    # Statement-only is a publication barrier, never permission for full construction.
+    if getattr(c.args, "statement_only", False):
+        c.card["admission"] = {"status": "awaiting_shared_reservation"}
+        return True
     try: prior = prior_statements(c)
     except (OSError, ValueError, RuntimeError) as error:
         c.card["admission"] = {"status": "waiting", "reason": str(error)}
@@ -630,9 +652,14 @@ def statement_precheck(c):
         valid = lambda v: (isinstance(v, dict) and 'duplicate_of' in v and
             isinstance(v.get('reason'), str) and bool(v['reason'].strip()) and
             (v['duplicate_of'] is None or v['duplicate_of'] in prior))
-        if model_call(c, c.models["easy_calibrator"], request, c.work / "statements", "easy-calibrator-dedup"):
-            raise BudgetError("admission_dedup_unavailable")
-        verdict = jload(result)
+        if under_engine(c):
+            verdict = retained_answer(c, c.models['easy_calibrator'], request, c.work / 'statements',
+                'easy-calibrator-dedup', result, {'statement': c.statement, 'prior': {k: pathlib.Path(v).read_text() for k, v in prior.items()}},
+                'dedup', '{duplicate_of: case ID or null, reason: nonempty string}', valid)
+        else:
+            if model_call(c, c.models["easy_calibrator"], request, c.work / "statements", "easy-calibrator-dedup"):
+                raise BudgetError("admission_dedup_unavailable")
+            verdict = jload(result)
         if (not isinstance(verdict, dict) or "duplicate_of" not in verdict or
                 not isinstance(verdict.get("reason"), str) or not verdict["reason"].strip() or
                 (verdict["duplicate_of"] is not None and verdict["duplicate_of"] not in prior)):
@@ -676,9 +703,15 @@ def idea_realism(c):
             "benchmark-only requirements, unsupported app behavior and ideas too vague to judge. "
             "Do not build anything or review unrelated cases. Write JSON to " + str(out) +
             ': {"approve": true | false, "reason": "specific short rationale"}.')
-    if model_call(c, chain, text, directory, "reviewer-idea-realism"):
-        raise BudgetError("admission_idea_review_unavailable")
-    verdict = jload(out, {})
+    if under_engine(c):
+        verdict = retained_answer(c, chain, text, directory, 'reviewer-idea-realism', out,
+            {'statement': c.statement, 'contract': 'idea-realism-v1'}, 'idea',
+            '{approve: boolean, reason: nonempty string}', lambda v: isinstance(v, dict) and
+            type(v.get('approve')) is bool and isinstance(v.get('reason'), str) and bool(v['reason'].strip()))
+    else:
+        if model_call(c, chain, text, directory, "reviewer-idea-realism"):
+            raise BudgetError("admission_idea_review_unavailable")
+        verdict = jload(out, {})
     if (not isinstance(verdict, dict) or type(verdict.get("approve")) is not bool or
             not isinstance(verdict.get("reason"), str) or not verdict["reason"].strip()):
         raise BudgetError("admission_idea_review_invalid")
@@ -1299,6 +1332,7 @@ def freshness_counts(c):
     return {"builder_web": n("builder", "web"), "builder_github": n("builder", "github"), "attacker": n("attacker")}
 
 def g2(c):
+    if under_engine(c): return ensure_freshness(c)
     return _g2(c)
 
 
@@ -1324,9 +1358,14 @@ def _g2(c):
         for index, row in enumerate(lines):
             target = directory / str(index)
             def obtain():
+                if under_engine(c):
+                    from ordinary_freshness import obtain as batch_obtain
+                    return batch_obtain(c, [row], target, flagged=bool(row.get('hit') or row.get('ambiguous')))
                 try: return load_retrieval(target, [row])
                 except RuntimeError: return retrieve([row], target)
-            if row.get('hit') is True or row.get('ambiguous') is True:
+            if (row.get('hit') is True or row.get('ambiguous') is True) and under_engine(c):
+                result = obtain()
+            elif row.get('hit') is True or row.get('ambiguous') is True:
                 result = retry(c.work / 'infra-attempts.json',
                     {'operation': 'search-retrieval', 'binding': binding, 'row': index},
                     obtain, interruption=BudgetError)
@@ -1341,6 +1380,8 @@ def _g2(c):
                     result = []
             if any(receipt['retrieved_from'] == 'none' for receipt in result):
                 c.freshness_unfetched.add(row['url'])
+                if under_engine(c) and any(access_failure(r) for r in result):
+                    transport_failures += 1
             fetched.extend(result)
         counted = freshness_counts(c)
         retrieval_sha256 = retrieval_digest(fetched)
@@ -1465,9 +1506,16 @@ def confirm_hits(c, flagged, *, retained_path=None):
     out = d / "verdict.json"
     from freshness_retrieval import retrieve, load, digest
     from run_validity import retry
-    c.freshness_retrieval = retry(c.work / 'infra-attempts.json',
-        {"operation": "freshness-retrieval", "binding": binding},
-        lambda: retrieve(flagged, d / 'retrieval'), interruption=BudgetError)
+    if under_engine(c):
+        from ordinary_freshness import obtain, semantic_binding
+        from ordinary_retry import digest as retry_digest
+        target = c.work / ('confirmation-retrieval-' + retry_digest(semantic_binding(binding, flagged)))
+        c.freshness_retrieval = obtain(c, flagged, target, flagged=True)
+        shutil.copytree(target, d / 'retrieval')
+    else:
+        c.freshness_retrieval = retry(c.work / 'infra-attempts.json',
+            {"operation": "freshness-retrieval", "binding": binding},
+            lambda: retrieve(flagged, d / 'retrieval'), interruption=BudgetError)
     retrieval_sha256 = digest(c.freshness_retrieval)
     rows = [{k: x.get(k) for k in ("who", "kind", "query", "url", "note", "app_version", "version_scope")} for x in flagged]
     text = (f"Freshness confirmation only; change nothing. Read `statement.md` and any existing `disclosure.md`, `provenance.json` and `promise.md` in "
@@ -1510,9 +1558,37 @@ def confirm_hits(c, flagged, *, retained_path=None):
         c.card['freshness_confirmation'] = {'flagged_urls': len(flagged), 'timeout_seconds': seconds,
                                            'status': 'running'}
     try:
-        code = opencode(c, c.models["reviewers"][0], text, d, "reviewer-g2-confirm",
-                        timeout=seconds, deadline=time.monotonic() + seconds,
-                        before_attempt=lambda: out.unlink(missing_ok=True))
+        if under_engine(c):
+            from ordinary_freshness import semantic_binding
+            from freshness_retrieval import judgment_digest
+            text = text.replace('Timeouts, access errors, ambiguous archive responses,',
+                                'Ambiguous archive responses,')
+            text = text.replace('"deleted" | null',
+                '"deleted" | "http_401" | "http_403" | "http_451" | "http_429" | "http_500" through "http_599" | "network_error" | null')
+            text += (' Copy live_failure exactly from the runner receipt (including the actual three-digit HTTP status). '
+                     ' Access failures http_401/http_403/http_451/http_429/http_500–http_599/network_error '
+                     'are not dead pages. Their archived snapshots can confirm a match but cannot clear one. '
+                     'Keep a false or uncertain archived comparison unresolved while live access fails. '
+                     'No snapshot clears only HTTP 404/410, DNS failure or confirmed deletion; '
+                     'an access failure with no snapshot stays unresolved.')
+            retained_answer(c, c.models['reviewers'][0], text, d, 'reviewer-g2-confirm', out,
+                {'binding': semantic_binding(binding, flagged),
+                 'judgment': judgment_digest(c.freshness_retrieval)}, 'freshness',
+                'Object with hits array in supplied URL order; every row has url, resolved boolean, '
+                'same_bug boolean or null, retrieved boolean, app_version, version_scope, why and retrieval/archive fields.',
+                lambda v: isinstance(v, dict) and isinstance(v.get('hits'), list) and len(v['hits']) == len(flagged)
+                    and all(isinstance(a, dict) and a.get('url') == r['url'] and
+                            type(a.get('resolved')) is bool and type(a.get('retrieved')) is bool and
+                            all(isinstance(a.get(k), str) for k in ('app_version', 'version_scope', 'why')) and
+                            bool(a['why'].strip()) and
+                            'same_bug' in a and (a['same_bug'] is None or type(a['same_bug']) is bool)
+                            for a,r in zip(v['hits'], flagged)),
+                timeout=seconds)
+            code = 0
+        else:
+            code = opencode(c, c.models["reviewers"][0], text, d, "reviewer-g2-confirm",
+                            timeout=seconds, deadline=time.monotonic() + seconds,
+                            before_attempt=lambda: out.unlink(missing_ok=True))
     except BudgetError as error:
         if hasattr(c, 'card'):
             c.card['freshness_confirmation']['status'] = 'interrupted'
@@ -1700,8 +1776,15 @@ def review(c):
         out = d / "verdict.json"
         text = prompt('reviewer', run_context(c, case_dir=str(d / 'case'), mode='case', verdict_path=str(out)))
         text += engine_review_ruling(c)
-        opencode(c, chain, text, d, f'reviewer-{i}')
-        vote = jload(out, {}) or {}
+        if under_engine(c):
+            vote = retained_answer(c, chain, text, d, f'reviewer-{i}', out,
+                {'index': i, 'case': case_inventory(c), 'prompt': prompt('reviewer', '')},
+                'panel', '{fairness: {approve: boolean, findings: array}, realism: {approve: boolean, findings: array}}',
+                lambda v: isinstance(v, dict) and all(isinstance(v.get(k), dict) and
+                    type(v[k].get('approve')) is bool for k in ('fairness', 'realism')))
+        else:
+            opencode(c, chain, text, d, f'reviewer-{i}')
+            vote = jload(out, {}) or {}
         c.votes.append(vote)
     c.votes_hash = case_hash(c)
     return c.votes
@@ -1799,7 +1882,6 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
         capped = None
         try:  # a weak model can flail for hours: each try gets --calibrator-minutes; running out = whatever guard it left
             call_name = f"{role.replace('_', '-')}-{name}-{i}"
-            model_runtime.prepare_dispatch(c)
             call_context = copy.copy(c)
             call_context.args = copy.copy(a)
             if exposure == "exam":
@@ -2150,7 +2232,6 @@ def pause_on_term(signum, frame):
 
 
 def run_gates(c, *, replay_gate=None, around_gate=None, serial=False, replay_only=False):
-    model_runtime.prepare_dispatch(c)
     pipeline = _gate_pipeline()
     if serial: pipeline.overlap_reason = lambda c: 'serial gate evaluation'
     if replay_only: pipeline.budget_boundary = lambda c: None
@@ -2160,7 +2241,6 @@ def run_gates(c, *, replay_gate=None, around_gate=None, serial=False, replay_onl
 def validate_and_repair(c):
     """Run one scientific gate pass; the durable Engine owns repair scheduling."""
     run_gates(c)
-        # Gate receipts validate actual dependencies; G7 deliberately runs afresh.
 
 
 # ---------------------------------------------------------------- durable engine steps (WP5a)
@@ -2182,10 +2262,10 @@ SNAPSHOT_RETAINED = (
     "attack-state.json", "attacks", "diagnostic-budgets", "infra-attempts.json", "selection-rejections.json", "fixes",
     "prototype.json", "public-search.json", "freshness-verdict.json", "freshness-repair.json",
     "freshness-inflight.json", "freshness-restored.jsonl", "idea-realism.json", "statements",
-    "logs", "transcripts", "engine-feedback.json", "engine-ruling.json", "engine-checkpoints")
+    "ordinary-retries", "stress-publication.json", "logs", "transcripts", "engine-feedback.json", "engine-ruling.json", "engine-checkpoints")
 # Named so a reader can see what a snapshot leaves out; anything else is dropped too.
 SNAPSHOT_DROPPED = (
-    "agent-state", "durable-checkpoint.json", "stress-publication.json", "provider_wait.json", "provider_waits",
+    "agent-state", "durable-checkpoint.json", "provider_wait.json", "provider_waits",
     "operational-effects.json", "job-money*.json", "gate-continuation.json", "late-defect.json",
     "founder-ruling-applied.json", "extension-*", "rehearsal-*", "rejected-candidate-*", "continuation-budget.json.*")
 FEEDBACK_VERSION = 1
@@ -2407,14 +2487,17 @@ def engine_stress_round(c, n):
     engine_prepare_bench(c)
     (c.work / "attacks").mkdir(exist_ok=True)
     report = c.work / "attacks" / f"round-{n}.json"
-    if report.exists(): report.rename(report.with_name(f"{report.stem}-superseded-{uuid.uuid4().hex}.json"))
     receipt_path = c.work / "attack-state.json"
     binding = attack_binding(c)
     receipt = {"engine": True, "round": n, "binding": binding, "report": report.name, "review_pending": True}
-    atomic_json(receipt_path, receipt)
-    atomic_json(report, {"complete": False, "blocking": ["review incomplete"]})
+    def completed():
+        receipt.update(phase="validated", review_pending=False, review_completed=True,
+                       report_sha256=hashlib.sha256(report.read_bytes()).hexdigest())
     case_budget_boundary(c)
-    opencode(c, c.models["attacker"], stress_request(c, n, report), c.work, f"attacker-{n}")
+    try:
+        stress_categories(c, n, report, receipt, completed)
+    finally:
+        atomic_json(receipt_path, receipt)
     if binding != attack_binding(c): return infra("case_changed")
     result = attack_report(report)
     if result is None: return infra("malformed_report")

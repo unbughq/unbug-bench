@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 import time
+import uuid
 
 from attack_findings import classify
 from budget import BudgetError
@@ -42,11 +43,7 @@ def publication(c, checkpoint):
 
 
 def publish(c):
-    # The same lock covers automatic dispatch checks and explicit category publication.
-    # Entering dispatch drains a pending publication before yielding.
-    from model_runtime import dispatch
-    with dispatch(c, 'stress-publication'):
-        pass
+    c.model_publication_barrier()
 
 
 def run(runner, c, number, report, receipt, completed):
@@ -54,7 +51,10 @@ def run(runner, c, number, report, receipt, completed):
     directory = c.work / 'attacks' / f'round-{number}-categories' / digest(binding)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / 'state.json'
-    state = read(path, {'version': 1, 'binding': binding, 'categories': {}, 'operation_id': receipt.get('operation_id')})
+    state = read(path)
+    receipt['operation_id'] = (state or {}).get('operation_id') or receipt.get('operation_id') or str(uuid.uuid4())
+    if state is None:
+        state = {'version': 1, 'binding': binding, 'categories': {}, 'operation_id': receipt['operation_id']}
     if (state.get('binding') != binding or state.get('version') != 1 or
             state.get('operation_id') is not None and state['operation_id'] != receipt.get('operation_id')): raise BudgetError('stress_category_state_invalid')
     receipt.update(category_mode=1, category_state=str(path.relative_to(c.work)), phase='pending', review_pending=True)
@@ -124,8 +124,8 @@ def run(runner, c, number, report, receipt, completed):
                     state['operation_id'] = receipt['operation_id']
                     save()
                 try:
-                    runner.pending_call(ctx, c.models['attacker'], text, c.work, f'attacker-{number}', receipt,
-                        role='stress_tester', on_complete=on_done)
+                    runner.opencode(ctx, c.models['attacker'], text, c.work, f'attacker-{number}',
+                        on_complete=on_done)
                 finally:
                     if target.is_file():
                         # Preserve every completed or interrupted invocation separately.

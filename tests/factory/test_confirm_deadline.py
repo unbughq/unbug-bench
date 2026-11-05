@@ -143,32 +143,16 @@ class ConfirmDeadlineTests(FreshnessRestoreTests):
         self.assertEqual(seen, [primary, "opencode-go/glm-5.3-flash"])
         self.assertFalse((self.c.work / 'freshness-verdict.json').exists())
 
-    def test_confirm_timeout_does_not_charge_saved_stress_rereviews(self):
+    def test_confirm_timeout_preserves_repair_allowance_and_retries_confirmation(self):
         self.addCleanup(offline_router()[0].close)
         for card, seconds in self.cards():
-            self.prepare(card)
-            self.c.args.rounds = 9
-            self.c.args.skip_build = False
-            self.c.ledger = self.c.work / 'ledger.json'
-            self.c.ledger.write_text(json.dumps(card['continuation_budget']))
-            self.c.args.case_budget = 50
-            binding = dict(case='opaque-case', case_id=card['case'], source='hunt',
-                           bench='opaque-bench', models=self.c.models['attacker'], prompt='opaque-prompt')
-            n = card['builder_rounds']
-            receipt = dict(round=n, report=f'round-{n}.json', round_limit=9, rereviews=2,
-                           release_rereviews=['a' * 64], binding=binding)
-            saved = self.c.work / 'attack-state.json'; saved.write_text(json.dumps(receipt))
-            attacks = self.c.work / 'attacks'; attacks.mkdir(exist_ok=True)
-            (attacks / receipt['report']).write_text(json.dumps(dict(complete=True, blocking=[],
-                                                     freshness_review=[self.rows[0]['url']])))
-            with patch.object(run, 'g1', return_value=(True, {'problems': []})), \
-                 patch.object(run, 'attack_binding', return_value=binding), \
-                 patch.object(run, 'opencode', side_effect=run.BudgetError('timeout')) as call:
-                # Both the initial timeout and next restore reach only confirmation.
+            state = self.prepare(card)
+            self.result['freshness_review'] = [self.rows[0]['url']]
+            with patch.object(run, 'opencode', side_effect=run.BudgetError('timeout')) as call:
                 for _ in range(2):
                     with self.assertRaisesRegex(run.BudgetError, '^timeout$'):
-                        run.write_and_attack(self.c, card)
-                    self.assertEqual(json.loads(saved.read_text()), receipt)
+                        run.loop_freshness(self.c, self.result, self.report)
+                    self.assertEqual(json.loads((self.c.work / 'freshness-repair.json').read_text()), state)
                 self.assertEqual([v.args[4] for v in call.call_args_list], ['reviewer-g2-confirm'] * 2)
                 self.assertTrue(all(v.kwargs['timeout'] == seconds for v in call.call_args_list))
 

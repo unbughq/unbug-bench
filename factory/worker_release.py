@@ -29,9 +29,14 @@ def source_files(root):
     return {p.relative_to(root).as_posix(): sha(p) for p in sorted(paths)}
 
 
-def stamp(root, output):
-    policy = json.loads(POLICY.read_text())
+def candidate_policy(root=None):
+    policy = json.loads((Path(root) / 'factory/worker-release.json' if root else POLICY).read_text())
     policy['release'] += '-durable-candidate-v1'
+    return policy
+
+
+def stamp(root, output):
+    policy = candidate_policy(root)
     policy['files'] = source_files(root)
     output.write_text(json.dumps(policy, indent=2, sort_keys=True) + '\n')
 

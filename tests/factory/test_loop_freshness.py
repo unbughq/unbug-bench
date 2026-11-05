@@ -5,7 +5,6 @@ import sys
 from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
-import hashlib
 import json
 import pathlib
 import tempfile
@@ -53,13 +52,12 @@ class LoopFreshnessTests(unittest.TestCase):
         self.same_bug = False
         self.extra = []
         self.complete = True
-        self.writer_blockers = None
         self.report_blocking = None
         self.log_match = True
         self.requested_urls = None
         self.reviewed_rows = []
         self.answer_limit = None
-        for name, value in (("g1", (True, {"problems": []})), ("early_checks", None), ("early_review", None)):
+        for name, value in (("engine_prepare_bench", None), ("early_review", None)):
             patch.object(run, name, return_value=value).start()
         self.addCleanup(patch.stopall)
 
@@ -90,37 +88,47 @@ class LoopFreshnessTests(unittest.TestCase):
                       "app_version": "2.19.0", "version_scope": "Synthetic applicability checked",
                       "why": "Synthetic independent evidence"} for row in rows]
             (pathlib.Path(cwd) / "verdict.json").write_text(json.dumps({"hits": answers[:self.answer_limit]}))
-        elif name.startswith("builder-"):
-            self.assertEqual(self.same_bug, False, "freshness stops must never call the writer")
-            context = json.loads(text.split("```json\n")[-1].split("```")[0])
-            expected = self.extra if self.writer_blockers is None else self.writer_blockers
-            self.assertEqual(context["precheck_problems"], expected)
-            report = run.attack_report(pathlib.Path(context["attack_report"]))
-            self.assertEqual(report["blocking"], expected)
-            (c.case / "repair.txt").write_text("Fix customer coverage using distinct email domains")
         else:
             self.fail("Unexpected call: " + name)
         return 0
 
-    def loop(self):
-        with patch.object(run, "opencode", self.model):
-            run.write_and_attack(self.c, {})
+    def categories(self, c, number, report, receipt, completed):
+        # Category execution has its own durable tests; author one synthetic report
+        # here to exercise the real scientific report/freshness checks.
+        run.opencode(c, c.models["attacker"], run.stress_request(c, number, report),
+                     c.case, f"attacker-{number}")
+        completed()
 
-    def test_exclusion_sends_only_real_blockers_to_writer(self):
+    def loop(self):
+        with patch.object(run, "opencode", self.model), \
+             patch.object(run, "stress_categories", self.categories):
+            self.result = run.engine_stress_round(self.c, 1)
+        return self.result
+
+    def assert_feedback(self, expected):
+        self.assertEqual(self.result["reason"], "stress:findings")
+        problems, report = run._feedback_input(self.c, self.result["feedback"])
+        self.assertEqual(problems, expected)
+        self.assertEqual(run.attack_report(report)["blocking"], expected)
+
+    def test_exclusion_sends_only_real_blockers_as_writer_feedback(self):
         self.extra = ["Wrong fix passes because every test customer shares one email domain"]
         self.loop()
-        self.assertEqual(self.calls, ["attacker-1", "reviewer-g2-confirm", "builder-2", "attacker-2"])
+        self.assertEqual(self.calls, ["attacker-1", "reviewer-g2-confirm"])
+        self.assert_feedback(self.extra)
         original = run.attack_report(self.c.work / "attacks/round-1.json")
         self.assertEqual(original["blocking"], [self.request, *self.extra])
         self.assertEqual(self.c.card["loop_freshness"]["outcome"], "excluded")
         self.assertEqual(self.c.card["loop_freshness"]["rows"], 1)
 
-    def test_freshness_only_exclusion_finishes_without_writer(self):
+    def test_freshness_only_exclusion_finishes_clean(self):
         self.loop()
         self.assertEqual(self.calls, ["attacker-1", "reviewer-g2-confirm"])
         self.assertEqual(self.c.card["stress_review"]["status"], "completed")
+        self.assertEqual(self.result["reason"], "stress:clean")
+        self.assertNotIn("feedback", self.result)
 
-    def test_structured_freshness_request_is_checked_without_writer_blockers(self):
+    def test_structured_freshness_request_is_checked_without_blockers(self):
         self.report_blocking = []
         self.loop()
         self.assertEqual(self.calls, ["attacker-1", "reviewer-g2-confirm"])
@@ -146,10 +154,11 @@ class LoopFreshnessTests(unittest.TestCase):
         self.extra = ['Wrong fix cap-thirteen passes; vary the stock and customer data']
         self.report_blocking = ['[freshness-review] independent verdict required', *self.extra]
 
-    def test_real_attacker_schema_unflagged_requests_reach_reviewer_then_writer(self):
+    def test_real_attacker_schema_unflagged_requests_reach_reviewer_then_feedback(self):
         self.unflagged_requests()
         self.loop()
-        self.assertEqual(self.calls, ['attacker-1', 'reviewer-g2-confirm', 'builder-2', 'attacker-2'])
+        self.assertEqual(self.calls, ['attacker-1', 'reviewer-g2-confirm'])
+        self.assert_feedback(self.extra)
         original = run.attack_report(self.c.work / 'attacks/round-1.json')
         self.assertEqual(set(original), {'complete', 'blocking', 'unfinished_validation', 'non_blocking', 'freshness_review', 'cheats_tried', 'searches'})
         self.assertEqual(original['freshness_review'], self.requested_urls)
@@ -169,8 +178,8 @@ class LoopFreshnessTests(unittest.TestCase):
     def test_unflagged_requests_confirmed_match_fails_G2(self):
         self.unflagged_requests()
         self.same_bug = True
-        with self.assertRaisesRegex(run.BudgetError, '^freshness_public_match$'):
-            self.loop()
+        self.assertEqual(self.loop()['reason'], 'stress:public_match')
+        self.assertNotIn("feedback", self.result)
         self.assertEqual(self.calls, ['attacker-1', 'reviewer-g2-confirm'])
         self.assertEqual(self.c.card['failed_gate'], 'G2')
         self.assertEqual(self.c.card['gates']['G2'], 'fail')
@@ -214,34 +223,6 @@ class LoopFreshnessTests(unittest.TestCase):
         self.assertEqual(self.c.card['loop_freshness']['reason'], 'budget_boundary:budget_exhausted')
         self.assertIsNone(self.c.card['loop_freshness']['verdict_path'])
 
-    def test_restore_no_verdict_checks_saved_request_without_writer_blockers(self):
-        self.unflagged_requests()
-        self.report_blocking = []
-        with patch.object(run, 'opencode', self.model), \
-             patch.object(run, 'loop_freshness', side_effect=run.BudgetError('freshness_unresolved')), \
-             self.assertRaises(run.BudgetError):
-            run.write_and_attack(self.c, {})
-        prev = {'status': 'stopped', 'terminal_stop': 'freshness_unresolved',
-                'loop_freshness': {'rows': 0, 'verdict_path': None, 'outcome': 'unresolved'}}
-        with patch.object(run, 'opencode', self.model):
-            run.write_and_attack(self.c, prev)
-        self.assertEqual(self.calls, ['attacker-1', 'reviewer-g2-confirm'])
-        self.assertEqual(self.c.card['loop_freshness']['outcome'], 'excluded')
-
-    def test_restore_no_verdict_rereviews_changed_binding_without_raise(self):
-        self.unflagged_requests()
-        with patch.object(run, 'opencode', self.model), \
-             patch.object(run, 'loop_freshness', side_effect=run.BudgetError('freshness_unresolved')), \
-             self.assertRaises(run.BudgetError):
-            run.write_and_attack(self.c, {})
-        self.c.models['attacker'] = ['changed judging model']
-        prev = {'status': 'stopped', 'terminal_stop': 'freshness_unresolved',
-                'loop_freshness': {'rows': 0, 'verdict_path': None, 'outcome': 'unresolved'}}
-        with patch.object(run, 'opencode', self.model):
-            run.write_and_attack(self.c, prev)
-        self.assertEqual(self.calls, ['attacker-1', 'attacker-1', 'reviewer-g2-confirm', 'builder-2', 'attacker-2'])
-        self.assertEqual(self.c.card['resume_rereview']['binding_changed'], ['models'])
-
     def test_tagged_request_is_removed_after_exclusion(self):
         self.request = '[freshness-review] independent verdict required'
         self.loop()
@@ -249,8 +230,10 @@ class LoopFreshnessTests(unittest.TestCase):
 
     def test_incomplete_review_cannot_pass_after_freshness_exclusion(self):
         self.complete = False
-        with self.assertRaisesRegex(run.BudgetError, 'stress_review_unresolved:interrupted_review'):
-            self.loop()
+        from durable.contract import Outcome
+        self.assertEqual(self.loop(), {"outcome": Outcome.INFRA_ERROR,
+                                       "reason": "stress:interrupted_review"})
+        self.assertNotEqual(self.c.card.get("stress_review", {}).get("status"), "completed")
         self.assertEqual(self.calls, ["attacker-1", "reviewer-g2-confirm"])
 
     def test_malformed_independent_verdict_is_terminal(self):
@@ -260,8 +243,10 @@ class LoopFreshnessTests(unittest.TestCase):
                 (pathlib.Path(cwd) / 'verdict.json').write_text('{"hits": [{"same_bug": false}]}')
                 return 0
             return self.model(c, models, text, cwd, name, **kwargs)
-        with patch.object(run, 'opencode', call), self.assertRaisesRegex(run.BudgetError, '^freshness_unresolved$'):
-            run.write_and_attack(self.c, {})
+        with patch.object(run, 'opencode', call), \
+             patch.object(run, 'stress_categories', self.categories), \
+             self.assertRaisesRegex(run.BudgetError, '^freshness_unresolved$'):
+            run.engine_stress_round(self.c, 1)
         self.assertEqual(self.calls, ["attacker-1", "reviewer-g2-confirm"])
 
     def test_reviewer_cost_uses_existing_metered_call_path(self):
@@ -287,15 +272,16 @@ class LoopFreshnessTests(unittest.TestCase):
             return self.model(c, models, text, cwd, name, **kwargs)
         with patch.object(run, 'opencode', call), patch.object(model_runtime, 'run_budgeted', budgeted), \
              patch.object(model_runtime, 'opencode_config', return_value=c.work / 'synthetic-config'), \
-             patch.object(run, 'public_progress'):
-            run.write_and_attack(c, {})
+             patch.object(run, 'public_progress'), \
+             patch.object(run, 'stress_categories', self.categories):
+            run.engine_stress_round(c, 1)
         self.assertEqual(c.card['case_budget']['spent_usd'], 0.25)
         self.assertEqual(c.card['case_budget']['breakdown_by_role'], {'reviewer': 0.25})
 
-    def test_confirmed_match_stops_as_G2_before_writer(self):
+    def test_confirmed_match_fails_G2_without_repair_feedback(self):
         self.same_bug = True
-        with self.assertRaisesRegex(run.BudgetError, "^freshness_public_match$"):
-            self.loop()
+        self.assertEqual(self.loop()['reason'], 'stress:public_match')
+        self.assertNotIn("feedback", self.result)
         self.assertEqual(self.calls, ["attacker-1", "reviewer-g2-confirm"])
         self.assertEqual(self.c.card["failed_gate"], "G2")
         self.assertEqual(self.c.card["gates"]["G2"], "fail")
@@ -304,7 +290,6 @@ class LoopFreshnessTests(unittest.TestCase):
     def test_same_family_reviewer_fails_closed(self):
         for family in ("claude/other", "deepseek/other"):
             with self.subTest(family=family):
-                (self.c.work / 'attack-state.json').unlink(missing_ok=True)
                 self.c.models["reviewers"] = [[family]]
                 self.calls.clear()
                 with self.assertRaisesRegex(run.BudgetError, "^freshness_unresolved$"):
@@ -360,23 +345,10 @@ class LoopFreshnessTests(unittest.TestCase):
         self.assertEqual(info['outcome'], 'review_unresolved')
         self.assertEqual(self.calls.count('reviewer-g2-confirm'), 2)
 
-    def test_uncommitted_report_reviewer_finishes_before_resumed_writer(self):
-        # Saved output alone cannot prove the new binding's invocation completed.
-        def interrupted(c, models, text, cwd, name, **kwargs):
-            self.model(c, models, text, cwd, name, **kwargs)
-            raise KeyboardInterrupt()
-        self.extra = ['Wrong fix passes because every customer shares an email domain']
-        with patch.object(run, 'opencode', interrupted), self.assertRaises(KeyboardInterrupt):
-            run.write_and_attack(self.c, {})
-        with patch.object(run, 'opencode', self.model):
-            run.write_and_attack(self.c, {'status': 'stopped', 'terminal_stop': 'stalled'})
-        self.assertEqual(self.calls, ['attacker-1', 'attacker-1', 'reviewer-g2-confirm', 'builder-2', 'attacker-2'])
-
     def test_mixed_freshness_and_quality_finding_is_retained(self):
         self.request += " Also fix test customers sharing an email domain."
-        self.writer_blockers = [self.request]
         self.loop()
-        self.assertIn("builder-2", self.calls)
+        self.assert_feedback([self.request])
 
     def test_optional_report_field_preserves_legacy_schema(self):
         path = self.c.work / "report.json"

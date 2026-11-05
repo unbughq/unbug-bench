@@ -66,8 +66,7 @@ class Checkpoints(unittest.TestCase):
                 'invocation_reservations': {'uncertain': {'lease_id': 'uncertain', 'call_name': 'builder-uncertain', 'state': 'pending', 'maximum_usd': 1, 'event_ids': []}}}))
             return 0
         runtime = model_runtime.ModelRuntime(None, None, None, None, None)
-        with patch('model_runtime.dispatch', return_value=contextlib.nullcontext()), \
-                patch.object(model_runtime.ModelRuntime, '_call', side_effect=lambda *a, **kw: invoke()):
+        with patch.object(model_runtime.ModelRuntime, '_call', side_effect=lambda *a, **kw: invoke()):
             runtime.call(c, ['local/test'], 'deterministic prompt', c.work, 'builder-1')
         def gate():
             (c.work / 'gate-evidence').write_text('verified')
@@ -139,7 +138,10 @@ class Checkpoints(unittest.TestCase):
         seen = []
         def model(c, models, text, cwd, name, **kwargs):
             seen.append(text)
-            (cwd / 'verdict.json').write_text(json.dumps({
+            c.model_lease = types.SimpleNamespace(route=models[0])
+            # Retained answers live outside the review cwd, like the real provider.
+            target = Path(text.split('verdict_path": "')[1].split('"')[0])
+            target.write_text(json.dumps({
                 'fairness': {'approve': True}, 'realism': {'approve': True}}))
             receipt = c.work / 'usage-receipts' / f'{len(seen)}.json'
             receipt.parent.mkdir(exist_ok=True)
@@ -153,6 +155,9 @@ class Checkpoints(unittest.TestCase):
             raw = (self.worker.paths(si.idempotency_key)['out'] / blob_name(ref)).read_bytes()
             fresh = self.home / 'replacement' / si.case_id
             restore(AgeSealer().open(self.key, ref, raw), fresh)
+            states = list((fresh / 'ordinary-retries').glob('*/state.json'))
+            self.assertTrue(states, 'runner snapshot omitted retained answers')
+            self.assertTrue(all(json.loads(p.read_text())['attempts'][-1]['phase'] == 'completed' for p in states))
             retry = dataclasses.replace(si, attempt=2, snapshot=ref)
             c = run.context_for_step(retry, fresh)
             c.engine_checkpoint = lambda: True

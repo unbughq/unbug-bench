@@ -27,6 +27,8 @@ class CandidateLifecycleTests(unittest.TestCase):
             stamped = json.loads(target.read_bytes())
         self.assertEqual(worker_release.POLICY.read_bytes(), before)
         self.assertEqual(stamped['release'], json.loads(before)['release'] + '-durable-candidate-v1')
+        from durable.workers import build_bundle, check_bundle
+        self.assertEqual(check_bundle(build_bundle(ROOT))['release'], stamped['release'])
         for name in ('factory/durable/worker_step.py', 'factory/durable/steps/admit.py',
                      'factory/durable/steps/diagnosis.py', 'factory/durable/contract.py'):
             self.assertEqual(stamped['files'][name], hashlib.sha256((ROOT / name).read_bytes()).hexdigest())
@@ -39,10 +41,7 @@ class CandidateLifecycleTests(unittest.TestCase):
         retired = {'key_holder', 'batch', 'batch_holder', 'batch_service', 'recovery',
                    'restart', 'job_authority', 'job_config', 'statement_round',
                    'late_recovery', 'durable_checkpoint', 'restore_ledger'}
-        parent_owned = {'run.py', 'budget.py', 'model_runtime.py', 'gate_pipeline.py'}
         for path in (ROOT / 'factory').glob('*.py'):
-            if path.name in parent_owned:
-                continue
             for node in ast.walk(ast.parse(path.read_text())):
                 names = ([node.module] if isinstance(node, ast.ImportFrom) else
                          [a.name for a in node.names] if isinstance(node, ast.Import) else [])

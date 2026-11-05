@@ -39,8 +39,8 @@ class ArchiveSafetyTests(unittest.TestCase):
                        "<NextContinuationToken>next</NextContinuationToken></ListBucketResult>")
             return 200, {}, payload.encode()
         objects._transport = transport
-        with patch("durable.backup.objects_for", return_value=objects), patch.object(objects, "get", return_value=b"ciphertext"):
-            self.assertEqual(_objects({"r2": {}}), {"b-test/one": b"ciphertext", "b-test/two": b"ciphertext"})
+        with patch("durable.backup.objects_for", return_value=objects), patch.object(objects, "get", side_effect=AssertionError("remote data must not be downloaded during backup")):
+            self.assertEqual(_objects({"r2": {}}), {"b-test/one": None, "b-test/two": None})
             self.assertEqual(len(calls), 2)
             objects._transport = lambda *args: (200, {}, b"<invalid/>")
             with self.assertRaises(RuntimeErrorCode):
@@ -108,6 +108,7 @@ class RestoreExercise(unittest.TestCase):
         runtime.ledger.reserve("b-restore", "case-restored", "case-restored/1/gates/1", 100, 600)
         runtime.ledger.settle("case-restored/1/gates/1", Usage(2, 60, 80))
         balance = runtime.ledger.balance("b-restore")
+        unused_key = runtime.keys.scope_key("case-restored")
         ref = runtime.prepare("b-restore", ArtifactKind.INPUTS, b"synthetic evidence")
         bundle = runtime.releases.put_bundle(build_bundle(ROOT))
         runtime.releases.register_bench("a" * 64, "bench-env")
@@ -116,7 +117,19 @@ class RestoreExercise(unittest.TestCase):
         with self.assertRaises(RuntimeErrorCode):
             backup(self.config)
         runtime.close()
+        scheduled = backup(self.config, resume_after=True)
+        self.assertFalse(scheduled["source_fenced"])
+        fence = Path(self.config["state_dir"]) / "cold-backup.json"
+        self.assertFalse(fence.exists())
+        with patch("durable.backup._pg", side_effect=RuntimeErrorCode("injected_backup_failure")):
+            with self.assertRaises(RuntimeErrorCode):
+                backup(self.config, resume_after=True)
+        self.assertFalse(fence.exists())
         stale = backup(self.config)
+        operator_fence = fence.read_bytes()
+        with self.assertRaises(RuntimeErrorCode):
+            backup(self.config, resume_after=True)
+        self.assertEqual(fence.read_bytes(), operator_fence)
         stale_archive = self.root / "stale.age"
         stale_archive.write_bytes(Path(self.config["local_objects"], stale["backup"]).read_bytes())
         stale_archive.chmod(0o600)
@@ -164,6 +177,7 @@ class RestoreExercise(unittest.TestCase):
         recovered = Runtime(self.destination)
         self.addCleanup(recovered.close)
         self.assertEqual(recovered.ledger.balance("b-restore"), balance)
+        self.assertEqual(recovered.keys.scope_key("case-restored"), unused_key)
         self.assertEqual(recovered.pool._read("case-restored"), record)
         self.assertEqual(recovered.releases.bundle(bundle), runtime.releases.bundle(bundle))
         self.assertEqual(recovered.releases.image_for("a" * 64, "unused"), "bench-env")
@@ -190,6 +204,16 @@ class RestoreExercise(unittest.TestCase):
             restore(self.destination, archive, self.config["state_dir"])
         with self.assertRaises(RuntimeErrorCode):
             resume(self.config)
+        # A lost source may be recovered as data, without creating a second controller.
+        quarantine = {**self.destination, "database_url": self.url("refused"),
+                      "state_dir": str(self.root / "quarantined"),
+                      "local_objects": str(self.root / "quarantined-objects")}
+        restored = restore(quarantine, archive, str(self.root / "lost-source"), quarantine=True)
+        self.assertTrue(restored["quarantined"])
+        with self.assertRaisesRegex(RuntimeErrorCode, "source_fenced"):
+            Runtime(quarantine)
+        with self.assertRaisesRegex(RuntimeErrorCode, "source_retired"):
+            resume(quarantine)
         for path in Path(self.destination["state_dir"]).rglob("*"):
             self.assertEqual(path.stat().st_mode & 0o777, 0o700 if path.is_dir() else 0o600)
 

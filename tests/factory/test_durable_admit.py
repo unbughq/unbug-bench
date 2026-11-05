@@ -18,6 +18,7 @@ import json
 import os
 import pathlib
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -47,7 +48,7 @@ class AdmitTests(unittest.TestCase):
         self.case_key, self.batch_key = os.urandom(32), os.urandom(32)
         self.calls, self.duplicate, self.model_error = [], None, None
         # External search/model boundaries only; statement_precheck and idea_realism are real.
-        self.freshness = patch.object(run, "g2", return_value=(True, {"outcome": "fresh"})).start()
+        self.freshness = patch.object(run, "_g2", return_value=(True, {"outcome": "fresh"})).start()
         self.addCleanup(patch.stopall)
         patch.object(run, "model_call", side_effect=self.model).start()
         patch.object(run, "opencode", side_effect=self.model).start()
@@ -67,9 +68,13 @@ class AdmitTests(unittest.TestCase):
             target = json.loads(text.rsplit("\n", 1)[-1])["result_path"]
             pathlib.Path(target).write_text(json.dumps({"duplicate_of": self.duplicate, "reason": "same bug" if self.duplicate else "distinct"}))
         elif name == "reviewer-idea-realism":
-            (cwd / "verdict.json").write_text(json.dumps({"approve": True, "reason": "plausible"}))
+            target = text.split('Write JSON to ')[1].split(': {')[0]
+            pathlib.Path(target).write_text(json.dumps({"approve": True, "reason": "plausible"}))
         else:
             raise AssertionError("unexpected model invocation: " + name)
+        if kwargs.get("on_complete"):
+            c.model_lease = SimpleNamespace(route=models[0])
+            kwargs["on_complete"]()
         return 0
 
     def push(self, kind, key, plaintext):

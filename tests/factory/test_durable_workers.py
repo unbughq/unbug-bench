@@ -324,7 +324,7 @@ class ReleaseStoreTests(unittest.TestCase):
         for name in ("factory/durable/worker_step.py", "factory/durable/contract.py", "factory/run.py",
                      "factory/worker_release.py", "bin/processes.py"):
             self.assertIn(name, manifest["files"])
-        self.assertEqual(manifest["release"], json.loads((ROOT / "factory/worker-release.json").read_text())["release"])
+        self.assertEqual(manifest["release"], json.loads((ROOT / "factory/worker-release.json").read_text())["release"] + "-durable-candidate-v1")
 
     def test_store_refuses_bad_bundles_and_detects_corruption(self):
         (self.h.tree / "factory/durable/worker_step.py").unlink()

@@ -10,7 +10,7 @@ for unit in unbug-durable.service unbug-durable-backup.service; do
     echo "Stop durable services before installation" >&2; exit 1
   fi
 done
-for command in python3 age age-keygen pg_dump pg_restore; do
+for command in python3 age age-keygen pg_dump pg_restore runuser systemctl; do
   command -v "$command" >/dev/null
 done
 install -d -m 700 -o user -g user "$state"
@@ -29,6 +29,8 @@ assert c["application_version"] == APP_VERSION
 assert c["state_dir"] == "/home/user/.unbug-durable"
 assert make_url(c["database_url"]).get_backend_name() == "postgresql"
 CHECK
+install -d -m 755 -o root -g root /usr/local/libexec
+install -m 755 -o root -g root "$repo/control/durable-backup.sh" /usr/local/libexec/unbug-durable-backup
 for unit in unbug-durable.service unbug-durable-backup.service unbug-durable-backup.timer; do
   install -m 644 "$repo/control/$unit" /etc/systemd/system/
 done

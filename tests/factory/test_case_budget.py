@@ -1,15 +1,13 @@
-"""Offline list-price ceilings and economic salvage; synthetic fixtures only."""
+"""Offline usage valuation, price ceilings and worker scientific guards."""
 
 # Keep direct execution and unittest discovery independent of the working directory.
 import sys
 from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
-import hashlib
 import json
 import os
 import pathlib
-import subprocess
 import sys
 import tempfile
 import types
@@ -52,13 +50,6 @@ class CaseBudgetTests(unittest.TestCase):
                 'terminal_stop': 'complete', **extra}
         self.c.ledger.write_text(json.dumps(data)); return data
 
-    def receipt(self, *, final=False, n=3, limit=3):
-        binding = run.attack_binding(self.c)
-        (self.root / 'attack-state.json').write_text(json.dumps({'round': n, 'round_limit': limit,
-            'report': f'round-{n}.json', 'binding': binding, 'final_repair': final}))
-        (self.root / f'attacks/round-{n}.json').write_text(json.dumps({'complete': False,
-            'blocking': ['synthetic latest stock finding']}))
-
     def invoke(self, events, driver, model=None, **kw):
         code = ''.join('print(' + repr(json.dumps(e)) + ', flush=True)\n' for e in events)
         code += kw.pop('tail', '')
@@ -66,174 +57,30 @@ class CaseBudgetTests(unittest.TestCase):
             self.root / 'synthetic-stream', self.c.ledger, 3, containment=False, driver=driver, configured_model=model,
             max_cost=100, max_total_calls=1000, **kw)
 
-    def public_card(self, stop='stress_review_unresolved:rounds_exhausted', spent=30.08, limit=None):
-        archive = self.root / 'case-test.checkpoint.tar.gz.age'
-        archive.write_bytes(b'synthetic ciphertext only')
-        card = {'case': 'case-test', 'seed': 7, 'status': 'stopped', 'terminal_stop': stop,
-            'gates': {}, 'sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
-            'recovery_config': {'rounds': 3}, 'continuation_budget': self.ledger(spent)}
-        if limit is not None: card['case_budget'] = {'limit_usd': limit, 'spent_usd': spent}
-        return card
+    def stress_round(self):
+        from durable.contract import ArtifactKind, Ref, Step, StepInput, StepKind
+        si = StepInput('b-offline', self.c.case_id, 1, Step(StepKind.STRESS, 1), 1,
+            'a' * 64, 'b' * 64, Ref('a' * 64, ArtifactKind.INPUTS),
+            Ref('b' * 64, ArtifactKind.CASE_SNAPSHOT), 300, 10_000_000)
+        self.c.engine = run.EngineStep(si, 0)
+        def stress(c, n, report, receipt, completed):
+            return run.opencode(c, c.models['attacker'], json.dumps({'report_path': str(report)}),
+                                c.work, f'attacker-{n}')
+        with patch.object(run, 'engine_prepare_bench'), patch.object(run, 'stress_categories', stress), \
+             patch.object(run, 'loop_freshness', side_effect=lambda c, result, path: (result, path)):
+            return run.engine_stress_round(self.c, 1)
 
-
-    def test_transient_review_resume_rereviews_same_round_without_raise(self):
-        for stop in (None, 'stalled', 'paused', 'timeout', 'opencode_error', 'provider_limit:opencode/test',
-                     'stress_review_unresolved:interrupted_review',
-                     'stress_review_unresolved:missing_or_malformed_report',
-                     'stress_review_unresolved:case_changed_since_review'):
-            for content in (None, '{"complete": false, "blocking": ["review incomplete"]}'):
-                with self.subTest(stop=stop, content=content):
-                    self.ledger(0, terminal_stop='stalled')
-                    self.receipt()
-                    report = self.root / 'attacks/round-3.json'
-                    if content is None: report.unlink()
-                    else: report.write_text(content)
-                    before = run.attack_binding(self.c)
-                    def call(c, models, text, cwd, name):
-                        self.assertEqual(name, 'attacker-3')
-                        self.assertEqual(run.attack_binding(c), before)
-                        self.assertEqual(json.loads((self.root / 'attack-state.json').read_text())['rereviews'], 1)
-                        report.write_text('{"complete": true, "blocking": []}')
-                    with patch.object(run, 'opencode', call):
-                        run.write_and_attack(self.c, {'terminal_stop': stop})
-                    self.assertEqual(self.c.card['resume_rereview'], {'round': 3, 'reason':
-                        'missing_or_malformed_report' if content is None else 'interrupted_review', 'binding_changed': []})
-                    self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 3})
-
-    def test_stall_during_initial_review_resumes_in_place_without_writer(self):
-        self.c.args.resume = None
-        calls = []
-        def stalled(c, models, text, cwd, name):
-            calls.append(name)
-            if name == 'attacker-1': raise budget.BudgetError('stalled')
-        with patch.object(run, 'opencode', stalled), self.assertRaisesRegex(budget.BudgetError, '^stalled$'):
-            run.write_and_attack(self.c, {})
-        self.c.args.resume = 'case-test'
-        def resumed(c, models, text, cwd, name):
-            calls.append(name)
-            self.assertEqual(name, 'attacker-1')
-            pathlib.Path(json.JSONDecoder().raw_decode(text)[0]['report_path']).write_text(
-                '{"complete": true, "blocking": []}')
-        with patch.object(run, 'opencode', resumed):
-            run.write_and_attack(self.c, {'terminal_stop': 'stalled'})
-        self.assertEqual(calls, ['builder-1', 'attacker-1', 'attacker-1'])
-        self.assertEqual(self.c.card['resume_rereview'], {'round': 1, 'reason': 'interrupted_review', 'binding_changed': []})
-
-    def test_rereview_retains_diagnostic_allowance_and_unfinished_guard(self):
-        for completed in (False, True):
-            self.receipt()
-            (self.root / 'attacks/round-3.json').unlink()
-            diagnostic = self.root / 'diagnostic-budgets/attacker-3'
-            diagnostic.mkdir(parents=True, exist_ok=True)
-            (diagnostic / 'claimed').touch()
-            (diagnostic / 'status.json').write_text(json.dumps({'status': 'completed' if completed else 'running'}))
-            def call(c, models, text, cwd, name):
-                self.assertEqual(name, 'attacker-3')
-                self.assertIn('EXHAUSTED', text)
-                self.assertTrue((diagnostic / 'claimed').exists())
-                (self.root / 'attacks/round-3.json').write_text('{"complete": true, "blocking": []}')
-            with patch.object(run, 'opencode', call):
-                if completed: run.write_and_attack(self.c, {'terminal_stop': 'stalled'})
-                else:
-                    with self.assertRaisesRegex(budget.BudgetError, 'unfinished_diagnostic'):
-                        run.write_and_attack(self.c, {'terminal_stop': 'stalled'})
-
-    def test_rereview_repeat_bound_survives_transient_stops(self):
-        self.receipt()
-        (self.root / 'attacks/round-3.json').write_text('{"complete": false, "blocking": ["review incomplete"]}')
-        def stalled(*args, **kw): raise budget.BudgetError('stalled')
-        for expected in (1, 2):
-            with patch.object(run, 'opencode', stalled), self.assertRaisesRegex(budget.BudgetError, '^stalled$'):
-                run.write_and_attack(self.c, {'terminal_stop': 'stalled'})
-            self.assertEqual(json.loads((self.root / 'attack-state.json').read_text())['rereviews'], expected)
-        with patch.object(run, 'opencode') as call, self.assertRaisesRegex(budget.BudgetError, 'interrupted_review'):
-            run.write_and_attack(self.c, {'terminal_stop': 'stalled'})
-        call.assert_not_called()
-
-    def test_release_binding_changes_rereview_before_writer(self):
-        # Compute the old/new manifests through production bench_manifest(), as
-        # releases do; never forge a saved binding or patch attack_binding().
-        bench = self.root / 'public-bench'; bench.mkdir()
-        binding_bench = patch.object(run, 'BENCH', bench)
-        binding_bench.start(); self.addCleanup(binding_bench.stop)
-        for field in ('bench', 'models', 'prompt', 'case'):
-            for content in (None, '{bad json',
-                            '{"complete": false, "blocking": ["review incomplete"]}',
-                            '{"complete": true, "blocking": []}',
-                            '{"complete": false, "blocking": ["stale finding"]}'):
-                with self.subTest(field=field, content=content):
-                    self.c.card = {'gates': {}}
-                    self.c.args.rounds = 8
-                    (self.c.case / 'repair.txt').unlink(missing_ok=True)
-                    (bench / 'README.md').write_text('old release')
-                    with patch.object(run, 'BENCH', bench), patch.object(run, 'prompt', lambda role, text: 'old prompt\n' + text):
-                        self.c.manifest0 = run.bench_manifest()
-                        self.receipt(n=3, limit=8)
-                    old = json.loads((self.root / 'attack-state.json').read_text())['binding']
-                    report = self.root / 'attacks/round-3.json'
-                    if content is None: report.unlink()
-                    else: report.write_text(content)
-                    if field == 'bench':
-                        (bench / 'README.md').write_text('new release')
-                        with patch.object(run, 'BENCH', bench): self.c.manifest0 = run.bench_manifest()
-                    elif field == 'models': self.c.models['attacker'] = [str(self.c.models['attacker']) + '-new']
-                    elif field == 'case': (self.c.case / 'pending.txt').write_text(str(content))
-                    calls = []
-                    def call(c, models, text, cwd, name):
-                        calls.append(name)
-                        self.assertNotIn('stale finding', text)
-                        if name == 'attacker-3':
-                            self.assertEqual(models, c.models['attacker'])
-                            self.assertEqual(json.loads((self.root / 'attack-state.json').read_text())['binding'], run.attack_binding(c))
-                            report.write_text('{"complete": true, "blocking": ["fresh finding"]}')
-                        elif name == 'builder-4':
-                            self.assertIn('round-3.json', text)
-                            self.assertIn('fresh finding', text)
-                            (c.case / 'repair.txt').write_text('fixed')
-                        else:
-                            self.assertEqual(name, 'attacker-4')
-                            (self.root / 'attacks/round-4.json').write_text('{"complete": true, "blocking": []}')
-                    with patch.object(run, 'prompt', lambda role, text: ('new' if field == 'prompt' else 'old') + ' prompt\n' + text):
-                        current = run.attack_binding(self.c)
-                        self.assertNotEqual(old, current)
-                        with patch.object(run, 'opencode', call):
-                            run.write_and_attack(self.c, {'terminal_stop': 'stress_review_unresolved:interrupted_review'})
-                    self.assertEqual(calls, ['attacker-3', 'builder-4', 'attacker-4'])
-                    reason = ('missing_or_malformed_report' if content is None or content == '{bad json' else
-                              'interrupted_review' if 'review incomplete' in content else 'binding_changed')
-                    self.assertEqual(self.c.card['resume_rereview'], {'round': 3, 'reason': reason,
-                        'binding_changed': [field]})
-
-    def test_changed_binding_rereview_keeps_cap_and_budget_boundary(self):
-        for exhausted in ('cap', 'budget'):
-            self.receipt()
-            (self.root / 'attacks/round-3.json').unlink()
-            self.c.manifest0 += '-new-release'
-            if exhausted == 'cap':
-                path = self.root / 'attack-state.json'
-                receipt = json.loads(path.read_text()); receipt['rereviews'] = 2
-                path.write_text(json.dumps(receipt))
-            else: self.ledger(50)
-            with patch.object(run, 'opencode') as call, self.assertRaises(budget.BudgetError):
-                run.write_and_attack(self.c, {'terminal_stop': 'stalled'})
-            call.assert_not_called()
-            receipt = json.loads((self.root / 'attack-state.json').read_text())
-            self.assertEqual(receipt.get('rereviews', 0), 2 if exhausted == 'cap' else 0)
-
-    def test_live_case_change_during_review_still_stops(self):
-        self.c.args.resume = None
+    def test_live_case_change_during_review_is_infrastructure_failure(self):
+        from durable.contract import Outcome
         calls = []
         def call(c, models, text, cwd, name):
             calls.append(name)
-            if name == 'attacker-1':
-                (c.case / 'unexpected.txt').write_text('changed during live review')
-                (self.root / 'attacks/round-1.json').write_text('{"complete": true, "blocking": []}')
-        with patch.object(run, 'opencode', call), self.assertRaisesRegex(
-                budget.BudgetError, 'stress_review_unresolved:case_changed_during_review'):
-            run.write_and_attack(self.c, {})
-        self.assertEqual(calls, ['builder-1', 'attacker-1'])
-        self.assertNotIn('resume_rereview', self.c.card)
-
+            (c.case / 'unexpected.txt').write_text('changed during live review')
+            (self.root / 'attacks/round-1.json').write_text('{"complete": true, "blocking": []}')
+        with patch.object(run, 'opencode', call):
+            result = self.stress_round()
+        self.assertEqual(result, {'outcome': Outcome.INFRA_ERROR, 'reason': 'stress:case_changed'})
+        self.assertEqual(calls, ['attacker-1'])
 
     def test_counts_all_drivers_once_and_by_role(self):
         usage = {'input_tokens': 1000000, 'cached_input_tokens': 400000, 'output_tokens': 10000}
@@ -305,132 +152,18 @@ class CaseBudgetTests(unittest.TestCase):
         with self.assertRaisesRegex(budget.BudgetError, '^budget_exhausted$'):
             self.invoke([], 'opencode', 'paid/synthetic')
 
-    def test_budget_stop_before_round_never_buys_unreserved_final_fix(self):
-        self.receipt(n=1); self.ledger(44)
-        names = []
-        def call(c, models, text, cwd, name):
-            names.append(name)
-            self.assertIn('synthetic latest stock finding', text)
-            return 0
-        with patch.object(run, 'opencode', call), self.assertRaisesRegex(budget.BudgetError, '^budget_exhausted$'):
-            run.write_and_attack(self.c, {})
-        self.assertEqual(names, [])
-        receipt = json.loads((self.root / 'attack-state.json').read_text())
-        self.assertEqual(receipt['round'], 1); self.assertTrue(receipt['final_repair'])
-        self.assertEqual(self.c.card['stress_review'], {'status': 'unresolved', 'reason': 'budget_exhausted'})
-
     def test_observed_round_cost_raises_floor(self):
-        self.receipt(n=1)
         events = [{'id': 'w', 'role': 'writer', 'invocation': 'builder-1', 'cost': 0, 'list_cost_usd': 10},
                   {'id': 's', 'role': 'stress_tester', 'invocation': 'attacker-1', 'cost': 0, 'list_cost_usd': 2}]
         self.ledger(40, events)
-        with patch.object(run, 'opencode') as model, self.assertRaisesRegex(budget.BudgetError, '^budget_exhausted$'):
-            run.write_and_attack(self.c, {})
-        model.assert_not_called()
-        self.assertEqual(self.c.card['case_budget']['next_round_estimate_usd'], 12)
+        self.assertEqual(model_runtime.writer_round_estimate(self.c), 12)
 
-
-    def test_unraised_final_repair_refuses_even_with_historical_raise_record(self):
-        self.receipt(final=True)
-        self.c.card['budget_raised'] = {'from': 20, 'to': 50, 'spent_at_raise': 21}
-        self.c.args.rounds = 8
-        with patch.object(run, 'opencode') as model, self.assertRaisesRegex(budget.BudgetError, 'rounds_exhausted'):
-            run.write_and_attack(self.c, {})
-        model.assert_not_called()
-
-    def test_canary4_final_receipt_rereviews_before_writer(self):
-        # Canary 4 wrote round=limit/report=round-limit even when early checks
-        # skipped the attacker; it did not write findings_report or awaiting_stress.
-        for content in (None, '{bad json', '{"complete": false, "blocking": ["review incomplete"]}',
-                        '{"complete": false, "blocking": []}'):
-            with self.subTest(content=content):
-                self.receipt(final=True)
-                path = self.root / 'attacks/round-3.json'
-                if content is None: path.unlink()
-                else: path.write_text(content)
-                self.c.args.rounds = 8
-                self.c.card = {'gates': {}}
-                self.c.limits_raised = {'rounds_raised': {'from': 3, 'to': 8}}
-                (self.c.case / 'final-fix.txt').write_text('canary-4 final fix')
-                before = run.attack_binding(self.c)
-                calls = []
-                def call(c, models, text, cwd, name):
-                    calls.append(name)
-                    if name == 'attacker-3':
-                        self.assertEqual(run.attack_binding(c), before)
-                        pathlib.Path(json.JSONDecoder().raw_decode(text)[0]['report_path']).write_text(
-                            '{"complete": true, "blocking": ["fresh synthetic finding"]}')
-                    elif name == 'builder-4':
-                        self.assertIn('fresh synthetic finding', text)
-                        self.assertNotIn('review incomplete', text)
-                        self.assertIn('round-3.json', text)
-                        (c.case / 'repair.txt').write_text(str(content))
-                    else:
-                        self.assertEqual(name, 'attacker-4')
-                        pathlib.Path(json.JSONDecoder().raw_decode(text)[0]['report_path']).write_text(
-                            '{"complete": true, "blocking": []}')
-                    return 0
-                # A prior subtest's writer must change the case again.
-                (self.c.case / 'repair.txt').unlink(missing_ok=True)
-                before = run.attack_binding(self.c)
-                with patch.object(run, 'opencode', call): run.write_and_attack(self.c, {})
-                self.assertEqual(calls, ['attacker-3', 'builder-4', 'attacker-4'])
-                self.assertEqual(self.c.card['resume_rereview']['round'], 3)
-                self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 4})
-
-    def test_resume_rereview_can_pass_without_writer_and_keeps_live_report_guard(self):
-        self.receipt(final=True)
-        (self.root / 'attacks/round-3.json').unlink()
-        self.c.limits_raised = {'rounds_raised': {'from': 3, 'to': 8}}
-        def call(c, models, text, cwd, name):
-            self.assertEqual(name, 'attacker-3')
-            pathlib.Path(json.JSONDecoder().raw_decode(text)[0]['report_path']).write_text(
-                '{"complete": true, "blocking": []}')
-        with patch.object(run, 'opencode', call): run.write_and_attack(self.c, {})
-        self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 3})
-        self.receipt(final=True)
-        (self.root / 'attacks/round-3.json').unlink()
-        def missing(c, models, text, cwd, name):
-            self.assertEqual(name, 'attacker-3')
-            pathlib.Path(json.JSONDecoder().raw_decode(text)[0]['report_path']).unlink()
-        with patch.object(run, 'opencode', missing), self.assertRaisesRegex(
-                budget.BudgetError, 'stress_review_unresolved:missing_or_malformed_report'):
-            run.write_and_attack(self.c, {})
-
-    def test_live_missing_report_still_stops(self):
-        self.c.args.resume = None
-        calls = []
-        def call(c, models, text, cwd, name):
-            calls.append(name)
-            if name == 'attacker-1':
-                pathlib.Path(json.JSONDecoder().raw_decode(text)[0]['report_path']).unlink()
-            return 0
-        with patch.object(run, 'opencode', call), self.assertRaisesRegex(
-                budget.BudgetError, 'stress_review_unresolved:missing_or_malformed_report'):
-            run.write_and_attack(self.c, {})
-        self.assertEqual(calls, ['builder-1', 'attacker-1'])
-
-
-    def test_completed_writer_survives_budget_boundary_before_stress(self):
-        self.receipt(n=1)
-        def writer(c, models, text, cwd, name):
-            self.assertEqual(name, 'builder-2')
-            (c.case / 'repair.txt').write_text('completed synthetic repair')
-            self.ledger(51)
-            return 0
-        with patch.object(run, 'opencode', writer), self.assertRaisesRegex(budget.BudgetError, '^budget_exhausted$'):
-            run.write_and_attack(self.c, {})
-        saved = json.loads((self.root / 'attack-state.json').read_text())
-        self.assertTrue(saved['awaiting_stress']); self.assertEqual(saved['round'], 2)
-        self.c.args.case_budget = 100
-        self.c.limits_raised = {'budget_raised': {'from': 50, 'to': 100, 'spent_at_raise': 51}}
-        def tester(c, models, text, cwd, name):
-            self.assertEqual(name, 'attacker-2')
-            pathlib.Path(json.JSONDecoder().raw_decode(text)[0]['report_path']).write_text('{"complete": true, "blocking": []}')
-            return 0
-        with patch.object(run, 'opencode', tester): run.write_and_attack(self.c, {})
-        self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 2})
-
+    def test_live_missing_report_is_infrastructure_failure(self):
+        from durable.contract import Outcome
+        with patch.object(run, 'opencode') as call:
+            result = self.stress_round()
+        self.assertEqual(result, {'outcome': Outcome.INFRA_ERROR, 'reason': 'stress:malformed_report'})
+        self.assertEqual([args.args[4] for args in call.call_args_list], ['attacker-1'])
 
     def test_gate_finishes_verdict_then_next_boundary_stops(self):
         self.c.audit_gates = ['G4', 'G5']
@@ -463,96 +196,6 @@ class CaseBudgetTests(unittest.TestCase):
             run.run_gates(self.c)
         self.assertTrue(finished.is_set())
         self.assertEqual(self.c.card['gates'], {'G6': 'pass'})
-
-    def test_main_midcase_stop_checkpoints_public_budget(self):
-        harness = r'''
-import json, pathlib, sys
-from unittest.mock import patch
-import run
-root = pathlib.Path(sys.argv[1]); run.HOME=root; run.SEALED=root/'out'; run.BENCH=root/'bench'
-run.GATES=['G4', 'G5']; run.bench_manifest=lambda: 'trusted'
-import types
-run.sh=lambda *a, **kw: types.SimpleNamespace(stdout='synthetic recipient') if kw.get('capture') else 0
-run.build_fixture=lambda c: c.case.mkdir(parents=True)
-def gate(c):
-    c.ledger.parent.mkdir(exist_ok=True)
-    c.ledger.write_text(json.dumps({'cost': 0, 'calls': 1, 'events': [], 'list_cost_usd': 51}))
-    return True, {'measured': True}
-run.g4=gate
-run.g5=lambda c: (_ for _ in ()).throw(AssertionError('must not run G5'))
-run.seal=lambda c, checkpoint=False: (root/'checkpoint').write_text(str(checkpoint))
-run.wipe=lambda c: (_ for _ in ()).throw(AssertionError('must keep checkpoint'))
-with patch.object(run.shutil, 'which', return_value='synthetic'), patch.object(sys, 'argv', ['run.py', '--dry-run']):
-    run.main()
-'''
-        result = subprocess.run([sys.executable, '-c', harness, str(self.root)],
-            cwd=pathlib.Path(run.__file__).parent, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        card = json.loads(next((self.root / 'out').glob('*.scorecard.json')).read_text())
-        self.assertEqual(card['terminal_stop'], 'budget_exhausted')
-        self.assertEqual(card['status'], 'stopped'); self.assertEqual((self.root / 'checkpoint').read_text(), 'True')
-        self.assertEqual(card['gates'], {'G4': 'pass'})
-        self.assertEqual(card['case_budget']['spent_usd'], 51)
-        self.assertEqual(card['recovery_config']['case_budget'], 50)
-        self.assertEqual(card['recovery_config']['rounds'], 8)
-
-    def test_main_raised_budget_rereviews_changed_case_and_records_public_decision(self):
-        harness = r'''
-import hashlib, json, pathlib, sys, types
-from unittest.mock import patch
-import run, worker_release
-root=pathlib.Path(sys.argv[1]); run.HOME=root; run.SEALED=root/'out'; run.BENCH=root/'bench'
-work=root/'work/case-test'; case=work/'case'
-(case/'scenarios/S1').mkdir(parents=True); (work/'logs').mkdir(); (work/'attacks').mkdir()
-run.SEALED.mkdir()
-for name in ('case.json', 'answer-key.json', 'scenarios/S1/key.json'): (case/name).write_text('{}')
-prior={'case':'case-test', 'status':'stopped', 'terminal_stop':'stress_review_unresolved:rounds_exhausted',
-    'gates':{}, 'builder_rounds':3, 'recovery_config':{'rounds':3}}
-ledger={'cost':.017,'calls':515,'events':[],'list_cost_usd':30.08,'terminal_stop':'complete'}
-prior['continuation_budget']=ledger
-(work/'scorecard.json').write_text(json.dumps(prior))
-(run.SEALED/'case-test.continuation-budget.json').write_text(json.dumps(ledger))
-run.prompt=lambda role,text:text; run.run_context=lambda c,**kw:json.dumps(kw)
-c=types.SimpleNamespace(work=work,case=case,case_id='case-test',manifest0='trusted',
-    args=types.SimpleNamespace(source='hunt'),models={'builder':['writer'],'attacker':['tester']})
-(work/'attack-state.json').write_text(json.dumps({'round':3,'round_limit':3,'report':'round-3.json',
-    'binding':run.attack_binding(c),'final_repair':True}))
-(work/'attacks/round-3.json').write_text('{"complete":false,"blocking":["latest synthetic stress finding"]}')
-(case/'final-fix.txt').write_text('preserved prior final fix')
-calls=[]
-def model(c, models, text, cwd, name):
-    calls.append(name)
-    if name=='attacker-3':
-        pathlib.Path(json.JSONDecoder().raw_decode(text)[0]['report_path']).write_text(
-            '{"complete":true,"blocking":["fresh synthetic stress finding"]}')
-    elif name=='builder-4':
-        assert 'fresh synthetic stress finding' in text and 'round-3.json' in text
-        assert 'latest synthetic stress finding' not in text
-        (case/'repair.txt').write_text('new synthetic repair')
-    else:
-        assert name=='attacker-4'
-        pathlib.Path(json.JSONDecoder().raw_decode(text)[0]['report_path']).write_text('{"complete":true,"blocking":[]}')
-    return 0
-run.opencode=model; run.pick_models=lambda c:{'builder':['writer'],'attacker':['tester']}
-run.bench_manifest=lambda:'trusted'; run.sh=lambda *a,**kw:0; run.pilot_homes=lambda:[]
-run.g1=lambda c:(True,{'problems':[]}); run.early_checks=lambda c:None; run.early_review=lambda c:None
-run.freshness_lines=lambda c:[]; run.ensure_freshness=lambda c:(True,{})
-run.validate_and_repair=lambda c:None; run.seal=lambda *a,**kw:None; run.wipe=lambda c:None
-worker_release.verify_selected_drivers=lambda *a:{}
-with patch.object(run.shutil,'which',return_value='synthetic'), patch.object(sys,'argv',
-    ['run.py','--source','hunt','--resume','case-test','--resume-bench-sha','trusted','--case-budget','50','--rounds','8']):
-    run.main()
-assert calls==['attacker-3','builder-4','attacker-4'], calls
-'''
-        result = subprocess.run([sys.executable, '-c', harness, str(self.root)],
-            cwd=pathlib.Path(run.__file__).parent, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        card = json.loads((self.root / 'out/case-test.scorecard.json').read_text())
-        self.assertNotIn('terminal_stop', card)
-        self.assertEqual(card['budget_raised'], {'from': None, 'to': 50, 'spent_at_raise': 30.097})
-        self.assertEqual(card['rounds_raised'], {'from': 3, 'to': 8})
-        self.assertEqual(card['builder_rounds'], 4)
-        self.assertTrue((self.root / 'work/case-test/case/final-fix.txt').exists())
 
     def test_budget_raise_uses_v2_evidence_rules(self):
         runner = self.root / 'runner.py'; runner.write_text('def g4(c):\n    return True\n')

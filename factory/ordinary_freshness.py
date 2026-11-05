@@ -1,5 +1,5 @@
 """Batch G2 refresh and transport policy. Scientific verdicts remain in run.py."""
-from datetime import datetime, timezone
+import model_router
 import time
 import hashlib
 import shutil
@@ -37,7 +37,7 @@ def obtain(c, rows, directory, *, flagged):
             except InvalidInfra:
                 pass
             deadline = min(time.monotonic() + 120, time.monotonic() +
-                (datetime.fromisoformat(c.batch_deadline.replace('Z', '+00:00')) - datetime.now(timezone.utc)).total_seconds())
+                (model_router.epoch(c.batch_deadline) - time.time()))
             failures = 0
             while True:
                 check(c)
@@ -51,7 +51,7 @@ def obtain(c, rows, directory, *, flagged):
                 failures += 1
                 backoff(c, failures, deadline=deadline)
             check(c)
-            remaining = (datetime.fromisoformat(c.batch_deadline.replace('Z', '+00:00')) - datetime.now(timezone.utc)).total_seconds()
+            remaining = (model_router.epoch(c.batch_deadline) - time.time())
             return retrieval.retrieve([row], target, archive=True,
                 deadline=time.monotonic() + min(120, remaining), access=True)
         result = transport(c, {'retrieval': row['url']}, cycle) if flagged else cycle()

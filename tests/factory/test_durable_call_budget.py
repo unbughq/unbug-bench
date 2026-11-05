@@ -59,6 +59,21 @@ class AttemptBudget(unittest.TestCase):
         return budget.reserve_invocation(self.ledger, lease, model_runtime.invocation_maximum(self.c, lease),
             attempt=self.attempt, operation_id=operation or str(uuid.uuid4()), call_name='builder-1')
 
+    def test_bound_worker_prepares_containment_before_model_execution(self):
+        from durable.worker_step import Worker
+        lease = self.lease()
+        self.c.model_lease = lease
+        self.c._model_launch_permit = lease.lease_id
+        Worker(self.root).bind_checkpoint(None, self.c, None, None, None)
+        with patch.dict(model_runtime.os.environ, {'UNBUG_MODEL_CGROUP_ROOT': ''}), \
+                patch('processes.prepare_model_containment') as prepare:
+            def boundary(*args, **kwargs):
+                prepare.assert_called_once_with(self.root)
+                raise budget.BudgetError('test_boundary')
+            with patch.object(model_runtime, 'case_budget_boundary', side_effect=boundary):
+                with self.assertRaisesRegex(budget.BudgetError, 'test_boundary'):
+                    self.runtime._invoke(self.c, [lease.route], 'x', self.root, 'builder-1')
+
     def test_parallel_runtime_denial_never_enters_transport(self):
         # Both leases are real router leases, with real (unmodified) price profiles.
         first, second = self.lease(), self.lease()

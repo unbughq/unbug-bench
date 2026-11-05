@@ -13,9 +13,12 @@ class ServiceTests(unittest.TestCase):
             unit = configparser.ConfigParser(interpolation=None, strict=False)
             unit.read(ROOT / "control" / name)
             service = unit["Service"]
-            self.assertEqual(service["User"], "user")
+            self.assertEqual(service["User"], "root" if "backup" in name else "user")
             self.assertEqual(service["UMask"], "0077")
-            self.assertIn("--config /home/user/.unbug-durable/config.json", service["ExecStart"])
+            if "backup" in name:
+                self.assertEqual(service["ExecStart"], "/bin/sh /usr/local/libexec/unbug-durable-backup")
+            else:
+                self.assertIn("--config /home/user/.unbug-durable/config.json", service["ExecStart"])
             self.assertNotIn("postgresql://", service["ExecStart"])
         unit.read(ROOT / "control/unbug-durable.service")
         self.assertEqual(unit["Service"]["Restart"], "on-failure")
@@ -30,7 +33,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("dbos==3.4.0", text)
         self.assertIn("pg_restore", text)
         backup = (ROOT / "control/unbug-durable-backup.service").read_text()
-        self.assertIn("refuses active runtime", backup)
+        self.assertIn("controlled pause and resume", backup)
+        self.assertIn("-o root -g root", text)
+        subprocess.run(["sh", "-n", str(ROOT / "control/durable-backup.sh")], check=True)
         self.assertNotIn("systemctl enable", text)
         self.assertNotIn("age-keygen -o", text)
 

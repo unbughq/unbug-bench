@@ -193,7 +193,7 @@ def build_bundle(root) -> bytes:
     import worker_release
     root = Path(root)
     names = _release_files(root)
-    policy = json.loads((root / "factory/worker-release.json").read_text())
+    policy = worker_release.candidate_policy(root)
     files = worker_release.source_files(root)
     for name in names:
         path = root / name

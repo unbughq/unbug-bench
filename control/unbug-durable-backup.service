@@ -1,13 +1,13 @@
 [Unit]
-Description=Cold encrypted durable backup (refuses active runtime; fences source until resume/restore)
+Description=Encrypted durable backup with controlled pause and resume
 After=network-online.target
 
 [Service]
 Type=oneshot
-User=user
-Group=user
+User=root
+Group=root
 WorkingDirectory=/home/user/unbug-bench
-ExecStart=/home/user/.unbug-durable/venv/bin/python -B factory/durable/cli.py --config /home/user/.unbug-durable/config.json backup
+ExecStart=/bin/sh /usr/local/libexec/unbug-durable-backup
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true

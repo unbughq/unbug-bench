@@ -50,7 +50,7 @@ class RuntimeTests(unittest.TestCase):
         self.ledger = self.work / 'ledger.json'; self.ledger.write_text(json.dumps(self.source['continuation_budget']))
         self.channel = json.loads((ROOT / 'tests/fixtures/factory/stream-d/job-money.json').read_text())
         self.channel.update(case=self.source['case'], source_generation=self.source['sha256'])
-        args = run.argument_parser().parse_args(['--source', 'hunt', '--batch-release-sha256', 'a' * 64])
+        args = run.argument_parser().parse_args(['--source', 'hunt'])
         writer, stress, reviewer, strong = ('claude/claude-opus-5-5', 'opencode/minimax-m3.1-flash-free',
                                            'openrouter/deepseek/deepseek-v4.1-flash', 'codex/gpt-6.1-sol')
         self.c = c = run.Ctx()
@@ -60,15 +60,23 @@ class RuntimeTests(unittest.TestCase):
                 role: {'model': model} for role, model in zip(('writer', 'stress_tester', 'reviewer', 'strong_calibrator'),
                                                              (writer, stress, reviewer, strong))}},
             models={'builder': [writer], 'attacker': [stress], 'reviewers': [[reviewer]], 'strong_calibrator': [strong]},
-            job_money=self.channel, authenticated_job_config={'job_money': copy.deepcopy(self.channel), 'batch_release_sha256': args.batch_release_sha256},
+            job_money=self.channel, authenticated_job_config={'job_money': copy.deepcopy(self.channel), 'batch_release_sha256': 'a' * 64},
             authenticated_batch_manifest={'id': self.channel['batch'], 'batch_deadline': self.channel['batch_deadline']},
             batch_id=self.channel['batch'], job_id=self.channel['job'], batch_deadline=self.channel['batch_deadline'],
             source_generation=self.channel['source_generation'])
+        from durable.contract import StepInput, Step, StepKind, Ref, ArtifactKind
+        baseline = budget.case_spending(self.source['continuation_budget'])['spent_usd']
+        si = StepInput('b-offline', c.case_id, 1, Step(StepKind.STRESS, 1), 1, 'a'*64, 'b'*64,
+                       Ref('a'*64, ArtifactKind.INPUTS), Ref('b'*64, ArtifactKind.CASE_SNAPSHOT), 3600, 50_000_000)
+        c.engine = run.EngineStep(si, baseline)
+        c.args.max_cost = run.ENGINE_COST_CAP
+        c.args.case_budget = baseline + c.engine.ceiling_usd
+        c.batch_deadline = c.engine.deadline_epoch
         # These tests isolate writer/accounting receipt behavior. Category coverage
         # is exercised with real orchestration in test_stream_d_retries.py.
         def single_stress(c, number, report, receipt, completed):
-            return run.pending_call(c, c.models['attacker'], run.stress_request(c, number, report),
-                c.work, f'attacker-{number}', receipt, role='stress_tester', on_complete=completed)
+            return run.opencode(c, c.models['attacker'], run.stress_request(c, number, report),
+                c.work, f'attacker-{number}', on_complete=completed)
         self.patch(run, 'stress_categories', single_stress)
         self.baseline = budget.case_spending(self.source['continuation_budget'])['total_spent_usd']
         self.patch(model_router, 'metadata', return_value=(c.batch_id, c.job_id, model_router.epoch(c.batch_deadline)))

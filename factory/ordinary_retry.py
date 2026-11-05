@@ -175,7 +175,6 @@ def answer(c, models, identity, kind, schema, request, invoke, validate):
         if output.exists():
             partial = directory / (row['output'] + '.partial-' + str(time.time_ns()))
             output.rename(partial)
-        model_runtime.prepare_dispatch(c)
         context = copy.copy(c)
         excluded = set(getattr(c, 'router_excluded', ()))
         excluded.update(r['pool'] + '/' + r['route'] for r in routes if r['route'] in state['spent_routes']

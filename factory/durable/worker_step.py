@@ -267,6 +267,10 @@ class Worker:
 
     def bind_checkpoint(self, step_input, c, sealer, case_key, runner):
         from durable.checkpoints import checkpoint
+        def prepare_models():
+            import processes
+            processes.prepare_model_containment(self.home)
+        c.engine.prepare_models = prepare_models
         c.engine_checkpoint = lambda: self.publish_checkpoint(step_input, c, sealer, case_key, runner)
         c.stress_checkpoint = lambda: checkpoint(c)
 

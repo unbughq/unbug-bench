@@ -103,12 +103,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, help="owned regular 0600 JSON configuration file")
     commands = parser.add_subparsers(dest="op", required=True)
-    for name in ("run", "backup"):
-        commands.add_parser(name)
+    commands.add_parser("run")
+    commands.add_parser("backup").add_argument("--resume-after", action="store_true", help="invalidate this restore point and resume the source after a scheduled backup")
     commands.add_parser("resume", help="invalidate the cold restore point and allow source startup")
     restore_parser = commands.add_parser("restore", help="restore into the fresh config destination; source remains retired")
     restore_parser.add_argument("archive_file", help="owned 0600 encrypted archive downloaded from backup storage")
-    restore_parser.add_argument("--source-state", required=True)
+    restore_parser.add_argument("--source-state")
+    restore_parser.add_argument("--quarantine", action="store_true", help="recover data only; destination stays fenced for reconciliation")
     prepare = commands.add_parser("prepare")
     prepare.add_argument("scope")
     prepare.add_argument("kind", choices=[k.value for k in (ArtifactKind.INPUTS, ArtifactKind.STATEMENT_REGISTRY, ArtifactKind.FOUNDER_RULING)])
@@ -133,9 +134,9 @@ def main(argv=None):
             serve(config)
             return 0
         if args["op"] == "backup":
-            result = backup(config)
+            result = backup(config, resume_after=args["resume_after"])
         elif args["op"] == "restore":
-            result = restore(config, args["archive_file"], args["source_state"])
+            result = restore(config, args["archive_file"], args["source_state"], quarantine=args["quarantine"])
         elif args["op"] == "resume":
             result = resume(config)
         else:

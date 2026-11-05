@@ -81,8 +81,9 @@ def select_models(c, *, log):
         elif getattr(a, flag + '_effort'): roles[role]['effort'] = getattr(a, flag + '_effort')
     roles['easy_calibrator'] = {'model': a.easy_calibrator, 'effort': a.easy_calibrator_effort or model_effort(a.easy_calibrator)}
     if a.reviewer2: roles['reviewer2'] = {'model': a.reviewer2, 'effort': a.reviewer2_effort or model_effort(a.reviewer2)}
-    from free_models import apply as apply_free_models
-    roles = apply_free_models(c, roles)
+    if getattr(c, "engine", None) is None:
+        from free_models import apply as apply_free_models
+        roles = apply_free_models(c, roles)
     families = [family(roles[r]['model']) for r in flags]
     if len(set(families)) != 4: raise ValueError('Writer, stress-tester, strong calibrator and reviewer must be four different families')
     if a.reviewer2 and family(a.reviewer2) in (family(roles['writer']['model']), family(roles['stress_tester']['model'])):
@@ -263,9 +264,13 @@ class ModelRuntime:
     cleanup: Callable
     pilot_home: Callable
 
-    def call(self, c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None):
-        invoke = lambda: self._call(c, models, text, cwd, name, user=user, timeout=timeout,
-                                   deadline=deadline, before_attempt=before_attempt, lease=lease)
+    def call(self, c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None, on_complete=None):
+        def invoke():
+            result = self._call(c, models, text, cwd, name, user=user, timeout=timeout,
+                                deadline=deadline, before_attempt=before_attempt, lease=lease)
+            # Persist the caller's completed-answer marker before publishing a snapshot.
+            if on_complete is not None: on_complete()
+            return result
         if getattr(c, 'engine', None) is not None and callable(getattr(c, 'engine_checkpoint', None)):
             from durable.checkpoints import model_call
             return model_call(c, models, cwd, name, invoke, text=text)
@@ -493,6 +498,9 @@ class ModelRuntime:
                 or c.__dict__.pop('_model_launch_permit', None) != lease.lease_id):
             raise model_router.ProviderWait(invocation_role(name), model_router.Wait(
                 'unbounded_route', model_router.retry_at('unbounded_route'), route=model))
+        prepare = getattr(getattr(c, 'engine', None), 'prepare_models', None)
+        if prepare is not None and not os.environ.get('UNBUG_MODEL_CGROUP_ROOT'):
+            prepare()  # Probe kernel containment before launching any model process.
         case_budget_boundary(c, model)
         driver, _, model_id = model.partition("/")
         if model in model_call_gate.CLAUDE_PROFILES:
