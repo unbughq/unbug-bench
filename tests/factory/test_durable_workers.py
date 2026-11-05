@@ -13,12 +13,14 @@ need /usr/local/bin, Docker and a bench image, so they run as stand-ins here.
 import base64
 import contextlib
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 
@@ -208,7 +210,8 @@ sys.exit(2)
 QUALIFY_STANDIN = (
     "python3 -B -c 'import hashlib,json,pathlib,sys; r=pathlib.Path(sys.argv[1]); "
     "m=json.load(open(r/\"worker-release-manifest.factory.json\")); "
-    "assert m[\"files\"] and all(k.startswith(\"factory/\") for k in m[\"files\"]); "
+    "assert m[\"files\"] and all(k.startswith(\"factory/\") or k == \"bin/processes.py\" for k in m[\"files\"]); "
+    "assert \"bin/processes.py\" in m[\"files\"]; "
     "assert all(hashlib.sha256((r/k).read_bytes()).hexdigest()==v for k,v in m[\"files\"].items())' ~/{release} "
     "&& cat " + str(WORKER_RELEASE))
 TEST_STEPS = {"pin": ("true", 30.0), "image": ("true", 30.0), "qualify": (QUALIFY_STANDIN, 60.0)}
@@ -329,6 +332,47 @@ class ReleaseStoreTests(unittest.TestCase):
                      "factory/worker_release.py", "bin/processes.py"):
             self.assertIn(name, manifest["files"])
         self.assertEqual(manifest["release"], json.loads((ROOT / "factory/worker-release.json").read_text())["release"] + "-durable-candidate-v1")
+
+    def test_real_bundle_imports_without_a_baked_process_helper(self):
+        release = self.h.tmp / "real-release"
+        with tarfile.open(fileobj=io.BytesIO(W.build_bundle(ROOT)), mode="r:gz") as tar:
+            self.assertEqual([name for name in tar.getnames() if name.startswith("bin/")], ["bin/processes.py"])
+            tar.extractall(release, filter="data")
+        home = self.h.tmp / "isolated-home"
+        bench_bin = home / "unbug-bench/bin"
+        bench_bin.mkdir(parents=True)
+        env = {key: value for key, value in os.environ.items() if key not in {"BENCH", "PYTHONPATH"}}
+        env["HOME"] = str(home)
+        for stale_helper in (False, True):
+            if stale_helper:
+                (bench_bin / "processes.py").write_text("raise RuntimeError('stale baked helper imported')\n")
+            for module in ("run", "run_artifacts", "worker_release"):
+                script = ("import pathlib,sys; sys.path.insert(0,sys.argv[1]); "
+                          f"import {module}; " +
+                          ("assert worker_release.output([sys.executable,'-I','-c',\"print('ready')\"]) == 'ready'; "
+                           if module == "worker_release" else "") +
+                          "import processes; print(pathlib.Path(processes.__file__).resolve())")
+                result = subprocess.run([sys.executable, "-I", "-B", "-c", script, str(release / "factory")],
+                                        cwd=home, env=env, text=True, capture_output=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), str((release / "bin/processes.py").resolve()))
+
+    def test_bundle_authenticates_required_operational_helper(self):
+        with tarfile.open(fileobj=io.BytesIO(self.h.store.bundle(self.h.plumbing)), mode="r:gz") as tar:
+            members = {member.name: tar.extractfile(member).read() for member in tar.getmembers()}
+        for replacement in (None, b"changed operational helper"):
+            altered = {**members}
+            if replacement is None:
+                del altered["bin/processes.py"]
+            else:
+                altered["bin/processes.py"] = replacement
+            out = io.BytesIO()
+            with tarfile.open(fileobj=out, mode="w:gz") as tar:
+                for name, data in altered.items():
+                    member = tarfile.TarInfo(name); member.size = len(data)
+                    tar.addfile(member, io.BytesIO(data))
+            with self.assertRaises(W.ReleaseError):
+                W.check_bundle(out.getvalue())
 
     def test_store_refuses_bad_bundles_and_detects_corruption(self):
         (self.h.tree / "factory/durable/worker_step.py").unlink()

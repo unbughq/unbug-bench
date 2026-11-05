@@ -36,6 +36,7 @@ if str(_FACTORY) not in sys.path:
 
 from durable.contract import (CASE_ID, DIGEST, REASON, RELEASE_MANIFEST, RELEASE_ROOT, WORKER_COMMAND,  # noqa: E402
                               WORKER_ID, ContractError, WorkerLease, _check, _id)
+from worker_release import PLUMBING_FILES  # noqa: E402
 
 REPO = _FACTORY.parent
 BOAT_CALL = REPO / "bin/boat-call"
@@ -194,16 +195,15 @@ def _atomic_json(path: Path, value):
 
 def _release_files(root: Path) -> list[str]:
     from launch_manifest import worker_files
-    names = [n for n in worker_files(root) if n.startswith("factory/")]
+    names = [n for n in worker_files(root) if n.startswith("factory/") or n in PLUMBING_FILES]
     names += [p.relative_to(root).as_posix() for p in sorted((root / "factory/durable").rglob("*.py"))
               if not p.name.startswith("test_")]
     return sorted(set(names))
 
 
 def build_bundle(root) -> bytes:
-    """Today's worker bundle (launch_manifest.worker_upload's factory files) plus
-    factory/durable/*.py, with the manifest stamped as worker_release.stamp does plus the
-    durable files. Deterministic: same tree, same bytes."""
+    """Factory sources and explicit operational helpers; the scientific bench stays baked.
+    Deterministic: same tree, same bytes."""
     import worker_release
     root = Path(root)
     names = _release_files(root)
@@ -248,9 +248,10 @@ def check_bundle(data: bytes) -> dict:
     manifest = json.loads(members[MANIFEST_NAME])
     if manifest.get("schema") != 1 or not isinstance(manifest.get("files"), dict):
         raise ReleaseError("bad bundle manifest")
-    factory = {k: v for k, v in manifest["files"].items() if k.startswith("factory/")}
+    plumbing = {k: v for k, v in manifest["files"].items() if k.startswith("factory/") or k in PLUMBING_FILES}
     shipped = {k for k in members if k != MANIFEST_NAME}
-    if shipped != set(factory) or any(_sha(members[k]) != v for k, v in factory.items()):
+    if not set(PLUMBING_FILES) <= shipped or shipped != set(plumbing) or any(
+            _sha(members[k]) != v for k, v in plumbing.items()):
         raise ReleaseError("bundle members disagree with the manifest")
     return manifest
 
@@ -586,7 +587,8 @@ class BoatPool:
                   f"printf '%s  %s\\n' {p} \"$t\" | sha256sum -c - >/dev/null; mv \"$t\" ~/{rel}.tgz")
         self._step(worker, "release_upload_failed", upload, max(300.0, len(data) / 262_144), stdin=data)
         filter_manifest = ("import json,sys; d=sys.argv[1]; m=json.load(open(d+'/" + MANIFEST_NAME + "')); "
-                           "m['files']={k:v for k,v in m['files'].items() if k.startswith('factory/')}; "
+                           "m['files']={k:v for k,v in m['files'].items() if k.startswith('factory/') "
+                           f"or k in {PLUMBING_FILES!r}" + "}; "
                            "json.dump(m,open(d+'/" + FACTORY_MANIFEST_NAME + "','w'),sort_keys=True)")
         unpack = (f"set -eu; umask 077; cd ~/{RELEASES}; "
                   f"[ \"$(readlink ~/{RELEASE_ROOT} 2>/dev/null || true)\" != {rel} ] || exit 3; "

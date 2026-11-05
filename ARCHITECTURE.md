@@ -53,6 +53,9 @@ automatically recoverable. Unit tests do not qualify a live worker release.
 references and package interfaces. It remains unchanged. The candidate integrates the DBOS engine, executor,
 Boat worker pool/channel, worker-side steps, SQL ledger and wrapped-key service.
 `runtime.py` composes these components; `cli.py` exposes a private operator socket.
+Plumbing bundles include their authenticated `bin/processes.py` runtime helper;
+factory imports and qualification use that release copy. Scientific bench files
+remain on the separately pinned worker image.
 The control units and setup script live under `control/`. ADMIT reuses the existing
 selector, registry, freshness and idea-realism screens. DIAGNOSIS uses the existing
 review contract through an isolated pilot user. These paths passed combined offline
