@@ -44,6 +44,12 @@ this tradeoff. It is no guarantee of higher throughput.
   priority. DBOS 3.4 orders dequeues by priority and creation time; equal-time jobs
   may be reordered. No promise depends on tie order, and a finite queued job cannot
   be overtaken indefinitely by retries enqueued at later times.
+- A `BOUND_RAISED` message starts a deterministic child workflow to update the
+  ledger; the batch actor does not wait on that ledger operation. The child sends
+  a keyed completion to the batch, which records it and wakes waiting candidates.
+  A still-outstanding update prevents batch termination. A failed or ambiguous
+  update is not treated as completed; its later recovery requires the same
+  non-overlapping, quiescence-aware monitoring used for other children.
 - The batch selects pending replacements before pending originals, then the lowest
   creation ordinal in each class, and maintains at most one queued admission probe
   per batch. A WAIT candidate becomes eligible again only on a real settlement,

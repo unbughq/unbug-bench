@@ -333,6 +333,15 @@ def admission_probe_workflow(job: dict) -> dict:
     return result
 
 
+@DBOS.workflow(max_recovery_attempts=None)
+def raise_bound_workflow(job: dict) -> None:
+    """Apply a bound increase away from the batch actor's message loop."""
+    raise_bound_step(job["batch_id"], job["bound"])
+    key = _message_key(job["batch_id"], job["operation"], "bound", "raised", "result", job["batch_id"])
+    DBOS.send(job["batch_id"], {"kind": "bound_raised", "operation": job["operation"]},
+              topic=CASE_EVENT, idempotency_key=key)
+
+
 # ---- the case workflow ---------------------------------------------------------------------------
 
 class _Stop(Exception):
@@ -769,10 +778,13 @@ class _Batch:
                     elif topic is Topic.BENCH_RELEASE:
                         DBOS.set_event("bench", BenchRelease(**msg).bench_version)
                     else:
-                        raise_bound_step(self.spec.batch_id, BoundRaised(**msg).money_bound_usd_micros)
-                        self.wake_waiting()
+                        self.apply_bound_raise(BoundRaised(**msg).money_bound_usd_micros)
                 except (ContractError, TypeError):
                     continue
+
+    def apply_bound_raise(self, bound: int) -> None:
+        raise_bound_step(self.spec.batch_id, bound)
+        self.wake_waiting()
 
     def has_pending_work(self) -> bool:
         return len(self.done) < len(self.cases)
@@ -834,6 +846,8 @@ class _BatchV2(_Batch):
         self.wake_generation = 0
         self.probe_wake_generation: dict = {}
         self.cancelling_probes: set = set()
+        self.bound_sequence = 0
+        self.outstanding_bound_ops: set = set()
 
     def start_case(self, replacement_of: Optional[str]) -> None:
         case_id = case_id_for(self.spec.batch_id, len(self.cases) + 1)
@@ -847,7 +861,17 @@ class _BatchV2(_Batch):
 
     def has_pending_work(self) -> bool:
         # Admitted cases must also account for their worker before the batch ends.
-        return super().has_pending_work() or bool(self.admitted - self.released)
+        return super().has_pending_work() or bool(self.admitted - self.released) or bool(self.outstanding_bound_ops)
+
+    def apply_bound_raise(self, bound: int) -> None:
+        if not self.probe_enabled:
+            return super().apply_bound_raise(bound)
+        self.bound_sequence += 1
+        operation = f"{self.spec.batch_id}/raise-bound/{self.bound_sequence}"
+        self.outstanding_bound_ops.add(operation)
+        with SetWorkflowID(operation):
+            DBOS.start_workflow(raise_bound_workflow, {"batch_id": self.spec.batch_id, "bound": bound,
+                                                       "operation": operation})
 
     def wake_waiting(self) -> None:
         self.wake_generation += 1
@@ -860,7 +884,8 @@ class _BatchV2(_Batch):
         self._schedule_probe()
 
     def after_event(self) -> None:
-        self._schedule_probe()
+        # Traffic must not postpone bounded WAIT retries indefinitely.
+        self.after_poll()
 
     def after_poll(self) -> None:
         if self.probe_enabled and any(p["state"] == "waiting" for p in self.pending_cases.values()):
@@ -1028,6 +1053,12 @@ class _BatchV2(_Batch):
             return
         if kind == "probe_cancelled":
             self._cancelled_probe(msg)
+            return
+        if kind == "bound_raised":
+            operation = msg.get("operation")
+            if operation in self.outstanding_bound_ops:
+                self.outstanding_bound_ops.remove(operation)
+                self.wake_waiting()
             return
         if kind in ("line_stopped", "worker_released", "done") and case_id not in self.cases:
             return

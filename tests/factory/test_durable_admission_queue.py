@@ -28,17 +28,20 @@ class AdmissionProbe(unittest.TestCase):
             from test_durable_engine_fakes import FakeLedger, make_spec
 
             gate = threading.Event()
+            bound_gate, bound_started = threading.Event(), threading.Event()
             if mode == "queued_stop":
                 @DBOS.workflow()
                 def block_decisions():
                     DBOS.set_event("ready", True)
                     DBOS.recv("release", timeout_seconds=15)
-            if mode in ("queued_stop", "stop_inflight", "wake_bound_inflight", "wake_release_inflight", "release_waiting"):
+            if mode in ("queued_stop", "stop_inflight", "wake_bound_inflight", "wake_release_inflight", "release_waiting",
+                        "bound_stall", "bound_stall_probe", "event_storm"):
                 original_handle = engine._BatchV2.handle
                 def observed_handle(self, message):
                     original_handle(self, message)
                     if message.get("kind") == "stop_admission": DBOS.set_event("test_stopped", True)
                     if message.get("kind") == "nudge": DBOS.set_event("test_nudged", True)
+                    if message.get("kind") == "bound_raised": DBOS.set_event("test_bound_applied", True)
                     if message.get("kind") == "worker_released": DBOS.set_event("test_released", True)
                     if message.get("kind") == "probe_result" and message.get("status") == "waiting":
                         DBOS.set_event("test_waited", True)
@@ -47,12 +50,16 @@ class AdmissionProbe(unittest.TestCase):
             class LedgerOnly:
                 def __init__(self): self.ledger = FakeLedger(work / "ledger")
                 def open_batch(self, batch_id, bound): self.ledger.open(batch_id, bound)
-                def raise_bound(self, batch_id, bound): self.ledger.raise_bound(batch_id, bound)
+                def raise_bound(self, batch_id, bound):
+                    if mode in ("bound_stall", "bound_stall_probe"):
+                        bound_started.set()
+                        if not bound_gate.wait(10): raise AssertionError("bound gate timed out")
+                    self.ledger.raise_bound(batch_id, bound)
                 def reserve(self, si, *, request, case_limit, draws_case_money):
                     if mode == "expire": time.sleep(2.0)
                     grant = self.ledger.reserve(si.batch_id, si.case_id, si.idempotency_key, request,
                                                 case_limit, draws_case_money=draws_case_money)
-                    block = ((mode in ("stop_inflight", "wake_bound_inflight") and si.attempt == 1)
+                    block = ((mode in ("stop_inflight", "wake_bound_inflight", "bound_stall_probe") and si.attempt == 1)
                              or (mode == "wake_release_inflight" and si.case_id == "case-t-2" and si.attempt == 1))
                     if block and not gate.wait(10): raise AssertionError("reserve gate timed out")
                     return grant
@@ -61,14 +68,14 @@ class AdmissionProbe(unittest.TestCase):
 
             ex = LedgerOnly()
             engine._RT.executor = ex
-            engine._RT.timing = engine.Timing(batch_poll_s=0.1, wake_poll_s=60,
+            engine._RT.timing = engine.Timing(batch_poll_s=0.1, wake_poll_s=1 if mode == "event_storm" else 60,
                                               queue_poll_s=0.05, listener_poll_s=0.05)
             DBOS(config={"name": "unbug-factory-engine", "application_version": "factory-engine-2",
                          "system_database_url": f"sqlite:///{work}/sys.sqlite",
                          "notification_listener_polling_interval_sec": 0.05})
             DBOS.launch()
             opts = {"target_sealed": 1, "max_cases_started": 1,
-                    "money_bound_usd_micros": 0 if mode in ("raise", "stop", "wake_bound_inflight") else 100_000_000}
+                    "money_bound_usd_micros": 0 if mode in ("raise", "stop", "wake_bound_inflight", "bound_stall", "event_storm") else 100_000_000}
             if mode in ("two", "wake_release_inflight", "release_waiting"):
                 opts.update(target_sealed=2, max_cases_started=2, money_bound_usd_micros=50_000_000)
             if mode == "expire": opts["deadline_epoch"] = time.time() + 1.5
@@ -118,11 +125,35 @@ class AdmissionProbe(unittest.TestCase):
                 assert state["batches"][spec.batch_id]["held"] == 0, state
                 assert DBOS.get_event("case-t-1", "admission_grant", timeout_seconds=0.2) is None
                 os._exit(0)
+            if mode == "bound_stall":
+                assert DBOS.get_event(spec.batch_id, "test_waited", timeout_seconds=15) is True
+                DBOS.send(spec.batch_id, to_record(BoundRaised(100_000_000)), topic=Topic.BOUND_RAISED.value)
+                DBOS.send(spec.batch_id, {"kind": "nudge"}, topic=engine.CASE_EVENT)
+                assert bound_started.wait(10)
+                DBOS.send(spec.batch_id, {"kind": "stop_admission"}, topic=engine.CASE_EVENT)
+                assert DBOS.get_event(spec.batch_id, "test_stopped", timeout_seconds=5) is True
+                card = until(lambda: (c if (c := DBOS.get_event("case-t-1", "card", timeout_seconds=0.2))
+                                      and c["status"] == "not_admitted" else None))
+                assert not bound_gate.is_set(), card
+                bound_gate.set()
+                result = DBOS.retrieve_workflow(spec.batch_id).get_result()
+                assert result["cases"] == {"case-t-1": "not_admitted"}, result
+                os._exit(0)
+            if mode == "bound_stall_probe":
+                until(lambda: ex.ledger.snapshot()["res"])
+                DBOS.send(spec.batch_id, to_record(BoundRaised(200_000_000)), topic=Topic.BOUND_RAISED.value)
+                DBOS.send(spec.batch_id, {"kind": "nudge"}, topic=engine.CASE_EVENT)
+                assert bound_started.wait(10)
+                gate.set()
+                grant = until(lambda: DBOS.get_event("case-t-1", "admission_grant", timeout_seconds=0.2))
+                assert grant and not bound_gate.is_set(), grant
+                bound_gate.set()
+                os._exit(0)
             if mode == "wake_bound_inflight":
                 until(lambda: ex.ledger.snapshot()["res"])
                 DBOS.send(spec.batch_id, to_record(BoundRaised(100_000_000)), topic=Topic.BOUND_RAISED.value)
                 DBOS.send(spec.batch_id, {"kind": "nudge"}, topic=engine.CASE_EVENT)
-                assert DBOS.get_event(spec.batch_id, "test_nudged", timeout_seconds=15) is True
+                assert DBOS.get_event(spec.batch_id, "test_bound_applied", timeout_seconds=15) is True
                 gate.set()
                 grant = until(lambda: DBOS.get_event("case-t-1", "admission_grant", timeout_seconds=0.2))
                 state = ex.ledger.snapshot()
@@ -143,6 +174,21 @@ class AdmissionProbe(unittest.TestCase):
                 assert len(state["res"]) == 3 and state["res"][grant["key"]]["settled"] is None, state
                 assert any(v["case"] == "case-t-2" and v["amount"] == 0 and v["settled"] is not None
                            for v in state["res"].values()), state
+                os._exit(0)
+            if mode == "event_storm":
+                assert DBOS.get_event(spec.batch_id, "test_waited", timeout_seconds=15) is True
+                stop = threading.Event()
+                def traffic():
+                    while not stop.is_set():
+                        DBOS.send(spec.batch_id, {"kind": "unrelated"}, topic=engine.CASE_EVENT)
+                        time.sleep(0.02)
+                thread = threading.Thread(target=traffic, daemon=True)
+                thread.start()
+                try:
+                    state = until(lambda: (s if len((s := ex.ledger.snapshot())["res"]) >= 2 else None))
+                    assert thread.is_alive() and len(state["res"]) >= 2, state
+                finally:
+                    stop.set(); thread.join(timeout=3)
                 os._exit(0)
             if mode == "zero":
                 result = DBOS.retrieve_workflow(spec.batch_id).get_result()
@@ -203,7 +249,8 @@ class AdmissionProbe(unittest.TestCase):
             os._exit(0)  # the disabled pending worker stage is intentionally not completed
         ''')
         for mode in ("raise", "stop", "small", "zero", "expire", "queued_stop", "two", "stop_inflight",
-                     "wake_bound_inflight", "wake_release_inflight", "release_waiting"):
+                     "wake_bound_inflight", "wake_release_inflight", "release_waiting", "bound_stall",
+                     "bound_stall_probe", "event_storm"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as work:
                 completed = subprocess.run([sys.executable, "-B", "-c", program, str(ROOT), work, mode],
                                            capture_output=True, text=True, timeout=45)
@@ -349,6 +396,9 @@ class AdmissionProbe(unittest.TestCase):
                 def __getattr__(self, name): raise AssertionError("unexpected executor call: " + name)
 
             ex = LedgerOnly()
+            if mode == "raise_offline":
+                ex.ledger.raise_bound("b-t", 200_000_000)
+                os._exit(0)
             engine._RT.executor = ex
             engine._RT.timing = engine.Timing(batch_poll_s=0.1, wake_poll_s=60,
                                               queue_poll_s=0.05, listener_poll_s=0.05)
@@ -371,7 +421,7 @@ class AdmissionProbe(unittest.TestCase):
 
             if mode == "resume_wait":
                 assert DBOS.get_event("b-t", "test_waited", timeout_seconds=15) is True
-                DBOS.send("b-t", to_record(BoundRaised(100_000_000)), topic=Topic.BOUND_RAISED.value)
+                DBOS.send("b-t", to_record(BoundRaised(200_000_000)), topic=Topic.BOUND_RAISED.value)
                 DBOS.send("b-t", {"kind": "nudge"}, topic=engine.CASE_EVENT)
                 end = time.monotonic() + 15
                 while time.monotonic() < end:
@@ -402,6 +452,9 @@ class AdmissionProbe(unittest.TestCase):
                 self.assertEqual((Path(work) / "clock.txt").read_text(), "50")
                 ledger = json.loads((Path(work) / "ledger" / "ledger.json").read_text())
                 self.assertIsNotNone(next(iter(ledger["res"].values()))["settled"])
+                raised = subprocess.run([sys.executable, "-B", "-c", program, str(ROOT), work, "raise_offline"],
+                                        capture_output=True, text=True, timeout=15)
+                self.assertEqual(raised.returncode, 0, raised.stdout + raised.stderr)
                 resumed = subprocess.run([sys.executable, "-B", "-c", program, str(ROOT), work, f"resume_{state}"],
                                          capture_output=True, text=True, timeout=30)
                 self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
