@@ -51,8 +51,8 @@ _FIXED = {
     "ProviderWait": (_P, "router:provider_wait"),
     "shared_paid_spend_wait": (_P, "router:provider_wait"),
     "provider_routes_exhausted": (_P, "router:provider_wait"),
-    "codex_login_expired": (_P, "router:credential_expiring"),
-    "credential_expiring": (_P, "router:credential_expiring"),
+    "codex_login_expired": (_I, "router:credential_expiring"),
+    "credential_expiring": (_I, "router:credential_expiring"),
     # Model CLI and provider faults: broken runs, retried.
     "opencode_error": (_I, "router:opencode_error"),
     "codex_error": (_I, "router:codex_error"),

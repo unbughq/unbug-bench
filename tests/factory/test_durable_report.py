@@ -90,6 +90,13 @@ class FailedWorkflow(unittest.TestCase):
                 self.assertEqual(report.case_entry(dict(base, reason=reason), PUBLISHED_REASONS)["reason"], reason)
         self.assertIsNone(report.case_entry(dict(base, reason="infra:private_provider_text"), PUBLISHED_REASONS)["reason"])
 
+    def test_credential_wait_is_public_with_a_fixed_reason(self):
+        card = {"case_id": "case-t-1", "status": "waiting_for_credentials", "stage": "writer:1", "passed": [],
+                "failed_gate": None, "writer_rounds": 0, "extensions": 0, "replacement_of": None,
+                "reason": "router:credential_expiring"}
+        row = report.case_entry(card, PUBLISHED_REASONS)
+        self.assertEqual((row["status"], row["reason"]), ("waiting_for_credentials", "router:credential_expiring"))
+
 
 if __name__ == "__main__":
     unittest.main()

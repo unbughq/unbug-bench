@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import sqlite3
 import sys
 import time
 import unittest
@@ -234,17 +235,94 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(steps(r, 1), ["admit", "writer:1"] + ["stress:1"] * 5 + ["gates:1", "seal"])
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
-    def test_a_free_limit_that_never_clears_gives_up(self):
-        # credential_expiring for a missing local secret: free, never clears. The 96th
-        # free limit gives up to diagnosis instead of sleeping forever.
-        never = {"outcome": "provider_limit", "reason": "router:credential_expiring", "retry_in": 0.01,
+    def test_genuine_free_limits_continue_past_96_then_succeed(self):
+        limit = {"outcome": "provider_limit", "reason": "router:claude_limit", "retry_in": 0.01,
                  "paid": 0, "dur": 0.01}
         r, out = run({"spec": {"max_cases_started": 1},
-                      "script": {"1/writer:1/*": never, "1/diagnosis/1": {"verdict": "not_converging"}}},
+                      "script": {f"1/writer:1/{n}": limit for n in range(1, 98)}},
                      timeout=600)
         self.addCleanup(r.close)
-        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 96 + ["diagnosis"])
-        self.assertEqual(out["result"]["cases"], {C1: "retired"})
+        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 98 + ["stress:1", "gates:1", "seal"])
+        writers = [x for x in r.starts(1) if "/2/writer:1/" in x["key"]]
+        workers = [x["worker"] for x in writers]
+        releases = {x["worker"] for x in r.pool_log() if x["op"] == "release" and x["case"] == C1}
+        self.assertEqual(len(set(workers)), 98)
+        self.assertTrue(set(workers[:-1]) <= releases)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
+    def test_paid_provider_waits_book_waste_and_keep_running(self):
+        limit = {"outcome": "provider_limit", "reason": "router:claude_limit", "retry_in": 0.05}
+        r, out = run({"spec": {"max_cases_started": 1}, "script": {
+            "1/writer:1/1": {**limit, "paid": 2000}, "1/writer:1/2": {**limit, "paid": 3000}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(out["ledger"]["batches"]["b-t"]["waste"], 5000)
+        self.assertEqual(out["ledger"]["cases"][C1]["spent"], 5000)
+
+    def test_credential_wait_is_visible_releases_worker_and_resumes(self):
+        credential = {"outcome": "infra_error", "reason": "router:credential_expiring", "paid": 0}
+        r = EngineRun({"spec": {"max_cases_started": 1}, "timing": {"credential_retry_s": 5.0},
+                       "script": {"1/writer:1/1": credential, "1/writer:1/2": {"dur": 0.6}},
+                       "actions": [{"when": {"case": 1, "status": "waiting_for_credentials"}},
+                                   {"when": {"case": 1, "status": "running", "started": f"{C1}/2/writer:1/2"}}]})
+        self.addCleanup(r.close)
+        process = r.spawn()
+        deadline = time.monotonic() + 30
+        actions_path = r.work / "state/worker/actions.log"
+        sleep_row = None
+        while time.monotonic() < deadline:
+            if (actions_path.exists() and '"i": 0' in actions_path.read_text()
+                    and any(x["op"] == "release" and x["case"] == C1 for x in r.pool_log())):
+                with sqlite3.connect(r.work / "sys.sqlite") as db:
+                    sleep_row = db.execute(
+                        "SELECT function_id, output, completed_at_epoch_ms FROM operation_outputs "
+                        "WHERE workflow_uuid = ? AND function_name = 'DBOS.sleep' ORDER BY function_id DESC LIMIT 1",
+                        (C1,)).fetchone()
+                if sleep_row and sleep_row[2] > (time.time() + 1.0) * 1000:
+                    break
+            if process.poll() is not None:
+                self.fail("engine exited before credential wait: " + r.tail())
+            time.sleep(0.05)
+        else:
+            process.kill()
+            process.wait()
+            self.fail("credential wait was not observed: " + r.tail())
+        process.send_signal(signal.SIGKILL)
+        process.wait()
+        out = r.run()
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        with sqlite3.connect(r.work / "sys.sqlite") as db:
+            replayed_sleep = db.execute(
+                "SELECT function_id, output, completed_at_epoch_ms FROM operation_outputs "
+                "WHERE workflow_uuid = ? AND function_id = ? AND function_name = 'DBOS.sleep'",
+                (C1, sleep_row[0])).fetchone()
+        self.assertEqual(replayed_sleep, sleep_row)
+        self.assertGreaterEqual(start(r, f"{C1}/2/writer:1/2")["t"], sleep_row[2] / 1000 - 0.05)
+        actions = [json.loads(line)["i"] for line in actions_path.read_text().splitlines()]
+        self.assertEqual(set(actions), {0, 1})
+        self.assertTrue(any(x["op"] == "release" and x["case"] == C1 for x in r.pool_log()))
+        self.assertEqual(len([x for x in r.starts() if x["key"] == f"{C1}/2/writer:1/1"]), 1)
+        self.assertNotEqual(start(r, f"{C1}/2/writer:1/1")["worker"], start(r, f"{C1}/2/writer:1/2")["worker"])
+
+    def test_both_credential_shapes_retry_without_using_infra_allowance(self):
+        reason = "router:credential_expiring"
+        first, second = f"{C1}/2/writer:1/1", f"{C1}/2/writer:1/2"
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "timing": {"credential_retry_s": 1.0},
+                      "script": {"1/writer:1/1": {"outcome": "provider_limit", "reason": reason},
+                                 "1/writer:1/2": {"outcome": "infra_error", "reason": reason},
+                                 "1/writer:1/3": {"outcome": "infra_error", "reason": "infra:stalled"}},
+                      "actions": [{"when": {"case": 1, "status": "waiting_for_credentials", "ran": first}},
+                                  {"when": {"case": 1, "status": "waiting_for_credentials", "ran": second}}]})
+        self.addCleanup(r.close)
+        actions = [json.loads(line)["i"] for line in (r.work / "state/worker/actions.log").read_text().splitlines()]
+        self.assertEqual(set(actions), {0, 1})
+        workers = [start(r, f"{C1}/2/writer:1/{n}")["worker"] for n in range(1, 4)]
+        releases = {x["worker"] for x in r.pool_log() if x["op"] == "release" and x["case"] == C1}
+        self.assertEqual(len(set(workers)), 3)
+        self.assertTrue(set(workers[:2]) <= releases)
+        self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 4 + ["stress:1", "gates:1", "seal"])
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
     def test_long_sleep_releases_the_worker(self):
         r, out = run({"spec": {"release_worker_after_sleep_s": 0.5},

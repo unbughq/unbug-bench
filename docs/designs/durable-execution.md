@@ -145,10 +145,13 @@ with the diagnosis's feedback. Extension rounds count in `extensions_used`, not 
 `policy.py` decides; this is its starting behaviour, implementing ENGINEERING section 3.
 
 - **PROVIDER_LIMIT.** SLEEP until `retry_at`, spending no allowance.
-  - Only more than `max_spent_limits_per_step` limits on one step that each spent
-    money give up. That is a guard against misclassification.
-  - A sleep longer than `release_worker_after_sleep_s` releases the worker.
+  - Genuine free or paid limits never give up solely because of their count. Paid
+    usage is waste against the cumulative batch bound. The frozen
+    `max_spent_limits_per_step` field remains present but does not stop a limit.
+  - Every provider wait releases the worker before sleeping.
 - **INFRA_ERROR.** RETRY, never scored. After `max_infra_retries_per_step`, give up.
+  Credential configuration waits are an exception: publish `waiting_for_credentials`,
+  release the worker, and retry after a durable wait without using that allowance.
 - **GATE_FAILED, repairable.** REPAIR while rounds remain, then give up.
 - **GATE_FAILED, not repairable.** RETIRE. This is a scored rejection.
 - **EXHAUSTED.** Only the worker emits it, when the attempt reaches its
