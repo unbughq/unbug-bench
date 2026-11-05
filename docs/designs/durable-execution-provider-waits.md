@@ -1,6 +1,6 @@
 # Durable execution: provider waits and credential problems
 
-Status: proposed, revision 3 after design reviews 1–2. This records the founder's 2026-11-05 decision in the current
+Status: proposed, revision 4 after design reviews 1–3. This records the founder's 2026-11-05 decision in the current
 thread: genuine provider rate limits keep waiting, and missing or expired
 credentials are handled as a separate configuration problem. The handoff's
 generic 96-free-limit cutoff conflicts with ENGINEERING section 4 and is superseded
@@ -57,13 +57,26 @@ and any joined concurrent waits before `run_step` converts them to a string; do 
 read a stale `provider_wait` field from a restored card. Pass only allowlisted fixed
 reason and valid reset metadata to `worker_step.py`: translate the current exact
 `credential_expiring` reason to the credential infra result, and keep ordinary
-quota/wait results as `PROVIDER_LIMIT`. Never record the account, route or raw
-provider text in DBOS. Test the real router → current runner exception → worker
-classification path for both credential and quota waits, including concurrent
-waits and a stale restored card. An older generic
+quota/wait results as `PROVIDER_LIMIT`. Clear the per-step wait collection before
+the step, join its concurrent calls, and consider only waits collected during that
+step. If any joined current wait has the exact credential reason, report the
+credential infra result; otherwise report a provider wait with the latest valid
+`retry_after` among current waits. A surfaced `cancelled` with joined current
+provider waits uses that same selection; `cancelled` without such waits remains
+the normal cancellation outcome. Preserve interrupted-usage evidence and do not
+classify stale wait metadata from earlier attempts. Never record the account, route
+or raw provider text in DBOS. Test the real router → current runner exception →
+worker path for credential-only, quota-only, mixed credential/quota, peer
+cancellation, earlier serial waits and a stale restored card. An older generic
 `router:provider_wait` without retained reason metadata is indistinguishable and
 stays generic; do not infer a credential fault. WP1's fake-seam tests exercise both
 credential result shapes, and this real cross-package test is a WP5a/final gate.
+The router's deadline must be no later than the supervisor's **actual** monotonic
+deadline, which starts before restore. Pass that cutoff into the child and derive
+the router's wall-clock limit from the remaining time; do not start a fresh full
+attempt timeout after setup or restore. Test a deliberately slow restore and prove
+the router cannot continue beyond the supervisor's deadline. The original batch
+deadline still does not stop an already-running case.
 
 Earlier unreviewed WP1 draft journals are unsupported by this unpublished package:
 all wave-1 runs use new disposable test databases, as reviewed in
