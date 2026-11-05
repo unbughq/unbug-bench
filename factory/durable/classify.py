@@ -92,6 +92,7 @@ _FIXED = {
     "cancellation_failed": (_I, "infra:cleanup_failed"),
     "containment_unavailable": (_I, "infra:cleanup_failed"),
     "runner_error": (_I, "infra:runner_error"),
+    "engine_reselection_disabled": (_I, "infra:runner_error"),
     "seal_error": (_I, "infra:runner_error"),
     "complete": (_I, "infra:stop_without_failure"),
     "running": (_I, "infra:stop_without_failure"),

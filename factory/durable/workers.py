@@ -576,10 +576,12 @@ class BoatPool:
         if out != b:
             raise PoolError("infra:bench_mismatch" if DIGEST.fullmatch(out) else "infra:bench_fingerprint_failed")
         manifest = json.dumps({"plumbing_version": p, "bench_version": b}, sort_keys=True)
+        swap = q(f"import os; os.replace(os.path.expanduser('~/.{RELEASE_ROOT}.tmp'), "
+                 f"os.path.expanduser('~/{RELEASE_ROOT}'))")
         commit = (f"set -eu; umask 077; d=~/{rel}; printf '%s' {q(manifest)} > \"$d/RELEASE.json.tmp\"; "
                   f"mv \"$d/RELEASE.json.tmp\" \"$d/RELEASE.json\"; "
                   f"if [ -e ~/{RELEASE_ROOT} ] && [ ! -L ~/{RELEASE_ROOT} ]; then exit 3; fi; "
-                  f"ln -sfn {rel} ~/.{RELEASE_ROOT}.tmp; mv -T ~/.{RELEASE_ROOT}.tmp ~/{RELEASE_ROOT}")
+                  f"ln -sfn {rel} ~/.{RELEASE_ROOT}.tmp; python3 -B -c {swap}")
         self._step(worker, "release_commit_failed", commit, 60)
 
     # -- deletion

@@ -171,6 +171,7 @@ class RealStops(unittest.TestCase):
                     "job_authority.py", "job_config.py")
     # Reviewed: what every BudgetError label raised in RUNNER_FILES classifies to.
     MAPPED = {
+        "engine_reselection_disabled": ("infra_error", "infra:runner_error"),
         "Invalid budget ledger; no process started": ("infra_error", "infra:ledger_error"),
         "budget_exhausted": ("exhausted", "writer:money"),
         "call_limit": ("exhausted", "writer:call_limit"),

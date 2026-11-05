@@ -135,9 +135,13 @@ def unit_live(attempt):
     try: pid = int((attempt / "pid").read_text())
     except (OSError, ValueError): return False
     try:
-        state = pathlib.Path("/proc/%d/stat" % pid).read_text().rsplit(")", 1)[1].split()[0]
+        if sys.platform == "linux":
+            state = pathlib.Path("/proc/%d/stat" % pid).read_text().rsplit(")", 1)[1].split()[0]
+        else:
+            state = subprocess.run(["ps", "-p", str(pid), "-o", "stat="],
+                                   capture_output=True, text=True, check=False).stdout.strip()
     except OSError: return False
-    return state != "Z"
+    return bool(state) and not state.startswith("Z")
 
 def live(key):
     p = attempt_paths(key)
