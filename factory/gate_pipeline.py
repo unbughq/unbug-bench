@@ -157,7 +157,11 @@ class GatePipeline:
                     return ok, {**info, "reused_from_early_check": True}
                 if getattr(c, 'engine', None) is not None:
                     from durable.checkpoints import gate_call
-                    return gate_call(c, gate, lambda: self.check(c, gate), self.case_hash(c))
+                    from gate_state import inputs
+                    import run
+                    binding = {"science": inputs(c, gate, run.BENCH),
+                               "ruling": getattr(c, "engine_ruling", None)}
+                    return gate_call(c, gate, lambda: self.check(c, gate), binding)
                 return self.check(c, gate)
             retained = replay_gate(c, gate) if replay_gate else None
             if retained is not None:

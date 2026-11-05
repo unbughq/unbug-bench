@@ -12,6 +12,7 @@ Sealer.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 import time
 from typing import Optional
 
@@ -111,7 +112,7 @@ class Executor:
             if poll.checkpoint is not None:
                 checkpoint = poll.checkpoint
             if poll.state is PollState.DONE:
-                return self._check_outputs(si, poll.result)
+                return self._check_outputs(si, poll.result, checkpoint)
             if poll.state is PollState.ABSENT:
                 # A timed-out start could still arrive late. A tombstone or proven
                 # worker death is required before a different attempt can begin.
@@ -174,7 +175,7 @@ class Executor:
                 pass
             self.sleep(self.poll_interval_s)
 
-    def _check_outputs(self, si: StepInput, result: StepResult) -> StepResult:
+    def _check_outputs(self, si: StepInput, result: StepResult, checkpoint=None) -> StepResult:
         """DONE outputs must exist and authenticate under their prescribed scope."""
         if not isinstance(result, StepResult):
             return StepResult(Outcome.INFRA_ERROR, "engine:executor_bad_result")
@@ -184,6 +185,8 @@ class Executor:
                 state = self._verify_ref(si, ref)
                 if state != "ok":
                     return StepResult(Outcome.INFRA_ERROR, f"infra:output_{state}", result.usage)
+        if result.snapshot is None and checkpoint is not None and self._verify_ref(si, checkpoint) == "ok":
+            result = replace(result, snapshot=checkpoint)
         return result
 
     def _lost(self, si, reason, checkpoint) -> StepResult:
@@ -203,7 +206,7 @@ class Executor:
                 pass
             poll = self._poll(lease, si)
             if poll.state is PollState.DONE:
-                return poll.result
+                return self._check_outputs(si, poll.result, poll.checkpoint)
             if not self._alive(lease):
                 return None
             self.sleep(self.poll_interval_s)

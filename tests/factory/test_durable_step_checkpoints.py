@@ -90,7 +90,7 @@ class Checkpoints(unittest.TestCase):
         # Simulate caller preparing the same workspace before model dispatch.
         (recovered / 'answer').write_text('reset')
         never = lambda: self.fail('completed work repeated')
-        self.assertEqual(cp.model_call(c, ['local/test'], recovered, 'builder-1', never), 0)
+        self.assertEqual(cp.model_call(c, ['local/test'], recovered, 'builder-1', never, text='deterministic prompt'), 0)
         self.assertEqual(cp.gate_call(c, 'G4', never, 'unchanged-case'), (True, {'verified': True}))
         self.assertEqual((recovered / 'answer').read_text(), 'completed model artifact')
         self.assertEqual((recovered / 'answer').stat().st_mode & 0o777, 0o750)
@@ -129,6 +129,58 @@ class Checkpoints(unittest.TestCase):
         cp.checkpoint(self.c)
         self.assertEqual(seen, [True])
 
+    def test_real_reviewer_replays_on_new_worker_but_obeys_changed_ruling(self):
+        import run
+        from test_durable_worker_step import practice_tree
+        si = dataclasses.replace(self.si, step=Step(StepKind.GATES, 1))
+        work = practice_tree(self.home / 'initial', si.case_id)
+        c = run.context_for_step(si, work)
+        self.worker.bind_checkpoint(si, c, AgeSealer(), self.key, run)
+        seen = []
+        def model(c, models, text, cwd, name, **kwargs):
+            seen.append(text)
+            (cwd / 'verdict.json').write_text(json.dumps({
+                'fairness': {'approve': True}, 'realism': {'approve': True}}))
+            receipt = c.work / 'usage-receipts' / f'{len(seen)}.json'
+            receipt.parent.mkdir(exist_ok=True)
+            receipt.write_text('{"final_usage_known":true}')
+            c.card.setdefault('route_receipts', []).append({'invocation': name,
+                'outcome': 'done', 'call_id': str(receipt.relative_to(c.work))})
+            return 0
+        with patch.object(model_runtime.ModelRuntime, '_call', side_effect=model):
+            first = run.review(c)
+            ref = self.worker.read_checkpoint(si.idempotency_key)
+            raw = (self.worker.paths(si.idempotency_key)['out'] / blob_name(ref)).read_bytes()
+            fresh = self.home / 'replacement' / si.case_id
+            restore(AgeSealer().open(self.key, ref, raw), fresh)
+            retry = dataclasses.replace(si, attempt=2, snapshot=ref)
+            c = run.context_for_step(retry, fresh)
+            self.assertEqual(run.review(c), first)
+            self.assertEqual(len(seen), len(c.models['reviewers']))
+            c = run.context_for_step(dataclasses.replace(retry, attempt=3), fresh)
+            c.engine_ruling = 'Judge the newly clarified owner requirement.'
+            run.review(c)
+            self.assertEqual(len(seen), 2 * len(c.models['reviewers']))
+            self.assertIn('newly clarified owner requirement', seen[-1])
+
+    def test_changed_read_only_model_evidence_is_not_replayed(self):
+        evidence = self.work / 'retrieved-page'
+        evidence.write_text('original evidence')
+        self.completed_work(self.c)
+        evidence.write_text('new evidence at the same URL')
+        c = context(self.work, dataclasses.replace(self.si, attempt=2))
+        invoked = []
+        cp.model_call(c, ['local/test'], self.work, 'builder-1',
+                      lambda: invoked.append(True) or 1, text='deterministic prompt')
+        self.assertEqual(invoked, [True])
+
+    def test_freshness_gate_is_rechecked_after_restore(self):
+        calls = []
+        invoke = lambda: (calls.append(True) or (True, {}))
+        cp.gate_call(self.c, 'G2', invoke, 'same-case')
+        cp.gate_call(self.c, 'G2', invoke, 'same-case')
+        self.assertEqual(len(calls), 2)
+
     @unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX process control; also runs on Linux')
     def test_sigkill_then_restore_on_fresh_worker(self):
         read_fd, write_fd = os.pipe()
@@ -152,3 +204,7 @@ class Checkpoints(unittest.TestCase):
             os.waitpid(pid, 0)
             os.close(read_fd)
         self.recover()
+
+
+if __name__ == "__main__":
+    unittest.main()

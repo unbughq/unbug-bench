@@ -113,6 +113,15 @@ class Setup(unittest.TestCase):
 
 
 class Run(Setup):
+    def test_crashed_done_keeps_checkpoint_even_without_an_earlier_poll(self):
+        checkpoint = self.put("case-t-1", K.CASE_SNAPSHOT, b"latest completed work")
+        failed = StepResult(Outcome.INFRA_ERROR, "infra:step_crashed", Usage(1, 300, 300))
+        for polls in ([Poll(PollState.DONE, failed, checkpoint=checkpoint)],
+                      [Poll(PollState.RUNNING, checkpoint=checkpoint), Poll(PollState.DONE, failed)]):
+            result = guarded_run(self.ex(Channel(polls)), self.si())
+            self.assertEqual(result.snapshot, checkpoint)
+            self.assertEqual(result.usage, failed.usage)
+
     def test_done_sends_the_right_keys_and_blobs(self):
         ch = Channel([Poll(PollState.RUNNING), None, Poll(PollState.DONE, self.ok())])
         r = guarded_run(self.ex(ch), self.si())

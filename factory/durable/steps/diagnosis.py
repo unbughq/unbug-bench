@@ -80,46 +80,56 @@ def run(worker, step_input, keys):
         worker._save_baseline(step_input, c.ledger, before)
         if before["total"] is None:
             return StepResult(Outcome.INFRA_ERROR, "infra:usage_unknown"), {}
+        worker.bind_checkpoint(step_input, c, sealer, keys[step_input.case_id], runner)
+        from durable.checkpoints import directory, checkpoint
+        saved_result = directory(c) / "diagnosis-result.json"
         invoke = getattr(runner, 'invoke_diagnosis', None)
-        if invoke is None:
-            return StepResult(Outcome.INFRA_ERROR, 'engine:diagnosis_unavailable'), {}
-        model, _ = diagnosis_dispatch.reviewer(c)
-        # A fresh immutable view of the authenticated snapshot, outside retained
-        # work. No queued_inputs(), diagnosis_state, JobAuthority or legacy journal.
-        with tempfile.TemporaryDirectory(prefix='diagnosis-', dir=worker.paths(step_input.idempotency_key)['attempt']) as tmp:
-            root = Path(tmp) / 'inputs'
-            scientific._input_inventory(work)  # reject links before copying
-            shutil.copytree(work, root / 'work')
-            shutil.copytree(c.case, root / 'case')
-            (root / 'card.json').write_bytes((work / 'scorecard.json').read_bytes())
-            ledger = Path(c.ledger)
-            (root / 'ledger.json').write_bytes(ledger.read_bytes() if ledger.exists() else b'{}')
-            source = Path(diagnosis_dispatch.__file__).parent
-            for path in [*source.glob('*.py'), *source.glob('prompts/*.md')]:
-                target = root / 'source/factory' / path.relative_to(source)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(scientific._input_bytes(path, source))
-            for ref, raw in evidence:
-                target = root / 'evidence' / worker_step.blob_name(ref)
-                target.parent.mkdir(exist_ok=True)
-                target.write_bytes(raw)
-            inventory = scientific._input_inventory(root)
-            generation = step_input.snapshot.digest
-            output = Path(tmp) / 'output'
-            output.mkdir()
-            context = dict(case_id=c.case_id, checkpoint_sha256=generation,
-                           inputs=str(root), output=str(output / 'result.json'),
-                           schema=scientific.RESULT_SCHEMA, files=inventory)
-            templates, _ = diagnosis_dispatch.contract(root)
-            text = templates[0]
-            raw = invoke(c, model=model, prompt=text + '\nRun context (data):\n' +
-                         json.dumps(context, sort_keys=True), inputs=root, output=output)
-            usage = account()
-            if not isinstance(raw, bytes) or len(raw) > diagnosis_dispatch.task.MAX_RESULT:
-                raise BudgetError('diagnosis_result_invalid')
-            if extensions.digest(scientific._input_inventory(root)) != extensions.digest(inventory):
-                raise BudgetError('diagnosis_input_invalid')
-            result = diagnosis_dispatch.validate(c, {'generation': generation}, root, raw)
+        if saved_result.is_file():
+            result = json.loads(saved_result.read_text())
+        else:
+            if invoke is None:
+                return StepResult(Outcome.INFRA_ERROR, 'engine:diagnosis_unavailable'), {}
+            model, _ = diagnosis_dispatch.reviewer(c)
+            # A fresh immutable view of the authenticated snapshot, outside retained
+            # work. No queued_inputs(), diagnosis_state, JobAuthority or legacy journal.
+            with tempfile.TemporaryDirectory(prefix='diagnosis-', dir=worker.paths(step_input.idempotency_key)['attempt']) as tmp:
+                root = Path(tmp) / 'inputs'
+                scientific._input_inventory(work)  # reject links before copying
+                shutil.copytree(work, root / 'work')
+                shutil.copytree(c.case, root / 'case')
+                (root / 'card.json').write_bytes((work / 'scorecard.json').read_bytes())
+                ledger = Path(c.ledger)
+                (root / 'ledger.json').write_bytes(ledger.read_bytes() if ledger.exists() else b'{}')
+                source = Path(diagnosis_dispatch.__file__).parent
+                for path in [*source.glob('*.py'), *source.glob('prompts/*.md')]:
+                    target = root / 'source/factory' / path.relative_to(source)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(scientific._input_bytes(path, source))
+                for ref, raw in evidence:
+                    target = root / 'evidence' / worker_step.blob_name(ref)
+                    target.parent.mkdir(exist_ok=True)
+                    target.write_bytes(raw)
+                inventory = scientific._input_inventory(root)
+                generation = step_input.snapshot.digest
+                output = Path(tmp) / 'output'
+                output.mkdir()
+                context = dict(case_id=c.case_id, checkpoint_sha256=generation,
+                               inputs=str(root), output=str(output / 'result.json'),
+                               schema=scientific.RESULT_SCHEMA, files=inventory)
+                templates, _ = diagnosis_dispatch.contract(root)
+                text = templates[0]
+                raw = invoke(c, model=model, prompt=text + '\nRun context (data):\n' +
+                             json.dumps(context, sort_keys=True), inputs=root, output=output)
+                usage = account()
+                if not isinstance(raw, bytes) or len(raw) > diagnosis_dispatch.task.MAX_RESULT:
+                    raise BudgetError('diagnosis_result_invalid')
+                if extensions.digest(scientific._input_inventory(root)) != extensions.digest(inventory):
+                    raise BudgetError('diagnosis_input_invalid')
+                result = diagnosis_dispatch.validate(c, {'generation': generation}, root, raw)
+            saved_result.parent.mkdir(parents=True, exist_ok=True)
+            atomic_json(saved_result, result)
+            checkpoint(c)
+        usage = account()
         verdict = Verdict(result['outcome'])
         feedback = seal(ArtifactKind.WRITER_FEEDBACK, _feedback(c, runner)) if verdict is Verdict.CLOSE_TO_PASSING else None
         report = seal(ArtifactKind.DIAGNOSIS_REPORT, json.dumps(result, sort_keys=True).encode())

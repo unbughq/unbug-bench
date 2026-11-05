@@ -253,13 +253,22 @@ class Worker:
         key = self._key(frame)
         result = self.read_result(key)
         if result is not None and not self.processes(key):
-            return Poll(PollState.DONE, result)
+            return Poll(PollState.DONE, result, checkpoint=self.read_checkpoint(key))
         return Poll(PollState.RUNNING if self.processes(key) else PollState.ABSENT,
                     checkpoint=self.read_checkpoint(key))
 
     def read_checkpoint(self, key):
         path = self.paths(key)["attempt"] / "checkpoint.json"
-        return Ref(**json.loads(path.read_text())) if path.exists() else None
+        try:
+            ref = Ref(**json.loads(path.read_text()))
+            return ref if ref.kind is ArtifactKind.CASE_SNAPSHOT else None
+        except (FileNotFoundError, ValueError, TypeError):
+            return None
+
+    def bind_checkpoint(self, step_input, c, sealer, case_key, runner):
+        from durable.checkpoints import checkpoint
+        c.engine_checkpoint = lambda: self.publish_checkpoint(step_input, c, sealer, case_key, runner)
+        c.stress_checkpoint = lambda: checkpoint(c)
 
     def publish_checkpoint(self, step_input, c, sealer, case_key, runner):
         """Publish durable ciphertext before exposing its authenticated reference."""
@@ -557,9 +566,7 @@ class Worker:
         self._save_baseline(step_input, c.ledger, before)
         if before["total"] is None:
             return fail("infra:usage_unknown")
-        c.engine_checkpoint = lambda: self.publish_checkpoint(step_input, c, sealer, case_key, runner)
-        from durable.checkpoints import checkpoint
-        c.stress_checkpoint = lambda: checkpoint(c)
+        self.bind_checkpoint(step_input, c, sealer, case_key, runner)
         out = runner.run_step(c, step_input, feedback=feedback, ruling=ruling)
         usage = usage_since(before, c.ledger, step_input.money_ceiling_usd_micros)
         if ledger_totals(c.ledger)["total"] is None:

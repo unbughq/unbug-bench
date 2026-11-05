@@ -333,7 +333,7 @@ class ModelRuntime:
                                        deadline=deadline, before_attempt=before_attempt, lease=lease)
             if getattr(c, 'engine', None) is not None:
                 from durable.checkpoints import model_call
-                return model_call(c, models, cwd, name, invoke)
+                return model_call(c, models, cwd, name, invoke, text=text)
             return invoke()
 
     def _call(self, c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None):

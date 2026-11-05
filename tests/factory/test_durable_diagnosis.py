@@ -105,12 +105,13 @@ class DiagnosisTests(unittest.TestCase):
             (c.work / 'attack-state.json').write_text(json.dumps({'report': '../private-invalid'}))
         return json.dumps(result).encode()
 
-    def execute(self):
-        with patch.object(runner, 'invoke_diagnosis', self.model, create=True):
+    def execute(self, expected_calls=1):
+        with patch.object(runner, 'invoke_diagnosis', side_effect=self.model, create=True) as invoke:
             result, outputs = run(self.worker, self.si, {self.case: self.key})
+        self.assertEqual(invoke.call_count, expected_calls)
         k.check_result_for(self.si.step, result)
-        self.assertEqual(result.usage.calls, 1)
-        self.assertEqual(result.usage.paid_usd_micros, 250_000)
+        self.assertEqual(result.usage.calls, expected_calls)
+        self.assertEqual(result.usage.paid_usd_micros, 250_000 * expected_calls)
         wire = json.dumps(k.to_record(result))
         self.assertNotIn('private', wire)
         self.assertNotIn(self.key.hex(), wire)
@@ -182,9 +183,9 @@ class DiagnosisTests(unittest.TestCase):
         result, outputs = self.execute()
         (self.blobs / blob_name(result.snapshot)).write_bytes(outputs[blob_name(result.snapshot)])
         self.si = replace(self.si, snapshot=result.snapshot)
-        again, _ = self.execute()
+        again, _ = self.execute(expected_calls=0)
         self.assertEqual(again.outcome, k.Outcome.OK)
-        self.assertEqual(again.usage, result.usage)
+        self.assertEqual(again.usage, k.Usage())
 
 
 if __name__ == '__main__': unittest.main()

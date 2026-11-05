@@ -356,6 +356,7 @@ def run(worker, step_input, keys):
         _pin_models(c, runner, inputs)
         before = worker_step.ledger_totals(c.ledger)
         worker._save_baseline(step_input, c.ledger, before)
+        worker.bind_checkpoint(step_input, c, sealer, case_key, runner)
         if inputs["dry_run"]:
             if not c.case.exists(): runner.build_fixture(c)
             c.card["admission"] = {"status": "practice_dry_run"}
