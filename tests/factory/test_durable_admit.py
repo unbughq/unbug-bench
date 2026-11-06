@@ -323,6 +323,53 @@ class AdmitTests(unittest.TestCase):
         self.assertTrue(list((work / 'engine-checkpoints').rglob('*.json')))
         self.assertEqual(json.loads((work / 'continuation-budget.json').read_text())['cost'], .25)
 
+    def test_malformed_dedup_retries_on_fresh_worker_without_reselecting_or_erasing_spend(self):
+        from dataclasses import replace
+        import shutil
+        import model_router
+        from registry import Registry
+        value = self.real_inputs('unused'); value.pop('candidate')
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        prior = b'Public synthetic predecessor statement'
+        ref, cipher = self.worker.sealer().seal(self.batch_key, ArtifactKind.STATEMENT_REGISTRY, prior)
+        registry_root = self.home/'synthetic-registry'
+        Registry(registry_root).reserve('case-prior', hashlib.sha256(prior).hexdigest(), cipher)
+        payload = admit._dump_registry(registry_root, {hashlib.sha256(cipher).hexdigest():ref.digest})
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, payload)
+        first = self.step(inputs, registry); dedup_calls = 0
+        routes = model_router.routes
+        def model(c, models, text, cwd, name, **kwargs):
+            nonlocal dedup_calls
+            if name == 'easy-calibrator-dedup':
+                dedup_calls += 1
+                with budget.ledger_transaction(c.ledger) as ledger:
+                    ledger['cost'] += .01; ledger['calls'] += 1
+                    ledger['events'].append({'id':f'dedup-{dedup_calls}', 'cost':.01,
+                                            'configured_model':models[0], 'role':'easy_calibrator'})
+                if dedup_calls == 1:
+                    self.calls.append(name); c.model_lease = SimpleNamespace(route=models[0])
+                    kwargs['on_complete']()  # Completed CLI, missing/undecodable answer.
+                    return 0
+            return self.model(c, models, text, cwd, name, **kwargs)
+        with patch.object(model_router, 'routes', side_effect=lambda *a: routes(*a)[:1]), \
+                patch.object(run, 'opencode', side_effect=model), patch.object(run, 'model_call', side_effect=model):
+            result, blobs = self.run_admit(first)
+            self.assertEqual((result.outcome,result.reason), (Outcome.INFRA_ERROR,'infra:malformed_output_exhausted'))
+            self.assertEqual(result.usage.paid_usd_micros,10000)
+            self.home = self.home/'replacement'
+            shutil.copytree(self.worker.home/'durable/blobs', self.home/'durable/blobs')
+            for name, ciphertext in blobs.items(): (self.home/'durable/blobs'/name).write_bytes(ciphertext)
+            self.worker = worker_step.Worker(self.home, sealer=AgeSealer(), runner=run)
+            retry = replace(first, attempt=2, snapshot=result.snapshot)
+            completed, outputs = self.run_admit(retry)
+        self.assertEqual((completed.outcome,completed.reason), (Outcome.OK,'admit:selected'))
+        self.assertEqual(completed.usage.paid_usd_micros,10000)
+        self.assertEqual(dedup_calls,2)
+        self.assertEqual(self.calls.count('builder-selection'),1)
+        work, _ = self.restore(retry, completed, outputs)
+        self.assertEqual(json.loads((work/'continuation-budget.json').read_text())['cost'],.02)
+        self.assertEqual(set(self.registry_doc(completed,outputs)['registry']['entries']),{'case-prior',CASE})
+
     def test_second_case_screens_against_authenticated_prior_statement(self):
         from dataclasses import replace
         text = "# Candidate\n\nOversell under checkout."

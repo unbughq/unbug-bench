@@ -114,6 +114,11 @@ still stops admission. A DBOS patch preserves historical terminal behavior; alre
 completed workflows are not revived by deploying the new code. Original admission
 exceptions and chained tracebacks stay inside encrypted diagnostics. Snapshots survive
 a repair release; generic completion receipts remain bound to their original release.
+Malformed retained answers exhaust routes within one Engine attempt. A new funded
+attempt may append a fresh judgment, retaining prior rows, outputs and all spending.
+Same-attempt replay cannot reopen that allowance, and pending or valid completed
+answers are reused. Legacy retry state adopts its first observed attempt key without
+guessing that an exhausted allowance can be reset.
 Optional `worker_credentials` configuration names an encrypted bundle, control
 identity, router client file and selected model accounts. The controller decrypts
 in memory and delivers only those accounts and router authority into worker RAM

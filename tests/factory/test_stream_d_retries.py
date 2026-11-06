@@ -115,6 +115,7 @@ class RetryTests(unittest.TestCase):
         self.assertTrue(self.idea()['approve'])
         self.assertEqual(len(self.calls), 2)
         self.assertIn('Retained answer:', self.calls[1][2])
+        self.c.engine.key = self.c.engine.key.rsplit('/', 1)[0]+'/2'
         self.assertTrue(self.idea()['approve'])
         self.assertEqual(len(self.calls), 2)
         self.assertEqual(self.c.card['builder_rounds'], 0)
@@ -139,6 +140,7 @@ class RetryTests(unittest.TestCase):
         self.cli(emit)
         with self.assertRaises(runtime_fixture.Killed): self.idea()
         self.fresh_context()
+        self.c.engine.key = self.c.engine.key.rsplit('/', 1)[0]+'/2'
         self.assertTrue(self.idea()['approve'])
         self.assertEqual(self.calls[1][1], self.calls[2][1])
         self.assertNotEqual(self.calls[0][1], self.calls[1][1])
@@ -153,6 +155,66 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         with self.assertRaisesRegex(budget.BudgetError, '^malformed_output_exhausted$'): self.idea('changed')
         self.assertEqual(len(self.calls), 2)
+
+    def test_exhausted_answer_gets_one_fresh_judgment_per_new_engine_attempt(self):
+        self.c.models['reviewers'] = [self.c.models['builder']]
+        self.c.card['roles']['reviewer']['model'] = self.c.models['builder'][0]
+        def emit(c, text, name):
+            if len(self.calls) > 1:
+                state = next(json.loads(p.read_text()) for p in (self.work/'ordinary-retries').glob('*/state.json')
+                             if json.loads(p.read_text()).get('binding', {}).get('kind')=='idea')
+                self.assertEqual(state['engine_attempt'], c.engine.key)
+                self.assertEqual(state['attempts'][-1]['phase'], 'pending')
+                self.assertEqual(len(state['exhausted_attempts']), 1)
+                self.answer_path(text).write_text('{"approve":true,"reason":"valid fresh judgment"}')
+        self.cli(emit)
+        for _ in range(2):
+            with self.assertRaisesRegex(budget.BudgetError, '^malformed_output_exhausted$'): self.idea()
+        self.assertEqual(len(self.calls), 1)
+        before = json.loads(self.ledger.read_text())
+        self.fresh_context()
+        self.c.models['reviewers'] = [self.c.models['builder']]
+        self.c.engine.key = self.c.engine.key.rsplit('/', 1)[0]+'/2'
+        self.assertTrue(self.idea()['approve'])
+        self.assertTrue(self.idea()['approve'])
+        self.assertEqual(len(self.calls), 2)
+        state = next(json.loads(p.read_text()) for p in (self.work/'ordinary-retries').glob('*/state.json')
+                     if json.loads(p.read_text()).get('binding', {}).get('kind')=='idea')
+        self.assertEqual([row['phase'] for row in state['attempts']], ['invalid', 'completed'])
+        self.assertEqual(len(state['exhausted_attempts']), 1)
+        after = json.loads(self.ledger.read_text())
+        for key, value in before.get('invocation_reservations', {}).items():
+            self.assertEqual(after['invocation_reservations'][key], value)
+
+    def test_pending_answer_adopts_new_attempt_before_it_exhausts(self):
+        self.c.models['reviewers'] = [self.c.models['builder']]
+        self.c.card['roles']['reviewer']['model'] = self.c.models['builder'][0]
+        def emit(c, text, name):
+            if len(self.calls)==1: raise runtime_fixture.Killed()
+        self.cli(emit)
+        with self.assertRaises(runtime_fixture.Killed): self.idea()
+        self.fresh_context(); self.c.models['reviewers'] = [self.c.models['builder']]
+        self.c.engine.key = self.c.engine.key.rsplit('/', 1)[0]+'/2'
+        for _ in range(2):
+            with self.assertRaisesRegex(budget.BudgetError, '^malformed_output_exhausted$'): self.idea()
+        self.assertEqual(len(self.calls), 2)
+
+    def test_legacy_exhaustion_adopts_first_key_without_guessing_a_reset(self):
+        self.c.models['reviewers'] = [self.c.models['builder']]
+        self.c.card['roles']['reviewer']['model'] = self.c.models['builder'][0]
+        def emit(c, text, name):
+            if len(self.calls)>1: self.answer_path(text).write_text('{"approve":true,"reason":"fresh judgment"}')
+        self.cli(emit)
+        with self.assertRaisesRegex(budget.BudgetError, '^malformed_output_exhausted$'): self.idea()
+        path = next((self.work/'ordinary-retries').glob('*/state.json'))
+        state = json.loads(path.read_text()); state.pop('engine_attempt'); atomic_json(path,state)
+        self.c.engine.key = self.c.engine.key.rsplit('/', 1)[0]+'/2'
+        for _ in range(2):
+            with self.assertRaisesRegex(budget.BudgetError, '^malformed_output_exhausted$'): self.idea()
+        self.assertEqual(len(self.calls),1)
+        self.c.engine.key = self.c.engine.key.rsplit('/', 1)[0]+'/3'
+        self.assertTrue(self.idea()['approve'])
+        self.assertEqual(len(self.calls),2)
 
     def test_raw_archive_projection_ignores_wrappers_and_access_body_nonce(self):
         url = 'https://github.com/medusajs/medusa/issues/1'
