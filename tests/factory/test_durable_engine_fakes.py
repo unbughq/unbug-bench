@@ -534,8 +534,10 @@ def seed_batch(fakes, spec_kw):
 def engine_main(workdir):
     work = Path(workdir)
     scenario = json.loads((work / "scenario.json").read_text())
-    from durable.engine import Engine, Timing
+    from durable.engine import Engine, Timing, draining_sleep, hold_if_draining
     from durable import engine as engine_module
+    from durable.cli import stop_on_signal
+    from durable.guard import degraded
     from durable.executor import Executor
     from durable import report
     from durable.contract import BenchRelease, BoundRaised, FounderReply, PlumbingRelease, Topic
@@ -604,11 +606,14 @@ def engine_main(workdir):
         DBOS.sleep = staticmethod(trace_sleep)
     ex = FaultInjectingExecutor(fakes["pool"], fakes["worker"], fakes["ledger"], fakes["store"], fakes["sealer"],
                                 fakes["keys"], poll_interval_s=scenario.get("poll_s", 0.02),
-                                grace_s=scenario.get("grace_s", 0.3))
+                                grace_s=scenario.get("grace_s", 0.3), sleep=draining_sleep, pause=hold_if_draining)
     timing = Timing(**{"batch_poll_s": 0.5, "wake_poll_s": 5.0, "founder_poll_s": 2.0, "queue_poll_s": 0.05,
                        "listener_poll_s": 0.05, **scenario.get("timing", {})})
-    engine = Engine(system_database_url=f"sqlite:///{work}/sys.sqlite", executor=ex, timing=timing)
+    engine = Engine(system_database_url=scenario.get("database_url", f"sqlite:///{work}/sys.sqlite"), executor=ex,
+                    timing=timing, admission_paused=lambda: degraded(work / "state"))
     engine.launch()
+    if "drain_s" in scenario:
+        stop_on_signal(lambda: engine.drain(scenario["drain_s"]))
     handle = engine.start_batch(spec, registry)
     from dbos import DBOS
 
