@@ -200,6 +200,36 @@ class CheapTests(unittest.TestCase):
             self.assertEqual(before['unknown_requests'],profile['windows'])
             self.assertEqual(before['max_request_output_tokens'],profile['output'])
 
+    def test_documented_final_usage_frame_is_accounting_not_a_second_generation(self):
+        # https://openrouter.ai/docs/api_reference/streaming#the-final-usage-chunk-chat-completions
+        for route in GATED_OPENROUTER:
+            usage=dict(prompt_tokens=10,completion_tokens=3,total_tokens=13)
+            terminal=dict(id='synthetic-generation',model=route.partition('/')[2],choices=[dict(
+                index=0,delta={'content':'','role':'assistant'},finish_reason='stop',native_finish_reason='stop')])
+            accounting=copy.deepcopy(terminal);accounting['usage']=usage
+            def parse(final, suffix=b'data: [DONE]\n\n', first=None):
+                frames=[first or terminal,final]
+                raw=b''.join(b'data: '+json.dumps(f).encode()+b'\n\n' for f in frames)+suffix
+                parser=gate.OpenRouterUsage(route,True)
+                for byte in raw:parser.feed(bytes([byte]))
+                return parser.final()
+            self.assertEqual(parse(accounting),usage)
+            self.assertEqual(parse(dict(accounting,choices=[])),usage)
+            variants=[]
+            for delta in ({'content':'extra'}, {'role':'user'}, {'tool_calls':[]}, {'reasoning':'extra'}):
+                changed=copy.deepcopy(accounting);changed['choices'][0]['delta']=delta;variants.append(changed)
+            for fields in ({'finish_reason':'length'}, {'native_finish_reason':'different'}, {'index':1},
+                           {'message':{'content':'extra'}}, {'logprobs':{'content':['extra']}}):
+                changed=copy.deepcopy(accounting);changed['choices'][0].update(fields);variants.append(changed)
+            variants += [dict(accounting,id='other'),dict(accounting,model='other'),dict(accounting,error={}),
+                         dict(accounting,usage=usage|{'total_tokens':14})]
+            for final in variants:
+                with self.subTest(route=route,final=final):self.assertIsNone(parse(final))
+            duplicate=b'data: '+json.dumps(accounting).encode()+b'\n\ndata: [DONE]\n\n'
+            self.assertIsNone(parse(accounting,duplicate))
+            self.assertIsNone(parse(accounting,b''))
+            self.assertIsNone(parse(accounting,first=dict(terminal,usage=usage)))
+
     def test_overlapping_requests_wait_for_refund_and_platform_guards_deny_launch(self):
         for route,profile in GATED_OPENROUTER.items():
             state=gate.Allowance(lease(route),deadline=time.monotonic()+3)

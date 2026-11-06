@@ -444,6 +444,7 @@ class OpenRouterUsage:
         self.invalid = False
         self.identity, self.usage = None, None
         self.terminal = self.done = 0
+        self.finish_reason = self.native_finish_reason = None
 
     def event(self, event):
         if self.done or not isinstance(event, dict) or 'error' in event: self.invalid = True; return
@@ -456,11 +457,24 @@ class OpenRouterUsage:
         if not isinstance(choices, list) or len(choices) > 1: self.invalid = True; return
         if choices:
             choice = choices[0]
-            if not isinstance(choice, dict) or type(choice.get('index')) is not int or choice['index'] != 0 or self.terminal:
+            if not isinstance(choice, dict) or type(choice.get('index')) is not int or choice['index'] != 0:
                 self.invalid = True; return
             finish = choice.get('finish_reason')
-            if finish is not None:
+            native = choice.get('native_finish_reason')
+            if self.terminal:
+                # OpenRouter repeats the terminal choice in its final usage frame.
+                # Accept accounting only: no new content, generation or usage report.
+                delta = choice.get('delta')
+                if (not self.streaming or event.get('usage') is None or self.usage is not None
+                        or finish != self.finish_reason or native != self.native_finish_reason
+                        or set(choice) - {'index', 'delta', 'finish_reason', 'native_finish_reason', 'logprobs'}
+                        or choice.get('logprobs') is not None or not isinstance(delta, dict)
+                        or set(delta) - {'role', 'content'} or delta.get('content') not in (None, '')
+                        or delta.get('role') not in (None, 'assistant')):
+                    self.invalid = True; return
+            elif finish is not None:
                 if finish not in ('stop', 'length', 'tool_calls', 'content_filter'): self.invalid = True; return
+                self.finish_reason, self.native_finish_reason = finish, native
                 self.terminal += 1
         if event.get('usage') is not None:
             if self.usage is not None or self.terminal != 1: self.invalid = True; return

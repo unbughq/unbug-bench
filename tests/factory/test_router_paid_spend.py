@@ -239,6 +239,23 @@ class PaidWireTests(unittest.TestCase):
                      usage=dict(prompt_tokens=1, completion_tokens=1, total_tokens=2))
         return b'data: ' + json.dumps(event).encode() + b'\n\ndata: [DONE]\n\n'
 
+    def test_terminal_accounting_frame_refunds_the_real_shared_hold(self):
+        import test_model_call_maxima as core
+        terminal=dict(id='synthetic',model='minimax/minimax-m3.1-flash',choices=[dict(index=0,
+            delta={'content':'','role':'assistant'},finish_reason='stop',native_finish_reason='stop')])
+        usage=dict(prompt_tokens=1,completion_tokens=1,total_tokens=2)
+        frames=[terminal,dict(terminal,usage=usage)]
+        payload=b''.join(b'data: '+json.dumps(f).encode()+b'\n\n' for f in frames)+b'data: [DONE]\n\n'
+        self.responses=[payload]
+        actual=core.lease(MINIMAX);cap={}
+        with authority(actual) as store,patch.object(gate.sys,'platform','linux'):
+            with gate.enforce(actual,self.env(),cap,3) as active:
+                self.assertEqual(self.post(active),(200,payload))
+                self.assertEqual(active.state.snapshot()['validated_requests'],1)
+                self.assertEqual(active.state.snapshot()['unknown_requests'],0)
+                self.assertEqual(store.rpc('status',{})['paid']['total_usd'],'0.000000250')
+        self.assertTrue(cap['closed'])
+
     def test_refusal_latch_and_lost_reserve_ack_never_connect(self):
         import test_model_call_maxima as core
         from budget import BudgetError
