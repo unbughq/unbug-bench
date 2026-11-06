@@ -187,6 +187,24 @@ class GuardTests(unittest.TestCase):
         out = self.tick()
         self.assertEqual((out["phase"], out["failed_checks"]), ("degraded", ["ledger"]))
 
+    def test_a_malformed_case_row_degrades_and_leaves_no_bad_scorecard(self):
+        self.f.cases = [{"status": "held"}]
+        self.assertEqual(self.tick()["failed_checks"], ["controller_status"])
+        self.assertFalse((self.f.state_dir / "guard/scorecard.json").exists())
+        (self.f.state_dir / "guard/scorecard.json").write_text('{"cases": [{"status": "held"}, 1]}')
+        self.f.cases = [{"case": "c", "status": "running"}]
+        self.assertEqual(self.tick()["phase"], "healthy")   # an old bad file cannot crash a pass
+
+    def test_a_batch_finishing_right_after_an_outage_leaves_no_false_down_alert(self):
+        self.f.active = "failed"
+        self.tick()
+        self.f.active = "active"
+        self.f.cases[0]["status"] = "sealed"
+        self.f.state = lambda: ("active", self.f.clock - 30, None)
+        self.tick(601)
+        self.assertEqual(self.tick(601)["down_since"], None)
+        self.assertEqual(self.f.sent, [])
+
     def test_a_failed_finishing_stop_is_retried(self):
         self.f.cases[0]["status"] = "sealed"
         stops = []

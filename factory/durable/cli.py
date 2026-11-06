@@ -95,8 +95,10 @@ def stop_on_signal(drain, cleanup=lambda: None):
     stopping = threading.Lock()
     def finish():
         try:
-            cleanup()   # first, so no new operator request arrives during the drain
-            drain()
+            try:
+                cleanup()   # first, so no new operator request arrives during the drain
+            finally:
+                drain()
             logging.shutdown()
         finally:
             os._exit(0)

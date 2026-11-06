@@ -264,6 +264,15 @@ class Run(Setup):
         self.assertGreaterEqual(self.clock.t, 1000 + 600 + 3600)
         self.assertEqual(ex.pool.released, [lease])   # it cannot run beside the next attempt
 
+    def test_a_result_landing_at_the_limit_beats_deleting_the_worker(self):
+        si = self.si(deadline=600.0)
+        ex = self.ex(Channel([Poll(PollState.DONE, self.ok())]))
+        ex.unconfirmed_limit_s = 0.0
+        self.clock.t += 10000
+        result = ex.run(si, started_at=1000.0, lease=WorkerLease("w-1", si.case_id))
+        self.assertIs(result.outcome, Outcome.OK)
+        self.assertEqual(ex.pool.released, [])
+
     def test_an_undeletable_worker_is_not_called_lost(self):
         clock = self.clock
         class Refusing(Pool):

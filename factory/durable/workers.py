@@ -825,6 +825,8 @@ class BoatPool:
                 return
             if operation is not None and (operation["status"] not in ("pending", "processing")
                                           or operation["completedAt"] is not None):
+                # A finished, failed operation can never complete: the next try must ask again.
+                (self.state / "deletions" / worker / "deletion-request.json").unlink(missing_ok=True)
                 raise PoolError("infra:worker_delete_failed")
             if time.monotonic() >= deadline:
                 raise PoolError("infra:worker_delete_unconfirmed")

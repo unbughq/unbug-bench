@@ -411,6 +411,18 @@ class PoolTests(unittest.TestCase):
     def acquire(self, pool, plumbing=None, bench=None, case=CASE):
         return pool.acquire(case, plumbing or self.h.plumbing, bench or self.bench)
 
+    def test_a_failed_delete_operation_is_requested_again(self):
+        pool = self.h.pool()
+        worker = "bx_abcdefgh"
+        receipt = pool.state / "deletions" / worker / "deletion-request.json"
+        operation = {"id": "op-1", "targetId": worker, "kind": "sandbox", "status": "failed",
+                     "stage": "failed", "completedAt": "2026-11-06T19:25:31Z"}
+        pool._receipt(worker, "deletion-request.json", operation)
+        pool.boat.run = lambda args, **kw: (0, json.dumps({"operation": operation}).encode())
+        with self.assertRaises(W.PoolError):
+            pool._await_delete(worker, "op-1")
+        self.assertFalse(receipt.exists())
+
     def test_a_receipt_written_as_root_goes_to_the_controller_user(self):
         pool = self.h.pool()
         pool.state.mkdir(parents=True, exist_ok=True)

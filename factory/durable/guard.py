@@ -213,8 +213,10 @@ class Guard:
             return money["spent"] > money["bound"]
         def terminal():
             report = self.rpc("status")
-            self.save("scorecard.json", report)
             cases = report["cases"]
+            if not all(isinstance(c["case"], str) and isinstance(c["status"], str) for c in cases):
+                raise CheckFailed("status_malformed")
+            self.save("scorecard.json", report)
             return bool(cases) and all(c["status"] in TERMINAL for c in cases)
         ok, over = self.check("ledger", over_ceiling)
         if ok and over:
@@ -225,6 +227,7 @@ class Guard:
             if done:
                 health["finished"] = True
                 health["phase"] = "finished"
+                health["down_since"] = None
                 self.check("controller_stop", self.service.stop)
         return None
 
@@ -264,9 +267,8 @@ class Guard:
             out["controller_down"] = (f"The controller has been down for {int((now - down) / 60)} minutes "
                                       "and has not restarted. Check its service log.")
         for case in self.load("scorecard.json", {}).get("cases", []):
-            message = CASE_ALERTS.get(case.get("status"))
-            if message:
-                out[f"case:{case['case']}:{case['status']}"] = message.format(case=case["case"])
+            if isinstance(case, dict) and case.get("status") in CASE_ALERTS and "case" in case:
+                out[f"case:{case['case']}:{case['status']}"] = CASE_ALERTS[case["status"]].format(case=case["case"])
         return out
 
     def _alerts(self, health: dict, now: float) -> None:

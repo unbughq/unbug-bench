@@ -111,13 +111,13 @@ class Executor:
         checkpoint = None
         while True:
             self.pause()   # shutdown: leave the step unrecorded, so a restart reattaches
-            if self.clock() >= limit + self.unconfirmed_limit_s and self._retire(lease):
-                return self._lost(si, "infra:worker_lost", checkpoint)
             poll = self._poll(lease, si)
             if poll.checkpoint is not None:
                 checkpoint = poll.checkpoint
             if poll.state is PollState.DONE:
                 return self._check_outputs(si, poll.result, checkpoint)
+            if self.clock() >= limit + self.unconfirmed_limit_s and self._retire(lease):
+                return self._lost(si, "infra:worker_lost", checkpoint)
             if poll.state is PollState.ABSENT:
                 # A timed-out start could still arrive late. A tombstone or proven
                 # worker death is required before a different attempt can begin.
@@ -154,8 +154,8 @@ class Executor:
 
     def _retire(self, lease) -> bool:
         """Past the limit a worker counts as lost only once it cannot still be running. The guard
-        keeps renewing a live worker, so its TTL proves nothing: delete it. If Boat refuses, keep
-        waiting. Boat being down also stops renewal, so its TTL then ends the wait."""
+        keeps renewing a live worker, so its TTL proves nothing: delete it. If the delete fails,
+        keep waiting and ask again on the next round."""
         try:
             self.pool.release(lease)
             return True
