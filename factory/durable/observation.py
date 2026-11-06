@@ -3,6 +3,7 @@ import json
 import math
 from pathlib import Path
 import re
+import subprocess
 import time
 
 from durable.classify import PUBLISHED_REASONS
@@ -62,6 +63,25 @@ def _worker(state, case_id):
         return {'state': 'unavailable'}
 
 
+def _controller(config):
+    unit = config.get('status_service_unit', 'unbug-durable.service')
+    if not isinstance(unit, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9@_.-]*\.service', unit):
+        return {'state': 'unavailable'}
+    try:
+        done = subprocess.run(['systemctl', 'show', unit, '--property=LoadState,ActiveState,Result'],
+                              capture_output=True, text=True, timeout=2)
+        values = dict(line.split('=', 1) for line in done.stdout.splitlines() if '=' in line)
+        state = values.get('ActiveState')
+        if (done.returncode or values.get('LoadState') != 'loaded'
+                or state not in ('active', 'inactive', 'failed', 'activating', 'deactivating', 'reloading')):
+            return {'state': 'unavailable'}
+        result = values.get('Result')
+        return {'state': state, 'result': result if result in ('success', 'timeout', 'exit-code', 'signal',
+                'core-dump', 'watchdog', 'start-limit-hit', 'resources', 'protocol') else None}
+    except (OSError, subprocess.TimeoutExpired):
+        return {'state': 'unavailable'}
+
+
 def _budget(config, batch):
     import sqlalchemy as sa
     from durable.ledger import _make_engine, BATCHES, ATTEMPTS, SqlLedger
@@ -94,19 +114,20 @@ def _budget(config, batch):
         engine.dispose()
 
 
-def observe(config, card):
+def observe(config, card, *, client=None):
     """Enrich a public scorecard with allowlisted records; unavailable sections stay explicit."""
     from dbos import DBOSClient
     card = {**card, 'cases': [dict(case) for case in card['cases']]}
-    meta = card['observation'] = {'at': time.time(), 'unavailable': []}
+    meta = card['observation'] = {'at': time.time(), 'unavailable': [], 'controller': _controller(config)}
     try:
         meta['budget'] = _budget(config, card['batch'])
     except Exception:
         meta['unavailable'].append('budget')
-    client = None
+    owned_client = client is None
     try:
-        client = DBOSClient(system_database_url=config['database_url'], retry_connection_errors=False,
-                            observability_query_timeout_sec=3)
+        if client is None:
+            client = DBOSClient(system_database_url=config['database_url'], retry_connection_errors=False,
+                                observability_query_timeout_sec=3)
         batch_rows = client.list_workflows(workflow_ids=[card['batch']], load_input=True, load_output=False)
         if batch_rows:
             row = batch_rows[0]
@@ -140,6 +161,22 @@ def observe(config, card):
     except Exception:
         meta['unavailable'].append('workflows')
     finally:
-        if client is not None:
+        if owned_client and client is not None:
             client.destroy()
     return card
+
+
+def read_status(config, batch):
+    """Read durable records even when the controller process/socket is stopped."""
+    from dbos import DBOSClient
+    from durable.contract import BATCH_ID
+    from durable.report import load_cards, scorecard
+    if not BATCH_ID.fullmatch(batch):
+        raise ValueError('invalid batch')
+    client = DBOSClient(system_database_url=config['database_url'], retry_connection_errors=False,
+                        observability_query_timeout_sec=3)
+    try:
+        card = scorecard(batch, load_cards(batch, client=client), allowlist=PUBLISHED_REASONS)
+        return observe(config, card, client=client)
+    finally:
+        client.destroy()

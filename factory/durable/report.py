@@ -154,8 +154,11 @@ def render_status(card: dict) -> str:
         return f'  {label:<17} {value}'
     limits = observation.get('limits', {})
     workflow = observation.get('workflow', {})
+    controller = observation.get('controller', {})
     lines = ['UNBUG FACTORY', '=' * 76, field('Batch', card['batch']),
              field('Observed', stamp(observation.get('at'))),
+             field('Controller', controller.get('state', 'unavailable').upper()
+                   + (f" ({controller['result']})" if controller.get('result') else '')),
              field('Workflow', workflow.get('status', 'unavailable')),
              field('Started', stamp(workflow.get('created_at'))),
              field('Sealed', f"{card['sealed']} / {card.get('target_sealed') or '?'}"),
@@ -181,10 +184,10 @@ def render_status(card: dict) -> str:
         active = context.get('latest_attempt') or {}
         previous = context.get('last_result') or {}
         lines += ['', case['case'], '-' * 76,
-            field('Status / stage', f"{case['status']} / {case['stage']}"),
+            field('Recorded state', f"{case['status']} / {case['stage']}"),
             field('Workflow', context.get('workflow', {}).get('status', 'unavailable')),
             field('Workflow update', stamp(context.get('workflow', {}).get('updated_at'))),
-            field('Worker', f"{worker.get('id') or '-'} ({worker.get('state', 'unavailable')})"),
+            field('Worker record', f"{worker.get('id') or '-'} ({worker.get('state', 'unavailable')})"),
             field('Writer rounds', case['writer_rounds']), field('Extensions', case['extensions']),
             field('Gates', '  '.join(f'{g}={value.upper()}' for g, value in case['gates'].items()) or 'none reported')]
         if case.get('reason'):
@@ -202,12 +205,12 @@ def render_status(card: dict) -> str:
             lines += [field('Last result', f"attempt {previous['attempt']}: {previous['outcome']}"
                             + (f" ({previous['reason']})" if previous.get('reason') else '')),
                       field('Result recorded', stamp(previous.get('updated_at'))),
-                      field('Checkpoint', 'saved' if previous.get('snapshot_saved') else 'not reported')]
+                      field('Result checkpoint', 'saved' if previous.get('snapshot_saved') else 'not reported')]
             if previous.get('retry_at') is not None:
                 pending = active.get('status') in ('PENDING', 'ENQUEUED')
                 lines.append(field('Previous retry' if pending else 'Recorded retry', stamp(previous['retry_at'])))
                 if pending:
-                    lines.append('  A newer attempt is in progress; the previous result is historical.')
+                    lines.append('  A newer attempt is recorded; the previous result is historical.')
                 elif (context.get('workflow', {}).get('status') in ('PENDING', 'ENQUEUED')
                       and worker.get('state') == 'unassigned'):
                     lines.append('  No attempt is active; the workflow is waiting or queued for retry.')
@@ -215,31 +218,40 @@ def render_status(card: dict) -> str:
             lines.append('  Attempt details unavailable.')
     lines += ['', 'Worker state comes from the ownership journal; liveness is not polled.',
               'Workflow timestamps describe records, not the latest model activity.']
+    if controller.get('state') in ('inactive', 'failed'):
+        lines.append('WARNING: Controller is stopped; pending workflow records do not mean work is running.')
     if observation.get('unavailable'):
         lines.append('Unavailable: ' + ', '.join(observation['unavailable']))
     return '\n'.join(lines) + '\n'
 
 
-def load_cards(batch_id: str, *, timeout_s: float = 1.0) -> list:
-    """Read the cards from a launched engine (DBOS events of the batch and case workflows)."""
-    from dbos import DBOS
-    case_ids = DBOS.get_event(batch_id, "cases", timeout_seconds=timeout_s) or []
+def load_cards(batch_id: str, *, timeout_s: float = 1.0, client=None) -> list:
+    """Read persisted cards through launched DBOS or a read-only DBOSClient."""
+    if client is None:
+        from dbos import DBOS
+        event, status = DBOS.get_event, DBOS.get_workflow_status
+    else:
+        event = client.get_event
+        def status(workflow_id):
+            rows = client.list_workflows(workflow_ids=[workflow_id], load_input=False, load_output=False)
+            return rows[0] if rows else None
+    case_ids = event(batch_id, "cases", timeout_seconds=timeout_s) or []
     cards = []
     for case_id in case_ids:
-        card = DBOS.get_event(case_id, "card", timeout_seconds=timeout_s)
-        workflow = DBOS.get_workflow_status(case_id)
+        card = event(case_id, "card", timeout_seconds=timeout_s)
+        workflow = status(case_id)
         failed = workflow is not None and workflow.status in ("ERROR", "CANCELLED", "MAX_RECOVERY_ATTEMPTS_EXCEEDED")
         if failed:
             # A failed workflow cannot update its own event. Keep any previously
             # published, content-free facts and trust only a recorded verified seal.
             card = dict(card or {"case_id": case_id, "stage": "admit", "passed": [], "failed_gate": None,
                                  "writer_rounds": 0, "extensions": 0, "replacement_of": None})
-            seal = verified_seal(DBOS.get_event(case_id, "verified_seal", timeout_seconds=timeout_s))
+            seal = verified_seal(event(case_id, "verified_seal", timeout_seconds=timeout_s))
             if seal is None:
                 card["status"] = "engine_error"
                 card.pop("cleanup_error", None)
             else:
-                cleaned = DBOS.get_event(case_id, "seal_cleanup_complete", timeout_seconds=timeout_s) is True
+                cleaned = event(case_id, "seal_cleanup_complete", timeout_seconds=timeout_s) is True
                 card.update(status="sealed", stage="sealed", hard=seal["hard"], cleanup_error=not cleaned)
         if card is not None:
             cards.append(card)

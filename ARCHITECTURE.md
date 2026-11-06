@@ -64,6 +64,8 @@ Controller-local status clients enrich the public scorecard with read-only ledge
 and DBOS observations plus worker ownership journals. They never poll workers,
 decrypt artifacts, start recovery or change reservations. The formatted output
 distinguishes current attempts from historical results and reserved from spent funds.
+Status/report clients remain available while the controller is stopped; they read
+persisted cards via DBOSClient and show service liveness separately from workflow state.
 Plumbing bundles include their authenticated `bin/processes.py` runtime helper;
 factory imports and qualification use that release copy. Scientific bench files
 remain on the separately pinned worker image.

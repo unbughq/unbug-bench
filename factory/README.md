@@ -31,6 +31,9 @@ set its permissions to `600`:
 The profile contains connection arguments and paths, never credential contents or
 the controller configuration itself. `unbug --connection FILE status` selects another
 connection. On the controller, existing `--config` operator commands are unchanged.
+Status/report read persisted records even when the controller is stopped. The
+controller configuration may set `status_service_unit` for a custom service name;
+otherwise service-state checks use `unbug-durable.service`.
 
 ## Execution
 

@@ -147,7 +147,10 @@ def main(argv=None):
         if args["op"] == "run":
             serve(config)
             return 0
-        if args["op"] == "backup":
+        if args['op'] in ('status', 'report'):
+            from durable.observation import read_status
+            result = read_status(config, args['batch'])
+        elif args["op"] == "backup":
             result = backup(config, resume_after=args["resume_after"])
         elif args["op"] == "restore":
             result = restore(config, args["archive_file"], args["source_state"], quarantine=args["quarantine"])
@@ -170,9 +173,6 @@ def main(argv=None):
                 if not response["ok"]:
                     raise RuntimeErrorCode("batch_already_finished" if response.get("error") == "batch_already_finished" else "operator_request_failed")
                 result = response["result"]
-            if args['op'] in ('status', 'report'):
-                from durable.observation import observe
-                result = observe(config, result)
         print(json.dumps(result, sort_keys=True))
         return 0
     except Exception as error:

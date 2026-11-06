@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'factory'))
 from durable.contract import Usage
 from durable.ledger import SqlLedger
-from durable.observation import observe
+from durable.observation import observe, read_status
 from durable.report import render_status
 
 
@@ -52,7 +52,13 @@ class ObservationTests(unittest.TestCase):
             if kwargs.get('workflow_ids') == ['b-one']: return [self.batch]
             if kwargs.get('workflow_ids') == ['case-one']: return [self.case]
             return [self.active, self.finished]
-        client = SimpleNamespace(list_workflows=rows, destroy=lambda: None)
+        def event(workflow_id, key, **kwargs):
+            if key == 'cases': return ['case-one']
+            if key == 'card':
+                return dict(case_id='case-one', status='running', stage='admit', passed=['G1'],
+                            writer_rounds=0, extensions=0, replacement_of=None, reason=None)
+            return None
+        client = SimpleNamespace(list_workflows=rows, get_event=event, destroy=lambda: None)
         return patch('dbos.DBOSClient', return_value=client)
 
     def test_budget_latest_attempt_and_last_result_remain_distinct_and_read_only(self):
@@ -73,7 +79,7 @@ class ObservationTests(unittest.TestCase):
         self.assertNotIn('must not leave controller', json.dumps(result))
         text = render_status(result)
         for expected in ('BATCH BUDGET', '$10.00', '$3.00', 'Settled calls', 'G1=PASS',
-                         'newer attempt is in progress', 'historical', 'liveness is not polled'):
+                         'newer attempt is recorded', 'historical', 'liveness is not polled'):
             self.assertIn(expected, text)
 
     def test_missing_metadata_keeps_the_scorecard_and_reports_unavailable(self):
@@ -111,6 +117,18 @@ class ObservationTests(unittest.TestCase):
         self.active.input['args'][0]['input']['case_id'] = 'case-other'
         with self.client(): result = observe(self.config, self.card)
         self.assertIsNone(result['cases'][0]['operation']['latest_attempt'])
+
+    def test_status_survives_controller_shutdown_and_reports_the_service_failure(self):
+        import subprocess
+        result = subprocess.CompletedProcess([], 0, 'LoadState=loaded\nActiveState=failed\nResult=timeout\n', '')
+        with self.client(), patch('socket.socket', side_effect=AssertionError('no operator socket')), \
+             patch('durable.observation.subprocess.run', return_value=result):
+            card = read_status(self.config, 'b-one')
+        text = render_status(card)
+        self.assertIn('FAILED (timeout)', text)
+        self.assertIn('Controller is stopped', text)
+        self.assertEqual(card['observation']['budget']['spent'], 1_000_000)
+        self.assertEqual(self.before, self.ledger.rows())
 
 
 if __name__ == '__main__': unittest.main()
