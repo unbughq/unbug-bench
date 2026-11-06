@@ -117,6 +117,26 @@ def inspect_transcripts(directory):
     return report
 
 
+def answer_retry_state(state):
+    """Retained-answer progress, without bindings, paths, routes, answers or error text."""
+    if not isinstance(state, dict) or not isinstance(state.get('binding'), dict): return None
+    kind = state['binding'].get('kind')
+    if kind not in ('dedup', 'idea', 'panel', 'freshness', 'stress'): return None
+    attempts, routes = state.get('attempts'), state.get('spent_routes')
+    if not isinstance(attempts, list) or not isinstance(routes, list): return None
+    errors = {'schema validation failed': 'schema_invalid',
+              'repair changed scientific decision': 'decision_changed', 'duplicate JSON key': 'duplicate_key'}
+    rows = []
+    for row in attempts[-32:]:
+        if not isinstance(row, dict) or row.get('kind') not in ('judgment', 'repair') \
+                or row.get('phase') not in ('pending', 'completed', 'invalid'): continue
+        result = {'kind': row['kind'], 'phase': row['phase']}
+        if isinstance(row.get('validation_error'), str):
+            result['validation'] = errors.get(row['validation_error'], 'other')
+        rows.append(result)
+    return {'kind': kind, 'spent_routes': len(routes), 'attempts': rows}
+
+
 def inspect_snapshot(raw):
     report = {'schema': 1, 'receipts': [], 'error_hints': [], 'typed_error_count': 0, 'http_statuses': []}
     with tarfile.open(fileobj=io.BytesIO(raw), mode='r:*') as archive:
@@ -144,6 +164,13 @@ def inspect_snapshot(raw):
                 row['usage'] = _numbers(receipt.get('usage_delta') or {})
                 row['cap_used'] = _numbers(receipt.get('cap_used') or {})
                 report['receipts'].append(row)
+            elif re.fullmatch(r'ordinary-retries/[a-f0-9]{64}/state\.json', name):
+                if len(report.get('answer_retries', [])) >= 32: continue
+                try: state = answer_retry_state(json.load(archive.extractfile(member)))
+                except (ValueError, UnicodeError):
+                    report['answer_retry_state_invalid'] = True
+                    continue
+                if state is not None: report.setdefault('answer_retries', []).append(state)
             elif name.startswith('transcripts/'):
                 _scan_errors(report, archive.extractfile(member))
     return report

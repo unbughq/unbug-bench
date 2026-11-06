@@ -192,9 +192,26 @@ class RealStops(unittest.TestCase):
                              Classified(Outcome.INFRA_ERROR, "infra:deadline"))
         self.assertIn("infra:deadline", CONTRACT_REASONS)
 
-    RUNNER_FILES = ("budget.py", "model_router.py", "model_runtime.py", "model_call_gate.py", "run.py")
+    RUNNER_FILES = tuple(str(path.relative_to(ROOT / 'factory'))
+                         for path in sorted((ROOT / 'factory').rglob('*.py')))
     # Reviewed: what every BudgetError label raised in RUNNER_FILES classifies to.
     MAPPED = {
+        'case_changed_during_review': ("infra_error", 'infra:case_changed_during_review'),
+        'diagnosis_cleanup_failed': ("infra_error", 'infra:diagnosis_cleanup_failed'),
+        'diagnosis_input_invalid': ("infra_error", 'infra:diagnosis_input_invalid'),
+        'diagnosis_result_invalid': ("infra_error", 'infra:diagnosis_result_invalid'),
+        'diagnosis_schema_wait': ("infra_error", 'infra:diagnosis_schema_wait'),
+        'extension_snapshot_invalid': ("infra_error", 'infra:extension_snapshot_invalid'),
+        'factory_bug_held': ("infra_error", 'infra:factory_bug_held'),
+        'malformed_output_exhausted': ("infra_error", 'infra:malformed_output_exhausted'),
+        'ordinary_retry_completion_missing': ("infra_error", 'infra:retry_completion_missing'),
+        'ordinary_retry_output_changed': ("infra_error", 'infra:ordinary_retry_output_changed'),
+        'ordinary_retry_state_invalid': ("infra_error", 'infra:ordinary_retry_state_invalid'),
+        'owner_invalid_answer': ("infra_error", 'infra:owner_invalid_answer'),
+        'stress_category_output_changed': ("infra_error", 'infra:stress_category_output_changed'),
+        'stress_category_state_invalid': ("infra_error", 'infra:stress_category_state_invalid'),
+        'stress_publication_not_quiescent': ("infra_error", 'infra:stress_publication_not_quiescent'),
+        'stress_validation_exhausted': ("infra_error", 'infra:stress_validation_exhausted'),
         'admission_registry_unavailable': ("infra_error", 'admit:registry_unavailable'),
         'selection_board_unavailable': ("infra_error", 'admit:selection_board_unavailable'),
         'admission_dedup_unavailable': ("infra_error", 'admit:dedup_unavailable'),

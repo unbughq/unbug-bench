@@ -12,6 +12,44 @@ from durable.diagnostics import inspect_snapshot
 
 
 class Inspection(unittest.TestCase):
+    def test_retained_answer_failures_export_shape_and_progress_without_answers(self):
+        secret = 'PRIVATE RETAINED ANSWER SENTINEL'
+        state = {'binding': {'kind': 'dedup', 'inputs': secret}, 'spent_routes': [secret],
+                 'attempts': [{'kind': 'judgment', 'phase': 'invalid', 'output': secret,
+                               'validation_error': 'schema validation failed'},
+                              {'kind': 'repair', 'phase': 'invalid', 'validation_error': secret}]}
+        stream = io.BytesIO(); raw = json.dumps(state).encode()
+        with tarfile.open(fileobj=stream, mode='w:gz') as archive:
+            member = tarfile.TarInfo('ordinary-retries/'+'a'*64+'/state.json')
+            member.size = len(raw); archive.addfile(member, io.BytesIO(raw))
+        report = inspect_snapshot(stream.getvalue())
+        self.assertEqual(report['answer_retries'], [{'kind': 'dedup', 'spent_routes': 1, 'attempts': [
+            {'kind': 'judgment', 'phase': 'invalid', 'validation': 'schema_invalid'},
+            {'kind': 'repair', 'phase': 'invalid', 'validation': 'other'}]}])
+        self.assertNotIn(secret, json.dumps(report))
+
+    def test_corrupt_retained_answer_state_does_not_hide_other_evidence(self):
+        stream = io.BytesIO()
+        files = {'ordinary-retries/'+'a'*64+'/state.json': b'{broken',
+                 'continuation-budget.json': b'{"calls":7}'}
+        with tarfile.open(fileobj=stream, mode='w:gz') as archive:
+            for name, raw in files.items():
+                member = tarfile.TarInfo(name); member.size = len(raw)
+                archive.addfile(member, io.BytesIO(raw))
+        report = inspect_snapshot(stream.getvalue())
+        self.assertEqual(report['model_calls'], 7)
+        self.assertIs(report['answer_retry_state_invalid'], True)
+
+    def test_valid_transport_retry_state_is_not_a_broken_answer(self):
+        stream = io.BytesIO()
+        raw = b'{"version":1,"transport_failures":2,"last_error":"PRIVATE TRANSPORT SENTINEL"}'
+        with tarfile.open(fileobj=stream, mode='w:gz') as archive:
+            member = tarfile.TarInfo('ordinary-retries/'+'a'*64+'/state.json')
+            member.size = len(raw); archive.addfile(member, io.BytesIO(raw))
+        report = inspect_snapshot(stream.getvalue())
+        self.assertNotIn('answer_retry_state_invalid', report)
+        self.assertNotIn('PRIVATE TRANSPORT SENTINEL', json.dumps(report))
+
     def test_worker_publishes_safe_error_summary_without_manual_inspection(self):
         from durable.worker_step import diagnostic
         with tempfile.TemporaryDirectory() as temporary:
