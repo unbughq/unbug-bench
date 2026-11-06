@@ -428,9 +428,8 @@ def run(worker, step_input, keys):
                 if getattr(error, "provider_failure", None):
                     fields["retry_at"] = error.provider_failure.get("reset_at") or fields["retry_at"]
         if c is not None and before is not None:
-            if c.card.get('engine_provider_wait') is not None:
-                fields['diagnostic'] = seal(ArtifactKind.DIAGNOSTIC, case_key,
-                    worker_step.diagnostic(c, fields))
+            fields['diagnostic'] = seal(ArtifactKind.DIAGNOSTIC, case_key,
+                worker_step.diagnostic(c, fields))
             try: fields["snapshot"] = snapshot()
             except Exception: pass  # Usage is retained even if artifact publication failed.
         return StepResult(**fields, usage=usage), outputs

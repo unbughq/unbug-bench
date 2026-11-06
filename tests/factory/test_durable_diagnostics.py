@@ -27,6 +27,47 @@ class Inspection(unittest.TestCase):
             self.assertEqual(result['operational']['error_hints'], ['geo_unsupported'])
             self.assertNotIn('PRIVATE CASE SENTINEL', json.dumps(result))
 
+    def test_cleanup_failures_are_visible_without_paths_or_exception_messages(self):
+        from durable.worker_step import diagnostic
+        from durable.diagnostics import cleanup_errors
+        secret='PRIVATE PATH AND CASE SENTINEL'
+        card={'cleanup_errors':[{'stage':'model_scratch','error':'TimeoutExpired','path':secret},
+                                {'stage':'model_scratch','error':secret},{'stage':secret,'error':'OSError'}]}
+        with tempfile.TemporaryDirectory() as temporary:
+            work=Path(temporary)
+            result=json.loads(diagnostic(SimpleNamespace(work=work,card=card),{'reason':'router:preflight_failed'}))
+        self.assertEqual(result['operational']['cleanup_errors'],[{'stage':'model_scratch','error':'TimeoutExpired'}])
+        self.assertNotIn(secret,json.dumps(result))
+        for value in (None,secret,{}):self.assertEqual(cleanup_errors({'cleanup_errors':value}),[])
+        encoded=json.dumps(card).encode();data=io.BytesIO()
+        with tarfile.open(fileobj=data,mode='w:gz') as archive:
+            member=tarfile.TarInfo('scorecard.json');member.size=len(encoded);archive.addfile(member,io.BytesIO(encoded))
+        report=inspect_snapshot(data.getvalue())
+        self.assertEqual(report['cleanup_errors'],result['operational']['cleanup_errors'])
+        self.assertNotIn(secret,json.dumps(report))
+
+    def test_json_diagnostic_inspection_exports_only_allowlisted_metadata(self):
+        import base64
+        from unittest.mock import patch
+        from durable import diagnostics
+        secret='PRIVATE CASE AND TRACEBACK SENTINEL'
+        raw=json.dumps({'traceback':secret,'runner_log_tail':secret,'operational':{
+            'typed_error_count':1,'http_statuses':[400,True,200,999],
+            'error_hints':['request_invalid',secret],
+            'cleanup_errors':[{'stage':'model_scratch','error':'TimeoutExpired','message':secret}]}}).encode()
+        packet={'key':base64.b64encode(b'x'*32).decode(),'ref':{'digest':'a'*64,'kind':'diagnostic'},
+                'ciphertext':base64.b64encode(b'synthetic').decode()}
+        from durable.contract import ArtifactKind
+        packet['ref']['kind']=ArtifactKind.DIAGNOSTIC.value
+        output=io.StringIO()
+        with patch.object(sys,'stdin',io.StringIO(json.dumps(packet))),patch.object(sys,'stdout',output),              patch.object(diagnostics.AgeSealer,'open',return_value=raw):
+            self.assertEqual(diagnostics.main(),0)
+        result=json.loads(output.getvalue())
+        self.assertEqual(result['http_statuses'],[400])
+        self.assertEqual(result['error_hints'],['request_invalid'])
+        self.assertEqual(result['cleanup_errors'],[{'stage':'model_scratch','error':'TimeoutExpired'}])
+        self.assertNotIn(secret,output.getvalue())
+
     def test_driver_error_envelopes_exclude_ordinary_model_prose(self):
         from durable.diagnostics import _error_fields
         for event in [{'type': 'turn.failed', 'error': {'message': 'invalid api key'}},

@@ -289,6 +289,18 @@ class ModelRuntime:
             return model_call(c, models, cwd, name, invoke, text=text)
         return invoke()
 
+    def _remove_state(self, c, scratch, *, memory=False, user=None, allow_absent=False):
+        if memory:
+            # Cleanup must survive the model's cancellation and expired deadline.
+            import processes
+            cleanup = copy.copy(c)
+            cleanup.role_cancel = None
+            with processes.deadline(30, independent=True):
+                self.command(cleanup, ['sudo', 'umount', '--', str(scratch)], check=not allow_absent)
+                shutil.rmtree(scratch)
+        else:
+            self.cleanup(scratch, sudo=bool(user))
+
     def _call(self, c, models, text, cwd, name, user=None, timeout=None, deadline=None, before_attempt=None, lease=None):
         """One family, shared admission, preserved accounting across provider attempts."""
         try:
@@ -545,6 +557,7 @@ class ModelRuntime:
         if role == 'stress_tester':
             timeout = min(timeout or c.args.agent_timeout, attacker_timeout(c))
         effort = c.card.get('roles', {}).get(role, {}).get('effort', model_effort(model))
+        memory_scratch = False
         env, scratch = {k: v for k, v in {**os.environ, **getattr(c, "model_env", {})}.items()
                         if not k.startswith("FACTORY_ROUTER_")}, None
         env = diagnostic_env(c, name, role, env)
@@ -557,7 +570,21 @@ class ModelRuntime:
             if effort != 'default': cmd[2:2] = ['--variant', effort]
             if user: cmd = ["sudo", "--preserve-env", "-H", "-u", user] + cmd
             scratch = pathlib.Path(tempfile.mkdtemp(prefix='factory-tester-state-'))
-            if user: self.command(c, ['sudo', 'chown', '-R', f'{user}:{user}', scratch], check=True)
+            if getattr(c, 'engine', None) is not None and sys.platform == 'linux':
+                # Executable private tmpfs: OpenCode's cache includes native helpers.
+                try:
+                    self.command(c, ['sudo', 'mount', '-t', 'tmpfs', '-o',
+                        f'mode=0700,size=2g,nodev,nosuid,uid={os.getuid()},gid={os.getgid()}',
+                        'tmpfs', str(scratch)], check=True)
+                    memory_scratch = True
+                except Exception:
+                    self._remove_state(c, scratch, memory=True, allow_absent=True)
+                    raise BudgetError('containment_unavailable') from None
+            try:
+                if user: self.command(c, ['sudo', 'chown', '-R', f'{user}:{user}', scratch], check=True)
+            except BaseException:
+                self._remove_state(c, scratch, memory=memory_scratch, user=user)
+                raise
             if not diagnosis: env['OPENCODE_ENABLE_EXA'] = '1'
             env.update(XDG_CONFIG_HOME=str(scratch/'config'),
                        XDG_DATA_HOME=str(scratch/'data'), XDG_CACHE_HOME=str(scratch/'cache'))
@@ -671,7 +698,7 @@ class ModelRuntime:
             for stage, action in (
                     ('model_process', lambda: self.command(c, ["sudo", "pkill", "-KILL", "-u", user]) if user else None),
                     ('model_join', lambda: __import__('diagnosis_task')._quiet(pwd.getpwnam(user).pw_uid) if diagnosis else None),
-                    ('model_scratch', lambda: self.cleanup(scratch, sudo=bool(user)) if scratch else None)):
+                    ('model_scratch', lambda: self._remove_state(c, scratch, memory=memory_scratch, user=user) if scratch else None)):
                 try: action()
                 except Exception as error:
                     c.card.setdefault('cleanup_errors', []).append({'stage':stage, 'error':type(error).__name__})

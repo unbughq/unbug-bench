@@ -6,11 +6,12 @@ sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(Path(__file__).res
 import argparse
 import copy
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 from decimal import Decimal
 import json
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -59,6 +60,72 @@ class AttemptBudget(unittest.TestCase):
     def reserve(self, lease, *, operation=None):
         return budget.reserve_invocation(self.ledger, lease, model_runtime.invocation_maximum(self.c, lease),
             attempt=self.attempt, operation_id=operation or str(uuid.uuid4()), call_name='builder-1')
+
+    def test_ram_cleanup_survives_model_cancellation_and_expired_deadline(self):
+        import processes
+        import run
+        (self.root/'logs').mkdir()
+        for cancelled in (False,True):
+            scratch=self.root/('state-'+str(cancelled));scratch.mkdir()
+            (scratch/'private').write_text('synthetic')
+            token=threading.Event()
+            if cancelled:token.set()
+            self.c.role_cancel=token
+            def spawn(*args,**kwargs):
+                return SimpleNamespace(pid=99999999,returncode=0,stdin=None,stdout=None,stderr=None,
+                    communicate=lambda *a,**kw:('',None),poll=lambda:0,wait=lambda *a,**kw:0)
+            runtime=replace(self.runtime,command=run.sh)
+            with self.subTest(cancelled=cancelled),patch.object(run,'log'),                  patch.object(processes.subprocess,'Popen',side_effect=spawn) as popen,                  patch.dict(processes.os.environ,UNBUG_PROCESS_DEADLINE=str(time.monotonic()-1)):
+                with processes.deadline(.001):
+                    time.sleep(.01)
+                    runtime._remove_state(self.c,scratch,memory=True)
+                self.assertEqual(popen.call_args_list[0].args[0],['sudo','umount','--',str(scratch)])
+                self.assertFalse(scratch.exists())
+                self.assertIs(self.c.role_cancel,token)
+                self.assertEqual(token.is_set(),cancelled)
+
+    def test_durable_opencode_discards_ram_state_without_slow_disk_wiping(self):
+        paid='openrouter/minimax/minimax-m3.1-flash'
+        self.c.card['roles']['writer']['model']=paid
+        for failure in (None,'mount','umount'):
+            self.ledger.unlink(missing_ok=True)
+            self.c.card.pop('cleanup_errors',None)
+            self.c.card.pop('route_receipts',None)
+            scratch=[];commands=[]
+            slow=Mock(side_effect=subprocess.TimeoutExpired('shred',120))
+            def command(c,args,**kwargs):
+                commands.append(list(map(str,args)))
+                if args[1]==failure:raise subprocess.CalledProcessError(1,args)
+            runtime=replace(self.runtime,command=command,cleanup=slow)
+            @contextmanager
+            def gate_only(lease,env,cap,*args,**kwargs):
+                cap.update(closed=True,forwarded_requests=1,validated_requests=1,
+                           unknown_requests=0,in_flight_requests=0,settled_usd='0.000000000',held_usd='0.000000000')
+                yield threading.Event()
+            def run_cli(cmd,cwd,env,*args,**kwargs):
+                path=Path(env['XDG_CACHE_HOME']);path.mkdir(parents=True)
+                (path/'private-state').write_text('synthetic case data')
+                scratch.append(path.parent)
+                self.addCleanup(shutil.rmtree,path.parent,True)
+                kwargs['on_started']()
+                return subprocess.CompletedProcess(cmd,0)
+            with self.subTest(failure=failure),patch.object(model_runtime.sys,'platform','linux'),                  patch.object(model_runtime,'_opencode_flags',return_value=()),                  patch.object(model_runtime.model_call_gate,'enforce',gate_only),                  patch.object(model_runtime,'run_budgeted',side_effect=run_cli) as process:
+                if failure:
+                    label='containment_unavailable' if failure=='mount' else 'cleanup_failed'
+                    with self.assertRaisesRegex(budget.BudgetError,label):
+                        runtime.call(self.c,[paid],'synthetic',self.root,'builder-ram')
+                else:self.assertEqual(runtime.call(self.c,[paid],'synthetic',self.root,'builder-ram'),0)
+                if failure=='mount':process.assert_not_called()
+            slow.assert_not_called()
+            mount=next(args for args in commands if args[1]=='mount')
+            options=mount[mount.index('-o')+1]
+            self.assertIn('mode=0700',options);self.assertIn('nosuid',options);self.assertIn('nodev',options)
+            self.assertNotIn('noexec',options)
+            self.assertTrue(any(args[1]=='umount' for args in commands))
+            if failure=='umount':
+                self.assertTrue(scratch[0].exists())
+                self.assertIn({'stage':'model_scratch','error':'CalledProcessError'},self.c.card['cleanup_errors'])
+            elif scratch:self.assertFalse(scratch[0].exists())
 
     def test_funded_invocation_continues_past_the_live_small_profile_stop(self):
         self.attempt.ceiling_usd = Decimal('40.792858')

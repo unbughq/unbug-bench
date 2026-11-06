@@ -690,16 +690,19 @@ def usage_since(before, path, ceiling_micros):
 
 
 def diagnostic(c, out):
-    from durable.diagnostics import inspect_transcripts
+    from durable.diagnostics import inspect_transcripts, cleanup_errors
     """DIAGNOSTIC plaintext: the stop, its traceback and the tail of the runner log (sealed, never recorded)."""
     log = c.work / "logs" / "runner.log"
     try:
         tail = log.read_bytes()[-LOG_TAIL:].decode(errors="replace")
     except OSError:
         tail = ""
+    operational = inspect_transcripts(c.work / 'transcripts')
+    failures = cleanup_errors(c.card)
+    if failures: operational['cleanup_errors'] = failures
     return json.dumps({"stop": out.get("stop"), "reason": out.get("reason"),
                        "provider_wait": c.card.get('engine_provider_wait'),
-                       "operational": inspect_transcripts(c.work / 'transcripts'),
+                       "operational": operational,
                        "traceback": out.get("traceback"), "runner_log_tail": tail}, sort_keys=True).encode()
 
 

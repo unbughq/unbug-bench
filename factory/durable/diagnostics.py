@@ -14,7 +14,7 @@ import tarfile
 from decimal import Decimal, InvalidOperation
 
 from durable.artifacts import AgeSealer
-from durable.contract import Ref
+from durable.contract import Ref, ArtifactKind
 
 REASONS = {'quota', 'rate', 'credit', 'outage', 'credential_expiring', 'unbounded_route', 'router_unavailable'}
 STOPS = {'provider_wait', 'process_error', 'claude_error', 'codex_error', 'opencode_error',
@@ -82,6 +82,17 @@ def _numbers(value):
     return result
 
 
+def cleanup_errors(card):
+    """Fixed operational labels only; paths and exception messages stay sealed."""
+    stages={'model_scratch','model_process','model_join','model_containment','lease_finish'}
+    errors={'TimeoutExpired','TimeoutError','CalledProcessError','PermissionError','FileNotFoundError',
+            'OSError','RuntimeError','RouterUnavailable','BudgetError','containment_unavailable','cancellation_failed'}
+    rows=card.get('cleanup_errors',[]) if isinstance(card,dict) else []
+    if not isinstance(rows,list):return []
+    return [{'stage':row['stage'],'error':row['error']} for row in rows[:32]
+            if isinstance(row,dict) and row.get('stage') in stages and row.get('error') in errors]
+
+
 def _scan_errors(report, lines):
     for line in lines:
         try: event = json.loads(line)
@@ -121,6 +132,9 @@ def inspect_snapshot(raw):
                 failure = ledger.get('provider_failure') or {}
                 if failure.get('reason') in REASONS: report['provider_reason'] = failure['reason']
                 report['model_calls'] = ledger.get('calls') if type(ledger.get('calls')) is int else None
+            elif name == 'scorecard.json':
+                failures=cleanup_errors(json.load(archive.extractfile(member)))
+                if failures:report['cleanup_errors']=failures
             elif re.fullmatch(r'usage-receipts/[a-f0-9-]+\.json', name):
                 receipt = json.load(archive.extractfile(member))
                 row = {'final_usage_known': receipt.get('final_usage_known') is True}
@@ -135,12 +149,27 @@ def inspect_snapshot(raw):
     return report
 
 
+def inspect_diagnostic(raw):
+    value=json.loads(raw)
+    operational=value.get('operational') or {}
+    if not isinstance(operational,dict):operational={}
+    count=operational.get('typed_error_count')
+    report={'schema':1,'typed_error_count':count if type(count) is int and count>=0 else 0,
+            'http_statuses':sorted({s for s in operational.get('http_statuses',[]) if type(s) is int and 400<=s<=599}),
+            'error_hints':[h for h in operational.get('error_hints',[]) if isinstance(h,str) and h in HINTS]}
+    failures=cleanup_errors(operational)
+    if failures:report['cleanup_errors']=failures
+    return report
+
+
 def main():
     try:
         packet = json.load(sys.stdin)
-        raw = AgeSealer().open(base64.b64decode(packet['key'], validate=True), Ref(**packet['ref']),
+        ref=Ref(**packet['ref'])
+        raw = AgeSealer().open(base64.b64decode(packet['key'], validate=True), ref,
                               base64.b64decode(packet['ciphertext'], validate=True))
-        print(json.dumps(inspect_snapshot(raw), sort_keys=True))
+        report=inspect_diagnostic(raw) if ref.kind is ArtifactKind.DIAGNOSTIC else inspect_snapshot(raw)
+        print(json.dumps(report, sort_keys=True))
     except Exception:
         print('{"error":"diagnostic_inspection_failed"}')
         return 1

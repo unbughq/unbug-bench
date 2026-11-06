@@ -31,6 +31,9 @@ The benchmark resets its own Postgres/Redis stack for each trial. The checker us
 read-only database access. Parallel factory slots have separate Compose projects,
 volumes, ports and seed manifests. Model roles run with information walls between
 case internals, testers and contestant-visible material.
+Durable OpenCode calls put each role's private CLI state on an executable tmpfs.
+After process containment closes, cleanup unmounts that state instead of overwriting
+a potentially large disk cache. Failed cleanup remains an infrastructure failure.
 
 ## Invariants
 
