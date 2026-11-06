@@ -5,6 +5,7 @@ The HTTP 200 body is captured; no model CLI, cloud case or live web request runs
 """
 import copy
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import hashlib
 import json
 from pathlib import Path
@@ -45,6 +46,12 @@ class RetryTests(unittest.TestCase):
         runtime_fixture.RuntimeTests.setUp(self)
         self.patch(run, 'stress_categories', real_categories)
         self.patch(model_router, 'route_maximum', lambda route: {**synthetic_maximum(route), 'max_usd': .1})
+        # Each authored interruption retains its synthetic $0.10 uncertainty.
+        # Keep this control-flow fixture's quote bounded; real funded windows
+        # and unknown-usage holds are exercised in test_durable_call_budget.
+        quote = model_router.funded_maximum
+        self.patch(model_router, 'funded_maximum', lambda route, funding:
+                   quote(route, min(Decimal(str(funding)), Decimal('.1'))))
         self.c.stress_checkpoint = lambda: True
         self.calls = []
         self.context_inputs = {key: copy.deepcopy(value) for key, value in vars(self.c).items()
