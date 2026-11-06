@@ -284,6 +284,18 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(runtime.engine.send.call_count, 3)
         runtime.engine.reply.assert_called_once()
 
+    def test_operator_status_and_report_show_only_approved_fixed_reasons(self):
+        card = dict(case_id='case-one', status='waiting_for_release', stage='admit', passed=[],
+                    failed_gate=None, writer_rounds=0, extensions=0, replacement_of=None)
+        for op in ('status', 'report'):
+            for reason, expected in (('admit:registry_unavailable', 'admit:registry_unavailable'),
+                                     ('infra:private_error_sentinel', None), ('router:refusal', None)):
+                with self.subTest(op=op, reason=reason), \
+                        patch('durable.report.load_cards', return_value=[dict(card,reason=reason)]):
+                    report = dispatch(Mock(), dict(op=op,batch='b-offline'))
+                    self.assertEqual(report['cases'][0]['reason'], expected)
+                    self.assertNotIn('sentinel', json.dumps(report))
+
     def test_publish_writes_only_the_allowlisted_scorecard_once(self):
         objects = LocalObjects(self.root / "published")
         runtime = Mock(store=Mock(objects=objects))

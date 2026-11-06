@@ -62,10 +62,11 @@ def dispatch(runtime, request):
             raise RuntimeErrorCode("invalid_batch")
         return publish(runtime.store.objects, request["batch"], load_cards(request["batch"]), PUBLISHED_REASONS)
     if op in ("status", "report"):
+        from durable.classify import PUBLISHED_REASONS
         from durable.report import load_cards, scorecard
         if not BATCH_ID.fullmatch(request["batch"]):
             raise RuntimeErrorCode("invalid_batch")
-        return scorecard(request["batch"], load_cards(request["batch"]))
+        return scorecard(request["batch"], load_cards(request["batch"]), allowlist=PUBLISHED_REASONS)
     raise RuntimeErrorCode("unknown_operation")
 
 
