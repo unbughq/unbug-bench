@@ -539,10 +539,13 @@ def engine_main(workdir):
     from durable.executor import Executor
     from durable import report
     from durable.contract import BenchRelease, BoundRaised, FounderReply, PlumbingRelease, Topic
+    disabled_patches = set(scenario.get('disabled_patches', []))
     if scenario.get('legacy_admit_snapshot'):
+        disabled_patches.add('admit_checkpoint_input')
+    if disabled_patches:
         from dbos import DBOS
         original_patch = DBOS.patch
-        DBOS.patch = classmethod(lambda cls, name: False if name == 'admit_checkpoint_input' else original_patch(name))
+        DBOS.patch = classmethod(lambda cls, name: False if name in disabled_patches else original_patch(name))
     if scenario.get("release_step_failure"):
         from dbos import DBOS
 
@@ -625,6 +628,9 @@ def engine_main(workdir):
                     if not card or card.get("status") != when["status"]:
                         continue
                 done.add(i)
+                if act.get('delay_s'):
+                    stop.wait(act['delay_s'])
+                held = fakes['ledger'].snapshot()['batches'].get(spec.batch_id, {}).get('held')
                 if "reply" in act:
                     rep = act["reply"]
                     ruling = None
@@ -640,7 +646,7 @@ def engine_main(workdir):
                     engine.send(spec.batch_id, Topic.PLUMBING_RELEASE, PlumbingRelease(act["plumbing"]))
                 if "bench" in act:
                     engine.send(spec.batch_id, Topic.BENCH_RELEASE, BenchRelease(act["bench"]))
-                observed = {"i": i}
+                observed = {"i": i, "held": held}
                 if "case" in when:
                     observed.update(status=card.get("status"), reason=card.get("reason"))
                 fakes["worker"].f.append("actions.log", observed)

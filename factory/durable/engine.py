@@ -418,6 +418,7 @@ class _Case:
         self.writer_rounds_used = 0
         self.extensions_used = 0
         self.diagnoses_used = 0
+        self.factory_bug_resumes = 0
         self.in_extension = False
         self.round = 1
         self.evidence: list = []
@@ -442,6 +443,7 @@ class _Case:
                         step_deadline_stops=late,
                         writer_rounds_used=self.writer_rounds_used,
                         extensions_used=self.extensions_used, diagnoses_used=self.diagnoses_used,
+                        factory_bug_resumes=self.factory_bug_resumes,
                         in_extension=self.in_extension)
 
     def card(self) -> None:
@@ -488,6 +490,7 @@ class _Case:
         attempt, infra, limits, free, late, prev = 0, 0, 0, 0, 0, None
         pool_since = None
         requested_minimum = 0
+        failed_releases = []
         admit = step.kind is StepKind.ADMIT
         admission_started = False
         while True:
@@ -558,7 +561,8 @@ class _Case:
             if step.kind is StepKind.DIAGNOSIS and result.outcome is Outcome.OK:
                 return None, result
             action = decide(step, result, self.counters(infra, limits, free, late), self.spec, grant=grant, now=now)
-            if pool_wait and admit and not admission_started and pool_now >= self.spec.deadline_epoch:
+            admission_expired = pool_wait and admit and not admission_started and pool_now >= self.spec.deadline_epoch
+            if admission_expired:
                 action = Action.STOP_ADMISSION   # the batch deadline stops new cases
             if (action is Action.RETRY and is_money_stop(result)
                     and grant.limited_by is LimitedBy.NOTHING and not job["draws"]):
@@ -593,6 +597,16 @@ class _Case:
             if action is Action.WAIT_FOR_BOUND:
                 self.wait_for_bound()
                 continue
+            if (admit and not admission_expired and action is Action.STOP_ADMISSION and result.outcome is Outcome.INFRA_ERROR
+                    and DBOS.patch('admission_release_recovery')):
+                if self.factory_bug_resumes >= min(self.spec.max_factory_bug_resumes, 3):
+                    return Action.HOLD, result
+                # Use the release actually dispatched, including queued release changes.
+                failed_releases.append(out['input']['plumbing_version'])
+                self.wait_for_release(failed_releases)
+                self.factory_bug_resumes += 1
+                infra = 0
+                continue
             return action, result
 
     def absorb(self, step: Step, attempt: int, r: StepResult) -> None:
@@ -616,13 +630,24 @@ class _Case:
         DBOS.recv(WAKE, timeout_seconds=_RT.timing.wake_poll_s)
         self.status = "running"
 
+    def wait_for_release(self, failed_releases: list) -> None:
+        """Park without a worker, slot or hold; a previously failed release cannot retry."""
+        self.release_worker()
+        self.status = 'waiting_for_release'
+        self.card()
+        while self.current('plumbing') in failed_releases:
+            self.tell('waiting')
+            DBOS.recv(WAKE, timeout_seconds=_RT.timing.wake_poll_s)
+        self.status = 'running'
+        self.card()
+
     # -- the case --
 
     def run(self) -> None:
         action, r = self.run_seq(Step(StepKind.ADMIT))
-        if action is Action.STOP_ADMISSION:
+        if action in (Action.STOP_ADMISSION, Action.HOLD):
             self.tell("stop_admission")
-            self.finish("stopped_admission")
+            self.finish("held" if action is Action.HOLD else "stopped_admission")
         assert action is Action.ADVANCE, action
         self.card()
         phase, feedback, ruling = "writer", None, None
@@ -857,6 +882,8 @@ class _Batch:
                 try:
                     if topic is Topic.PLUMBING_RELEASE:
                         DBOS.set_event("plumbing", PlumbingRelease(**msg).plumbing_version)
+                        if DBOS.patch('admission_release_recovery'):
+                            self.wake_waiting()
                     elif topic is Topic.BENCH_RELEASE:
                         DBOS.set_event("bench", BenchRelease(**msg).bench_version)
                     else:

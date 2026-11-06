@@ -105,6 +105,15 @@ case snapshot under the same case key, retaining its ledger and completed model
 receipts while reading the current serialized registry. Contract version 6 relaxes
 only ADMIT's input snapshot restriction; other steps still require a snapshot.
 The engine guards the changed retry input with a DBOS patch for replay compatibility.
+An ADMIT infrastructure failure that exhausts its retries parks as
+`waiting_for_release`, without a worker, queue slot or outstanding grant. A different
+plumbing release resumes the same case and sequence from its snapshot and ledger;
+previously failed releases cannot resume it. Repair-release continuations are capped
+at three and by `max_factory_bug_resumes`, then the case is held. Candidate exhaustion
+still stops admission. A DBOS patch preserves historical terminal behavior; already
+completed workflows are not revived by deploying the new code. Original admission
+exceptions and chained tracebacks stay inside encrypted diagnostics. Snapshots survive
+a repair release; generic completion receipts remain bound to their original release.
 Optional `worker_credentials` configuration names an encrypted bundle, control
 identity, router client file and selected model accounts. The controller decrypts
 in memory and delivers only those accounts and router authority into worker RAM

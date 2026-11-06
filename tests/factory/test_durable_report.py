@@ -90,14 +90,18 @@ class FailedWorkflow(unittest.TestCase):
                 self.assertEqual(report.case_entry(dict(base, reason=reason), PUBLISHED_REASONS)["reason"], reason)
         self.assertIsNone(report.case_entry(dict(base, reason="infra:private_provider_text"), PUBLISHED_REASONS)["reason"])
 
-    def test_router_wait_is_visible_to_operator_and_cleanup_guard(self):
-        card={"case_id":"case-t-1","status":"waiting_for_router","stage":"admit","passed":[],
+    def test_router_and_release_waits_are_visible_to_operator_and_cleanup_guard(self):
+        for status in ('waiting_for_router', 'waiting_for_release'):
+            self.check_operational_wait(status)
+
+    def check_operational_wait(self, status):
+        card={"case_id":"case-t-1","status":status,"stage":"admit","passed":[],
               "failed_gate":None,"writer_rounds":0,"extensions":0,"replacement_of":None}
         public=report.scorecard("b-t",[card])
-        self.assertEqual(public["totals"],{"waiting_for_router":1})
-        self.assertEqual(public["cases"][0]["status"],"waiting_for_router")
+        self.assertEqual(public["totals"],{status:1})
+        self.assertEqual(public["cases"][0]["status"],status)
         self.assertEqual(public["sealed"],0)
-        self.assertIn("waiting_for_router",report.render_text(public))
+        self.assertIn(status,report.render_text(public))
 
     def test_credential_wait_is_public_with_a_fixed_reason(self):
         card = {"case_id": "case-t-1", "status": "waiting_for_credentials", "stage": "writer:1", "passed": [],

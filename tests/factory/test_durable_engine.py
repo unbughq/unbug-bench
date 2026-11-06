@@ -226,10 +226,10 @@ class Outcomes(unittest.TestCase):
 
     def test_a_lasting_create_outage_ends_at_the_wait_ceiling_then_the_infra_allowance(self):
         r, out = run({"pool_failures": 1000, "pool_reason": "infra:worker_create_failed",
-                      "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1, "max_factory_bug_resumes": 0},
                       "timing": {"pause_retry_s": 0.2, "pool_wait_ceiling_s": 5.0}}, timeout=60)
         self.addCleanup(r.close)
-        self.assertEqual(out["result"]["cases"], {C1: "stopped_admission"})
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
         reserves = [x["t"] for x in r.ledger_log() if x["op"] == "reserve" and "/admit/" in x["key"]]
         self.assertGreaterEqual(len(reserves), 4)   # waited attempts, then the allowance's two
         self.assertLess(reserves[-1] - reserves[0], 30)
@@ -604,6 +604,88 @@ class Money(unittest.TestCase):
 
 
 class Releases(unittest.TestCase):
+    def test_admission_infrastructure_failure_waits_for_fix_and_retains_state(self):
+        r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+            'script': {'1/admit/1': {'outcome': 'infra_error', 'reason': 'admit:registry_unavailable',
+                                    'paid': 12000, 'checkpoint': True}},
+            'actions': [{'when': {'case': 1, 'status': 'waiting_for_release'}, 'plumbing': '3'*64}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'sealed'})
+        first, retry = start(r, C1+'/1/admit/1'), start(r, C1+'/1/admit/2')
+        self.assertNotEqual(first['worker'], retry['worker'])
+        self.assertEqual(retry['pv'], '3333')
+        self.assertEqual(retry['opened']['snapshot'], 'snapshot '+C1+'/1/admit/1')
+        self.assertEqual(len(r.starts(1)), 6)
+        self.assertEqual(out['ledger']['batches']['b-t']['held'], 0)
+        self.assertGreaterEqual(out['ledger']['batches']['b-t']['waste'], 12000)
+        actions = [json.loads(line) for line in (r.work/'state/worker/actions.log').read_text().splitlines()]
+        self.assertEqual(actions[0]['status'], 'waiting_for_release')
+        self.assertEqual(actions[0]['reason'], 'admit:registry_unavailable')
+        self.assertEqual(actions[0]['held'], 0)
+
+    def test_repeated_or_unrelated_updates_do_not_retry_a_failed_release(self):
+        r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+            'script': {'1/admit/1': {'outcome': 'infra_error', 'reason': 'infra:unclassified_stop'}},
+            'actions': [
+                {'when': {'case': 1, 'status': 'waiting_for_release'}, 'plumbing': '1'*64,
+                 'bench': '4'*64, 'bound': 500_000_000},
+                {'when': {'case': 1, 'status': 'waiting_for_release'}, 'delay_s': 1, 'plumbing': '3'*64}]})
+        self.addCleanup(r.close)
+        actions = [json.loads(line) for line in (r.work/'state/worker/actions.log').read_text().splitlines()]
+        self.assertGreaterEqual(start(r, C1+'/1/admit/2')['t']-actions[0]['t'], .9)
+        self.assertEqual(out['result']['cases'], {C1: 'sealed'})
+        self.assertEqual(len([s for s in r.starts() if '/admit/' in s['key']]), 2)
+
+    def test_admission_repair_resumptions_are_capped_at_three(self):
+        r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0,
+                              'max_factory_bug_resumes': 9},
+            'script': {'1/admit/*': {'outcome': 'infra_error', 'reason': 'infra:unclassified_stop'}},
+            'actions': [{'when': {'case': 1, 'status': 'waiting_for_release',
+                                 'ran': f'{C1}/1/admit/{i}'}, 'plumbing': str(i+2)*64}
+                        for i in range(1, 4)]})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'held'})
+        self.assertEqual(steps(r, 1), ['admit']*4)
+        self.assertEqual(out['ledger']['batches']['b-t']['held'], 0)
+
+    def test_legacy_admission_failure_replay_keeps_terminal_behavior(self):
+        r, out = run({'disabled_patches': ['admission_release_recovery'],
+            'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+            'script': {'1/admit/1': {'outcome': 'infra_error', 'reason': 'infra:unclassified_stop'}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'stopped_admission'})
+
+    def test_fix_arriving_during_the_failed_attempt_is_used(self):
+        r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+            'script': {'1/admit/1': {'outcome': 'infra_error', 'reason': 'infra:unclassified_stop', 'dur': 1}},
+            'actions': [{'when': {'started': C1+'/1/admit/1'}, 'plumbing': '3'*64}]})
+        self.addCleanup(r.close)
+        self.assertEqual(start(r, C1+'/1/admit/2')['pv'], '3333')
+        self.assertEqual(out['result']['cases'], {C1: 'sealed'})
+
+    def test_control_restart_preserves_admission_release_wait(self):
+        r = EngineRun({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+            'script': {'1/admit/1': {'outcome': 'infra_error', 'reason': 'infra:unclassified_stop',
+                                   'checkpoint': True}},
+            'actions': [
+                {'when': {'case': 1, 'status': 'waiting_for_release'}, 'plumbing': '1'*64},
+                {'when': {'case': 1, 'status': 'waiting_for_release'}, 'delay_s': 2, 'plumbing': '3'*64}]})
+        self.addCleanup(r.close)
+        p = r.spawn()
+        try:
+            deadline = time.monotonic()+30
+            while not (r.work/'state/worker/actions.log').exists() and time.monotonic()<deadline:
+                time.sleep(.05)
+            self.assertTrue((r.work/'state/worker/actions.log').exists(), r.tail())
+            self.assertEqual(len(r.starts()), 1)
+            p.send_signal(signal.SIGKILL); p.wait()
+            out = r.run(timeout=60)
+        finally:
+            if p.poll() is None: p.kill(); p.wait()
+        self.assertEqual(out['result']['cases'], {C1: 'sealed'})
+        self.assertEqual(len([s for s in r.starts() if s['key']==C1+'/1/admit/1']), 1)
+        self.assertEqual(start(r, C1+'/1/admit/2')['opened']['snapshot'], 'snapshot '+C1+'/1/admit/1')
+
     def test_a_plumbing_release_reaches_a_step_waiting_in_the_queue(self):
         p3 = "3" * 64
         r, out = run({"spec": {"target_sealed": 2, "max_concurrency": 1},

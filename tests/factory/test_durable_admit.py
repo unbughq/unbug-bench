@@ -40,6 +40,21 @@ BATCH = "b-admit"
 
 
 class AdmitTests(unittest.TestCase):
+    def test_failure_cause_is_specific_and_original_traceback_stays_encrypted(self):
+        from durable.contract import to_record
+        error = budget.BudgetError('admission_registry_unavailable:private-error-sentinel')
+        value = self.real_inputs('unused'); value.pop('candidate')
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b'')
+        with patch.object(run, 'statement_precheck', side_effect=error):
+            result, outputs = self.run_admit(self.step(inputs, registry))
+        self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, 'admit:registry_unavailable'))
+        details = json.loads(self.output(result.diagnostic, outputs))
+        self.assertEqual(details['stop'], str(error))
+        self.assertIn('private-error-sentinel', details['traceback'])
+        self.assertNotIn('private-error-sentinel', json.dumps(to_record(result)))
+        self.assertTrue(all(b'private-error-sentinel' not in blob for blob in outputs.values()))
+
     def test_structured_wait_preserves_cause_reset_and_private_operational_receipt(self):
         from model_router import ProviderWait, Wait
         self.model_error = ProviderWait('writer', Wait('credential_expiring', self.worker.clock() + 120,

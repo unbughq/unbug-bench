@@ -195,6 +195,17 @@ class RealStops(unittest.TestCase):
     RUNNER_FILES = ("budget.py", "model_router.py", "model_runtime.py", "model_call_gate.py", "run.py")
     # Reviewed: what every BudgetError label raised in RUNNER_FILES classifies to.
     MAPPED = {
+        'admission_registry_unavailable': ("infra_error", 'admit:registry_unavailable'),
+        'selection_board_unavailable': ("infra_error", 'admit:selection_board_unavailable'),
+        'admission_dedup_unavailable': ("infra_error", 'admit:dedup_unavailable'),
+        'admission_dedup_invalid': ("infra_error", 'admit:dedup_invalid'),
+        'admission_idea_review_unavailable': ("infra_error", 'admit:idea_review_unavailable'),
+        'admission_idea_review_invalid': ("infra_error", 'admit:idea_review_invalid'),
+        'freshness_evidence_unavailable': ("infra_error", 'infra:freshness_evidence_unavailable'),
+        'freshness_review_unavailable': ("infra_error", 'infra:freshness_review_unavailable'),
+        'freshness_repair_state_invalid': ("infra_error", 'infra:freshness_repair_state_invalid'),
+        'freshness_statement_changed': ("infra_error", 'infra:freshness_statement_changed'),
+        'freshness_unresolved': ("infra_error", 'infra:freshness_unresolved'),
         "Invalid budget ledger; no process started": ("infra_error", "infra:ledger_error"),
         "budget_exhausted": ("exhausted", "writer:money"),
         "call_limit": ("exhausted", "writer:call_limit"),
@@ -252,19 +263,13 @@ class RealStops(unittest.TestCase):
         "zero_tokens": ("infra_error", "router:zero_tokens"),
     }
     # Reviewed: labels that stay infra:unclassified_stop (still INFRA_ERROR, never scored).
-    # The two bare wrappers only ever prefix a cause. The rest are run.py lifecycle stops
-    # (admission, freshness, extension, stress review, provider-wait records) that the
-    # engine replaces, or dispatch faults with no engine meaning.
+    # The two bare wrappers only prefix a cause. The rest are lifecycle stops
+    # replaced by Engine or dispatch faults with no specific engine meaning.
     UNCLASSIFIED_BY_DESIGN = {
         "Budget ledger stopped: ", "Budget stopped: ",
-        "admission_dedup_invalid", "admission_dedup_unavailable", "admission_idea_review_invalid",
-        "admission_idea_review_unavailable", "admission_registry_unavailable",
-
-        "freshness_evidence_unavailable", "freshness_public_match", "freshness_repair_state_invalid",
-        "freshness_review_unavailable", "freshness_statement_changed", "freshness_unresolved",
-
+        "freshness_public_match",
         "provider_wait_record_missing", "provider_wait_unsettled", "route_feature_unsupported",
-        "selection_board_unavailable", "stress_publication_configuration_missing",
+        "stress_publication_configuration_missing",
         "stress_review_unresolved:",
     }
 
