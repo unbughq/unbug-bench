@@ -25,6 +25,7 @@ HINTS = {'authentication': r'authentication|invalid api key|oauth token.*expired
          'context_limit': r'context.length|prompt.*too long',
          'spending_limit': r'max.budget|budget.*exceeded|spend.*limit',
          'request_invalid': r'invalid.request|unsupported.parameter|unrecognized.*field',
+         'geo_unsupported': r'inference_geo.*not supported.*organization',
          'connection_failure': r'connection refused|econnrefused|enotfound|fetch failed|connection reset',
          'server_failure': r'internal.server.error|service.unavailable|overloaded',
          'request_denied': r'forbidden|request.not.allowed|access.denied',

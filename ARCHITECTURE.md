@@ -115,6 +115,9 @@ waste line, not the case. Ordinary work draws on case and batch money; diagnosis
 extensions and post-diagnosis work draw only on the batch bound. Batch exhaustion
 waits without holding a concurrency slot. Zero-cost genuine provider limits wait
 without an attempt-count cutoff; they never retire a case merely for recurring.
+Claude OAuth requests omit the organization-dependent `inference_geo` parameter.
+Modern-model holds cover the 1.1x regional uplift; missing/unavailable response
+geography stays conservatively priced, while explicit global usage releases it.
 
 Poll transport failures do not prove a worker is absent. Cancel or establish that
 the old attempt is finished before starting another. Enforce release identity and

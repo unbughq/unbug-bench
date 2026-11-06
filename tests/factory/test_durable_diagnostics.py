@@ -19,11 +19,12 @@ class Inspection(unittest.TestCase):
             (work / 'transcripts').mkdir()
             (work / 'transcripts' / 'failed.jsonl').write_text(json.dumps({
                 'type': 'assistant', 'error': 'unknown', 'message': {'content': [
-                    {'type': 'text', 'text': 'API Error: 400 PRIVATE CASE SENTINEL'}]}}))
+                    {'type': 'text', 'text': 'API Error: 400 inference_geo is not supported for this organization type PRIVATE CASE SENTINEL'}]}}))
             result = json.loads(diagnostic(SimpleNamespace(work=work, card={}),
                                            {'reason': 'router:claude_error'}))
             self.assertEqual(result['operational']['http_statuses'], [400])
             self.assertEqual(result['operational']['typed_error_count'], 1)
+            self.assertEqual(result['operational']['error_hints'], ['geo_unsupported'])
             self.assertNotIn('PRIVATE CASE SENTINEL', json.dumps(result))
 
     def test_driver_error_envelopes_exclude_ordinary_model_prose(self):

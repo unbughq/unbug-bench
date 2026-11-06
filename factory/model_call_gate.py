@@ -95,7 +95,8 @@ def request_body(raw, route=GATED_CLAUDE):
     output = body.get('max_tokens')
     if type(output) is not int or not 0 <= output: raise ValueError('invalid output bound')
     body['max_tokens'] = min(output, profile['output'])
-    if profile['thinking'] is None: body['inference_geo'] = 'global'  # Override workspace defaults; forbidden geo must error.
+    # OAuth organizations may reject inference_geo. The allowance prices absent
+    # response geography at the regional ceiling rather than assuming global.
     body.pop('context_management', None)  # No server-side sampling/compaction.
     if 'thinking' in body:
         thinking = body['thinking']
@@ -254,12 +255,16 @@ class Usage:
         self.output, self.streaming = output, streaming
         self.buffer, self.body = b'', bytearray()
         self.counts, self.seen = {}, set()
+        self.geo = None
         self.started = self.stopped = 0
         self.terminal = False
         self.invalid = False
 
     def merge(self, usage):
         if not claude_standard_usage(usage): self.invalid = True; return
+        if 'inference_geo' in usage:
+            if self.geo is not None and self.geo != usage['inference_geo']: self.invalid = True
+            self.geo = usage['inference_geo']
         for key in CLAUDE_GATE_FIELDS:
             if key not in usage: continue
             value = usage[key]
@@ -328,7 +333,7 @@ class Usage:
                 or set(self.counts) != set(CLAUDE_GATE_FIELDS)
                 or sum(self.counts.get(k, 0) for k in CLAUDE_GATE_FIELDS[:3]) > self.profile['context']):
             return None
-        return self.counts
+        return self.counts | ({'inference_geo': self.geo} if self.geo is not None else {})
 
 
 OPENROUTER_FIELDS = {'model', 'messages', 'tools', 'tool_choice', 'stream', 'stream_options',

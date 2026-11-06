@@ -118,9 +118,9 @@ CLAUDE_GATE_FIELDS = ('input_tokens', 'cache_read_input_tokens',
 
 
 def claude_standard_usage(usage):
-    """Absent mode fields mean defaults; explicit unknown/premium modes do not."""
+    """Recognize standard-speed usage; unavailable geo receives a conservative gate charge."""
     return (isinstance(usage, dict) and usage.get('speed', 'standard') == 'standard'
-            and usage.get('inference_geo', 'global') == 'global')
+            and usage.get('inference_geo', 'global') in ('global', 'not_available'))
 
 
 def _claude_list_cost(model, usage):
@@ -132,9 +132,14 @@ def _claude_list_cost(model, usage):
 
 
 def claude_gate_cost(usage, route=GATED_CLAUDE):
-    """Same standard/global list tariff as partial CLI estimates; book nothing."""
+    """Bound OAuth usage even when the organization does not report geography."""
     profile = claude_profile(route)
-    return None if profile is None else _claude_list_cost(profile['model'], usage)
+    amount = None if profile is None else _claude_list_cost(profile['model'], usage)
+    # Without explicit global evidence, cover the documented 1.1x US uplift.
+    # Old models have no regional surcharge. This never widens the lease.
+    if amount is not None and profile['thinking'] is None and usage.get('inference_geo') != 'global':
+        amount *= Decimal('1.1')
+    return amount
 
 
 def claude_gate_maximum(route=GATED_CLAUDE):
