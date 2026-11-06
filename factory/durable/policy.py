@@ -80,9 +80,10 @@ class Counters:
                 _nonneg_int(getattr(self, f.name), f"Counters.{f.name}")
 
 
-def is_credential_problem(result: StepResult) -> bool:
+def is_operational_wait(result: StepResult) -> bool:
     return result.outcome is Outcome.INFRA_ERROR and result.reason in (
-        "router:credential_expiring", "infra:credentials_unavailable")
+        "router:credential_expiring", "infra:credentials_unavailable", "router:unbounded_route",
+        "infra:router_unavailable", "router:outage")
 
 
 def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, *,
@@ -103,7 +104,7 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
         if k is StepKind.STRESS and result.feedback is not None:
             return Action.REPAIR if rounds_left else give_up()
         return Action.ADVANCE
-    if is_credential_problem(result):
+    if is_operational_wait(result):
         return Action.RETRY
     if o is Outcome.PROVIDER_LIMIT:
         # A real capacity limit never turns into a case result. The ledger still

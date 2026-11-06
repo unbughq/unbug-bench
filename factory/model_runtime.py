@@ -309,9 +309,7 @@ class ModelRuntime:
                     # Earlier serial attempts contribute usage, not additional
                     # reset constraints: only the currently awaited alternative
                     # controls when this logical call can continue.
-                    error.previous_waits = [{**row, 'reason': error.wait.reason,
-                        'retry_after': error.wait.retry_after, 'route': error.wait.route,
-                        'account': error.wait.account} for row in prior_waits]
+                    error.previous_waits = [{**row, 'historical': True} for row in prior_waits]
                     raise
             if not model_router.valid_lease(lease, requested, getattr(context, 'router_accounts', model_router.ACCOUNTS)):
                 identity = getattr(lease, 'lease_id', None)
@@ -379,7 +377,13 @@ class ModelRuntime:
                               'outage' if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:') else None)
                     if reason: failure = {'reason': reason, 'model': lease.route, 'per_call': True}
                 if not failure: raise
+                from durable.classify import FAILURE_STOPS
+                if failure.get('source_stop') not in FAILURE_STOPS:
+                    failure = {k: v for k, v in failure.items() if k != 'source_stop'}
                 if failure.get('per_call'):
+                    stop = str(error).partition(':')[0]
+                    if 'source_stop' not in failure and stop in FAILURE_STOPS:
+                        failure = {**failure, 'source_stop': stop}
                     context.router_excluded = (*getattr(context, 'router_excluded', ()), lease.pool + '/' + lease.route)
                 context.router_condition_since = time.monotonic()
                 if failure.get('reason') == 'quota' and lease.route.startswith('claude/'):
@@ -413,7 +417,9 @@ class ModelRuntime:
                                 and context.model_cap_used['closed']
                                 and not context.model_cap_used['unknown_requests']
                                 and not context.model_cap_used['in_flight_requests']),
-                            'outcome': outcome})
+                            'outcome': outcome,
+                            'failure_reason': failure.get('reason') if failure and failure.get('reason') in model_router.REASONS else None,
+                            'source_stop': failure.get('source_stop') if failure else None})
                         # Process-start evidence first: accounting below may raise.
                         receipt_row.update(outcome=outcome, call_id=receipt)
                         if getattr(c, 'engine', None) is not None and lease.lease_id in after.get('invocation_reservations', {}):
@@ -455,7 +461,8 @@ class ModelRuntime:
                 evidence='interrupted', route=lease.route, account=lease.account,
                 lease_id=lease.lease_id, call_id=receipt)
             if invoked:
-                prior_waits.append({'role': role, **asdict(last_wait)})
+                prior_waits.append({'role': role, **asdict(last_wait),
+                                    **({'source_stop': failure['source_stop']} if failure.get('source_stop') else {})})
             if failure.get('shared_paid'):
                 # Financial refusal must not restart a CLI even before the
                 # general provider-wait rollout flag is enabled.

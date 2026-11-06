@@ -16,7 +16,7 @@ os.environ.setdefault("BENCH", str(ROOT))
 from durable.contract import (ArtifactKind as K, BatchSpec, ContractError, Grant, LimitedBy, Outcome, Ref, Step,
                               StepKind, StepResult, Usage, Verdict)
 from durable.policy import (BATCH_ONLY_FLOOR_USD_MICROS, GATES_DEADLINE_S, MIN_GRANT_USD_MICROS,
-                            Action, Counters, is_credential_problem, is_money_stop,
+                            Action, Counters, is_operational_wait, is_money_stop,
                             deadline_s, decide, decide_diagnosis, decide_grant, draws_case_money, is_pause, progressed,
                             request_usd_micros, settles_as_waste, settles_lost, starts_replacement)
 
@@ -122,7 +122,7 @@ class Decide(unittest.TestCase):
 
     def test_credential_problem_retries_without_becoming_a_case_outcome(self):
         result = StepResult(Outcome.INFRA_ERROR, "router:credential_expiring")
-        self.assertTrue(is_credential_problem(result))
+        self.assertTrue(is_operational_wait(result))
         for step in (GATES, DIAG, ADMIT):
             self.assertIs(d(step, result, step_infra_errors=1000, step_free_limits=1000), Action.RETRY)
 

@@ -656,13 +656,19 @@ class HookTests(unittest.TestCase):
 
     def test_provider_limit_reset_and_credential_fault_are_distinct(self):
         c, si = self.context()
-        for reason, expected in (("quota", "provider_wait"), ("credential_expiring", "credential_expiring")):
+        for reason, expected in (("quota", "router:quota"), ("credential_expiring", "router:credential_expiring")):
             reset = time.time() + 1234
             wait = model_router.ProviderWait("writer", model_router.Wait(reason, reset))
             with patch.object(run, "engine_writer_round", side_effect=wait):
                 result = run.run_step(c, si)
-            self.assertEqual(result["stop"], expected)
-            self.assertEqual(result["reset_at"], reset)
+            self.assertEqual(result["reason"], expected)
+            self.assertEqual(result["retry_at"], reset if reason == 'quota' else None)
+            self.assertEqual(c.card['engine_provider_wait']['waits'][-1]['retry_after'], reset)
+            worker = worker_step.Worker(self.root, sealer=AgeCliSealer())
+            wire, _ = worker.result(si, c, result, k.Usage(), worker.sealer(), b'k' * 32, classify, run)
+            self.assertEqual(wire.reason, expected)
+            self.assertEqual(wire.retry_at, result['retry_at'])
+            k.check_result_for(si.step, wire)
 
     def test_dry_run_writer_and_stress_never_invoke_models(self):
         c, si = self.context()

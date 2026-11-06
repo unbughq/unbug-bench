@@ -36,7 +36,7 @@ from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised
 from durable.classify import WORKER_POOL_REASONS
 from durable.executor import Executor, SeamError
 from durable.policy import (DEADLINE_REASON, POOL_WAIT_CEILING_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
-                            draws_case_money, is_batch_deadline_stop, is_credential_problem, is_money_stop, is_pause,
+                            draws_case_money, is_batch_deadline_stop, is_operational_wait, is_money_stop, is_pause,
                             progressed, request_usd_micros, starts_replacement)
 from durable.report import verified_seal
 
@@ -547,7 +547,7 @@ class _Case:
             late_stop = is_batch_deadline_stop(result, self.spec, now)
             if late_stop:
                 late += 1
-            elif result.outcome is Outcome.INFRA_ERROR and not (is_pause(result) or is_credential_problem(result) or pool_wait):
+            elif result.outcome is Outcome.INFRA_ERROR and not (is_pause(result) or is_operational_wait(result) or pool_wait):
                 infra += 1
             if result.outcome is Outcome.PROVIDER_LIMIT:
                 if result.usage.paid_usd_micros > 0:
@@ -564,8 +564,9 @@ class _Case:
                 # A later call may not fit even after earlier calls spent money.
                 # Grow only until the ledger applies the batch bound.
                 requested_minimum = min(2**63 - 1, max(job["request"] * 2, 1))
-            if is_credential_problem(result):
-                self.status = "waiting_for_credentials"
+            if is_operational_wait(result):
+                self.status = ("waiting_for_credentials" if result.reason in (
+                    "router:credential_expiring", "infra:credentials_unavailable") else "waiting_for_router")
                 self.card()
                 self.release_worker()
                 DBOS.sleep(max(0.001, _RT.timing.credential_retry_s))

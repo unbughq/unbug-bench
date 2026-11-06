@@ -10,6 +10,7 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import time
 import types
 import unittest
 import uuid
@@ -89,6 +90,10 @@ class DiagnosisTests(unittest.TestCase):
             role='reviewer', invocation_name='diagnosis-test', containment=False)
         if self.corrupt == 'raise': raise RuntimeError('private exception sentinel')
         if self.corrupt == 'provider': raise budget.BudgetError('provider_limit:codex/private')
+        if self.corrupt == 'structured_provider':
+            from model_router import ProviderWait, Wait
+            raise ProviderWait('reviewer', Wait('rate', time.time() + 120,
+                lease_id='b' * 32, call_id='usage-receipts/' + 'b' * 32 + '.json'))
         if self.corrupt == 'json': return b'{private invalid JSON'
         if self.corrupt == 'oversized': return b' ' * 65537
         result = dict(schema_version=1, case_id=c.case_id,
@@ -158,6 +163,14 @@ class DiagnosisTests(unittest.TestCase):
         result, _ = self.execute()
         self.assertEqual(result.outcome, k.Outcome.PROVIDER_LIMIT)
         self.assertIsNotNone(result.retry_at)
+
+    def test_structured_wait_retains_operational_diagnostic_and_usage(self):
+        self.corrupt = 'structured_provider'
+        result, outputs = self.execute()
+        self.assertEqual(result.reason, 'router:rate')
+        self.assertIsNotNone(result.retry_at)
+        details = json.loads(self.opened(result.diagnostic, outputs))
+        self.assertEqual(details['provider_wait']['waits'][-1]['lease_id'], 'b' * 32)
 
     def test_bad_key_cannot_open_evidence_or_snapshot(self):
         result, outputs = run(self.worker, self.si, {self.case: os.urandom(32)})

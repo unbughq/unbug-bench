@@ -593,6 +593,7 @@ class Worker:
         if "outcome" in out and stop is None:
             outcome = Outcome(out["outcome"])
             fields.update(outcome=outcome, reason=out["reason"])
+            if out.get('retry_at') is not None: fields['retry_at'] = out['retry_at']
             if out.get("gate") is not None: fields["gate"] = out["gate"]
             if out.get("repairable"): fields["repairable"] = True
             if out.get("feedback") is not None: fields["feedback"] = seal(ArtifactKind.WRITER_FEEDBACK, out["feedback"])
@@ -696,6 +697,7 @@ def diagnostic(c, out):
     except OSError:
         tail = ""
     return json.dumps({"stop": out.get("stop"), "reason": out.get("reason"),
+                       "provider_wait": c.card.get('engine_provider_wait'),
                        "traceback": out.get("traceback"), "runner_log_tail": tail}, sort_keys=True).encode()
 
 

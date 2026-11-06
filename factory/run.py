@@ -2330,6 +2330,22 @@ def engine_review_ruling(c, gate=None):
             + json.dumps(c.engine_ruling, sort_keys=True) + "\n")
 
 
+def engine_provider_wait(c, error, *, now):
+    from durable.classify import classify_wait
+    from token_prices import CODEX_PRICES
+    result, diagnostic = classify_wait(error, step=c.engine.kind, now=now,
+                                       prior=getattr(c, 'router_waits', ()))
+    route = error.wait.route
+    known = {r for chain in model_router.CHAINS for r in chain} | set(CODEX_PRICES)
+    if isinstance(route, str) and (model_router.route_maximum(route) is not None or route in known):
+        diagnostic['route'] = route
+    if error.wait.account in model_router.ACCOUNTS: diagnostic['account'] = error.wait.account
+    if error.role in {'writer', 'stress_tester', 'reviewer', 'reviewer2', 'strong_calibrator', 'easy_calibrator'}:
+        diagnostic['role'] = error.role
+    c.card['engine_provider_wait'] = diagnostic
+    return {'outcome': result.outcome, 'reason': result.reason, 'retry_at': result.retry_at}
+
+
 def invoke_diagnosis(c, *, model, prompt, inputs, output):
     from durable.diagnosis_invocation import invoke
     return invoke(sys.modules[__name__], c, model=model, prompt=prompt, inputs=inputs, output=output)
@@ -2349,6 +2365,7 @@ def context_for_step(step_input, work):
     if not isinstance(card, dict) or card.get("case") != c.case_id or type(card.get("seed")) is not int:
         raise ValueError("snapshot card does not belong to this case")
     c.card = card
+    c.card.pop('engine_provider_wait', None)  # Previous attempts retain their own diagnostic refs.
     if card.get("admission_binding") is not None:
         c.admission_binding = card["admission_binding"]
     a = argument_parser().parse_args(["--source", "port"])
@@ -2600,17 +2617,7 @@ def run_step(c, step_input, *, feedback=None, ruling=None):
         elif kind is StepKind.GATES: result = engine_gates(c)
         else: result = engine_seal(c)
     except model_router.ProviderWait as error:
-        waits = [*getattr(c, "router_waits", []), {"reason": error.wait.reason,
-                                                  "retry_after": error.wait.retry_after}]
-        reasons = {row.get("reason") for row in waits}
-        fault = next((reason for reason in ("credential_expiring", "unbounded_route", "router_unavailable")
-                      if reason in reasons), None)
-        valid = reasons <= model_router.REASONS
-        resets = [row.get("retry_after") for row in waits]
-        resets = [float(value) for value in resets if type(value) in (int, float)
-                  and 0 < value < float("inf")]
-        result = {"stop": fault or ("provider_wait" if valid else "router_unavailable"),
-                  "reset_at": max(resets) if resets else None}
+        result = engine_provider_wait(c, error, now=time.time())
     except (BudgetError, PauseRequested) as error:
         stop = "paused" if isinstance(error, PauseRequested) else str(error)
         log(c, "ENGINE STOPPED", stop)

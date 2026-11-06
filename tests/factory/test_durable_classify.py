@@ -72,6 +72,32 @@ def step_of(kind):
 
 
 class RealStops(unittest.TestCase):
+    def test_structured_waits_are_distinct_and_do_not_export_arbitrary_text(self):
+        from model_router import ProviderWait, Wait
+        expected = {'quota': (Outcome.PROVIDER_LIMIT, 'router:quota'),
+                    'rate': (Outcome.PROVIDER_LIMIT, 'router:rate'),
+                    'credit': (Outcome.PROVIDER_LIMIT, 'router:credit'),
+                    'credential_expiring': (Outcome.INFRA_ERROR, 'router:credential_expiring'),
+                    'unbounded_route': (Outcome.INFRA_ERROR, 'router:unbounded_route'),
+                    'outage': (Outcome.INFRA_ERROR, 'router:outage'),
+                    'router_unavailable': (Outcome.INFRA_ERROR, 'infra:router_unavailable')}
+        for cause, want in expected.items():
+            for step in StepKind:
+                error = ProviderWait('writer', Wait(cause, NOW + 120, route='private-prompt-sentinel',
+                                                    account='secret-token-sentinel'))
+                result, details = wp4.classify_wait(error, step=step, now=NOW)
+                self.assertEqual((result.outcome, result.reason), want)
+                self.assertNotIn('sentinel', json.dumps(details))
+                self.assertIn(result.reason, REASONS)
+                self.assertEqual(result.retry_at, NOW + 120 if result.outcome is Outcome.PROVIDER_LIMIT else None)
+        error = ProviderWait('writer', Wait('outage', NOW + 120))
+        error.previous_waits = [{'reason': 'outage', 'source_stop': 'process_error'}]
+        result, _ = wp4.classify_wait(error, step=StepKind.ADMIT, now=NOW)
+        self.assertEqual(result.reason, 'router:process_error')
+        error.wait = Wait('quota', NOW + 120)
+        result, _ = wp4.classify_wait(error, step=StepKind.ADMIT, now=NOW)
+        self.assertEqual(result.outcome, Outcome.PROVIDER_LIMIT)
+
     def test_corpus_is_the_fifty_real_cards(self):
         self.assertEqual(len(CARDS), 50)
         history = [s for src, s in STOPS if src == "history"]

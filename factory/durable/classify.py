@@ -43,6 +43,13 @@ _LIMIT_FAMILY = (("claude/", "router:claude_limit"), ("codex/", "router:codex_li
                  ("openrouter/", "router:openrouter_limit"))
 
 _P, _I, _E = Outcome.PROVIDER_LIMIT, Outcome.INFRA_ERROR, Outcome.EXHAUSTED
+_WAIT = {"quota": (_P, "router:quota"), "rate": (_P, "router:rate"),
+         "credit": (_P, "router:credit"), "outage": (_I, "router:outage"),
+         "credential_expiring": (_I, "router:credential_expiring"),
+         "unbounded_route": (_I, "router:unbounded_route"),
+         "router_unavailable": (_I, "infra:router_unavailable")}
+FAILURE_STOPS = frozenset({"process_error", "claude_error", "codex_error", "opencode_error",
+                           "refusal", "zero_tokens", "timeout", "stalled", "credential_expiring", "model_unavailable"})
 
 # Exact stop heads (the text before the first ":"), after the runner wrapper is removed.
 _FIXED = {
@@ -58,6 +65,7 @@ _FIXED = {
     "codex_error": (_I, "router:codex_error"),
     "claude_error": (_I, "router:claude_error"),
     "process_error": (_I, "router:process_error"),
+    "model_unavailable": (_I, "router:model_unavailable"),
     "zero_tokens": (_I, "router:zero_tokens"),
     "refusal": (_I, "router:refusal"),
     "provider_preflight_failed": (_I, "router:preflight_failed"),
@@ -114,6 +122,7 @@ _EXCEPTION = re.compile(r"[A-Z][A-Za-z0-9]*(Error|Exception|Exit|Interrupt)")
 UNCLASSIFIED = "infra:unclassified_stop"
 
 REASONS = frozenset({r for _, r in _FIXED.values()} | {r for _, r in _LIMIT_FAMILY}
+                    | {r for _, r in _WAIT.values()}
                     | {"router:provider_limit", "infra:usage_unknown", "infra:cli_version",
                        "infra:runner_exception", UNCLASSIFIED}
                     | {f"{stage}:{code}" for stage in _STEP_STAGE.values() for code in _CASE_LIMIT.values()})
@@ -191,6 +200,42 @@ def classify(stop, *, step, now: float, reset_at: Optional[float] = None) -> Cla
     if case_code is not None:
         reason = f"{_STEP_STAGE[kind]}:{case_code}"
     return Classified(outcome, reason, _retry_at(float(now), reset_at) if outcome is _P else None)
+
+
+def classify_wait(error, *, step, now, prior=()):
+    """Classify structured waits and return an allowlisted, content-free diagnostic.
+
+    Never copy exception text, prompts, URLs or arbitrary provider fields.
+    """
+    raw = [*prior, *getattr(error, 'previous_waits', ()), vars(error.wait)]
+    waits = []
+    for row in raw[-32:]:
+        if not isinstance(row, dict): continue
+        reason = row.get('reason')
+        record = {'reason': reason if isinstance(reason, str) and reason in _WAIT else 'unknown'}
+        if row.get('historical') is True: record['historical'] = True
+        value = row.get('retry_after')
+        if type(value) in (int, float) and math.isfinite(value) and 0 < value <= now + MAX_RESET_AHEAD_S:
+            record['retry_after'] = value
+        lease = row.get('lease_id')
+        if isinstance(lease, str) and re.fullmatch('[a-f0-9]{32}', lease): record['lease_id'] = lease
+        call = row.get('call_id')
+        if isinstance(call, str) and re.fullmatch(r'usage-receipts/[a-f0-9]{32}\.json', call): record['call_id'] = call
+        if isinstance(row.get('source_stop'), str) and row['source_stop'] in FAILURE_STOPS:
+            record['source_stop'] = row['source_stop']
+        if record not in waits: waits.append(record)
+    active = [row for row in waits if not row.get('historical')]
+    reasons = {row['reason'] for row in active}
+    fault = next((r for r in ('credential_expiring', 'unbounded_route', 'router_unavailable') if r in reasons), None)
+    original = next((row['source_stop'] for row in reversed(waits) if 'source_stop' in row), None)
+    reason = fault or waits[-1]['reason']
+    reset = max((r['retry_after'] for r in active if 'retry_after' in r), default=None)
+    if original and fault not in ('router_unavailable', 'unbounded_route') and reason not in ('quota', 'rate', 'credit'):
+        result = classify(original, step=step, now=now, reset_at=reset)
+    else:
+        outcome, code = _WAIT.get(reason, (_I, UNCLASSIFIED))
+        result = Classified(outcome, code, _retry_at(now, reset) if outcome is _P else None)
+    return result, {'schema': 1, 'waits': waits}
 
 
 __all__ = ["BACKOFF_S", "MAX_RESET_AHEAD_S", "REASONS", "CONTRACT_REASONS", "PUBLISHED_REASONS",

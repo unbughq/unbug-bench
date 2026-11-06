@@ -21,6 +21,37 @@ _ROUTING = offline_router()
 
 
 class ModelRuntimeTests(unittest.TestCase):
+    def test_model_not_found_keeps_configuration_cause_through_runtime_and_policy(self):
+        from budget import classify_provider_failure
+        from durable.classify import classify_wait
+        from durable.contract import StepKind, Step, StepResult, Outcome
+        from durable.policy import decide, Counters, Action, is_operational_wait
+        from test_durable_engine_fakes import make_spec
+        stack, _ = offline_router(); self.addCleanup(stack.close)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary); (root / 'transcripts').mkdir()
+            c = types.SimpleNamespace(work=root, case=root / 'case', card={}, model_env={},
+                router_accounts=('claude-factory-token-2',),
+                ledger=root / 'ledger.json', args=argparse.Namespace(agent_timeout=3,
+                max_cost=5, max_role_calls=10, max_total_calls=20,
+                no_progress_minutes=1, max_zero_tokens=3))
+            runtime = model_runtime.ModelRuntime(root, mock.Mock(), mock.Mock(), mock.Mock(), mock.Mock())
+            def unavailable(context, *args, **kwargs):
+                context.model_process_state['started'] = True
+                raise model_runtime.BudgetError('process_error', provider_failure=classify_provider_failure(
+                    'private provider text', 'claude/claude-opus-5-5', status_code=404))
+            with mock.patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=unavailable), \
+                 mock.patch.object(model_router, '_credential_ready', return_value=True):
+                with self.assertRaises(model_router.ProviderWait) as caught:
+                    runtime.call(c, ['claude/claude-opus-5-5'], 'private case prompt', root, 'builder-1')
+            classified, details = classify_wait(caught.exception, step=StepKind.ADMIT, now=1_792_400_000)
+            self.assertEqual(classified.reason, 'router:model_unavailable', details)
+            result = StepResult(classified.outcome, classified.reason)
+            self.assertFalse(is_operational_wait(result))
+            self.assertEqual(decide(Step(StepKind.ADMIT), result, Counters(step_infra_errors=2),
+                                   make_spec(max_infra_retries_per_step=1)), Action.STOP_ADMISSION)
+            self.assertNotIn('private', str(details))
+
     def test_containment_errors_stop_routing_and_reach_card(self):
         self.addCleanup(offline_router()[0].close)
         for label in ('containment_unavailable', 'cancellation_failed'):

@@ -148,10 +148,15 @@ def run(worker, step_input, keys):
         usage = account()
         fields = dict(outcome=Outcome.INFRA_ERROR, reason='diagnosis:processing_failed')
         if isinstance(error, BudgetError):
-            translated = runner.engine_stop(c, str(error)) if c is not None else None
+            from model_router import ProviderWait
+            translated = (runner.engine_provider_wait(c, error, now=worker.clock())
+                          if c is not None and isinstance(error, ProviderWait)
+                          else runner.engine_stop(c, str(error)) if c is not None else None)
             if translated is not None:
                 fields = translated
             else:
                 classified = worker.classifier()(str(error), step=StepKind.DIAGNOSIS, now=worker.clock())
                 fields = dict(outcome=classified.outcome, reason=classified.reason, retry_at=classified.retry_at)
+        if c is not None and c.card.get('engine_provider_wait') is not None:
+            fields['diagnostic'] = seal(ArtifactKind.DIAGNOSTIC, worker_step.diagnostic(c, fields))
         return StepResult(**fields, usage=usage), outputs

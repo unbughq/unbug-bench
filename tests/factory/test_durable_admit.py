@@ -40,6 +40,22 @@ BATCH = "b-admit"
 
 
 class AdmitTests(unittest.TestCase):
+    def test_structured_wait_preserves_cause_reset_and_private_operational_receipt(self):
+        from model_router import ProviderWait, Wait
+        self.model_error = ProviderWait('writer', Wait('credential_expiring', self.worker.clock() + 120,
+            route='claude/claude-opus-5-5:small', account='claude-factory-token-2',
+            lease_id='a' * 32, call_id='usage-receipts/' + 'a' * 32 + '.json'))
+        value = self.real_inputs('unused'); value.pop('candidate')
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b'')
+        result, outputs = self.run_admit(self.step(inputs, registry))
+        self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, 'router:credential_expiring'))
+        self.assertEqual(result.usage.paid_usd_micros, 750_000)
+        self.assertIsNotNone(result.diagnostic)
+        details = json.loads(self.worker.sealer().open(self.case_key, result.diagnostic,
+                          outputs[worker_step.blob_name(result.diagnostic)]))
+        self.assertEqual(details['provider_wait']['waits'][-1]['lease_id'], 'a' * 32)
+
     def test_legacy_registry_is_rewrapped_only_on_the_worker(self):
         from registry import Registry
         import worker_secrets
