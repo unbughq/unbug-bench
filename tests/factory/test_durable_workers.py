@@ -350,10 +350,11 @@ class ReleaseStoreTests(unittest.TestCase):
             for module in ("run", "run_artifacts", "worker_release"):
                 script = ("import pathlib,sys; sys.path.insert(0,sys.argv[1]); "
                           f"import {module}; " +
+                          "from worker_secrets import router_environment; assert router_environment(sys.argv[2]) == {}; " +
                           ("assert worker_release.output([sys.executable,'-I','-c',\"print('ready')\"]) == 'ready'; "
                            if module == "worker_release" else "") +
                           "import processes; print(pathlib.Path(processes.__file__).resolve())")
-                result = subprocess.run([sys.executable, "-I", "-B", "-c", script, str(release / "factory")],
+                result = subprocess.run([sys.executable, "-I", "-B", "-c", script, str(release / "factory"), str(home / "empty-ram")],
                                         cwd=home, env=env, text=True, capture_output=True, timeout=60)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout.strip(), str((release / "bin/processes.py").resolve()))

@@ -73,16 +73,6 @@ def pack(encoded, path, status=None, *, names=None):
     return base64.b64encode(output.getvalue())
 
 
-def worker_environment(directory):
-    """Router authority stays in the worker parent; model_runtime strips it from pilots."""
-    directory = Path(directory)
-    if not any((directory / name).exists() for name in NAMES):
-        return {}
-    url, token, _ = [(directory / name).read_text().strip() for name in NAMES]
-    return {'FACTORY_ROUTER_URL': url, 'FACTORY_ROUTER_TOKEN': token,
-            'FACTORY_ROUTER_CA_FILE': str(directory / NAMES[2])}
-
-
 def main():
     try:
         encoded = sys.stdin.buffer.read(LIMIT + 1)

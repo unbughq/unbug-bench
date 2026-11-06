@@ -53,7 +53,8 @@ class DeliveryTests(unittest.TestCase):
             with tarfile.open(fileobj=io.BytesIO(base64.b64decode(packed))) as tar:
                 self.assertEqual(set(tar.getnames()), {*names, *delivery.NAMES})
                 tar.extractall(ram, filter='data')
-            env = delivery.worker_environment(ram)
+            from worker_secrets import router_environment
+            env = router_environment(ram)
             self.assertEqual(env['FACTORY_ROUTER_TOKEN'], TOKEN)
             self.assertIn('paid', model_router.router_request(env['FACTORY_ROUTER_URL'],
                           env['FACTORY_ROUTER_TOKEN'], 'status', {}, ca_file=env['FACTORY_ROUTER_CA_FILE']))

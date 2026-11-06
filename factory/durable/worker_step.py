@@ -412,9 +412,8 @@ class Worker:
             os._exit(code)
 
     def supervise(self, step_input, keys):
-        from router_delivery import worker_environment
-        from worker_secrets import SECRETS
-        os.environ.update(worker_environment(SECRETS))
+        from worker_secrets import router_environment
+        os.environ.update(router_environment())
         key = step_input.idempotency_key
         deadline = time.monotonic() + step_input.deadline_s
         os.environ["UNBUG_DURABLE_DEADLINE_EPOCH"] = str(self.clock() + step_input.deadline_s)
