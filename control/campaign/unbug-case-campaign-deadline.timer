@@ -1,0 +1,9 @@
+[Unit]
+Description=Absolute case campaign stop
+[Timer]
+OnCalendar=2026-11-07 12:07:50 UTC
+Persistent=true
+AccuracySec=1
+Unit=unbug-case-campaign-cleanup.service
+[Install]
+WantedBy=timers.target

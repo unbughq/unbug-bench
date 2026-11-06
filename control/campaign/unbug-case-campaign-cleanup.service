@@ -1,0 +1,7 @@
+[Unit]
+Description=Stop bounded campaign and remove owned workers
+[Service]
+Type=oneshot
+ExecStartPre=-/usr/bin/systemctl stop --no-block unbug-durable-case-campaign.service
+ExecStart=/home/user/durable-qualification-20261105/venv/bin/python -B /home/user/durable-first-case-20261106/campaign_guard.py --cleanup
+TimeoutStartSec=300
