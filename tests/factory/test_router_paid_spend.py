@@ -1,4 +1,4 @@
-"""Real SQLite/gate execution, synthetic credit and usage; no provider calls."""
+"""Real SQLite/gate execution under a frozen historical tariff; no provider calls."""
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager
 from decimal import Decimal
@@ -19,6 +19,7 @@ import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'factory'))
 import model_router as router
 import model_call_gate as gate
+from router_test_support import historical_minimax_profile
 from token_prices import GATED_OPENROUTER
 
 MINIMAX = 'openrouter/minimax/minimax-m3.1-flash'
@@ -46,13 +47,15 @@ def authority(lease):
 
 
 def parallel_reserve(path, lease_id, barrier, results):
-    store = router.Store(path, credit_reader=lambda: Decimal('.46'))
-    barrier.wait()
-    results.put(store.rpc('paid_reserve', dict(lease_id=lease_id, request_id=uuid.uuid4().hex)))
+    with historical_minimax_profile():
+        store = router.Store(path, credit_reader=lambda: Decimal('.46'))
+        barrier.wait()
+        results.put(store.rpc('paid_reserve', dict(lease_id=lease_id, request_id=uuid.uuid4().hex)))
 
 
 class PaidTests(unittest.TestCase):
     def setUp(self):
+        historical = historical_minimax_profile(); historical.start(); self.addCleanup(historical.stop)
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / 'router.sqlite'
         self.now = [time.time()]
@@ -211,6 +214,7 @@ class PaidTests(unittest.TestCase):
 
 class PaidWireTests(unittest.TestCase):
     def setUp(self):
+        historical = historical_minimax_profile(); historical.start(); self.addCleanup(historical.stop)
         import test_model_call_maxima as core
         core.ProtocolTests.setUp(self)
 

@@ -810,8 +810,8 @@ class ProtocolTests(unittest.TestCase):
         # and accountant. Optional real local client process, never a provider CLI
         # or live worker. Protocol bytes and attempt grants are synthetic.
         paid = model == MINIMAX
-        maximum = Decimal('0.690001') if paid else CLAUDE_PROFILES[model]
-        hold = Decimal('0.23' if paid else '2.409600' if model.startswith(GATED_CLAUDE45) else '9.520896')
+        maximum = Decimal(str(router.route_maximum(model)['max_usd'])) if paid else CLAUDE_PROFILES[model]
+        hold = Decimal('0.4718592' if paid else '2.409600' if model.startswith(GATED_CLAUDE45) else '9.520896')
         provider = model.partition('/')[2] if paid else claude_profile(model)['model'].partition('/')[2]
         prefix=sse(dict(input_tokens=1,cache_read_input_tokens=0,
                         cache_creation_input_tokens=0,output_tokens=1),model=provider).split(b'\n\n')[0]+b'\n\n'

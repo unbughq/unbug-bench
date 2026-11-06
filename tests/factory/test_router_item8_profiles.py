@@ -22,6 +22,7 @@ import model_call_gate as gate
 import model_router as router
 import token_prices as prices
 import test_model_call_maxima as core
+from router_test_support import historical_minimax_profile
 
 FIXTURES = Path(__file__).with_name('fixtures')
 CLAUDE = 'claude/claude-opus-4-5-20251101'
@@ -33,6 +34,7 @@ def fixture(name):
 
 
 class ProfileTests(unittest.TestCase):
+    @historical_minimax_profile()
     def test_minimax_endpoint_contract(self):
         records = fixture('router-item8-minimax-availability.json.gz')
         paid, free = (r['response']['data'] for r in records)
@@ -56,6 +58,29 @@ class ProfileTests(unittest.TestCase):
         for route in ('opencode/minimax-m3.1-flash-free', 'openrouter/minimax/minimax-m3.1-flash:free'):
             self.assertIsNone(router.route_maximum(route))
         self.assertNotIn(MINIMAX, [r['route'] for r in router.routes('opencode/minimax-m3.1-flash-free')])
+
+    def test_current_minimax_official_endpoint_contract(self):
+        import hashlib
+        record=fixture('router-minimax-price-record.json.gz')
+        self.assertEqual(hashlib.sha256(record['raw_text'].encode()).hexdigest(),record['sha256'])
+        endpoint=next(e for e in json.loads(record['raw_text'])['data']['endpoints'] if e['tag']==record['endpoint'])
+        profile=prices.GATED_OPENROUTER[MINIMAX]
+        self.assertEqual(endpoint['tag'],profile['endpoint'])
+        self.assertEqual(endpoint['model_id'],'minimax/minimax-m3.1-flash')
+        self.assertEqual(tuple(Decimal(endpoint['pricing'][k])*1000000 for k in ('prompt','input_cache_read','completion')),
+                         tuple(map(Decimal,profile['prices'])))
+        self.assertEqual((endpoint['context_length'],endpoint['max_completion_tokens']),(profile['context'],profile['output']))
+        # Scheduled discounts never raise the pinned standard tariff.
+        for override in endpoint['pricing'].get('overrides',[]):
+            for field,ceiling in zip(('prompt','input_cache_read','completion'),profile['prices']):
+                self.assertLessEqual(Decimal(override[field])*1000000,Decimal(ceiling))
+        self.assertEqual(Decimal(endpoint['pricing'].get('input_cache_write','0')),0)
+        self.assertTrue({'max_tokens','tools','tool_choice'}<=set(endpoint['supported_parameters']))
+        maximum=router.route_maximum(MINIMAX)
+        self.assertEqual(maximum['max_usd'],1.4155786)
+        wire=gate.openrouter_body(json.dumps({'model':endpoint['model_id'],'messages':[{'role':'user','content':'synthetic'}]}),MINIMAX)
+        self.assertEqual(wire['provider']['only'],['minimax'])
+        self.assertEqual(wire['provider']['max_price'],dict(prompt=.15,completion=.6,request=0,image=0))
 
     def test_claude_public_contract_and_exact_aliases(self):
         sources = fixture('router-item8-source-evidence.json.gz')
@@ -146,7 +171,7 @@ class ProfileTests(unittest.TestCase):
         for _ in range(3):
             identity=state.reserve(32768); self.assertIsNotNone(identity); state.finish(identity,None)
         self.assertIsNone(state.reserve(32768)); state.close()
-        self.assertEqual(Decimal(state.snapshot()['held_usd']),Decimal('.69'))
+        self.assertEqual(Decimal(state.snapshot()['held_usd']),Decimal('1.4155776'))
 
     def test_saved_writer_counters_are_priced_under_new_alias_not_old_tariff(self):
         # Counter envelope only: these are Opus5.5 records, NOT Opus4.5 role evidence.
@@ -212,6 +237,7 @@ class WireTests(unittest.TestCase):
                     self.assertEqual(status,400);self.assertEqual(len(self.seen),before+2)
             self.assertTrue(cap['closed']);self.assertTrue(cap['exhausted'])
 
+    @historical_minimax_profile()
     def test_minimax_synthetic_wire_keeps_pin_and_unknowns(self):
         event=dict(id='synthetic-minimax',model='minimax/minimax-m3.1-flash',
             choices=[dict(index=0,finish_reason='stop')],

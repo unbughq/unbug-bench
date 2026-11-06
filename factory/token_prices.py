@@ -19,10 +19,10 @@ PAID_PRICES['opencode-go/muse-spark-1.3-contributor'] = PAID_PRICES['openrouter/
 # Output holds deliberately exceed the requested cap; reasoning mapping is not assumed.
 OPENROUTER_OUTPUT = 32768
 GATED_OPENROUTER = {
-    # Public endpoint contract: router-item8-minimax-availability.json.gz.
-    'openrouter/minimax/minimax-m3.1-flash': dict(endpoint='tenstorrent/fp8',
-        prices=('0.05', '0.005', '0.2'), context=1000000, output=900000, windows=3,
-        cache_write='0', source_date='2026-10-31'),
+    # Current official-provider contract: router-minimax-price-record.json.gz.
+    'openrouter/minimax/minimax-m3.1-flash': dict(endpoint='minimax',
+        prices=('0.15', '0.015', '0.6'), context=1048576, output=524288, windows=3,
+        cache_write='0', source_date='2026-11-06'),
     'openrouter/xiaomi/mimo-v2.6-pro': dict(endpoint='xiaomi/fp8',
         prices=('0.435', '0.0036', '0.87'), context=1048576, output=131072, windows=3, cache_write='0'),
     'openrouter/deepseek/deepseek-v4.1-flash': dict(endpoint='deepinfra/fp8',
