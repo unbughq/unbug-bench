@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timezone
 from typing import Iterable, Optional
 
 from durable.contract import CASE_ID, GATE, REASON, ArtifactKind, ContractError, Ref
@@ -133,6 +134,90 @@ def render_text(card: dict) -> str:
         lines.append(f"  {c['case']}: {c['status']} at {c['stage']}{why}{extra}; rounds {c['writer_rounds']}, "
                      f"extensions {c['extensions']}{rep}; {gates}")
     return "\n".join(lines) + "\n"
+
+
+def render_status(card: dict) -> str:
+    """Terminal view of recorded facts. Worker assignment is not a liveness probe."""
+    observation = card.get('observation')
+    if not isinstance(observation, dict):
+        return render_text(card)
+    def stamp(value):
+        if type(value) not in (int, float):
+            return 'unavailable'
+        try:
+            return datetime.fromtimestamp(value, timezone.utc).strftime('%d %b %Y %H:%M:%S UTC')
+        except (ValueError, OverflowError, OSError):
+            return 'unavailable'
+    def money(value):
+        return f'${value / 1_000_000:,.2f}' if type(value) is int and value >= 0 else 'unavailable'
+    def field(label, value):
+        return f'  {label:<17} {value}'
+    limits = observation.get('limits', {})
+    workflow = observation.get('workflow', {})
+    lines = ['UNBUG FACTORY', '=' * 76, field('Batch', card['batch']),
+             field('Observed', stamp(observation.get('at'))),
+             field('Workflow', workflow.get('status', 'unavailable')),
+             field('Started', stamp(workflow.get('created_at'))),
+             field('Sealed', f"{card['sealed']} / {card.get('target_sealed') or '?'}"),
+             field('Cases', f"{len(card['cases'])} / {limits.get('max_cases_started', '?')} tracked; "
+                   f"concurrency limit {limits.get('max_concurrency', '?')}"),
+             field('Admission cutoff', stamp(limits.get('deadline_epoch')))]
+    budget = observation.get('budget')
+    if budget:
+        lines += ['', 'BATCH BUDGET', '-' * 76,
+            field('Ceiling', money(budget.get('bound'))),
+            field('Settled spend', money(budget.get('spent'))),
+            field('Reserved', money(budget.get('held')) + '  (not yet spent)'),
+            field('Unreserved', money(budget.get('remaining'))),
+            field('Recorded waste', money(budget.get('waste')) + '  (included in settled spend)'),
+            field('Settled calls', budget.get('settled_calls', 'unavailable')),
+            field('Attempts', ', '.join(f'{n} {state}' for state, n in budget.get('attempts', {}).items()) or 'none'),
+            '  Active attempt usage is not included until it settles.']
+    else:
+        lines += ['', 'BATCH BUDGET: unavailable']
+    for case in card['cases']:
+        context = case.get('operation', {})
+        worker = context.get('worker', {})
+        active = context.get('latest_attempt') or {}
+        previous = context.get('last_result') or {}
+        lines += ['', case['case'], '-' * 76,
+            field('Status / stage', f"{case['status']} / {case['stage']}"),
+            field('Workflow', context.get('workflow', {}).get('status', 'unavailable')),
+            field('Workflow update', stamp(context.get('workflow', {}).get('updated_at'))),
+            field('Worker', f"{worker.get('id') or '-'} ({worker.get('state', 'unavailable')})"),
+            field('Writer rounds', case['writer_rounds']), field('Extensions', case['extensions']),
+            field('Gates', '  '.join(f'{g}={value.upper()}' for g, value in case['gates'].items()) or 'none reported')]
+        if case.get('reason'):
+            lines.append(field('Case reason', case['reason']))
+        if case.get('cleanup_error'):
+            lines.append(field('WARNING', 'Seal cleanup unconfirmed'))
+        if 'hard' in case:
+            lines.append(field('Hard case', 'yes' if case['hard'] else 'no'))
+        if case.get('replacement_of'):
+            lines.append(field('Replaces', case['replacement_of']))
+        if active:
+            lines += [field('Latest attempt', f"{active['seq']}/{active['step']}/{active['attempt']}  {active['status']}"),
+                      field('Attempt started', stamp(active.get('created_at')))]
+        if previous:
+            lines += [field('Last result', f"attempt {previous['attempt']}: {previous['outcome']}"
+                            + (f" ({previous['reason']})" if previous.get('reason') else '')),
+                      field('Result recorded', stamp(previous.get('updated_at'))),
+                      field('Checkpoint', 'saved' if previous.get('snapshot_saved') else 'not reported')]
+            if previous.get('retry_at') is not None:
+                pending = active.get('status') in ('PENDING', 'ENQUEUED')
+                lines.append(field('Previous retry' if pending else 'Recorded retry', stamp(previous['retry_at'])))
+                if pending:
+                    lines.append('  A newer attempt is in progress; the previous result is historical.')
+                elif (context.get('workflow', {}).get('status') in ('PENDING', 'ENQUEUED')
+                      and worker.get('state') == 'unassigned'):
+                    lines.append('  No attempt is active; the workflow is waiting or queued for retry.')
+        if context.get('unavailable'):
+            lines.append('  Attempt details unavailable.')
+    lines += ['', 'Worker state comes from the ownership journal; liveness is not polled.',
+              'Workflow timestamps describe records, not the latest model activity.']
+    if observation.get('unavailable'):
+        lines.append('Unavailable: ' + ', '.join(observation['unavailable']))
+    return '\n'.join(lines) + '\n'
 
 
 def load_cards(batch_id: str, *, timeout_s: float = 1.0) -> list:

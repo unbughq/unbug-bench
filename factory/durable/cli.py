@@ -170,6 +170,9 @@ def main(argv=None):
                 if not response["ok"]:
                     raise RuntimeErrorCode("batch_already_finished" if response.get("error") == "batch_already_finished" else "operator_request_failed")
                 result = response["result"]
+            if args['op'] in ('status', 'report'):
+                from durable.observation import observe
+                result = observe(config, result)
         print(json.dumps(result, sort_keys=True))
         return 0
     except Exception as error:

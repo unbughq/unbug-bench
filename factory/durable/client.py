@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 from durable.contract import BATCH_ID
-from durable.report import render_text
+from durable.report import render_status
 
 
 def connection(path):
@@ -76,7 +76,7 @@ def main(argv=None):
         card = json.loads(result.stdout)
         if card['batch'] != batch:
             raise ValueError('wrong batch')
-        text = render_text(card)
+        text = render_status(card)
     except (ValueError, KeyError, TypeError):
         print('Controller returned an invalid status response. Check the remote CLI configuration.', file=sys.stderr)
         return 1

@@ -60,6 +60,10 @@ Boat worker pool/channel, worker-side steps, SQL ledger and wrapped-key service.
 `client.py` reads that operator's public status/report over SSH using a saved local
 connection and default batch. `bin/install-unbug` packages a standalone read-only
 client with Python's standard library; it neither imports DBOS nor starts recovery.
+Controller-local status clients enrich the public scorecard with read-only ledger
+and DBOS observations plus worker ownership journals. They never poll workers,
+decrypt artifacts, start recovery or change reservations. The formatted output
+distinguishes current attempts from historical results and reserved from spent funds.
 Plumbing bundles include their authenticated `bin/processes.py` runtime helper;
 factory imports and qualification use that release copy. Scientific bench files
 remain on the separately pinned worker image.

@@ -61,6 +61,9 @@ unbug report --json             # machine-readable scorecard
 The client reads `~/.config/unbug/client.json`; see
 [factory/README.md](factory/README.md#operator-client) for its format. These commands
 read the controller's stage, status, gates and sealed count without launching work.
+The formatted view also shows recorded attempt state, worker assignments, batch
+spending/reservations and settled call counts. In-flight usage is not a settled charge;
+worker assignment does not prove liveness. `--json` retains exact micro-dollar values.
 
 ## Benchmark rules
 
