@@ -24,6 +24,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "factory"), str(ROOT / "bin")]
@@ -409,6 +410,16 @@ class PoolTests(unittest.TestCase):
 
     def acquire(self, pool, plumbing=None, bench=None, case=CASE):
         return pool.acquire(case, plumbing or self.h.plumbing, bench or self.bench)
+
+    def test_a_receipt_written_as_root_goes_to_the_controller_user(self):
+        pool = self.h.pool()
+        pool.state.mkdir(parents=True, exist_ok=True)
+        owner = pool.state.stat()
+        chowned = []
+        with mock.patch.object(W.os, "geteuid", return_value=0), \
+                mock.patch.object(W.os, "chown", side_effect=lambda p, u, g: chowned.append((Path(p).name, u, g))):
+            pool._receipt("bx_abcdefgh", "intent.json", {"worker": "bx_abcdefgh"})
+        self.assertEqual(chowned, [(n, owner.st_uid, owner.st_gid) for n in ("deletions", "bx_abcdefgh", "intent.json")])
 
     def test_worker_ids_map_both_ways(self):
         for real in REAL_IDS:

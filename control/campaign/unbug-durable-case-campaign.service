@@ -1,16 +1,18 @@
 [Unit]
-Description=One bounded durable case campaign, pinned 49034edc
+Description=One bounded durable case campaign
 After=network-online.target postgresql.service unbug-model-router.service
-Requires=unbug-model-router.service
+Wants=unbug-model-router.service
+StartLimitIntervalSec=0
 [Service]
 Type=simple
 User=user
 WorkingDirectory=/home/user/durable-first-case-20261106
 Environment=HOME=/home/user
 Environment=BOAT_CMD=/usr/local/bin/boat
-ExecStart=/home/user/durable-qualification-20261105/venv/bin/python -B /home/user/durable-first-case-20261106/campaign_controller.py --config /home/user/durable-first-case-20261106/config.json run
-Restart=on-failure
-RestartSec=5
+Environment=UNBUG_CAMPAIGN_ROOT=/home/user/durable-first-case-20261106
+ExecStart=/home/user/durable-qualification-20261105/venv/bin/python -B /home/user/durable-first-case-20261106/source-current/control/campaign/campaign_controller.py --config /home/user/durable-first-case-20261106/config.json run
+Restart=always
+RestartSec=15
 RuntimeMaxSec=86400
 TimeoutStopSec=90
 KillMode=control-group

@@ -775,7 +775,12 @@ class BoatPool:
             self._receipt(worker, "deletion-completion.json", {"worker": worker, "absent": True})
 
     def _receipt(self, worker: str, name: str, value):
-        _atomic_json(self.state / "deletions" / worker / name, value)
+        path = self.state / "deletions" / worker / name
+        _atomic_json(path, value)
+        if os.geteuid() == 0:   # a receipt written as root must stay readable by the controller
+            owner = self.state.stat()
+            for part in (path.parent.parent, path.parent, path):
+                os.chown(part, owner.st_uid, owner.st_gid)
 
     @staticmethod
     def _operation(raw: bytes, worker: str, op_id: str | None = None) -> dict:
