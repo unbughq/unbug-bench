@@ -3,6 +3,7 @@ from pathlib import Path
 root=Path(os.environ.get('UNBUG_CAMPAIGN_ROOT',Path(__file__).parent))
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'factory'))
 from durable import cli
+from durable.guard import CHECKPOINT_GRACE_S
 from durable.runtime import Runtime
 from durable.workers import PoolError,_atomic_json
 
@@ -33,6 +34,7 @@ class BoundedRuntime(Runtime):
    request=json.loads((root/'campaign-request.json').read_text())
    remaining=request['deadline_epoch']-time.time()
    if remaining<1:raise PoolError('infra:campaign_deadline')
+   remaining+=float(os.environ.get('UNBUG_CHECKPOINT_GRACE_S',CHECKPOINT_GRACE_S))
    with open(self.state/'campaign-create.lock','a') as lock:
     fcntl.flock(lock,fcntl.LOCK_EX)
     marker=self.state/'campaign-create-count.json'

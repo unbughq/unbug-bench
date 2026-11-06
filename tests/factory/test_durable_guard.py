@@ -245,7 +245,7 @@ class GuardTests(unittest.TestCase):
         self.f.calls.clear()
         out = self.tick()   # stays stopped; renewal never resumes
         self.assertEqual(out["hard_stop"], reason)
-        self.assertEqual(self.f.calls, [])
+        self.assertEqual(self.f.calls, [["list", "--json"]])
         self.assertEqual(self.f.stopped, 1)
 
     def test_money_ceiling_is_a_hard_stop(self):
@@ -315,6 +315,33 @@ class GuardTests(unittest.TestCase):
         self.f.active = "failed"
         self.assertEqual(self.tick()["phase"], "stopped")
         self.assertEqual(self.f.deletes(), ["bx_aaaaaaaa"])
+
+    def test_a_hard_stop_holds_when_the_controller_comes_back(self):
+        """A reboot restarts the unit. It must not run on unwatched, with new work open."""
+        self.f.money = {"spent": 3, "bound": 2}
+        self.tick()
+        self.f.active = "active"
+        self.f.rows = ["bx_cccccccc"]
+        self.f.deleted.clear()
+        out = self.tick()
+        self.assertEqual((out["phase"], self.f.stopped, self.f.deleted), ("stopped", 2, ["bx_cccccccc"]))
+
+    def test_a_failed_controller_stop_or_inventory_keeps_the_stop_going(self):
+        self.f.money = {"spent": 3, "bound": 2}
+        real, fails = self.f.stop, [3]
+        def flaky():
+            if fails[0]:
+                fails[0] -= 1
+                raise OSError()
+            real()
+        self.f.stop = flaky
+        self.assertEqual(self.tick()["phase"], "stopping")
+        self.assertEqual(self.f.deleted, [])
+        self.f.boat_failures["list"] = 3
+        self.assertEqual(self.tick()["phase"], "stopping")
+        self.assertEqual(self.f.deleted, [])
+        self.assertEqual(self.tick()["phase"], "stopped")
+        self.assertEqual(self.f.deleted, ["bx_aaaaaaaa"])
 
     def test_a_failed_stop_or_delete_is_retried(self):
         self.f.money = {"spent": 3, "bound": 2}

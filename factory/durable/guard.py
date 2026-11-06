@@ -94,11 +94,13 @@ class Guard:
             return default
 
     def save(self, name: str, value) -> None:
-        _atomic_json(self.path(name), value)
+        owner = None
         if os.geteuid() == 0:   # the guard is root; the controller and `unbug status` are not
-            owner = self.directory.parent.stat()
-            os.chown(self.directory, owner.st_uid, owner.st_gid)
-            os.chown(self.path(name), owner.st_uid, owner.st_gid)
+            self.directory.mkdir(exist_ok=True)
+            info = self.directory.parent.stat()
+            owner = (info.st_uid, info.st_gid)
+            os.chown(self.directory, *owner)
+        _atomic_json(self.path(name), value, owner=owner)
 
     # -- checks --
 
@@ -176,8 +178,7 @@ class Guard:
         health = {"at": now, "phase": "healthy", "degraded_since": status.get("degraded_since"),
                   "down_since": status.get("down_since"), "hard_stop": status.get("hard_stop"),
                   "finished": status.get("finished", False), "failed_checks": [], "owned_workers": None,
-                  "stopping_since": status.get("stopping_since"), "controller_stopped": status.get("controller_stopped", False),
-                  "workers_cleared": status.get("workers_cleared", False)}
+                  "stopping_since": status.get("stopping_since"), "controller_stopped": status.get("controller_stopped", False)}
         ok, service = self.check("service_state", self.service.state)
         active, active_since, ready_since = service if ok else ("unknown", None, None)
         if health["finished"]:
@@ -247,22 +248,23 @@ class Guard:
         return not ok or running > 0
 
     def _wind_down(self, health: dict, status: dict, active: str) -> dict:
-        """A hard stop, one step a pass: wait for steps in flight, stop, delete the workers."""
+        """A hard stop, one step a pass: wait for steps in flight, stop, delete the workers. It
+        holds until an operator clears it: every pass stops a controller that came back (a
+        reboot) and deletes a worker that landed late."""
         health["stopping_since"] = health["stopping_since"] or self.clock()
         health["phase"] = "stopping"
-        if not health["controller_stopped"]:
-            if self._recording(health, active):
-                return self._finish(health, status)
+        if not health["controller_stopped"] and self._recording(health, active):
+            return self._finish(health, status)
+        if not health["controller_stopped"] or active == "active":
             health["controller_stopped"], _ = self.check("controller_stop", self.service.stop)
-        if health["controller_stopped"] and not health["workers_cleared"]:
+        if health["controller_stopped"]:
             ok, owned = self.check("boat_list", lambda: [r for r in self._inventory() if self.ours(r)])
             if ok:
                 for row in owned:
                     self.check("worker_delete", lambda: self.delete(row["id"]))
                 health["owned_workers"] = len(owned)
-                health["workers_cleared"] = "worker_delete" not in self.failed
-        if health["workers_cleared"]:
-            health["phase"] = "stopped"
+                if "worker_delete" not in self.failed:
+                    health["phase"] = "stopped"
         return self._finish(health, status)
 
     def _finish(self, health: dict, previous: dict) -> dict:

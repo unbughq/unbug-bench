@@ -200,12 +200,14 @@ def _first_wins(path: Path, data: bytes) -> bool:
         os.unlink(tmp)
 
 
-def _atomic_json(path: Path, value):
+def _atomic_json(path: Path, value, owner: tuple | None = None):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")
     try:
         with os.fdopen(fd, "w") as stream:
             json.dump(value, stream, sort_keys=True); stream.flush(); os.fsync(stream.fileno())
+        if owner is not None:   # before it appears, so no reader meets a file it cannot open
+            os.chown(tmp, *owner)
         os.replace(tmp, path)
         _fsync_dir(path.parent)
     finally:

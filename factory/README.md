@@ -22,8 +22,9 @@ the money ceiling and a confirmed Boat allowance or rate breach are hard stops.
 A hard stop pauses new attempts and gives steps in flight a checkpoint grace to record (10
 minutes; set `UNBUG_CHECKPOINT_GRACE_S` in `/etc/unbug/alerts.env`). The guard then stops the
 controller and deletes the workers, at once if nothing is in flight. Unrecorded work becomes an
-ordinary retry and is never scored. To resume, fix the cause, delete
-`<state_dir>/guard/status.json` and start the controller.
+ordinary retry and is never scored. A hard stop holds, even across a reboot. To resume, delete
+`<state_dir>/guard/status.json`, then start the controller. After a money stop, raise the bound
+within two minutes of starting it, before the guard's grace period ends.
 
 `unbug status` shows guard health, recent failures and every `NEEDS YOU` line. To also get
 each alert as a message, put `UNBUG_ALERT_WEBHOOK=<url>` in `/etc/unbug/alerts.env`, mode 600.
