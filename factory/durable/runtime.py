@@ -26,6 +26,7 @@ import threading
 
 from durable.artifacts import AgeSealer, LocalObjects, R2Objects, SealedStore, check_scope
 from durable.contract import ArtifactKind, Ref, assert_no_conductor, batch_spec_from_record
+from durable.guard import degraded as guard_degraded
 from durable.keys import AgeKeyService
 from durable.ledger import SqlLedger
 from durable.workers import BoatPool, PoolError, ReleaseStore, LABEL_CASE, LABEL_INTENT, _atomic_json, ownership_hash
@@ -156,7 +157,8 @@ class Runtime:
                 self.pool.credential_bundle = self.worker_credentials
             self.channel = BoatChannel(self.store, keys=self.keys, sealer=self.sealer, output_retry_s=retry)
             self.executor = Executor(self.pool, self.channel, self.ledger, self.store, self.sealer, self.keys)
-            self.engine = Engine(system_database_url=config["database_url"], executor=self.executor)
+            self.engine = Engine(system_database_url=config["database_url"], executor=self.executor,
+                                 admission_paused=lambda: guard_degraded(self.state))
         except Exception:
             self.close()
             raise

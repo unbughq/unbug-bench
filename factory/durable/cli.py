@@ -61,6 +61,10 @@ def dispatch(runtime, request):
         if not BATCH_ID.fullmatch(request["batch"]):
             raise RuntimeErrorCode("invalid_batch")
         return publish(runtime.store.objects, request["batch"], load_cards(request["batch"]), PUBLISHED_REASONS)
+    if op == "budget":
+        if not BATCH_ID.fullmatch(request["batch"]):
+            raise RuntimeErrorCode("invalid_batch")
+        return runtime.ledger.balance(request["batch"])
     if op in ("status", "report"):
         from durable.classify import PUBLISHED_REASONS
         from durable.report import load_cards, scorecard

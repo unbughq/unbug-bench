@@ -8,6 +8,7 @@ import time
 
 from durable.classify import PUBLISHED_REASONS
 from durable.contract import Outcome, Step
+from durable.guard import health as guard_health
 
 
 def _number(value):
@@ -118,7 +119,8 @@ def observe(config, card, *, client=None):
     """Enrich a public scorecard with allowlisted records; unavailable sections stay explicit."""
     from dbos import DBOSClient
     card = {**card, 'cases': [dict(case) for case in card['cases']]}
-    meta = card['observation'] = {'at': time.time(), 'unavailable': [], 'controller': _controller(config)}
+    meta = card['observation'] = {'at': time.time(), 'unavailable': [], 'controller': _controller(config),
+                                  'guard': guard_health(config['state_dir'])}
     try:
         meta['budget'] = _budget(config, card['batch'])
     except Exception:

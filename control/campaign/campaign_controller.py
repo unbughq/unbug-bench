@@ -1,7 +1,7 @@
 import fcntl,json,math,os,sys,time
 from pathlib import Path
-root=Path(__file__).parent
-sys.path.insert(0,str(root/'source-0578f9c8/factory'))
+root=Path(os.environ.get('UNBUG_CAMPAIGN_ROOT',Path(__file__).parent))
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'factory'))
 from durable import cli
 from durable.runtime import Runtime
 from durable.workers import PoolError,_atomic_json

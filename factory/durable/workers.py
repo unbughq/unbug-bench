@@ -145,6 +145,21 @@ class BoatCli:
             return 124, b""
         return p.returncode, p.stdout
 
+    def probe(self, args, timeout: float) -> dict:
+        """A metadata command with its failure kept: exit code, stderr and duration. Only for
+        commands that cannot carry worker output (list, usage, extend), never for `ssh`."""
+        cmd = [sys.executable, "-B", str(self.boat_call), *args]
+        env = {**self.env, "BOAT_COMMAND_TIMEOUT_SECONDS": str(max(1, int(timeout)))}
+        started = time.monotonic()
+        try:
+            p = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, env=env, timeout=timeout + 15)
+            code, out, err = p.returncode, p.stdout, p.stderr
+        except subprocess.TimeoutExpired:
+            code, out, err = 124, b"", b"boat-call did not return"
+        except OSError as error:
+            code, out, err = 126, b"", type(error).__name__.encode()
+        return {"code": code, "out": out, "stderr": err, "seconds": time.monotonic() - started}
+
     def ssh(self, worker: str, command: str, *, stdin: bytes | None = None, timeout: float = 120.0):
         return self.run(["ssh", worker, command], stdin=stdin, timeout=timeout)
 

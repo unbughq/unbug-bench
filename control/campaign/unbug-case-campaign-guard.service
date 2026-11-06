@@ -1,7 +1,8 @@
 [Unit]
-Description=Renew bounded case worker TTL and enforce campaign limits
-OnFailure=unbug-case-campaign-cleanup.service
+Description=Renew bounded case worker TTL, watch the campaign and raise alerts
 [Service]
 Type=oneshot
-ExecStart=/home/user/durable-qualification-20261105/venv/bin/python -B /home/user/durable-first-case-20261106/campaign_guard.py
-TimeoutStartSec=240
+Environment=UNBUG_CAMPAIGN_ROOT=/home/user/durable-first-case-20261106
+EnvironmentFile=-/etc/unbug/alerts.env
+ExecStart=/home/user/durable-qualification-20261105/venv/bin/python -B /home/user/durable-first-case-20261106/source-current/control/campaign/campaign_guard.py
+TimeoutStartSec=420

@@ -62,12 +62,14 @@ class Timing:
                                     # long before the retry
                                     # (WP4's flat backoff); a pause never counts as an infra retry
     credential_retry_s: float = 900.0  # retry a visible credential configuration wait
+    degraded_poll_s: float = 15.0      # recheck while the guard has new attempts paused
     pool_wait_ceiling_s: float = POOL_WAIT_CEILING_S  # total worker-create waiting per seq before it counts
 
 
 class _Runtime:
     executor: Optional[Executor] = None
     timing: Timing = Timing()
+    admission_paused = staticmethod(lambda: False)
 
 
 _RT = _Runtime()
@@ -112,6 +114,13 @@ def _ex() -> Executor:
     return _RT.executor
 
 
+def _new_attempt_gate() -> None:
+    """Before an attempt takes money or a worker: wait out a degraded batch. Attempts already
+    running carry on. This only delays a step, so it records nothing and replays the same."""
+    while _RT.admission_paused():
+        time.sleep(_RT.timing.degraded_poll_s)
+
+
 @DBOS.step()
 def now_step() -> float:
     return time.time()
@@ -134,6 +143,7 @@ def seal_history_step(case_id: str, history: list) -> dict:
 
 @DBOS.step(**SEAM)
 def lease_step(case_id: str, plumbing_version: str, bench_version: str) -> dict:
+    _new_attempt_gate()
     try:
         return {"worker_id": _ex().lease_for(case_id, plumbing_version, bench_version).worker_id, "reason": None}
     except SeamError as error:
@@ -152,6 +162,7 @@ def lease_alive_step(case_id: str, worker_id: str) -> bool:
 
 @DBOS.step(**SEAM)
 def reserve_step(si: dict, request: int, case_limit: int, draws: bool) -> dict:
+    _new_attempt_gate()
     return to_record(_ex().reserve(step_input_from_record(si), request=request, case_limit=case_limit,
                                    draws_case_money=draws))
 
@@ -1218,8 +1229,10 @@ class Engine:
     """Construct, check, launch, register queues, then attach to or start batches."""
 
     def __init__(self, *, system_database_url: str, executor: Executor, timing: Timing = Timing(),
-                 environ: Optional[Mapping[str, str]] = None, pool_size: int = 40):
+                 environ: Optional[Mapping[str, str]] = None, pool_size: int = 40,
+                 admission_paused=lambda: False):
         self.url, self.executor, self.timing = system_database_url, executor, timing
+        self.admission_paused = admission_paused
         self.environ = os.environ if environ is None else environ
         self.pool_size = pool_size
         self.dbos = None
@@ -1234,7 +1247,7 @@ class Engine:
         assert_no_conductor(self.environ, config)
         self.dbos = DBOS(config=config)
         check_instance(self.dbos)
-        _RT.executor, _RT.timing = self.executor, self.timing
+        _RT.executor, _RT.timing, _RT.admission_paused = self.executor, self.timing, self.admission_paused
         DBOS.launch()
         # Rule 6: register the queues of every unfinished batch before anything is started or
         # attached. Their rows persist from the first launch, so a case recovered by launch()

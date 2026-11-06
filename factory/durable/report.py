@@ -165,6 +165,19 @@ def render_status(card: dict) -> str:
              field('Cases', f"{len(card['cases'])} / {limits.get('max_cases_started', '?')} tracked; "
                    f"concurrency limit {limits.get('max_concurrency', '?')}"),
              field('Admission cutoff', stamp(limits.get('deadline_epoch')))]
+    guard = observation.get('guard')
+    if guard:
+        lines += ['', 'FACTORY HEALTH', '-' * 76, field('Guard', str(guard.get('phase', 'unavailable')).upper()
+                  + (f" ({guard['hard_stop']})" if guard.get('hard_stop') else '')),
+                  field('Last guard pass', stamp(guard.get('at')))]
+        if guard.get('degraded_since') is not None:
+            lines.append(field('Degraded since', stamp(guard['degraded_since']) + '  (new attempts paused)'))
+        if guard.get('failed_checks'):
+            lines.append(field('Failing checks', ', '.join(guard['failed_checks'])))
+        lines += [f'  NEEDS YOU: {message}' for message in guard.get('alerts', [])]
+        for row in guard.get('evidence', []):
+            lines.append(f"  {stamp(row.get('at'))}  {row.get('check')} try {row.get('try')}: {row.get('code')}"
+                         f" after {row.get('seconds')}s" + (f" - {row['stderr']}" if row.get('stderr') else ''))
     budget = observation.get('budget')
     if budget:
         lines += ['', 'BATCH BUDGET', '-' * 76,

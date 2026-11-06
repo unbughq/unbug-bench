@@ -1,7 +1,7 @@
 from pathlib import Path
-import json,sys,time,socket,shlex
-root=Path('/home/user/durable-first-case-20261106')
-sys.path.insert(0,str(root/'source-0578f9c8/factory'))
+import json,os,sys,time,socket,shlex
+root=Path(os.environ.get('UNBUG_CAMPAIGN_ROOT',Path(__file__).parent))
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'factory'))
 from durable.workers import BoatPool,BoatCli,ReleaseStore
 from durable.ledger import SqlLedger
 c=json.loads((root/'config.json').read_text())
