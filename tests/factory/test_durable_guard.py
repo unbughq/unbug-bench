@@ -1,12 +1,14 @@
 """The campaign guard, with the VM's real request shape and a fake Boat, socket and service."""
+import http.server
 import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "factory"))
-from durable.guard import CheckFailed, Guard, degraded, health, scrub
+from durable.guard import CheckFailed, Guard, degraded, health, scrub, webhook
 from durable.report import render_status
 
 REQUEST = {"batch_id": "b-sealday20261106r3", "case_id": "case-sealday20261106r3-1",
@@ -223,6 +225,21 @@ class GuardTests(unittest.TestCase):
         self.f.clock += 60
         out = guard.run()
         self.assertEqual((out["phase"], self.f.stopped), ("degraded", 0))
+
+    def test_webhook_posts_one_text_message(self):
+        received = []
+        class Hook(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                received.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+                self.send_response(204)
+                self.end_headers()
+            def log_message(self, *args):
+                pass
+        server = http.server.HTTPServer(("127.0.0.1", 0), Hook)
+        threading.Thread(target=server.handle_request, daemon=True).start()
+        webhook(f"http://127.0.0.1:{server.server_port}/alerts")("needs a ruling")
+        server.server_close()
+        self.assertEqual(received, [{"text": "needs a ruling"}])
 
     def test_marker_is_read_and_goes_stale(self):
         self.assertFalse(degraded(self.f.state_dir))

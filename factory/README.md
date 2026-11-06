@@ -13,6 +13,19 @@
 Use the approved batch manifests and release qualification when launching real
 workers. A source change does not update deployed pins or authorize paid work.
 
+## Failures and alerts
+
+The campaign guard (`factory/durable/guard.py`) runs every minute. A failed check is retried
+and marks the batch degraded, which pauses new attempts and stops nothing. Only the deadline,
+the money ceiling and a confirmed Boat allowance or rate breach stop the controller. After a
+hard stop, delete `<state_dir>/guard/status.json` to let the guard run again.
+
+`unbug status` shows guard health, recent failures and every `NEEDS YOU` line. To also get
+each alert as a message, put `UNBUG_ALERT_WEBHOOK=<url>` in `/etc/unbug/alerts.env`, mode 600.
+The guard POSTs `{"text": "..."}`, which Slack-style incoming webhooks accept.
+
+`bin/failure-drill` proves the batch survives these failures offline, with no money spent.
+
 ## Operator client
 
 `python3 bin/install-unbug` installs a standalone read-only client in `~/.local/bin`.
