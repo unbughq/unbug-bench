@@ -58,6 +58,9 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(env['FACTORY_ROUTER_TOKEN'], TOKEN)
             self.assertIn('paid', model_router.router_request(env['FACTORY_ROUTER_URL'],
                           env['FACTORY_ROUTER_TOKEN'], 'status', {}, ca_file=env['FACTORY_ROUTER_CA_FILE']))
+            runtime.config['worker_credentials']['legacy_registry'] = True
+            with tarfile.open(fileobj=io.BytesIO(base64.b64decode(runtime.worker_credentials()))) as tar:
+                self.assertEqual(set(tar.getnames()), {*names, *delivery.NAMES, 'statements-key'})
             runtime.config['worker_credentials']['accounts'].append('codex-auth.json')
             with self.assertRaises(ValueError): runtime.worker_credentials()
 

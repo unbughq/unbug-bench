@@ -170,7 +170,10 @@ class Runtime:
                               input=private_bytes(config["bundle_file"]), capture_output=True, timeout=30)
         if done.returncode:
             raise RuntimeErrorCode("worker_credentials_unavailable")
-        return pack(base64.b64encode(done.stdout), config["router_client_file"], names=config["accounts"])
+        names = list(config["accounts"])
+        if config.get("legacy_registry") is True:
+            names.append("statements-key")
+        return pack(base64.b64encode(done.stdout), config["router_client_file"], names=names)
 
     def launch(self):
         # No cleanup/release on reconciliation failure: journals retain ownership.

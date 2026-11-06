@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import pathlib
+import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -39,6 +40,37 @@ BATCH = "b-admit"
 
 
 class AdmitTests(unittest.TestCase):
+    def test_legacy_registry_is_rewrapped_only_on_the_worker(self):
+        from registry import Registry
+        import worker_secrets
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); identity = root / 'statements-key'
+            subprocess.run(['age-keygen', '-o', str(identity)], capture_output=True, check=True)
+            public = subprocess.run(['age-keygen', '-y', str(identity)], capture_output=True, check=True).stdout.decode().strip()
+            old = Registry(root / 'old')
+            for i in range(2):
+                plaintext = ('private prior statement ' + str(i)).encode()
+                cipher = subprocess.run(['age', '-r', public], input=plaintext, capture_output=True, check=True).stdout
+                old.import_historical('case-prior-' + str(i), cipher, hashlib.sha256(plaintext).hexdigest())
+            state = json.loads((old.root / 'registry.json').read_text())
+            original = (old.root / 'registry.json').read_bytes()
+            legacy = json.dumps({'version': 1, 'legacy': True, 'registry': state,
+                'objects': {p.stem: base64.b64encode(p.read_bytes()).decode() for p in (old.root / 'objects').glob('*.age')}}).encode()
+            sealer, key = AgeSealer(), os.urandom(32)
+            with patch.object(worker_secrets, 'SECRETS', root):
+                upgraded = admit._upgrade_registry(legacy, sealer, key)
+            registry, revision, refs = admit._load_registry(root / 'new', upgraded)
+            self.assertEqual(revision, state['revision'])
+            self.assertEqual((old.root / 'registry.json').read_bytes(), original)
+            for case, entry in json.loads((registry.root / 'registry.json').read_text())['entries'].items():
+                digest = entry['cipher_sha256']
+                plaintext = sealer.open(key, Ref(refs[digest], ArtifactKind.STATEMENT_REGISTRY),
+                                       (registry.root / 'objects' / (digest + '.age')).read_bytes())
+                self.assertEqual(hashlib.sha256(plaintext).hexdigest(), entry['statement_sha256'])
+                self.assertNotIn(plaintext, upgraded)
+            with patch.object(worker_secrets, 'SECRETS', root / 'missing'):
+                with self.assertRaises(admit._Invalid): admit._upgrade_registry(legacy, sealer, key)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

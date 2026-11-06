@@ -45,6 +45,7 @@ import os
 import pathlib
 import re
 import shutil
+import subprocess
 import tempfile
 
 from durable.contract import ArtifactKind, Outcome, Ref, StepKind, StepResult, Usage
@@ -164,6 +165,40 @@ def _dump_registry(root, refs):
     return json.dumps({"version": _VERSION, "registry": state, "objects": objects,
                        "refs": {k: v for k, v in refs.items() if k in objects}},
                       sort_keys=True, separators=(",", ":")).encode()
+
+
+def _upgrade_registry(plaintext, sealer, batch_key):
+    """Rewrap legacy statement ciphertext only in worker RAM; preserve its registry history."""
+    if not plaintext:
+        return plaintext
+    value = _json(plaintext, 'registry')
+    if value.get('legacy') is not True:
+        return plaintext
+    from worker_secrets import SECRETS
+    state, objects = value['registry'], value['objects']
+    refs, rewritten = {}, {}
+    for case, entry in state['entries'].items():
+        _entry(case, entry)
+        if entry['status'] == 'released':
+            continue
+        old = entry['cipher_sha256']
+        ciphertext = base64.b64decode(objects[old], validate=True)
+        if hashlib.sha256(ciphertext).hexdigest() != old:
+            raise _Invalid('registry')
+        opened = subprocess.run(['age', '-d', '-i', str(SECRETS / 'statements-key')],
+                                input=ciphertext, capture_output=True, timeout=30)
+        if opened.returncode or (entry['statement_sha256'] is not None
+                and hashlib.sha256(opened.stdout).hexdigest() != entry['statement_sha256']):
+            raise _Invalid('registry')
+        ref, sealed = sealer.seal(batch_key, ArtifactKind.STATEMENT_REGISTRY, opened.stdout)
+        digest = hashlib.sha256(sealed).hexdigest()
+        objects[digest], refs[digest], rewritten[old] = base64.b64encode(sealed).decode(), ref.digest, digest
+        entry['cipher_sha256'] = digest
+    for entry in state['entries'].values():
+        entry['statements'] = {case: rewritten.get(digest, digest) for case, digest in entry['statements'].items()}
+    value.pop('legacy')
+    value['refs'] = refs
+    return json.dumps(value, sort_keys=True).encode()
 
 
 def _card(value, case_id, dry_run):
@@ -340,6 +375,7 @@ def run(worker, step_input, keys):
 
     try:
         try:
+            registry_plaintext = _upgrade_registry(registry_plaintext, sealer, batch_key)
             registry, _, refs = _load_registry(root / "registry", registry_plaintext)
         except _Invalid:
             return fail("admit:registry_invalid")

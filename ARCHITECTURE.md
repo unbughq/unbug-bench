@@ -93,6 +93,10 @@ identity, router client file and selected model accounts. The controller decrypt
 in memory and delivers only those accounts and router authority into worker RAM
 after release qualification, including on reuse. Credentials never enter images,
 release bundles or workflow records; isolated model users lose router authority.
+For a legacy registry, `worker_credentials.legacy_registry` also delivers its
+statement identity to worker RAM. ADMIT verifies and rewraps occupied statements
+under the batch key there, preserving registry history without opening case
+material on the controller. The source registry remains untouched.
 
 Reserve allowance before dispatch and settle actual usage idempotently. Worker
 model calls atomically reserve their router Lease maxima against that attempt
