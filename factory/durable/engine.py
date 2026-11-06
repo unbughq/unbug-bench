@@ -493,9 +493,10 @@ class _Case:
         while True:
             attempt += 1
             pv, bv = versions if versions is not None else (self.current("plumbing"), self.bench)
+            snapshot = self.snapshot if (not admit or DBOS.patch("admit_checkpoint_input")) else None
             si = StepInput(self.batch_id, self.case_id, self.seq, step, attempt, pv, bv,
                            inputs=self.spec.inputs if admit else self.inputs,
-                           snapshot=None if admit else self.snapshot, deadline_s=deadline_s(step, self.spec),
+                           snapshot=snapshot, deadline_s=deadline_s(step, self.spec),
                            money_ceiling_usd_micros=0, feedback=feedback,
                            registry=Ref(**self.initial_registry) if admit else None, ruling=ruling,
                            evidence=tuple(evidence))

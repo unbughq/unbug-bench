@@ -217,7 +217,7 @@ class RealStops(unittest.TestCase):
         "invalid_usage_receipt": ("infra_error", "infra:usage_unknown"),
         "invalid_waste_attribution": ("infra_error", "infra:ledger_error"),
         "missing_usage": ("infra_error", "infra:usage_unknown"),
-        "model_call_cap": ("exhausted", "writer:call_cap"),
+        "model_call_cap": ("exhausted", "writer:money"),
         "opencode_error": ("infra_error", "router:opencode_error"),
         "process_error": ("infra_error", "router:process_error"),
         "provider_limit:": ("provider_limit", "router:provider_limit"),

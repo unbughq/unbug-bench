@@ -44,6 +44,20 @@ def steps(r, case):
 
 
 class StepSequence(unittest.TestCase):
+    def test_admission_wait_restores_checkpoint_on_replacement_worker(self):
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                r, out = run({'legacy_admit_snapshot': legacy,
+                    'spec': {'max_cases_started': 1},
+                    'script': {'1/admit/1': {'outcome': 'provider_limit', 'reason': 'router:quota',
+                        'retry_in': .01, 'paid': 0, 'checkpoint': True}}})
+                self.addCleanup(r.close)
+                first = start(r, C1 + '/1/admit/1')
+                retry = start(r, C1 + '/1/admit/2')
+                self.assertNotEqual(first['worker'], retry['worker'])
+                self.assertEqual(retry['opened'].get('snapshot'), None if legacy else 'snapshot ' + C1 + '/1/admit/1')
+                self.assertEqual(out['result']['cases'], {C1: 'sealed'})
+
     def test_queued_admission_expires_without_dispatch_or_retaining_money(self):
         r, out = run({"deadline_in": 3.0,
                       "spec": {"target_sealed": 2, "max_cases_started": 2},

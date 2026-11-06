@@ -113,7 +113,7 @@ _FIXED = {
 # The attempt's own limits: EXHAUSTED, with the step's stage. Whether money was the case's or
 # the batch's is the policy's call, from the Grant label, so the reason does not say.
 _CASE_LIMIT = {"cost_limit": "money", "budget_exhausted": "money",
-               "call_limit": "call_limit", "total_call_limit": "total_call_limit", "model_call_cap": "call_cap"}
+               "call_limit": "call_limit", "total_call_limit": "total_call_limit", "model_call_cap": "money"}
 
 _USAGE = re.compile(r"(invalid_usage|usage)_[a-z_]+")
 _CLI_VERSION = re.compile(r"[a-z]+_cli_not_.*", re.S)   # model_runtime.pinned_cli

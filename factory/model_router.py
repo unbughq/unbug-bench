@@ -52,12 +52,36 @@ def route_maximum(route):
 def valid_maximum(value):
     get = value.get if isinstance(value, dict) else lambda k: getattr(value, k, None)
     maximum = route_maximum(get('route'))
+    if maximum is not None and isinstance(get('price_source'), str):
+        prefix = maximum['price_source'] + ':funded:'
+        if get('price_source').startswith(prefix):
+            try: maximum = funded_maximum(get('route'), get('price_source')[len(prefix):])
+            except ValueError: return False
     return (maximum is not None and all(type(get(k)) is type(v) and get(k) == v for k, v in maximum.items()))
 
 
-def _bounded_routes(model, accounts):
+def funded_maximum(route, funding):
+    """Quote an enforced invocation window inside the caller's existing grant.
+
+    OpenRouter's small default windows are qualification probes, not case budgets.
+    A funded window may use at most $50; explicit Claude profiles remain ceilings.
+    The worker still atomically reserves this quote before any provider execution.
+    """
+    maximum = route_maximum(route)
+    if maximum is None: return None
+    amount = min(_nano(funding, ROUND_FLOOR), _nano(50),
+                 _nano(maximum['max_usd']) if route in CLAUDE_PROFILES else _nano(50))
+    if amount <= 0: raise ValueError('empty invocation funding')
+    scale = Decimal(amount) / _nano(maximum['max_usd'])
+    return dict(max_usd=float(_dollars(amount)),
+                max_input_tokens=int(Decimal(maximum['max_input_tokens']) * scale),
+                max_output_tokens=int(Decimal(maximum['max_output_tokens']) * scale),
+                price_source=maximum['price_source'] + ':funded:' + _dollars(amount))
+
+
+def _bounded_routes(model, accounts, funding=None):
     return [dict(r, **maximum) for r in routes(model, accounts)
-            if (maximum := route_maximum(r['route'])) is not None]
+            if (maximum := (route_maximum(r['route']) if funding is None else funded_maximum(r['route'], funding))) is not None]
 
 
 def valid_lease(lease, model, accounts=ACCOUNTS):
@@ -326,12 +350,13 @@ class Store:
                 db.execute("UPDATE leases SET outcome='denied' WHERE id=? AND outcome IS NULL", (identity,))
                 result = {'cancelled': True}
             elif operation == 'acquire':
-                if set(data) - {'excluded_lanes', 'paid_protocol'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
+                if set(data) - {'excluded_lanes', 'paid_protocol', 'funding_usd'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
+                if 'funding_usd' in data and _nano(data['funding_usd'], ROUND_FLOOR) <= 0: raise ValueError('empty invocation funding')
                 if not isinstance(data['role'], str) or not re.fullmatch(r'[a-z_0-9]{1,40}', data['role']): raise ValueError('invalid role')
                 identity = data['id']
                 if not re.fullmatch(r'[a-f0-9]{32}', identity): raise ValueError('invalid attempt id')
                 if not finite(data['deadline']) or not now < data['deadline']: raise ValueError('expired admission deadline')
-                choices = [r for r in _bounded_routes(data['model'], [a for a in data['accounts'] if a in self.accounts])
+                choices = [r for r in _bounded_routes(data['model'], [a for a in data['accounts'] if a in self.accounts], data.get('funding_usd'))
                            if (r['route'] not in GATED_OPENROUTER or type(data.get('paid_protocol')) is int and data['paid_protocol'] == 1)
                            and eligible(r) and r['pool'] + '/' + r['route'] not in data.get('excluded_lanes', [])]
                 payload = json.dumps(data, sort_keys=True, allow_nan=False)
@@ -535,6 +560,8 @@ def _account_order(case):
 def _admit(role, case, deadline, identity, accounts, excluded=()):
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
     data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_lanes=list(excluded), paid_protocol=1)
+    funding = getattr(case, 'router_funding_usd', None)
+    if funding is not None: data['funding_usd'] = funding
     result = _rpc('acquire', data)
     if result.get('kind') == 'lease':
         result.pop('kind')
@@ -543,7 +570,7 @@ def _admit(role, case, deadline, identity, accounts, excluded=()):
                 or result['expires_at'] <= time.time() or result['expires_at'] > deadline
                 or {k: result.get(k) for k in ('route', 'account', 'pool', 'family', 'billing')} not in allowed):
             raise RouterUnavailable('invalid lease response')
-        if not valid_maximum(result):
+        if not valid_maximum(result) or (funding is not None and _nano(result.get('max_usd')) > _nano(funding)):
             finish(identity, 'denied', None)
             case.router_unbounded = True
             case.router_wait = Wait('unbounded_route', retry_at('unbounded_route'), route=model)

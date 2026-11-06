@@ -120,6 +120,14 @@ class Decide(unittest.TestCase):
             for step in (GATES, DIAG, ADMIT):
                 self.assertIs(d(step, limit, step_free_limits=1000, step_spent_limits=1000), Action.SLEEP)
 
+    def test_provider_money_window_is_not_an_admission_call_count_limit(self):
+        from durable.classify import classify
+        translated = classify('model_call_cap', step=StepKind.ADMIT, now=1.0)
+        result = StepResult(translated.outcome, translated.reason)
+        self.assertEqual(result.reason, 'admit:money')
+        self.assertIs(decide(ADMIT, result, Counters(), SPEC,
+                             grant=Grant(40_792_858, LimitedBy.BATCH)), Action.WAIT_FOR_BOUND)
+
     def test_credential_problem_retries_without_becoming_a_case_outcome(self):
         result = StepResult(Outcome.INFRA_ERROR, "router:credential_expiring")
         self.assertTrue(is_operational_wait(result))

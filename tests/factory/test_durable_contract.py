@@ -232,9 +232,11 @@ class Shapes(unittest.TestCase):
         self.assertEqual(step_input().idempotency_key, "case-x1/7/gates:1/1")
         admit = dict(step=ADMIT, snapshot=None)
         step_input(**admit, registry=ref(K.STATEMENT_REGISTRY))
+        restored = step_input(step=ADMIT, registry=ref(K.STATEMENT_REGISTRY), snapshot=ref())
+        self.assertIsNotNone(restored.snapshot)
         step_input(step=DIAG, evidence=(ref(K.GATE_RECEIPT), ref(K.DIAGNOSTIC, B)))
         step_input(ruling=ref(K.FOUNDER_RULING))
-        for kw in (dict(**admit), dict(step=ADMIT, registry=ref(K.STATEMENT_REGISTRY)),
+        for kw in (dict(**admit), dict(snapshot=None),
                    dict(registry=ref(K.STATEMENT_REGISTRY)), dict(feedback=ref(K.WRITER_FEEDBACK)),
                    dict(step=Step(StepKind.WRITER, 1), feedback=ref(K.GATE_RECEIPT)),
                    dict(snapshot=ref(K.SEALED_ARCHIVE)), dict(step="gates:1"), dict(seq=0),

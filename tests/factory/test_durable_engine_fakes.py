@@ -352,6 +352,7 @@ class FakeWorker:
             kw["retry_at"] = now + spec.get("retry_in", 0.3)
         elif outcome is Outcome.INFRA_ERROR and spec.get("diagnostic"):
             kw["diagnostic"] = self._seal(case, ArtifactKind.DIAGNOSTIC, f"diagnostic {key}")
+        if spec.get('checkpoint'): kw['snapshot'] = snap()
         return StepResult(outcome, reason, Usage(calls=1, paid_usd_micros=paid), **kw)
 
     def _open_inputs(self, frame, si):
@@ -538,6 +539,10 @@ def engine_main(workdir):
     from durable.executor import Executor
     from durable import report
     from durable.contract import BenchRelease, BoundRaised, FounderReply, PlumbingRelease, Topic
+    if scenario.get('legacy_admit_snapshot'):
+        from dbos import DBOS
+        original_patch = DBOS.patch
+        DBOS.patch = classmethod(lambda cls, name: False if name == 'admit_checkpoint_input' else original_patch(name))
     if scenario.get("release_step_failure"):
         from dbos import DBOS
 

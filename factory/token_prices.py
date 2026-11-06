@@ -27,6 +27,10 @@ GATED_OPENROUTER = {
         prices=('0.435', '0.0036', '0.87'), context=1048576, output=131072, windows=3, cache_write='0'),
     'openrouter/deepseek/deepseek-v4.1-flash': dict(endpoint='deepinfra/fp8',
         prices=('0.14', '0.0042', '0.42'), context=1048576, output=1048576, windows=2, cache_write='0'),
+    # Pinned primary endpoint quote: router-glm-price-record.json.gz.
+    'openrouter/z-ai/glm-5.3-flash': dict(endpoint='deepinfra/fp4',
+        prices=('0.15', '0.03', '0.5'), context=1048576, output=943718, windows=2,
+        cache_write='0', source_date='2026-11-06'),
 }
 
 

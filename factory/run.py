@@ -369,11 +369,14 @@ def provider_preflight(c):
     """Check non-writer routes before spending on construction; availability is not a gate pass."""
     rows = c.card["provider_preflight"] = []
     seen = set()
-    for role, chain, name in (
+    checks = [
             ("stress_tester", c.models["attacker"], "attacker-provider-preflight"),
-            ("reviewer", c.models["reviewers"][0], "reviewer-provider-preflight"),
             ("strong_tester", c.models["strong_calibrator"], "strong-calibrator-provider-preflight"),
-            ("easy_tester", c.models["easy_calibrator"], "easy-calibrator-provider-preflight")):
+            ("easy_tester", c.models["easy_calibrator"], "easy-calibrator-provider-preflight")]
+    checks[1:1] = [('reviewer' if i == 0 else 'reviewer2', chain,
+                    'reviewer-provider-preflight' if i == 0 else f'reviewer{i+1}-provider-preflight')
+                   for i, chain in enumerate(c.models['reviewers'])]
+    for role, chain, name in checks:
         if tuple(chain) in seen: continue
         seen.add(tuple(chain))
         row = {"role": role, "model": chain[0], "scope": "availability_only", "status": "running"}
@@ -1885,6 +1888,7 @@ def calibrate(c, role, tries=None, name=None, exposure=None, *, runs=None, colle
             call_context = copy.copy(c)
             call_context.args = copy.copy(a)
             if exposure == "exam":
+                call_context.exam_owner_models = c.models["reviewers"][0]
                 from exam_responder import owner_channel
                 if getattr(a, "resume", None) and not getattr(c, "budget_resumed", False):
                     from budget import resume_ledger

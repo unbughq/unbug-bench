@@ -49,8 +49,9 @@ automatically recoverable. Unit tests do not qualify a live worker release.
 
 ## Durable-execution migration
 
-`factory/durable/contract.py` v5 defines the shared records, wire protocol, keyed
-references and package interfaces. It remains unchanged. The candidate integrates the DBOS engine, executor,
+`factory/durable/contract.py` v6 defines the shared records, wire protocol, keyed
+references and package interfaces. Its reviewed change permits restoring ADMIT
+checkpoints; the wire fields remain the same. The candidate integrates the DBOS engine, executor,
 Boat worker pool/channel, worker-side steps, SQL ledger and wrapped-key service.
 `runtime.py` composes these components; `cli.py` exposes a private operator socket.
 Plumbing bundles include their authenticated `bin/processes.py` runtime helper;
@@ -96,6 +97,11 @@ encrypted operational diagnostic with allowlisted causes, retry times and lease
 IDs. Worker diagnostics automatically include safe HTTP statuses and error categories.
 Scope-bound `durable.diagnostics` inspection runs in worker memory and exports
 only operational codes and numeric usage; it never extracts or returns case text.
+ADMIT's first attempt may have no snapshot; retries restore the last authenticated
+case snapshot under the same case key, retaining its ledger and completed model
+receipts while reading the current serialized registry. Contract version 6 relaxes
+only ADMIT's input snapshot restriction; other steps still require a snapshot.
+The engine guards the changed retry input with a DBOS patch for replay compatibility.
 Optional `worker_credentials` configuration names an encrypted bundle, control
 identity, router client file and selected model accounts. The controller decrypts
 in memory and delivers only those accounts and router authority into worker RAM
@@ -118,6 +124,12 @@ without an attempt-count cutoff; they never retire a case merely for recurring.
 Claude OAuth requests omit the organization-dependent `inference_geo` parameter.
 Modern-model holds cover the 1.1x regional uplift; missing/unavailable response
 geography stays conservatively priced, while explicit global usage releases it.
+Engine invocations request a quote bounded by their currently uncommitted attempt
+funding. OpenRouter qualification-sized default windows are replaced by this
+funded window (at most $50); explicit Claude profile ceilings remain binding.
+The router persists and validates that quote, and the worker atomically reserves
+it before execution. Exam calibrators leave a qualified reviewer window outside
+their hold so nested owner questions remain funded. This changes no case/batch bound and retains unknown charges.
 
 Poll transport failures do not prove a worker is absent. Cancel or establish that
 the old attempt is finished before starting another. Enforce release identity and

@@ -107,6 +107,19 @@ def model_effort(model):
     return 'high' if model.startswith(('claude/', 'codex/')) else 'xhigh' if family(model) == 'meta' else 'default'
 
 
+def require_bounded_models(c):
+    """Reject a guaranteed later-route failure before authoring spends anything."""
+    models = c.models
+    roles = [('writer', models['builder']), ('stress_tester', models['attacker']),
+             ('strong_calibrator', models['strong_calibrator']), ('easy_calibrator', models['easy_calibrator'])]
+    roles += [('reviewer' if i == 0 else 'reviewer2', chain) for i, chain in enumerate(models['reviewers'])]
+    for role, chain in roles:
+        if not any(model_router.route_maximum(row['route']) is not None
+                   for row in model_router.routes(chain[0], getattr(c, 'router_accounts', model_router.ACCOUNTS))):
+            raise model_router.ProviderWait(role, model_router.Wait('unbounded_route',
+                model_router.retry_at('unbounded_route'), route=chain[0]))
+
+
 def rotation(slot, table_name=None):
     # Default rotation-3writers.json: GPT only calibrates and reviews while OpenAI's filter refuses case
     # writing (2026-10-16). rotation.json (4 writer families) once Daybreak access is granted.
@@ -304,6 +317,21 @@ class ModelRuntime:
         duration = timeout or getattr(getattr(c, 'args', None), 'agent_timeout', 2400)
         while True:
             if lease is None:
+                if getattr(c, 'engine', None) is not None:
+                    from budget import available_invocation_funding
+                    from decimal import Decimal
+                    funding = Decimal(available_invocation_funding(c.ledger, c.engine))
+                    owner_models = getattr(c, 'exam_owner_models', None)
+                    if owner_models and role in ('strong_calibrator', 'easy_calibrator'):
+                        choices = model_router._bounded_routes(owner_models[0], getattr(c, 'router_accounts', model_router.ACCOUNTS))
+                        if not choices:
+                            raise model_router.ProviderWait('reviewer', model_router.Wait(
+                                'unbounded_route', model_router.retry_at('unbounded_route'), route=owner_models[0]))
+                        # The exam can ask its owner while this invocation is still in flight.
+                        # Keep one qualified reviewer window outside the parent's hold.
+                        funding -= max(Decimal(str(choice['max_usd'])) for choice in choices)
+                        if funding <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
+                    context.router_funding_usd = format(funding, '.9f')
                 try: lease = model_router.await_lease(role, context, deadline)
                 except model_router.ProviderWait as error:
                     # Earlier serial attempts contribute usage, not additional

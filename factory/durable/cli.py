@@ -77,8 +77,9 @@ class Handler(socketserver.StreamRequestHandler):
             self.connection.settimeout(120)
             request = json.loads(self.rfile.readline(64 * 1024 * 1024))
             response = {"ok": True, "result": dispatch(self.server.runtime, request)}
-        except Exception:
-            response = {"ok": False, "error": "operator_request_failed"}
+        except Exception as error:
+            code = "batch_already_finished" if isinstance(error, RuntimeErrorCode) and str(error) == "batch_already_finished" else "operator_request_failed"
+            response = {"ok": False, "error": code}
         self.wfile.write(json.dumps(response).encode() + b"\n")
 
 
@@ -166,7 +167,7 @@ def main(argv=None):
                 with client.makefile("rb") as stream:
                     response = json.loads(stream.readline(64 * 1024 * 1024))
                 if not response["ok"]:
-                    raise RuntimeErrorCode("operator_request_failed")
+                    raise RuntimeErrorCode("batch_already_finished" if response.get("error") == "batch_already_finished" else "operator_request_failed")
                 result = response["result"]
         print(json.dumps(result, sort_keys=True))
         return 0

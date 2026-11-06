@@ -30,7 +30,7 @@ os.environ.setdefault("BENCH", str(_ROOT))
 import run
 from durable import worker_step
 from durable.artifacts import AgeSealer
-from durable.contract import (ArtifactKind, Outcome, Ref, Step, StepInput, StepKind, check_result_for)
+from durable.contract import (ArtifactKind, Outcome, Ref, Step, StepInput, StepKind, Usage, check_result_for)
 from durable.steps import admit
 
 PLUMBING = hashlib.sha256(b"admit plumbing").hexdigest()
@@ -110,6 +110,8 @@ class AdmitTests(unittest.TestCase):
                 ledger.setdefault("events", []).append({"id": name, "cost": .75,
                     "configured_model": models[0], "role": "writer"})
             raise self.model_error
+        if name.endswith('provider-preflight'):
+            return 0
         if name.startswith("builder-selection"):
             (c.case / "statement.md").write_text(self.selected)
         elif name == "easy-calibrator-dedup":
@@ -181,6 +183,11 @@ class AdmitTests(unittest.TestCase):
                  "app_repo": "medusajs/medusa", "app_commit": "a" * 40,
                  "promise": "# Promise\n\nCheckout holds the stock it promised.",
                  "promise_paths": ["store-checkout"], "promise_checks": [],
+                 "models": {"builder": ["openrouter/minimax/minimax-m3.1-flash"],
+                            "attacker": ["openrouter/deepseek/deepseek-v4.1-flash"],
+                            "reviewers": [["openrouter/xiaomi/mimo-v2.6-pro"]],
+                            "strong_calibrator": ["claude/claude-opus-5-5"],
+                            "easy_calibrator": ["openrouter/z-ai/glm-5.3-flash"]},
                  "candidate": {"statement": statement,
                                "statement_sha256": hashlib.sha256(statement.encode()).hexdigest()}}
         value.update(more)
@@ -245,13 +252,61 @@ class AdmitTests(unittest.TestCase):
         si = self.step(inputs, registry)
         result, outputs = self.run_admit(si)
         self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:selected"))
-        self.assertEqual(self.calls, ["builder-selection", "reviewer-idea-realism"])
+        self.assertEqual(self.calls, ["attacker-provider-preflight", "reviewer-provider-preflight",
+            "strong-calibrator-provider-preflight", "easy-calibrator-provider-preflight",
+            "builder-selection", "reviewer-idea-realism"])
         self.freshness.assert_called_once()
         work, c = self.restore(si, result, outputs)
         self.assertEqual((work / "case/statement.md").read_text(), self.selected)
         self.assertEqual(c.card["admission"]["status"], "passed")
         self.assertEqual(len({c.card["roles"][r]["family"] for r in
             ("writer", "stress_tester", "reviewer", "strong_calibrator")}), 4)
+
+    def test_selection_then_wait_restores_receipt_and_usage_on_fresh_worker(self):
+        from dataclasses import replace
+        import shutil
+        import time
+        from durable import checkpoints
+        from model_router import ProviderWait, Wait
+        value = self.real_inputs('unused'); value.pop('candidate')
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b'')
+        first = self.step(inputs, registry)
+        interrupted = False
+        def model(c, models, text, cwd, name, **kwargs):
+            nonlocal interrupted
+            if name == 'reviewer-idea-realism' and not interrupted:
+                interrupted = True
+                raise ProviderWait('reviewer', Wait('quota', time.time()+120))
+            if name != 'builder-selection': return self.model(c, models, text, cwd, name, **kwargs)
+            def invoke():
+                result = self.model(c, models, text, cwd, name, **kwargs)
+                with budget.ledger_transaction(c.ledger) as ledger:
+                    ledger.update(cost=.25, calls=1)
+                    ledger['events'].append({'id': 'completed-selection', 'cost': .25, 'calls': 1})
+                receipt = 'usage-receipts/' + 'c'*32 + '.json'
+                (c.work / 'usage-receipts').mkdir(exist_ok=True)
+                (c.work / receipt).write_text(json.dumps({'final_usage_known': True}))
+                c.card.setdefault('route_receipts', []).append({'invocation': name,
+                    'call_id': receipt, 'outcome': 'done'})
+                return result
+            return checkpoints.model_call(c, models, cwd, name, invoke, text=text)
+        with patch.object(run, 'opencode', side_effect=model), patch.object(run, 'model_call', side_effect=model):
+            result, blobs = self.run_admit(first)
+            self.assertEqual(result.outcome, Outcome.PROVIDER_LIMIT)
+            self.assertEqual(result.usage.paid_usd_micros, 250000)
+            self.home = self.home / 'replacement'
+            shutil.copytree(self.worker.home / 'durable/blobs', self.home / 'durable/blobs')
+            for name, ciphertext in blobs.items(): (self.home / 'durable/blobs' / name).write_bytes(ciphertext)
+            self.worker = worker_step.Worker(self.home, sealer=AgeSealer(), runner=run)
+            retry = replace(first, attempt=2, snapshot=result.snapshot)
+            completed, outputs = self.run_admit(retry)
+        self.assertEqual(completed.outcome, Outcome.OK)
+        self.assertEqual(self.calls.count('builder-selection'), 1)
+        self.assertEqual(completed.usage, Usage())
+        work, _ = self.restore(retry, completed, outputs)
+        self.assertTrue(list((work / 'engine-checkpoints').rglob('*.json')))
+        self.assertEqual(json.loads((work / 'continuation-budget.json').read_text())['cost'], .25)
 
     def test_second_case_screens_against_authenticated_prior_statement(self):
         from dataclasses import replace
@@ -278,17 +333,32 @@ class AdmitTests(unittest.TestCase):
     def test_batch_ordinals_follow_existing_role_rotation(self):
         from dataclasses import replace
         import model_runtime
-        inputs = self.push(ArtifactKind.INPUTS, self.batch_key,
-            json.dumps(self.real_inputs("# Candidate\n\nA checkout failure.")).encode())
+        value = self.real_inputs("# Candidate\n\nA checkout failure.")
+        value.pop('models')
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
         empty = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
         for ordinal in (1, 4, 8, 9):
             si = replace(self.step(inputs, empty), case_id=f"case-cohort-{ordinal}")
             result, blobs = self.run_admit(si)
-            self.assertEqual(result.outcome, Outcome.OK)
+            self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, 'router:unbounded_route'))
             _, c = self.restore(si, result, blobs)
             slot = (ordinal - 1) % 8 + 1
             self.assertEqual(c.card["rotation_slot"], slot)
             self.assertEqual(c.card["roles"]["writer"]["model"], model_runtime.rotation(slot)["writer"]["model"])
+        self.assertEqual(self.calls, [])
+
+    def test_unbounded_strong_or_second_reviewer_stops_before_any_model_spend(self):
+        for role in ('strong_calibrator', 'reviewers'):
+            value = self.real_inputs('unused')
+            if role == 'strong_calibrator': value['models'][role] = ['codex/gpt-6.1-sol']
+            else: value['models'][role].append(['codex/gpt-6.1-sol'])
+            inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+            registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b'')
+            result, _ = self.run_admit(self.step(inputs, registry))
+            self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, 'router:unbounded_route'))
+            self.assertEqual(result.usage, Usage())
+            self.assertIsNotNone(result.diagnostic)
+        self.assertEqual(self.calls, [])
 
     def test_paid_failure_and_snapshot_failure_preserve_usage(self):
         from budget import BudgetError
@@ -311,8 +381,14 @@ class AdmitTests(unittest.TestCase):
         self.assertIsNone(result.snapshot)
 
     def test_explicit_models_keep_efforts_and_reject_overlapping_families(self):
-        from test_durable_worker_step import E15450
-        value = self.real_inputs("# Candidate\n\nA bug.", models=E15450["models"], roles=E15450["roles"])
+        import model_runtime
+        value = self.real_inputs("# Candidate\n\nA bug.")
+        models = value['models']
+        roles = {'writer': models['builder'][0], 'stress_tester': models['attacker'][0],
+                 'reviewer': models['reviewers'][0][0], 'strong_calibrator': models['strong_calibrator'][0],
+                 'easy_calibrator': models['easy_calibrator'][0]}
+        value['roles'] = {role: {'model': model, 'effort': model_runtime.model_effort(model),
+                                'family': model_runtime.family(model)} for role, model in roles.items()}
         inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
         registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
         si = self.step(inputs, registry)

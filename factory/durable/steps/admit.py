@@ -398,7 +398,10 @@ def run(worker, step_input, keys):
             c.card["admission"] = {"status": "practice_dry_run"}
             reason, accepted = "admit:practice", True
         else:
+            from model_runtime import require_bounded_models
+            require_bounded_models(c)
             if not c.case.exists(): _write_case(c, inputs)
+            runner.provider_preflight(c)
             accepted = _screen(c, runner, registry, refs, sealer, batch_key, step_input)
             reason = "admit:selected" if accepted else "admit:exhausted"
         snap = snapshot()

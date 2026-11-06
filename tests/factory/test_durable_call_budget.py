@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(Path(__file__).resolve().parent)]
 import argparse
+import copy
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import replace
@@ -58,6 +59,87 @@ class AttemptBudget(unittest.TestCase):
     def reserve(self, lease, *, operation=None):
         return budget.reserve_invocation(self.ledger, lease, model_runtime.invocation_maximum(self.c, lease),
             attempt=self.attempt, operation_id=operation or str(uuid.uuid4()), call_name='builder-1')
+
+    def test_funded_invocation_continues_past_the_live_small_profile_stop(self):
+        self.attempt.ceiling_usd = Decimal('40.792858')
+        def transport(c, *args, **kwargs):
+            c.model_process_state['started'] = True
+            self.assertEqual(Decimal(str(c.model_lease.max_usd)), self.attempt.ceiling_usd)
+            state = model_call_gate.Allowance(c.model_lease)
+            # The live failure: five validated responses cost this much, then
+            # the next $9.520896 hold did not fit the old $10 CLI profile.
+            state.settled[0] = Decimal('0.551782')
+            state.validated = 5
+            identity = state.reserve(32768)
+            self.assertIsNotNone(identity)
+            state.finish(identity, dict.fromkeys(model_call_gate.CLAUDE_GATE_FIELDS, 0))
+            state.close()
+            c.model_cap_used = state.snapshot()
+            return 0
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport):
+            self.assertEqual(self.runtime.call(self.c, [ROUTE], 'x', self.root, 'builder-1'), 0)
+        saved = json.loads(self.ledger.read_text())
+        row = next(iter(saved['invocation_reservations'].values()))
+        self.assertEqual(row['maximum_usd'], '40.792858000')
+        receipt = json.loads((self.root / 'usage-receipts' / (row['lease_id'] + '.json')).read_text())
+        self.assertEqual(Decimal(receipt['cap_used']['settled_usd']), Decimal('.551782'))
+
+    def test_exam_parent_leaves_funded_owner_room_without_releasing_its_hold(self):
+        self.attempt.ceiling_usd=Decimal('40.792858')
+        reviewer='openrouter/xiaomi/mimo-v2.6-pro'
+        self.c.exam_owner_models=[reviewer]
+        expected=Decimal(str(model_router.route_maximum(reviewer)['max_usd']))
+        invoked=[]
+        def transport(c, models, text, cwd, name, *args, **kwargs):
+            c.model_process_state['started']=True
+            invoked.append(name)
+            if name.startswith('strong-calibrator'):
+                self.assertEqual(Decimal(str(c.model_lease.max_usd)), self.attempt.ceiling_usd-expected)
+                parent=next(r for r in json.loads(self.ledger.read_text())['invocation_reservations'].values())
+                owner=copy.copy(self.c);owner.parent_call_name=name
+                self.assertEqual(self.runtime.call(owner,[reviewer],'question',self.root,'reviewer-owner-example'),0)
+                self.assertEqual(json.loads(self.ledger.read_text())['invocation_reservations'][parent['lease_id']]['state'],'pending')
+            else:
+                self.assertEqual(Decimal(str(c.model_lease.max_usd)),expected)
+                self.assertLessEqual(budget.outstanding_reservations(json.loads(self.ledger.read_text())),self.attempt.ceiling_usd)
+            state=model_call_gate.Allowance(c.model_lease)
+            request=state.reserve(1);self.assertIsNotNone(request)
+            usage=(dict.fromkeys(model_call_gate.CLAUDE_GATE_FIELDS,0) if models[0]==ROUTE else
+                   dict(prompt_tokens=0,completion_tokens=0,total_tokens=0))
+            state.finish(request,usage);state.close();c.model_cap_used=state.snapshot()
+            return 0
+        with patch.object(model_runtime.ModelRuntime,'_invoke',side_effect=transport):
+            self.assertEqual(self.runtime.call(self.c,[ROUTE],'exam',self.root,'strong-calibrator-example'),0)
+        self.assertEqual(invoked,['strong-calibrator-example','reviewer-owner-example'])
+        self.assertEqual(budget.outstanding_reservations(json.loads(self.ledger.read_text())),0)
+
+    def test_funded_quotes_keep_default_profiles_and_reject_forgery(self):
+        paid = 'openrouter/minimax/minimax-m3.1-flash'
+        default = model_router.route_maximum(paid)
+        quoted = model_router.funded_maximum(paid, '20.000000000')
+        self.assertGreater(quoted['max_usd'], default['max_usd'])
+        self.assertEqual(quoted['max_usd'], 20.0)
+        record = dict(route=paid, **quoted)
+        self.assertTrue(model_router.valid_maximum(record))
+        for change in ({'max_usd': 21.0}, {'max_input_tokens': quoted['max_input_tokens'] + 1},
+                       {'price_source': quoted['price_source'] + '0'}):
+            self.assertFalse(model_router.valid_maximum(record | change))
+        self.assertEqual(model_router.route_maximum(paid), default)
+        self.assertEqual(model_router.funded_maximum(ROUTE + ':small', 40)['max_usd'], 10.0)
+        self.assertEqual(model_router.funded_maximum(paid, 100)['max_usd'], 50.0)
+        for value in (0, -1, 'nan', 'inf', True):
+            with self.assertRaises(ValueError): model_router.funded_maximum(paid, value)
+
+    def test_router_paid_funding_is_bound_to_the_request_id(self):
+        data = dict(id=uuid.uuid4().hex, model='openrouter/minimax/minimax-m3.1-flash',
+                    role='writer', accounts=list(model_router.ACCOUNTS), deadline=time.time()+60,
+                    paid_protocol=1, funding_usd='20.000000000')
+        quote = self.store.rpc('acquire', data)
+        self.assertEqual(quote['max_usd'], 20.0)
+        self.assertTrue(model_router.valid_maximum(quote))
+        self.assertEqual(self.store.rpc('acquire', data), quote)
+        with self.assertRaises(ValueError):
+            self.store.rpc('acquire', data | {'funding_usd': '21.000000000'})
 
     def test_bound_worker_prepares_containment_before_model_execution(self):
         from durable.worker_step import Worker

@@ -231,6 +231,10 @@ class Runtime:
         registry = Ref(**registry_record)
         if registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
             raise RuntimeErrorCode("registry_required")
+        from dbos import DBOS
+        existing = DBOS.get_workflow_status(spec.batch_id)
+        if existing is not None and existing.status not in ("PENDING", "ENQUEUED"):
+            raise RuntimeErrorCode("batch_already_finished")
         # Authenticate opaque inputs without coupling to the admission payload schema.
         for ref in (spec.inputs, registry):
             self.sealer.open(self.keys.scope_key(spec.batch_id), ref, self.store.get_sealed(spec.batch_id, ref))

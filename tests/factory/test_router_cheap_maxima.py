@@ -87,6 +87,23 @@ class CheapTests(unittest.TestCase):
         self.assertEqual(result['route'],'openrouter/deepseek/deepseek-v4.1-flash')
         store.rpc('finish',dict(lease_id=result['lease_id'],outcome='denied',receipt=None))
 
+    def test_glm_profile_matches_primary_endpoint_record(self):
+        record=json.loads(gzip.decompress((FIXTURES/'router-glm-price-record.json.gz').read_bytes()))
+        self.assertEqual(hashlib.sha256(record['raw_text'].encode()).hexdigest(),record['sha256'])
+        self.assertEqual(record['url'],'https://openrouter.ai/api/v1/models/z-ai/glm-5.3-flash/endpoints')
+        route='openrouter/z-ai/glm-5.3-flash';profile=GATED_OPENROUTER[route]
+        endpoint=next(e for e in json.loads(record['raw_text'])['data']['endpoints'] if e['tag']==record['endpoint'])
+        self.assertEqual(endpoint['tag'],profile['endpoint'])
+        self.assertEqual(endpoint['model_id'],route.partition('/')[2])
+        self.assertEqual(tuple(Decimal(endpoint['pricing'][k])*1000000 for k in ('prompt','input_cache_read','completion')),
+                         tuple(map(Decimal,profile['prices'])))
+        self.assertEqual(endpoint['context_length'],profile['context'])
+        self.assertEqual(endpoint['max_completion_tokens'],profile['output'])
+        self.assertEqual(endpoint['pricing'].get('input_cache_write','0'),profile['cache_write'])
+        self.assertEqual(endpoint['pricing'].get('discount',0),0)
+        self.assertTrue({'max_tokens','tools','tool_choice','response_format'}<=set(endpoint['supported_parameters']))
+        self.assertTrue(router.valid_lease(lease(route),route))
+
     def test_real_session_replay_and_three_dollar_job_fit(self):
         expected={'e15450':(17,Decimal('0.8515172860'),Decimal('2.4924907220')),
                   '873d7f':(14,Decimal('0.6516037902'),Decimal('2.2841285566'))}

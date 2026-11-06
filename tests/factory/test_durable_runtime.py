@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -204,10 +205,15 @@ class RuntimeTests(unittest.TestCase):
                          bench_version="b" * 64, app_repo="medusajs/medusa", app_commit="c" * 40,
                          inputs=inputs, target_sealed=1, money_bound_usd_micros=100,
                          deadline_epoch=4e9, max_concurrency=1)
-        with patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start:
+        with patch("dbos.DBOS.get_workflow_status", return_value=None), patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start:
             self.assertEqual(runtime.start(to_record(spec), to_record(registry)), {"batch_id": "b-offline"})
             start.assert_called_once_with(spec, registry)
             self.assertNotIn("arbitrary admission payload", repr(start.call_args))
+        for state in ("SUCCESS", "ERROR", "CANCELLED", "MAX_RECOVERY_ATTEMPTS_EXCEEDED"):
+            with patch("dbos.DBOS.get_workflow_status", return_value=SimpleNamespace(status=state)), patch.object(runtime.engine, "start_batch") as start:
+                with self.assertRaisesRegex(RuntimeErrorCode, "batch_already_finished"):
+                    runtime.start(to_record(spec), to_record(registry))
+                start.assert_not_called()
 
     def test_private_socket_client_prepare(self):
         import socketserver

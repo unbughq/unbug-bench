@@ -197,6 +197,17 @@ def outstanding_reservations(ledger, exclude_lease=None):
     return total
 
 
+def available_invocation_funding(path, attempt):
+    """Uncommitted funding only; reserve_invocation arbitrates concurrent callers."""
+    with ledger_transaction(path) as ledger:
+        limit = attempt_limit(ledger, attempt)
+        total = case_spending(ledger)['total_spent_usd']
+        if total is None: raise BudgetError('usage_unknown')
+        available = limit - usd(total) - outstanding_reservations(ledger)
+        if available <= 0: raise BudgetError('budget_exhausted:grant_insufficient')
+        return format(available, '.9f')
+
+
 def _usage_leaves(work, relative, seen=None, depth=0):
     """Expand A's aggregates, validating every path and never booking aggregate deltas."""
     seen = set() if seen is None else seen
