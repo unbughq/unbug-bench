@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import time
 from types import ModuleType
 import unittest
 from unittest.mock import patch
@@ -241,6 +243,14 @@ class Run(Setup):
         self.assertGreaterEqual(clock.t, 1300)
         self.assertGreater(channel.cancels, 10)
 
+    def test_a_parked_thread_outside_an_attempt_does_not_end_the_drain_early(self):
+        from durable import engine
+        engine._RT.draining.set()
+        self.addCleanup(engine._RT.draining.clear)
+        threading.Thread(target=engine.hold_if_draining, daemon=True).start()
+        time.sleep(0.05)
+        self.assertEqual(engine._RT.parked, 0)
+
     def test_a_worker_that_can_never_be_confirmed_stops_blocking_the_case(self):
         """Boat stays unreadable: `alive` stays unknown, so nothing proves the worker gone. The
         run ends once any TTL has run out, instead of spinning for the life of the batch."""
@@ -248,17 +258,35 @@ class Run(Setup):
         ex = self.ex(channel)
         ex.unconfirmed_limit_s = 3600.0
         si = self.si(deadline=600.0)
-        result = ex.run(si, started_at=self.clock(), lease=WorkerLease("w-1", si.case_id))
+        lease = WorkerLease("w-1", si.case_id)
+        result = ex.run(si, started_at=self.clock(), lease=lease)
         self.assertEqual(result.reason, "infra:worker_lost")
         self.assertGreaterEqual(self.clock.t, 1000 + 600 + 3600)
+        self.assertEqual(ex.pool.released, [lease])   # it cannot run beside the next attempt
+
+    def test_an_undeletable_worker_is_not_called_lost(self):
+        clock = self.clock
+        class Refusing(Pool):
+            def release(self, lease):
+                if clock.t < 6000:
+                    raise OSError("boat down")
+                super().release(lease)
+        ex = Executor(Refusing(), Channel([None]), self.ledger, self.store, self.sealer, self.keys,
+                      poll_interval_s=10, grace_s=100, clock=clock, sleep=clock.sleep, unconfirmed_limit_s=3600.0)
+        si = self.si(deadline=600.0)
+        result = ex.run(si, started_at=clock(), lease=WorkerLease("w-1", si.case_id))
+        self.assertEqual(result.reason, "infra:worker_lost")
+        self.assertGreaterEqual(clock.t, 6000)
 
     def test_reconcile_of_an_unconfirmed_worker_is_bounded_too(self):
         ex = self.ex(Channel([None]))
         ex.unconfirmed_limit_s = 3600.0
         si = self.si()
-        result = ex.reconcile(si, WorkerLease("w-1", si.case_id))
+        lease = WorkerLease("w-1", si.case_id)
+        result = ex.reconcile(si, lease)
         self.assertEqual(result.reason, "infra:worker_lost")
         self.assertGreaterEqual(self.clock.t, 1000 + 3600)
+        self.assertEqual(ex.pool.released, [lease])
 
     def test_a_reconcile_that_keeps_raising_cannot_spin_forever(self):
         from dataclasses import replace
@@ -277,6 +305,7 @@ class Run(Setup):
         finally:
             engine._RT.executor, engine._RT.timing = old
         self.assertEqual(result.reason, "infra:worker_lost")
+        self.assertEqual(ex.pool.released, [WorkerLease("w-1", self.si().case_id)])
 
     def test_binding_failure_also_reconciles_the_recorded_worker(self):
         from durable.engine import _RT, attempt_step

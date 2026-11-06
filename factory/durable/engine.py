@@ -78,6 +78,7 @@ class _Runtime:
     lock = threading.Lock()
     busy = 0     # attempt workflows running in this process
     parked = 0   # of those, held by shutdown at a point where a restart can resume them
+    attempt_thread = threading.local()
 
 
 _RT = _Runtime()
@@ -87,8 +88,9 @@ def hold_if_draining() -> None:
     """Shutdown never lets a thread run on past this: the step stays unrecorded and its restart
     attaches to the same worker attempt. The process exit ends the thread."""
     if _RT.draining.is_set():
-        with _RT.lock:
-            _RT.parked += 1
+        if getattr(_RT.attempt_thread, "tracked", False):
+            with _RT.lock:
+                _RT.parked += 1
         threading.Event().wait()
 
 
@@ -103,9 +105,11 @@ def _tracked(workflow):
     def run(job: dict) -> dict:
         with _RT.lock:
             _RT.busy += 1
+        _RT.attempt_thread.tracked = True
         try:
             return workflow(job)
         finally:
+            _RT.attempt_thread.tracked = False
             with _RT.lock:
                 _RT.busy -= 1
     return run
@@ -241,10 +245,14 @@ def attempt_step(si: dict, started_at: float, worker_id: str) -> dict:
             if result.reason != "engine:executor_raised":
                 break
             # The guard keeps no exception text. An unconfirmed worker remains quarantined
-            # on the same grant, but only until it can no longer be running.
+            # on the same grant, until the limit passes and it has been deleted.
             if time.monotonic() >= until:
-                result = StepResult(Outcome.INFRA_ERROR, "infra:worker_lost")
-                break
+                try:
+                    _ex().release(lease)
+                    result = StepResult(Outcome.INFRA_ERROR, "infra:worker_lost")
+                    break
+                except SeamError:
+                    pass
             time.sleep(_RT.timing.reconcile_retry_s)
     return to_record(result)
 

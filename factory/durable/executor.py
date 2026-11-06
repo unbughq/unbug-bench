@@ -111,7 +111,7 @@ class Executor:
         checkpoint = None
         while True:
             self.pause()   # shutdown: leave the step unrecorded, so a restart reattaches
-            if self.clock() >= limit + self.unconfirmed_limit_s:
+            if self.clock() >= limit + self.unconfirmed_limit_s and self._retire(lease):
                 return self._lost(si, "infra:worker_lost", checkpoint)
             poll = self._poll(lease, si)
             if poll.checkpoint is not None:
@@ -151,6 +151,16 @@ class Executor:
         except Exception:
             pass
         return Poll(PollState.RUNNING)   # a transport failure is RUNNING, never ABSENT
+
+    def _retire(self, lease) -> bool:
+        """Past the limit a worker counts as lost only once it cannot still be running. The guard
+        keeps renewing a live worker, so its TTL proves nothing: delete it. If Boat refuses, keep
+        waiting. Boat being down also stops renewal, so its TTL then ends the wait."""
+        try:
+            self.pool.release(lease)
+            return True
+        except Exception:
+            return False
 
     def _alive(self, lease) -> bool:
         try:
@@ -222,7 +232,7 @@ class Executor:
 
         The failure may have happened after dispatch. Do not start another attempt
         or settle its unknown spend until the worker returns a result, is gone, or has
-        stayed unconfirmed past any TTL it could still have.
+        stayed unconfirmed past the limit and been deleted.
         """
         until = self.clock() + self.unconfirmed_limit_s
         while True:
@@ -230,7 +240,7 @@ class Executor:
             done = self._cancel_confirm(lease, si, self.clock() + self.grace_s)
             if done is not None:
                 return self._check_outputs(si, done)
-            if not self._alive(lease) or self.clock() >= until:
+            if not self._alive(lease) or (self.clock() >= until and self._retire(lease)):
                 return self._lost(si, "infra:worker_lost", None)
 
     # ---- the engine's other side effects -------------------------------------------------------

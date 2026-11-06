@@ -22,7 +22,7 @@ import urllib.request
 
 from durable.workers import _atomic_json
 
-RETRY_WAITS_S = (2.0, 6.0)   # a check gets three tries, and one pass still fits the unit timeout
+RETRY_WAITS_S = (2.0, 6.0)   # a check gets three tries; the unit timeout fits a pass where all fail
 GRACE_S = 120.0              # a controller that just came up is not judged yet
 ESCALATE_S = 900.0           # sustained failure raises an alert; it still stops nothing
 DOWN_ALERT_S = 600.0
@@ -35,7 +35,7 @@ HARD_STOPS = {
     "money_ceiling": "Spending passed the money ceiling. Check the ledger before raising it.",
     "compute_bound": "Reserved compute passed the approved infrastructure budget.",
     "worker_count": "More than one live worker. Check Boat before restarting.",
-    "worker_allowance": "The worker creation allowance is used up or unreadable.",
+    "worker_allowance": "More workers were created than the allowance permits.",
     "worker_rate": "A worker costs more than its approved rate or bound. Check Boat.",
 }
 CASE_ALERTS = {
@@ -133,6 +133,12 @@ class Guard:
             raise CheckFailed("usage_malformed")
         return values[0], values[1] / values[2]
 
+    def _count(self) -> int:
+        count = self.count()
+        if type(count) is not int or count < 0:
+            raise CheckFailed("allowance_malformed")
+        return count
+
     def _breach(self, owned: list) -> Optional[str]:
         """A hard stop only on confirmed numbers. An unreadable number is a failed check."""
         r = self.request
@@ -142,10 +148,8 @@ class Guard:
             return "compute_bound"
         if len(owned) > 1:
             return "worker_count"
-        ok, count = self.check("worker_allowance", self.count)
-        if ok and (type(count) is not int or count < 0):
-            self.failed.append("worker_allowance")
-        elif ok and count > r["max_workers_lifetime"]:
+        ok, count = self.check("worker_allowance", self._count)
+        if ok and count > r["max_workers_lifetime"]:
             return "worker_allowance"
         for row in owned:
             ok, usage = self.check("boat_usage", lambda: self._usage(row["id"]))
@@ -169,19 +173,23 @@ class Guard:
                   "finished": status.get("finished", False), "failed_checks": [], "owned_workers": None}
         ok, service = self.check("service_state", self.service.state)
         active, active_since, ready_since = service if ok else ("unknown", None, None)
+        if health["finished"]:
+            health["phase"] = "finished"
+            if active == "active":   # an earlier stop failed
+                self.check("controller_stop", self.service.stop)
+            return self._finish(health, status)
         if health["hard_stop"] or cleanup or now >= self.request["deadline_epoch"]:
             health["hard_stop"] = health["hard_stop"] or "deadline"
             self._stop(health)
             return self._finish(health, status)
-        if health["finished"]:
-            health["phase"] = "finished"
-            return self._finish(health, status)
         if active == "active":
-            health["down_since"] = None
-            if now - max(active_since or 0, ready_since or 0) < self.grace_s:
+            down = health["down_since"]
+            if now - max(active_since or 0, ready_since or 0) >= self.grace_s:
+                health["down_since"] = None
+            elif down is None or now - down < 2 * self.grace_s:
                 health["phase"] = "starting"
                 return self._finish(health, status)
-        else:
+        elif ok:
             health["down_since"] = health["down_since"] or now
             self.evidence.append({"at": now, "check": "controller", "try": 1, "code": active,
                                   "seconds": 0, "stderr": ""})
@@ -190,7 +198,7 @@ class Guard:
         if ok:
             health["owned_workers"] = len(owned)
             health["hard_stop"] = self._breach(owned)
-        if health["hard_stop"] is None and active == "active":
+        if health["hard_stop"] is None and active in ("active", "unknown"):
             health["hard_stop"] = self._controller(health)
         if health["hard_stop"]:
             self._stop(health)
@@ -200,19 +208,24 @@ class Guard:
         return self._finish(health, status)
 
     def _controller(self, health: dict) -> Optional[str]:
-        ok, money = self.check("ledger", lambda: self.rpc("budget"))
-        if ok and money["spent"] > money["bound"]:
-            return "money_ceiling"
-        ok, report = self.check("controller_status", lambda: self.rpc("status"))
-        if ok:
+        def over_ceiling():
+            money = self.rpc("budget")
+            return money["spent"] > money["bound"]
+        def terminal():
+            report = self.rpc("status")
             self.save("scorecard.json", report)
             cases = report["cases"]
-            if cases and all(c["status"] in TERMINAL for c in cases):
-                done, _ = self.check("publish", lambda: self.rpc("publish"))
-                if done:
-                    health["finished"] = True
-                    health["phase"] = "finished"
-                    self.check("controller_stop", self.service.stop)
+            return bool(cases) and all(c["status"] in TERMINAL for c in cases)
+        ok, over = self.check("ledger", over_ceiling)
+        if ok and over:
+            return "money_ceiling"
+        ok, finished = self.check("controller_status", terminal)
+        if ok and finished:
+            done, _ = self.check("publish", lambda: self.rpc("publish"))
+            if done:
+                health["finished"] = True
+                health["phase"] = "finished"
+                self.check("controller_stop", self.service.stop)
         return None
 
     def _stop(self, health: dict) -> None:
@@ -226,7 +239,7 @@ class Guard:
             health["degraded_since"] = (health["degraded_since"] or now) if self.failed else None
         if health["degraded_since"] is not None and health["phase"] == "healthy":
             health["phase"] = "degraded"
-        if health["phase"] == "degraded":
+        if health["phase"] == "degraded" or (health["phase"] == "starting" and health["degraded_since"] is not None):
             self.save("degraded.json", {"until": now + MARKER_TTL_S})
         else:
             self.path("degraded.json").unlink(missing_ok=True)

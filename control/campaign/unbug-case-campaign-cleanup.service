@@ -4,5 +4,6 @@ Description=Stop the bounded campaign at its deadline; workers end on their TTL
 Type=oneshot
 Environment=UNBUG_CAMPAIGN_ROOT=/home/user/durable-first-case-20261106
 EnvironmentFile=-/etc/unbug/alerts.env
+ExecStartPre=-/usr/bin/systemctl stop --no-block unbug-durable-case-campaign.service
 ExecStart=/home/user/durable-qualification-20261105/venv/bin/python -B /home/user/durable-first-case-20261106/source-current/control/campaign/campaign_guard.py --cleanup
 TimeoutStartSec=300

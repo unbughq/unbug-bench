@@ -94,10 +94,12 @@ def stop_on_signal(drain, cleanup=lambda: None):
     socket loop may be held by a client, and a stuck thread must not outlive the stop."""
     stopping = threading.Lock()
     def finish():
-        drain()
-        cleanup()
-        logging.shutdown()
-        os._exit(0)
+        try:
+            cleanup()   # first, so no new operator request arrives during the drain
+            drain()
+            logging.shutdown()
+        finally:
+            os._exit(0)
     def stop(_signum, _frame):
         if stopping.acquire(blocking=False):
             threading.Thread(target=finish, daemon=True).start()

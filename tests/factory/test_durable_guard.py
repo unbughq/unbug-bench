@@ -59,6 +59,7 @@ class Fake:
 
     def stop(self):
         self.stopped += 1
+        self.active = "inactive"
 
     def guard(self, **kw):
         return Guard(REQUEST, self.state_dir / "guard", boat=self.boat, rpc=self.rpc, service=self, ours=lambda r: True,
@@ -159,6 +160,44 @@ class GuardTests(unittest.TestCase):
         self.assertIn("down", self.f.sent[0])
         self.assertEqual(self.f.stopped, 0)
         self.assertIn(["extend", "bx_aaaaaaaa", "--ttl", "7200"], self.f.calls)
+
+    def test_a_crash_loop_cannot_hide_behind_the_grace_period(self):
+        """Up for 30 seconds at a time: never ready, but alerted, and the worker still renewed."""
+        self.f.active = "failed"
+        self.tick()
+        self.f.state = lambda: ("active", self.f.clock - 30, None)
+        self.tick(601)
+        self.assertEqual(len(self.f.sent), 1)
+        self.assertIn(["extend", "bx_aaaaaaaa", "--ttl", "7200"], self.f.calls)
+
+    def test_a_restart_during_an_outage_keeps_new_attempts_paused(self):
+        self.f.boat_failures["usage"] = 3
+        self.tick()
+        self.f.state = lambda: ("active", self.f.clock - 30, None)
+        self.assertEqual(self.tick()["phase"], "starting")
+        self.assertTrue((self.f.state_dir / "guard/degraded.json").exists())
+
+    def test_an_unreadable_service_state_still_checks_the_money(self):
+        self.f.state = lambda: 1 / 0
+        self.f.money = {"spent": 3, "bound": 2}
+        self.assertEqual(self.tick()["hard_stop"], "money_ceiling")
+
+    def test_a_malformed_controller_reply_only_degrades(self):
+        self.f.money = {"unexpected": 1}
+        out = self.tick()
+        self.assertEqual((out["phase"], out["failed_checks"]), ("degraded", ["ledger"]))
+
+    def test_a_failed_finishing_stop_is_retried(self):
+        self.f.cases[0]["status"] = "sealed"
+        stops = []
+        def flaky():
+            stops.append(1)
+            if len(stops) <= 3:
+                raise OSError()
+        self.f.stop = flaky
+        self.tick()
+        self.assertEqual(self.tick()["phase"], "finished")
+        self.assertEqual(len(stops), 4)
 
     def test_a_controller_inside_its_grace_period_is_not_judged(self):
         self.f.rpc_failures = 10 ** 6

@@ -56,6 +56,9 @@ automatically recoverable. Unit tests do not qualify a live worker release.
 references and package interfaces. Its reviewed change permits restoring ADMIT
 checkpoints; the wire fields remain the same. The candidate integrates the DBOS engine, executor,
 Boat worker pool/channel, worker-side steps, SQL ledger and wrapped-key service.
+`guard.py` is the campaign's minute-by-minute check: failures pause new attempts, and only a
+money, deadline or confirmed Boat limit stops the controller. On SIGTERM the engine drains, then
+exits without touching DBOS again, and systemd restarts it unless an operator stopped it.
 `runtime.py` composes these components; `cli.py` exposes a private operator socket.
 `client.py` reads that operator's public status/report over SSH using a saved local
 connection and default batch. `bin/install-unbug` packages a standalone read-only
