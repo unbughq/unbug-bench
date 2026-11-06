@@ -51,8 +51,7 @@ def classify_provider_failure(text, model, *, reset_at=None, retry_after=None, n
     observation = {'reason': reason, 'scope': scope, 'model': model}
     if reason == 'outage' and (status_code == 404 or re.sub(r'[^a-z]', '', str(error_type).lower()) in
             ('providermodelnotfounderror', 'modelnotfounderror', 'modelunavailableerror')):
-        # A bad model/endpoint is not evidence of an account-wide outage.
-        observation.update(source_stop='model_unavailable', per_call=True)
+        observation['source_stop'] = 'model_unavailable'
     if type(reset_at) in (int, float) and math.isfinite(reset_at) and reset_at > 0:
         observation['reset_at'] = reset_at
     elif type(retry_after) in (int, float) and math.isfinite(retry_after) and retry_after > 0:
