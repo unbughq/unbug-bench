@@ -604,6 +604,17 @@ class Money(unittest.TestCase):
 
 
 class Releases(unittest.TestCase):
+    def test_never_dispatched_admission_does_not_park_after_cutoff_during_provisioning(self):
+        r, out = run({'pool_failures': 1, 'pool_reason': 'infra:worker_create_failed',
+            'pool_acquire_delay_s': 8, 'deadline_in': 6,
+            'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0, 'max_factory_bug_resumes': 0},
+            'timing': {'pool_wait_ceiling_s': 0}})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'stopped_admission'})
+        self.assertFalse(r.starts())
+        self.assertEqual(json.loads((r.work/'state/pool/acquire-failures.json').read_text()), 1)
+        self.assertEqual(out['ledger']['batches']['b-t']['held'], 0)
+
     def test_admission_infrastructure_failure_waits_for_fix_and_retains_state(self):
         r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
             'script': {'1/admit/1': {'outcome': 'infra_error', 'reason': 'admit:registry_unavailable',

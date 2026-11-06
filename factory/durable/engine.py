@@ -561,8 +561,7 @@ class _Case:
             if step.kind is StepKind.DIAGNOSIS and result.outcome is Outcome.OK:
                 return None, result
             action = decide(step, result, self.counters(infra, limits, free, late), self.spec, grant=grant, now=now)
-            admission_expired = pool_wait and admit and not admission_started and pool_now >= self.spec.deadline_epoch
-            if admission_expired:
+            if pool_wait and admit and not admission_started and pool_now >= self.spec.deadline_epoch:
                 action = Action.STOP_ADMISSION   # the batch deadline stops new cases
             if (action is Action.RETRY and is_money_stop(result)
                     and grant.limited_by is LimitedBy.NOTHING and not job["draws"]):
@@ -597,8 +596,10 @@ class _Case:
             if action is Action.WAIT_FOR_BOUND:
                 self.wait_for_bound()
                 continue
-            if (admit and not admission_expired and action is Action.STOP_ADMISSION and result.outcome is Outcome.INFRA_ERROR
+            if (admit and action is Action.STOP_ADMISSION and result.outcome is Outcome.INFRA_ERROR
                     and DBOS.patch('admission_release_recovery')):
+                if not admission_started and now_step() >= self.spec.deadline_epoch:
+                    return Action.STOP_ADMISSION, result
                 if self.factory_bug_resumes >= min(self.spec.max_factory_bug_resumes, 3):
                     return Action.HOLD, result
                 # Use the release actually dispatched, including queued release changes.

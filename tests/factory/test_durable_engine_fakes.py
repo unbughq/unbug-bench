@@ -564,6 +564,12 @@ def engine_main(workdir):
 
         engine_module._Case.card = fail_sealed_card
     fakes = build_fakes(work / "state", scenario)
+    if scenario.get('pool_acquire_delay_s'):
+        acquire = fakes['pool'].acquire
+        def slow_acquire(*args):
+            time.sleep(scenario['pool_acquire_delay_s'])
+            return acquire(*args)
+        fakes['pool'].acquire = slow_acquire
     if scenario.get("verification_failures"):
         original_exists = fakes["store"].exists
         remaining = [scenario["verification_failures"]]
