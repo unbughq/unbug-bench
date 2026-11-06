@@ -20,7 +20,7 @@ from durable.artifacts import ArtifactError, open_from, scope_for
 from durable.contract import (ArtifactKind, ArtifactStore, Grant, KeyService, Ledger, Outcome, Poll,
                               PollState, Ref, Sealer, StepInput, StepKind, StepResult, WorkerChannel, WorkerLease,
                               WorkerPool)
-from durable.policy import POLL_GRACE_S, settles_as_waste, settles_lost
+from durable.policy import POLL_GRACE_S, UNCONFIRMED_WORKER_LIMIT_S, settles_as_waste, settles_lost
 
 OUTPUT_REFS = ("snapshot", "receipt", "feedback", "report", "registry", "archive", "diagnostic")
 
@@ -65,11 +65,13 @@ def input_refs(si: StepInput) -> list:
 class Executor:
     def __init__(self, pool: WorkerPool, channel: WorkerChannel, ledger: Ledger, store: ArtifactStore,
                  sealer: Sealer, keys: KeyService, *, poll_interval_s: float = 30.0,
-                 grace_s: float = POLL_GRACE_S, clock=time.time, sleep=time.sleep):
+                 grace_s: float = POLL_GRACE_S, clock=time.time, sleep=time.sleep,
+                 pause=lambda: None, unconfirmed_limit_s: float = UNCONFIRMED_WORKER_LIMIT_S):
         self.pool, self.channel, self.ledger, self.store = pool, channel, ledger, store
         self.sealer, self.keys = sealer, keys
         self.poll_interval_s, self.grace_s = poll_interval_s, grace_s
         self.clock, self.sleep = clock, sleep
+        self.pause, self.unconfirmed_limit_s = pause, unconfirmed_limit_s
 
     # ---- the attempt (StepExecutor) ------------------------------------------------------------
 
@@ -108,6 +110,9 @@ class Executor:
         limit = max(start, self.clock()) + si.deadline_s + self.grace_s
         checkpoint = None
         while True:
+            self.pause()   # shutdown: leave the step unrecorded, so a restart reattaches
+            if self.clock() >= limit + self.unconfirmed_limit_s:
+                return self._lost(si, "infra:worker_lost", checkpoint)
             poll = self._poll(lease, si)
             if poll.checkpoint is not None:
                 checkpoint = poll.checkpoint
@@ -216,13 +221,16 @@ class Executor:
         """After an unexpected executor failure, resolve the exact prior worker.
 
         The failure may have happened after dispatch. Do not start another attempt
-        or settle its unknown spend until the worker returns a result or is gone.
+        or settle its unknown spend until the worker returns a result, is gone, or has
+        stayed unconfirmed past any TTL it could still have.
         """
+        until = self.clock() + self.unconfirmed_limit_s
         while True:
+            self.pause()
             done = self._cancel_confirm(lease, si, self.clock() + self.grace_s)
             if done is not None:
                 return self._check_outputs(si, done)
-            if not self._alive(lease):
+            if not self._alive(lease) or self.clock() >= until:
                 return self._lost(si, "infra:worker_lost", None)
 
     # ---- the engine's other side effects -------------------------------------------------------

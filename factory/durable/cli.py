@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import logging
 import os
 from pathlib import Path
 import signal
@@ -88,6 +89,22 @@ class Handler(socketserver.StreamRequestHandler):
         self.wfile.write(json.dumps(response).encode() + b"\n")
 
 
+def stop_on_signal(drain, cleanup=lambda: None):
+    """The first SIGTERM or SIGINT drains and ends the process. Nothing else is waited for: the
+    socket loop may be held by a client, and a stuck thread must not outlive the stop."""
+    stopping = threading.Lock()
+    def finish():
+        drain()
+        cleanup()
+        logging.shutdown()
+        os._exit(0)
+    def stop(_signum, _frame):
+        if stopping.acquire(blocking=False):
+            threading.Thread(target=finish, daemon=True).start()
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+
 def serve(config):
     from sqlalchemy.engine import make_url
     if make_url(config["database_url"]).get_backend_name() != "postgresql":
@@ -100,10 +117,7 @@ def serve(config):
         with socketserver.UnixStreamServer(str(path), Handler) as server:
             os.chmod(path, 0o600)
             server.runtime = runtime
-            def stop(_signum, _frame):
-                threading.Thread(target=server.shutdown, daemon=True).start()
-            signal.signal(signal.SIGTERM, stop)
-            signal.signal(signal.SIGINT, stop)
+            stop_on_signal(runtime.drain, lambda: path.unlink(missing_ok=True))
             server.serve_forever(poll_interval=0.25)
     finally:
         path.unlink(missing_ok=True)

@@ -37,6 +37,9 @@ DEADLINE_REASON = "infra:deadline"
 # that it counts against max_infra_retries_per_step like any infra error. Six hours rides out a provider
 # quota or a Boat incident; a bad image or a lasting outage still ends instead of holding the batch.
 POOL_WAIT_CEILING_S = 21_600.0
+# How long past its deadline an attempt may stay unconfirmed before it counts as lost. Longer than
+# Boat's 2-hour TTL, so an unrenewed worker has expired by then; a recovering controller never spins.
+UNCONFIRMED_WORKER_LIMIT_S = 9000.0
 # Results whose usage the engine cannot know: they book the whole grant as waste (settle_lost).
 LOST_REASONS = frozenset({"infra:cancelled", "infra:worker_lost", "infra:attempt_absent",
                           "engine:executor_raised", "engine:executor_bad_result"})

@@ -241,6 +241,43 @@ class Run(Setup):
         self.assertGreaterEqual(clock.t, 1300)
         self.assertGreater(channel.cancels, 10)
 
+    def test_a_worker_that_can_never_be_confirmed_stops_blocking_the_case(self):
+        """Boat stays unreadable: `alive` stays unknown, so nothing proves the worker gone. The
+        run ends once any TTL has run out, instead of spinning for the life of the batch."""
+        channel = Channel([None])
+        ex = self.ex(channel)
+        ex.unconfirmed_limit_s = 3600.0
+        si = self.si(deadline=600.0)
+        result = ex.run(si, started_at=self.clock(), lease=WorkerLease("w-1", si.case_id))
+        self.assertEqual(result.reason, "infra:worker_lost")
+        self.assertGreaterEqual(self.clock.t, 1000 + 600 + 3600)
+
+    def test_reconcile_of_an_unconfirmed_worker_is_bounded_too(self):
+        ex = self.ex(Channel([None]))
+        ex.unconfirmed_limit_s = 3600.0
+        si = self.si()
+        result = ex.reconcile(si, WorkerLease("w-1", si.case_id))
+        self.assertEqual(result.reason, "infra:worker_lost")
+        self.assertGreaterEqual(self.clock.t, 1000 + 3600)
+
+    def test_a_reconcile_that_keeps_raising_cannot_spin_forever(self):
+        from dataclasses import replace
+        from durable import engine
+        class Broken(Executor):
+            def run(self, *args, **kwargs):
+                raise RuntimeError("after dispatch")
+            def reconcile(self, si, lease):
+                raise RuntimeError("deleted worker")
+        ex = Broken(Pool(), Channel([None]), self.ledger, self.store, self.sealer, self.keys)
+        old = engine._RT.executor, engine._RT.timing
+        engine._RT.executor = ex
+        engine._RT.timing = replace(engine.Timing(), reconcile_retry_s=0.01, unconfirmed_limit_s=0.05)
+        try:
+            result = step_result_from_record(engine.attempt_step(to_record(self.si()), self.clock(), "w-1"))
+        finally:
+            engine._RT.executor, engine._RT.timing = old
+        self.assertEqual(result.reason, "infra:worker_lost")
+
     def test_binding_failure_also_reconciles_the_recorded_worker(self):
         from durable.engine import _RT, attempt_step
         late = self.ok()

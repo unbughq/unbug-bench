@@ -19,9 +19,11 @@ Engine rules, as built:
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import functools
 import hashlib
 import json
 import os
+import threading
 import time
 from types import SimpleNamespace
 from typing import Any, Mapping, Optional
@@ -35,7 +37,7 @@ from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised
                               wait_seconds)
 from durable.classify import WORKER_POOL_REASONS
 from durable.executor import Executor, SeamError
-from durable.policy import (DEADLINE_REASON, POOL_WAIT_CEILING_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
+from durable.policy import (DEADLINE_REASON, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
                             draws_case_money, is_batch_deadline_stop, is_operational_wait, is_money_stop, is_pause,
                             progressed, request_usd_micros, starts_replacement)
 from durable.report import verified_seal
@@ -63,6 +65,8 @@ class Timing:
                                     # (WP4's flat backoff); a pause never counts as an infra retry
     credential_retry_s: float = 900.0  # retry a visible credential configuration wait
     degraded_poll_s: float = 15.0      # recheck while the guard has new attempts paused
+    reconcile_retry_s: float = 30.0    # after a failed reconcile of an unconfirmed attempt
+    unconfirmed_limit_s: float = UNCONFIRMED_WORKER_LIMIT_S  # then it counts as lost
     pool_wait_ceiling_s: float = POOL_WAIT_CEILING_S  # total worker-create waiting per seq before it counts
 
 
@@ -70,9 +74,41 @@ class _Runtime:
     executor: Optional[Executor] = None
     timing: Timing = Timing()
     admission_paused = staticmethod(lambda: False)
+    draining = threading.Event()
+    lock = threading.Lock()
+    busy = 0     # attempt workflows running in this process
+    parked = 0   # of those, held by shutdown at a point where a restart can resume them
 
 
 _RT = _Runtime()
+
+
+def hold_if_draining() -> None:
+    """Shutdown never lets a thread run on past this: the step stays unrecorded and its restart
+    attaches to the same worker attempt. The process exit ends the thread."""
+    if _RT.draining.is_set():
+        with _RT.lock:
+            _RT.parked += 1
+        threading.Event().wait()
+
+
+def draining_sleep(seconds: float) -> None:
+    """A wait that shutdown cuts short."""
+    _RT.draining.wait(seconds)
+
+
+def _tracked(workflow):
+    """Count an attempt workflow as in flight, so shutdown knows what it is waiting for."""
+    @functools.wraps(workflow)
+    def run(job: dict) -> dict:
+        with _RT.lock:
+            _RT.busy += 1
+        try:
+            return workflow(job)
+        finally:
+            with _RT.lock:
+                _RT.busy -= 1
+    return run
 
 
 def admit_queue(batch_id: str) -> str:
@@ -117,8 +153,10 @@ def _ex() -> Executor:
 def _new_attempt_gate() -> None:
     """Before an attempt takes money or a worker: wait out a degraded batch. Attempts already
     running carry on. This only delays a step, so it records nothing and replays the same."""
+    hold_if_draining()
     while _RT.admission_paused():
         time.sleep(_RT.timing.degraded_poll_s)
+        hold_if_draining()
 
 
 @DBOS.step()
@@ -181,6 +219,7 @@ def cancel_step(si: dict, started_at: float, worker_id: str) -> bool:
 def attempt_step(si: dict, started_at: float, worker_id: str) -> dict:
     """The attempt itself. Rerun after a crash, it attaches to the same worker attempt: the
     worker refuses a second start of the same key, and poll returns the first result."""
+    hold_if_draining()
     step_input = step_input_from_record(si)
     # A recorded lease may refer to an attempt that ran before a crash. A missing
     # runtime cannot prove it stopped, so keep its grant until a runtime can inspect it.
@@ -195,13 +234,18 @@ def attempt_step(si: dict, started_at: float, worker_id: str) -> dict:
         # The guard cannot know whether dispatch happened before an exception or
         # invalid response. Reconcile the original lease before releasing its grant.
         reconcile = SimpleNamespace(run=lambda si: _RT.executor.reconcile(si, lease))
+        until = time.monotonic() + _RT.timing.unconfirmed_limit_s
         while True:
+            hold_if_draining()
             result = guarded_run(reconcile, step_input)
             if result.reason != "engine:executor_raised":
                 break
-            # The guard keeps no exception text. An unconfirmed worker remains
-            # quarantined on the same grant.
-            time.sleep(30)
+            # The guard keeps no exception text. An unconfirmed worker remains quarantined
+            # on the same grant, but only until it can no longer be running.
+            if time.monotonic() >= until:
+                result = StepResult(Outcome.INFRA_ERROR, "infra:worker_lost")
+                break
+            time.sleep(_RT.timing.reconcile_retry_s)
     return to_record(result)
 
 
@@ -241,6 +285,7 @@ def failed_cases_step(case_ids: list) -> list:
 # ---- the attempt workflow ------------------------------------------------------------------------
 
 @DBOS.workflow(max_recovery_attempts=None)
+@_tracked
 def attempt_workflow(job: dict) -> dict:
     """One attempt, run while holding one queue slot: read the registry (ADMIT), reserve, check
     the minimum grant, cancel attempt n-1, run, settle."""
@@ -292,6 +337,7 @@ def attempt_workflow(job: dict) -> dict:
 
 
 @DBOS.workflow(max_recovery_attempts=None)
+@_tracked
 def prepared_attempt_workflow(job: dict) -> dict:
     """Dispatch a previously funded, prepared attempt while holding a model slot.
 
@@ -1248,6 +1294,7 @@ class Engine:
         self.dbos = DBOS(config=config)
         check_instance(self.dbos)
         _RT.executor, _RT.timing, _RT.admission_paused = self.executor, self.timing, self.admission_paused
+        _RT.draining.clear()
         DBOS.launch()
         # Rule 6: register the queues of every unfinished batch before anything is started or
         # attached. Their rows persist from the first launch, so a case recovered by launch()
@@ -1298,6 +1345,15 @@ class Engine:
         if not isinstance(reply, FounderReply):
             raise ContractError("reply carries a FounderReply")
         DBOS.send(case_id, to_record(reply), topic=Topic.FOUNDER_REPLY.value)
+
+    def drain(self, timeout_s: float) -> None:
+        """Start nothing new, and let attempts in flight record or reach a point a restart can
+        resume, for at most timeout_s. The caller then ends the process: DBOS.destroy would leave
+        workflow threads alive, and one failing just then could record a false terminal error."""
+        _RT.draining.set()
+        until = time.monotonic() + timeout_s
+        while _RT.busy > _RT.parked and time.monotonic() < until:
+            time.sleep(0.05)
 
     def shutdown(self) -> None:
         DBOS.destroy()

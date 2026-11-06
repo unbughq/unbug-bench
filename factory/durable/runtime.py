@@ -33,6 +33,7 @@ from durable.workers import BoatPool, PoolError, ReleaseStore, LABEL_CASE, LABEL
 
 
 LOG = logging.getLogger("durable.runtime")
+DRAIN_S = 60.0             # units set TimeoutStopSec above this
 SWEEP_INTERVAL_S = 300.0   # a stray sandbox is deleted within one interval of the pass that sees it
 
 
@@ -121,7 +122,7 @@ class Runtime:
     def __init__(self, config):
         from durable.channel import BoatChannel
         from durable.executor import Executor
-        from durable.engine import APP_VERSION, Engine
+        from durable.engine import APP_VERSION, Engine, draining_sleep, hold_if_draining
         assert_no_conductor(os.environ, {})
         if config["application_version"] != APP_VERSION:
             raise RuntimeErrorCode("application_version_mismatch")
@@ -156,7 +157,8 @@ class Runtime:
                     raise RuntimeErrorCode("invalid_worker_accounts")
                 self.pool.credential_bundle = self.worker_credentials
             self.channel = BoatChannel(self.store, keys=self.keys, sealer=self.sealer, output_retry_s=retry)
-            self.executor = Executor(self.pool, self.channel, self.ledger, self.store, self.sealer, self.keys)
+            self.executor = Executor(self.pool, self.channel, self.ledger, self.store, self.sealer, self.keys,
+                                     sleep=draining_sleep, pause=hold_if_draining)
             self.engine = Engine(system_database_url=config["database_url"], executor=self.executor,
                                  admission_paused=lambda: guard_degraded(self.state))
         except Exception:
@@ -243,6 +245,11 @@ class Runtime:
         self.releases.bundle(spec.plumbing_version)
         self.engine.start_batch(spec, registry)
         return {"batch_id": spec.batch_id}
+
+    def drain(self):
+        self._sweep_stop.set()
+        if self.launched:
+            self.engine.drain(DRAIN_S)
 
     def close(self):
         self._sweep_stop.set()
