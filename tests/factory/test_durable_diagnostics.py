@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 import sys
 import tarfile
+import tempfile
+from types import SimpleNamespace
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'factory'))
@@ -10,6 +12,20 @@ from durable.diagnostics import inspect_snapshot
 
 
 class Inspection(unittest.TestCase):
+    def test_worker_publishes_safe_error_summary_without_manual_inspection(self):
+        from durable.worker_step import diagnostic
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            (work / 'transcripts').mkdir()
+            (work / 'transcripts' / 'failed.jsonl').write_text(json.dumps({
+                'type': 'assistant', 'error': 'unknown', 'message': {'content': [
+                    {'type': 'text', 'text': 'API Error: 400 PRIVATE CASE SENTINEL'}]}}))
+            result = json.loads(diagnostic(SimpleNamespace(work=work, card={}),
+                                           {'reason': 'router:claude_error'}))
+            self.assertEqual(result['operational']['http_statuses'], [400])
+            self.assertEqual(result['operational']['typed_error_count'], 1)
+            self.assertNotIn('PRIVATE CASE SENTINEL', json.dumps(result))
+
     def test_driver_error_envelopes_exclude_ordinary_model_prose(self):
         from durable.diagnostics import _error_fields
         for event in [{'type': 'turn.failed', 'error': {'message': 'invalid api key'}},
@@ -24,6 +40,9 @@ class Inspection(unittest.TestCase):
         fields = _error_fields({'type': 'assistant', 'error': 'unknown', 'message': {
             'content': [{'type': 'text', 'text': 'invalid api key'}]}})
         self.assertIn('invalid api key', fields[0])
+        fields = _error_fields({'type': 'assistant', 'error': 'unknown', 'message': {
+            'content': [{'type': 'text', 'text': 'API Error: 403 Request not allowed'}]}})
+        self.assertEqual(fields[1], [403])
         self.assertIsNone(_error_fields({'type': 'assistant', 'message': {'content': 'invalid api key'}}))
         self.assertIsNone(_error_fields({'type': 'item.completed', 'item': {'text': 'invalid api key'}}))
 

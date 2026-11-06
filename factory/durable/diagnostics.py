@@ -7,6 +7,7 @@ import base64
 import io
 import json
 import math
+from pathlib import Path
 import re
 import sys
 import tarfile
@@ -26,6 +27,9 @@ HINTS = {'authentication': r'authentication|invalid api key|oauth token.*expired
          'request_invalid': r'invalid.request|unsupported.parameter|unrecognized.*field',
          'connection_failure': r'connection refused|econnrefused|enotfound|fetch failed|connection reset',
          'server_failure': r'internal.server.error|service.unavailable|overloaded',
+         'request_denied': r'forbidden|request.not.allowed|access.denied',
+         'tls_failure': r'certificate|self.signed|unable.to.verify|tls.handshake',
+         'interrupted': r'\baborted\b|aborterror|\bcancelled\b',
          'cli_arguments': r'unknown.option|unexpected.argument|unrecognized.option',
          'permission_failure': r'permission.denied|eacces|eperm'}
 
@@ -55,7 +59,9 @@ def _error_fields(event):
             texts += [block['text'] for block in content if isinstance(block, dict)
                       and block.get('type') == 'text' and isinstance(block.get('text'), str)]
     if isinstance(event.get('errors'), list): texts += [s for s in event['errors'] if isinstance(s, str)]
-    return '\n'.join(texts), statuses
+    text = '\n'.join(texts)
+    statuses += [int(code) for code in re.findall(r'\b(?:API Error:|HTTP(?:/\d(?:\.\d)?)?)\s*([45]\d\d)\b', text, re.I)]
+    return text, statuses
 
 
 def _numbers(value):
@@ -73,6 +79,30 @@ def _numbers(value):
     for key in ('exhausted', 'closed'):
         if type(value.get(key)) is bool: result[key] = value[key]
     return result
+
+
+def _scan_errors(report, lines):
+    for line in lines:
+        try: event = json.loads(line)
+        except (ValueError, UnicodeError): continue
+        if not isinstance(event, dict): continue
+        fields = _error_fields(event)
+        if fields is None: continue
+        report['typed_error_count'] += 1
+        text, statuses = fields
+        report['http_statuses'] = sorted(set(report['http_statuses']) | set(statuses))
+        for code, pattern in HINTS.items():
+            if re.search(pattern, text, re.I) and code not in report['error_hints']:
+                report['error_hints'].append(code)
+
+
+def inspect_transcripts(directory):
+    """The same safe error summary for normal worker diagnostics and saved evidence."""
+    report = {'typed_error_count': 0, 'http_statuses': [], 'error_hints': []}
+    for path in sorted(Path(directory).glob('*.jsonl'))[-32:]:
+        if path.is_file() and path.stat().st_size <= 16 * 1024 * 1024:
+            with path.open('rb') as stream: _scan_errors(report, stream)
+    return report
 
 
 def inspect_snapshot(raw):
@@ -100,18 +130,7 @@ def inspect_snapshot(raw):
                 row['cap_used'] = _numbers(receipt.get('cap_used') or {})
                 report['receipts'].append(row)
             elif name.startswith('transcripts/'):
-                for line in archive.extractfile(member):
-                    try: event = json.loads(line)
-                    except (ValueError, UnicodeError): continue
-                    if not isinstance(event, dict): continue
-                    fields = _error_fields(event)
-                    if fields is None: continue
-                    report['typed_error_count'] += 1
-                    text, statuses = fields
-                    report['http_statuses'] = sorted(set(report['http_statuses']) | set(statuses))
-                    for code, pattern in HINTS.items():
-                        if re.search(pattern, text, re.I) and code not in report['error_hints']:
-                            report['error_hints'].append(code)
+                _scan_errors(report, archive.extractfile(member))
     return report
 
 

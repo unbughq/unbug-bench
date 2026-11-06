@@ -89,10 +89,12 @@ Case material belongs in encrypted artifacts, opened in worker RAM. The control
 side transfers blobs; workers receive no R2 credentials. Invoke executors through
 `guarded_run`; sanitize exception paths and disable Conductor/DBOS Cloud.
 Worker steps share structured wait classification: quota/rate/credit wait durably,
-credential/configuration/router outages park without consuming infrastructure
-retries, and known CLI faults remain infrastructure errors. Each wait retains an
+credential delivery, unbounded routes and router outages park without consuming
+infrastructure retries; known CLI and unavailable-model faults retain the finite
+infrastructure allowance. Each wait retains an
 encrypted operational diagnostic with allowlisted causes, retry times and lease
-IDs. Scope-bound `durable.diagnostics` inspection runs in worker memory and exports
+IDs. Worker diagnostics automatically include safe HTTP statuses and error categories.
+Scope-bound `durable.diagnostics` inspection runs in worker memory and exports
 only operational codes and numeric usage; it never extracts or returns case text.
 Optional `worker_credentials` configuration names an encrypted bundle, control
 identity, router client file and selected model accounts. The controller decrypts

@@ -230,7 +230,7 @@ def classify_wait(error, *, step, now, prior=()):
     original = next((row['source_stop'] for row in reversed(waits) if 'source_stop' in row), None)
     reason = fault or waits[-1]['reason']
     reset = max((r['retry_after'] for r in active if 'retry_after' in r), default=None)
-    if original and fault not in ('router_unavailable', 'unbounded_route') and reason not in ('quota', 'rate', 'credit'):
+    if original and fault is None and reason not in ('quota', 'rate', 'credit'):
         result = classify(original, step=step, now=now, reset_at=reset)
     else:
         outcome, code = _WAIT.get(reason, (_I, UNCLASSIFIED))

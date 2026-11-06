@@ -690,6 +690,7 @@ def usage_since(before, path, ceiling_micros):
 
 
 def diagnostic(c, out):
+    from durable.diagnostics import inspect_transcripts
     """DIAGNOSTIC plaintext: the stop, its traceback and the tail of the runner log (sealed, never recorded)."""
     log = c.work / "logs" / "runner.log"
     try:
@@ -698,6 +699,7 @@ def diagnostic(c, out):
         tail = ""
     return json.dumps({"stop": out.get("stop"), "reason": out.get("reason"),
                        "provider_wait": c.card.get('engine_provider_wait'),
+                       "operational": inspect_transcripts(c.work / 'transcripts'),
                        "traceback": out.get("traceback"), "runner_log_tail": tail}, sort_keys=True).encode()
 
 

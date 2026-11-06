@@ -97,6 +97,10 @@ class RealStops(unittest.TestCase):
         error.wait = Wait('quota', NOW + 120)
         result, _ = wp4.classify_wait(error, step=StepKind.ADMIT, now=NOW)
         self.assertEqual(result.outcome, Outcome.PROVIDER_LIMIT)
+        error.wait = Wait('credential_expiring', NOW + 120)
+        result, details = wp4.classify_wait(error, step=StepKind.ADMIT, now=NOW)
+        self.assertEqual(result.reason, 'router:credential_expiring')
+        self.assertEqual(details['waits'][0]['source_stop'], 'process_error')
 
     def test_corpus_is_the_fifty_real_cards(self):
         self.assertEqual(len(CARDS), 50)
