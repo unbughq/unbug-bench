@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Public read-only control command."""
+"""Durable factory operator command; private configuration and local socket."""
 import sys
 sys.dont_write_bytecode = True
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'factory'))
-from batch_status import main
+if any(arg == '--config' or arg.startswith('--config=') for arg in sys.argv[1:]):
+    from durable.cli import main
+else:
+    from durable.client import main
 
 if __name__ == '__main__': raise SystemExit(main())

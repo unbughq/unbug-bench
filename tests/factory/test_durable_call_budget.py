@@ -1,0 +1,432 @@
+"""Attempt preauthorization at the existing runtime, ledger and provider gate boundaries."""
+import sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(Path(__file__).resolve().parent)]
+import argparse
+import copy
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack, contextmanager
+from dataclasses import replace
+from decimal import Decimal
+import json
+import shutil
+import subprocess
+import tempfile
+import threading
+import time
+from types import SimpleNamespace
+import unittest
+from unittest.mock import Mock, patch
+import uuid
+
+import budget
+import model_call_gate
+import model_router
+import model_runtime
+from durable.classify import classify
+from durable.contract import Grant, LimitedBy, Outcome, StepKind, StepResult
+from durable.policy import Action, Counters, decide
+from test_durable_policy import SPEC, GATES, DIAG
+
+ROUTE = 'claude/claude-opus-5-5'
+
+
+class AttemptBudget(unittest.TestCase):
+    def setUp(self):
+        self.stack = ExitStack()
+        self.addCleanup(self.stack.close)
+        self.root = Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
+        self.ledger = self.root / 'ledger.json'
+        self.attempt = SimpleNamespace(key='attempt-1', baseline_spent_usd=0, ceiling_usd=50)
+        self.store = model_router.Store(self.root / 'router.sqlite', capacities={'claude-factory-token-2': 2})
+        secrets = self.root / 'secrets'; secrets.mkdir()
+        for account in model_router.ACCOUNTS:
+            (secrets / account).write_text('synthetic-token')
+        self.stack.enter_context(patch.object(model_router, '_rpc', self.store.rpc))
+        self.stack.enter_context(patch.object(model_router, 'SECRETS', secrets))
+        self.c = SimpleNamespace(work=self.root, case=self.root, ledger=self.ledger, engine=self.attempt,
+            card={'roles': {'writer': {'model': ROUTE}}}, batch_id='batch', job_id='case',
+            batch_deadline=time.time()+3600, model_env={}, args=argparse.Namespace(agent_timeout=5,
+                max_cost=0, case_budget=50, max_role_calls=100, max_total_calls=1,
+                no_progress_minutes=1, max_zero_tokens=3))
+        (self.root / 'transcripts').mkdir()
+        self.runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(),
+            lambda p, sudo=False: shutil.rmtree(p), Mock())
+
+    def lease(self):
+        return model_router.await_lease('writer', self.c, time.monotonic()+3)
+
+    def reserve(self, lease, *, operation=None):
+        return budget.reserve_invocation(self.ledger, lease, model_runtime.invocation_maximum(self.c, lease),
+            attempt=self.attempt, operation_id=operation or str(uuid.uuid4()), call_name='builder-1')
+
+    def test_ram_cleanup_survives_model_cancellation_and_expired_deadline(self):
+        import processes
+        import run
+        (self.root/'logs').mkdir()
+        for cancelled in (False,True):
+            scratch=self.root/('state-'+str(cancelled));scratch.mkdir()
+            (scratch/'private').write_text('synthetic')
+            token=threading.Event()
+            if cancelled:token.set()
+            self.c.role_cancel=token
+            def spawn(*args,**kwargs):
+                return SimpleNamespace(pid=99999999,returncode=0,stdin=None,stdout=None,stderr=None,
+                    communicate=lambda *a,**kw:('',None),poll=lambda:0,wait=lambda *a,**kw:0)
+            runtime=replace(self.runtime,command=run.sh)
+            with self.subTest(cancelled=cancelled),patch.object(run,'log'),                  patch.object(processes.subprocess,'Popen',side_effect=spawn) as popen,                  patch.dict(processes.os.environ,UNBUG_PROCESS_DEADLINE=str(time.monotonic()-1)):
+                with processes.deadline(.001):
+                    time.sleep(.01)
+                    runtime._remove_state(self.c,scratch,memory=True)
+                self.assertEqual(popen.call_args_list[0].args[0],['sudo','umount','--',str(scratch)])
+                self.assertFalse(scratch.exists())
+                self.assertIs(self.c.role_cancel,token)
+                self.assertEqual(token.is_set(),cancelled)
+
+    def test_durable_opencode_discards_ram_state_without_slow_disk_wiping(self):
+        paid='openrouter/minimax/minimax-m3.1-flash'
+        self.c.card['roles']['writer']['model']=paid
+        for failure in (None,'mount','umount'):
+            self.ledger.unlink(missing_ok=True)
+            self.c.card.pop('cleanup_errors',None)
+            self.c.card.pop('route_receipts',None)
+            scratch=[];commands=[]
+            slow=Mock(side_effect=subprocess.TimeoutExpired('shred',120))
+            def command(c,args,**kwargs):
+                commands.append(list(map(str,args)))
+                if args[1]==failure:raise subprocess.CalledProcessError(1,args)
+            runtime=replace(self.runtime,command=command,cleanup=slow)
+            @contextmanager
+            def gate_only(lease,env,cap,*args,**kwargs):
+                cap.update(closed=True,forwarded_requests=1,validated_requests=1,
+                           unknown_requests=0,in_flight_requests=0,settled_usd='0.000000000',held_usd='0.000000000')
+                yield threading.Event()
+            def run_cli(cmd,cwd,env,*args,**kwargs):
+                path=Path(env['XDG_CACHE_HOME']);path.mkdir(parents=True)
+                (path/'private-state').write_text('synthetic case data')
+                scratch.append(path.parent)
+                self.addCleanup(shutil.rmtree,path.parent,True)
+                kwargs['on_started']()
+                return subprocess.CompletedProcess(cmd,0)
+            with self.subTest(failure=failure),patch.object(model_runtime.sys,'platform','linux'),                  patch.object(model_runtime,'_opencode_flags',return_value=()),                  patch.object(model_runtime.model_call_gate,'enforce',gate_only),                  patch.object(model_runtime,'run_budgeted',side_effect=run_cli) as process:
+                if failure:
+                    label='containment_unavailable' if failure=='mount' else 'cleanup_failed'
+                    with self.assertRaisesRegex(budget.BudgetError,label):
+                        runtime.call(self.c,[paid],'synthetic',self.root,'builder-ram')
+                else:self.assertEqual(runtime.call(self.c,[paid],'synthetic',self.root,'builder-ram'),0)
+                if failure=='mount':process.assert_not_called()
+            slow.assert_not_called()
+            mount=next(args for args in commands if args[1]=='mount')
+            options=mount[mount.index('-o')+1]
+            self.assertIn('mode=0700',options);self.assertIn('nosuid',options);self.assertIn('nodev',options)
+            self.assertNotIn('noexec',options)
+            self.assertTrue(any(args[1]=='umount' for args in commands))
+            if failure=='umount':
+                self.assertTrue(scratch[0].exists())
+                self.assertIn({'stage':'model_scratch','error':'CalledProcessError'},self.c.card['cleanup_errors'])
+            elif scratch:self.assertFalse(scratch[0].exists())
+
+    def test_funded_invocation_continues_past_the_live_small_profile_stop(self):
+        self.attempt.ceiling_usd = Decimal('40.792858')
+        def transport(c, *args, **kwargs):
+            c.model_process_state['started'] = True
+            self.assertEqual(Decimal(str(c.model_lease.max_usd)), self.attempt.ceiling_usd)
+            state = model_call_gate.Allowance(c.model_lease)
+            # The live failure: five validated responses cost this much, then
+            # the next $9.520896 hold did not fit the old $10 CLI profile.
+            state.settled[0] = Decimal('0.551782')
+            state.validated = 5
+            identity = state.reserve(32768)
+            self.assertIsNotNone(identity)
+            state.finish(identity, dict.fromkeys(model_call_gate.CLAUDE_GATE_FIELDS, 0))
+            state.close()
+            c.model_cap_used = state.snapshot()
+            return 0
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport):
+            self.assertEqual(self.runtime.call(self.c, [ROUTE], 'x', self.root, 'builder-1'), 0)
+        saved = json.loads(self.ledger.read_text())
+        row = next(iter(saved['invocation_reservations'].values()))
+        self.assertEqual(row['maximum_usd'], '40.792858000')
+        receipt = json.loads((self.root / 'usage-receipts' / (row['lease_id'] + '.json')).read_text())
+        self.assertEqual(Decimal(receipt['cap_used']['settled_usd']), Decimal('.551782'))
+
+    def test_exam_parent_leaves_funded_owner_room_without_releasing_its_hold(self):
+        self.attempt.ceiling_usd=Decimal('40.792858')
+        reviewer='openrouter/xiaomi/mimo-v2.6-pro'
+        self.c.exam_owner_models=[reviewer]
+        expected=Decimal(str(model_router.route_maximum(reviewer)['max_usd']))
+        invoked=[]
+        def transport(c, models, text, cwd, name, *args, **kwargs):
+            c.model_process_state['started']=True
+            invoked.append(name)
+            if name.startswith('strong-calibrator'):
+                self.assertEqual(Decimal(str(c.model_lease.max_usd)), self.attempt.ceiling_usd-expected)
+                parent=next(r for r in json.loads(self.ledger.read_text())['invocation_reservations'].values())
+                owner=copy.copy(self.c);owner.parent_call_name=name
+                self.assertEqual(self.runtime.call(owner,[reviewer],'question',self.root,'reviewer-owner-example'),0)
+                self.assertEqual(json.loads(self.ledger.read_text())['invocation_reservations'][parent['lease_id']]['state'],'pending')
+            else:
+                self.assertEqual(Decimal(str(c.model_lease.max_usd)),expected)
+                self.assertLessEqual(budget.outstanding_reservations(json.loads(self.ledger.read_text())),self.attempt.ceiling_usd)
+            state=model_call_gate.Allowance(c.model_lease)
+            request=state.reserve(1);self.assertIsNotNone(request)
+            usage=(dict.fromkeys(model_call_gate.CLAUDE_GATE_FIELDS,0) if models[0]==ROUTE else
+                   dict(prompt_tokens=0,completion_tokens=0,total_tokens=0))
+            state.finish(request,usage);state.close();c.model_cap_used=state.snapshot()
+            return 0
+        with patch.object(model_runtime.ModelRuntime,'_invoke',side_effect=transport):
+            self.assertEqual(self.runtime.call(self.c,[ROUTE],'exam',self.root,'strong-calibrator-example'),0)
+        self.assertEqual(invoked,['strong-calibrator-example','reviewer-owner-example'])
+        self.assertEqual(budget.outstanding_reservations(json.loads(self.ledger.read_text())),0)
+
+    def test_funded_quotes_keep_default_profiles_and_reject_forgery(self):
+        paid = 'openrouter/minimax/minimax-m3.1-flash'
+        default = model_router.route_maximum(paid)
+        quoted = model_router.funded_maximum(paid, '20.000000000')
+        self.assertGreater(quoted['max_usd'], default['max_usd'])
+        self.assertEqual(quoted['max_usd'], 20.0)
+        record = dict(route=paid, **quoted)
+        self.assertTrue(model_router.valid_maximum(record))
+        for change in ({'max_usd': 21.0}, {'max_input_tokens': quoted['max_input_tokens'] + 1},
+                       {'price_source': quoted['price_source'] + '0'}):
+            self.assertFalse(model_router.valid_maximum(record | change))
+        self.assertEqual(model_router.route_maximum(paid), default)
+        self.assertEqual(model_router.funded_maximum(ROUTE + ':small', 40)['max_usd'], 10.0)
+        self.assertEqual(model_router.funded_maximum(paid, 100)['max_usd'], 50.0)
+        for value in (0, -1, 'nan', 'inf', True):
+            with self.assertRaises(ValueError): model_router.funded_maximum(paid, value)
+
+    def test_router_paid_funding_is_bound_to_the_request_id(self):
+        data = dict(id=uuid.uuid4().hex, model='openrouter/minimax/minimax-m3.1-flash',
+                    role='writer', accounts=list(model_router.ACCOUNTS), deadline=time.time()+60,
+                    paid_protocol=1, funding_usd='20.000000000')
+        quote = self.store.rpc('acquire', data)
+        self.assertEqual(quote['max_usd'], 20.0)
+        self.assertTrue(model_router.valid_maximum(quote))
+        self.assertEqual(self.store.rpc('acquire', data), quote)
+        with self.assertRaises(ValueError):
+            self.store.rpc('acquire', data | {'funding_usd': '21.000000000'})
+
+    def test_bound_worker_prepares_containment_before_model_execution(self):
+        from durable.worker_step import Worker
+        lease = self.lease()
+        self.c.model_lease = lease
+        self.c._model_launch_permit = lease.lease_id
+        Worker(self.root).bind_checkpoint(None, self.c, None, None, None)
+        with patch.dict(model_runtime.os.environ, {'UNBUG_MODEL_CGROUP_ROOT': ''}), \
+                patch('processes.prepare_model_containment') as prepare:
+            def boundary(*args, **kwargs):
+                prepare.assert_called_once_with(self.root)
+                raise budget.BudgetError('test_boundary')
+            with patch.object(model_runtime, 'case_budget_boundary', side_effect=boundary):
+                with self.assertRaisesRegex(budget.BudgetError, 'test_boundary'):
+                    self.runtime._invoke(self.c, [lease.route], 'x', self.root, 'builder-1')
+
+    def test_parallel_runtime_denial_never_enters_transport(self):
+        # Both leases are real router leases, with real (unmodified) price profiles.
+        first, second = self.lease(), self.lease()
+        entered, release = threading.Event(), threading.Event()
+        def transport(c, *args, **kwargs):
+            c.model_process_state['started'] = True
+            entered.set()
+            self.assertTrue(release.wait(5))
+            raise budget.BudgetError('cancelled')
+        with patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=transport) as provider:
+            with ThreadPoolExecutor(2) as pool:
+                running = pool.submit(self.runtime.call, self.c, [ROUTE], 'x', self.root, 'builder-1', lease=first)
+                self.assertTrue(entered.wait(3))
+                try:
+                    with self.assertRaisesRegex(budget.BudgetError, 'grant_insufficient'):
+                        self.runtime.call(self.c, [ROUTE], 'x', self.root, 'builder-2', lease=second)
+                    self.assertEqual(provider.call_count, 1)
+                finally:
+                    release.set()
+                with self.assertRaisesRegex(budget.BudgetError, 'cancelled'):
+                    running.result()
+        ledger = json.loads(self.ledger.read_text())
+        row = ledger['invocation_reservations'][first.lease_id]
+        self.assertEqual(row['state'], 'estimated')
+        self.assertEqual(budget.case_spending(ledger)['total_spent_usd'], 50)
+        # Cancellation/missing final usage retains ownership of the whole maximum.
+        with self.assertRaisesRegex(budget.BudgetError, 'grant_insufficient'):
+            self.reserve(second)
+
+    def test_hard_worker_death_preserves_pending_authorizations(self):
+        from durable.worker_step import Worker, ledger_totals
+        from durable.policy import settles_as_waste
+        self.ledger.write_text(json.dumps({'calls': 0, 'events': [], 'cost': 0}))
+        worker = Worker(self.root)
+        si = SimpleNamespace(idempotency_key=self.attempt.key, money_ceiling_usd_micros=50_000_000)
+        worker.paths(si.idempotency_key)['attempt'].mkdir(parents=True)
+        worker._save_baseline(si, self.ledger, ledger_totals(self.ledger))
+        lease = self.lease()
+        self.reserve(lease)
+        for reason in ('infra:deadline', 'infra:step_crashed', 'infra:worker_error'):
+            result = worker._failure_result(si.idempotency_key, reason)
+            self.assertEqual(result.usage.paid_usd_micros, 50_000_000)
+            self.assertTrue(settles_as_waste(result))
+        # The next exclusive attempt reconciles the same hold, without charging twice.
+        budget.reconcile_reservations(self.root, self.ledger)
+        self.assertEqual(ledger_totals(self.ledger)['total'], 50)
+        self.assertEqual(worker.usage_so_far(si.idempotency_key).paid_usd_micros, 50_000_000)
+        self.attempt = SimpleNamespace(key='attempt-2', baseline_spent_usd=50, ceiling_usd=50)
+        self.reserve(self.lease())
+
+    def test_atomic_reservation_and_idempotent_honest_settlement(self):
+        leases = [self.lease(), self.lease()]
+        barrier = threading.Barrier(2)
+        def reserve(lease):
+            barrier.wait()
+            try: return self.reserve(lease)
+            except budget.BudgetError: return None
+        with ThreadPoolExecutor(2) as pool:
+            rows = list(pool.map(reserve, leases))
+        self.assertEqual(sum(r is not None for r in rows), 1)
+        row = next(r for r in rows if r is not None)
+        lease = next(l for l in leases if l.lease_id == row['lease_id'])
+        self.assertEqual(self.reserve(lease, operation=row['operation_id']), row)
+        # Even a faulty transport exceeding its declaration is booked, never clamped.
+        event = dict(id='synthetic-event', cost=51, invocation_id=row['invocation_id'], lease_id=lease.lease_id)
+        receipt = dict(lease_id=lease.lease_id, final_usage_known=True, events=[event],
+                       booked_event_ids=[event['id']])
+        directory = self.root / 'usage-receipts'; directory.mkdir()
+        (directory / (lease.lease_id+'.json')).write_text(json.dumps(receipt))
+        for _ in range(2): budget.complete_invocation(self.root, self.ledger, lease.lease_id)
+        ledger = json.loads(self.ledger.read_text())
+        self.assertEqual(ledger['cost'], 51)
+        self.assertEqual(len(ledger['events']), 1)
+        self.assertEqual(budget.case_spending(ledger)['total_spent_usd'], 51)
+
+    def test_old_spend_fresh_grant_and_real_monitor(self):
+        self.ledger.write_text(json.dumps(dict(cost=60, calls=900, events=[dict(id='old', cost=60)])))
+        self.attempt.baseline_spent_usd = 60
+        route = 'openrouter/deepseek/deepseek-v4.1-flash'
+        lease = model_router.Lease(lease_id=uuid.uuid4().hex, expires_at=time.time()+60,
+            **model_router.routes(route)[0], **model_router.route_maximum(route))
+        row = self.reserve(lease)
+        # Fake only model transport: the real monitor parses duplicate priced receipts.
+        event = dict(type='step_finish', sessionID='s', part=dict(id='p', messageID='m', cost=.25,
+            tokens=dict(input=1, output=1, reasoning=0, cache=dict(read=0, write=0))))
+        command = [sys.executable, '-c', 'print('+repr(json.dumps(event))+'); print('+repr(json.dumps(event))+')']
+        budget.run_budgeted(command, self.root, {}, self.root/'transcript', self.ledger, 3,
+            max_cost=None, case_budget=50, configured_model=lease.route, concurrent=True,
+            attempt=self.attempt, invocation_id=row['invocation_id'], lease_id=lease.lease_id,
+            containment=False)
+        ledger = json.loads(self.ledger.read_text())
+        self.assertEqual(ledger['cost'], 60.25)
+        self.assertEqual(len(ledger['events']), 2)
+        self.assertEqual(ledger['events'][-1]['invocation_id'], row['invocation_id'])
+        self.assertEqual(budget.outstanding_reservations(ledger), Decimal(str(lease.max_usd)) - Decimal('.25'))
+        # Recreating the attempt context cannot reset its baseline after usage.
+        self.assertEqual(budget.attempt_limit(ledger, self.attempt), Decimal(110))
+
+    def test_runtime_passes_reservation_to_real_monitor_and_settles(self):
+        usage = dict(input_tokens=1, output_tokens=1, cache_read_input_tokens=0,
+                     cache_creation_input_tokens=0)
+        event = dict(type='result', session_id='synthetic', is_error=False,
+                     total_cost_usd=.25, usage=usage)
+        def transport(cmd, cwd, env, *args, **kwargs):
+            self.assertIs(kwargs['attempt'], self.attempt)
+            self.assertNotIn('job_authority', kwargs)
+            command = [sys.executable, '-c', 'print('+repr(json.dumps(event))+')']
+            return budget.run_budgeted(command, cwd, env, *args,
+                                       **{**kwargs, 'containment': False})
+        # Replace only CLI transport; keep runtime reservation, real provider gate,
+        # usage monitor, receipt generation and settlement.
+        with patch.object(model_runtime, 'pinned_cli', return_value='synthetic'), \
+             patch.object(model_runtime, 'run_budgeted', side_effect=transport):
+            self.runtime.call(self.c, [ROUTE], 'synthetic', self.root, 'builder-1')
+        ledger = json.loads(self.ledger.read_text())
+        self.assertEqual(budget.case_spending(ledger)['total_spent_usd'], .25)
+        self.assertEqual(budget.outstanding_reservations(ledger), 0)
+        row = next(iter(ledger['invocation_reservations'].values()))
+        self.assertEqual(row['state'], 'settled')
+        budget.complete_invocation(self.root, self.ledger, row['lease_id'])
+        self.assertEqual(json.loads(self.ledger.read_text()), ledger)
+
+    def test_unknown_price_or_maximum_is_infrastructure(self):
+        lease = self.lease()
+        for invalid in (replace(lease, price_source='unknown'), replace(lease, max_usd=0),
+                        replace(lease, route='codex/gpt-6.1-sol'),
+                        replace(lease, route='opencode/deepseek-v4.1-flash-free')):
+            with self.assertRaisesRegex(budget.BudgetError, 'route_maximum_unknown') as error:
+                model_runtime.invocation_maximum(self.c, invalid)
+            self.assertIs(classify(str(error.exception), step=StepKind.WRITER, now=0).outcome, Outcome.INFRA_ERROR)
+        self.ledger.write_text(json.dumps(dict(cost=0, calls=0, events=[dict(id='unknown', cost=None)])))
+        with self.assertRaisesRegex(budget.BudgetError, 'usage_unknown'):
+            self.reserve(lease)
+
+    def test_insufficient_grant_policy_uses_existing_money_reason(self):
+        self.attempt.ceiling_usd = 1
+        with self.assertRaisesRegex(budget.BudgetError, 'grant_insufficient') as error:
+            self.reserve(self.lease())
+        classified = classify(str(error.exception), step=StepKind.GATES, now=0)
+        self.assertIs(classified.outcome, Outcome.EXHAUSTED)
+        result = StepResult(classified.outcome, classified.reason)
+        self.assertIs(decide(GATES, result, Counters(), SPEC, grant=Grant(1_000_000, LimitedBy.BATCH)),
+                      Action.WAIT_FOR_BOUND)
+        self.assertIs(decide(GATES, result, Counters(), SPEC, grant=Grant(1_000_000, LimitedBy.CASE)),
+                      Action.DIAGNOSE)
+        self.assertIs(decide(DIAG, result, Counters(), SPEC, grant=Grant(1_000_000, LimitedBy.NOTHING)),
+                      Action.RETRY)
+
+    def test_monitor_refuses_mismatched_reservation_before_process_start(self):
+        lease = self.lease()
+        row = self.reserve(lease)
+        started = Mock()
+        settings = dict(max_cost=None, configured_model=lease.route, attempt=self.attempt,
+            invocation_id=row['invocation_id'], lease_id=lease.lease_id,
+            on_started=started, containment=False)
+        for change in (dict(invocation_id='wrong'), dict(lease_id='wrong'),
+                       dict(configured_model='claude/unknown')):
+            with self.subTest(change=change), patch.object(budget.subprocess, 'Popen') as spawn:
+                with self.assertRaisesRegex(budget.BudgetError, 'reservation_mismatch'):
+                    budget.run_budgeted([sys.executable, '-c', 'raise AssertionError()'],
+                        self.root, {}, self.root/'refused-transcript', self.ledger, 3,
+                        **{**settings, **change})
+                spawn.assert_not_called()
+                started.assert_not_called()
+
+    def test_replayed_reservation_refuses_each_changed_binding(self):
+        lease = self.lease()
+        row = self.reserve(lease)
+        before = self.ledger.read_bytes()
+        settings = dict(attempt=self.attempt, operation_id=row['operation_id'],
+                        call_name=row['call_name'], parent_call_name=None)
+        for change in (dict(operation_id=str(uuid.uuid4())), dict(call_name='builder-other'),
+                       dict(parent_call_name='other-owner')):
+            with self.subTest(change=change), self.assertRaisesRegex(budget.BudgetError, 'reservation_mismatch'):
+                budget.reserve_invocation(self.ledger, lease, lease.max_usd, **{**settings, **change})
+        with self.assertRaisesRegex(budget.BudgetError, 'reservation_mismatch'):
+            budget.reserve_invocation(self.ledger, lease, lease.max_usd + 1, **settings)
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+    def test_attempt_ceiling_cannot_change_after_reservation(self):
+        self.reserve(self.lease())
+        before = self.ledger.read_bytes()
+        self.attempt.ceiling_usd = 100
+        with self.assertRaisesRegex(budget.BudgetError, 'reservation_mismatch'):
+            self.reserve(self.lease())
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+    def test_missing_attempt_baseline_refuses_before_funding(self):
+        self.attempt.baseline_spent_usd = None
+        with self.assertRaisesRegex(budget.BudgetError, 'usage_unknown'):
+            self.reserve(self.lease())
+        self.assertFalse(self.ledger.exists())
+
+    def test_real_provider_gate_refuses_after_unknown_usage(self):
+        lease = self.lease()
+        gate = model_call_gate.Allowance(lease, deadline=time.monotonic()+2)
+        request = gate.reserve(1)
+        self.assertIsNotNone(request)
+        self.assertFalse(gate.finish(request, None))
+        gate.close()
+        self.assertIsNone(gate.reserve(1))
+        snapshot = gate.snapshot()
+        self.assertEqual(snapshot['unknown_requests'], 1)
+        self.assertGreater(Decimal(snapshot['held_usd']), 0)
+
+
+if __name__ == '__main__': unittest.main()

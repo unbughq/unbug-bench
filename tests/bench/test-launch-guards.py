@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Offline launch guard checks: python3 tests/bench/test-launch-guards.py.
-Use --restore-only for the archive transfer and recovery checks.
 Copies only launch scripts into a temp bench. Never invokes real boat or paid services.
 """
 
@@ -398,7 +397,7 @@ def main():
             (temporary / 'ids').write_text('vm-1\n')
             spend = cloud / 'spend.json'; spend.write_text('{}')
             script = r'''root=$1; state=$2; spend_file=$3; label=exam
-. "$root/bin/boat-launch-guards.sh"
+. "$root/bin/exam-launch-guards.sh"
 collect_vm() { touch "$state/$1.collected"; }
 guard_retire vm-1
 status=$?
@@ -436,7 +435,7 @@ exit "$status"
 
         def code_ok(proc): return proc.returncode == 0
 
-        def run(kind="factory", mode="finish", extra=(), count=1, sig=None, **overrides):
+        def run(kind="exam", mode="finish", extra=(), count=1, sig=None, **overrides):
             nonlocal counter
             counter += 1
             state = base / f"state-{counter}"
@@ -470,7 +469,7 @@ exit "$status"
                 env['PATH'] = str(processbin) + os.pathsep + env['PATH']
             if mode.startswith("autoretry"):
                 env.update(UNBUG_CLOUD="boat", PATH=str(clockbin)+os.pathsep+env["PATH"])
-            cmd = ["/bin/sh", str(bench / "factory/launch.sh"), str(count), "--source", "port"] if kind == "factory" else [
+            cmd = [
                 "/bin/sh", str(bench / "bin/exam-launch"), str(bench / "sealed/test.tar.gz.age"), "--arm", "A"]
             if sig:
                 # exec preserves the launcher PID; pressure stdout as well as
@@ -553,10 +552,9 @@ exit "$status"
         code, _, _, calls, _ = run("exam")
         assert code != 0 and not calls, "unqualified cases must fail before any cloud action"
         exam_card.write_text(qualified)
-        for kind, hours in (("factory", 8), ("exam", 2.5)):
+        for kind, hours in (("exam", 2.5),):
             code, out, err, calls, rec = run(kind)
             assert code == 0, err
-            if kind == "factory": assert (bench / "sealed/result.statement.age").is_file()
             assert rec["ttl_seconds"] == hours * 3600
             assert rec["actual_spend_usd"] is None
             assert abs(rec["account_balance_delta_usd"] - 0.001) < 1e-9
@@ -567,128 +565,16 @@ exit "$status"
         assert code == 0 and rec["ttl_seconds"] == 1800, err
         print("PASS TTL defaults, arm/try sizing, override, collection and spend records")
 
-        # Real age/tar streaming through the actual launcher, with a fake cloud only.
-        import hashlib
-        audit = base / "audit/g11-audit"; (audit / "case").mkdir(parents=True)
-        (audit / "case/promise.md").write_text("synthetic case")
-        (audit / "notes.txt").write_text("saved review notes")
-        archive = bench / "sealed/g11-review-case-synthetic.tar.gz.age"
-        case_identity = base / 'case-identity'
-        subprocess.run(['age-keygen', '-o', str(case_identity)], check=True, capture_output=True)
-        case_recipient = subprocess.check_output(['age-keygen', '-y', str(case_identity)], text=True).strip()
-        wrapped = bench / 'sealed/g11-review-case-synthetic.casekey.age'
-        subprocess.run(['age', '-r', recipient, '-o', str(wrapped), str(case_identity)], check=True)
-        tar = subprocess.run(["tar", "-C", str(audit.parent), "-czf", "-", audit.name], check=True, capture_output=True).stdout
-        subprocess.run(["age", "-r", case_recipient, "-o", str(archive)], input=tar, check=True)
-        card = {"case": "case-synthetic", "kind": "g11-independent-review", "status": "stopped", "inputs_unchanged": True, "digest_version": 2,
-                "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(), "continuation_budget": {"cost": .32, "calls": 49},
-                "review_bench_sha256": 'a' * 64}
-        public = bench / "sealed/g11-review-case-synthetic.scorecard.json"; public.write_text(json.dumps(card))
-        code, out, err, calls, rec = run(extra=("--restore-review", "case-synthetic"))
-        assert code == 0, err
-        assert any(c[0] == "exec" and "'--continue-g11-review'" in c[-1] for c in calls), err
-        assert not list((bench / "sealed").glob("g11-audit")), "restore must not decrypt into host sealed/"
-        keyed_archive = archive.read_bytes()
-        wrapped.rename(wrapped.with_suffix('.missing'))
-        archive.unlink()
-        subprocess.run(['age', '-r', recipient, '-o', str(archive)], input=tar, check=True)
-        card['sha256'] = hashlib.sha256(archive.read_bytes()).hexdigest(); public.write_text(json.dumps(card))
-        code, _, err, calls, _ = run(extra=("--restore-review", "case-synthetic"))
-        assert code == 0, 'legacy unwrapped audit must remain restorable: ' + err
-        wrapped.with_suffix('.missing').rename(wrapped)
-        archive.write_bytes(keyed_archive)
-        card['sha256'] = hashlib.sha256(keyed_archive).hexdigest(); public.write_text(json.dumps(card))
-        card["digest_version"] = 1; public.write_text(json.dumps(card))
-        code, _, err, calls, _ = run(extra=("--restore-review", "case-synthetic"))
-        assert code != 0 and not calls and "retired" in err, "old audit generations must stop before VM creation"
-        card["digest_version"] = 2; public.write_text(json.dumps(card))
-        code, _, err, calls, _ = run(extra=("--restore-review", "case-synthetic"),
-            BOAT_COMMAND_TIMEOUT_SECONDS='0.5', BOAT_RESTORE_TIMEOUT_SECONDS='3',
-            FAKE_EXPECT_RESTORE_TIMEOUT='3', FAKE_RESTORE_ELAPSED='1')
-        assert code == 0, err
-        reuse = ('--restore-review', 'case-synthetic', '--reuse-review-worker', 'vm-existing')
-        code, _, err, calls, rec = run(mode='reuse-review', extra=reuse)
-        assert code == 0, err
-        assert not any(c[0] in ('new', 'ttl') for c in calls), 'recovery must preserve the existing VM and provider expiry'
-        assert 3600 < rec['ttl_seconds'] <= 7200
-        assert len([c for c in calls if c[0] == 'exec']) == 1
-        for mode in ('reuse-advanced-ledger', 'reuse-bench-changed', 'reuse-locked', 'reuse-runner', 'reuse-audit-present', 'reuse-tar', 'reuse-model'):
-            code, _, err, calls, _ = run(mode=mode, extra=reuse)
-            assert code != 0, (mode, err)
-            assert not any(c[0] in ('new', 'exec', 'scp', 'delete') for c in calls), (mode, err)
-        print('PASS slow archive streams use their own timeout; same-VM recovery keeps expiry and rejects active, locked or changed work without taking ownership')
-        card["sha256"] = "0" * 64; public.write_text(json.dumps(card))
-        code, _, err, calls, rec = run(extra=("--restore-review", "case-synthetic"))
-        assert code != 0 and not calls, "corrupt audit must stop before creating or billing a VM"
-        print("PASS review continuation streams prior notes to the right VM path, preserves usage and rejects corrupt archives before VM creation")
-        if '--restore-only' in sys.argv[1:]:
-            print('All restore checks passed; no real boat calls.')
-            return
-
-        code, _, err, _, _ = run("exam", EXAM_CLAUDE_SECRET="claude-token-2")
-        assert code == 0, err
-        print("PASS account 2 reaches canonical claude-token in VM RAM")
-
-        code, _, err, calls, _ = run(mode='qualification-fail')
-        assert code != 0 and 'worker release qualification failed' in err
-        assert not any(c[0] == 'exec' or (c[0] == 'ssh' and 'base64 -d | tar' in c[2]) for c in calls)
-        print('PASS worker release qualification failure precedes secrets and model work')
-
-        code, _, err, calls, _ = run(mode='image-fail')
-        assert code != 0 and 'Medusa image preparation failed before credentials' in err
-        assert not any(c[0] == 'exec' or (c[0] == 'ssh' and
-            ('base64 -d | tar' in c[2] or 'factory/worker_release.py' in c[2])) for c in calls)
-        print('PASS Medusa image fallback precedes qualification; build failure prevents credentials and model work')
-
-        for version in ("1.19.0", "1.19.3"):
-            code, _, err, calls, _ = run(FAKE_OPENCODE_VERSION=version)
-            assert code == 0, err
-            vm = base / f"state-{counter}/vm-1"
-            assert (vm / "opencode-installed").exists() == (version != "1.19.0")
-            preflight = next(i for i,c in enumerate(calls) if c[0] == "ssh" and "--version" in c[2])
-            secret = next(i for i,c in enumerate(calls) if c[0] == "ssh" and "base64 -d | tar" in c[2])
-            assert preflight < secret
-        for mode in ("pin-install-fail", "pin-wrong-version"):
-            code, _, err, calls, _ = run(mode=mode, FAKE_OPENCODE_VERSION="1.19.3")
-            assert code != 0, err
-            assert not any(c[0] == "exec" or c[0] == "ssh" and "base64 -d | tar" in c[2] for c in calls)
-        print("PASS absolute OpenCode pin repairs drift before secrets, disables updates and fails closed")
-        code, _, err, calls, _ = run(FAKE_CODEX_VERSION="0.163.0")
-        assert code == 0, err
-        assert (base / f"state-{counter}/vm-1/codex-installed").exists()
-        for mode in ("codex-pin-install-fail", "codex-pin-wrong-version"):
-            code, _, err, calls, _ = run(mode=mode, FAKE_CODEX_VERSION="0.163.0")
-            assert code != 0, err
-            assert not any(c[0] == "exec" or c[0] == "ssh" and "base64 -d | tar" in c[2] for c in calls)
-        print("PASS Codex drift is repaired before secrets; wrong or failed pins stop before work")
-
-        for mode, expected in (("autoretry", 4), ("autoretry-gate", 1), ("autoretry-cap", 1), ("autoretry-corrupt", 1), ("autoretry-nohash", 1), ("autoretry-uncertain", 2)):
-            code, _, err, calls, _ = run(mode=mode, extra=("--max-total-calls", "700", "--max-cost", "2"), BOAT_COLLECT_RETRY_SECONDS="0")
-            starts = [c for c in calls if c[0] == "exec"]
-            assert len(starts) == expected, (mode, err, starts)
-            assert len([c for c in calls if c[0] == "new"]) == 1
-            assert not any(c[0] == "ttl" for c in calls)
-            assert code == (1 if mode in ("autoretry-corrupt", "autoretry-nohash", "autoretry-uncertain") else 0), (mode, err)
-            if mode == "autoretry-uncertain":
-                assert "detached restart outcome is uncertain" in err
-                assert (bench / "sealed/case-synthetic.checkpoint.tar.gz.age").read_bytes() == b"new uncertain checkpoint"
-            if expected == 4:
-                assert "retry 3/3" in err and "three restart attempts exhausted" in err, err
-                for start in starts[1:]:
-                    idx = calls.index(start)
-                    assert any(c[0] == "ssh" and "case-synthetic.checkpoint" in c[2] and "hashlib.sha256()" in c[2] for c in calls[:idx])
-        print("PASS Boat retries: three attempts, checkpoint verification, preserved ceilings and seed, no gate/cap/corruption retry")
-
-        wrong = base / "wrong.txt"
+        wrong = base / "wrong-identity"
         subprocess.run(["age-keygen", "-o", str(wrong)], check=True, capture_output=True)
-        for kind in ("factory", "exam"):
+        for kind in ("exam",):
             saved, IDENTITY = IDENTITY, wrong.read_text()
             code, _, err, calls, _ = run(kind)
             IDENTITY = saved
             assert code != 0 and "could not decrypt" in err and not any(c[0] == "new" for c in calls), err
         print("PASS keys decrypt in memory, reach every VM; a wrong identity stops before any VM")
 
-        for options in ({"extra": ("--max-spend", "0.01")}, {"FAKE_BALANCE": "1"}, {"count": 21}):
+        for options in ({"extra": ("--max-spend", "0.01")}, {"FAKE_BALANCE": "1"}):
             code, _, err, calls, rec = run(**options)
             assert code != 0 and not any(c[0] == "new" for c in calls), err
             assert rec and not rec["allowed"]
@@ -698,7 +584,7 @@ exit "$status"
             assert code != 0 and not any(c[0] == "new" for c in calls), err
         print("PASS spend cap, balance, malformed billing and invalid options fail closed")
 
-        for kind in ("factory", "exam"):
+        for kind in ("exam",):
             code, _, err, _, _ = run(kind, "stale")
             assert code != 0 and "STALLED: no progress for 0.02 min" in err, err
             extra = ("--out", "~/exam-out", "--private=~/exam-private") if kind == "exam" else ()
@@ -707,34 +593,7 @@ exit "$status"
             if kind == "exam":
                 assert any(c[0] == "exec" and "'--out' '/home/user/exam-out'" in c[-1]
                            and "'--private' '/home/user/exam-private'" in c[-1] for c in calls), err
-        code, _, err, calls, _ = run(mode='startup-crash')
-        assert code != 0 and 'runner startup failed' in err and 'STALLED' not in err, err
-        receipt = json.loads((bench / 'sealed/vm-1.runner-status.json').read_text())
-        assert receipt['reason'] == 'startup_failed' and receipt['exit_status'] == 1
-        code, _, err, calls, _ = run(mode='containment-unavailable')
-        assert code != 0 and 'runner startup failed' in err and 'STALLED' not in err, err
-        receipt = json.loads((bench / 'sealed/vm-1.runner-status.json').read_text())
-        assert (receipt['attempt'], receipt['phase'], receipt['reason'], receipt['exit_status']) == (
-            0, 'startup', 'containment_unavailable', 78)
-        print('PASS detached startup exit receipt is promptly collected without a case DONE')
-        # The failed second setup must return to monitoring the healthy first worker.
-        real = json.loads((ROOT / 'tests/factory/fixtures/isolation-timeouts/monitor.json').read_text())
-        code, _, err, calls, _ = run(mode='second-qualification-fail', count=2,
-            extra=('--ttl-hours', str(real['ttl_seconds'] / 3600), '--max-spend', '2'))
-        assert code != 0 and 'setup failed' in err, err
-        last_failure = max(i for i,c in enumerate(calls) if c[:2] == ['ssh','vm-2'] and 'factory/worker_release.py' in c[2])
-        healthy_delete = next(i for i,c in enumerate(calls) if c[:2] == ['delete','vm-1'])
-        assert any(c[:2] == ['ssh','vm-1'] and 'STARTUP_FAILED' in c[2]
-                   for c in calls[last_failure+1:healthy_delete]), err
-        assert not any(c[:2] == ['exec','vm-2'] for c in calls), err
-        print('PASS real-TTL worker setup failure leaves healthy peer under its own monitor')
-        code, _, err, calls, _ = run(mode="mixed", count=2)
-        assert code != 0 and "STALLED" in err, err
-        deletes = [c[1] for c in calls if c[0] == "delete"]
-        assert sorted(deletes) == ["vm-1", "vm-2"], deletes
-        print("PASS stale watchdog, live ledger/job progress and independent batch polling")
-
-        for kind in ("factory", "exam"):
+        for kind in ("exam",):
             for mode in ("setup-fail", "new-fail", "collect-fail"):
                 code, _, err, _, _ = run(kind, mode, BOAT_COLLECT_RETRY_SECONDS="0")
                 assert code != 0, (kind, mode, err)
@@ -744,21 +603,10 @@ exit "$status"
                 assert code == 128 + sig, err
         print("PASS setup/create/collect failures, Ctrl-C and TERM always collect before delete")
 
-        code, _, err, calls, _ = run(mode='setup-timeout', BOAT_COMMAND_TIMEOUT_SECONDS='1')
-        assert code != 0 and 'boat-call: command timed out' in err and 'setup failed' in err, err
-        assert not any(c[0] == 'exec' for c in calls), 'setup timeout must precede runner start'
-        assert any(c[0] == 'delete' for c in calls), 'verified empty worker should retire'
-        for mode in ("unreachable", "hang"):
-            code, _, err, _, _ = run(mode=mode, **({'BOAT_COMMAND_TIMEOUT_SECONDS': '1'} if mode == 'hang' else {}))
-            assert code != 0 and "UNREACHABLE" in err, err
-        code, _, err, _, _ = run(mode="delete-fail")
-        assert code != 0 and "!!! ORPHAN: vm-1 STILL ALIVE" in err, err
-        print("PASS failed/hung SSH cutoff, deletion retry and loud orphan warning")
-
         # Exercise quoting with apostrophes without executing any user text locally.
         value = "hello 'world'; $(false)"
         quoted = subprocess.check_output(["/bin/sh", "-c", '. "$1"; quote "$2"', "sh",
-                                          str(bench / "bin/boat-launch-guards.sh"), value], text=True)
+                                          str(bench / "bin/exam-launch-guards.sh"), value], text=True)
         assert shlex.split(quoted) == [value], quoted
         env = dict(os.environ, BOAT_CMD=str(fake), FAKE_STATE=str(base), FAKE_BALANCE="123456",
                    UNBUG_CONTROL_HOME=str(base / "standalone-control"))

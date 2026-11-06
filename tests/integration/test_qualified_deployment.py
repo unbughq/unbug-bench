@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import py_compile
+import runpy
 from pathlib import Path
 import subprocess
 import sys
@@ -17,7 +18,6 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('deployment', ROOT / 'bin/qualified-release.py')
 deployment = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(deployment)
-LAUNCHER = (ROOT / 'factory/launch.sh').read_text()
 
 
 class DeploymentTests(unittest.TestCase):
@@ -79,53 +79,6 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(binary.read_text(), 'public CLI fixture')
         self.assertEqual(deployment.deploy(self.release, self.home, True)['source_files_verified'], len(self.source_files))
 
-    def boundary(self, drift='', image_failure=False):
-        start = LAUNCHER.index('  if [ -n "$qualified_release" ]; then\n    boat ssh', LAUNCHER.index('batch_status=0'))
-        end = LAUNCHER.index('  # Real keys, not boat', start)
-        script = '''set -eu
-qualified_release=yes; id=fixture; state=$HOME; root=$HOME/host; here=$root/factory
-admission_snapshot=""; selection_snapshot=""; reuse_worker=""
-boat() {
-  test "$1" = ssh
-  case "$3" in
-    *"--version"*) DRIFT ;;
-    *"docker image inspect unbug-bench-medusa:latest"*) IMAGE_STEP ;;
-    *factory/worker_release.py*) test -f "$HOME/medusa-image-prepared"; touch "$HOME/runtime-imported" ;;
-    *"print(run.bench_manifest())"*) printf '%064d\n' 0 ;;
-    *) /bin/sh -c "$3" ;;
-  esac
-}
-opencode_pin='--version'
-''' .replace('DRIFT', drift or ':').replace('IMAGE_STEP', 'return 1' if image_failure else 'touch "$HOME/medusa-image-prepared"')
-        script += LAUNCHER[start:end] + '\ntouch "$HOME/credentials-delivered"\n'
-        return subprocess.run(['/bin/sh', '-c', script], env={**os.environ, 'HOME': str(self.home)}, capture_output=True, text=True)
-
-    def test_launcher_success_verifies_all_source_before_delivery(self):
-        result = self.boundary()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.home / 'credentials-delivered').exists())
-        self.assertTrue((self.home / 'medusa-image-prepared').exists())
-        self.assertEqual(json.loads((self.home / 'fixture.source-verify.json').read_text())['source_files_verified'], len(self.source_files))
-
-    def test_image_fallback_failure_blocks_import_and_delivery(self):
-        result = self.boundary(image_failure=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('Medusa image preparation failed before credentials', result.stderr)
-        self.assertFalse((self.home / 'runtime-imported').exists())
-        self.assertFalse((self.home / 'credentials-delivered').exists())
-
-    def test_full_source_mismatch_and_extra_factory_stop_before_delivery(self):
-        for command in ('echo drift > "$HOME/unbug-bench/bin/check"',
-                        'touch "$HOME/factory/extra.py"',
-                        'touch "$HOME/unbug-bench/factory/extra.py"'):
-            with self.subTest(command=command):
-                self.install()
-                result = self.boundary(command)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn('full source verification failed before credentials', result.stderr)
-                self.assertFalse((self.home / 'credentials-delivered').exists())
-                for path in (self.home / 'factory/extra.py', self.home / 'unbug-bench/factory/extra.py'):
-                    path.unlink(missing_ok=True)
 
     def cached_payload(self, target):
         payload = self.home / 'harmless-cache-payload.py'
@@ -137,59 +90,6 @@ opencode_pin='--version'
                            invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
         return cache, marker
 
-    def test_inherited_unchecked_hash_cache_cleaned_before_import_or_delivery(self):
-        self.install()
-        for name in ('factory/budget.py', 'unbug-bench/factory/budget.py', 'unbug-bench/bin/bench.py'):
-            with self.subTest(name=name):
-                target = self.home / name
-                cache, marker = self.cached_payload(target)
-                # Establish that -B alone still executes this deterministic payload.
-                control = subprocess.run(['python3', '-B', '-c',
-                    'import sys; sys.path.insert(0, sys.argv[1]); __import__(sys.argv[2])',
-                    str(target.parent), target.stem], capture_output=True, text=True)
-                self.assertEqual(control.returncode, 0, control.stderr)
-                self.assertTrue(marker.exists())
-                marker.unlink()
-                with self.assertRaises(ValueError):
-                    deployment.deploy(self.release, self.home, verify_only=True)
-                result = self.boundary()
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertTrue((self.home / 'credentials-delivered').exists())
-                (self.home / 'credentials-delivered').unlink()
-                (self.home / 'runtime-imported').unlink()
-                self.assertFalse(marker.exists())
-                self.assertFalse(cache.exists())  # Quarantined, never imported.
-                receipt = (self.home / 'fixture.source-install.json').read_text()
-                saved = json.loads((self.home / json.loads(receipt)['preparation_receipt']).read_text())
-                self.assertIn({'path': cache.relative_to(self.home).as_posix(), 'type': 'file'}, saved['extra_entries'])
-
-    def test_post_preparation_cache_and_mode_drift_stop_before_import_admission_credentials(self):
-        self.install()
-        cache, marker = self.cached_payload(self.home / 'payload-target.py')
-        source_cache = str(cache)
-        factory_cache = Path(importlib.util.cache_from_source(str(self.home / 'factory/budget.py')))
-        source_cache_path = Path(importlib.util.cache_from_source(str(self.home / 'unbug-bench/bin/bench.py')))
-        original_factory_mode = (self.home / 'factory/budget.py').stat().st_mode & 0o7777
-        for command in (
-            'mkdir -p "$HOME/factory/__pycache__"; cp "' + source_cache + '" "' + str(factory_cache) + '"',
-            'mkdir -p "$HOME/unbug-bench/bin/__pycache__"; cp "' + source_cache + '" "' + str(source_cache_path) + '"',
-            'chmod 0666 "$HOME/unbug-bench/bin/run-exam"',
-            'chmod 4755 "$HOME/factory/budget.py"',
-            'chmod 2644 "$HOME/unbug-bench/factory/budget.py"',
-        ):
-            with self.subTest(command=command):
-                result = self.boundary(command)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn('full source verification failed before credentials', result.stderr)
-                for sentinel in (marker, self.home / 'runtime-imported', self.home / 'statements',
-                                 self.home / 'credentials-delivered'):
-                    self.assertFalse(sentinel.exists())
-                for path in (factory_cache, source_cache_path):
-                    path.unlink(missing_ok=True)
-                (self.home / 'factory/budget.py').chmod(original_factory_mode)
-                (self.home / 'unbug-bench/factory/budget.py').chmod(0o644)
-                (self.home / 'unbug-bench/bin/run-exam').chmod(0o755)
-                self.install()
 
     def test_existing_work_refuses_install_without_reset(self):
         work = self.home / 'work'; work.mkdir(); ledger = work / 'ledger'; ledger.write_text('keep')
@@ -278,46 +178,6 @@ opencode_pin='--version'
         self.assertEqual(sentinel.read_bytes(), before)
         self.assertFalse((self.home / deployment.INCOMPLETE).exists())
 
-    def test_interrupted_swap_blocks_delivery_and_verify_even_if_source_matches(self):
-        self.install()
-        original = Path.rename
-        swapped = []
-        def interrupt(path, target):
-            if 'quarantine' in str(target):
-                swapped.append(str(path))
-                if len(swapped) == 2:
-                    raise OSError('simulated interruption')
-            return original(path, target)
-        with mock.patch.object(Path, 'rename', interrupt):
-            with self.assertRaisesRegex(OSError, 'interruption'):
-                self.install()
-        with self.assertRaisesRegex(ValueError, 'incomplete source preparation'):
-            deployment.deploy(self.release, self.home, True)
-        result = self.boundary()
-        self.assertNotEqual(result.returncode, 0)
-        for name in ('runtime-imported', 'credentials-delivered', 'statements'):
-            self.assertFalse((self.home / name).exists())
-
-    def test_release_input_and_helper_tamper_are_rejected(self):
-        for name in deployment.PINS:
-            with self.subTest(name=name):
-                path = self.release / name
-                original = path.read_bytes()
-                try:
-                    path.write_bytes(original + b'\n')
-                    with self.assertRaisesRegex(ValueError, 'unqualified release input'):
-                        self.install()
-                finally:
-                    path.write_bytes(original)
-        adapter = self.home / 'bin/qualified-release.py'
-        adapter.parent.mkdir(); adapter.write_text('raise SystemExit("EXECUTED")')
-        (self.home / 'factory/launcher-sha256.json').write_bytes((ROOT / 'factory/launcher-sha256.json').read_bytes())
-        start = LAUNCHER.index('qualified_adapter() {')
-        end = LAUNCHER.index('\nif [ -n "$qualified_release" ]', start)
-        result = subprocess.run(['/bin/sh', '-c', 'root=$1\n' + LAUNCHER[start:end] + '\nqualified_adapter prepare', 'sh', str(self.home)], capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('review launcher fingerprint', result.stderr)
-        self.assertNotIn('EXECUTED', result.stderr)
 
     def test_installer_requires_explicit_digest_and_count_bindings(self):
         source = ROOT / 'tools/install_source.py'
@@ -337,140 +197,31 @@ opencode_pin='--version'
         with self.assertRaisesRegex(ValueError, 'unqualified bundle'):
             namespace['bundle_modes'](self.release / 'public-source.tar.gz', files)
 
-    def readiness_boundary(self, response, delayed=False, sequence=None):
-        (self.home / 'host-public-source.tgz').write_bytes((self.home / 'factory.tgz').read_bytes())
-        host = self.home / 'host'
-        (host / 'tools').mkdir(parents=True, exist_ok=True)
-        (host / 'bin').mkdir(exist_ok=True)
-        (host / 'tools/boat_readiness.py').write_bytes((ROOT / 'tools/boat_readiness.py').read_bytes())
-        provider = host / 'bin/boat-call'
-        provider.write_text('#!/usr/bin/env python3\n' +
-            'import json, pathlib, sys, time\n' +
-            'h=pathlib.Path(' + repr(str(self.home)) + ')\n' +
-            'assert sys.argv[1:]==["info","fixture","--json"]\n' +
-            ('if not (h/"polled").exists():\n (h/"polled").touch()\n print(json.dumps({"sandbox":' + repr({**response, 'hydrated': False}) + '}));sys.exit()\n' +
-             '(h/"stop-writer").touch()\nwhile not (h/"writer-stopped").exists(): time.sleep(.001)\n' if delayed else '') +
-            'print(json.dumps({"sandbox":' + repr(response) + '}))\n')
-        if sequence is not None:
-            provider.write_text('#!/usr/bin/env python3\nimport json,pathlib,sys\n' +
-                'h=pathlib.Path(' + repr(str(self.home)) + ')\n' +
-                'assert sys.argv[1:]==["info","fixture","--json"]\n' +
-                'p=h/"poll-count"; n=int(p.read_text()) if p.exists() else 0; p.write_text(str(n+1))\n' +
-                'values=' + repr(sequence) + '\n' +
-                'if n < len(values)-1: assert not (h/"events").exists()\n' +
-                'print(json.dumps({"sandbox":values[min(n,len(values)-1)]}))\n')
-            (self.home / 'writer-stopped').touch()
-        provider.chmod(0o755)
-        a = LAUNCHER.index('qualified_readiness() {')
-        b = LAUNCHER.index('\nif [ -n "$qualified_release" ]', a)
-        start = LAUNCHER.index('  if [ -n "$qualified_release" ]; then\n    readiness_mono=', LAUNCHER.index('batch_status=0'))
-        end = LAUNCHER.index('  # Fork hydration', start)
-        (self.home / 'host/factory').mkdir(parents=True, exist_ok=True)
-        (self.home / 'host/factory/launcher-sha256.json').write_bytes((ROOT / 'factory/launcher-sha256.json').read_bytes())
-        gate = LAUNCHER[a:b]
-        if sequence is not None:
-            # Keep subprocess wait/reaping on real time; only readiness sleeps
-            # advance the fake clock. Still verify and execute the pinned bytes.
-            entry = "exec(compile(code, str(path), 'exec'), {'__name__': '__main__', '__file__': str(path)})"
-            self.assertEqual(gate.count(entry), 1)
-            gate = gate.replace(entry, '''import time, types
-namespace = {'__name__': 'readiness_fixture', '__file__': str(path)}
-exec(compile(code, str(path), 'exec'), namespace)
-clock = [time.monotonic()]
-namespace['time'] = types.SimpleNamespace(monotonic=lambda: clock[0],
-    sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds), time=time.time)
-before = clock[0]
-namespace['subprocess'].time.sleep(.001)
-assert clock[0] == before, 'subprocess sleep advanced readiness clock'
-namespace['main']()
-''')
-        script = 'set -eu\n' + gate + '''
-root=$HOME/host; qualified_release=yes; reuse_worker=""; serial=0
-state=$HOME; ttl_seconds=1800; margin=420; spend_file=$HOME/public-spend.json
-bundle=$HOME/host-public-source.tgz
-boat() {
-  if [ "$1" = --stdin ]; then
-    shift
-    test -f "$HOME/writer-stopped"
-  fi
-  echo "$1" >> "$HOME/events"
-  test "$1" = ssh
-  /bin/sh -c "$3"
-}
-guard_new() { id=fixture; }
-''' + LAUNCHER[start:end] + '\n)\nstatus=$?\n[ "$status" -eq 0 ] || exit "$status"\ntouch "$HOME/credentials-delivered"\n'
-        return subprocess.run(['/bin/sh', '-c', script], env={**os.environ, 'HOME': str(self.home)}, capture_output=True, text=True)
+    def test_image_prunes_resurrected_files_and_refuses_source_drift(self):
+        installer = runpy.run_path(str(self.release / 'install-source.py'))
+        files = installer['load_manifest'](self.release / 'source-manifest.json')
+        root = self.home / 'unbug-bench'
+        bundle = self.release / 'public-source.tar.gz'
+        installer['install'](bundle, root, files)
+        extra = root / 'retired/launcher.py'
+        extra.parent.mkdir(); extra.write_text('old snapshot file')
+        dependency = root / 'projects/medusa/node_modules/keep'
+        dependency.parent.mkdir(parents=True); dependency.write_text('generated dependency')
+        installer['prune_image'](root, files, bundle)
+        self.assertFalse(extra.exists())
+        self.assertEqual(dependency.read_text(), 'generated dependency')
+        installer['prune_image'](root, files, bundle)  # a replay is harmless
+        extra.write_text('must survive refused preparation')
+        source = root / 'bin/check'; original = source.read_bytes()
+        source.write_bytes(b'changed scientific source')
+        with self.assertRaises(ValueError): installer['prune_image'](root, files, bundle)
+        self.assertTrue(extra.exists())
+        self.assertEqual(source.read_bytes(), b'changed scientific source')
+        source.write_bytes(original)
+        link = root / 'unexpected-link'; link.symlink_to(self.home)
+        with self.assertRaises(ValueError): installer['prune_image'](root, files, bundle)
+        self.assertTrue(extra.exists()); self.assertTrue(link.is_symlink())
 
-    def test_readiness_refusals_never_transfer_install_or_deliver(self):
-        import datetime
-        value = dict(id='fixture', type='default', ttlSeconds=1800,
-            archiveAfter=(datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=1800)).isoformat(),
-            holdsCreatorLogins=False, monitoring=False, snapshots=False, state='idle', health='ok',
-            error=None, setupError=None, setupStatus=None, degradedSince=None, hydrated=True, hydration=None)
-        missing = dict(value); del missing['hydrated']
-        missing_progress = dict(value); del missing_progress['hydration']
-        expired = dict(value, archiveAfter=datetime.datetime.now(datetime.timezone.utc).isoformat())
-        cases = [missing, missing_progress, expired] + [{**value, **patch} for patch in
-            ({'id':'other'}, {'hydrated':'true'}, {'error':'failed'}, {'hydration':{}}, {'health':'bad'})]
-        for case in cases:
-            result = self.readiness_boundary(case)
-            self.assertNotEqual(result.returncode, 0, result.stderr)
-            for name in ('events', 'credentials-delivered', 'unbug-bench', '.qualified-source-incomplete'):
-                self.assertFalse((self.home / name).exists(), name)
-            receipt = self.home / 'public-spend-fixture.readiness.json'
-            self.assertEqual(json.loads(receipt.read_text())['outcome'], 'refused')
-            receipt.unlink()
-
-    def test_actual_launcher_waits_through_folding_to_completion(self):
-        import datetime
-        expiry = (datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=1800)).isoformat()
-        sequence = folding_sequence('fixture', expiry)
-        result = self.readiness_boundary(sequence[-1], sequence=sequence)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        receipt = json.loads((self.home/'public-spend-fixture.readiness.json').read_text())
-        self.assertEqual(receipt['attempts'], 6)
-        self.assertEqual(receipt['observed']['hydrated'], True)
-        self.assertEqual(receipt['outcome'], 'ready')
-        self.assertEqual(json.loads((self.home/'fixture.source-install.json').read_text())['source_files_verified'], len(self.source_files))
-
-    def test_actual_launcher_never_complete_times_out_before_mutation(self):
-        import datetime
-        expiry = (datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=1800)).isoformat()
-        value = folding_sequence('fixture', expiry)[0]
-        result = self.readiness_boundary(value, sequence=[value])
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('TimeoutError: readiness deadline reached', result.stderr)
-        self.assertFalse((self.home/'events').exists())
-        self.assertFalse((self.home/'credentials-delivered').exists())
-        receipt = json.loads((self.home/'public-spend-fixture.readiness.json').read_text())
-        self.assertEqual(receipt['outcome'], 'refused')
-        self.assertEqual(receipt['attempts'], 60)
-
-    def test_actual_launcher_waits_until_background_destination_writer_finishes(self):
-        import datetime
-        import threading
-        value = dict(id='fixture', type='default', ttlSeconds=1800,
-            archiveAfter=(datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=1800)).isoformat(),
-            holdsCreatorLogins=False, monitoring=False, snapshots=False, state='idle', health='ok',
-            error=None, setupError=None, setupStatus=None, degradedSince=None, hydrated=True, hydration=None)
-        done = threading.Event()
-        def writer():
-            while not done.is_set() and not (self.home / 'stop-writer').exists():
-                dest = self.home / 'unbug-bench/projects/hydrating'
-                dest.mkdir(parents=True, exist_ok=True)
-                (dest / 'background').write_text('public hydration fixture')
-                done.wait(.001)
-            (self.home / 'writer-stopped').touch()
-        thread = threading.Thread(target=writer); thread.start()
-        try:
-            result = self.readiness_boundary(value, delayed=True)
-        finally:
-            done.set(); thread.join()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads((self.home/'fixture.source-install.json').read_text())['source_files_verified'], len(self.source_files))
-        self.assertTrue((self.home/'credentials-delivered').exists())
-        self.assertEqual(json.loads((self.home/'public-spend-fixture.readiness.json').read_text())['attempts'], 2)
-        self.assertFalse((self.home/'unbug-bench/projects/hydrating').exists())
 
     def test_destination_recreation_at_swap_refuses_with_incomplete_marker(self):
         self.install()
@@ -487,23 +238,6 @@ guard_new() { id=fixture; }
             deployment.deploy(self.release, self.home, True)
         for name in ('credentials-delivered', 'runtime-imported', 'statements'):
             self.assertFalse((self.home / name).exists())
-
-    def test_holder_still_pins_launcher_and_original_root(self):
-        spec = importlib.util.spec_from_file_location('holder', ROOT / 'factory/key_holder.py')
-        holder = importlib.util.module_from_spec(spec)
-        with mock.patch.object(sys, 'path', [str(ROOT / 'factory'), *sys.path]):
-            spec.loader.exec_module(holder)
-        self.assertIn('factory/launch.sh', holder.PINNED)
-        baseline = holder.fingerprint(ROOT)
-        # Compute the same fingerprint over public temporary copies, then mutate.
-        fixture = self.home / 'holder-root'
-        for name in holder.PINNED:
-            path = fixture / name; path.parent.mkdir(parents=True, exist_ok=True)
-            if (ROOT / name).is_file(): path.write_bytes((ROOT / name).read_bytes())
-        self.assertEqual(holder.fingerprint(fixture), baseline)
-        (fixture / 'factory/launch.sh').write_text('changed')
-        self.assertNotEqual(holder.fingerprint(fixture), baseline)
-        self.assertIn("policy['root'] != str(ROOT)", (ROOT / 'factory/key_holder.py').read_text())
 
 
 if __name__ == '__main__':

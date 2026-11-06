@@ -52,12 +52,36 @@ def route_maximum(route):
 def valid_maximum(value):
     get = value.get if isinstance(value, dict) else lambda k: getattr(value, k, None)
     maximum = route_maximum(get('route'))
+    if maximum is not None and isinstance(get('price_source'), str):
+        prefix = maximum['price_source'] + ':funded:'
+        if get('price_source').startswith(prefix):
+            try: maximum = funded_maximum(get('route'), get('price_source')[len(prefix):])
+            except ValueError: return False
     return (maximum is not None and all(type(get(k)) is type(v) and get(k) == v for k, v in maximum.items()))
 
 
-def _bounded_routes(model, accounts):
+def funded_maximum(route, funding):
+    """Quote an enforced invocation window inside the caller's existing grant.
+
+    OpenRouter's small default windows are qualification probes, not case budgets.
+    A funded window may use at most $50; explicit Claude profiles remain ceilings.
+    The worker still atomically reserves this quote before any provider execution.
+    """
+    maximum = route_maximum(route)
+    if maximum is None: return None
+    amount = min(_nano(funding, ROUND_FLOOR), _nano(50),
+                 _nano(maximum['max_usd']) if route in CLAUDE_PROFILES else _nano(50))
+    if amount <= 0: raise ValueError('empty invocation funding')
+    scale = Decimal(amount) / _nano(maximum['max_usd'])
+    return dict(max_usd=float(_dollars(amount)),
+                max_input_tokens=int(Decimal(maximum['max_input_tokens']) * scale),
+                max_output_tokens=int(Decimal(maximum['max_output_tokens']) * scale),
+                price_source=maximum['price_source'] + ':funded:' + _dollars(amount))
+
+
+def _bounded_routes(model, accounts, funding=None):
     return [dict(r, **maximum) for r in routes(model, accounts)
-            if (maximum := route_maximum(r['route'])) is not None]
+            if (maximum := (route_maximum(r['route']) if funding is None else funded_maximum(r['route'], funding))) is not None]
 
 
 def valid_lease(lease, model, accounts=ACCOUNTS):
@@ -247,7 +271,11 @@ def _paid_charge(profile, usage):
 
 class Store:
     """One short SQLite transaction per RPC; no process-local availability cache."""
-    def __init__(self, path, *, capacities=None, accounts=ACCOUNTS, clock=time.time, credit_reader=None):
+    def __init__(self, path, *, capacities=None, accounts=ACCOUNTS, clock=time.time, credit_reader=None,
+                 paid_ceiling_usd=None):
+        approved_ceiling = None if paid_ceiling_usd is None else _nano(paid_ceiling_usd, ROUND_FLOOR)
+        if approved_ceiling is not None and approved_ceiling > 2**63 - 1:
+            raise ValueError('invalid paid ceiling')
         self.credit_reader = credit_reader
         self.path, self.clock = str(path), clock
         self.capacities, self.accounts = capacities or {}, tuple(accounts)
@@ -266,6 +294,14 @@ class Store:
                              'hold INTEGER, charge INTEGER, state TEXT, settled_at REAL, usage TEXT);')
             if 'seen' not in {row[1] for row in db.execute('PRAGMA table_info(requests)')}:
                 db.execute('ALTER TABLE requests ADD COLUMN seen REAL NOT NULL DEFAULT 0')
+            if approved_ceiling is not None:
+                # Operator configuration changes the limit, never the retained charges.
+                db.execute('BEGIN IMMEDIATE')
+                total, _ = _paid_counts(db, self.clock() - CREDIT_OVERLAP)
+                if approved_ceiling < total:
+                    raise ValueError('paid ceiling below retained spending')
+                db.execute('INSERT INTO paid_account(id,ceiling,credit) VALUES(1,?,NULL) '
+                           'ON CONFLICT(id) DO UPDATE SET ceiling=excluded.ceiling', (approved_ceiling,))
 
     def rpc(self, operation, data, *, handling_started=None):
         started = time.monotonic() if handling_started is None else handling_started
@@ -326,12 +362,13 @@ class Store:
                 db.execute("UPDATE leases SET outcome='denied' WHERE id=? AND outcome IS NULL", (identity,))
                 result = {'cancelled': True}
             elif operation == 'acquire':
-                if set(data) - {'excluded_lanes', 'paid_protocol'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
+                if set(data) - {'excluded_lanes', 'paid_protocol', 'funding_usd'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
+                if 'funding_usd' in data and _nano(data['funding_usd'], ROUND_FLOOR) <= 0: raise ValueError('empty invocation funding')
                 if not isinstance(data['role'], str) or not re.fullmatch(r'[a-z_0-9]{1,40}', data['role']): raise ValueError('invalid role')
                 identity = data['id']
                 if not re.fullmatch(r'[a-f0-9]{32}', identity): raise ValueError('invalid attempt id')
                 if not finite(data['deadline']) or not now < data['deadline']: raise ValueError('expired admission deadline')
-                choices = [r for r in _bounded_routes(data['model'], [a for a in data['accounts'] if a in self.accounts])
+                choices = [r for r in _bounded_routes(data['model'], [a for a in data['accounts'] if a in self.accounts], data.get('funding_usd'))
                            if (r['route'] not in GATED_OPENROUTER or type(data.get('paid_protocol')) is int and data['paid_protocol'] == 1)
                            and eligible(r) and r['pool'] + '/' + r['route'] not in data.get('excluded_lanes', [])]
                 payload = json.dumps(data, sort_keys=True, allow_nan=False)
@@ -455,7 +492,7 @@ class Store:
         if time.monotonic() - started >= 4: return denied('binding')
         account = db.execute('SELECT ceiling FROM paid_account WHERE id=1').fetchone()
         ceiling = account[0] if account else min(PAID_CEILING, credit) if credit is not None else None
-        if ceiling is not None and (type(ceiling) is not int or not 0 <= ceiling <= PAID_CEILING):
+        if ceiling is not None and (type(ceiling) is not int or not 0 <= ceiling <= 2**63 - 1):
             raise ValueError('invalid paid ceiling')
         if credit is None: return denied('credit')
         profile = GATED_OPENROUTER[lease['route']]
@@ -525,7 +562,8 @@ def metadata(case):
 
 
 def _account_order(case):
-    from account_handoff import ACCOUNTS as LABELS
+    LABELS = {'opencode': {1: 'opencode-go-key', 2: 'opencode-go-key-2'},
+              'claude': {1: 'claude-token', 2: 'claude-factory-token-2', 3: 'claude-factory-token-3'}}
     preferred = {LABELS[p].get(n) for p,n in (case.card.get('provider_accounts') or {}).items() if p in LABELS}
     return sorted(getattr(case, 'router_accounts', ACCOUNTS),
                   key=lambda a: (not (SECRETS / a).is_file(), a not in preferred))
@@ -534,6 +572,8 @@ def _account_order(case):
 def _admit(role, case, deadline, identity, accounts, excluded=()):
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
     data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_lanes=list(excluded), paid_protocol=1)
+    funding = getattr(case, 'router_funding_usd', None)
+    if funding is not None: data['funding_usd'] = funding
     result = _rpc('acquire', data)
     if result.get('kind') == 'lease':
         result.pop('kind')
@@ -542,7 +582,7 @@ def _admit(role, case, deadline, identity, accounts, excluded=()):
                 or result['expires_at'] <= time.time() or result['expires_at'] > deadline
                 or {k: result.get(k) for k in ('route', 'account', 'pool', 'family', 'billing')} not in allowed):
             raise RouterUnavailable('invalid lease response')
-        if not valid_maximum(result):
+        if not valid_maximum(result) or (funding is not None and _nano(result.get('max_usd')) > _nano(funding)):
             finish(identity, 'denied', None)
             case.router_unbounded = True
             case.router_wait = Wait('unbounded_route', retry_at('unbounded_route'), route=model)
@@ -568,7 +608,7 @@ def _credential_ready(lease):
 
 
 def _deadlines(case, deadline):
-    enabled = os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
+    enabled = getattr(case, 'engine', None) is not None or os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
     value = getattr(case, 'batch_deadline', None) or os.environ.get('FACTORY_BATCH_DEADLINE')
     batch_end = metadata(case)[2] if enabled else epoch(value) if value is not None else time.time() + 7 * 86400
     stop_at = min(batch_end, time.time() + max(0, deadline - time.monotonic())) if deadline is not None else batch_end
@@ -611,7 +651,7 @@ def await_lease(role, case, deadline=None):
     deadline is a caller monotonic deadline; the server sees UTC epochs only.
     ProviderWait is handled by run.py's ordinary checkpoint-and-exit path.
     """
-    enabled = os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
+    enabled = getattr(case, 'engine', None) is not None or os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
     choices = routes(model, getattr(case, 'router_accounts', ACCOUNTS))  # Configuration errors are not outages.
     exhausted = choices and all(r['pool'] + '/' + r['route'] in getattr(case, 'router_excluded', ()) for r in choices)
@@ -769,7 +809,9 @@ def main():
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
     token = os.environ.get('FACTORY_ROUTER_TOKEN', '')
-    server = Server(('0.0.0.0', 8765), Store(production_database(config), capacities=config.get('capacities'), accounts=config.get('accounts', ACCOUNTS), credit_reader=available_credit), token)
+    server = Server(('0.0.0.0', 8765), Store(production_database(config), capacities=config.get('capacities'),
+        accounts=config.get('accounts', ACCOUNTS), credit_reader=available_credit,
+        paid_ceiling_usd=config.get('paid_ceiling_usd')), token)
     server.enable_tls(os.environ['FACTORY_ROUTER_CERT'], os.environ['FACTORY_ROUTER_KEY'])
     server.serve_forever()
 

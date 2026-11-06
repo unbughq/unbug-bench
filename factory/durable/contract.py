@@ -1,4 +1,4 @@
-"""Frozen contract shared by every durable-execution work package (version 5).
+"""Frozen contract shared by every durable-execution work package (version 6).
 
 Only what crosses a package boundary lives here: the records the engine stores, the
 worker wire protocol, key derivation, and the seams (protocols) between packages.
@@ -214,7 +214,7 @@ class StepInput:
     plumbing_version: str        # release current when the attempt starts
     bench_version: str           # bench release the case runs; changed only by a BenchRelease
     inputs: Ref                  # INPUTS: the promise, app pin and rotation
-    snapshot: Optional[Ref]      # CASE_SNAPSHOT to restore; None exactly for ADMIT
+    snapshot: Optional[Ref]      # CASE_SNAPSHOT to restore; optional for initial ADMIT
     deadline_s: float            # wall-clock budget of this attempt on the worker
     money_ceiling_usd_micros: int  # the Grant for this attempt; the worker stops at it (EXHAUSTED)
     feedback: Optional[Ref] = None   # WRITER_FEEDBACK: WRITER steps only
@@ -235,7 +235,7 @@ class StepInput:
         _finite(self.deadline_s, "deadline_s", positive=True)
         _nonneg_int(self.money_ceiling_usd_micros, "money_ceiling_usd_micros")
         k = self.step.kind
-        _check((self.snapshot is None) == (k is StepKind.ADMIT), "snapshot is absent exactly for ADMIT")
+        _check(k is StepKind.ADMIT or self.snapshot is not None, "snapshot is required after ADMIT")
         _ref(self.snapshot, ArtifactKind.CASE_SNAPSHOT, "snapshot")
         _check(self.feedback is None or k is StepKind.WRITER, "feedback goes only to writer steps")
         _ref(self.feedback, ArtifactKind.WRITER_FEEDBACK, "feedback")

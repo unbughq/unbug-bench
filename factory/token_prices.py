@@ -19,14 +19,18 @@ PAID_PRICES['opencode-go/muse-spark-1.3-contributor'] = PAID_PRICES['openrouter/
 # Output holds deliberately exceed the requested cap; reasoning mapping is not assumed.
 OPENROUTER_OUTPUT = 32768
 GATED_OPENROUTER = {
-    # Public endpoint contract: router-item8-minimax-availability.json.gz.
-    'openrouter/minimax/minimax-m3.1-flash': dict(endpoint='tenstorrent/fp8',
-        prices=('0.05', '0.005', '0.2'), context=1000000, output=900000, windows=3,
-        cache_write='0', source_date='2026-10-31'),
+    # Current official-provider contract: router-minimax-price-record.json.gz.
+    'openrouter/minimax/minimax-m3.1-flash': dict(endpoint='minimax',
+        prices=('0.15', '0.015', '0.6'), context=1048576, output=524288, windows=3,
+        cache_write='0', source_date='2026-11-06'),
     'openrouter/xiaomi/mimo-v2.6-pro': dict(endpoint='xiaomi/fp8',
         prices=('0.435', '0.0036', '0.87'), context=1048576, output=131072, windows=3, cache_write='0'),
     'openrouter/deepseek/deepseek-v4.1-flash': dict(endpoint='deepinfra/fp8',
         prices=('0.14', '0.0042', '0.42'), context=1048576, output=1048576, windows=2, cache_write='0'),
+    # Pinned primary endpoint quote: router-glm-price-record.json.gz.
+    'openrouter/z-ai/glm-5.3-flash': dict(endpoint='deepinfra/fp4',
+        prices=('0.15', '0.03', '0.5'), context=1048576, output=943718, windows=2,
+        cache_write='0', source_date='2026-11-06'),
 }
 
 
@@ -118,9 +122,9 @@ CLAUDE_GATE_FIELDS = ('input_tokens', 'cache_read_input_tokens',
 
 
 def claude_standard_usage(usage):
-    """Absent mode fields mean defaults; explicit unknown/premium modes do not."""
+    """Recognize standard-speed usage; unavailable geo receives a conservative gate charge."""
     return (isinstance(usage, dict) and usage.get('speed', 'standard') == 'standard'
-            and usage.get('inference_geo', 'global') == 'global')
+            and usage.get('inference_geo', 'global') in ('global', 'not_available'))
 
 
 def _claude_list_cost(model, usage):
@@ -132,9 +136,14 @@ def _claude_list_cost(model, usage):
 
 
 def claude_gate_cost(usage, route=GATED_CLAUDE):
-    """Same standard/global list tariff as partial CLI estimates; book nothing."""
+    """Bound OAuth usage even when the organization does not report geography."""
     profile = claude_profile(route)
-    return None if profile is None else _claude_list_cost(profile['model'], usage)
+    amount = None if profile is None else _claude_list_cost(profile['model'], usage)
+    # Without explicit global evidence, cover the documented 1.1x US uplift.
+    # Old models have no regional surcharge. This never widens the lease.
+    if amount is not None and profile['thinking'] is None and usage.get('inference_geo') != 'global':
+        amount *= Decimal('1.1')
+    return amount
 
 
 def claude_gate_maximum(route=GATED_CLAUDE):

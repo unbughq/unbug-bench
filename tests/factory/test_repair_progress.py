@@ -1,4 +1,4 @@
-"""Offline integration tests for bounded repair and evidence invalidation."""
+"""Offline gate feedback, retained evidence and registry regression checks."""
 
 # Keep direct execution and unittest discovery independent of the working directory.
 import sys
@@ -30,26 +30,37 @@ class RepairProgressTests(unittest.TestCase):
         (c.case / "promise.md").write_text("synthetic promise")
         return c
 
-    def test_same_worker_repair_continues_and_bounds_no_progress(self):
+    def test_failed_gate_returns_feedback_before_engine_schedules_repair(self):
+        from durable.contract import Outcome
         with tempfile.TemporaryDirectory() as tmp:
-            c = self.context(pathlib.Path(tmp))
+            c = self.context(pathlib.Path(tmp)); c.stopped = False
             calls = []
             def gates(ctx):
                 calls.append(ctx.work)
-                ctx.card["failed_gate"] = "G15" if len(calls) == 1 else None
-                ctx.card["failed_detail"] = {"wrong": 1}
-            def repair(ctx, previous):
-                self.assertEqual(previous["failed_gate"], "G15")
-                (ctx.case / "base/judge.py").write_text("repaired judge")
-            with patch.object(run, "run_gates", gates), patch.object(run, "write_and_attack", repair):
-                run.validate_and_repair(c)
+                failed = (ctx.case / "base/judge.py").read_text() != "repaired judge"
+                ctx.card["gates"] = {"G15": "fail" if failed else "pass"}
+                ctx.card["failed_gate"] = "G15" if failed else None
+                if failed: ctx.card["failed_detail"] = {"wrong": 1}
+            with patch.object(run, "run_gates", gates), \
+                 patch.object(run, "g1", return_value=(True, {"problems": []})), \
+                 patch.object(run, "ensure_freshness"), \
+                 patch.object(run, "opencode") as model:
+                result = run.engine_gates(c)
+                self.assertEqual(result["outcome"], Outcome.GATE_FAILED)
+                self.assertEqual(result["gate"], "G15")
+                self.assertTrue(result["repairable"])
+                feedback = json.loads(result["feedback"])
+                self.assertIn("G15", feedback["problems"][0])
+                self.assertIn('"wrong": 1', feedback["problems"][0])
+                self.assertEqual(calls, [c.work])
+                model.assert_not_called()
+                (c.case / "base/judge.py").write_text("repaired judge")
+                result = run.engine_gates(c)
+            self.assertEqual(result["outcome"], Outcome.OK)
+            self.assertEqual(result["passed"], ("G15",))
             self.assertEqual(calls, [c.work, c.work])
             self.assertIsNone(c.card["failed_gate"])
-            calls.clear()
-            with patch.object(run, "run_gates", gates), patch.object(run, "write_and_attack", lambda *a: None):
-                run.validate_and_repair(c)
-            self.assertEqual(len(calls), 1)
-            self.assertEqual(c.card["repair_blocked"], "repair made no case changes")
+            self.assertNotIn("failed_detail", c.card)
 
     def test_receipt_requires_unchanged_inputs_and_retained_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:

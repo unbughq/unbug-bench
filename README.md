@@ -47,6 +47,24 @@ uv run --with numpy --with scipy --with dbos==3.4.0 python -B tests/run.py
 See [tests/README.md](tests/README.md) for individual suites and live probes.
 [factory/README.md](factory/README.md) describes case-building entry points.
 
+## Check factory status
+
+Install the standalone client with `python3 bin/install-unbug` (Python and SSH only),
+with `~/.local/bin` on your PATH. After saving the controller connection:
+
+```sh
+unbug status                    # configured default batch
+unbug status b-other            # another batch
+unbug report --json             # machine-readable scorecard
+```
+
+The client reads `~/.config/unbug/client.json`; see
+[factory/README.md](factory/README.md#operator-client) for its format. These commands
+read the controller's stage, status, gates and sealed count without launching work.
+The formatted view also shows recorded attempt state, worker assignments, batch
+spending/reservations and settled call counts. In-flight usage is not a settled charge;
+worker assignment does not prove liveness. `--json` retains exact micro-dollar values.
+
 ## Benchmark rules
 
 - [SPEC.md](SPEC.md): application, traffic, oracle and guard interface.

@@ -19,7 +19,7 @@ os.environ.setdefault("BENCH", str(ROOT))
 
 from durable import classify as wp4
 from durable.classify import (BACKOFF_S, CONTRACT_REASONS, MAX_RESET_AHEAD_S, PUBLISHED_REASONS, REASONS,
-                              UNCLASSIFIED, classify)
+                              UNCLASSIFIED, WORKER_POOL_REASONS, classify)
 from durable.contract import (REASON, ArtifactKind, Classified, ContractError, Outcome, Ref, Step, StepKind,
                               StepResult, check_result_for)
 
@@ -72,6 +72,36 @@ def step_of(kind):
 
 
 class RealStops(unittest.TestCase):
+    def test_structured_waits_are_distinct_and_do_not_export_arbitrary_text(self):
+        from model_router import ProviderWait, Wait
+        expected = {'quota': (Outcome.PROVIDER_LIMIT, 'router:quota'),
+                    'rate': (Outcome.PROVIDER_LIMIT, 'router:rate'),
+                    'credit': (Outcome.PROVIDER_LIMIT, 'router:credit'),
+                    'credential_expiring': (Outcome.INFRA_ERROR, 'router:credential_expiring'),
+                    'unbounded_route': (Outcome.INFRA_ERROR, 'router:unbounded_route'),
+                    'outage': (Outcome.INFRA_ERROR, 'router:outage'),
+                    'router_unavailable': (Outcome.INFRA_ERROR, 'infra:router_unavailable')}
+        for cause, want in expected.items():
+            for step in StepKind:
+                error = ProviderWait('writer', Wait(cause, NOW + 120, route='private-prompt-sentinel',
+                                                    account='secret-token-sentinel'))
+                result, details = wp4.classify_wait(error, step=step, now=NOW)
+                self.assertEqual((result.outcome, result.reason), want)
+                self.assertNotIn('sentinel', json.dumps(details))
+                self.assertIn(result.reason, REASONS)
+                self.assertEqual(result.retry_at, NOW + 120 if result.outcome is Outcome.PROVIDER_LIMIT else None)
+        error = ProviderWait('writer', Wait('outage', NOW + 120))
+        error.previous_waits = [{'reason': 'outage', 'source_stop': 'process_error'}]
+        result, _ = wp4.classify_wait(error, step=StepKind.ADMIT, now=NOW)
+        self.assertEqual(result.reason, 'router:process_error')
+        error.wait = Wait('quota', NOW + 120)
+        result, _ = wp4.classify_wait(error, step=StepKind.ADMIT, now=NOW)
+        self.assertEqual(result.outcome, Outcome.PROVIDER_LIMIT)
+        error.wait = Wait('credential_expiring', NOW + 120)
+        result, details = wp4.classify_wait(error, step=StepKind.ADMIT, now=NOW)
+        self.assertEqual(result.reason, 'router:credential_expiring')
+        self.assertEqual(details['waits'][0]['source_stop'], 'process_error')
+
     def test_corpus_is_the_fifty_real_cards(self):
         self.assertEqual(len(CARDS), 50)
         history = [s for src, s in STOPS if src == "history"]
@@ -150,27 +180,49 @@ class RealStops(unittest.TestCase):
                                   StepKind.STRESS: "stress:call_limit", StepKind.GATES: "engine:call_limit",
                                   StepKind.DIAGNOSIS: "diagnosis:call_limit", StepKind.SEAL: "seal:call_limit"})
 
-    def test_money_wait_is_the_attempts_money_and_the_policy_tells_case_from_batch(self):
-        # budget.py:941 (spend + reservations > job_authority.committed_total_usd), :717 and :165.
-        for kind in StepKind:
-            self.assertEqual(classify("money_wait", step=kind, now=NOW),
-                             classify("cost_limit", step=kind, now=NOW))
-        self.assertEqual(classify("money_wait", step=StepKind.WRITER, now=NOW),
+    def test_cost_limit_is_the_attempts_money_and_the_policy_tells_case_from_batch(self):
+        self.assertEqual(classify("cost_limit", step=StepKind.WRITER, now=NOW),
                          Classified(Outcome.EXHAUSTED, "writer:money"))
         self.assertNotIn("batch:money_bound", REASONS)
 
     def test_batch_deadline_stops_are_the_contracts_deadline_not_money(self):
-        # retired_batch_bound: budget.py:145, :837, :1220, :1247; job_authority.py:47, :74.
-        # provider_wait_deadline: model_router.py:523, :593, :642.
-        for stop in ("retired_batch_bound", "provider_wait_deadline"):
-            for kind in StepKind:
-                self.assertEqual(classify(stop, step=kind, now=NOW), Classified(Outcome.INFRA_ERROR, "infra:deadline"))
+        # provider_wait_deadline: model_router.py.
+        for kind in StepKind:
+            self.assertEqual(classify("provider_wait_deadline", step=kind, now=NOW),
+                             Classified(Outcome.INFRA_ERROR, "infra:deadline"))
         self.assertIn("infra:deadline", CONTRACT_REASONS)
 
-    RUNNER_FILES = ("budget.py", "model_router.py", "model_runtime.py", "model_call_gate.py", "run.py",
-                    "job_authority.py", "job_config.py")
+    RUNNER_FILES = tuple(str(path.relative_to(ROOT / 'factory'))
+                         for path in sorted((ROOT / 'factory').rglob('*.py')))
     # Reviewed: what every BudgetError label raised in RUNNER_FILES classifies to.
     MAPPED = {
+        'case_changed_during_review': ("infra_error", 'infra:case_changed_during_review'),
+        'diagnosis_cleanup_failed': ("infra_error", 'infra:diagnosis_cleanup_failed'),
+        'diagnosis_input_invalid': ("infra_error", 'infra:diagnosis_input_invalid'),
+        'diagnosis_result_invalid': ("infra_error", 'infra:diagnosis_result_invalid'),
+        'diagnosis_schema_wait': ("infra_error", 'infra:diagnosis_schema_wait'),
+        'extension_snapshot_invalid': ("infra_error", 'infra:extension_snapshot_invalid'),
+        'factory_bug_held': ("infra_error", 'infra:factory_bug_held'),
+        'malformed_output_exhausted': ("infra_error", 'infra:malformed_output_exhausted'),
+        'ordinary_retry_completion_missing': ("infra_error", 'infra:retry_completion_missing'),
+        'ordinary_retry_output_changed': ("infra_error", 'infra:ordinary_retry_output_changed'),
+        'ordinary_retry_state_invalid': ("infra_error", 'infra:ordinary_retry_state_invalid'),
+        'owner_invalid_answer': ("infra_error", 'infra:owner_invalid_answer'),
+        'stress_category_output_changed': ("infra_error", 'infra:stress_category_output_changed'),
+        'stress_category_state_invalid': ("infra_error", 'infra:stress_category_state_invalid'),
+        'stress_publication_not_quiescent': ("infra_error", 'infra:stress_publication_not_quiescent'),
+        'stress_validation_exhausted': ("infra_error", 'infra:stress_validation_exhausted'),
+        'admission_registry_unavailable': ("infra_error", 'admit:registry_unavailable'),
+        'selection_board_unavailable': ("infra_error", 'admit:selection_board_unavailable'),
+        'admission_dedup_unavailable': ("infra_error", 'admit:dedup_unavailable'),
+        'admission_dedup_invalid': ("infra_error", 'admit:dedup_invalid'),
+        'admission_idea_review_unavailable': ("infra_error", 'admit:idea_review_unavailable'),
+        'admission_idea_review_invalid': ("infra_error", 'admit:idea_review_invalid'),
+        'freshness_evidence_unavailable': ("infra_error", 'infra:freshness_evidence_unavailable'),
+        'freshness_review_unavailable': ("infra_error", 'infra:freshness_review_unavailable'),
+        'freshness_repair_state_invalid': ("infra_error", 'infra:freshness_repair_state_invalid'),
+        'freshness_statement_changed': ("infra_error", 'infra:freshness_statement_changed'),
+        'freshness_unresolved': ("infra_error", 'infra:freshness_unresolved'),
         "Invalid budget ledger; no process started": ("infra_error", "infra:ledger_error"),
         "budget_exhausted": ("exhausted", "writer:money"),
         "call_limit": ("exhausted", "writer:call_limit"),
@@ -179,9 +231,11 @@ class RealStops(unittest.TestCase):
         "claude_error": ("infra_error", "router:claude_error"),
         "cleanup_failed": ("infra_error", "infra:cleanup_failed"),
         "codex_error": ("infra_error", "router:codex_error"),
-        "codex_login_expired": ("provider_limit", "router:credential_expiring"),
+        "codex_login_expired": ("infra_error", "router:credential_expiring"),
+        "containment_unavailable": ("infra_error", "infra:cleanup_failed"),
         "cost_limit": ("exhausted", "writer:money"),
-        "credential_expiring": ("provider_limit", "router:credential_expiring"),
+        "budget_exhausted:grant_insufficient": ("exhausted", "writer:money"),
+        "credential_expiring": ("infra_error", "router:credential_expiring"),
         "invalid_money": ("infra_error", "infra:ledger_error"),
         "invalid_operation": ("infra_error", "infra:ledger_error"),
         "invalid_provider_wait": ("infra_error", "infra:ledger_error"),
@@ -192,10 +246,8 @@ class RealStops(unittest.TestCase):
         "invalid_usage_receipt": ("infra_error", "infra:usage_unknown"),
         "invalid_waste_attribution": ("infra_error", "infra:ledger_error"),
         "missing_usage": ("infra_error", "infra:usage_unknown"),
-        "model_call_cap": ("exhausted", "writer:call_cap"),
-        "money_wait": ("exhausted", "writer:money"),
+        "model_call_cap": ("exhausted", "writer:money"),
         "opencode_error": ("infra_error", "router:opencode_error"),
-        "ordinary_limit_unknown": ("infra_error", "infra:ledger_error"),
         "process_error": ("infra_error", "router:process_error"),
         "provider_limit:": ("provider_limit", "router:provider_limit"),
         "provider_preflight_failed": ("infra_error", "router:preflight_failed"),
@@ -205,7 +257,6 @@ class RealStops(unittest.TestCase):
         "reservation_already_invoked": ("infra_error", "infra:ledger_error"),
         "reservation_mismatch": ("infra_error", "infra:ledger_error"),
         "resume_while_active": ("infra_error", "infra:ledger_error"),
-        "retired_batch_bound": ("infra_error", "infra:deadline"),
         "route_maximum_unknown": ("infra_error", "infra:ledger_error"),
         "router_batch_unconfigured": ("infra_error", "infra:router_unavailable"),
         "shared_paid_spend_wait": ("provider_limit", "router:provider_wait"),
@@ -218,8 +269,9 @@ class RealStops(unittest.TestCase):
         "usage_event_missing": ("infra_error", "infra:usage_unknown"),
         "usage_event_shared": ("infra_error", "infra:usage_unknown"),
         "usage_monitor:": ("infra_error", "infra:usage_unknown"),
+        "usage_unknown": ("infra_error", "infra:usage_unknown"),
+        "usage_reservation_exceeded": ("infra_error", "infra:usage_unknown"),
         "usage_receipt_regressed": ("infra_error", "infra:usage_unknown"),
-        "usage_reconciliation_while_active": ("infra_error", "infra:usage_unknown"),
         "usage_reservation_missing": ("infra_error", "infra:usage_unknown"),
         "wait_receipt_mismatch": ("infra_error", "infra:ledger_error"),
         "waste_attribution_mismatch": ("infra_error", "infra:ledger_error"),
@@ -228,20 +280,14 @@ class RealStops(unittest.TestCase):
         "zero_tokens": ("infra_error", "router:zero_tokens"),
     }
     # Reviewed: labels that stay infra:unclassified_stop (still INFRA_ERROR, never scored).
-    # The two bare wrappers only ever prefix a cause. The rest are run.py lifecycle stops
-    # (admission, freshness, extension, stress review, provider-wait records) that the
-    # engine replaces, or dispatch faults with no engine meaning.
+    # The two bare wrappers only prefix a cause. The rest are lifecycle stops
+    # replaced by Engine or dispatch faults with no specific engine meaning.
     UNCLASSIFIED_BY_DESIGN = {
         "Budget ledger stopped: ", "Budget stopped: ",
-        "admission_dedup_invalid", "admission_dedup_unavailable", "admission_idea_review_invalid",
-        "admission_idea_review_unavailable", "admission_registry_unavailable", "diagnosis_state_invalid",
-        "extension_comparison_pending", "extension_execution_mode_invalid", "extension_reservation_mismatch",
-        "freshness_evidence_unavailable", "freshness_public_match", "freshness_repair_state_invalid",
-        "freshness_review_unavailable", "freshness_statement_changed", "freshness_unresolved",
-        "ordinary_limit_mismatch", "owner_parent_not_active", "provider_wait_archive_mismatch",
+        "freshness_public_match",
         "provider_wait_record_missing", "provider_wait_unsettled", "route_feature_unsupported",
-        "selection_board_unavailable", "statement-ready", "stress_publication_configuration_missing",
-        "stress_review_unresolved:", "stress_validation_exhausted", "writer_intent_missing",
+        "stress_publication_configuration_missing",
+        "stress_review_unresolved:",
     }
 
     def runner_labels(self):
@@ -327,7 +373,7 @@ class Secrecy(unittest.TestCase):
                          Classified(Outcome.INFRA_ERROR, UNCLASSIFIED))
 
     def test_published_allowlist(self):
-        self.assertTrue(PUBLISHED_REASONS <= REASONS | CONTRACT_REASONS)
+        self.assertTrue(PUBLISHED_REASONS <= REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS)
         self.assertTrue(all(REASON.fullmatch(r) for r in PUBLISHED_REASONS))
         self.assertNotIn("router:refusal", PUBLISHED_REASONS)
         self.assertEqual(REASONS - PUBLISHED_REASONS, {"router:refusal"})

@@ -7,13 +7,52 @@
 ## Entry points
 
 - `python3 factory/run.py --help`: one worker's case build and gate options.
-- `python3 factory/batch.py --help`: build a pinned public batch release.
-- `bin/control-vm --help`: provision and operate the control VM.
-- `factory/launch.sh`: launch or resume an approved worker through the holder.
-- `factory/collect.sh`: collect worker evidence through the existing control path.
+- `unbug status [BATCH]` / `unbug report [BATCH] --json`: read the controller's scorecard.
+- `bin/unbug --config CONFIG --help`: controller-local administration through its private socket.
 
 Use the approved batch manifests and release qualification when launching real
 workers. A source change does not update deployed pins or authorize paid work.
+
+## Failures and alerts
+
+The campaign guard (`factory/durable/guard.py`) runs every minute. A failed check is retried
+and marks the batch degraded, which pauses new attempts and stops nothing. Only the deadline,
+the money ceiling and a confirmed Boat allowance or rate breach are hard stops.
+
+A hard stop pauses new attempts and gives steps in flight a checkpoint grace to record (10
+minutes; set `UNBUG_CHECKPOINT_GRACE_S` in `/etc/unbug/alerts.env`). The guard then stops the
+controller and deletes the workers, at once if nothing is in flight. Unrecorded work becomes an
+ordinary retry and is never scored. A hard stop holds, even across a reboot. To resume, delete
+`<state_dir>/guard/status.json`, then start the controller. After a money stop, raise the bound
+within two minutes of starting it, before the guard's grace period ends.
+
+`unbug status` shows guard health, recent failures and every `NEEDS YOU` line. To also get
+each alert as a message, put `UNBUG_ALERT_WEBHOOK=<url>` in `/etc/unbug/alerts.env`, mode 600.
+The guard POSTs `{"text": "..."}`, which Slack-style incoming webhooks accept.
+
+`bin/failure-drill` proves the batch survives these failures offline, with no money spent.
+
+## Operator client
+
+`python3 bin/install-unbug` installs a standalone read-only client in `~/.local/bin`.
+It is independent of the source checkout and needs only Python 3 and SSH. Save this
+connection shape in `~/.config/unbug/client.json`, replacing the example paths, and
+set its permissions to `600`:
+
+```json
+{
+  "ssh": ["ssh", "-i", "/path/to/key", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "user@controller"],
+  "command": ["/path/to/venv/bin/python", "/path/to/bin/unbug", "--config", "/path/to/controller-config.json"],
+  "batch": "b-current"
+}
+```
+
+The profile contains connection arguments and paths, never credential contents or
+the controller configuration itself. `unbug --connection FILE status` selects another
+connection. On the controller, existing `--config` operator commands are unchanged.
+Status/report read persisted records even when the controller is stopped. The
+controller configuration may set `status_service_unit` for a custom service name;
+otherwise service-state checks use `unbug-durable.service`.
 
 ## Execution
 

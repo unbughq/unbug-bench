@@ -257,88 +257,6 @@ with open(os.environ['TEST_DOCKER_CALLS'],'a') as f:
         pipeline.after_gate.assert_not_called()
 
 
-class SupervisorTests(unittest.TestCase):
-    def test_real_runner_early_import_and_ready_boundary(self):
-        for dependency, ready, attempts in (('gate_pipeline.py', False, 3), ('run.py', True, 1)):
-            with self.subTest(dependency=dependency), tempfile.TemporaryDirectory() as tmp:
-                home = Path(tmp); factory = home / 'factory'
-                factory.mkdir()
-                for path in (ROOT / 'factory').glob('*.py'):
-                    shutil.copy2(path, factory / path.name)
-                supervisor = factory / 'runner_supervisor.py'
-                supervisor.write_text(supervisor.read_text().replace('processes.prepare_model_containment(home)', 'None  # authored provisioning edge; real kernel covered separately'))
-                self.assertEqual((factory / 'run.py').read_bytes(), (ROOT / 'factory/run.py').read_bytes())
-                target = factory / dependency
-                if ready:
-                    # The unused free_models startup import was deleted. Inject at
-                    # the same post-ready boundary without restoring that dependency.
-                    target.write_text(target.read_text().replace('    inherit_recovery_history(c, prev_card)',
-                        '    raise ImportError("injected post-ready failure")'))
-                else:
-                    target.write_text('raise ImportError("injected dependency unavailable")\n')
-                # Preserve the recorded source/routes/caps, using a fresh dry-run namespace.
-                args = worker_args(); fresh = []; i = 0
-                while i < len(args):
-                    if args[i] in ('--resume', '--resume-bench-sha'): i += 2
-                    else: fresh.append(args[i]); i += 1
-                result = subprocess.run([sys.executable, str(supervisor), '--',
-                    sys.executable, '-B', str(factory / 'run.py'), *fresh, '--dry-run'],
-                    env={**os.environ,'HOME':str(home),'FACTORY_RUNNER_SECONDS':str(HANG_GUARD_SECONDS)},
-                    capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
-                self.assertEqual(result.returncode, 1)
-                data = json.loads((home / 'sealed/runner-status.json').read_text())
-                self.assertEqual((data['attempt'], data['exit_status']), (attempts, 1))
-                self.assertEqual(data['reason'], 'finished' if ready else 'startup_failed')
-                self.assertEqual((home / 'sealed/runner-ready-1').exists(), ready)
-                self.assertFalse((home / 'sealed/DONE').exists())
-                self.assertEqual(len(list((home / 'work').glob('*'))), 1 if ready else 0)
-
-    def invoke(self, code, *, prior_work=False, seconds=8):
-        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
-        self.home = Path(self.tmp.name)
-        if prior_work:
-            (self.home / 'work' / option('--restore')).mkdir(parents=True)
-        supervisor = self.home / 'runner_supervisor.py'
-        supervisor.write_text((ROOT / 'factory/runner_supervisor.py').read_text().replace(
-            'processes.prepare_model_containment(home)', 'None  # authored provisioning edge; real kernel covered separately'))
-        command = [sys.executable, str(supervisor), '--', sys.executable, '-c', code,
-                   *worker_args()]  # real saved worker arguments; injected interpreter ignores them
-        return subprocess.run(command, env={**os.environ, 'HOME': str(self.home),
-            'FACTORY_RUNNER_SECONDS': str(seconds)}, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
-
-    def test_startup_retry_then_ready_uses_safe_receipt(self):
-        result = self.invoke("""import os,pathlib,sys
-p=pathlib.Path.home()/'attempts'; n=int(p.read_text())+1 if p.exists() else 1; p.write_text(str(n))
-if n==1:
- print('synthetic private diagnostic',file=sys.stderr); sys.exit(1)
-pathlib.Path(os.environ['FACTORY_RUNNER_READY']).touch()
-""")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        data = json.loads((self.home / 'sealed/runner-status.json').read_text())
-        self.assertEqual((data['attempt'], data['reason'], data['exit_status']), (2, 'finished', 0))
-        self.assertNotIn('synthetic private diagnostic', result.stderr)
-        self.assertEqual(set(data), {'schema','attempt','phase','reason','exit_status','observed_at'})
-
-    def test_deadline_pauses_and_allows_a_bounded_seal_before_kill(self):
-        result = self.invoke("""import os,pathlib,signal,time
-def pause(sig,frame):
- pathlib.Path.home().joinpath('paused').touch(); time.sleep(.1); raise SystemExit(0)
-signal.signal(signal.SIGTERM,pause)
-pathlib.Path(os.environ['FACTORY_RUNNER_READY']).touch()
-time.sleep(60)
-""", seconds=.4)
-        self.assertEqual(result.returncode, 124)
-        self.assertTrue((self.home / 'paused').exists())
-        data = json.loads((self.home / 'sealed/runner-status.json').read_text())
-        self.assertEqual((data['reason'], data['exit_status']), ('timeout', 0))
-
-    def test_restored_work_and_usage_error_never_retry(self):
-        for prior_work, code in ((True, 1), (False, 2)):
-            result = self.invoke(f'raise SystemExit({code})', prior_work=prior_work)
-            data = json.loads((self.home / 'sealed/runner-status.json').read_text())
-            self.assertEqual(data['attempt'], 1)
-            self.assertEqual(data['reason'], 'startup_failed')
-            self.assertFalse((self.home / 'sealed/DONE').exists())
 
 
 class BoatTests(unittest.TestCase):
@@ -396,7 +314,7 @@ else: raise SystemExit(9)
         lost.write_text('#!/bin/sh\n[ -f "$UNBUG_LAUNCH_STATE/new.1.pending" ] || exit 99\ntouch "$UNBUG_LAUNCH_STATE/intent-seen"\nexit 124\n'); lost.chmod(0o755)
         script = r"""root=$1; state=$2; spend_file=$3; serial=0; bundle=''; label=factory
 ttl_seconds=$4; purpose=case; margin=1800
-. "$root/bin/boat-launch-guards.sh"
+. "$root/bin/exam-launch-guards.sh"
 guard_new
 guard_exit 1
 """

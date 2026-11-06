@@ -1,0 +1,7 @@
+#!/bin/sh
+# Offline failure drill: a throwaway batch must survive every failure with zero human actions.
+# Needs uv and a local PostgreSQL. Spends no money and creates no workers.
+set -eu
+cd "$(dirname "$0")/.."
+BENCH="$PWD" DRILL_REQUIRE_POSTGRES=1 exec uv run -q --with dbos==3.4.0 --with numpy --with scipy \
+  python -B tests/factory/test_failure_drill.py -v

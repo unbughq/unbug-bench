@@ -118,7 +118,7 @@ class ModelInterruptionTests(unittest.TestCase):
                 work=root / "work", case=root / "case", seed=1, card={}, pilot_passes=[],
                 args=types.SimpleNamespace(pilot_tries=2 if real_budget else 1, pilot_runs=1, calibrator_minutes=1,
                                           resume=None, bench_workers=2),
-                models={"strong_calibrator": ["synthetic"]},
+                models={"strong_calibrator": ["synthetic"], "reviewers": [["synthetic-reviewer"]]},
                 budget_resumed=False, force_budget_resume=False)
             c.work.mkdir(); (c.case / "base").mkdir(parents=True)
             c.ledger = c.work / "budget.json"
@@ -127,6 +127,7 @@ class ModelInterruptionTests(unittest.TestCase):
             def model(call_context, *args, **kwargs):
                 calls.append(call_context)
                 self.assertIsNot(call_context, c)
+                self.assertEqual(call_context.exam_owner_models, c.models["reviewers"][0])
                 if real_budget:
                     import budget
                     events = [{'type': 'thread.started', 'thread_id': str(len(calls))},

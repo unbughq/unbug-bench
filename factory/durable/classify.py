@@ -43,6 +43,13 @@ _LIMIT_FAMILY = (("claude/", "router:claude_limit"), ("codex/", "router:codex_li
                  ("openrouter/", "router:openrouter_limit"))
 
 _P, _I, _E = Outcome.PROVIDER_LIMIT, Outcome.INFRA_ERROR, Outcome.EXHAUSTED
+_WAIT = {"quota": (_P, "router:quota"), "rate": (_P, "router:rate"),
+         "credit": (_P, "router:credit"), "outage": (_I, "router:outage"),
+         "credential_expiring": (_I, "router:credential_expiring"),
+         "unbounded_route": (_I, "router:unbounded_route"),
+         "router_unavailable": (_I, "infra:router_unavailable")}
+FAILURE_STOPS = frozenset({"process_error", "claude_error", "codex_error", "opencode_error",
+                           "refusal", "zero_tokens", "timeout", "stalled", "credential_expiring", "model_unavailable"})
 
 # Exact stop heads (the text before the first ":"), after the runner wrapper is removed.
 _FIXED = {
@@ -51,17 +58,45 @@ _FIXED = {
     "ProviderWait": (_P, "router:provider_wait"),
     "shared_paid_spend_wait": (_P, "router:provider_wait"),
     "provider_routes_exhausted": (_P, "router:provider_wait"),
-    "codex_login_expired": (_P, "router:credential_expiring"),
-    "credential_expiring": (_P, "router:credential_expiring"),
+    "codex_login_expired": (_I, "router:credential_expiring"),
+    "credential_expiring": (_I, "router:credential_expiring"),
     # Model CLI and provider faults: broken runs, retried.
     "opencode_error": (_I, "router:opencode_error"),
     "codex_error": (_I, "router:codex_error"),
     "claude_error": (_I, "router:claude_error"),
     "process_error": (_I, "router:process_error"),
+    "model_unavailable": (_I, "router:model_unavailable"),
     "zero_tokens": (_I, "router:zero_tokens"),
     "refusal": (_I, "router:refusal"),
     "provider_preflight_failed": (_I, "router:preflight_failed"),
+    "admission_registry_unavailable": (_I, "admit:registry_unavailable"),
+    "selection_board_unavailable": (_I, "admit:selection_board_unavailable"),
+    "admission_dedup_unavailable": (_I, "admit:dedup_unavailable"),
+    "admission_dedup_invalid": (_I, "admit:dedup_invalid"),
+    "admission_idea_review_unavailable": (_I, "admit:idea_review_unavailable"),
+    "admission_idea_review_invalid": (_I, "admit:idea_review_invalid"),
+    "freshness_evidence_unavailable": (_I, "infra:freshness_evidence_unavailable"),
+    "freshness_review_unavailable": (_I, "infra:freshness_review_unavailable"),
+    "freshness_repair_state_invalid": (_I, "infra:freshness_repair_state_invalid"),
+    "freshness_statement_changed": (_I, "infra:freshness_statement_changed"),
+    "freshness_unresolved": (_I, "infra:freshness_unresolved"),
     # Runner and plumbing faults: broken runs, retried.
+    'case_changed_during_review': (_I, 'infra:case_changed_during_review'),
+    'diagnosis_cleanup_failed': (_I, 'infra:diagnosis_cleanup_failed'),
+    'diagnosis_input_invalid': (_I, 'infra:diagnosis_input_invalid'),
+    'diagnosis_result_invalid': (_I, 'infra:diagnosis_result_invalid'),
+    'diagnosis_schema_wait': (_I, 'infra:diagnosis_schema_wait'),
+    'extension_snapshot_invalid': (_I, 'infra:extension_snapshot_invalid'),
+    'factory_bug_held': (_I, 'infra:factory_bug_held'),
+    'malformed_output_exhausted': (_I, 'infra:malformed_output_exhausted'),
+    'ordinary_retry_completion_missing': (_I, 'infra:retry_completion_missing'),
+    'ordinary_retry_output_changed': (_I, 'infra:ordinary_retry_output_changed'),
+    'ordinary_retry_state_invalid': (_I, 'infra:ordinary_retry_state_invalid'),
+    'owner_invalid_answer': (_I, 'infra:owner_invalid_answer'),
+    'stress_category_output_changed': (_I, 'infra:stress_category_output_changed'),
+    'stress_category_state_invalid': (_I, 'infra:stress_category_state_invalid'),
+    'stress_publication_not_quiescent': (_I, 'infra:stress_publication_not_quiescent'),
+    'stress_validation_exhausted': (_I, 'infra:stress_validation_exhausted'),
     "RouterUnavailable": (_I, "infra:router_unavailable"),
     "router_unavailable": (_I, "infra:router_unavailable"),
     "unbounded_route": (_I, "infra:router_unavailable"),
@@ -92,22 +127,20 @@ _FIXED = {
     "cancellation_failed": (_I, "infra:cleanup_failed"),
     "containment_unavailable": (_I, "infra:cleanup_failed"),
     "runner_error": (_I, "infra:runner_error"),
+    "engine_reselection_disabled": (_I, "infra:runner_error"),
     "seal_error": (_I, "infra:runner_error"),
     "complete": (_I, "infra:stop_without_failure"),
     "running": (_I, "infra:stop_without_failure"),
     "": (_I, "infra:stop_without_failure"),
-    # The batch deadline (a clock, not money) passed before or during the call, or during a
-    # provider wait: budget.py:145, :837, :1220, :1247; job_authority.py:47, :74;
-    # model_router.py:523, :593, :642. It is the contract's attempt-deadline code.
-    "retired_batch_bound": (_I, "infra:deadline"),
+    # The batch deadline (a clock, not money) passed during a provider wait (model_router.py).
+    # It is the contract's attempt-deadline code.
     "provider_wait_deadline": (_I, "infra:deadline"),
 }
 
-# The attempt's own limits: EXHAUSTED, with the step's stage. money_wait is the attempt's
-# committed money running out (budget.py:941, :717, :165). Whether that money was the case's or
+# The attempt's own limits: EXHAUSTED, with the step's stage. Whether money was the case's or
 # the batch's is the policy's call, from the Grant label, so the reason does not say.
-_CASE_LIMIT = {"cost_limit": "money", "budget_exhausted": "money", "money_wait": "money",
-               "call_limit": "call_limit", "total_call_limit": "total_call_limit", "model_call_cap": "call_cap"}
+_CASE_LIMIT = {"cost_limit": "money", "budget_exhausted": "money",
+               "call_limit": "call_limit", "total_call_limit": "total_call_limit", "model_call_cap": "money"}
 
 _USAGE = re.compile(r"(invalid_usage|usage)_[a-z_]+")
 _CLI_VERSION = re.compile(r"[a-z]+_cli_not_.*", re.S)   # model_runtime.pinned_cli
@@ -116,6 +149,7 @@ _EXCEPTION = re.compile(r"[A-Z][A-Za-z0-9]*(Error|Exception|Exit|Interrupt)")
 UNCLASSIFIED = "infra:unclassified_stop"
 
 REASONS = frozenset({r for _, r in _FIXED.values()} | {r for _, r in _LIMIT_FAMILY}
+                    | {r for _, r in _WAIT.values()}
                     | {"router:provider_limit", "infra:usage_unknown", "infra:cli_version",
                        "infra:runner_exception", UNCLASSIFIED}
                     | {f"{stage}:{code}" for stage in _STEP_STAGE.values() for code in _CASE_LIMIT.values()})
@@ -124,12 +158,16 @@ REASONS = frozenset({r for _, r in _FIXED.values()} | {r for _, r in _LIMIT_FAMI
 CONTRACT_REASONS = frozenset({"infra:deadline", "infra:version_mismatch", "infra:attempt_busy",
                               "infra:cancelled", "engine:executor_raised", "engine:executor_bad_result"})
 
+# Fixed WP2 PoolError reasons; these reveal no provider output. The engine waits on them, within a ceiling.
+WORKER_POOL_REASONS = frozenset({"infra:worker_create_failed", "infra:worker_create_unknown",
+                                 "infra:inventory_unavailable", "infra:worker_delete_unconfirmed"})
+
 # Reasons safe for the public scorecard. "A model refused this case" hints at the case's
 # content, so router:refusal stays private. report.py shows any other reason as its
 # outcome alone.
-PUBLISHED_REASONS = frozenset((REASONS | CONTRACT_REASONS) - {"router:refusal"})
+PUBLISHED_REASONS = frozenset((REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS) - {"router:refusal"})
 
-if not all(REASON.fullmatch(r) for r in REASONS | CONTRACT_REASONS):
+if not all(REASON.fullmatch(r) for r in REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS):
     raise ContractError("a WP4 reason breaks the REASON grammar")
 
 
@@ -189,6 +227,42 @@ def classify(stop, *, step, now: float, reset_at: Optional[float] = None) -> Cla
     if case_code is not None:
         reason = f"{_STEP_STAGE[kind]}:{case_code}"
     return Classified(outcome, reason, _retry_at(float(now), reset_at) if outcome is _P else None)
+
+
+def classify_wait(error, *, step, now, prior=()):
+    """Classify structured waits and return an allowlisted, content-free diagnostic.
+
+    Never copy exception text, prompts, URLs or arbitrary provider fields.
+    """
+    raw = [*prior, *getattr(error, 'previous_waits', ()), vars(error.wait)]
+    waits = []
+    for row in raw[-32:]:
+        if not isinstance(row, dict): continue
+        reason = row.get('reason')
+        record = {'reason': reason if isinstance(reason, str) and reason in _WAIT else 'unknown'}
+        if row.get('historical') is True: record['historical'] = True
+        value = row.get('retry_after')
+        if type(value) in (int, float) and math.isfinite(value) and 0 < value <= now + MAX_RESET_AHEAD_S:
+            record['retry_after'] = value
+        lease = row.get('lease_id')
+        if isinstance(lease, str) and re.fullmatch('[a-f0-9]{32}', lease): record['lease_id'] = lease
+        call = row.get('call_id')
+        if isinstance(call, str) and re.fullmatch(r'usage-receipts/[a-f0-9]{32}\.json', call): record['call_id'] = call
+        if isinstance(row.get('source_stop'), str) and row['source_stop'] in FAILURE_STOPS:
+            record['source_stop'] = row['source_stop']
+        if record not in waits: waits.append(record)
+    active = [row for row in waits if not row.get('historical')]
+    reasons = {row['reason'] for row in active}
+    fault = next((r for r in ('credential_expiring', 'unbounded_route', 'router_unavailable') if r in reasons), None)
+    original = next((row['source_stop'] for row in reversed(waits) if 'source_stop' in row), None)
+    reason = fault or waits[-1]['reason']
+    reset = max((r['retry_after'] for r in active if 'retry_after' in r), default=None)
+    if original and fault is None and reason not in ('quota', 'rate', 'credit'):
+        result = classify(original, step=step, now=now, reset_at=reset)
+    else:
+        outcome, code = _WAIT.get(reason, (_I, UNCLASSIFIED))
+        result = Classified(outcome, code, _retry_at(now, reset) if outcome is _P else None)
+    return result, {'schema': 1, 'waits': waits}
 
 
 __all__ = ["BACKOFF_S", "MAX_RESET_AHEAD_S", "REASONS", "CONTRACT_REASONS", "PUBLISHED_REASONS",

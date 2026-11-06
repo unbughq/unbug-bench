@@ -69,11 +69,12 @@ class ScientificReceiptsTests(unittest.TestCase):
             gate_state.save(self.c, gate, {'retained': gate}, gate_state.fingerprint(self.c, gate, ROOT), {}, ROOT)
         calibration_before = run.calibration_identity(self.c, 'strong_calibrator', 'statement')
         versions = self.versions()
-        for name in ('worker_secrets.py', 'model_runtime.py', 'model_router.py', 'budget.py', 'registry.py', 'collection.py'):
+        for name in ('worker_secrets.py', 'model_runtime.py', 'model_router.py', 'budget.py', 'registry.py', 'run_artifacts.py'):
             path = self.runner.with_name(name)
             path.write_text(path.read_text() + '\n# Authored plumbing-only revision.\n')
-        text = self.runner.read_text().replace('with model_runtime.dispatch(c, name):',
-            '# Authored dispatch implementation edit.\n    with model_runtime.dispatch(c, name):')
+        original = self.runner.read_text()
+        text = original.replace('    install_publication_barrier(c)\n', '    install_publication_barrier(c)  # Authored plumbing edit.\n')
+        self.assertNotEqual(text, original)
         self.runner.write_text(text + '\ndef unrelated_publication_revision():\n    return 2\n')
         self.assertEqual(self.versions(), versions)
         self.assertEqual(run.calibration_identity(self.c, 'strong_calibrator', 'statement'), calibration_before)
