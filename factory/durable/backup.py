@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from functools import wraps
 from contextlib import ExitStack
+import datetime
 import hashlib
 import io
 import json
@@ -185,6 +186,51 @@ def resume(config):
             raise RuntimeErrorCode("source_retired")
         fence.unlink()
     return {"source_resumable": True, "restore_point_invalidated": True}
+
+
+@_operator
+def reconcile(config, *, ownership=False, spending=False, cleared=()):
+    """The founder's explicit exit from a quarantined restore, never automatic.
+
+    Only a destination that restore(quarantine=True) completed qualifies: a source fence,
+    a handed-over source and a normal restore have no such restored.json. It runs under
+    the state and database locks, so no controller holds either. It cannot see a stale
+    source elsewhere; that is what the attestation covers. The attestation is saved first
+    and the fence removed second, so a crash between the two is finished by a repeat.
+    An uncertain pool record (unresolved create or delete) refuses and is listed. The
+    operator who checked it in Boat names it in `cleared`; only listed records qualify,
+    and the names are saved in the attestation before any record is removed."""
+    if ownership is not True or spending is not True:
+        raise RuntimeErrorCode("reconcile_requires_ownership_and_spending_attestation")
+    state = Path(config["state_dir"])
+    with runtime_lock(state), database_lock(config):
+        fence, saved = state / "cold-backup.json", state / "restored.json"
+        if not saved.exists():
+            raise RuntimeErrorCode("reconcile_requires_quarantined_restore")
+        restored = json.loads(private_bytes(saved))
+        if restored.get("quarantined") is not True or (
+                fence.exists() and json.loads(private_bytes(fence)) != {"retired": True}):
+            raise RuntimeErrorCode("reconcile_requires_quarantined_restore")
+        if "reconciled" in restored and not fence.exists():
+            return {"reconciled": True, "quarantine_released": True}
+        from durable.workers import BoatPool, ReleaseStore
+        pool = BoatPool(state / "pool", ReleaseStore(state / "releases"), config["pool_id"])
+        uncertain = sorted(c for c, r in pool._records().items()
+                           if r["deleting"] is not None or (r["worker"] is None and r["intent"] is not None))
+        attested = restored.get("reconciled")
+        cleared = attested["cleared"] if attested else sorted(set(cleared))   # a repeat finishes the saved list
+        if not attested and not set(cleared) <= set(uncertain):
+            raise RuntimeErrorCode("reconcile_cleared_record_not_uncertain")
+        if remaining := [c for c in uncertain if c not in cleared]:
+            raise RuntimeErrorCode("reconcile_pool_records_uncertain:" + ",".join(remaining))
+        if not attested:
+            _atomic_json(saved, {**restored, "reconciled": {
+                "at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+                "ownership": True, "spending": True, "cleared": cleared}})
+        for case_id in cleared:
+            pool._record_path(case_id).unlink(missing_ok=True)
+        fence.unlink(missing_ok=True)
+    return {"reconciled": True, "quarantine_released": True}
 
 
 def _unpack(data):

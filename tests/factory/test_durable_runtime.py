@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -18,7 +19,7 @@ from durable.engine import APP_VERSION
 from durable.artifacts import AgeSealer, LocalObjects
 from durable.contract import ArtifactKind, Ref, BatchSpec, to_record
 from durable.cli import dispatch, backup, main
-from durable.workers import PoolError, ownership_name
+from durable.workers import BoatPool, PoolError, ReleaseStore, ownership_name
 
 
 class RuntimeTests(unittest.TestCase):
@@ -94,11 +95,21 @@ class RuntimeTests(unittest.TestCase):
         runtime.pool._write("case-one", record)
         owned = dict(id="bx_12345678", state="idle", name=ownership_name("offline", "case-one", nonce))
         unknown = dict(id="bx_87654321", state="idle", name=ownership_name("offline", "case-newer", nonce))
+        (runtime.state / "restored.json").write_text('{"quarantined": true}')
         with patch.object(runtime.pool, "_inventory", return_value=[unknown]), patch.object(runtime.engine, "launch") as launch:
             with self.assertRaisesRegex(RuntimeErrorCode, "restore_unclaimed_worker"):
                 runtime.launch()
             launch.assert_not_called()
         self.assertEqual(runtime.pool._read("case-one"), record)
+        # A restore of a stopped source has no newer inventory: its stray sandbox is deleted, no human needed.
+        (runtime.state / "restored.json").write_text("{}")
+        with patch.object(runtime.pool, "_inventory", return_value=[unknown]), patch.object(runtime.pool, "_delete_raw") as delete, patch.object(runtime.engine, "launch") as launch:
+            runtime.launch()
+            launch.assert_called_once()
+            delete.assert_called_once_with(unknown["id"])
+        self.assertTrue((runtime.state / "restored.json").exists())   # the restore's attestation is never removed
+        runtime.launched = False
+        (runtime.state / "restored.json").write_text("{}")
         with patch.object(runtime.pool, "_inventory", return_value=[owned]), patch.object(runtime.pool, "recover") as recover, patch.object(runtime.engine, "launch") as launch:
             runtime.launch()
             launch.assert_called_once()
@@ -110,6 +121,72 @@ class RuntimeTests(unittest.TestCase):
                 with self.assertRaises(PoolError):
                     runtime.launch()
                 launch.assert_not_called()
+
+    def test_quarantine_then_reconcile_then_launch_keeps_the_attestation_and_the_refusal(self):
+        stray = dict(id="bx_87654321", state="idle", name=ownership_name("offline", "case-newer", "1" * 32))
+        attested = {"quarantined": True, "reconciled": {"at": "2026-11-06T00:00:00+00:00", "ownership": True,
+                                                         "spending": True, "cleared": []}}
+        state = Path(self.config["state_dir"])
+        state.mkdir(mode=0o700)
+        (state / "restored.json").write_text(json.dumps({"quarantined": True}))
+        (state / "cold-backup.json").write_text('{"retired": true}')
+        with self.assertRaisesRegex(RuntimeErrorCode, "source_fenced_resume_or_restore_required"):
+            Runtime(self.config)   # not reconciled: it can never launch
+        # backup.reconcile saves the attestation, then removes the fence.
+        (state / "restored.json").write_text(json.dumps(attested))
+        (state / "cold-backup.json").unlink()
+        runtime = self.runtime()
+        # An unexplained sandbox refuses the first launch, and keeps the attestation.
+        with patch.object(runtime.pool, "_inventory", return_value=[stray]), patch.object(runtime.pool, "recover") as recover, \
+                patch.object(runtime.pool, "_delete_raw") as delete, patch.object(runtime.engine, "launch") as launch:
+            with self.assertRaisesRegex(RuntimeErrorCode, "restore_unclaimed_worker"):
+                runtime.launch()
+            recover.assert_not_called(); delete.assert_not_called(); launch.assert_not_called()
+        self.assertEqual(json.loads((runtime.state / "restored.json").read_text()), attested)
+        with patch.object(runtime.pool, "_inventory", return_value=[]), patch.object(runtime.engine, "launch"):
+            runtime.launch()
+        runtime.launched = False
+        self.assertEqual(json.loads((runtime.state / "restored.json").read_text()), {**attested, "launched": True})
+        # After a clean launch a reboot needs no human: a stray is a late create of ours.
+        with patch.object(runtime.pool, "_inventory", return_value=[stray]), patch.object(runtime.pool, "_delete_raw") as delete, \
+                patch.object(runtime.engine, "launch") as launch:
+            runtime.launch()
+            delete.assert_called_once_with(stray["id"]); launch.assert_called_once()
+        runtime.launched = False
+        self.assertEqual(json.loads((runtime.state / "restored.json").read_text()), {**attested, "launched": True})
+
+    def test_a_failing_sweep_logs_a_fixed_code_and_keeps_running(self):
+        import durable.runtime as runtime_module
+        runtime = self.runtime()
+        with patch.object(runtime_module, "SWEEP_INTERVAL_S", 0.05), patch.object(runtime.pool, "recover"), \
+                patch.object(runtime.engine, "launch"), patch.object(runtime.pool, "sweep", side_effect=OSError("/private/case")) as sweep, \
+                self.assertLogs("durable.runtime", "WARNING") as logs:
+            runtime.launch()
+            for _ in range(100):
+                if sweep.call_count >= 2:
+                    break
+                time.sleep(0.05)
+            runtime.launched = False
+            runtime.close()
+        self.assertGreaterEqual(sweep.call_count, 2)
+        self.assertEqual(set(logs.output), {"WARNING:durable.runtime:pool sweep failed: infra:sweep_failed"})
+
+    def test_launch_sweeps_the_pool_periodically_until_close(self):
+        import durable.runtime as runtime_module
+        runtime = self.runtime()
+        with patch.object(runtime_module, "SWEEP_INTERVAL_S", 0.05), patch.object(runtime.pool, "recover"), \
+                patch.object(runtime.engine, "launch"), patch.object(runtime.pool, "sweep", side_effect=[OSError("outage"), None, None, None]) as sweep:
+            runtime.launch()
+            for _ in range(100):
+                if sweep.call_count >= 3:
+                    break
+                time.sleep(0.05)
+            self.assertGreaterEqual(sweep.call_count, 3)   # a failed pass does not end the loop
+            runtime.launched = False
+            runtime.close()
+            settled = sweep.call_count
+            time.sleep(0.3)
+            self.assertLessEqual(sweep.call_count, settled + 1)
 
     def test_real_recover_empty_inventory_before_launch(self):
         runtime = self.runtime()
@@ -200,6 +277,147 @@ class RuntimeTests(unittest.TestCase):
             dispatch(runtime, dict(op=op, destination="case-one" if op == "founder_reply" else "b-offline", payload=payload))
         self.assertEqual(runtime.engine.send.call_count, 3)
         runtime.engine.reply.assert_called_once()
+
+    def test_publish_writes_only_the_allowlisted_scorecard_once(self):
+        objects = LocalObjects(self.root / "published")
+        runtime = Mock(store=Mock(objects=objects))
+        card = dict(case_id="case-one", status="stopped_admission", stage="writer:1", passed=[], failed_gate=None,
+                    writer_rounds=1, extensions=0, replacement_of=None, reason="router:refusal",
+                    secret="CASE-MATERIAL")
+        ok = dict(card, case_id="case-two", reason="infra:deadline")
+        with patch("durable.report.load_cards", return_value=[card, ok]):
+            first = dispatch(runtime, dict(op="publish", batch="b-offline"))
+            again = dispatch(runtime, dict(op="publish", batch="b-offline"))
+        self.assertEqual(first, again)
+        text = objects.get(first["published"]).decode()
+        published = json.loads(text)
+        self.assertEqual([c["reason"] for c in published["cases"]], [None, "infra:deadline"])
+        self.assertNotIn("CASE-MATERIAL", text)
+        self.assertTrue(first["published"].startswith("scorecards/b-offline/"))
+        with self.assertRaises(RuntimeErrorCode):
+            dispatch(runtime, dict(op="publish", batch="../escape"))
+
+    def quarantined(self, *, fence=True, quarantined=True, **extra):
+        from durable.workers import _atomic_json
+        state = Path(self.config["state_dir"])
+        state.mkdir(mode=0o700, exist_ok=True)
+        os.chmod(state, 0o700)
+        if fence:
+            _atomic_json(state / "cold-backup.json", {"retired": True})
+        _atomic_json(state / "restored.json", {"token": "t" * 32, "quarantined": quarantined, **extra})
+        return state
+
+    def test_reconcile_exits_only_a_quarantined_restore_and_is_idempotent(self):
+        from durable.backup import reconcile
+        from durable.workers import _atomic_json
+        state = self.quarantined()
+        with self.assertRaises(RuntimeErrorCode):          # an operator must attest both
+            reconcile(self.config, ownership=True)
+        with self.assertRaises(RuntimeErrorCode):
+            reconcile(self.config, spending=True)
+        self.assertTrue((state / "cold-backup.json").exists())
+        pool = BoatPool(state / "pool", ReleaseStore(state / "releases"), "offline")
+        pool._write("case-one", dict(intent="1" * 32, worker=None, deleting=None))
+        with self.assertRaisesRegex(RuntimeErrorCode, "case-one"):
+            reconcile(self.config, ownership=True, spending=True)
+        self.assertTrue((state / "cold-backup.json").exists())
+        with self.assertRaises(RuntimeErrorCode):          # still fenced for startup
+            Runtime(self.config)
+        pool._write("case-one", dict(intent="1" * 32, worker="bx_12345678", deleting=None))
+        # A crash after the attestation but before the fence is removed completes on retry.
+        done = reconcile(self.config, ownership=True, spending=True)
+        self.assertTrue(done["reconciled"])
+        self.assertFalse((state / "cold-backup.json").exists())
+        record = json.loads((state / "restored.json").read_text())
+        self.assertEqual(record["token"], "t" * 32)
+        self.assertEqual(set(record["reconciled"]) - {"at"}, {"ownership", "spending", "cleared"})
+        at = record["reconciled"]["at"]
+        _atomic_json(state / "cold-backup.json", {"retired": True})   # crash before unlink
+        self.assertTrue(reconcile(self.config, ownership=True, spending=True)["reconciled"])
+        self.assertEqual(json.loads((state / "restored.json").read_text())["reconciled"]["at"], at)
+        self.assertFalse((state / "cold-backup.json").exists())
+        self.assertTrue(reconcile(self.config, ownership=True, spending=True)["reconciled"])
+        self.runtime()   # starts like a normal restored start
+
+    def test_reconcile_clears_only_named_uncertain_records(self):
+        from durable.backup import reconcile
+        state = self.quarantined()
+        pool = BoatPool(state / "pool", ReleaseStore(state / "releases"), "offline")
+        pool._write("case-one", dict(intent="1" * 32, worker=None, deleting=None))
+        pool._write("case-two", dict(intent="2" * 32, worker="bx_12345678", deleting="delete-1"))
+        pool._write("case-fine", dict(intent=None, worker="bx_87654321", deleting=None))
+        both = dict(ownership=True, spending=True)
+        with self.assertRaisesRegex(RuntimeErrorCode, "case-one,case-two"):
+            reconcile(self.config, **both)
+        with self.assertRaisesRegex(RuntimeErrorCode, "case-two"):      # an unnamed record still refuses
+            reconcile(self.config, cleared=["case-one"], **both)
+        for bad in (["case-one", "case-two", "case-fine"], ["case-one", "case-two", "case-absent"]):
+            with self.assertRaises(RuntimeErrorCode):                   # only records the refusal listed
+                reconcile(self.config, cleared=bad, **both)
+        with self.assertRaises(RuntimeErrorCode):                       # never without the attestation
+            reconcile(self.config, cleared=["case-one", "case-two"], ownership=True)
+        self.assertEqual(set(pool._records()), {"case-one", "case-two", "case-fine"})
+        self.assertTrue((state / "cold-backup.json").exists())
+        self.assertNotIn("reconciled", json.loads((state / "restored.json").read_text()))
+        # Crash after the attestation is saved, before the records and fence are removed.
+        real = Path.unlink
+        calls = []
+        def crash(path, *args, **kwargs):
+            calls.append(path.name)
+            raise OSError("crash")
+        with patch.object(Path, "unlink", crash), self.assertRaises(RuntimeErrorCode):
+            reconcile(self.config, cleared=["case-one", "case-two"], **both)
+        saved = json.loads((state / "restored.json").read_text())["reconciled"]
+        self.assertEqual(saved["cleared"], ["case-one", "case-two"])
+        self.assertTrue((state / "cold-backup.json").exists())
+        reconcile(self.config, **both)                                  # the repeat finishes from the saved list
+        self.assertEqual(set(pool._records()), {"case-fine"})
+        self.assertFalse((state / "cold-backup.json").exists())
+        self.assertEqual(json.loads((state / "restored.json").read_text())["reconciled"], saved)
+        reconcile(self.config, cleared=["case-one"], **both)            # idempotent, nothing re-cleared
+        self.runtime()
+
+    def test_reconcile_refuses_sources_and_handover_restores(self):
+        from durable.backup import reconcile
+        from durable.workers import _atomic_json
+        state = Path(self.config["state_dir"])
+        state.mkdir(mode=0o700)
+        os.chmod(state, 0o700)
+        _atomic_json(state / "cold-backup.json", {"token": "t" * 32, "retired": False})   # merely fenced
+        with self.assertRaises(RuntimeErrorCode):
+            reconcile(self.config, ownership=True, spending=True)
+        _atomic_json(state / "cold-backup.json", {"token": "t" * 32, "retired": True})    # handed-over source
+        with self.assertRaises(RuntimeErrorCode):
+            reconcile(self.config, ownership=True, spending=True)
+        (state / "cold-backup.json").unlink()
+        self.quarantined(fence=False, quarantined=False)                                   # normal restore
+        with self.assertRaises(RuntimeErrorCode):
+            reconcile(self.config, ownership=True, spending=True)
+        self.quarantined(quarantined=False)
+        with self.assertRaises(RuntimeErrorCode):
+            reconcile(self.config, ownership=True, spending=True)
+        self.assertTrue((state / "cold-backup.json").exists())
+        self.quarantined()
+        from durable.runtime import runtime_lock
+        with runtime_lock(state), self.assertRaises(RuntimeErrorCode):                     # a live controller
+            reconcile(self.config, ownership=True, spending=True)
+
+    def test_reconcile_command_requires_both_attestations(self):
+        self.quarantined()
+        for flags in ([], ["--ownership-reconciled"], ["--spending-reconciled"]):
+            with patch("durable.cli.load_config", return_value=self.config), patch("sys.stderr", new_callable=io.StringIO), \
+                    self.assertRaises(SystemExit):
+                main(["--config", "x", "reconcile", *flags])
+        self.assertTrue((Path(self.config["state_dir"]) / "cold-backup.json").exists())
+        with patch("durable.cli.load_config", return_value=self.config), patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(main(["--config", "x", "reconcile", "--ownership-reconciled", "--spending-reconciled"]), 0)
+        self.assertTrue(json.loads(out.getvalue())["reconciled"])
+        with patch("durable.cli.reconcile", return_value={}) as call, patch("durable.cli.load_config", return_value=self.config), \
+                patch("sys.stdout", new_callable=io.StringIO):
+            main(["--config", "x", "reconcile", "--ownership-reconciled", "--spending-reconciled",
+                  "--cleared-record", "case-a", "--cleared-record", "case-b"])
+        self.assertEqual(call.call_args.kwargs["cleared"], ["case-a", "case-b"])
+
 
     def test_cli_sanitizes_secret_failure(self):
         with patch("durable.cli.load_config", side_effect=ValueError("secret content")), patch("sys.stderr", new_callable=io.StringIO) as err:

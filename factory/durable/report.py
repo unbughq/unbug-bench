@@ -11,6 +11,8 @@ published-reason allowlist (WP4 ships it); every other reason is withheld.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Iterable, Optional
 
 from durable.contract import CASE_ID, GATE, REASON, ArtifactKind, ContractError, Ref
@@ -103,6 +105,18 @@ def scorecard(batch_id: str, cards: Iterable[dict], *, allowlist: Iterable[str] 
             "totals": {k: v for k, v in totals.items() if v},
             "gate_passes": dict(sorted(gate_passes.items(), key=lambda kv: _gate_order(kv[0]))),
             "cases": cases}
+
+
+def publish(objects, batch_id: str, cards: Iterable[dict], allowlist: Iterable[str]) -> dict:
+    """Write the allowlisted scorecard (codes and numbers only, never case material) to the
+    existing object store under its own digest. Objects are never replaced, so a changed
+    scorecard is a new key and a repeat of the same one is a no-op."""
+    data = json.dumps(scorecard(batch_id, cards, allowlist=allowlist), sort_keys=True).encode()
+    key = f"scorecards/{batch_id}/{hashlib.sha256(data).hexdigest()}.json"
+    objects.put(key, data)
+    if objects.get(key) != data:
+        raise ContractError("scorecard publication unverified")
+    return {"published": key}
 
 
 def render_text(card: dict) -> str:

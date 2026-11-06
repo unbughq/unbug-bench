@@ -140,11 +140,9 @@ RESULT_SCHEMA = {
                            'finding': {'type': 'string', 'minLength': 1}}}},
         'factory_bug': {'anyOf': [{'type': 'null'}, {
             'type': 'object', 'additionalProperties': False,
-            'required': ['component', 'reproducer', 'affected_operations', 'fix_required'],
-            'properties': {**{key: {'type': 'string', 'minLength': 1}
-                              for key in ('component', 'reproducer', 'fix_required')},
-                           'affected_operations': {'type': 'array', 'uniqueItems': True,
-                                                   'items': {'type': 'string', 'format': 'uuid'}}}}]},
+            'required': ['component', 'reproducer', 'fix_required'],
+            'properties': {key: {'type': 'string', 'minLength': 1}
+                           for key in ('component', 'reproducer', 'fix_required')}}]},
     },
     'allOf': [{'if': {'properties': {'outcome': {'const': 'factory_bug'}}},
                'then': {'properties': {'factory_bug': {'type': 'object'}}},
@@ -185,25 +183,13 @@ def validate_result(value, *, case, generation, evidence_root):
             seen.add(name)
         bug = value['factory_bug']
         if value['outcome'] == 'factory_bug':
-            if not isinstance(bug, dict) or set(bug) != {
-                    'component', 'reproducer', 'affected_operations', 'fix_required'}: raise ValueError()
+            if not isinstance(bug, dict) or set(bug) != {'component', 'reproducer', 'fix_required'}: raise ValueError()
             if any(not isinstance(bug[k], str) or not bug[k].strip()
                    for k in ('component', 'reproducer', 'fix_required')): raise ValueError()
-            operations = bug['affected_operations']
-            if (not isinstance(operations, list) or
-                    any(not _uuid4(v) for v in operations) or len(set(operations)) != len(operations)): raise ValueError()
         elif bug is not None: raise ValueError()
     except (FileNotFoundError, ValueError, KeyError, TypeError, AttributeError):
         raise BudgetError('diagnosis_result_invalid') from None
     result = copy.deepcopy(value)
-    if result['outcome'] == 'factory_bug':
-        from factory_waste import eligible
-        root = Path(evidence_root)
-        identity = None
-        if (root / 'work/factory-failures').exists():
-            identity = json.loads(_input_bytes(root / 'card.json', root))['diagnosis_state']['exhaustion_id']
-        operations, _ = eligible(root, case, identity)
-        result['factory_bug']['affected_operations'] = sorted(set(result['factory_bug']['affected_operations']) & set(operations))
     return result
 
 

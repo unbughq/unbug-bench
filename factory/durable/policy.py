@@ -28,11 +28,15 @@ BATCH_ONLY_FLOOR_USD_MICROS = 33_000_000
 # An operator pause (WP4 classify.py maps PauseRequested and paused to it). Not a fault of
 # the step: it retries without using the infra-retry allowance, after the engine's pause wait.
 PAUSE_REASONS = frozenset({"infra:paused"})
-# WP4 maps the runner's batch-deadline stops (retired_batch_bound, provider_wait_deadline) to
+# WP4 maps the runner's batch-deadline stop (provider_wait_deadline) to
 # this code, which a worker's own deadline kill also uses. After deadline_epoch the two cannot be
 # told apart; the batch deadline only stops new cases and extensions, so after it such a stop
 # retries outside the infra allowance and must not be diagnosed as a case defect.
 DEADLINE_REASON = "infra:deadline"
+# A failed worker create or Boat outage waits like a pause, for at most this long in total per seq; after
+# that it counts against max_infra_retries_per_step like any infra error. Six hours rides out a provider
+# quota or a Boat incident; a bad image or a lasting outage still ends instead of holding the batch.
+POOL_WAIT_CEILING_S = 21_600.0
 # Results whose usage the engine cannot know: they book the whole grant as waste (settle_lost).
 LOST_REASONS = frozenset({"infra:cancelled", "infra:worker_lost", "infra:attempt_absent",
                           "engine:executor_raised", "engine:executor_bad_result"})
@@ -77,9 +81,7 @@ class Counters:
 
 
 def is_credential_problem(result: StepResult) -> bool:
-    """Both current and older worker result shapes carry the same fixed reason."""
-    return (result.outcome in (Outcome.INFRA_ERROR, Outcome.PROVIDER_LIMIT)
-            and result.reason == "router:credential_expiring")
+    return result.outcome is Outcome.INFRA_ERROR and result.reason == "router:credential_expiring"
 
 
 def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, *,
@@ -124,7 +126,7 @@ def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, 
         if grant.limited_by is LimitedBy.BATCH and money_stop:
             # The batch ran out under it, not the case and not a round limit. A money stop counts
             # even below the grant: the runner refuses a call whose route maximum does not fit what
-            # is left (budget.py money_wait), so usage never reaches a grant smaller than one call.
+            # is left (budget.py usage_reservation_exceeded), so usage never reaches a grant smaller than one call.
             return Action.WAIT_FOR_BOUND
         if money_stop and not draws_case_money(step, counters):
             return Action.RETRY                   # a batch-only step outgrew its grant: plumbing, not a case result

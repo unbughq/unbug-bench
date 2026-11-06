@@ -43,7 +43,56 @@ def _files(root):
             for p in root.rglob('*') if p.is_file() and not p.is_symlink()
             and not any(parent.is_symlink() for parent in p.parents if parent.is_relative_to(root))
             and p.relative_to(root).parts[0] not in
-            ('engine-checkpoints', 'continuation-budget.json', 'usage-receipts', 'scorecard.json', 'logs', 'transcripts')}
+            ('engine-checkpoints', 'continuation-budget.json', 'usage-receipts', 'scorecard.json', 'logs', 'transcripts',
+             'ordinary-retries', 'stress-publication.json', 'engine-feedback.json', 'engine-ruling.json')}
+
+
+def _matches(path, ws, current):
+    """Each file the call saw or wrote is at its start or end digest (absent is a state).
+
+    A file may instead sit at a later state only if the later receipts in this directory
+    carry the replayed workspace forward to exactly the current one: each must itself match
+    every path it covers. Replay then ends where it began, and a diverged rerun or a chain
+    that cannot fully replay is not reusable, so nothing is moved backward and left there.
+    """
+    if not isinstance(ws, dict) or not isinstance(ws.get('before'), dict) or not isinstance(ws.get('after'), dict):
+        return False
+    before, after = ws['before'], ws['after']
+    paths = before.keys() | after.keys()
+    if all(current.get(p) in (before.get(p), after.get(p)) for p in paths):
+        return True
+    # ponytail: scans the directory only when a file moved on; chains are a handful of calls.
+    pending = []
+    for other in path.parent.glob('*.json'):
+        if other == path: continue
+        try: later = json.loads(other.read_text()).get('workspace')
+        except (OSError, ValueError, AttributeError): continue
+        if isinstance(later, dict) and isinstance(later.get('before'), dict) and isinstance(later.get('after'), dict):
+            pending.append(later)
+    explained = set()
+    def apply(w, state):
+        for q in w['before'].keys() | w['after'].keys():
+            if w['before'].get(q) == w['after'].get(q): continue
+            explained.add(q)
+            if w['after'].get(q) is None: state.pop(q, None)
+            else: state[q] = w['after'][q]
+    virtual = dict(current)
+    apply(ws, virtual)
+    explained.clear()  # only later receipts may carry a file on to its current state
+    reached = set()  # files the chain carried to exactly their current digest
+    moved = True
+    while moved:
+        moved = False
+        for later in pending[:]:
+            qs = later['before'].keys() | later['after'].keys()
+            if (all(virtual.get(q) in (later['before'].get(q), later['after'].get(q)) for q in qs)
+                    and any(virtual.get(q) == later['before'].get(q) != later['after'].get(q) for q in qs)):
+                apply(later, virtual)
+                reached |= {q for q in explained if virtual.get(q) == current.get(q)}
+                pending.remove(later)
+                moved = True
+    return all(current.get(p) in (before.get(p), after.get(p)) or p in reached
+               for p in paths)
 
 
 def model_call(c, models, cwd, name, invoke, *, text=None):
@@ -77,8 +126,9 @@ def _model_effect(c, models, root, name, invoke, text):
     if path.exists():
         saved = json.loads(path.read_text())
         current = _files(root)
-        inputs = saved.get('inputs')
-        if isinstance(inputs, dict) and all(current.get(p) == digest for p, digest in inputs.items()):
+        # Receipts without a recorded pre-image (older shape) cannot prove their start state: rerun.
+        # Untouched new files (later gate or call outputs in a restored snapshot) are tolerated to keep legitimate replay.
+        if _matches(path, saved.get('workspace'), current):
             # Path validation is independent of archive authentication.
             for relative in [*saved['files'], *saved['deleted']]:
                 target = root / relative
@@ -106,7 +156,7 @@ def _model_effect(c, models, root, name, invoke, text):
     if result == 0 and row.get('outcome') == 'done' and known:
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_json(path, {'result': result,
-                          'inputs': {p: digest for p, digest in before.items() if after.get(p) == digest},
+                          'workspace': {'before': before, 'after': after},
                           'files': {p: {'data': base64.b64encode((root / p).read_bytes()).decode(),
                                         'mode': (root / p).stat().st_mode & 0o777}
                                     for p in after if before.get(p) != after[p]},

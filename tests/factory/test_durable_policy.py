@@ -121,12 +121,10 @@ class Decide(unittest.TestCase):
                 self.assertIs(d(step, limit, step_free_limits=1000, step_spent_limits=1000), Action.SLEEP)
 
     def test_credential_problem_retries_without_becoming_a_case_outcome(self):
-        old = StepResult(Outcome.PROVIDER_LIMIT, "router:credential_expiring", retry_at=1.0)
-        current = StepResult(Outcome.INFRA_ERROR, "router:credential_expiring")
-        for result in (old, current):
-            self.assertTrue(is_credential_problem(result))
-            for step in (GATES, DIAG, ADMIT):
-                self.assertIs(d(step, result, step_infra_errors=1000, step_free_limits=1000), Action.RETRY)
+        result = StepResult(Outcome.INFRA_ERROR, "router:credential_expiring")
+        self.assertTrue(is_credential_problem(result))
+        for step in (GATES, DIAG, ADMIT):
+            self.assertIs(d(step, result, step_infra_errors=1000, step_free_limits=1000), Action.RETRY)
 
     def test_a_diagnosis_is_never_diagnosed(self):
         for r, counts in ((StepResult(Outcome.INFRA_ERROR, "diagnosis:malformed"), dict(step_infra_errors=6)),
@@ -191,7 +189,7 @@ class Settlements(unittest.TestCase):
         self.assertFalse(is_pause(StepResult(Outcome.INFRA_ERROR, "infra:stalled")))
 
     def test_a_batch_deadline_stop_never_diagnoses_a_running_case(self):
-        # WP4 maps retired_batch_bound and provider_wait_deadline to infra:deadline. After
+        # WP4 maps provider_wait_deadline to infra:deadline. After
         # deadline_epoch (2e9 here) it retries outside the infra allowance without diagnosis.
         stop = StepResult(Outcome.INFRA_ERROR, "infra:deadline")
         late = dict(grant=Grant(0, LimitedBy.NOTHING), now=2e9 + 1)
@@ -204,7 +202,7 @@ class Settlements(unittest.TestCase):
         self.assertIs(decide(GATES, stop, Counters(step_infra_errors=6), SPEC), Action.DIAGNOSE)
 
     def test_a_money_stop_below_a_batch_grant_waits(self):
-        # budget.py money_wait: the next call's route maximum does not fit, so usage never
+        # budget.py: the next call's route maximum does not fit, so usage never
         # reaches a grant smaller than one call. Under a BATCH grant that is a bound wait.
         for paid in (0, 3):
             money = StepResult(Outcome.EXHAUSTED, "writer:money", Usage(paid_usd_micros=paid))

@@ -14,16 +14,22 @@ from __future__ import annotations
 import fcntl
 from contextlib import contextmanager
 import json
+import logging
 import math
 import os
 from pathlib import Path
 import stat
+import threading
 
 from durable.artifacts import AgeSealer, LocalObjects, R2Objects, SealedStore, check_scope
 from durable.contract import ArtifactKind, Ref, assert_no_conductor, batch_spec_from_record
 from durable.keys import AgeKeyService
 from durable.ledger import SqlLedger
-from durable.workers import BoatPool, ReleaseStore, LABEL_CASE, LABEL_INTENT, ownership_hash
+from durable.workers import BoatPool, PoolError, ReleaseStore, LABEL_CASE, LABEL_INTENT, _atomic_json, ownership_hash
+
+
+LOG = logging.getLogger("durable.runtime")
+SWEEP_INTERVAL_S = 300.0   # a stray sandbox is deleted within one interval of the pass that sees it
 
 
 class RuntimeErrorCode(ValueError):
@@ -127,6 +133,7 @@ class Runtime:
             raise RuntimeErrorCode("source_fenced_resume_or_restore_required")
         self.keys = self.ledger = self._database_ownership = None
         self.launched = False
+        self._sweep_stop = threading.Event()
         try:
             ownership = database_lock(config)
             ownership.__enter__()
@@ -148,8 +155,10 @@ class Runtime:
     def launch(self):
         # No cleanup/release on reconciliation failure: journals retain ownership.
         if (self.state / "restored.json").exists():
-            # Restored ownership is conservative: retain missing/uncertain records
-            # and never run orphan deletion against a potentially newer inventory.
+            # Restored ownership is conservative: retain missing/uncertain records. Strays are
+            # deleted only after a normal restore (the source stopped at the backup); a quarantined
+            # one refuses them until its first clean launch, because its source may still own them.
+            restored = json.loads((self.state / "restored.json").read_text())
             records = self.pool._records()
             ownership = {ownership_hash(case_id): record for case_id, record in records.items()}
             rows = self.pool._inventory()
@@ -161,16 +170,32 @@ class Runtime:
                 if record is None or not (record["worker"] == row["id"] or (
                         record["worker"] is None and record["intent"] is not None
                         and record["intent"] == labels.get(LABEL_INTENT))):
-                    raise RuntimeErrorCode("restore_unclaimed_worker")
+                    # A quarantined restore may hold sandboxes this archive cannot account for (the
+                    # source may still run): refuse, even after reconcile, until one launch is clean.
+                    # Otherwise this is a late create of ours: delete it.
+                    if restored.get("quarantined") and not restored.get("launched"):
+                        raise RuntimeErrorCode("restore_unclaimed_worker")
+                    self.pool._delete_raw(row["id"])
             for case_id, record in records.items():
                 worker = self.pool._find(rows, case_id, worker=record["worker"], intent=record["intent"])
                 if worker is not None and record["worker"] != worker:
                     self.pool._write(case_id, {**record, "worker": worker})
-            # Normal acquire/release reconciles each retained record before work.
+            if restored.get("quarantined") and not restored.get("launched"):
+                _atomic_json(self.state / "restored.json", {**restored, "launched": True})
+            # Normal acquire/release reconciles each retained record before work. restored.json stays:
+            # it holds the operator's reconcile attestation, and every start repeats this conservative check.
         else:
             self.pool.recover()
         self.launched = True  # destroy even if DBOS launch fails halfway through
         self.engine.launch()
+        threading.Thread(target=self._sweep_pool, daemon=True).start()
+
+    def _sweep_pool(self):
+        while not self._sweep_stop.wait(SWEEP_INTERVAL_S):
+            try:
+                self.pool.sweep()
+            except Exception as error:   # the next pass retries; log a fixed code, never the text
+                LOG.warning("pool sweep failed: %s", error.reason if isinstance(error, PoolError) else "infra:sweep_failed")
 
     def prepare(self, scope, kind, plaintext):
         check_scope(scope, Ref("0" * 64, ArtifactKind(kind)))
@@ -191,6 +216,7 @@ class Runtime:
         return {"batch_id": spec.batch_id}
 
     def close(self):
+        self._sweep_stop.set()
         try:
             if self.launched:
                 self.engine.shutdown()

@@ -6,6 +6,8 @@ The service is the sole Engine owner; operator clients never launch recovery.
 Backups are full PostgreSQL dumps plus local pool/release state, encrypted in RAM.
 Cold backup fences the stopped source until explicit resume or restore.
 Restore requires the fenced source state and a fresh destination configuration.
+A quarantined restore starts only after `reconcile` records the operator's attestation.
+`publish` writes the allowlisted scorecard to the object store; nothing else is published.
 """
 from __future__ import annotations
 
@@ -53,6 +55,12 @@ def dispatch(runtime, request):
             payload["ruling"] = Ref(**payload["ruling"])
         runtime.engine.reply(request["destination"], FounderReply(**payload))
         return {"sent": True}
+    if op == "publish":
+        from durable.classify import PUBLISHED_REASONS
+        from durable.report import load_cards, publish
+        if not BATCH_ID.fullmatch(request["batch"]):
+            raise RuntimeErrorCode("invalid_batch")
+        return publish(runtime.store.objects, request["batch"], load_cards(request["batch"]), PUBLISHED_REASONS)
     if op in ("status", "report"):
         from durable.report import load_cards, scorecard
         if not BATCH_ID.fullmatch(request["batch"]):
@@ -96,7 +104,7 @@ def serve(config):
         runtime.close()
 
 
-from durable.backup import backup, restore, resume
+from durable.backup import backup, reconcile, restore, resume
 
 
 def main(argv=None):
@@ -110,6 +118,10 @@ def main(argv=None):
     restore_parser.add_argument("archive_file", help="owned 0600 encrypted archive downloaded from backup storage")
     restore_parser.add_argument("--source-state")
     restore_parser.add_argument("--quarantine", action="store_true", help="recover data only; destination stays fenced for reconciliation")
+    reconcile_parser = commands.add_parser("reconcile", help="release a quarantined restore after external ownership and spending were reconciled")
+    reconcile_parser.add_argument("--ownership-reconciled", action="store_true", required=True, help="attest every external worker and the source controller were reconciled")
+    reconcile_parser.add_argument("--spending-reconciled", action="store_true", required=True, help="attest all spending since the archive was reconciled")
+    reconcile_parser.add_argument("--cleared-record", action="append", default=[], help="case id of an uncertain pool record already checked in Boat; repeat per record")
     prepare = commands.add_parser("prepare")
     prepare.add_argument("scope")
     prepare.add_argument("kind", choices=[k.value for k in (ArtifactKind.INPUTS, ArtifactKind.STATEMENT_REGISTRY, ArtifactKind.FOUNDER_RULING)])
@@ -121,7 +133,7 @@ def main(argv=None):
     install.add_argument("content_file", help="existing worker release bundle")
     install.add_argument("bench_version")
     install.add_argument("image")
-    for name in ("status", "report"):
+    for name in ("status", "report", "publish"):
         commands.add_parser(name).add_argument("batch")
     for name in ("bench_release", "plumbing_release", "bound_raised", "founder_reply"):
         p = commands.add_parser(name)
@@ -137,6 +149,8 @@ def main(argv=None):
             result = backup(config, resume_after=args["resume_after"])
         elif args["op"] == "restore":
             result = restore(config, args["archive_file"], args["source_state"], quarantine=args["quarantine"])
+        elif args["op"] == "reconcile":
+            result = reconcile(config, ownership=args["ownership_reconciled"], spending=args["spending_reconciled"], cleared=args["cleared_record"])
         elif args["op"] == "resume":
             result = resume(config)
         else:

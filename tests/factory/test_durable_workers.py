@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -540,6 +541,111 @@ class PoolTests(unittest.TestCase):
                                        W.LABEL_INTENT: saved["intent"]})
         self.assertEqual(self.h.pool().recover(), {"adopted": ["bx_bykfqbyn"], "deleted": []})
         self.assertEqual(json.loads(pool._record_path(CASE).read_text())["worker"], "bx_bykfqbyn")
+
+    def age_intent(self, pool, seconds):
+        stamp = time.time() - seconds
+        os.utime(pool._record_path(CASE), (stamp, stamp))
+
+    def test_unconfirmed_create_settles_then_a_new_create_goes_ahead(self):
+        pool = self.h.pool()
+        self.h.flag("new-fail")
+        with self.assertRaises(W.PoolError): self.acquire(pool)
+        self.h.flag("new-fail", None)
+        with self.assertRaisesRegex(W.PoolError, "worker_create_unknown"): self.acquire(pool)
+        self.assertEqual(len([c for c in self.h.calls() if c[0] == "new"]), 1)   # same identity while settling
+        self.age_intent(pool, 899)
+        with self.assertRaisesRegex(W.PoolError, "worker_create_unknown"): self.acquire(self.h.pool())
+        self.age_intent(pool, 901)   # the saved intent is on disk: a restarted controller sees the same age
+        lease = self.acquire(self.h.pool())
+        self.assertEqual(lease.worker_id, "bx-d6dzvjbc")
+        self.assertEqual(len([c for c in self.h.calls() if c[0] == "new"]), 2)
+
+    def test_sweep_deletes_a_late_vm_with_no_case_touching_the_pool(self):
+        pool = self.h.pool()
+        self.h.flag("new-fail")
+        with self.assertRaises(W.PoolError): self.acquire(pool)
+        old = pool._read(CASE)["intent"]
+        self.h.flag("new-fail", None)
+        self.age_intent(pool, 901)
+        lease = self.acquire(pool)
+        self.h.add_row(REAL_IDS[1], {W.LABEL_POOL: "wp2-test", W.LABEL_CASE: CASE, W.LABEL_INTENT: old})
+        pool.sweep()   # two live VMs during a long step: only the recorded one stays
+        self.assertEqual([row["id"] for row in self.h.inventory()], [REAL_IDS[0]])
+        pool.release(lease)
+        self.h.add_row(REAL_IDS[2], {W.LABEL_POOL: "wp2-test", W.LABEL_CASE: CASE, W.LABEL_INTENT: old})
+        pool.sweep()   # after the final release the record is gone: an orphan, still found by its name
+        self.assertEqual(self.h.inventory(), [])
+
+    def test_sweep_finishes_a_delete_the_final_release_could_not(self):
+        pool = self.h.pool()
+        lease = self.acquire(pool)
+        worker = pool._read(CASE)["worker"]
+        pool._write(CASE, {"intent": pool._read(CASE)["intent"], "worker": worker, "deleting": W.DELETE_PENDING})
+        pool.sweep()   # no acquire comes after a case's last release
+        self.assertEqual(self.h.inventory(), [])
+        self.assertIsNone(pool._read(CASE))
+        self.assertTrue((pool.state / "deletions" / worker / "deletion-completion.json").exists())
+
+    def test_sweep_resumes_an_interrupted_delete_with_no_record(self):
+        from unittest.mock import patch
+        pool = self.h.pool()
+        lease = self.acquire(pool)
+        worker = pool._read(CASE)["worker"]
+        pool._receipt(worker, "intent.json", {"worker": worker})
+        pool._record_path(CASE).unlink()
+        with patch.object(pool, "_inventory", return_value=[]):
+            pool.sweep()   # the row is missing from this listing, yet the delete was started
+        self.assertTrue((pool.state / "deletions" / worker / "deletion-completion.json").exists())
+
+    def test_sweep_resolves_a_finished_cases_unsettled_create(self):
+        pool = self.h.pool()
+        self.h.flag("new-fail")
+        with self.assertRaises(W.PoolError): self.acquire(pool)
+        nonce = pool._read(CASE)["intent"]
+        self.h.flag("new-fail", None)
+        pool.sweep()
+        self.assertEqual(pool._read(CASE)["intent"], nonce)   # in window: the identity is kept
+        self.h.add_row(REAL_IDS[1], {W.LABEL_POOL: "wp2-test", W.LABEL_CASE: CASE, W.LABEL_INTENT: nonce})
+        pool.sweep()
+        self.assertEqual([row["id"] for row in self.h.inventory()], [REAL_IDS[1]])   # in window: not deleted
+        self.age_intent(pool, 901)
+        pool.sweep()   # the case never came back: settled, so the late VM goes and the record is resolved
+        self.assertEqual(self.h.inventory(), [])
+        self.assertIsNone(pool._read(CASE))
+
+    def test_sweep_survives_one_corrupt_record_and_waits_on_no_lock(self):
+        pool = self.h.pool()
+        lease = self.acquire(pool)
+        other = "case-20261105T000000Z-def456"
+        pool._record_path(other).write_text("{broken")
+        stray = {W.LABEL_POOL: "wp2-test", W.LABEL_CASE: CASE, W.LABEL_INTENT: "2" * 32}
+        self.h.add_row(REAL_IDS[1], stray)
+        self.h.add_row(REAL_IDS[2], {W.LABEL_POOL: "wp2-test", W.LABEL_CASE: other, W.LABEL_INTENT: "3" * 32})
+        held = []
+        original = pool._delete_raw
+        def delete(worker):
+            with pool._lock(CASE, wait=False) as free:   # a delete's wait must never sit under a case lock
+                held.append(free)
+            return original(worker)
+        pool._delete_raw = delete
+        with self.assertRaisesRegex(W.PoolError, "sweep_incomplete"):
+            pool.sweep()
+        self.assertEqual(held, [True])   # the stray was deleted despite the corrupt record; no lock was held
+        # The corrupt record's own sandbox is left alone: its ownership is unknown.
+        self.assertEqual(sorted(row["id"] for row in self.h.inventory()), sorted([REAL_IDS[0], REAL_IDS[2]]))
+        self.assertTrue(pool.alive(lease))
+
+    def test_sweep_skips_a_case_busy_under_acquire_and_other_pools(self):
+        pool = self.h.pool()
+        lease = self.acquire(pool)
+        self.h.add_row(REAL_IDS[1], {W.LABEL_POOL: "other-pool", W.LABEL_CASE: CASE, W.LABEL_INTENT: "1" * 32})
+        self.h.add_row(REAL_IDS[2], {W.LABEL_POOL: "wp2-test", W.LABEL_CASE: CASE, W.LABEL_INTENT: "2" * 32})
+        with pool._lock(CASE):
+            pool.sweep()
+        self.assertEqual(len(self.h.inventory()), 3)
+        pool.sweep()
+        self.assertEqual(sorted(row["id"] for row in self.h.inventory()), sorted([REAL_IDS[0], REAL_IDS[1]]))
+        self.assertTrue(pool.alive(lease))
 
     def test_malformed_recorded_worker_never_authorizes_replacement(self):
         pool = self.h.pool()

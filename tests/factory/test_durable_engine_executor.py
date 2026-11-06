@@ -200,6 +200,25 @@ class Run(Setup):
         self.assertEqual(result, late)
         self.assertGreater(channel.cancels, 1)
 
+    def test_reconcile_goes_through_guarded_run(self):
+        import durable.engine as engine
+        late = self.ok()
+        channel = Channel([None] * 15 + [Poll(PollState.DONE, late)])
+        class BrokenExecutor(Executor):
+            def run(self, *args, **kwargs):
+                raise RuntimeError("after dispatch")
+        ex = BrokenExecutor(self.pool, channel, self.ledger, self.store, self.sealer, self.keys,
+                            poll_interval_s=10, grace_s=100, clock=self.clock, sleep=self.clock.sleep)
+        guarded, original, old = [], engine.guarded_run, engine._RT.executor
+        engine.guarded_run = lambda executor, si: guarded.append(executor) or original(executor, si)
+        engine._RT.executor = ex
+        try:
+            result = step_result_from_record(engine.attempt_step(to_record(self.si()), self.clock(), "w-1"))
+        finally:
+            engine.guarded_run, engine._RT.executor = original, old
+        self.assertEqual(result, late)
+        self.assertEqual(len(guarded), 2)   # the attempt, then its reconcile
+
     def test_an_unreachable_worker_is_not_declared_lost_until_death_is_proven(self):
         from durable.engine import _RT, attempt_step
         clock = self.clock

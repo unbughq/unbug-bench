@@ -87,7 +87,7 @@ class Checkpoints(unittest.TestCase):
         restore(worker.open_blob(AgeSealer(), self.key, ref), recovered)
         c = context(recovered, dataclasses.replace(self.si, attempt=2))
         # Simulate caller preparing the same workspace before model dispatch.
-        (recovered / 'answer').write_text('reset')
+        (recovered / 'answer').unlink()  # caller restores the pre-call workspace
         never = lambda: self.fail('completed work repeated')
         self.assertEqual(cp.model_call(c, ['local/test'], recovered, 'builder-1', never, text='deterministic prompt'), 0)
         self.assertEqual(cp.gate_call(c, 'G4', never, 'unchanged-case'), (True, {'verified': True}))
@@ -180,6 +180,114 @@ class Checkpoints(unittest.TestCase):
         cp.model_call(c, ['local/test'], self.work, 'builder-1',
                       lambda: invoked.append(True) or 1, text='deterministic prompt')
         self.assertEqual(invoked, [True])
+
+    def edit(self, c, name, edits, known=True):
+        """Run one model call that edits files and settles (or not) like a real route."""
+        runs = c.__dict__.setdefault('runs', [])
+        def invoke():
+            runs.append(name)
+            for p, text in edits.items(): (c.work / p).write_text(text)
+            receipt = c.work / 'usage-receipts' / f'{name}.json'
+            receipt.parent.mkdir(exist_ok=True)
+            receipt.write_text(json.dumps({'final_usage_known': known}))
+            c.card.setdefault('route_receipts', []).append({'invocation': name, 'outcome': 'done',
+                'call_id': f'usage-receipts/{name}.json'})
+            return 0
+        return cp.model_call(c, ['local/test'], c.work, name, invoke, text=name)
+
+    def attempt(self, n):
+        c = context(self.work, dataclasses.replace(self.si, attempt=n))
+        c.runs = []
+        return c
+
+    def test_receipt_is_not_reused_over_newer_work_in_a_file_it_edited(self):
+        (self.work / 'x').write_text('x0')
+        first = self.attempt(1)
+        self.edit(first, 'a', {'x': 'A1'}, known=False)  # unknown usage: no receipt
+        self.edit(first, 'b', {'x': 'B-after-A1'})
+        (self.work / 'x').write_text('x0')
+        retry = self.attempt(2)
+        self.edit(retry, 'a', {'x': 'A2'}, known=False)
+        self.edit(retry, 'b', {'x': 'B-after-A2'})
+        self.assertEqual(retry.runs, ['a', 'b'])
+        self.assertEqual((self.work / 'x').read_text(), 'B-after-A2')
+
+    def test_receipt_is_not_reused_when_a_file_absent_at_its_start_exists_now(self):
+        first = self.attempt(1)
+        self.edit(first, 'b', {'x': 'B1'})  # x did not exist when b started
+        (self.work / 'x').write_text('created by newer work')
+        retry = self.attempt(2)
+        self.edit(retry, 'b', {'x': 'B2'})
+        self.assertEqual((retry.runs, (self.work / 'x').read_text()), (['b'], 'B2'))
+
+    def test_receipt_replays_from_the_state_before_or_after_the_call(self):
+        (self.work / 'x').write_text('x0')
+        self.edit(self.attempt(1), 'b', {'x': 'B1', 'new': 'created'})
+        (self.work / 'x').write_text('x0')  # checkpoint restored the pre-call state
+        (self.work / 'new').unlink()
+        retry = self.attempt(2)
+        self.edit(retry, 'b', {'x': 'never'})
+        self.assertEqual((retry.runs, (self.work / 'x').read_text(), (self.work / 'new').read_text()), ([], 'B1', 'created'))
+        retry = self.attempt(3)  # restored state already holds the call's output
+        self.edit(retry, 'b', {'x': 'never'})
+        self.assertEqual((retry.runs, (self.work / 'x').read_text()), ([], 'B1'))
+
+    CHAIN = (('c1', {'x': '1', 'y': 'y1'}), ('c2', {'x': '2', 'z': 'z2'}), ('c3', {'x': '3'}))
+
+    def chain(self, attempt, known=(True, True, True)):
+        c = self.attempt(attempt)
+        for (name, edits), ok in zip(self.CHAIN, known): self.edit(c, name, edits, ok)
+        return c
+
+    def state(self):
+        return {n: (self.work / n).read_text() for n in 'xyz' if (self.work / n).exists()}
+
+    def put(self, state):
+        for n in 'xyz': (self.work / n).unlink(missing_ok=True)
+        for n, text in state.items(): (self.work / n).write_text(text)
+
+    def test_chained_receipts_replay_from_every_restore_point(self):
+        states = [{}]
+        c = self.attempt(1)
+        for name, edits in self.CHAIN:
+            self.edit(c, name, edits)
+            states.append(self.state())
+        for n, state in enumerate(states):
+            self.put(state)
+            retry = self.attempt(2 + n)
+            for name, _ in self.CHAIN: self.edit(retry, name, {'x': 'never'})
+            self.assertEqual((n, retry.runs, self.state()), (n, [], states[-1]))
+
+    def test_chain_with_a_missing_last_receipt_overwrites_nothing(self):
+        self.chain(1, known=(True, True, False))
+        final = self.state()
+        retry = self.attempt(2)
+        for name, _ in self.CHAIN: self.edit(retry, name, {'x': 'rerun-' + name})
+        self.assertEqual((retry.runs, (self.work / 'x').read_text()), (['c1', 'c2', 'c3'], 'rerun-c3'))
+        self.assertNotEqual(self.state(), final)
+
+    def test_chain_is_not_replayed_over_a_middle_call_that_reran_differently(self):
+        self.chain(1, known=(True, False, True))
+        self.put({})
+        retry = self.attempt(2)
+        self.edit(retry, 'c1', {'x': 'never'})
+        self.edit(retry, 'c2', {'x': '2-new', 'z': 'z2'}, known=False)
+        self.edit(retry, 'c3', {'x': '3-new'})
+        self.assertEqual((retry.runs, (self.work / 'x').read_text()), (['c2', 'c3'], '3-new'))
+
+    def test_partial_chain_is_never_replayed_over_newer_work(self):
+        (self.work / 'x').write_text('x0')
+        first = self.attempt(1)
+        self.edit(first, 'a', {'x': 'A'})
+        self.edit(first, 'b', {'x': 'B', 'z': 'zb'})
+        (self.work / 'z').write_text('newer z')  # b would no longer replay
+        retry = self.attempt(2)
+        def fails():
+            retry.runs.append('a')
+            raise RuntimeError('rerun failed')
+        with self.assertRaises(RuntimeError):
+            cp.model_call(retry, ['local/test'], self.work, 'a', fails, text='a')
+        self.assertEqual((retry.runs, self.state()), (['a'], {'x': 'B', 'z': 'newer z'}))
 
     def test_freshness_gate_is_rechecked_after_restore(self):
         calls = []

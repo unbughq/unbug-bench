@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import time
+from types import SimpleNamespace
 from typing import Any, Mapping, Optional
 
 from dbos import DBOS, SetWorkflowID
@@ -30,10 +31,11 @@ from dbos import DBOS, SetWorkflowID
 from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised, ContractError, FounderAction,
                               FounderReply, Grant, LimitedBy, Outcome, PlumbingRelease, Ref, Step, StepInput, StepKind,
                               StepResult, Topic, WorkerLease, assert_no_conductor, batch_spec_from_record,
-                              check_result_for, guarded_run, step_input_from_record, step_result_from_record, to_record,
+                              guarded_run, step_input_from_record, step_result_from_record, to_record,
                               wait_seconds)
+from durable.classify import WORKER_POOL_REASONS
 from durable.executor import Executor, SeamError
-from durable.policy import (DEADLINE_REASON, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
+from durable.policy import (DEADLINE_REASON, POOL_WAIT_CEILING_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
                             draws_case_money, is_batch_deadline_stop, is_credential_problem, is_money_stop, is_pause,
                             progressed, request_usd_micros, starts_replacement)
 from durable.report import verified_seal
@@ -56,9 +58,11 @@ class Timing:
     founder_poll_s: float = 3600.0  # an escalated case's recv loop
     queue_poll_s: float = 1.0       # DBOS queue polling interval
     listener_poll_s: float = 1.0    # DBOS notification listener polling interval
-    pause_retry_s: float = 900.0    # after an operator pause (infra:paused), wait this long before the retry
+    pause_retry_s: float = 900.0    # after an operator pause (infra:paused) or a failed worker create, wait this
+                                    # long before the retry
                                     # (WP4's flat backoff); a pause never counts as an infra retry
     credential_retry_s: float = 900.0  # retry a visible credential configuration wait
+    pool_wait_ceiling_s: float = POOL_WAIT_CEILING_S  # total worker-create waiting per seq before it counts
 
 
 class _Runtime:
@@ -179,21 +183,14 @@ def attempt_step(si: dict, started_at: float, worker_id: str) -> dict:
     if result.reason in ("engine:executor_raised", "engine:executor_bad_result"):
         # The guard cannot know whether dispatch happened before an exception or
         # invalid response. Reconcile the original lease before releasing its grant.
+        reconcile = SimpleNamespace(run=lambda si: _RT.executor.reconcile(si, lease))
         while True:
-            try:
-                result = _RT.executor.reconcile(step_input, lease)
-                if not isinstance(result, StepResult):
-                    result = StepResult(Outcome.INFRA_ERROR, "engine:executor_bad_result")
-                else:
-                    try:
-                        check_result_for(step_input.step, result)
-                    except ContractError:
-                        result = StepResult(Outcome.INFRA_ERROR, "engine:executor_bad_result")
+            result = guarded_run(reconcile, step_input)
+            if result.reason != "engine:executor_raised":
                 break
-            except Exception:
-                # No exception or its context reaches the DBOS journal. An
-                # unconfirmed worker remains quarantined on the same grant.
-                time.sleep(30)
+            # The guard keeps no exception text. An unconfirmed worker remains
+            # quarantined on the same grant.
+            time.sleep(30)
     return to_record(result)
 
 
@@ -481,6 +478,7 @@ class _Case:
         self.seq += 1
         self.stage = step.name
         attempt, infra, limits, free, late, prev = 0, 0, 0, 0, 0, None
+        pool_since = None
         requested_minimum = 0
         admit = step.kind is StepKind.ADMIT
         while True:
@@ -523,10 +521,21 @@ class _Case:
             # A batch-deadline stop after deadline_epoch (or an operator pause) is never counted as
             # an infra error: the batch deadline stops new cases and extensions, not this step.
             now = now_step() if result.reason == DEADLINE_REASON else None
+            # A worker create outage waits like a pause and spends no allowance, up to a total ceiling
+            # measured with recorded clock reads: Boat never proves that a failed create left no
+            # sandbox, so the pool settles it by time (workers.py).
+            pool_wait = (result.outcome is Outcome.INFRA_ERROR and result.reason in WORKER_POOL_REASONS
+                         and DBOS.patch("worker_pool_retry_wait"))
+            if pool_wait:
+                pool_now = now_step()
+                pool_since = pool_now if pool_since is None else pool_since
+                pool_wait = pool_now - pool_since < _RT.timing.pool_wait_ceiling_s
+            else:
+                pool_since = None
             late_stop = is_batch_deadline_stop(result, self.spec, now)
             if late_stop:
                 late += 1
-            elif result.outcome is Outcome.INFRA_ERROR and not (is_pause(result) or is_credential_problem(result)):
+            elif result.outcome is Outcome.INFRA_ERROR and not (is_pause(result) or is_credential_problem(result) or pool_wait):
                 infra += 1
             if result.outcome is Outcome.PROVIDER_LIMIT:
                 if result.usage.paid_usd_micros > 0:
@@ -536,6 +545,8 @@ class _Case:
             if step.kind is StepKind.DIAGNOSIS and result.outcome is Outcome.OK:
                 return None, result
             action = decide(step, result, self.counters(infra, limits, free, late), self.spec, grant=grant, now=now)
+            if pool_wait and admit and pool_now >= self.spec.deadline_epoch:
+                action = Action.STOP_ADMISSION   # the batch deadline stops new cases
             if (action is Action.RETRY and is_money_stop(result)
                     and grant.limited_by is LimitedBy.NOTHING and not job["draws"]):
                 # A later call may not fit even after earlier calls spent money.
@@ -550,7 +561,7 @@ class _Case:
                 self.last_reason = None
                 self.card()
                 continue
-            if action is Action.RETRY and (late_stop or is_pause(result)):
+            if action is Action.RETRY and (late_stop or is_pause(result) or pool_wait):
                 # Wait before the retry, so a stop that repeats does not spin.
                 if _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s and self.worker_id is not None:
                     release_step(self.case_id, self.worker_id)

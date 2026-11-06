@@ -117,8 +117,6 @@ def classify(stop, *, step, now):
     head = stop.replace("Budget stopped: ", "").split(":", 1)[0]
     if head in ("budget_exhausted", "cost_limit"):
         return k.Classified(Outcome.EXHAUSTED, stage + ":money")
-    if head == "money_wait":
-        return k.Classified(Outcome.EXHAUSTED, "batch:money_bound")
     if head in ("provider_limit", "provider_wait"):
         return k.Classified(Outcome.PROVIDER_LIMIT, "router:provider_limit", retry_at=now + 900)
     if head == "timeout":
@@ -747,20 +745,15 @@ class HookTests(unittest.TestCase):
         self.assertEqual(str(stop.exception).replace("Budget stopped: ", ""), "timeout")
         self.assertLess(time.monotonic() - began, 15)
 
-    def test_money_wait_only_past_the_grant(self):
+    def test_plumbing_stops_are_infrastructure(self):
         c, si = self.context()
-        for stop, expected in (("money_wait", "infra:money_authority"),
-                               ("retired_batch_bound", "infra:batch_deadline"),
-                               ("Budget stopped: retired_batch_bound", "infra:batch_deadline"),
+        for stop, expected in (("router_batch_unconfigured", "infra:router_unconfigured"),
+                               ("Budget stopped: router_batch_unconfigured", "infra:router_unconfigured"),
                                ("provider_wait_deadline", "infra:deadline")):
             with patch.object(run, "engine_writer_round", side_effect=budget.BudgetError(stop)):
                 result = run.run_step(c, si)
             self.assertEqual((result["outcome"], result["reason"], result["stop"]),
                              (Outcome.INFRA_ERROR, expected, None), stop)
-        with budget.ledger_transaction(c.ledger) as ledger:   # this attempt spends past its $5 grant
-            ledger["events"].append({"id": "over", "cost": 6.0, "configured_model": "x/y", "role": "writer"})
-        with patch.object(run, "engine_writer_round", side_effect=budget.BudgetError("money_wait")):
-            self.assertEqual(run.run_step(c, si)["stop"], "money_wait")
 
     def test_validate_and_repair_runs_one_gate_pass(self):
         c, _ = self.context(StepKind.GATES)
@@ -847,8 +840,6 @@ class HookTests(unittest.TestCase):
                          "strong_calibrator", "attacks", "infra-attempts.json", "prototype.json", "ordinary-retries", "stress-publication.json"} <= names, names)
         self.assertFalse({p.split("/")[0] for p in legacy} & names)
         self.assertTrue((c.work / "bench-results/run-a/trial.json").is_file())
-        for name in {p.name for p in c.work.iterdir()} - names:
-            self.assertTrue(any(pathlib.PurePath(name).match(d) for d in run.SNAPSHOT_DROPPED), name)
         snapshot = worker_step.snapshot_bytes(c, run)
         restored = self.root / "restored"
         worker_step.restore(snapshot, restored)

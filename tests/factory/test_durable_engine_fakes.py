@@ -233,15 +233,18 @@ def case_number(case_id):
 
 
 class FakePool:
-    def __init__(self, root, fail_acquires=0):
+    def __init__(self, root, fail_acquires=0, reason=None):
         self.f = _Files(root)
-        self.fail_acquires = fail_acquires
+        self.fail_acquires, self.reason = fail_acquires, reason
 
     def acquire(self, case_id, plumbing_version, bench_version):
         with self.f.locked():
             failures = self.f.read("acquire-failures.json", 0)
             if failures < self.fail_acquires:
                 self.f.write("acquire-failures.json", failures + 1)
+                if self.reason:
+                    from durable.workers import PoolError
+                    raise PoolError(self.reason)
                 raise RuntimeError("provider error containing a private path")
             s = self.f.read("pool.json", {})
             w = s.get(case_id)
@@ -501,7 +504,7 @@ class FakeWorker:
 def build_fakes(state_dir, scenario):
     state = Path(state_dir)
     keys, sealer, store = FakeKeys(), FakeSealer(), FakeStore(state / "store")
-    pool, ledger = FakePool(state / "pool", scenario.get("pool_failures", 0)), FakeLedger(state / "ledger")
+    pool, ledger = FakePool(state / "pool", scenario.get("pool_failures", 0), scenario.get("pool_reason")), FakeLedger(state / "ledger")
     worker = FakeWorker(state / "worker", pool, store, sealer, keys, scenario)
     return dict(keys=keys, sealer=sealer, store=store, pool=pool, ledger=ledger, worker=worker)
 

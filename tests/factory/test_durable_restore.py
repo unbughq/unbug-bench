@@ -214,6 +214,12 @@ class RestoreExercise(unittest.TestCase):
             Runtime(quarantine)
         with self.assertRaisesRegex(RuntimeErrorCode, "source_retired"):
             resume(quarantine)
+        from durable.backup import reconcile
+        with self.assertRaises(RuntimeErrorCode):
+            reconcile(self.destination, ownership=True, spending=True)   # a normal restore is not quarantined
+        reconcile(quarantine, ownership=True, spending=True)
+        released = Runtime(quarantine)
+        self.addCleanup(released.close)
         for path in Path(self.destination["state_dir"]).rglob("*"):
             self.assertEqual(path.stat().st_mode & 0o777, 0o700 if path.is_dir() else 0o600)
 

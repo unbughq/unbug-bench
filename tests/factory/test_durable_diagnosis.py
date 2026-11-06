@@ -98,7 +98,7 @@ class DiagnosisTests(unittest.TestCase):
                                      finding='private finding sentinel')], factory_bug=None)
         if self.answer == 'factory_bug':
             result['factory_bug'] = dict(component='runtime', reproducer='private reproducer',
-                                         affected_operations=[], fix_required='private fix')
+                                         fix_required='private fix')
         if self.corrupt == 'hash': result['evidence'][0]['sha256'] = '0' * 64
         if self.corrupt == 'mutate': (inputs / evidence).write_bytes(b'changed')
         if self.corrupt == 'processing':

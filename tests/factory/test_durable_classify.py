@@ -150,21 +150,16 @@ class RealStops(unittest.TestCase):
                                   StepKind.STRESS: "stress:call_limit", StepKind.GATES: "engine:call_limit",
                                   StepKind.DIAGNOSIS: "diagnosis:call_limit", StepKind.SEAL: "seal:call_limit"})
 
-    def test_money_wait_is_the_attempts_money_and_the_policy_tells_case_from_batch(self):
-        # Historical money_wait receipts retain their meaning after authority removal.
-        for kind in StepKind:
-            self.assertEqual(classify("money_wait", step=kind, now=NOW),
-                             classify("cost_limit", step=kind, now=NOW))
-        self.assertEqual(classify("money_wait", step=StepKind.WRITER, now=NOW),
+    def test_cost_limit_is_the_attempts_money_and_the_policy_tells_case_from_batch(self):
+        self.assertEqual(classify("cost_limit", step=StepKind.WRITER, now=NOW),
                          Classified(Outcome.EXHAUSTED, "writer:money"))
         self.assertNotIn("batch:money_bound", REASONS)
 
     def test_batch_deadline_stops_are_the_contracts_deadline_not_money(self):
-        # Retained legacy deadline stops still classify as infrastructure failures.
-        # provider_wait_deadline: model_router.py:523, :593, :642.
-        for stop in ("retired_batch_bound", "provider_wait_deadline"):
-            for kind in StepKind:
-                self.assertEqual(classify(stop, step=kind, now=NOW), Classified(Outcome.INFRA_ERROR, "infra:deadline"))
+        # provider_wait_deadline: model_router.py.
+        for kind in StepKind:
+            self.assertEqual(classify("provider_wait_deadline", step=kind, now=NOW),
+                             Classified(Outcome.INFRA_ERROR, "infra:deadline"))
         self.assertIn("infra:deadline", CONTRACT_REASONS)
 
     RUNNER_FILES = ("budget.py", "model_router.py", "model_runtime.py", "model_call_gate.py", "run.py")

@@ -312,7 +312,7 @@ class BoatPool:
     def __init__(self, state_dir, store: ReleaseStore, pool_id: str, *, boat: BoatCli | None = None,
                  image: str = "bench-env", vm_type: str | None = None, ttl_seconds: int = 259_200,
                  steps: dict | None = None, ready_timeout: float = 600.0, poll_interval: float = 5.0,
-                 delete_timeout: float = 300.0, new_timeout: float = 300.0):
+                 delete_timeout: float = 300.0, new_timeout: float = 300.0, create_settle_seconds: float = 900.0):
         _check(type(pool_id) is str and POOL_ID.fullmatch(pool_id) is not None, "bad pool id")
         _check(type(ttl_seconds) is int and 1 <= ttl_seconds <= 2_592_000, "bad ttl")
         self.state = Path(state_dir)
@@ -322,6 +322,9 @@ class BoatPool:
         self.steps = {**DEFAULT_STEPS, **(steps or {})}
         self.ready_timeout, self.poll_interval = ready_timeout, poll_interval
         self.delete_timeout, self.new_timeout = delete_timeout, new_timeout
+        # An unconfirmed create keeps its identity this long, from the saved intent: three create
+        # timeouts. Boat's exit status and stderr never prove that no sandbox will appear.
+        self.create_settle = create_settle_seconds
 
     # -- journal
 
@@ -346,11 +349,16 @@ class BoatPool:
         return out
 
     @contextlib.contextmanager
-    def _lock(self, case_id: str):
+    def _lock(self, case_id: str, wait: bool = True):
+        """Yields whether the case lock is held; only a no-wait caller can get False."""
         fd = os.open(self.state / (_id(case_id, CASE_ID, "case_id") + ".lock"), os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            yield
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+            except BlockingIOError:
+                yield False
+            else:
+                yield True
         finally:
             os.close(fd)
 
@@ -379,6 +387,11 @@ class BoatPool:
             return None
         # A case digest is not a case id. Only saved journals can resolve it.
         return {LABEL_POOL: self.pool_id, LABEL_CASE: match[2], LABEL_INTENT: match[3]}
+
+    def _settled(self, case_id: str) -> bool:
+        """The record file is rewritten only on a state change, so its mtime is when the intent was
+        saved. It is on disk, so a restarted controller sees the same age."""
+        return time.time() - self._record_path(case_id).stat().st_mtime >= self.create_settle
 
     @staticmethod
     def _live(row: dict) -> bool:
@@ -414,9 +427,9 @@ class BoatPool:
                 rows = self._inventory()
                 worker = self._find(rows, case_id, worker=record["worker"], intent=record["intent"])
                 if worker is None:
-                    if record["worker"] is None and record["intent"] is not None:
-                        # An empty list response cannot prove that an earlier create
-                        # request will not appear later. Keep its original identity.
+                    if record["worker"] is None and record["intent"] is not None and not self._settled(case_id):
+                        # An empty list response cannot prove that an earlier create request will
+                        # not appear later. Keep its original identity until it has settled.
                         raise PoolError("infra:worker_create_unknown")
                     if record["worker"] is not None and any(r.get("id") == record["worker"] for r in rows):
                         self._delete_locked(case_id, record["worker"])
@@ -517,6 +530,61 @@ class BoatPool:
                 self._delete_raw(row["id"])
                 deleted.append(row["id"])
         return {"adopted": sorted(adopted), "deleted": sorted(deleted)}
+
+    def sweep(self) -> None:
+        """While the controller runs, with no case involved: resolve every create that never appeared
+        within its settle time, and delete every owned sandbox that no record claims (a create we
+        stopped waiting for can still land, even after its case has finished). A case busy under
+        acquire is skipped until the next pass, and no lock is held while a delete waits. Inventory
+        is read before the records: a record is always saved before its request, so a sandbox in the
+        list has its record, unless released. One unreadable record never stops the others, and
+        its sandboxes are left alone; the pass then raises PoolError so the caller can log it. Deletes
+        a release could not finish are completed here too: no later acquire may come for that case."""
+        rows, strays, pending, failed = self._inventory(), [], [], False
+        paths = sorted(self.state.glob("case-*.json"))
+        for path in paths:
+            try:
+                with self._lock(path.stem, wait=False) as held:
+                    record = self._read(path.stem) if held else None
+                    if record is not None and record["deleting"] is not None:
+                        pending.append((path.stem, record))   # its last release may never retry
+                    if (record is not None and record["worker"] is None and record["intent"] is not None
+                            and record["deleting"] is None and self._settled(path.stem)):
+                        # In-window sandboxes of this intent are left for acquire to adopt; now they are strays.
+                        path.unlink()
+            except (PoolError, ContractError, OSError, ValueError):
+                failed = True
+        cases = {ownership_hash(path.stem): path.stem for path in paths}
+        for row in rows:
+            labels = self._ours(row)
+            if labels is None:
+                continue
+            case_id = cases.get(labels[LABEL_CASE])
+            try:
+                with (self._lock(case_id, wait=False) if case_id else contextlib.nullcontext(True)) as held:
+                    record = self._read(case_id) if case_id else None
+                    if held and not (record is not None and (row["id"] == record["worker"] or (
+                            record["worker"] is None and record["intent"] == labels[LABEL_INTENT]))):
+                        strays.append(row["id"])
+            except (PoolError, ContractError, OSError, ValueError):
+                failed = True
+        strays += [path.parent.name for path in self.state.glob("deletions/*/intent.json")
+                   if not (path.parent / "deletion-completion.json").exists()]
+        for worker in dict.fromkeys(strays):
+            try:
+                self._delete_raw(worker)
+            except (PoolError, ContractError, OSError, ValueError):
+                failed = True
+        for case_id, record in pending:
+            try:
+                self._delete_raw(record["worker"])
+                with self._lock(case_id, wait=False) as held:
+                    if held and self._read(case_id) == record:
+                        self._record_path(case_id).unlink(missing_ok=True)
+            except (PoolError, ContractError, OSError, ValueError):
+                failed = True
+        if failed:
+            raise PoolError("infra:sweep_incomplete")
 
     # -- creation
 

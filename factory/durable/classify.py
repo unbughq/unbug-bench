@@ -97,17 +97,14 @@ _FIXED = {
     "complete": (_I, "infra:stop_without_failure"),
     "running": (_I, "infra:stop_without_failure"),
     "": (_I, "infra:stop_without_failure"),
-    # The batch deadline (a clock, not money) passed before or during the call, or during a
-    # provider wait: budget.py:145, :837, :1220, :1247; job_authority.py:47, :74;
-    # model_router.py:523, :593, :642. It is the contract's attempt-deadline code.
-    "retired_batch_bound": (_I, "infra:deadline"),
+    # The batch deadline (a clock, not money) passed during a provider wait (model_router.py).
+    # It is the contract's attempt-deadline code.
     "provider_wait_deadline": (_I, "infra:deadline"),
 }
 
-# The attempt's own limits: EXHAUSTED, with the step's stage. money_wait is the attempt's
-# committed money running out (budget.py:941, :717, :165). Whether that money was the case's or
+# The attempt's own limits: EXHAUSTED, with the step's stage. Whether money was the case's or
 # the batch's is the policy's call, from the Grant label, so the reason does not say.
-_CASE_LIMIT = {"cost_limit": "money", "budget_exhausted": "money", "money_wait": "money",
+_CASE_LIMIT = {"cost_limit": "money", "budget_exhausted": "money",
                "call_limit": "call_limit", "total_call_limit": "total_call_limit", "model_call_cap": "call_cap"}
 
 _USAGE = re.compile(r"(invalid_usage|usage)_[a-z_]+")
@@ -125,8 +122,9 @@ REASONS = frozenset({r for _, r in _FIXED.values()} | {r for _, r in _LIMIT_FAMI
 CONTRACT_REASONS = frozenset({"infra:deadline", "infra:version_mismatch", "infra:attempt_busy",
                               "infra:cancelled", "engine:executor_raised", "engine:executor_bad_result"})
 
-# Fixed WP2 PoolError reasons; these reveal no provider output.
-WORKER_POOL_REASONS = frozenset({"infra:worker_create_failed", "infra:worker_create_unknown"})
+# Fixed WP2 PoolError reasons; these reveal no provider output. The engine waits on them, within a ceiling.
+WORKER_POOL_REASONS = frozenset({"infra:worker_create_failed", "infra:worker_create_unknown",
+                                 "infra:inventory_unavailable", "infra:worker_delete_unconfirmed"})
 
 # Reasons safe for the public scorecard. "A model refused this case" hints at the case's
 # content, so router:refusal stays private. report.py shows any other reason as its

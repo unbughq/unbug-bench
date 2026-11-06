@@ -149,6 +149,47 @@ class Outcomes(unittest.TestCase):
         self.assertEqual([x["op"] for x in r.ledger_log() if x.get("key") == key], ["reserve", "settle"])
         self.assertEqual(out["ledger"]["batches"]["b-t"]["held"], 0)
 
+    def test_worker_create_outage_waits_without_spending_the_infra_allowance(self):
+        # Four failed creates with an allowance of one: ADMIT still completes, a wait apart.
+        r, out = run({"pool_failures": 4, "pool_reason": "infra:worker_create_failed",
+                      "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "timing": {"pause_retry_s": 0.3}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        reserves = [x["t"] for x in r.ledger_log() if x["op"] == "reserve" and "/admit/" in x["key"]]
+        self.assertEqual(len(reserves), 5)
+        self.assertTrue(all(b - a >= 0.3 for a, b in zip(reserves, reserves[1:])), reserves)
+
+    def test_boat_inventory_outage_waits_like_a_create_failure(self):
+        r, out = run({"pool_failures": 4, "pool_reason": "infra:inventory_unavailable",
+                      "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "timing": {"pause_retry_s": 0.2}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
+    def test_unconfirmed_delete_during_an_outage_waits_without_spending_the_allowance(self):
+        r, out = run({"pool_failures": 4, "pool_reason": "infra:worker_delete_unconfirmed",
+                      "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "timing": {"pause_retry_s": 0.2}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
+    def test_a_lasting_create_outage_ends_at_the_wait_ceiling_then_the_infra_allowance(self):
+        r, out = run({"pool_failures": 1000, "pool_reason": "infra:worker_create_failed",
+                      "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "timing": {"pause_retry_s": 0.2, "pool_wait_ceiling_s": 5.0}}, timeout=60)
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "stopped_admission"})
+        reserves = [x["t"] for x in r.ledger_log() if x["op"] == "reserve" and "/admit/" in x["key"]]
+        self.assertGreaterEqual(len(reserves), 4)   # waited attempts, then the allowance's two
+        self.assertLess(reserves[-1] - reserves[0], 30)
+
+    def test_a_create_outage_does_not_outlive_the_batch_deadline_in_admit(self):
+        r, out = run({"pool_failures": 1000, "pool_reason": "infra:worker_create_failed", "deadline_in": 2.0,
+                      "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1000}, "timing": {"pause_retry_s": 0.3}}, timeout=60)
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "stopped_admission"})
+
     def test_admit_and_other_steps_share_the_concurrency_limit(self):
         r, out = run({"spec": {"target_sealed": 2, "max_concurrency": 1},
                       "script": {"1/admit/1": {"outcome": "provider_limit", "reason": "router:claude_limit",
@@ -332,12 +373,12 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(len([x for x in r.starts() if x["key"] == f"{C1}/2/writer:1/1"]), 1)
         self.assertNotEqual(start(r, f"{C1}/2/writer:1/1")["worker"], start(r, f"{C1}/2/writer:1/2")["worker"])
 
-    def test_both_credential_shapes_retry_without_using_infra_allowance(self):
+    def test_credential_problem_retries_without_using_infra_allowance(self):
         reason = "router:credential_expiring"
         first, second = f"{C1}/2/writer:1/1", f"{C1}/2/writer:1/2"
         r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
                       "timing": {"credential_retry_s": 1.0},
-                      "script": {"1/writer:1/1": {"outcome": "provider_limit", "reason": reason},
+                      "script": {"1/writer:1/1": {"outcome": "infra_error", "reason": reason},
                                  "1/writer:1/2": {"outcome": "infra_error", "reason": reason, "dur": 0.8},
                                  "1/writer:1/3": {"outcome": "infra_error", "reason": "infra:stalled"}},
                       "actions": [{"when": {"case": 1, "status": "waiting_for_credentials", "ran": first}},

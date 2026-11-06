@@ -2263,11 +2263,6 @@ SNAPSHOT_RETAINED = (
     "prototype.json", "public-search.json", "freshness-verdict.json", "freshness-repair.json",
     "freshness-inflight.json", "freshness-restored.jsonl", "idea-realism.json", "statements",
     "ordinary-retries", "stress-publication.json", "logs", "transcripts", "engine-feedback.json", "engine-ruling.json", "engine-checkpoints")
-# Named so a reader can see what a snapshot leaves out; anything else is dropped too.
-SNAPSHOT_DROPPED = (
-    "agent-state", "durable-checkpoint.json", "provider_wait.json", "provider_waits",
-    "operational-effects.json", "job-money*.json", "gate-continuation.json", "late-defect.json",
-    "founder-ruling-applied.json", "extension-*", "rehearsal-*", "rejected-candidate-*", "continuation-budget.json.*")
 FEEDBACK_VERSION = 1
 
 
@@ -2303,14 +2298,12 @@ def engine_call_window(c, timeout, deadline):
             c.engine.deadline_monotonic if deadline is None else min(deadline, c.engine.deadline_monotonic))
 
 
-# Stops that only the legacy job-money and batch-deadline plumbing raises. Under the engine none
-# may stop a running case or count as money: a batch deadline only stops new cases (BatchSpec).
-ENGINE_PLUMBING_STOPS = {"retired_batch_bound": "infra:batch_deadline", "router_batch_unconfigured": "infra:router_unconfigured"}
+# Under the engine an unconfigured router is infrastructure, never a case result or money.
+ENGINE_PLUMBING_STOPS = {"router_batch_unconfigured": "infra:router_unconfigured"}
 
 
 def engine_stop(c, stop):
-    """A stop as the engine may see it: money_wait only when this attempt's spend plus its open
-    reservations exceeds its grant; retired authority faults are INFRA_ERROR."""
+    """A stop as the engine may see it: plumbing faults and unknown usage are INFRA_ERROR."""
     from durable.contract import Outcome
     head = stop.split(":", 1)[0].strip()
     for wrapper in ("Budget stopped", "Budget ledger stopped"):
@@ -2319,19 +2312,10 @@ def engine_stop(c, stop):
         return {"outcome": Outcome.INFRA_ERROR, "reason": ENGINE_PLUMBING_STOPS[head]}
     if head == "provider_wait_deadline":
         return {"outcome": Outcome.INFRA_ERROR, "reason": "infra:deadline"}  # the router's end is the attempt's deadline
-    if head in ("budget_exhausted", "cost_limit", "money_wait"):
+    if head in ("budget_exhausted", "cost_limit"):
         from budget import case_spending
         if case_spending(jload(c.ledger, {})).get("spent_usd") is None:
             return {"outcome": Outcome.INFRA_ERROR, "reason": "infra:usage_unknown"}
-    if head == "money_wait":
-        from budget import case_spending, outstanding_reservations
-        ledger = jload(c.ledger, {})
-        total = case_spending(ledger).get("spent_usd")  # the valuation the ceiling is enforced on
-        try: pending = float(outstanding_reservations(ledger))
-        except (BudgetError, TypeError, ValueError): pending = 0.0
-        baseline = c.engine.baseline_spent_usd
-        if total is None or baseline is None or total - baseline + pending <= c.engine.ceiling_usd:
-            return {"outcome": Outcome.INFRA_ERROR, "reason": "infra:money_authority"}
     return None
 
 

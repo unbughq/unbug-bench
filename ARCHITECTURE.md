@@ -98,18 +98,30 @@ without an attempt-count cutoff; they never retire a case merely for recurring.
 
 Poll transport failures do not prove a worker is absent. Cancel or establish that
 the old attempt is finished before starting another. Enforce release identity and
-attempt deadlines; SEAL must use the versions under which GATES passed. Startup reconciles pool ownership before DBOS recovers workflows. Ambiguous
-creates retain their original identity rather than issuing another create.
+attempt deadlines; SEAL must use the versions under which GATES passed. Startup reconciles pool ownership before DBOS recovers workflows. An unconfirmed
+create keeps its identity for 15 minutes from its saved intent, then a new create may go ahead and any
+late sandbox of an older identity is deleted by its ownership name. A failed create or Boat inventory outage waits
+and retries without spending the case's infra allowance, for at most six hours per step, and ADMIT stops after the
+batch deadline. A control-side sweep every five minutes deletes owned sandboxes that no record claims and resolves
+settled creates. After a normal restore, launch deletes such strays; a quarantined restore still refuses them
+(`restore_unclaimed_worker`) after reconcile until its first clean launch, and `restored.json` keeps the reconcile attestation.
 Boat ownership uses a versioned 106-character sandbox name containing pool and
 case hashes plus the saved create nonce. Inventory resolves case hashes only from
 saved pool journals; unknown owned hashes identify orphans, never invented case ids.
+The operator `publish` command writes the allowlisted scorecard (codes and numbers
+only) to `scorecards/<batch>/<digest>.json` in the object store; it is not yet
+called automatically at batch completion.
 Ciphertext publication exports the wrapped scope key first, and fetched worker
 outputs authenticate before entering immutable storage. Cold backup/restore has a disposable PostgreSQL exercise that preserves grants,
 keys, artifacts and release pins. Scheduled backups pause the controller and invalidate only their own restore fence before restarting it;
 R2 ciphertext stays in immutable storage. Normal handover requires the source fence.
 Lost-source or stale archives restore into a quarantine that cannot execute work
-until external ownership and spending have been reconciled. This path does not
-claim automatic recovery from unrecorded post-backup spending. Legacy lifecycle modules and their obsolete tests have been removed from this
+until external ownership and spending have been reconciled. Only the operator's
+`reconcile --ownership-reconciled --spending-reconciled` releases it: it works on a
+quarantined restore alone, under the state and database locks, refuses while a pool
+record is uncertain unless the operator names it with `--cleared-record`, and records the attestation and time before removing the fence.
+This path does not claim automatic recovery from unrecorded post-backup spending
+and cannot see a stale source controller elsewhere. Legacy lifecycle modules and their obsolete tests have been removed from this
 candidate. The clean offline suite passed (151 scripts), along with Linux worker
 checks and a disposable PostgreSQL restore exercise. Model-free live checks cover
 Boat/R2, Docker, control restart, worker replacement and authenticated checkpoint
