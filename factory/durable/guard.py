@@ -1,11 +1,13 @@
 """The campaign guard: one pass a minute, run by a systemd timer as root.
 
 A failed check never stops anything. It is retried, logged and marks the batch degraded,
-which pauses new attempts (engine.py) until a pass succeeds. Only these stop the controller:
-the deadline, the money ceiling and a confirmed Boat allowance or rate breach.
+which pauses new attempts (engine.py) until a pass succeeds. Only these are hard stops: the
+deadline, the money ceiling and a confirmed Boat allowance or rate breach.
 
-The guard never deletes a worker. The controller owns workers and Boat's TTL is the backstop:
-renewal ends with a hard stop, and the TTL never reaches past the deadline.
+A hard stop pauses new attempts and gives steps in flight a checkpoint grace to record. When none
+is left, or the grace ends, the guard stops the controller and deletes the workers. Work still
+unrecorded then becomes an ordinary worker_lost retry when the batch resumes, and is never scored.
+Nothing else deletes a worker here.
 
 Everything under `<state_dir>/guard` is public-safe: fixed codes, numbers and scrubbed text.
 """
@@ -24,6 +26,7 @@ from durable.workers import _atomic_json
 
 RETRY_WAITS_S = (2.0, 6.0)   # a check gets three tries; the unit timeout fits a pass where all fail
 GRACE_S = 120.0              # a controller that just came up is not judged yet
+CHECKPOINT_GRACE_S = 600.0   # after a hard stop, for steps in flight; a pass runs once a minute
 ESCALATE_S = 900.0           # sustained failure raises an alert; it still stops nothing
 DOWN_ALERT_S = 600.0
 MARKER_TTL_S = 600.0         # a dead guard cannot pause admission for longer than this
@@ -31,7 +34,7 @@ EVIDENCE_KEPT = 200
 READ_LIMIT = 1 << 20
 TERMINAL = ("sealed", "retired", "held", "stopped_admission", "engine_error")
 HARD_STOPS = {
-    "deadline": "The batch deadline passed. Workers run out on their TTL.",
+    "deadline": "The batch deadline passed.",
     "money_ceiling": "Spending passed the money ceiling. Check the ledger before raising it.",
     "compute_bound": "Reserved compute passed the approved infrastructure budget.",
     "worker_count": "More than one live worker. Check Boat before restarting.",
@@ -66,10 +69,12 @@ class CheckFailed(Exception):
 
 class Guard:
     def __init__(self, request: dict, directory: Path, *, boat: Callable, rpc: Callable, service,
-                 ours: Callable, count: Callable, notify: Optional[Callable] = None,
-                 grace_s: float = GRACE_S, escalate_s: float = ESCALATE_S, clock=time.time, sleep=time.sleep):
+                 ours: Callable, count: Callable, delete: Callable, notify: Optional[Callable] = None,
+                 grace_s: float = GRACE_S, escalate_s: float = ESCALATE_S,
+                 checkpoint_grace_s: float = CHECKPOINT_GRACE_S, clock=time.time, sleep=time.sleep):
         self.request, self.directory = request, Path(directory)
         self.boat, self.rpc, self.service, self.ours, self.count = boat, rpc, service, ours, count
+        self.delete, self.checkpoint_grace_s = delete, checkpoint_grace_s
         self.notify = notify
         self.grace_s, self.escalate_s = grace_s, escalate_s
         self.clock, self.sleep = clock, sleep
@@ -159,7 +164,7 @@ class Guard:
 
     def _extend(self, owned: list) -> None:
         for row in owned:
-            ttl = min(7200, int(self.request["deadline_epoch"] - self.clock()))
+            ttl = min(7200, int(self.request["deadline_epoch"] + self.checkpoint_grace_s - self.clock()))
             if ttl >= 1:
                 self.check("boat_extend", lambda: self._boat(["extend", row["id"], "--ttl", str(ttl)], 30))
 
@@ -170,7 +175,9 @@ class Guard:
         status = self.load("status.json", {})
         health = {"at": now, "phase": "healthy", "degraded_since": status.get("degraded_since"),
                   "down_since": status.get("down_since"), "hard_stop": status.get("hard_stop"),
-                  "finished": status.get("finished", False), "failed_checks": [], "owned_workers": None}
+                  "finished": status.get("finished", False), "failed_checks": [], "owned_workers": None,
+                  "stopping_since": status.get("stopping_since"), "controller_stopped": status.get("controller_stopped", False),
+                  "workers_cleared": status.get("workers_cleared", False)}
         ok, service = self.check("service_state", self.service.state)
         active, active_since, ready_since = service if ok else ("unknown", None, None)
         if health["finished"]:
@@ -180,8 +187,7 @@ class Guard:
             return self._finish(health, status)
         if health["hard_stop"] or cleanup or now >= self.request["deadline_epoch"]:
             health["hard_stop"] = health["hard_stop"] or "deadline"
-            self._stop(health)
-            return self._finish(health, status)
+            return self._wind_down(health, status, active)
         if active == "active":
             down = health["down_since"]
             if now - max(active_since or 0, ready_since or 0) >= self.grace_s:
@@ -201,8 +207,7 @@ class Guard:
         if health["hard_stop"] is None and active in ("active", "unknown"):
             health["hard_stop"] = self._controller(health)
         if health["hard_stop"]:
-            self._stop(health)
-            return self._finish(health, status)
+            return self._wind_down(health, status, active)
         if owned:
             self._extend(owned)
         return self._finish(health, status)
@@ -231,18 +236,46 @@ class Guard:
                 self.check("controller_stop", self.service.stop)
         return None
 
-    def _stop(self, health: dict) -> None:
-        health["phase"] = "stopped"
-        self.check("controller_stop", self.service.stop)
+    def _recording(self, health: dict, active: str) -> bool:
+        """Whether to keep waiting for steps in flight. A controller that cannot answer may
+        still be recording, so it gets the rest of the grace; a dead one records nothing."""
+        if active not in ("active", "unknown"):
+            return False
+        if self.clock() - health["stopping_since"] >= self.checkpoint_grace_s:
+            return False
+        ok, running = self.check("in_flight", lambda: self.rpc("in_flight"))
+        return not ok or running > 0
+
+    def _wind_down(self, health: dict, status: dict, active: str) -> dict:
+        """A hard stop, one step a pass: wait for steps in flight, stop, delete the workers."""
+        health["stopping_since"] = health["stopping_since"] or self.clock()
+        health["phase"] = "stopping"
+        if not health["controller_stopped"]:
+            if self._recording(health, active):
+                return self._finish(health, status)
+            health["controller_stopped"], _ = self.check("controller_stop", self.service.stop)
+        if health["controller_stopped"] and not health["workers_cleared"]:
+            ok, owned = self.check("boat_list", lambda: [r for r in self._inventory() if self.ours(r)])
+            if ok:
+                for row in owned:
+                    self.check("worker_delete", lambda: self.delete(row["id"]))
+                health["owned_workers"] = len(owned)
+                health["workers_cleared"] = "worker_delete" not in self.failed
+        if health["workers_cleared"]:
+            health["phase"] = "stopped"
+        return self._finish(health, status)
 
     def _finish(self, health: dict, previous: dict) -> dict:
         now = self.clock()
         health["failed_checks"] = sorted(set(self.failed))
         if health["phase"] != "starting":
             health["degraded_since"] = (health["degraded_since"] or now) if self.failed else None
+        if health["hard_stop"]:
+            health["degraded_since"] = None   # the hard stop's own alert says what is needed
         if health["degraded_since"] is not None and health["phase"] == "healthy":
             health["phase"] = "degraded"
-        if health["phase"] == "degraded" or (health["phase"] == "starting" and health["degraded_since"] is not None):
+        if (health["phase"] in ("degraded", "stopping")
+                or (health["phase"] == "starting" and health["degraded_since"] is not None)):
             self.save("degraded.json", {"until": now + MARKER_TTL_S})
         else:
             self.path("degraded.json").unlink(missing_ok=True)

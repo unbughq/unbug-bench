@@ -36,6 +36,8 @@ class Fake:
         self.money = {"spent": 1, "bound": 2}
         self.rpc_failures = 0
         self.allowance = 7
+        self.in_flight = 0
+        self.deleted = []
 
     def boat(self, args, timeout):
         self.calls.append(args)
@@ -52,7 +54,8 @@ class Fake:
         if self.rpc_failures:
             self.rpc_failures -= 1
             raise ConnectionRefusedError()
-        return {"status": {"cases": self.cases}, "budget": self.money, "publish": {"published": "k"}}[op]
+        return {"status": {"cases": self.cases}, "budget": self.money, "publish": {"published": "k"},
+                "in_flight": self.in_flight}[op]
 
     def state(self):
         return self.active, NOW - 3600, NOW - 3600
@@ -61,13 +64,17 @@ class Fake:
         self.stopped += 1
         self.active = "inactive"
 
+    def delete(self, worker):
+        self.deleted.append(worker)
+        self.rows.remove(worker)
+
     def guard(self, **kw):
         return Guard(REQUEST, self.state_dir / "guard", boat=self.boat, rpc=self.rpc, service=self, ours=lambda r: True,
-                     count=lambda: self.allowance, notify=self.sent.append, clock=lambda: self.clock,
+                     count=lambda: self.allowance, delete=self.delete, notify=self.sent.append, clock=lambda: self.clock,
                      sleep=lambda s: setattr(self, "clock", self.clock + s), **kw)
 
     def deletes(self):
-        return [c for c in self.calls if c[0] in ("delete", "rm", "destroy")]
+        return self.deleted
 
 
 class GuardTests(unittest.TestCase):
@@ -228,16 +235,18 @@ class GuardTests(unittest.TestCase):
         self.f.state = lambda: ("active", self.f.clock - 300, None)
         self.assertEqual(self.tick()["phase"], "degraded")
 
-    def hard(self, reason):
+    def hard(self, reason, *, workers=("bx_aaaaaaaa",)):
+        """Nothing in flight: stopped and deleted in the same pass."""
         out = self.tick()
         self.assertEqual((out["phase"], out["hard_stop"]), ("stopped", reason))
         self.assertEqual(self.f.stopped, 1)
-        self.assertEqual(self.f.deletes(), [])
+        self.assertEqual(self.f.deletes(), list(workers))
         self.assertNotIn("extend", [c[0] for c in self.f.calls])
         self.f.calls.clear()
         out = self.tick()   # stays stopped; renewal never resumes
         self.assertEqual(out["hard_stop"], reason)
         self.assertEqual(self.f.calls, [])
+        self.assertEqual(self.f.stopped, 1)
 
     def test_money_ceiling_is_a_hard_stop(self):
         self.f.money = {"spent": 3, "bound": 2}
@@ -249,7 +258,7 @@ class GuardTests(unittest.TestCase):
 
     def test_two_live_workers_is_a_hard_stop(self):
         self.f.rows = ["bx_aaaaaaaa", "bx_bbbbbbbb"]
-        self.hard("worker_count")
+        self.hard("worker_count", workers=("bx_aaaaaaaa", "bx_bbbbbbbb"))
 
     def test_exceeded_allowance_is_a_hard_stop_but_unreadable_is_not(self):
         self.f.allowance = "junk"
@@ -262,11 +271,64 @@ class GuardTests(unittest.TestCase):
         self.f.clock = REQUEST["deadline_epoch"] - 60
         self.hard("deadline")
 
+    def test_the_ttl_covers_the_grace_after_the_deadline(self):
+        self.f.clock = REQUEST["deadline_epoch"] - 100
+        self.tick(0)
+        self.assertIn(["extend", "bx_aaaaaaaa", "--ttl", "699"], self.f.calls)
+
     def test_cleanup_timer_stops_without_deleting(self):
+        self.f.in_flight = 1
         out = self.tick(cleanup=True)
-        self.assertEqual(out["hard_stop"], "deadline")
+        self.assertEqual((out["phase"], out["hard_stop"]), ("stopping", "deadline"))
+        self.assertEqual((self.f.stopped, self.f.deletes()), (0, []))
+
+    def test_steps_in_flight_get_the_grace_then_the_worker_is_deleted_regardless(self):
+        self.f.money = {"spent": 3, "bound": 2}
+        self.f.in_flight = 1
+        out = self.tick()
+        self.assertEqual((out["phase"], self.f.stopped), ("stopping", 0))
+        self.assertTrue((self.f.state_dir / "guard/degraded.json").exists())
+        self.assertEqual(len(self.f.sent), 1)
+        self.f.calls.clear()
+        for _ in range(8):
+            self.assertEqual(self.tick()["phase"], "stopping")
+        self.assertEqual((self.f.stopped, self.f.deletes()), (0, []))
+        self.assertNotIn("extend", [c[0] for c in self.f.calls])
+        self.assertEqual(self.tick(180)["phase"], "stopped")   # the grace is over; still in flight
+        self.assertEqual((self.f.stopped, self.f.deletes()), (1, ["bx_aaaaaaaa"]))
+        self.assertEqual(len(self.f.sent), 1)
+
+    def test_a_step_finishing_early_means_the_worker_goes_at_once(self):
+        self.f.money = {"spent": 3, "bound": 2}
+        self.f.in_flight = 1
+        self.assertEqual(self.tick()["phase"], "stopping")
+        self.f.in_flight = 0
+        self.assertEqual(self.tick()["phase"], "stopped")
+        self.assertEqual(self.f.deletes(), ["bx_aaaaaaaa"])
+
+    def test_an_unanswering_controller_keeps_the_grace_and_a_dead_one_does_not(self):
+        self.f.money = {"spent": 3, "bound": 2}
+        self.f.in_flight = 1
+        self.tick()
+        self.f.rpc_failures = 10 ** 6
+        self.assertEqual(self.tick()["phase"], "stopping")
+        self.f.active = "failed"
+        self.assertEqual(self.tick()["phase"], "stopped")
+        self.assertEqual(self.f.deletes(), ["bx_aaaaaaaa"])
+
+    def test_a_failed_stop_or_delete_is_retried(self):
+        self.f.money = {"spent": 3, "bound": 2}
+        delete, left = self.f.delete, [3]
+        def flaky(worker):
+            if left[0]:
+                left[0] -= 1
+                raise OSError()
+            delete(worker)
+        self.f.delete = flaky
+        self.assertEqual(self.tick()["phase"], "stopping")
+        self.assertEqual(self.tick()["phase"], "stopped")
+        self.assertEqual(self.f.deleted, ["bx_aaaaaaaa"])
         self.assertEqual(self.f.stopped, 1)
-        self.assertEqual(self.f.calls, [])
 
     def test_a_finished_batch_publishes_and_stops(self):
         self.f.cases[0]["status"] = "sealed"

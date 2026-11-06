@@ -17,8 +17,13 @@ workers. A source change does not update deployed pins or authorize paid work.
 
 The campaign guard (`factory/durable/guard.py`) runs every minute. A failed check is retried
 and marks the batch degraded, which pauses new attempts and stops nothing. Only the deadline,
-the money ceiling and a confirmed Boat allowance or rate breach stop the controller. After a
-hard stop, delete `<state_dir>/guard/status.json` to let the guard run again.
+the money ceiling and a confirmed Boat allowance or rate breach are hard stops.
+
+A hard stop pauses new attempts and gives steps in flight a checkpoint grace to record (10
+minutes; set `UNBUG_CHECKPOINT_GRACE_S` in `/etc/unbug/alerts.env`). The guard then stops the
+controller and deletes the workers, at once if nothing is in flight. Unrecorded work becomes an
+ordinary retry and is never scored. To resume, fix the cause, delete
+`<state_dir>/guard/status.json` and start the controller.
 
 `unbug status` shows guard health, recent failures and every `NEEDS YOU` line. To also get
 each alert as a message, put `UNBUG_ALERT_WEBHOOK=<url>` in `/etc/unbug/alerts.env`, mode 600.

@@ -62,6 +62,8 @@ def dispatch(runtime, request):
         if not BATCH_ID.fullmatch(request["batch"]):
             raise RuntimeErrorCode("invalid_batch")
         return publish(runtime.store.objects, request["batch"], load_cards(request["batch"]), PUBLISHED_REASONS)
+    if op == "in_flight":
+        return runtime.engine.in_flight()
     if op == "budget":
         if not BATCH_ID.fullmatch(request["batch"]):
             raise RuntimeErrorCode("invalid_batch")

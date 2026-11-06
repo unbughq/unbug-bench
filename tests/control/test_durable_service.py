@@ -45,6 +45,11 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("Requires=", campaign)   # a router restart must not stop the controller
         self.assertIn("Wants=unbug-model-router.service", campaign)
 
+    def test_the_deadline_holds_even_if_the_guard_cannot_run(self):
+        cleanup = (ROOT / "control/campaign/unbug-case-campaign-cleanup.service").read_text()
+        self.assertIn('$SERVICE_RESULT" = success', cleanup)
+        self.assertNotIn("ExecStartPre", cleanup)
+
     def test_setup_syntax_and_no_activation(self):
         path = ROOT / "control/setup-durable.sh"
         subprocess.run(["sh", "-n", str(path)], check=True)

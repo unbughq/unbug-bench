@@ -614,6 +614,11 @@ def engine_main(workdir):
     engine.launch()
     if "drain_s" in scenario:
         stop_on_signal(lambda: engine.drain(scenario["drain_s"]))
+    def report_in_flight():
+        while True:
+            fakes["worker"].f.write("in-flight.json", engine.in_flight())
+            time.sleep(0.05)
+    threading.Thread(target=report_in_flight, daemon=True).start()
     handle = engine.start_batch(spec, registry)
     from dbos import DBOS
 

@@ -72,7 +72,8 @@ class Drill(unittest.TestCase):
         rpc = lambda op: {"status": {"cases": [{"case": C1, "status": "running"}]},
                           "budget": {"spent": 0, "bound": 1}}[op]
         return Guard({**REQUEST, "deadline_epoch": time.time() + 3600}, run.work / "state/guard", boat=boat, rpc=rpc,
-                     service=service, ours=lambda row: True, count=lambda: 1, sleep=lambda s: None)
+                     service=service, ours=lambda row: True, count=lambda: 1, delete=lambda worker: None,
+                     sleep=lambda s: None)
 
     def test_a_hanging_usage_call_pauses_only_new_attempts(self):
         run, process = self.start(scenario())
@@ -131,6 +132,16 @@ class Drill(unittest.TestCase):
         settle = [x for x in run.ledger_log() if x.get("key") == WRITER]
         self.assertEqual([x["op"] for x in settle], ["reserve", "settle"])   # its usage survives
 
+    def test_sigterm_waits_for_a_step_that_is_recording(self):
+        """The drain counts attempts for real: a step past its last park must finish recording."""
+        run, process = self.start(scenario(script={"1/writer:1/1": {"dur": 0.6}}, poll_s=0.5))
+        self.wait_for(run, WRITER, process)
+        time.sleep(0.3)
+        self.assertEqual(_Files(run.work / "state/worker").read("in-flight.json", 0), 1)
+        process.send_signal(signal.SIGTERM)
+        self.assertEqual(process.wait(timeout=30), 0, run.tail())
+        self.finish(run)
+
     def test_sigkill_mid_attempt_reattaches(self):
         run, process = self.start(scenario())
         self.wait_for(run, WRITER, process)
@@ -165,6 +176,75 @@ class Drill(unittest.TestCase):
             pool.write("pool.json", workers)
         self.finish(run, process)
         self.assertEqual([x["op"] for x in run.ledger_log() if x.get("key") == WRITER], ["reserve", "settle_lost"])
+
+    def hard_stop(self, run, process, *, grace_s):
+        """A money breach against the running controller, with Boat faked over the worker pool."""
+        time.sleep(0.3)   # the fake reports its in-flight count every 50ms
+        pool, stopped = _Files(run.work / "state/pool"), []
+        def live():
+            workers = pool.read("pool.json", {})
+            return [] if workers[C1]["dead"] else ["bx_aaaaaaaa"]
+        def delete(worker):
+            with pool.locked():
+                workers = pool.read("pool.json", {})
+                workers[C1]["dead"] = True
+                pool.write("pool.json", workers)
+            _Files(run.work / "state/worker").write(f"attempts-{C1}.json", {})   # its work dies with it
+        def boat(args, timeout):
+            return {"code": 0, "out": {"list": inventory(*live()), "usage": USAGE}.get(args[0], b"{}"),
+                    "stderr": b"", "seconds": 0}
+        def rpc(op):
+            if op == "in_flight":
+                return _Files(run.work / "state/worker").read("in-flight.json", 0)
+            return {"status": {"cases": [{"case": C1, "status": "running"}]}, "budget": {"spent": 2, "bound": 1}}[op]
+        def stop():
+            process.send_signal(signal.SIGTERM)
+            self.assertEqual(process.wait(timeout=30), 0, run.tail())
+            stopped.append(1)
+        service = type("Service", (), {"state": lambda s: ("inactive" if stopped else "active", time.time() - 3600, None),
+                                       "stop": lambda s: stop()})()
+        return Guard({**REQUEST, "deadline_epoch": time.time() + 3600}, run.work / "state/guard", boat=boat, rpc=rpc,
+                     service=service, ours=lambda row: True, count=lambda: 1, delete=delete,
+                     checkpoint_grace_s=grace_s, sleep=lambda s: None), stopped, live
+
+    def resume(self, run):
+        """What an operator does after fixing the cause. Then the batch must run by itself."""
+        (run.work / "state/guard/status.json").unlink()
+        (run.work / "state/guard/degraded.json").unlink(missing_ok=True)
+        return self.finish(run)
+
+    def test_hard_stop_past_the_grace_deletes_the_worker_and_retries_cleanly(self):
+        run, process = self.start(scenario(script={"1/writer:1/1": {"dur": 30.0}}))
+        self.wait_for(run, WRITER, process)
+        guard, stopped, live = self.hard_stop(run, process, grace_s=1.0)
+        begun = time.monotonic()
+        self.assertEqual(guard.run()["phase"], "stopping")
+        self.assertEqual((stopped, live()), ([], ["bx_aaaaaaaa"]))
+        time.sleep(1.1)
+        self.assertEqual(guard.run()["phase"], "stopped")
+        self.assertEqual(live(), [])
+        self.assertLess(time.monotonic() - begun, 8)
+        self.assertFalse([x for x in run.ledger_log() if x["op"].startswith("settle") and x.get("key") == WRITER])
+        self.resume(run)
+        self.assertEqual([x["op"] for x in run.ledger_log() if x.get("key") == WRITER], ["reserve", "settle_lost"])
+        self.assertEqual([s["worker"] for s in run.starts() if s["key"] == C1 + "/2/writer:1/2"], ["w-1-2"])
+
+    def test_hard_stop_deletes_at_once_when_the_step_records_inside_the_grace(self):
+        run, process = self.start(scenario(script={"1/writer:1/1": {"dur": 2.0}}))
+        self.wait_for(run, WRITER, process)
+        guard, stopped, live = self.hard_stop(run, process, grace_s=600.0)
+        begun = time.monotonic()
+        self.assertEqual(guard.run()["phase"], "stopping")
+        until = time.monotonic() + 30
+        while guard.run()["phase"] == "stopping":
+            self.assertLess(time.monotonic(), until, run.tail())
+            time.sleep(0.2)
+        self.assertLess(time.monotonic() - begun, 30)   # far inside the 10 minutes
+        self.assertEqual(live(), [])
+        self.assertEqual([x["op"] for x in run.ledger_log() if x.get("key") == WRITER], ["reserve", "settle"])
+        self.assertFalse([s for s in run.starts() if "/stress:" in s["key"]], "a new attempt ran during the stop")
+        self.resume(run)
+        self.assertEqual(len([s for s in run.starts() if s["key"] == WRITER]), 1)
 
     def test_postgres_restart_mid_attempt(self):
         binaries = [shutil.which(n) for n in ("initdb", "pg_ctl")]

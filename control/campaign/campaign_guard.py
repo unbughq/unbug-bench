@@ -8,7 +8,7 @@ import sys
 
 root = Path(os.environ.get('UNBUG_CAMPAIGN_ROOT', Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'factory'))
-from durable.guard import CheckFailed, Guard, webhook
+from durable.guard import CHECKPOINT_GRACE_S, CheckFailed, Guard, webhook
 from durable.workers import BoatCli, BoatPool, ReleaseStore
 
 SERVICE = 'unbug-durable-case-campaign.service'
@@ -55,5 +55,6 @@ def count():
 
 url = os.environ.get('UNBUG_ALERT_WEBHOOK')
 Guard(request, state / 'guard', boat=cli.probe, rpc=rpc, service=Service(),
-      ours=lambda row: pool._live(row) and pool._ours(row) is not None, count=count,
+      ours=lambda row: pool._live(row) and pool._ours(row) is not None, count=count, delete=pool._delete_raw,
+      checkpoint_grace_s=float(os.environ.get('UNBUG_CHECKPOINT_GRACE_S', CHECKPOINT_GRACE_S)),
       notify=webhook(url) if url else None).run(cleanup='--cleanup' in sys.argv)

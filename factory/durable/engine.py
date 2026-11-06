@@ -78,6 +78,7 @@ class _Runtime:
     lock = threading.Lock()
     busy = 0     # attempt workflows running in this process
     parked = 0   # of those, held by shutdown at a point where a restart can resume them
+    gated = 0    # of those, not started: waiting out a pause before taking money or a worker
     attempt_thread = threading.local()
 
 
@@ -158,9 +159,19 @@ def _new_attempt_gate() -> None:
     """Before an attempt takes money or a worker: wait out a degraded batch. Attempts already
     running carry on. This only delays a step, so it records nothing and replays the same."""
     hold_if_draining()
+    if not _RT.admission_paused():
+        return
+    tracked = getattr(_RT.attempt_thread, "tracked", False)
+    if tracked:
+        with _RT.lock:
+            _RT.gated += 1
     while _RT.admission_paused():
         time.sleep(_RT.timing.degraded_poll_s)
-        hold_if_draining()
+        if _RT.draining.is_set():
+            threading.Event().wait()   # already counted as not running; the process exit ends it
+    if tracked:
+        with _RT.lock:
+            _RT.gated -= 1
 
 
 @DBOS.step()
@@ -1354,13 +1365,18 @@ class Engine:
             raise ContractError("reply carries a FounderReply")
         DBOS.send(case_id, to_record(reply), topic=Topic.FOUNDER_REPLY.value)
 
+    def in_flight(self) -> int:
+        """Attempts that have started and not yet recorded their result."""
+        with _RT.lock:
+            return _RT.busy - _RT.parked - _RT.gated
+
     def drain(self, timeout_s: float) -> None:
         """Start nothing new, and let attempts in flight record or reach a point a restart can
         resume, for at most timeout_s. The caller then ends the process: DBOS.destroy would leave
         workflow threads alive, and one failing just then could record a false terminal error."""
         _RT.draining.set()
         until = time.monotonic() + timeout_s
-        while _RT.busy > _RT.parked and time.monotonic() < until:
+        while self.in_flight() > 0 and time.monotonic() < until:
             time.sleep(0.05)
 
     def shutdown(self) -> None:
