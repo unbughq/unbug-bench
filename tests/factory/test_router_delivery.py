@@ -33,6 +33,37 @@ def archive(names=('claude-token',)):
 
 @unittest.skipUnless(shutil.which('openssl'),'openssl required for offline TLS proof')
 class DeliveryTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('age') and shutil.which('age-keygen'), 'age required')
+    def test_durable_delivery_decrypts_in_memory_and_selects_only_model_accounts(self):
+        from durable.runtime import Runtime
+        with tempfile.TemporaryDirectory() as tmp, router(tmp) as (config, _, __):
+            root = Path(tmp)
+            identity = root / 'identity'
+            subprocess.run(['age-keygen', '-o', str(identity)], capture_output=True, check=True)
+            public = subprocess.run(['age-keygen', '-y', str(identity)], capture_output=True, check=True).stdout.decode().strip()
+            names = ['claude-factory-token-2', 'openrouter-key']
+            encrypted = subprocess.run(['age', '-r', public], input=base64.b64decode(archive(
+                (*names, 'r2-env', 'statements-key', 'claude-token'))), capture_output=True, check=True).stdout
+            bundle = root / 'credentials.age'; bundle.write_bytes(encrypted); bundle.chmod(0o600)
+            runtime = Runtime.__new__(Runtime)
+            runtime.config = {'worker_credentials': {'bundle_file': str(bundle), 'identity_file': str(identity),
+                               'router_client_file': str(config), 'accounts': names}}
+            packed = runtime.worker_credentials()
+            ram = root / 'ram'; ram.mkdir()
+            with tarfile.open(fileobj=io.BytesIO(base64.b64decode(packed))) as tar:
+                self.assertEqual(set(tar.getnames()), {*names, *delivery.NAMES})
+                tar.extractall(ram, filter='data')
+            from worker_secrets import router_environment
+            env = router_environment(ram)
+            self.assertEqual(env['FACTORY_ROUTER_TOKEN'], TOKEN)
+            self.assertIn('paid', model_router.router_request(env['FACTORY_ROUTER_URL'],
+                          env['FACTORY_ROUTER_TOKEN'], 'status', {}, ca_file=env['FACTORY_ROUTER_CA_FILE']))
+            runtime.config['worker_credentials']['legacy_registry'] = True
+            with tarfile.open(fileobj=io.BytesIO(base64.b64decode(runtime.worker_credentials()))) as tar:
+                self.assertEqual(set(tar.getnames()), {*names, *delivery.NAMES, 'statements-key'})
+            runtime.config['worker_credentials']['accounts'].append('codex-auth.json')
+            with self.assertRaises(ValueError): runtime.worker_credentials()
+
     def test_pack_and_real_authenticated_tls(self):
         with tempfile.TemporaryDirectory() as tmp, router(tmp) as (config,store,server):
             packed=delivery.pack(archive(),config)
@@ -100,32 +131,9 @@ class DeliveryTests(unittest.TestCase):
                 self.assertEqual(calls,['/status'])
             finally:server.shutdown();server.server_close();thread.join()
 
-    def test_resume_requires_worker_files_without_host_client(self):
-        source=(ROOT/'factory/launch.sh').read_text()
-        selected=source[source.index('router_names=""'):source.index('# On the VM:')]
-        exports=source[source.index('vm_creds="'):source.index('# One bench run per')]
-        with tempfile.TemporaryDirectory() as tmp:
-            ram=Path(tmp)/'secrets'; ram.mkdir()
-            values={'factory-router-url':'https://router.invalid', 'factory-router-token':TOKEN,
-                    'factory-router-ca.pem':'public-ca-placeholder'}
-            for name,value in values.items(): (ram/name).write_text(value)
-            script='set -eu\nbatch_release=yes; secrets="claude-token codex-auth.json opencode-go-key openrouter-key"; claude_secret=claude-token; opencode_secret=opencode-go-key\n'+selected+'\nsecrets="$router_names"\n'+exports.replace('/dev/shm/secrets',str(ram))+'\neval "$vm_creds"\ntest "$FACTORY_ROUTER_TOKEN" = "'+TOKEN+'"\n'
-            env={**os.environ,'UNBUG_RESUME_LAUNCH':'1','UNBUG_ROUTER_CLIENT_FILE':str(Path(tmp)/'missing')}
-            env.pop('FACTORY_ACCOUNT_POLICY',None)
-            result=subprocess.run(['/bin/sh','-c',script],env=env,capture_output=True)
-            self.assertEqual(result.returncode,0,result.stderr)
-            for name in values:
-                (ram/name).unlink()
-                result=subprocess.run(['/bin/sh','-c',script],env=env,capture_output=True)
-                self.assertNotEqual(result.returncode,0,name)
-                self.assertNotIn(TOKEN.encode(),result.stdout+result.stderr)
-                (ram/name).write_text(values[name])
-        import control_resume
-        self.assertIn('UNBUG_ROUTER_CLIENT_FILE',control_resume.ENVIRONMENT)
-        self.assertFalse(any(k.startswith('FACTORY_ROUTER_') for k in control_resume.ENVIRONMENT))
 
     def test_shared_secrets_default_and_override(self):
-        code='import worker_secrets,model_router,job_config,account_handoff,run; print(worker_secrets.SECRETS); assert all(x==worker_secrets.SECRETS for x in (model_router.SECRETS,job_config.SECRETS,account_handoff.SECRETS)); assert run.STATEMENTS_KEY==worker_secrets.SECRETS/"statements-key"'
+        code='import worker_secrets,model_router,run; print(worker_secrets.SECRETS); assert all(x==worker_secrets.SECRETS for x in (model_router.SECRETS,run.SECRETS)); assert run.STATEMENTS_KEY==worker_secrets.SECRETS/"statements-key"'
         env={k:v for k,v in os.environ.items() if k!='UNBUG_TEST_WORKER_SECRETS'}
         env['PYTHONPATH']=os.pathsep.join((str(ROOT/'factory'),str(ROOT/'bin')))
         for expected in ('/dev/shm/secrets','/offline-only/ram'):

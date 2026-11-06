@@ -6,6 +6,7 @@ from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
 import json
+import os
 import pathlib
 import tempfile
 import types
@@ -101,7 +102,7 @@ run.HOME = root; run.SEALED = sealed; run.BENCH = root / "bench"
 run.sh = lambda *a, **kw: 0; run.bench_manifest = lambda: "trusted"
 run.pilot_homes = lambda: []; run.wipe = lambda c: None
 def forbidden(*a, **kw): raise AssertionError("audit must not build")
-run.build = forbidden
+run.engine_writer_round = forbidden
 def pick(c): c.card["roles"] = {}; return {}
 run.pick_models = pick
 worker_release.verify_selected_drivers = lambda *a, **kw: {}
@@ -125,7 +126,9 @@ assert json.loads((source / "scorecard.json").read_text()) == card
         for mode in ("--audit-fairness", "--rehearse-only"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
                 result = subprocess.run([sys.executable, "-c", script, tmp, mode],
-                                        cwd=(pathlib.Path(__file__).resolve().parents[2] / "factory"), text=True, capture_output=True)
+                                        cwd=(pathlib.Path(__file__).resolve().parents[2] / "factory"),
+                                        env={**os.environ, "PYTHONPATH": str(_TEST_ROOT / "factory") + os.pathsep + str(_TEST_ROOT / "bin")},
+                                        text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
 
 

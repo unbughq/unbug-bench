@@ -1,0 +1,10 @@
+[Unit]
+Description=Start the hard stop at the campaign deadline; the guard timer finishes it
+[Service]
+Type=oneshot
+Environment=UNBUG_CAMPAIGN_ROOT=/home/user/durable-first-case-20261106
+EnvironmentFile=-/etc/unbug/alerts.env
+ExecStart=/home/user/durable-qualification-20261105/venv/bin/python -B /home/user/durable-first-case-20261106/source-current/control/campaign/campaign_guard.py --cleanup
+TimeoutStartSec=300
+# Only if the guard could not run: the deadline must hold regardless.
+ExecStopPost=-/bin/sh -c '[ "$SERVICE_RESULT" = success ] || /usr/bin/systemctl stop --no-block unbug-durable-case-campaign.service'

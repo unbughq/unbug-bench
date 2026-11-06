@@ -27,6 +27,7 @@ class WorkerReleaseTests(unittest.TestCase):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('public synthetic source')
+        (self.root / 'factory/worker-release.json').write_bytes(release.POLICY.read_bytes())
         self.manifest = self.root / 'manifest.json'
         release.stamp(self.root, self.manifest)
         self.policy = json.loads(self.manifest.read_text())
@@ -63,6 +64,24 @@ class WorkerReleaseTests(unittest.TestCase):
         (self.root / 'bin/bench_judging.py').write_text('changed verdict arithmetic')
         with self.assertRaisesRegex(ValueError, 'release file mismatch: bin/bench_judging.py'):
             self.verify()
+        self.assertEqual(self.calls, [])
+
+    def test_operational_helper_verified_from_release_and_science_from_baked_bench(self):
+        factory = self.root / 'release/factory'
+        for name, digest in self.policy['files'].items():
+            if name.startswith('factory/') or name in release.PLUMBING_FILES:
+                target = factory.parent / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((self.root / name).read_bytes())
+        # The operational helper may be missing from an older scientific image.
+        (self.root / 'bin/processes.py').unlink()
+        with patch.object(release, 'output', self.output), patch.object(release.subprocess, 'run'):
+            release.verify(self.policy, self.root, factory, ['opencode'])
+        self.calls.clear()
+        (factory.parent / 'bin/processes.py').write_text('changed release helper')
+        with patch.object(release, 'output', self.output), patch.object(release.subprocess, 'run'):
+            with self.assertRaisesRegex(ValueError, 'release file mismatch: bin/processes.py'):
+                release.verify(self.policy, self.root, factory, ['opencode'])
         self.assertEqual(self.calls, [])
 
     def test_selected_wrong_version_rejected(self):

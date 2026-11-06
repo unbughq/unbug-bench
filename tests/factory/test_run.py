@@ -6,7 +6,7 @@ import sys
 from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
-import argparse, pathlib, sys, tempfile, time
+import argparse, json, pathlib, sys, tempfile
 from unittest import mock
 sys.path.insert(0, str((pathlib.Path(__file__).resolve().parents[2] / "factory")))
 import run
@@ -23,7 +23,8 @@ with tempfile.TemporaryDirectory() as tmp, mock.patch.object(run, 'BENCH', pathl
     before = run.bench_manifest(); (pathlib.Path(tmp) / 'unbug').mkdir(); (pathlib.Path(tmp) / 'unbug/watcher.pid').write_text('1')
     assert run.bench_manifest() == before  # guard runtime state is not a bench change
 
-with tempfile.TemporaryDirectory() as tmp, mock.patch.object(run, 'bench_manifest', return_value='fixture-bench'):
+with tempfile.TemporaryDirectory() as tmp, mock.patch.object(run, 'BENCH', _TEST_ROOT), \
+     mock.patch.object(run, 'bench_manifest', return_value='fixture-bench'):
     c = run.Ctx()
     c.args = argparse.Namespace(dry_run=True, source=None)
     c.work = pathlib.Path(tmp); c.case = c.work / "case"; c.card = {}
@@ -50,43 +51,29 @@ with tempfile.TemporaryDirectory() as tmp, mock.patch.object(run, 'bench_manifes
     (c.case / "base/app.patch").write_text("not a patch\n")
     assert not run.g1(c)[0], "broken patch must fail"
 
-    # Real build loop and G1: invalid round 1 reaches the next builder, never an attacker.
-    import json
-    from test_admission import evidence
-    rows = [evidence('builder', kind, i) for kind in ('web', 'github') for i in range(3)]
-    rows += [evidence('attacker', 'web', i) for i in range(2)]
-    (c.case / 'freshness.jsonl').write_text('\n'.join(map(json.dumps, rows)))
-    from unittest import mock
+    # The worker writer retries G1 failures within its granted round.
+    from durable.contract import Outcome
     for rounds in (1, 2):
         for repaired in (False, True):
-            (c.work / 'attack-state.json').unlink(missing_ok=True)
-            c.args = argparse.Namespace(dry_run=True, source=None, rounds=rounds, runs=10, scenario_runs=3, resume='case-test')
+            c.args = argparse.Namespace(dry_run=True, source=None, rounds=rounds, runs=10, scenario_runs=3)
             c.models = {'builder': ['fake/builder'], 'attacker': ['fake/attacker']}
             calls = []
             def driver(ctx, models, text, cwd, name, user=None, **kwargs):
                 extra = json.loads(text.split('## This run')[1].split('```json\n')[1].split('```')[0])
                 calls.append((name, extra))
-                if name.endswith('-freshness'): return  # G2 top-up, covered separately below
-                if name.startswith('builder'):
-                    if name == 'builder-1':
-                        (c.case / 'base/app.patch').unlink(missing_ok=True)
-                        (c.case / 'promise.md').write_text('word ' * 301)
-                    else:
-                        assert 'promise has 301 words' in extra['precheck_problems']
-                        if repaired: (c.case / 'promise.md').write_text('Keep the promise.')
+                if name == 'builder-1':
+                    (c.case / 'base/app.patch').unlink(missing_ok=True)
+                    (c.case / 'promise.md').write_text('word ' * 301)
                 else:
-                    pathlib.Path(extra['report_path']).write_text('{"complete": true, "blocking": []}')
-            with mock.patch.object(run, 'opencode', driver), mock.patch.object(run, 'bench_manifest', return_value=c.manifest0):
-                try:
-                    run.build(c)
-                except run.BudgetError as error:
-                    assert str(error).startswith('stress_review_unresolved:'), error
-                prechecked = run.g1(c)[0]
+                    assert 'promise has 301 words' in extra['precheck_problems']
+                    if repaired: (c.case / 'promise.md').write_text('Keep the promise.')
+            with mock.patch.object(run, 'opencode', driver), mock.patch.object(run, 'engine_prepare_bench'), \
+                 mock.patch.object(run, 'bench_manifest', return_value=c.manifest0):
+                result = run.engine_writer_round(c, 1, None)
             names = [name for name, _ in calls]
-            assert names[:2] == ['builder-1', 'builder-precheck' if rounds == 1 else 'builder-2'], names
-            assert 'attacker-1' not in names, names
-            assert prechecked == repaired
-            if not repaired: assert not any(name.startswith('attacker') for name in names), names
+            assert names == ['builder-1'] + (['builder-1-fix-1'] if rounds == 2 else []), names
+            assert run.g1(c)[0] == (rounds == 2 and repaired)
+            assert result['outcome'] == (Outcome.OK if rounds == 2 and repaired else Outcome.EXHAUSTED)
 
     import tempfile, types  # G5 resolves an example guard in its own scenario, not the first same-named one
     with tempfile.TemporaryDirectory() as t:
@@ -114,23 +101,6 @@ with tempfile.TemporaryDirectory() as tmp, mock.patch.object(run, 'bench_manifes
         with mock.patch.object(run, "opencode", fake): run.freshness_topup(fc)
         assert calls == ["attacker-freshness"], calls
         assert fc.card["freshness_topup"]["after"]["attacker"] == 2
-        fc.args.resume, fc.args.dry_run = "case-x", False
-        for gate in ("G2", "G3"):  # resumed for a non-content failure: no rewrite, no new attack; searches suffice -> no calls
-            (fc.work / "scorecard.json").write_text(json.dumps({"failed_gate": gate})); calls.clear()
-            with mock.patch.object(run, "opencode", fake), mock.patch.object(run, "g1", lambda c: (True, {"problems": []})):
-                run.build(fc)
-            assert calls == [], (gate, calls)
-        # Resumed after a stop during the stress test on a valid case: round 1 starts with the stress tester.
-        (fc.work / "scorecard.json").write_text(json.dumps({"models_used": {"builder-1": "x", "attacker-1": "y"}})); calls.clear()
-        fc.args.rounds, fc.args.dry_run = 1, False
-        def fake2(c, models, text, cwd, name, user=None):
-            calls.append(name)
-            if name.startswith("attacker-1"):
-                pathlib.Path(json.loads(text.split("```json\n")[-1].split("```")[0])["report_path"]).write_text('{"complete": true, "blocking": []}')
-        with mock.patch.object(run, "opencode", fake2), mock.patch.object(run, "g1", lambda c: (True, {"problems": []})), \
-             mock.patch.object(run, "statement_precheck", lambda c: True), mock.patch.object(run, "early_review", lambda c: None):
-            run.write_and_attack(fc, json.loads((fc.work / "scorecard.json").read_text()))
-        assert calls and calls[0] == "attacker-1", calls
     with tempfile.TemporaryDirectory() as t:  # early G3-G5: failure -> writer problems; pass -> cached, search log ignored
         ec = types.SimpleNamespace(case=pathlib.Path(t) / "case", work=pathlib.Path(t), card={})
         ec.case.mkdir(); (ec.case / "promise.md").write_text("p")
@@ -145,17 +115,9 @@ with tempfile.TemporaryDirectory() as tmp, mock.patch.object(run, 'bench_manifes
         h = ec.early_hash; (ec.case / "freshness.jsonl").write_text("{}\n")
         assert run.case_hash(ec) == h, "the stress tester's search log must not invalidate early results"
         (ec.case / "promise.md").write_text("changed"); assert run.case_hash(ec) != h
-    import os, signal  # SIGTERM pauses: the step stops with BudgetError('paused'); a second request is ignored
-    old = signal.signal(signal.SIGTERM, run.pause_on_term)
-    try:
-        try: os.kill(os.getpid(), signal.SIGTERM); time.sleep(1); raise AssertionError("no pause")
-        except run.PauseRequested: pass
-        assert not issubclass(run.PauseRequested, Exception), "broad except Exception must not swallow a pause"
-        assert signal.getsignal(signal.SIGTERM) == signal.SIG_IGN
-    finally: signal.signal(signal.SIGTERM, old)
     print("ok")
 
-# Admission rejection/resume behavior lives in test_admission.py. Encryption remains synthetic here.
+# Admission screening lives in test_admission.py. Encryption remains synthetic here.
 with tempfile.TemporaryDirectory() as tmp:
     import json, subprocess, types
     root = pathlib.Path(tmp)

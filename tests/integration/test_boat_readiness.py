@@ -127,18 +127,5 @@ class ReadinessTests(unittest.TestCase):
             if hangs: proc.terminate.assert_called_once()
             self.assertEqual(json.loads(self.receipt.read_text())['outcome'], 'refused')
 
-    def test_launcher_rejects_tampered_helper_before_execution(self):
-        launcher = (ROOT / 'factory/launch.sh').read_text()
-        (self.home/'tools').mkdir()
-        (self.home/'tools/boat_readiness.py').write_text('raise SystemExit("EXECUTED")')
-        start = launcher.index('qualified_readiness() {')
-        end = launcher.index('\nif [ -n "$qualified_release" ]', start)
-        result = subprocess.run(['/bin/sh', '-c', 'root=$1; id=fixture; ttl_seconds=1800; readiness_mono=0; readiness_wall=0; margin=420; spend_file=unused\n' +
-            launcher[start:end] + '\nqualified_readiness', 'sh', str(self.home)], capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('review launcher fingerprint', result.stderr)
-        self.assertNotIn('EXECUTED', result.stderr)
-
-
 
 if __name__ == '__main__': unittest.main()

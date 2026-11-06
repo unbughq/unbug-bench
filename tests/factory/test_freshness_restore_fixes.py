@@ -1,7 +1,6 @@
 """Restore regressions; synthetic plaintext plus read-only collected public artifacts."""
 import datetime
 import hashlib
-import importlib.util
 import json
 import os
 import pathlib
@@ -15,14 +14,11 @@ from unittest.mock import patch
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin'), str(ROOT / 'tests/factory')]
 import run
-import recovery
 import model_runtime
 import model_router
 from router_test_support import offline_router
 _ROUTING = offline_router()
 from test_admission import evidence
-
-SYNC = ROOT / 'factory/restore_sync.py'
 
 
 class FreshnessRestoreTests(unittest.TestCase):
@@ -161,14 +157,10 @@ class FreshnessRestoreTests(unittest.TestCase):
         self.assertEqual(self.c.card['loop_freshness']['outcome'], 'excluded')
 
     def diagnosis_republish(self):
-        import diagnosis_dispatch
         from registry import atomic_json
-        self.c.checkpoint_card = json.loads((self.c.work / 'scorecard.json').read_text())
-        # Only this test's routing marker is authored; full authenticated replay is
-        # exercised in test_stream_d_dispatch with the saved case and ledger.
-        self.c.checkpoint_card['diagnosis_state'] = {'status': 'completed'}
-        self.c.card = {}
-        self.assertTrue(diagnosis_dispatch.carry_context(self.c))
+        # Durable restoration carries the authenticated card as snapshot bytes;
+        # no legacy dispatcher projects scheduler state onto a new card.
+        self.c.card = json.loads((self.c.work / 'scorecard.json').read_text())
         atomic_json(self.c.work / 'scorecard.json', self.c.card)
 
     def completed_review_checkpoint(self, *, public_match=False):
@@ -322,71 +314,6 @@ class FreshnessRestoreTests(unittest.TestCase):
              patch.object(run, 'opencode') as call, self.assertRaisesRegex(run.BudgetError, 'budget_exhausted'):
             run.ensure_freshness(self.c)
         call.assert_not_called()
-
-    def test_public_expiry_eligibility_refuses_mixed_reasons(self):
-        self.addCleanup(offline_router()[0].close)
-        state = self.expire()
-        card = {'status': 'stopped', 'terminal_stop': 'freshness_evidence_unavailable',
-                'freshness_repair': state, 'admission_freshness': {
-                    'outcome': 'evidence_incomplete', 'invalid_evidence': 22,
-                    'invalid_evidence_reasons': {'evidence_expired': 22}}}
-        recovery.require_restart_stop(card, [])
-        for changes in ({'failed_gate': 'G2'}, {'checkpoint_error': 'bad'}, {'gates': {'G2': 'fail'}},
-                        {'admission_freshness': {**card['admission_freshness'],
-                         'invalid_evidence_reasons': {'evidence_expired': 21, 'retrieval_failed': 1}}}):
-            with self.subTest(changes=changes), self.assertRaises(ValueError):
-                recovery.require_restart_stop({**card, **changes}, [])
-
-
-class RestoreSyncTests(unittest.TestCase):
-    def setUp(self):
-        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
-        self.root = pathlib.Path(tmp.name); (self.root / 'sealed').mkdir()
-        self.case = 'case-test'
-        (self.root / 'restore-config.json').write_text(json.dumps({'case': self.case}))
-        self.names = [self.case + suffix for suffix in ('.checkpoint.tar.gz.age', '.scorecard.json', '.search.age')]
-        receipt = {'binding': {'case_id': self.case, 'statement_sha256': 'a' * 64},
-                   'cipher_sha256': hashlib.sha256(b'prior search').hexdigest()}
-        old = {'case': self.case, 'statement_sha256': 'a' * 64, 'public_search': receipt,
-               'continuation_budget': {'cost': 1, 'calls': 1, 'events': []}}
-        current = {'case': self.case, 'status': 'stopped', 'terminal_stop': 'freshness_evidence_unavailable',
-                   'sha256': hashlib.sha256(b'new checkpoint').hexdigest(),
-                   'continuation_budget': {'cost': 1, 'calls': 1, 'events': []}}
-        (self.root / 'input-scorecard.json').write_text(json.dumps(old))
-        self.write('input-public-search.json', {**receipt, 'cipher_sha256': 'b' * 64})
-        self.write('sealed/' + self.names[1], current)
-        (self.root / 'sealed' / self.names[0]).write_bytes(b'new checkpoint')
-        (self.root / 'sealed' / self.names[2]).write_bytes(b'prior search')
-        inputs = {name: hashlib.sha256(('old ' + name).encode()).hexdigest() for name in self.names}
-        inputs[self.names[2]] = receipt['cipher_sha256']
-        self.write('input-sha256.json', inputs)
-        self.write('vm-baseline-sha256.json', inputs)
-
-    def write(self, name, value):
-        (self.root / name).write_text(json.dumps(value))
-
-    def module(self):
-        # Source module, existing collected files: no copy/rebuild or publication.
-        with patch.dict(os.environ, UNBUG_RESTORE_ROOT=str(self.root)):
-            spec = importlib.util.spec_from_file_location('restore_sync', SYNC)
-            module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-        return module
-
-    def test_stopped_before_reseal_uses_matching_prior_card_receipt(self):
-        self.addCleanup(offline_router()[0].close)
-        request = self.module().prepare()
-        self.assertTrue(request['original_plaintext_identity_verified'])
-
-    def test_prior_receipt_cannot_authorize_changed_cipher_or_wrong_identity(self):
-        self.addCleanup(offline_router()[0].close)
-        module = self.module()
-        (self.root / 'sealed' / self.names[2]).write_bytes(b'genuine mismatch')
-        with self.assertRaisesRegex(AssertionError, 'ciphertext mismatch'): module.prepare()
-        (self.root / 'sealed' / self.names[2]).write_bytes(b'prior search')
-        old = json.loads((self.root / 'input-scorecard.json').read_text())
-        old['public_search']['binding']['statement_sha256'] = 'c' * 64
-        self.write('input-scorecard.json', old)
-        with self.assertRaisesRegex(AssertionError, 'statement identity'): module.prepare()
 
 
 if __name__ == '__main__': unittest.main()

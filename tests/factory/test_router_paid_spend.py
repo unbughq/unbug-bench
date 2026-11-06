@@ -1,4 +1,4 @@
-"""Real SQLite/gate execution, synthetic credit and usage; no provider calls."""
+"""Real SQLite/gate execution under a frozen historical tariff; no provider calls."""
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager
 from decimal import Decimal
@@ -19,6 +19,7 @@ import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'factory'))
 import model_router as router
 import model_call_gate as gate
+from router_test_support import historical_minimax_profile
 from token_prices import GATED_OPENROUTER
 
 MINIMAX = 'openrouter/minimax/minimax-m3.1-flash'
@@ -46,13 +47,15 @@ def authority(lease):
 
 
 def parallel_reserve(path, lease_id, barrier, results):
-    store = router.Store(path, credit_reader=lambda: Decimal('.46'))
-    barrier.wait()
-    results.put(store.rpc('paid_reserve', dict(lease_id=lease_id, request_id=uuid.uuid4().hex)))
+    with historical_minimax_profile():
+        store = router.Store(path, credit_reader=lambda: Decimal('.46'))
+        barrier.wait()
+        results.put(store.rpc('paid_reserve', dict(lease_id=lease_id, request_id=uuid.uuid4().hex)))
 
 
 class PaidTests(unittest.TestCase):
     def setUp(self):
+        historical = historical_minimax_profile(); historical.start(); self.addCleanup(historical.stop)
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / 'router.sqlite'
         self.now = [time.time()]
@@ -97,6 +100,46 @@ class PaidTests(unittest.TestCase):
         for _ in range(5): self.assertTrue(self.reserve(lease)[1]['granted'])
         self.assertFalse(self.reserve(lease)[1]['granted'])
         self.assertEqual(self.status()['total_usd'], '11.500000000')
+
+    def test_operator_ceiling_change_preserves_spending_and_unknown_holds(self):
+        self.credit = Decimal('.46')
+        lease = admit(self.store)
+        settled, _ = self.reserve(lease)
+        self.store.rpc('paid_settle', settled | {'usage': dict(prompt_tokens=1000000, completion_tokens=900000)})
+        unknown, _ = self.reserve(lease)
+        self.store.rpc('paid_settle', unknown | {'usage': None})
+        self.credit = Decimal('100')
+        self.assertFalse(self.reserve(lease)[1]['granted'])  # More wallet credit cannot raise the limit.
+        with closing(sqlite3.connect(self.path)) as db:
+            before = db.execute('SELECT * FROM paid_requests ORDER BY id').fetchall()
+        self.store = router.Store(self.path, clock=lambda: self.now[0], credit_reader=lambda: self.credit,
+                                  paid_ceiling_usd='1.15')
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertEqual(db.execute('SELECT * FROM paid_requests ORDER BY id').fetchall(), before)
+        self.assertEqual(self.status()['total_usd'], '0.460000000')
+        for _ in range(3): self.assertTrue(self.reserve(lease)[1]['granted'])
+        self.assertFalse(self.reserve(lease)[1]['granted'])
+        self.store = router.Store(self.path, credit_reader=lambda: self.credit)
+        self.assertEqual(self.status()['ceiling_usd'], '1.150000000')
+        self.assertEqual(self.status()['total_usd'], '1.150000000')
+        self.assertFalse(self.reserve(lease)[1]['granted'])
+
+    def test_explicit_limit_does_not_freeze_to_initial_credit_and_still_checks_wallet(self):
+        self.credit = Decimal('.23')
+        self.store = router.Store(self.path, credit_reader=lambda: self.credit, paid_ceiling_usd='1')
+        lease = admit(self.store)
+        self.assertTrue(self.reserve(lease)[1]['granted'])
+        self.assertFalse(self.reserve(lease)[1]['granted'])
+        self.credit = Decimal('1')
+        self.assertTrue(self.reserve(lease)[1]['granted'])
+        self.assertEqual(self.status()['ceiling_usd'], '1.000000000')
+        for bad in (True, -1, 'NaN', 'Infinity', '10000000000', 'bad'):
+            with self.assertRaises(ValueError):
+                router.Store(self.path, paid_ceiling_usd=bad)
+        with self.assertRaisesRegex(ValueError, 'below retained spending'):
+            router.Store(self.path, paid_ceiling_usd='.45')
+        self.assertEqual(self.status()['ceiling_usd'], '1.000000000')
+        self.assertEqual(self.status()['total_usd'], '0.460000000')
 
     def test_unknown_credit_low_credit_and_deadline_fail_closed(self):
         lease = admit(self.store)
@@ -211,6 +254,7 @@ class PaidTests(unittest.TestCase):
 
 class PaidWireTests(unittest.TestCase):
     def setUp(self):
+        historical = historical_minimax_profile(); historical.start(); self.addCleanup(historical.stop)
         import test_model_call_maxima as core
         core.ProtocolTests.setUp(self)
 
@@ -235,6 +279,23 @@ class PaidWireTests(unittest.TestCase):
                      usage=dict(prompt_tokens=1, completion_tokens=1, total_tokens=2))
         return b'data: ' + json.dumps(event).encode() + b'\n\ndata: [DONE]\n\n'
 
+    def test_terminal_accounting_frame_refunds_the_real_shared_hold(self):
+        import test_model_call_maxima as core
+        terminal=dict(id='synthetic',model='minimax/minimax-m3.1-flash',choices=[dict(index=0,
+            delta={'content':'','role':'assistant'},finish_reason='stop',native_finish_reason='stop')])
+        usage=dict(prompt_tokens=1,completion_tokens=1,total_tokens=2)
+        frames=[terminal,dict(terminal,usage=usage)]
+        payload=b''.join(b'data: '+json.dumps(f).encode()+b'\n\n' for f in frames)+b'data: [DONE]\n\n'
+        self.responses=[payload]
+        actual=core.lease(MINIMAX);cap={}
+        with authority(actual) as store,patch.object(gate.sys,'platform','linux'):
+            with gate.enforce(actual,self.env(),cap,3) as active:
+                self.assertEqual(self.post(active),(200,payload))
+                self.assertEqual(active.state.snapshot()['validated_requests'],1)
+                self.assertEqual(active.state.snapshot()['unknown_requests'],0)
+                self.assertEqual(store.rpc('status',{})['paid']['total_usd'],'0.000000250')
+        self.assertTrue(cap['closed'])
+
     def test_refusal_latch_and_lost_reserve_ack_never_connect(self):
         import test_model_call_maxima as core
         from budget import BudgetError
@@ -255,7 +316,6 @@ class PaidWireTests(unittest.TestCase):
                 self.assertEqual(store.rpc('status', {})['paid']['total_usd'], '0.230000000' if lost else '0.000000000')
 
     def test_worker_and_diagnosis_runtime_share_one_ledger_across_batches(self):
-        import copy
         import shutil
         from types import SimpleNamespace
         from unittest.mock import Mock
@@ -290,16 +350,20 @@ class PaidWireTests(unittest.TestCase):
                 return SimpleNamespace(returncode=0)
             def context(index):
                 work = root/str(index); work.mkdir(); (work/'transcripts').mkdir()
-                deadline = router.utc(float(int(time.time())+3600))
-                auth = dict(schema=1,batch='batch-'+str(index),job='job-'+str(index),case='case-'+str(index),
-                    reservation_id=str(uuid.uuid4()),revision=1,source_generation=None,
-                    committed_total_usd='0.690001000',batch_deadline=deadline)
-                c = SimpleNamespace(work=work,case=work,ledger=work/'ledger.json',
+                from durable.contract import ArtifactKind, Ref, Step, StepInput, StepKind
+                batch, case_id = 'b-paid-' + str(index), 'case-' + str(index)
+                step = Step(StepKind.DIAGNOSIS) if index == 2 else Step(StepKind.WRITER, 1)
+                maximum = Decimal(str(router.route_maximum(MINIMAX)['max_usd']))
+                si = StepInput(batch, case_id, 1, step, 1, 'a' * 64, 'b' * 64,
+                    Ref('a' * 64, ArtifactKind.INPUTS), Ref('b' * 64, ArtifactKind.CASE_SNAPSHOT),
+                    3600, int(maximum * 1_000_000) + 1)
+                attempt = core.run.EngineStep(si, 0)
+                c = SimpleNamespace(work=work, case=work, ledger=work/'ledger.json',
                     args=core.run.argument_parser().parse_args(['--source','hunt']),
-                    card={'roles': {role: {'model':MINIMAX} for role in ('writer','reviewer')}},
-                    case_id=auth['case'],batch_id=auth['batch'],job_id=auth['job'],batch_deadline=deadline,
-                    source_generation=None,job_money=copy.deepcopy(auth),
-                    authenticated_job_config={'job_money':copy.deepcopy(auth)},router_accounts=('openrouter-key',))
+                    card={'roles': {role: {'model': MINIMAX} for role in ('writer', 'reviewer')}},
+                    case_id=case_id, batch_id=batch, job_id=case_id,
+                    batch_deadline=attempt.deadline_epoch, engine=attempt,
+                    router_accounts=('openrouter-key',))
                 c.ledger.write_text(json.dumps({'cost':0,'calls':0,'events':[]}))
                 return c
             event = dict(id='synthetic',model='minimax/minimax-m3.1-flash',
@@ -317,7 +381,7 @@ class PaidWireTests(unittest.TestCase):
                     c = context(index)
                     self.assertEqual(runtime.call(c,[MINIMAX],'synthetic',c.work,name,user=user),0)
                     self.assertEqual(store.rpc('status',{})['paid']['total_usd'],f'{Decimal(".23")*index:.9f}')
-                # A third batch gets no replenishment, even with separate job authority.
+                # A third funded Engine attempt cannot replenish the shared provider wallet.
                 c = context(3)
                 with self.assertRaises(router.ProviderWait):
                     runtime.call(c,[MINIMAX],'synthetic',c.work,'builder-1')

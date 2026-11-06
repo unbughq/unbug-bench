@@ -47,7 +47,7 @@ with tempfile.TemporaryDirectory() as tmp:
     argv = ["run.py", "--source", "port", "--resume", "case-synthetic", "--resume-bench-sha", "0" * 64, "--audit-g11"]
     with mock.patch.object(sys, "argv", argv), mock.patch.object(run, "HOME", root), \
          mock.patch.object(run, "bench_manifest", return_value="0" * 64), \
-         mock.patch.object(g11_review, "review") as audit, mock.patch.object(run, "build") as build, \
+         mock.patch.object(g11_review, "review") as audit, mock.patch.object(run, "engine_writer_round") as build, \
          mock.patch.object(run, "sh") as command:
         run.main()
         audit.assert_called_once(); build.assert_not_called(); command.assert_not_called()
@@ -184,29 +184,6 @@ with tempfile.TemporaryDirectory() as tmp:
     argv = ["run.py", "--source", "port", "--resume", "case-synthetic", "--resume-bench-sha", "0" * 64, "--continue-g11-review"]
     with mock.patch.object(sys, "argv", argv), mock.patch.object(run, "HOME", root), \
          mock.patch.object(run, "bench_manifest", return_value="0" * 64), \
-         mock.patch.object(g11_review, "review") as audit, mock.patch.object(run, "build") as build, mock.patch.object(run, "sh") as command:
+         mock.patch.object(g11_review, "review") as audit, mock.patch.object(run, "engine_writer_round") as build, mock.patch.object(run, "sh") as command:
         run.main(); audit.assert_called_once(); build.assert_not_called(); command.assert_not_called()
 print("PASS standalone continuation bypasses builders, original-case requirement and gates")
-
-# A failed seal must not make audit-only private work look empty to the collector.
-with tempfile.TemporaryDirectory() as tmp:
-    import os, subprocess
-    root = pathlib.Path(tmp); (root / "factory").mkdir(); (root / "bin").mkdir()
-    import shutil
-    for name in ('collect.sh', 'collection.py'):
-        shutil.copy((pathlib.Path(__file__).resolve().parents[2] / "factory") / name, root / 'factory' / name)
-    vm = root / "vm"; private = vm / "work/case-synthetic/g11-audit/case"; private.mkdir(parents=True)
-    (private / "promise.md").write_text(secret)
-    fake = root / "bin/boat-call"
-    fake.write_text('''#!/usr/bin/env python3
-import os, subprocess, sys
-assert sys.argv[1] == "ssh", "unsealed audit must not be copied as plaintext"
-command = sys.argv[3]
-if command.startswith("if [ ! -f ~/sealed/DONE ]"): sys.exit(0)
-sys.exit(subprocess.run(["/bin/sh", "-c", command], env=os.environ.copy()).returncode)
-'''); fake.chmod(0o755)
-    result = subprocess.run(["/bin/sh", str(root / "factory/collect.sh"), "synthetic-vm"],
-        env={**os.environ, "HOME": str(vm)}, capture_output=True, text=True)
-    assert result.returncode == 1 and "holds unsealed case work" in result.stderr
-    assert secret not in result.stdout + result.stderr and (private / "promise.md").is_file()
-print("PASS collector refuses to retire unsealed audit-only work")

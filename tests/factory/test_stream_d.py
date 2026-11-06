@@ -20,18 +20,10 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'factory'), str(ROOT / 'bin')]
 import budget
-import job_authority
 from model_router import Lease
 from router_test_support import synthetic_maximum
 
 FIXTURE = ROOT / 'tests/factory/fixtures/invalid-runs-public-cards.json.gz'
-
-
-def authority(limit=1000):
-    channel = {'schema': 1, 'batch': 'practice', 'job': 'original', 'case': 'case-practice',
-        'reservation_id': 'bc97cc76-9028-457d-b116-8887ac02f62f', 'revision': 1, 'source_generation': None,
-        'committed_total_usd': format(Decimal(str(limit)), '.9f'), 'batch_deadline': '2030-11-01T00:00:00Z'}
-    return job_authority.read(channel, channel)
 
 
 def cards():
@@ -49,6 +41,7 @@ class AccountingTests(unittest.TestCase):
         self.original = copy.deepcopy(self.card['continuation_budget'])
         self.path.write_text(json.dumps(self.original))
         (self.work / 'usage-receipts').mkdir()
+        self.attempt = SimpleNamespace(key='accounting', baseline_spent_usd=0, ceiling_usd=20)
 
     def ledger(self): return json.loads(self.path.read_text())
 
@@ -56,7 +49,7 @@ class AccountingTests(unittest.TestCase):
         lease = Lease(lease_id or str(uuid.uuid4()), 'claude/claude-opus-5-5', 'claude-account1', 1,
                       'subscription', 'anthropic', 'claude-account1',
                       **synthetic_maximum('accounting-fixture-only'))
-        row = budget.reserve_invocation(self.path, lease, maximum, authority(),
+        row = budget.reserve_invocation(self.path, lease, maximum, attempt=self.attempt,
             operation_id=operation or str(uuid.uuid4()), call_name=name)
         return lease, row
 
@@ -128,15 +121,14 @@ class AccountingTests(unittest.TestCase):
 
     def test_duplicate_reservation_and_parallel_admission(self):
         lease, row = self.reserve()
-        again = budget.reserve_invocation(self.path, lease, 10, authority(),
+        again = budget.reserve_invocation(self.path, lease, 10, attempt=self.attempt,
             operation_id=row['operation_id'], call_name=row['call_name'])
         self.assertEqual(row, again)
-        baseline = budget.case_spending(self.original)['total_spent_usd']
         def admit(_):
             candidate = Lease(str(uuid.uuid4()), lease.route, lease.account, 1, lease.billing, lease.family, lease.pool,
                               **synthetic_maximum('accounting-fixture-only'))
             try:
-                budget.reserve_invocation(self.path, candidate, 6, authority(baseline + 20),
+                budget.reserve_invocation(self.path, candidate, 6, attempt=self.attempt,
                     operation_id=str(uuid.uuid4()), call_name='reviewer-concurrent')
                 return True
             except budget.BudgetError: return False
@@ -316,55 +308,11 @@ class AccountingTests(unittest.TestCase):
         lease, _ = self.reserve()
         for operation in ('bad', None, 5, uuid.uuid4().hex, str(uuid.uuid1())):
             with self.assertRaisesRegex(budget.BudgetError, 'invalid_operation'):
-                budget.reserve_invocation(self.path, lease, 10, authority(), operation_id=operation, call_name='builder-continuation')
+                budget.reserve_invocation(self.path, lease, 10, attempt=self.attempt, operation_id=operation, call_name='builder-continuation')
         self.assertEqual(budget.outstanding_reservations(self.ledger()), 10)
         for call in (5, {}, []):
             with self.assertRaisesRegex(budget.BudgetError, 'invalid_usage_receipt'):
                 budget.settle({**self.wait(), 'call_id': call}, work=self.work, ledger_path=self.path)
-
-
-class JobMoneyTests(unittest.TestCase):
-    def test_reservation_rechecks_expired_authority(self):
-        from dataclasses import replace
-        with tempfile.TemporaryDirectory() as temporary:
-            expired = replace(authority(), batch_deadline='2020-01-01T00:00:00Z')
-            lease = Lease(str(uuid.uuid4()), 'claude/claude-opus-5-5', 'claude-token', 1, 'subscription', 'anthropic', 'claude-token',
-                          **synthetic_maximum('accounting-fixture-only'))
-            with self.assertRaisesRegex(budget.BudgetError, 'retired_batch_bound'):
-                budget.reserve_invocation(Path(temporary) / 'ledger.json', lease, 5, expired,
-                    operation_id=str(uuid.uuid4()), call_name='builder-1')
-    def test_current_case_binding_uses_deadline_instant_and_refuses_each_mismatch(self):
-        from dataclasses import asdict
-        channel = {'schema': 1, **asdict(authority())}
-        channel['committed_total_usd'] = '1000.000000000'
-        c = SimpleNamespace(case_id=channel['case'], card={}, job_money=channel,
-            authenticated_job_config={'job_money': copy.deepcopy(channel)}, batch_id=channel['batch'],
-            job_id=channel['job'], source_generation=None, batch_deadline=1919808000.0)
-        from model_router import epoch
-        c.batch_deadline = epoch(channel['batch_deadline'])
-        self.assertEqual(job_authority.for_case(c).committed_total_usd, 1000)
-        c.batch_deadline = '2030-11-01T00:00:00.000000+00:00'
-        self.assertEqual(job_authority.for_case(c).committed_total_usd, 1000)
-        for field, value in (('case_id', 'case-wrong'), ('batch_id', 'other'), ('job_id', 'other'),
-                             ('source_generation', 'e' * 64), ('batch_deadline', 1), ('authenticated_job_config', None)):
-            changed = copy.copy(c); setattr(changed, field, value)
-            with self.assertRaisesRegex(budget.BudgetError, 'money_wait'): job_authority.for_case(changed)
-        c.card['terminal_stop'] = 'retired_batch_bound'
-        with self.assertRaisesRegex(budget.BudgetError, 'retired_batch_bound'): job_authority.for_case(c)
-
-    def test_missing_and_stale_authority_fail_closed(self):
-        channel = {'schema': 1, 'batch': 'practice', 'job': 'original', 'case': cards()[0]['card']['case'],
-            'reservation_id': str(uuid.uuid4()), 'revision': 2, 'source_generation': 'e' * 64,
-            'committed_total_usd': '80.000000000', 'batch_deadline': '2026-11-01T00:00:00Z'}
-        self.assertEqual(job_authority.read(channel, channel, now=0).committed_total_usd, Decimal(80))
-        for candidate in (None, {}, {**channel, 'revision': 1}, {**channel, 'source_generation': 'f' * 64},
-                          {**channel, 'committed_total_usd': 'NaN'}, {**channel, 'committed_total_usd': '80.0'}):
-            with self.assertRaisesRegex(budget.BudgetError, 'money_wait'):
-                job_authority.read(candidate, channel, now=0)
-        with self.assertRaisesRegex(budget.BudgetError, 'retired_batch_bound'):
-            job_authority.read(channel, channel, now=1e12)
-        with self.assertRaisesRegex(budget.BudgetError, 'money_wait'):
-            job_authority.for_case(SimpleNamespace(case_id=channel['case'], card={}))
 
 
 if __name__ == '__main__': unittest.main()

@@ -69,58 +69,11 @@ class AdmissionTests(unittest.TestCase):
                     pathlib.Path(request["result_path"]).write_text(json.dumps(verdict)); return 0
                 with patch.object(run, "prior_statements", return_value={"case-old": "synthetic.md"}), \
                      patch.object(run, "model_call", compare), patch.object(run, "opencode") as builder, \
-                     patch.object(run, "reselect_candidate"), \
                      patch.object(run, "g2", return_value=(mode != "public", {"outcome": "public_match"} if mode == "public" else {})):
-                    try: run.write_and_attack(c, {})
+                    try: run.statement_precheck(c)
                     except run.BudgetError:
                         self.assertIn(mode, ("malformed", "unavailable"))
                     builder.assert_not_called()
-
-    def test_failed_prototype_never_full_builder(self):
-        calls = []
-        with patch.object(run, "prior_statements", return_value={}), \
-             patch.object(run, "idea_realism", return_value=True), patch.object(run, "reselect_candidate"), \
-             patch.object(run, "opencode", side_effect=lambda *a, **k: calls.append(a[4]) or 0), \
-             patch.object(admission, "prototype", return_value=(False, {"checks": {"none": False}})) as prototype:
-            run.write_and_attack(self.c, {})
-        self.assertEqual(prototype.call_count, 1)
-        self.assertEqual(calls, ["builder-prototype", "builder-prototype-repair"])
-        self.assertFalse(self.c.card["prototype"]["ok"])
-
-    def test_full_builder_only_after_prototype_success(self):
-        calls = []
-        def model(ctx, models, text, cwd, name):
-            calls.append(name)
-            if name.startswith("attacker-"):
-                args = json.loads(text.split("```json\n")[-1].split("```")[0])
-                pathlib.Path(args["report_path"]).write_text('{"complete": true, "blocking": []}')
-            return 0
-        with patch.object(run, "prior_statements", return_value={}), patch.object(run, "opencode", model), \
-             patch.object(run, "idea_realism", return_value=True), \
-             patch.object(admission, "prototype", return_value=(True, {"checks": {}})), \
-             patch.object(run, "g1", return_value=(True, {"problems": []})), \
-             patch.object(run, "early_checks", return_value=None), patch.object(run, "early_review", return_value=None):
-            run.write_and_attack(self.c, {})
-        self.assertEqual(calls[:2], ["builder-prototype", "builder-1"])
-
-    def test_legacy_completed_resume_preserves_case(self):
-        c = self.c; c.args.resume = c.case_id
-        (c.case / "case.json").write_text("{}")
-        (c.case / "answer-key.json").write_text("{}")
-        (c.case / "scenarios/S1").mkdir(parents=True)
-        (c.case / "scenarios/S1/key.json").write_text("{}")
-        before = (c.case / "statement.md").read_text()
-        def model(ctx, models, text, cwd, name):
-            self.assertEqual(name, "attacker-1")
-            args = json.loads(text.split("```json\n")[-1].split("```")[0])
-            pathlib.Path(args["report_path"]).write_text('{"complete": true, "blocking": []}'); return 0
-        with patch.object(run, "statement_precheck", side_effect=AssertionError("readmission")), \
-             patch.object(admission, "prototype", side_effect=AssertionError("reprototype")), \
-             patch.object(run, "opencode", model), patch.object(run, "g1", return_value=(True, {"problems": []})), \
-             patch.object(run, "early_review", return_value=None):
-            run.write_and_attack(c, {})
-        self.assertEqual((c.case / "statement.md").read_text(), before)
-        self.assertEqual(c.card["admission"]["status"], "legacy_completed_case")
 
     def test_unavailable_registry_blocks_and_statement_only_publishes(self):
         with patch.object(run, "prior_statements", side_effect=RuntimeError("snapshot unavailable")), \
@@ -188,16 +141,15 @@ class AdmissionTests(unittest.TestCase):
         (c.case / "freshness.jsonl").write_text("\n".join(map(json.dumps, rows)))
         before = (c.case / "statement.md").read_bytes()
         with patch.object(run, "prior_statements", return_value={}), \
-             patch.object(run, "opencode", return_value=0) as model, patch.object(run, "reselect_candidate") as select:
+             patch.object(run, "opencode", return_value=0) as model:
             with self.assertRaisesRegex(run.BudgetError, "freshness_evidence_unavailable"):
-                run.write_and_attack(c, {})
-            select.assert_not_called()
+                run.statement_precheck(c)
             self.assertLessEqual(model.call_count, 4)
             calls = model.call_count
             # A fresh Python context must not restart the repair allowance.
             resumed = types.SimpleNamespace(**vars(c))
             with self.assertRaisesRegex(run.BudgetError, "freshness_evidence_unavailable"):
-                run.write_and_attack(resumed, c.card)
+                run.statement_precheck(resumed)
             self.assertEqual(model.call_count, calls)
         self.assertEqual((c.case / "statement.md").read_bytes(), before)
         self.assertEqual(c.card["candidate_attempts"], 1)
@@ -237,11 +189,10 @@ class AdmissionTests(unittest.TestCase):
         c.card = {}
         (c.work / 'freshness-verdict.json').unlink()  # next scenario has no retained independent answer
         with patch.object(run, 'prior_statements', return_value={}), \
-             patch.object(run, 'opencode', return_value=0) as model, patch.object(run, 'reselect_candidate') as select:
+             patch.object(run, 'opencode', return_value=0) as model:
             with self.assertRaisesRegex(run.BudgetError, 'freshness_review_unavailable'):
-                run.write_and_attack(c, {})
+                run.statement_precheck(c)
             self.assertEqual(model.call_count, 1)
-            select.assert_not_called()
         self.assertEqual(c.card['admission']['status'], 'evidence_incomplete')
         self.assertEqual(c.card['admission_freshness']['unresolved_hits'], 1)
 
@@ -442,56 +393,6 @@ class AdmissionTests(unittest.TestCase):
             self.assertTrue(run.idea_realism(c))
         with patch.object(run, "model_call", side_effect=AssertionError("unnecessary repeat")):
             self.assertTrue(run.idea_realism(c))
-
-    def test_candidate_fallback_publishes_new_statement_and_is_bounded(self):
-        c = self.c; c.card["statement_sha256"] = hashlib.sha256((c.case / "statement.md").read_bytes()).hexdigest()
-        c.selection_prior = {}
-        calls = []
-        def select(ctx, models, text, cwd, name):
-            calls.append(name)
-            (c.case / "statement.md").write_text(f"Synthetic alternative {len(calls)}")
-            return 0
-        with patch.object(run, "opencode", select):
-            for i in range(2):
-                with self.assertRaisesRegex(run.BudgetError, "admission_registry_unavailable"):
-                    run.reselect_candidate(c, {})
-                self.assertFalse((c.case / "case.json").exists())
-            run.reselect_candidate(c, {})
-        self.assertEqual(calls, ["builder-selection-2", "builder-selection-3"])
-        self.assertEqual(c.card["admission"]["status"], "exhausted")
-
-    def test_successful_unchanged_prototype_is_not_rebuilt(self):
-        c = self.c
-        receipt = {"statement_sha256": hashlib.sha256((c.case / "statement.md").read_bytes()).hexdigest(),
-                   "attempts": 1, "ok": True, "case_hash": run.case_hash(c), "info": {}}
-        (c.work / "prototype.json").write_text(json.dumps(receipt))
-        c.args.rounds = 0
-        with patch.object(run, "prior_statements", return_value={}), patch.object(run, "idea_realism", return_value=True), \
-             patch.object(run, "opencode", return_value=0) as model, \
-             patch.object(admission, "prototype", side_effect=AssertionError("unnecessary rebuild")), \
-             patch.object(run, "g1", return_value=(True, {"problems": []})), \
-             patch.object(run, "early_checks", return_value=None) as early:
-            with self.assertRaisesRegex(run.BudgetError, "stress_review_unresolved:rounds_exhausted"):
-                run.write_and_attack(c, {})
-        self.assertEqual([call.args[4] for call in model.call_args_list], ["builder-precheck"])
-        early.assert_called_once_with(c)
-
-    def test_interrupted_completed_prototype_is_validated_without_reauthoring(self):
-        c = self.c; c.args.rounds = 0
-        receipt = {"statement_sha256": hashlib.sha256((c.case / "statement.md").read_bytes()).hexdigest(),
-                   "attempts": 1, "ok": False, "pending": True, "before_hash": run.case_hash(c)}
-        (c.case / "promise.md").write_text("retained completed construction")
-        (c.work / "prototype.json").write_text(json.dumps(receipt))
-        with patch.object(run, "prior_statements", return_value={}), patch.object(run, "idea_realism", return_value=True), \
-             patch.object(run, "opencode", return_value=0) as model, \
-             patch.object(admission, "prototype", return_value=(True, {"checks": {}})) as prototype, \
-             patch.object(run, "g1", return_value=(True, {"problems": []})), \
-             patch.object(run, "early_checks", return_value=None) as early:
-            with self.assertRaisesRegex(run.BudgetError, "stress_review_unresolved:rounds_exhausted"):
-                run.write_and_attack(c, {})
-        self.assertEqual(prototype.call_count, 1)
-        self.assertEqual([call.args[4] for call in model.call_args_list], ["builder-precheck"])
-        early.assert_called_once_with(c)
 
     def test_g15_rejects_before_expensive_early_checks(self):
         c = self.c; (c.case / "answer-key.json").write_text("{}")

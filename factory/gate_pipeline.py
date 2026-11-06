@@ -55,9 +55,8 @@ class GatePipeline:
                               "fingerprint_version": c.gate_fingerprint_versions[gate]}
             signature = gate_state.fingerprint(c, gate, self.bench)
             before = {key: gate_state.digest(path) for key, path in gate_state.inventory(c, self.bench).items()}
-        from factory_waste import attempt
         try:
-            with attempt(c, gate, self.case_hash(c)), self.window(c, gate):
+            with self.window(c, gate):
                 ok, info = self.evaluate(c, gate)
                 if info.get('classification') == 'invalid-infra':
                     from run_validity import InvalidInfra
@@ -91,12 +90,15 @@ class GatePipeline:
                     lambda: self.check(c, gate),
                     publish=lambda *args: self.publish(c, 'early:' + gate, *args),
                     record_crash=lambda error: self.record_crash(c, gate, error),
-                    interruption=BudgetError, attempts=2, raise_crash=True,
-                    journal=c.work / "infra-attempts.json",
+                    interruption=BudgetError, attempts=1 if getattr(c, "engine", None) is not None else 2, raise_crash=True,
+                    journal=None if getattr(c, "engine", None) is not None else c.work / "infra-attempts.json",
                     identity={"operation": "early-gate", "gate": gate, "case": self.case_hash(c)})
             ok, info = outcome.ok, outcome.info
             self.log(c, gate, "early", "pass" if ok else "FAIL", json.dumps(info), f"{outcome.elapsed_seconds:.0f}s")
             c.card.setdefault("early_gates", {})[gate] = {"ok": ok, "minutes": round((outcome.elapsed_seconds) / 60, 1)}
+            if getattr(c, 'engine', None) is not None:
+                from durable.checkpoints import checkpoint
+                checkpoint(c)
             if not ok:
                 c.early = {}
                 problems = [f"early check {gate} failed: {json.dumps(info)}"]
@@ -129,12 +131,15 @@ class GatePipeline:
                 lambda: self.check(c, gate),
                 publish=lambda *args: self.publish(c, 'early:' + gate, *args),
                 record_crash=lambda error: self.record_crash(c, gate, error),
-                interruption=BudgetError, attempts=2, raise_crash=True,
-                journal=c.work / "infra-attempts.json",
+                interruption=BudgetError, attempts=1 if getattr(c, "engine", None) is not None else 2, raise_crash=True,
+                journal=None if getattr(c, "engine", None) is not None else c.work / "infra-attempts.json",
                 identity={"operation": "early-review", "gate": gate, "case": self.case_hash(c)})
             ok, info = outcome.ok, outcome.info
             self.log(c, gate, "early", "pass" if ok else "FAIL", json.dumps(info), f"{outcome.elapsed_seconds:.0f}s")
             c.card.setdefault("early_gates", {})[gate] = {"ok": ok, "minutes": round(outcome.elapsed_seconds / 60, 1)}
+            if getattr(c, 'engine', None) is not None:
+                from durable.checkpoints import checkpoint
+                checkpoint(c)
             if ok: early[gate] = (ok, info)
             else: problems.append(f"early check {gate} failed: {json.dumps(info)}; reviewer {part} findings: "
                                   + json.dumps([(v.get(part) or {}).get("findings") for v in c.votes])[:8000])
@@ -149,6 +154,13 @@ class GatePipeline:
                 if gate in getattr(c, "early", {}) and c.early_hash == self.case_hash(c):
                     ok, info = c.early[gate]
                     return ok, {**info, "reused_from_early_check": True}
+                if getattr(c, 'engine', None) is not None:
+                    from durable.checkpoints import gate_call
+                    from gate_state import inputs
+                    import run
+                    binding = {"science": inputs(c, gate, run.BENCH),
+                               "ruling": getattr(c, "engine_ruling", None)}
+                    return gate_call(c, gate, lambda: self.check(c, gate), binding)
                 return self.check(c, gate)
             retained = replay_gate(c, gate) if replay_gate else None
             if retained is not None:
@@ -160,7 +172,7 @@ class GatePipeline:
                     (lambda: around_gate(c, gate, invoke)) if around_gate else invoke,
                     publish=lambda *args: self.publish(c, gate, *args),
                     record_crash=lambda error: self.record_crash(c, gate, error), interruption=BudgetError,
-                    attempts=2, journal=c.work / "infra-attempts.json",
+                    attempts=1 if getattr(c, "engine", None) is not None else 2, journal=None if getattr(c, "engine", None) is not None else c.work / "infra-attempts.json",
                     identity={"operation": "gate", "gate": gate, "case": self.case_hash(c),
                               "seed": getattr(c, "seed", None), "bench": getattr(c, "manifest0", None), "models": getattr(c, "models", {}),
                               "args": {key: getattr(c.args, key, None) for key in

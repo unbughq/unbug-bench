@@ -28,7 +28,7 @@ secrets_b64=$(printf '%s\n' "$identity" | age -d -i /dev/stdin "$secrets_file" |
 ttl_hours=""; max_spend=3; args=""; arms=0; tries=1; out='~/exam-out'; private='~/exam-private'; label=exam; n=1
 # Scored runs: one machine type for the whole round (CX33 = boat's 4 vCPU/8 GB), never the CX43 fallback.
 HCLOUD_PLACES="cx33@nbg1 cx33@fsn1 cx33@hel1"; export HCLOUD_PLACES
-. "$root/bin/boat-launch-guards.sh"
+. "$root/bin/exam-launch-guards.sh"
 while [ $# -gt 0 ]; do
   case $1 in
     --ttl-hours|--max-spend|--stall-minutes|--arm|--tries|--out|--private)
