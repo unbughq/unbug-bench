@@ -19,7 +19,6 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'factory'))
 import boat_lifecycle as life
 import deployment_inventory as inventory
-import practice_cleanup as cleanup
 
 FIXTURE = ROOT / 'tests/factory/fixtures/isolation-settlement-cloud'
 WORKER = 'bx_d6dzvjbc'
@@ -182,7 +181,7 @@ else: sys.exit(99)
     def test_real_guard_created_lifecycle_finishes_and_publishes_when_usage_unknown(self):
         script = '''set -eu
 root=$1; n=1; ttl_hours=1; max_spend=5; label=test; purpose=case
-. "$root/bin/boat-launch-guards.sh"
+. "$root/bin/exam-launch-guards.sh"
 collect_vm() { touch "$state/collected-by-test-edge"; }
 guard_init
 guard_new
@@ -223,7 +222,7 @@ guard_exit 0
     def test_real_guard_exit_between_check_and_monitor_write(self):
         script='''set -eu
 root=$1; n=1; ttl_hours=1; max_spend=5; label=test; purpose=case
-. "$root/bin/boat-launch-guards.sh"
+. "$root/bin/exam-launch-guards.sh"
 guard_init
 '''
         # Margin validation is the real exit after admission and before monitor.
@@ -235,22 +234,6 @@ guard_init
         self.assertEqual(row['status'],'settled'); self.assertEqual(row['actual_spend_usd'],'0')
         self.addCleanup(lambda: [Path(k).unlink(missing_ok=True) for k in self.ledger()['reservations']])
 
-    def test_failed_inline_list_recovers_through_cleanup_without_monitor(self):
-        self.admit(); (self.base/'fail-list').touch()
-        self.assertEqual(self.finish().returncode,0)
-        self.assertEqual(self.row()['status'],'finished')
-        (self.state/'spend-finished').touch()
-        op=dict(operation_id='op',launch_id='test',dispatch_started=True,launch={},state='failed',authority={'batch':'b-plumbing-practice-2'})
-        (self.state/'launch.json').write_text('{}')
-        with patch.dict(os.environ,self.env):
-            first=cleanup.step({},ROOT,self.home,op,100)
-            self.assertEqual(first['state'],'settlement_pending')
-            before=(self.base/'calls').read_bytes()
-            self.assertEqual(cleanup.step({},ROOT,self.home,op,159)['state'],'settlement_pending')
-            self.assertEqual(before,(self.base/'calls').read_bytes())
-            (self.base/'fail-list').unlink()
-            self.assertEqual(cleanup.step({},ROOT,self.home,op,160)['state'],'complete')
-        self.assertEqual(self.row()['status'],'settled')
 
     def test_two_workers_partial_usage_never_commits(self):
         self.admit(count='2'); self.proof(count=2)

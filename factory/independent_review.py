@@ -8,6 +8,8 @@ from run_validity import InfrastructureExhausted, InvalidInfra
 
 
 def review(c, r, gate, inputs, instruction, validate):
+    if hasattr(r, "engine_review_ruling"):
+        instruction += r.engine_review_ruling(c, gate)
     blocked = {r.family(c.models[name][0]) for name in ('builder', 'strong_calibrator')}
     binding = {'inputs': {name: tree_digest(path) for name, path in inputs.items()}, 'instruction': instruction}
     key = hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest()

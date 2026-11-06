@@ -29,7 +29,6 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 import calibration
 import budget
-import job_authority
 import model_call_gate as gate
 import model_router as router
 import model_runtime
@@ -81,8 +80,31 @@ class MaximaTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
 
+    def test_oauth_geo_omission_keeps_regional_ceiling_and_explicit_global_receipts(self):
+        self.assertNotIn('inference_geo', gate.request_body(json.dumps(body())))
+        usage = dict(input_tokens=100, cache_read_input_tokens=0,
+                     cache_creation_input_tokens=0, output_tokens=10)
+        base = claude_gate_cost(usage | {'inference_geo': 'global'})
+        for mode in ({}, {'inference_geo': 'not_available'}):
+            self.assertEqual(claude_gate_cost(usage | mode), base * Decimal('1.1'))
+        self.assertIsNone(claude_gate_cost(usage | {'inference_geo': 'us'}))
+        for streaming in (False, True):
+            parser = gate.Usage(32768, streaming)
+            value = usage | {'inference_geo': 'global'}
+            payload = sse(value) if streaming else json.dumps(dict(type='message',
+                model='claude-opus-5-5', stop_reason='end_turn', usage=value)).encode()
+            parser.feed(payload)
+            self.assertEqual(parser.final()['inference_geo'], 'global')
+            self.assertEqual(claude_gate_cost(parser.final()), base)
+        state = gate.Allowance(lease(GATED_CLAUDE + ':small'))
+        identity = state.reserve(32768)
+        self.assertIsNotNone(identity)
+        state.finish(identity, None)
+        self.assertEqual(Decimal(state.snapshot()['held_usd']), Decimal('9.520896'))
+        self.assertIsNone(state.reserve(0))
+
     def test_codex_batch_call_currently_waits_unbounded(self):
-        # Real batch authority, runtime and router; no CLI/provider call.
+        # Real attempt grant, runtime and router; no CLI/provider call.
         deadline = float(int(time.time()) + 3600)
         channel = dict(schema=1, batch='synthetic', job='job', case='case-synthetic',
             reservation_id=str(uuid.uuid4()), revision=1, source_generation=None,
@@ -94,8 +116,7 @@ class MaximaTests(unittest.TestCase):
             args=run.argument_parser().parse_args(['--source', 'hunt']),
             card={'roles': {'strong_calibrator': {'model': model}}},
             case_id=channel['case'], batch_id=channel['batch'], job_id=channel['job'],
-            batch_deadline=deadline, source_generation=None, job_money=copy.deepcopy(channel),
-            authenticated_job_config={'job_money': copy.deepcopy(channel)},
+            batch_deadline=deadline, source_generation=None, engine=SimpleNamespace(key="attempt", baseline_spent_usd=0, ceiling_usd=Decimal(channel["committed_total_usd"])),
             router_accounts=('codex-auth.json',))
         store = router.Store(self.root / 'router.sqlite')
         runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(), Mock(), Mock())
@@ -146,18 +167,22 @@ class MaximaTests(unittest.TestCase):
         cases = [('small','252e6df1-f899-427e-aa07-7b98ba7eb156:result',35),
                  ('medium','0d4adf8f-0ef4-4cef-aeb0-c974454eaee8:result',62)]
         events = {e['id']:e for card in PAID for e in card['continuation_budget']['events']}
-        worst = Decimal('8.655360')
+        worst = Decimal('9.520896')
         for name,identity,calls in cases:
             model = GATED_CLAUDE + ':' + name
             event = events[identity]; usage = event['tokens']
             self.assertEqual((event['role'],event['calls']),('writer',calls))
             cost = max(Decimal(str(event['list_cost_usd'])),claude_gate_cost(usage))
-            self.assertLess(cost + worst + gate.HEADROOM, CLAUDE_PROFILES[model])
+            fits = cost + worst + gate.HEADROOM < CLAUDE_PROFILES[model]
+            self.assertEqual(fits, name == 'medium')
             self.assertEqual(claude_cost(model,usage),claude_cost(GATED_CLAUDE,usage))
             for unknowns in (0,1):
                 state = gate.Allowance(lease(model))
                 state.settled = [cost,sum(usage[k] for k in CLAUDE_GATE_FIELDS[:3]),usage['output_tokens']]
-                token = state.reserve(32768); self.assertIsNotNone(token)
+                token = state.reserve(32768)
+                if not fits:
+                    self.assertIsNone(token); state.close(); continue
+                self.assertIsNotNone(token)
                 if unknowns:
                     state.finish(token,None)
                     self.assertIsNone(state.reserve(0))
@@ -199,7 +224,7 @@ class MaximaTests(unittest.TestCase):
     def test_real_aggregate_exam_and_more_than_eight_validated_requests(self):
         events = real_iterations(); self.assertEqual(len(events),153)
         costs = [claude_gate_cost(e['tokens']) for e in events.values()]
-        worst = Decimal('8.655360')
+        worst = Decimal('9.520896')
         self.assertEqual((sum(c+worst < 50 for c in costs),sum(c>50 for c in costs),
                           sum(c<=50 and c+worst>=50 for c in costs)), (153,0,0))
         allowance = gate.Allowance(lease())
@@ -224,7 +249,7 @@ class MaximaTests(unittest.TestCase):
         self.assertEqual(len(events),32)
         self.assertTrue(all(e['tokens']['speed']=='standard' and e['tokens']['inference_geo']=='global'
                             for e in events.values()))
-        cases = [('b741739e-bdec-4272-8b41-4a7703b02d52:result',110,3),
+        cases = [('b741739e-bdec-4272-8b41-4a7703b02d52:result',110,2),
                  ('013eaa17-daa9-49f9-9ad5-c88288cd5d11:result',135,2)]
         worst = dict.fromkeys(CLAUDE_GATE_FIELDS,0) | {'cache_creation_input_tokens':1000000,'output_tokens':32768}
         for identity,calls,tolerated in cases:
@@ -243,9 +268,10 @@ class MaximaTests(unittest.TestCase):
 
     def test_mode_metadata_is_strict_and_parser_invalidity_is_sticky(self):
         usage=dict(input_tokens=100,cache_read_input_tokens=50,cache_creation_input_tokens=25,output_tokens=10)
-        self.assertEqual(claude_gate_cost(usage),Decimal('0.00081'))
+        self.assertEqual(claude_gate_cost(usage),Decimal('0.000891'))
         for fields in ({},{'speed':'standard','inference_geo':'global'}):
-            self.assertEqual(claude_cost(GATED_CLAUDE,usage|fields),float(claude_gate_cost(usage)))
+            self.assertEqual(claude_cost(GATED_CLAUDE,usage|fields),0.00081)
+            self.assertEqual(claude_gate_cost(usage|fields), Decimal('0.00081' if fields else '0.000891'))
         for key,values in [('speed',('fast','',None,False,{})),('inference_geo',('us','',None,False,{}))]:
             for value in values:
                 with self.subTest(key=key,value=value):
@@ -260,7 +286,7 @@ class MaximaTests(unittest.TestCase):
                     allowance=gate.Allowance(lease());request=allowance.reserve(32768)
                     allowance.finish(request,invalid);allowance.close()
                     self.assertEqual(allowance.snapshot()['unknown_requests'],1)
-                    self.assertEqual(Decimal(allowance.snapshot()['held_usd']),Decimal('8.655360'))
+                    self.assertEqual(Decimal(allowance.snapshot()['held_usd']),Decimal('9.520896'))
         parser=gate.Usage(32768,True)
         payload=sse(usage).replace(b'"output_tokens": 10}',b'"output_tokens": 10,"speed":"fast"}')
         parser.feed(payload);self.assertIsNone(parser.final())
@@ -314,7 +340,7 @@ class MaximaTests(unittest.TestCase):
         self.assertFalse(allowance.is_set())
         allowance.close(); before = allowance.snapshot()
         self.assertEqual((before['forwarded_requests'],before['unknown_requests'],before['in_flight_requests']), (6,5,0))
-        self.assertEqual(Decimal(before['held_usd']),Decimal('43.276800'))
+        self.assertEqual(Decimal(before['held_usd']),Decimal('47.604480'))
         for identity in ids:
             if identity: allowance.finish(identity,dict.fromkeys(CLAUDE_GATE_FIELDS,0))
         self.assertEqual(allowance.snapshot(),before)
@@ -325,7 +351,7 @@ class MaximaTests(unittest.TestCase):
         constrained.finish(identity,dict.fromkeys(CLAUDE_GATE_FIELDS,0)|{'output_tokens':32768})
         self.assertIsNone(constrained.reserve(1));self.assertTrue(constrained.is_set())
         sticky=gate.Allowance(lease());sticky.settled[0]=Decimal('42')
-        self.assertIsNone(sticky.reserve(32768))  # W8.65536 does not fit the remaining8.
+        self.assertIsNone(sticky.reserve(32768))  # W9.520896 does not fit the remaining8.
         self.assertIsNone(sticky.reserve(1))  # Exhaustion is terminal even for a smaller output request.
         self.assertEqual(sticky.forwarded,0)
         cancel=threading.Event();cancel.set();cancelled=gate.Allowance(lease(),cancel)
@@ -375,7 +401,7 @@ class MaximaTests(unittest.TestCase):
             allowance = gate.Allowance(lease()); identity = allowance.reserve(32768)
             allowance.finish(identity,parser.final()); allowance.close()
             self.assertEqual(allowance.snapshot()['unknown_requests'],1)
-            self.assertEqual(allowance.snapshot()['held_usd'],'8.65536')
+            self.assertEqual(allowance.snapshot()['held_usd'],'9.520896')
         parser = gate.Usage(32768,True);parser.feed(good)
         self.assertEqual(parser.final(),usage)
         for stop in (None, '', 'unknown'):
@@ -426,7 +452,7 @@ class MaximaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'unbounded'):store.rpc('renew',{'lease_id':identity})
         store.rpc('finish',dict(lease_id=identity,outcome='denied',receipt=None))
 
-    def test_real_route_maximum_fits_D_decimal_authority_and_unknown_settlement_once(self):
+    def test_real_route_maximum_fits_attempt_grant_and_unknown_settlement_once(self):
         # Synthetic B binding/interrupt, actual A policy and D reader/accountant.
         # B's installer is separate; D admission uses the validated Lease maximum.
         store=router.Store(self.root/'router.sqlite')
@@ -442,16 +468,15 @@ class MaximaTests(unittest.TestCase):
                 reservation_id=str(uuid.uuid4()),revision=1,source_generation=None,
                 committed_total_usd=limit,batch_deadline=datetime.fromtimestamp(deadline,timezone.utc).isoformat())
             c=SimpleNamespace(card={},case_id=channel['case'],batch_id=channel['batch'],job_id=suffix,
-                batch_deadline=deadline,source_generation=None,job_money=copy.deepcopy(channel),
-                authenticated_job_config={'job_money':copy.deepcopy(channel)})
-            authority=job_authority.for_case(c);operation=str(uuid.uuid4())
+                batch_deadline=deadline,source_generation=None,engine=SimpleNamespace(key="attempt", baseline_spent_usd=0, ceiling_usd=Decimal(channel["committed_total_usd"])))
+            attempt=c.engine;operation=str(uuid.uuid4())
             if suffix=='short':
-                with self.assertRaisesRegex(budget.BudgetError,'^money_wait$'):
-                    budget.reserve_invocation(path,actual,model_runtime.invocation_maximum(c,actual),authority,
+                with self.assertRaisesRegex(budget.BudgetError,'grant_insufficient'):
+                    budget.reserve_invocation(path,actual,model_runtime.invocation_maximum(c,actual),attempt=attempt,
                         operation_id=operation,call_name='builder-1')
                 self.assertEqual(path.read_bytes(),before)
             else:
-                row=budget.reserve_invocation(path,actual,model_runtime.invocation_maximum(c,actual),authority,
+                row=budget.reserve_invocation(path,actual,model_runtime.invocation_maximum(c,actual),attempt=attempt,
                     operation_id=operation,call_name='builder-1')
                 self.assertEqual(row['maximum_usd'],'50.000000000')
                 self.assertEqual(budget.outstanding_reservations(json.loads(path.read_text())),Decimal(50))
@@ -471,8 +496,9 @@ class MaximaTests(unittest.TestCase):
                 self.assertEqual(Decimal(str(budget.case_spending(ledger)['total_spent_usd'])),bound)
                 self.assertEqual(Decimal(ledger['invocation_reservations'][actual.lease_id]['estimated_gap_usd']),bound)
                 self.assertEqual(ledger['events'],[])  # Settlement never invents billed events.
-                c.job_money['revision']=2
-                with self.assertRaisesRegex(budget.BudgetError,'^money_wait$'):job_authority.for_case(c)
+                attempt.ceiling_usd = Decimal(51)
+                with self.assertRaisesRegex(budget.BudgetError, 'reservation_mismatch'):
+                    budget.attempt_limit(ledger, attempt)
             store.rpc('finish',dict(lease_id=actual.lease_id,outcome='denied',receipt=None))
 
     def test_fractional_lease_maximum_reserves_upward_to_nine_places(self):
@@ -482,14 +508,13 @@ class MaximaTests(unittest.TestCase):
         with patch.object(router, 'route_maximum', return_value=maximum):
             rounded = model_runtime.invocation_maximum(SimpleNamespace(), actual)
         self.assertEqual(rounded, Decimal('0.123456790'))
-        channel = json.loads((ROOT / 'tests/fixtures/factory/stream-d/job-money.json').read_text())
-        authority = job_authority.read(channel, copy.deepcopy(channel))
+        attempt = SimpleNamespace(key='rounding', baseline_spent_usd=0, ceiling_usd=50)
         path = self.root / 'ledger.json'
         path.write_text(json.dumps({'cost': 0, 'calls': 0, 'events': []}))
         for amount in (rounded, actual.max_usd):
             with self.subTest(amount=amount):
                 row = budget.reserve_invocation(path, replace(actual, lease_id=uuid.uuid4().hex), amount,
-                    authority, operation_id=str(uuid.uuid4()), call_name='builder-rounding')
+                    attempt=attempt, operation_id=str(uuid.uuid4()), call_name='builder-rounding')
                 self.assertEqual(row['maximum_usd'], '0.123456790')
 
     def test_factory_dispatch_preserves_lease_maximum_gate_and_invocation_identity(self):
@@ -514,13 +539,13 @@ class MaximaTests(unittest.TestCase):
                     card={'roles': {'writer': {'model': GATED_CLAUDE}}},
                     case_id=channel['case'], batch_id=channel['batch'], job_id=outcome,
                     batch_deadline=deadline, source_generation=None,
-                    job_money=copy.deepcopy(channel), authenticated_job_config={'job_money': copy.deepcopy(channel)},
+                    engine=SimpleNamespace(key="attempt", baseline_spent_usd=0, ceiling_usd=Decimal(channel["committed_total_usd"])),
                     router_accounts=('claude-factory-token-2',))
                 def process(cmd, cwd, env, transcript, ledger, timeout, **kw):
                     row = json.loads(path.read_text())['invocation_reservations'][kw['lease_id']]
                     self.assertEqual(row['maximum_usd'], '50.000000000')
                     self.assertEqual(kw['invocation_id'], row['invocation_id'])
-                    self.assertEqual(kw['job_authority'].committed_total_usd, Decimal(50))
+                    self.assertIs(kw['attempt'], c.engine)
                     self.assertIsNone(kw['max_cost']); self.assertTrue(kw['concurrent'])
                     self.assertTrue(env['ANTHROPIC_BASE_URL'].startswith('http://127.0.0.1:'))
                     self.assertIsNotNone(kw['cancel'])
@@ -611,7 +636,7 @@ class MaximaTests(unittest.TestCase):
         # Synthetic boundary arithmetic supplements, never replaces, the real-usage replay.
         worst=dict(input_tokens=0,cache_read_input_tokens=0,cache_creation_input_tokens=1000000,output_tokens=32768)
         usages=[worst]*4+[dict(input_tokens=0,cache_read_input_tokens=34,
-                             cache_creation_input_tokens=840399,output_tokens=0),worst]
+                             cache_creation_input_tokens=272217,output_tokens=0),worst]
         allowance=gate.Allowance(lease());events=[]
         for index,usage in enumerate(usages):
             identity=allowance.reserve(32768);self.assertIsNotNone(identity)
@@ -627,7 +652,7 @@ class MaximaTests(unittest.TestCase):
                 max_cost=100,max_calls=100,max_total_calls=100,case_budget=1000)
         self.assertLessEqual(json.loads(ledger.read_text())['estimated_subscription_cost_usd'],50.0)
         tight=gate.Allowance(lease())
-        tight.settled[0]=Decimal('50')-Decimal('8.655360')-Decimal('0.0000005')
+        tight.settled[0]=Decimal('50')-Decimal('9.520896')-Decimal('0.0000005')
         self.assertIsNone(tight.reserve(32768));self.assertEqual(tight.forwarded,0)
 
 
@@ -692,7 +717,7 @@ class ProtocolTests(unittest.TestCase):
             self.assertFalse(active.is_set())
         self.assertEqual(len(self.seen),1)
         sent=self.seen[0][1];headers={k.lower():v for k,v in self.seen[0][2].items()}
-        self.assertEqual(sent['inference_geo'],'global')
+        self.assertNotIn('inference_geo',sent)
         self.assertEqual(sent['max_tokens'],32768);self.assertNotIn('context_management',sent)
         self.assertEqual(sent['thinking'],{'type':'adaptive'});self.assertEqual(sent['service_tier'],'standard_only')
         self.assertEqual(headers['anthropic-beta'],gate.BETAS);self.assertNotIn('anthropic-workspace-id',headers)
@@ -708,7 +733,7 @@ class ProtocolTests(unittest.TestCase):
                 self.assertTrue(active.is_set())
         self.assertEqual(len(self.seen),5)
         self.assertEqual((cap['forwarded_requests'],cap['unknown_requests'],cap['in_flight_requests']),(5,5,0))
-        self.assertEqual(Decimal(cap['held_usd']),Decimal('43.276800'))
+        self.assertEqual(Decimal(cap['held_usd']),Decimal('47.604480'))
 
     def test_parent_cancel_and_cleanup_failure_are_not_monetary_labels(self):
         cancel=threading.Event();cancel.set();cap={};env={'CLAUDE_CODE_OAUTH_TOKEN':'synthetic'}
@@ -783,10 +808,10 @@ class ProtocolTests(unittest.TestCase):
     def _runtime_close_mid_response_retains_hold_once(self,close_header,model,*,real_cli=False,content_length=True):
         # Synthetic transport fault through the real gate, runtime receipt writer
         # and accountant. Optional real local client process, never a provider CLI
-        # or live worker. Protocol bytes and job authority are synthetic.
+        # or live worker. Protocol bytes and attempt grants are synthetic.
         paid = model == MINIMAX
-        maximum = Decimal('0.690001') if paid else CLAUDE_PROFILES[model]
-        hold = Decimal('0.23' if paid else '2.409600' if model.startswith(GATED_CLAUDE45) else '8.655360')
+        maximum = Decimal(str(router.route_maximum(model)['max_usd'])) if paid else CLAUDE_PROFILES[model]
+        hold = Decimal('0.4718592' if paid else '2.409600' if model.startswith(GATED_CLAUDE45) else '9.520896')
         provider = model.partition('/')[2] if paid else claude_profile(model)['model'].partition('/')[2]
         prefix=sse(dict(input_tokens=1,cache_read_input_tokens=0,
                         cache_creation_input_tokens=0,output_tokens=1),model=provider).split(b'\n\n')[0]+b'\n\n'
@@ -816,7 +841,7 @@ class ProtocolTests(unittest.TestCase):
                 card={'roles':{'writer':{'model':model}}},
                 case_id=channel['case'],batch_id=channel['batch'],job_id=channel['job'],
                 batch_deadline=deadline,source_generation=None,
-                job_money=copy.deepcopy(channel),authenticated_job_config={'job_money':copy.deepcopy(channel)},
+                engine=SimpleNamespace(key="attempt", baseline_spent_usd=0, ceiling_usd=Decimal(channel["committed_total_usd"])),
                 router_accounts=(account,))
             c.role_cancel=threading.Event()
             c.ledger.write_text(json.dumps({'cost':0,'calls':0,'events':[]}))

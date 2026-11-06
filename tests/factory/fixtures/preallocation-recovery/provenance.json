@@ -1,0 +1,17 @@
+{
+  "scope": "Actual retained public -4 smoke preallocation failure and deployed release; no credentials/private case content/model transcripts",
+  "observed_release_sha256": "fbc96881909f75e91ea2e67ad1468bba0702d95c53e129b0ac64e7c324e965a2",
+  "original_evidence": "results/infrastructure/2026-11-04-plumbing-practice3/practice4-preallocation-recovery-public.json",
+  "files": {
+    "public.json": "32ab176fec2e26845d832d50e0e62c9a2bd029157877be91f6e895851faa0dc0",
+    "release/source-manifest.json": "a68d15d423c5ae2ffd3bb01ee2272cbad6552b84cf1177d1aa72b2a3edb63c5b",
+    "release/public-source.tar.gz": "1db3b14d796e0aeb93dc5af37b7b583315d9d5c82b6f3a1b890d544c8f1aca95",
+    "release/deploy.py": "c38673760ad3f9e9a20d3881335f6ad3ff28c6abfd368049c5d4640f3580204e",
+    "release/batch-release.json": "fbc96881909f75e91ea2e67ad1468bba0702d95c53e129b0ac64e7c324e965a2",
+    "release/install-source.py": "bf81300ca5b64b61d74a23bd015f3d36c7b1b524c2025dafaea5cc4999462c73",
+    "release/worker-release-manifest.json": "683ca2db3560fe9a086d0016adb2d7112914ee527d6ddd87e4236882ee463af9",
+    "supplement.json": "57738e9a2184592d1fa83eb13dc38a1666a99d5e1269481c0586a923b1e4b5b6",
+    "certified-snapshot.json": "b5311c9d18feea8d77e43aa094f99e63fc11587d194b9040ac04dded884f0a90"
+  },
+  "certified_snapshot": "Observed by read-only audit process using the reviewed-design certificate/snapshot functions on actual source state. Installed code/services untouched; implementation review remains pending."
+}

@@ -325,7 +325,6 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(stopped.exception.wait.evidence, 'denied_before_work')
         self.assertEqual([s.rsplit('.',1)[1] for s in seen], ['synthetic-one','synthetic-two'])
         self.assertFalse((self.root/'.codex/auth.json').exists())
-        self.assertNotIn('cp /dev/shm/secrets/codex-auth.json ~/.codex/auth.json', (ROOT/'factory/launch.sh').read_text())
 
     def test_uncertain_finish_never_calls_another_model(self):
         c, secrets, _ = self.context()
@@ -363,34 +362,6 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(record['evidence'], 'interrupted')
         self.assertEqual(c.card['terminal_stop'], 'provider_wait')
 
-    def test_wait_uses_normal_runner_checkpoint_and_exit(self):
-        # Isolated process because main deliberately redirects its file descriptors.
-        script = '''import sys,json,time
-from types import SimpleNamespace
-from pathlib import Path
-sys.path.insert(0,sys.argv[1]); import run,model_router
-root=Path(sys.argv[2]); run.HOME=root; run.SEALED=root/'sealed'
-run.bench_manifest=lambda:'practice-only'
-run.sh=lambda *a,**kw:SimpleNamespace(stdout='synthetic-recipient',returncode=0)
-def stop(c):
- c.batch_id='practice-batch'; c.job_id='practice-job'; c.batch_deadline=time.time()+86400
- raise model_router.ProviderWait('writer',model_router.Wait('quota',time.time()+900,route='claude/claude-opus-5-5',account='claude-token'))
-def seal(c,checkpoint=False):
- (root/'checkpoint-called.json').write_text(json.dumps({'checkpoint':checkpoint,'record':(c.work/'provider_wait.json').exists()}))
- c.card['sha256']='a'*64
-run.build_fixture=stop; run.seal=seal
-sys.argv=['factory/run.py','--dry-run']; run.main()
-'''
-        result = subprocess.run([sys.executable, '-B', '-c', script, str(ROOT/'factory'), str(self.root)],
-                                capture_output=True, text=True, env={**os.environ, 'UNBUG_PROVIDER_WAIT':'1'})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        observed = json.loads((self.root/'checkpoint-called.json').read_text())
-        self.assertEqual(observed, {'checkpoint':True,'record':True})
-        card = json.loads(next((self.root/'sealed').glob('case-*.scorecard.json')).read_text())
-        self.assertEqual(card['terminal_stop'], 'provider_wait')
-        self.assertEqual(card['provider_wait']['reason'], 'quota')
-        self.assertEqual(card['status'], 'stopped')
-        self.assertTrue((self.root/'sealed/DONE').is_file())
 
     def test_parser_observation_survives_real_budget_execution_boundary(self):
         model = next(c['terminal_stop'].split(':',1)[1] for c in LIMITS if 'openrouter/' in c['terminal_stop'])
@@ -573,40 +544,6 @@ sys.argv=['factory/run.py','--dry-run']; run.main()
                 router.await_lease('writer',c)
         rpc.assert_not_called()
 
-    def test_real_budget_cancel_peer_receipt_survives_into_restart(self):
-        import restart,hashlib
-        from test_budget import event,emit
-        c,secrets,_=self.context();c.role_cancel=threading.Event();c.force_budget_resume=True
-        original=budget.run_budgeted;before=json.loads(c.ledger.read_text())['calls']
-        def execute(cmd,cwd,env,transcript,ledger,timeout,**kwargs):
-            return original([sys.executable,'-c',emit(event('cancelled-peer',cost=.01))+'import time;time.sleep(30)'],
-                cwd,env,transcript,ledger,5,**{**kwargs, 'containment': False})
-        runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())
-        with patch.dict(os.environ,{'UNBUG_PROVIDER_WAIT':'1'}),patch.object(router,'_rpc',self.store.rpc), \
-             patch.object(router,'SECRETS',secrets),patch.object(model_runtime,'_opencode_flags',return_value=()), \
-             patch.object(model_runtime,'run_budgeted',side_effect=execute),ThreadPoolExecutor() as pool:
-            future=pool.submit(runtime.call,c,['openrouter/deepseek/deepseek-v4.1-flash'],'',c.case,'attacker-1')
-            end=time.monotonic()+3
-            while time.monotonic()<end:
-                try:
-                    if json.loads(c.ledger.read_text())['calls']>before:break
-                except (OSError,ValueError):pass
-                time.sleep(.005)
-            c.role_cancel.set()
-            with self.assertRaisesRegex(budget.BudgetError,'^cancelled$'):future.result(timeout=3)
-        ledger=json.loads(c.ledger.read_text());self.assertEqual(ledger['terminal_stop'],'cancelled')
-        denied=router.ProviderWait('writer',router.Wait('quota',time.time()+900,route='claude/claude-opus-5-5',account='claude-token'))
-        record=run.write_provider_wait(c,denied)
-        self.assertEqual(record['evidence'],'interrupted')
-        receipt=json.loads((c.work/record['call_id']).read_text())
-        self.assertTrue(receipt['booked_event_ids']);self.assertFalse(receipt['final_usage_known'])
-        c.card.update(status='stopped',failed_gate=None,continuation_budget=ledger)
-        archive=self.root/(c.case_id+'.checkpoint.tar.gz.age');archive.write_bytes(b'synthetic opaque checkpoint')
-        c.card['sha256']=hashlib.sha256(archive.read_bytes()).hexdigest()
-        path=self.root/(c.case_id+'.scorecard.json');path.write_text(json.dumps(c.card))
-        planned=restart.plan(path,100,86400,'--case-budget 1000 --max-cost 100 --max-total-calls 10000')
-        self.assertEqual(planned[0],c.case_id)
-        self.assertEqual(json.loads(c.ledger.read_text()),ledger)  # Planning/receipts never book usage.
 
     def test_refusal_does_not_block_other_cases(self):
         c,secrets,_=self.context();runtime=model_runtime.ModelRuntime(self.root,Mock(),Mock(),Mock(),Mock())

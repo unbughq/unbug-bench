@@ -6,6 +6,8 @@ from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
 import json
+import pathlib
+import tempfile
 from types import SimpleNamespace
 from unittest import TestCase, main, mock
 
@@ -18,6 +20,11 @@ _ROUTING = offline_router()
 
 
 class ProviderRoutesTest(TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.work = pathlib.Path(temporary.name)
+
     def preflight_context(self):
         return SimpleNamespace(case="synthetic-case", card={}, models={
             "builder": ["claude/claude-opus-5-5"],
@@ -55,7 +62,7 @@ class ProviderRoutesTest(TestCase):
     def test_every_configured_chain_enters_shared_routing(self):
         self.addCleanup(offline_router()[0].close)
         for chain in model_router.CHAINS:
-            c = SimpleNamespace(card={})
+            c = SimpleNamespace(work=self.work, card={})
             with mock.patch.object(model_runtime.ModelRuntime, "_invoke", return_value=0) as call:
                 run.model_call(c, [chain[0]], "synthetic", ".", "fixture")
             self.assertEqual(call.call_args.args[1], [chain[0]])
@@ -65,7 +72,7 @@ class ProviderRoutesTest(TestCase):
 
     def test_fallback_is_shared_and_billing_is_explicit(self):
         self.addCleanup(offline_router()[0].close)
-        c = SimpleNamespace(card={})
+        c = SimpleNamespace(work=self.work, card={})
         tried = []
         def invoke(runtime, context, models, *args, **kwargs):
             tried.append(models[0])

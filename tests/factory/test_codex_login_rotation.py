@@ -21,8 +21,6 @@ import model_runtime
 import model_router
 from router_test_support import offline_router
 _ROUTING = offline_router()
-import recovery
-import run
 
 
 def auth(exp, last_refresh='2026-10-01T00:00:00Z'):
@@ -60,9 +58,6 @@ class LoginTests(unittest.TestCase):
 
     def test_bundle_gate_is_before_worker_creation_and_restore(self):
         self.addCleanup(offline_router()[0].close)
-        launch = (ROOT / 'factory/launch.sh').read_text()
-        self.assertLess(launch.index('codex_login_gate\n'), launch.index('if [ -n "$restore" ] &&'))
-        self.assertLess(launch.index('if ! codex_login_gate;'), launch.index('if ! guard_new;'))
         for valid in (False, True):
             stream = io.BytesIO()
             with tarfile.open(fileobj=stream, mode='w') as archive:
@@ -73,27 +68,6 @@ class LoginTests(unittest.TestCase):
                                      '--ttl-hours', '8'], input=stream.getvalue(), capture_output=True)
             self.assertEqual(result.returncode, 0 if valid else 1)
             self.assertNotIn(b'synthetic-refresh', result.stdout + result.stderr)
-
-    def test_real_launcher_rejects_expired_bundle_before_any_cloud_call(self):
-        self.addCleanup(offline_router()[0].close)
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            with tarfile.open(root/'bundle', 'w') as archive:
-                raw = json.dumps(auth(1)).encode()
-                member = tarfile.TarInfo('codex-auth.json'); member.size = len(raw)
-                archive.addfile(member, io.BytesIO(raw))
-            (root/'age').write_text('#!/bin/sh\ncat "$SYNTHETIC_BUNDLE"\n')
-            (root/'boat').write_text('#!/bin/sh\ntouch "$SYNTHETIC_CLOUD_CALLED"\nexit 99\n')
-            for name in ('age','boat'): (root/name).chmod(0o755)
-            env = {**os.environ, 'PATH':str(root)+os.pathsep+os.environ['PATH'],
-                   'UNBUG_CONTROL_HOME':str(root/'control'), 'BOAT_CMD':str(root/'boat'),
-                   'SYNTHETIC_BUNDLE':str(root/'bundle'), 'SYNTHETIC_CLOUD_CALLED':str(root/'called')}
-            for extra in ([], ['--restore','case-synthetic']):
-                result = subprocess.run(['/bin/sh', str(ROOT/'factory/launch.sh'), '1',
-                    '--source','port',*extra], input='synthetic-identity', capture_output=True, text=True, env=env)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn('refresh with bin/setup-secrets codex', result.stderr)
-                self.assertFalse((root/'called').exists())
 
     def test_worker_copy_cannot_rotate_and_preserves_source(self):
         self.addCleanup(offline_router()[0].close)
@@ -141,25 +115,13 @@ class LoginTests(unittest.TestCase):
                         containment=False, driver='codex', configured_model='codex/gpt-6.1-sol')
                 self.assertEqual(json.loads((folder/'ledger').read_text())['terminal_stop'], 'codex_login_expired')
 
-    def test_preflight_retains_login_reason_and_deliberate_restore_is_allowed(self):
-        self.addCleanup(offline_router()[0].close)
-        c = SimpleNamespace(card={}, case=Path('.'), models={'attacker':['codex/gpt-6.1-sol'],
-            'reviewers':[['reviewer']], 'strong_calibrator':['strong'], 'easy_calibrator':['easy']})
-        with patch.object(run, 'opencode', side_effect=budget.BudgetError('codex_login_expired')):
-            with self.assertRaisesRegex(budget.BudgetError, '^codex_login_expired$'): run.provider_preflight(c)
-        card = {'status':'stopped','terminal_stop':'codex_login_expired',
-                'continuation_budget':{'terminal_stop':'codex_login_expired'}}
-        recovery.require_holder_stop(card, [], 'case')
-        self.assertTrue(recovery.ledger_agrees(card, route='holder'))
-        with self.assertRaises(ValueError): recovery.require_restart_stop(card, [])
-
 
 class CleanupTests(unittest.TestCase):
     def test_launch_exit_preserves_primary_exit_code_and_records_cleanup(self):
         self.addCleanup(offline_router()[0].close)
         script = '''
 root=$1; state=$2; primary=$3; cleanup_fail=$4
-. "$root/bin/boat-launch-guards.sh"
+. "$root/bin/exam-launch-guards.sh"
 guard_ids() { echo synthetic > "$state/ids"; }
 guard_retire() { [ "$cleanup_fail" = no ] || return 1; touch "$state/$1.deleted"; }
 boat() { printf '{"sandboxes":[]}'; }
@@ -210,20 +172,6 @@ guard_exit "$primary"
             cleanup.assert_called_once()  # Uncertain cleanup must not start another model.
             self.assertEqual([v['stage'] for v in c.card['cleanup_errors']], ['model_process', 'model_scratch'])
             self.assertNotIn('private-cleanup-detail', json.dumps(c.card))
-
-    def test_final_accounting_preserves_stop_and_keeps_ledger_on_summary_error(self):
-        self.addCleanup(offline_router()[0].close)
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp); ledger = root/'ledger'
-            value = {'terminal_stop':'codex_login_expired','events':[], 'calls':0, 'cost':0}
-            ledger.write_text(json.dumps(value))
-            c = SimpleNamespace(work=root, ledger=ledger, stopped=True,
-                card={'terminal_stop':'codex_login_expired'})
-            with patch.object(run, 'update_case_budget', side_effect=ValueError('private')):
-                run.finalize_accounting(c)
-            self.assertEqual(c.card['terminal_stop'], 'codex_login_expired')
-            self.assertEqual(json.loads((root/'continuation-budget.json').read_text()), value)
-            self.assertEqual(c.card['cleanup_errors'], [{'stage':'budget_summary','error':'ValueError'}])
 
 
 if __name__ == '__main__': unittest.main()

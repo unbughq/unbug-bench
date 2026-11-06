@@ -21,6 +21,37 @@ _ROUTING = offline_router()
 
 
 class ModelRuntimeTests(unittest.TestCase):
+    def test_model_not_found_keeps_configuration_cause_through_runtime_and_policy(self):
+        from budget import classify_provider_failure
+        from durable.classify import classify_wait
+        from durable.contract import StepKind, Step, StepResult, Outcome
+        from durable.policy import decide, Counters, Action, is_operational_wait
+        from test_durable_engine_fakes import make_spec
+        stack, _ = offline_router(); self.addCleanup(stack.close)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary); (root / 'transcripts').mkdir()
+            c = types.SimpleNamespace(work=root, case=root / 'case', card={}, model_env={},
+                router_accounts=('claude-factory-token-2',),
+                ledger=root / 'ledger.json', args=argparse.Namespace(agent_timeout=3,
+                max_cost=5, max_role_calls=10, max_total_calls=20,
+                no_progress_minutes=1, max_zero_tokens=3))
+            runtime = model_runtime.ModelRuntime(root, mock.Mock(), mock.Mock(), mock.Mock(), mock.Mock())
+            def unavailable(context, *args, **kwargs):
+                context.model_process_state['started'] = True
+                raise model_runtime.BudgetError('process_error', provider_failure=classify_provider_failure(
+                    'private provider text', 'claude/claude-opus-5-5', status_code=404))
+            with mock.patch.object(model_runtime.ModelRuntime, '_invoke', side_effect=unavailable), \
+                 mock.patch.object(model_router, '_credential_ready', return_value=True):
+                with self.assertRaises(model_router.ProviderWait) as caught:
+                    runtime.call(c, ['claude/claude-opus-5-5'], 'private case prompt', root, 'builder-1')
+            classified, details = classify_wait(caught.exception, step=StepKind.ADMIT, now=1_792_400_000)
+            self.assertEqual(classified.reason, 'router:model_unavailable', details)
+            result = StepResult(classified.outcome, classified.reason)
+            self.assertFalse(is_operational_wait(result))
+            self.assertEqual(decide(Step(StepKind.ADMIT), result, Counters(step_infra_errors=2),
+                                   make_spec(max_infra_retries_per_step=1)), Action.STOP_ADMISSION)
+            self.assertNotIn('private', str(details))
+
     def test_containment_errors_stop_routing_and_reach_card(self):
         self.addCleanup(offline_router()[0].close)
         for label in ('containment_unavailable', 'cancellation_failed'):
@@ -58,7 +89,7 @@ class ModelRuntimeTests(unittest.TestCase):
             home = c.work / "codex-home"; home.mkdir()  # the boat VM's config shape
             (home / "config.toml").write_text('model_provider = "boat-openai"\n[mcp_servers.computer]\ncommand = "x"\n'
                                               '[model_providers.boat-openai]\nbase_url = "https://relay/v1"\n')
-            fake_env = {"FACTORY_ROUTER_TOKEN":"public-router-sentinel", "FACTORY_ROUTER_URL":"https://router.invalid", "FACTORY_ROUTER_CA_FILE":"/public/ca", "OPENAI_API_KEY": "x", "ANTHROPIC_API_KEY": "x", "CODEX_HOME": str(home), "PATH": os.environ["PATH"]}
+            fake_env = {"FACTORY_ROUTER_TOKEN":"public-router-sentinel", "FACTORY_ROUTER_URL":"https://router.invalid", "FACTORY_ROUTER_CA_FILE":"/public/ca", "OPENAI_API_KEY": "x", "ANTHROPIC_API_KEY": "x", "CODEX_HOME": str(home), "PATH": os.environ["PATH"], "UNBUG_JUDGE": "1"}
             def budgeted(cmd, cwd, env, *a, **k):
                 self.assertFalse(any(k.startswith("FACTORY_ROUTER_") for k in env))
                 self.assertNotIn("public-case-router-sentinel", str(env))
@@ -71,6 +102,7 @@ class ModelRuntimeTests(unittest.TestCase):
                 runtime.call(c, ["claude/claude-opus-5-5"], "hi", c.work, "reviewer-1")
             (codex, cenv, d1, config), (claude, aenv, d2, _), (claude_reviewer, *_) = seen
             assert (d1, d2) == ("codex", "claude")
+            assert cenv['UNBUG_JUDGE'] == aenv['UNBUG_JUDGE'] == '1'
             assert "mcp_servers" not in config and 'model_provider = "boat-openai"' in config and "https://relay/v1" in config
             assert codex[:2] == ["codex", "exec"] and 'web_search="disabled"' in codex and 'model_reasoning_effort="high"' in codex
             assert codex[codex.index("-m") + 1] == "gpt-6.1-sol" and "--ephemeral" in codex and "OPENAI_API_KEY" not in cenv
@@ -84,9 +116,11 @@ class ModelRuntimeTests(unittest.TestCase):
             runtime = model_runtime.ModelRuntime(root, fake_sh, mock.Mock(),
                 lambda path, sudo=False: shutil.rmtree(path), lambda user: tester_home)
             with mock.patch.object(model_runtime, 'pinned_cli', lambda kind: kind), \
+                 mock.patch.dict(os.environ, {'UNBUG_JUDGE': '1'}), \
                  mock.patch.object(model_runtime, 'run_budgeted', budgeted):
                 runtime.call(c, ["claude/claude-opus-5-5"], "hi", c.work, "strong-calibrator-1", user="pilot")
             assert seen[-1][0][0] == 'sudo'
+            assert 'UNBUG_JUDGE' not in seen[-1][1], 'isolated calibrators keep the contestant view'
             assert {'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_BASE_URL',
                     'CLAUDE_CODE_MAX_OUTPUT_TOKENS', 'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS'} <= set(seen[-1][0][1].split('=', 1)[1].split(','))
             assert '-u' in seen[-1][0] and 'pilot' in seen[-1][0], 'Claude tester uses the isolated Unix user'
@@ -156,6 +190,25 @@ class ModelRuntimeTests(unittest.TestCase):
             self.assertEqual(ledger['calls'], 2)
             self.assertTrue(all(e['configured_model'] == target for e in ledger['events']))
             self.assertAlmostEqual(c.card['case_budget']['spent_usd'], 1.12)
+
+    def test_checkpoint_hook_requires_engine_and_callable_binding(self):
+        runtime = model_runtime.ModelRuntime(None, None, None, None, None)
+        hook = mock.Mock()
+        for engine, bound in ((None, hook), (object(), None), (object(), hook)):
+            with self.subTest(engine=engine, bound=bound):
+                c = types.SimpleNamespace(engine=engine, engine_checkpoint=bound)
+                with mock.patch.object(model_runtime.ModelRuntime, '_call', return_value=7) as invoke, \
+                     mock.patch('durable.checkpoints.model_call', return_value=8) as checkpoint:
+                    result = runtime.call(c, ['synthetic'], 'bound prompt', '/case', 'builder-1')
+                    if engine is not None and callable(bound):
+                        self.assertEqual(result, 8)
+                        self.assertEqual(checkpoint.call_args.kwargs['text'], 'bound prompt')
+                        self.assertEqual(checkpoint.call_args.args[:4], (c, ['synthetic'], '/case', 'builder-1'))
+                        invoke.assert_not_called()
+                    else:
+                        self.assertEqual(result, 7)
+                        checkpoint.assert_not_called()
+                        invoke.assert_called_once()
 
     def test_import_does_not_probe_or_install_a_cli(self):
         self.addCleanup(offline_router()[0].close)

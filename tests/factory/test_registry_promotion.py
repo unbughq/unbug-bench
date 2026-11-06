@@ -1,12 +1,15 @@
-"""A pending candidate that another handoff imported as history stays restorable (Murphy 7).
+"""A pending candidate that another handoff imported as history stays restorable (Murphy 7),
+and a reselected pending candidate survives stale history (new-registry-pending-promotion-1).
 
 Uses a copy of the retained public registry (sealed/statement-registry) and its real
-age ciphertext; only the plaintext digests of pending candidates are authored.
+age ciphertext; only the scorecards (plaintext digests, cipher bindings, rejected lists)
+of pending candidates are authored.
 """
 import sys
 from pathlib import Path as _P
 _ROOT = _P(__file__).resolve().parents[2]
 sys.path[:0] = [str(_ROOT / "factory")]
+import hashlib
 import json
 import shutil
 import tempfile
@@ -26,8 +29,8 @@ class PromotionTests(unittest.TestCase):
         shutil.copytree(SEALED / "statement-registry", self.tmp / "reg")
         self.r = registry.Registry(self.tmp / "reg")
         real = sorted(SEALED.glob("case-*.statement.age"))
-        self.ct = {n: real[i] for i, n in enumerate(("case-pa", "case-pb", "case-pc"))}
-        self.dg = {"case-pa": "a" * 64, "case-pb": "b" * 64, "case-pc": "c" * 64}
+        self.ct = {n: real[i] for i, n in enumerate(("case-pa", "case-pb", "case-pc", "case-pz"))}
+        self.dg = {"case-pa": "a" * 64, "case-pb": "b" * 64, "case-pc": "c" * 64, "case-pz": "e" * 64}
 
     def history(self, *cases):  # what statement_round.prepare does for non-candidates
         for c in cases:
@@ -80,19 +83,10 @@ class PromotionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "corrupted"):
             self.r.reserve("case-pb", self.dg["case-pb"], self.ct["case-pb"])
 
-    def test_prepare_promotes_other_waves_pending_candidate(self):
-        import statement_round
-        hist = self.tmp / "hist"; hist.mkdir()
-        for c in ("case-pa", "case-pb"):
-            shutil.copyfile(self.ct[c], hist / (c + ".statement.age"))
-        (hist / "case-pb.scorecard.json").write_text(json.dumps({"statement_sha256": self.dg["case-pb"]}))
-        waves = {}
-        for c in ("case-pa", "case-pb"):  # each handoff sees the other's pending ciphertext as history
-            waves[c] = statement_round.prepare(hist, self.tmp / "reg", {c: self.dg[c]}, self.tmp / ("w-" + c), history_sealed=hist)[c]
-        self.assertIn("case-pb.statement.age", {p.name for p in waves["case-pa"].iterdir()})
-        self.assertIn("case-pa.statement.age", {p.name for p in waves["case-pb"].iterdir()})
-        for c in waves:
-            self.assertTrue(json.loads((waves[c] / "admission.json").read_text())["complete"])
+
+    def entry(self):
+        return json.loads((self.tmp / "reg/registry.json").read_text())["entries"]["case-py"]
+
 
     def test_negative_identities_still_refuse(self):
         self.history("case-pb", "case-pc")

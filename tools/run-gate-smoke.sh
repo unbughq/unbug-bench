@@ -38,11 +38,10 @@ if adapter.is_symlink() or hashlib.sha256(adapter.read_bytes()).hexdigest() != s
     raise SystemExit('reviewed qualified adapter digest mismatch')
 module = runpy.run_path(str(adapter), run_name='gate_smoke_release')
 _, _, files = module['load'](release)
-for name in ('factory/worker_secrets.py', 'factory/account_handoff.py', 'factory/restart.py', 'factory/control_resume.py', 'factory/boat_lifecycle.py', 'bin/push-secrets', 'tests/factory/test_account_handoff.py', 'tests/factory/test_control_resume.py', 'tests/factory/test_admission_handoff.py', 'tests/factory/fixtures/opencode-failover/policy.restore.json', 'tests/factory/fixtures/opencode-failover/launch.json', 'tests/factory/fixtures/opencode-failover/input-scorecard.json', 'tests/factory/fixtures/opencode-failover/launch-state.json', 'bin/gate-smoke', 'bin/bench.py', 'bin/bench_judging.py', 'bin/factory_pool.py',
+for name in ('factory/worker_secrets.py', 'factory/boat_lifecycle.py', 'bin/push-secrets',
+             'bin/gate-smoke', 'bin/bench.py', 'bin/bench_judging.py', 'bin/factory_pool.py',
              'factory/gate_pipeline.py', 'factory/case_contract.py', 'factory/fairness.py',
-             'factory/founder_ruling.py', 'factory/restore_ledger.py', 'factory/recovery.py',
-             'factory/late_recovery.py', 'factory/founder_decisions.py', 'factory/late_rehearsal.py', 'factory/restore_bundle.py', 'bin/fake-pass-check',
-             'factory/run_artifacts.py', 'factory/run.py', 'factory/case_permissions.py'):
+             'bin/fake-pass-check', 'factory/run_artifacts.py', 'factory/run.py', 'factory/case_permissions.py'):
     if files.get(name) != hashlib.sha256((root / name).read_bytes()).hexdigest():
         raise SystemExit('qualify current smoke source first: ' + name)
 # This release has one approved runtime route; smoke the exact qualified source.
@@ -57,7 +56,7 @@ UNBUG_LAUNCH_STATE=$state; export UNBUG_LAUNCH_STATE
 BOAT_TTL_MARGIN_SECONDS=600; export BOAT_TTL_MARGIN_SECONDS
 label=gate-smoke; purpose=public-gate-smoke; n=1; ttl_hours=$smoke_ttl; max_spend=0.50
 [ "$smoke_ttl" = 8 ] || max_spend=0.75
-. "$root/bin/boat-launch-guards.sh"
+. "$root/bin/exam-launch-guards.sh"
 collect_vm() {
   # Public fixture only: a failed collection must never strand a paid test worker.
   if BOAT_COMMAND_TIMEOUT_SECONDS=60 boat ssh "$1" 'cat ~/gate-smoke/summary.json' > "$state/summary.json.tmp"; then

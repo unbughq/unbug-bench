@@ -91,6 +91,8 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(len(self.ledger()['reconciled_decreases']), 1)
 
     def test_wait_replay_retains_new_lease_provenance(self):
+        # This receipt replay needs three concurrent $10 invocation reservations.
+        self.attempt.ceiling_usd = 30
         first, _ = self.reserve(); later, row = self.reserve(); partial, _ = self.reserve()
         budget.reconcile_reservations(self.work, self.path, exclude_leases=(first.lease_id,))
         wait = self.wait(first, self.receipt(first, [('first', 1)]))

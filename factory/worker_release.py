@@ -16,6 +16,9 @@ import sys
 POLICY = Path(__file__).with_name('worker-release.json')
 from launch_manifest import WORKER_BENCH as BENCH_FILES, worker_files
 
+# Operational helper shipped with factory plumbing, independently of the baked bench.
+PLUMBING_FILES = ('bin/processes.py',)
+
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -29,14 +32,20 @@ def source_files(root):
     return {p.relative_to(root).as_posix(): sha(p) for p in sorted(paths)}
 
 
+def candidate_policy(root=None):
+    policy = json.loads((Path(root) / 'factory/worker-release.json' if root else POLICY).read_text())
+    policy['release'] += '-durable-candidate-v1'
+    return policy
+
+
 def stamp(root, output):
-    policy = json.loads(POLICY.read_text())
+    policy = candidate_policy(root)
     policy['files'] = source_files(root)
     output.write_text(json.dumps(policy, indent=2, sort_keys=True) + '\n')
 
 
 def output(command):
-    sys.path.insert(0, str(Path(os.environ.get('BENCH', Path.home() / 'unbug-bench')) / 'bin'))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bin'))
     import processes
     return processes.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          timeout=30, check=True,
@@ -99,7 +108,8 @@ def verify(manifest, root, factory_root, drivers):
         parts = Path(name).parts
         if not parts or '..' in parts or Path(name).is_absolute():
             raise ValueError('unsafe manifest path')
-        path = factory_root.joinpath(*parts[1:]) if parts[0] == 'factory' else root / name
+        path = (factory_root.joinpath(*parts[1:]) if parts[0] == 'factory' else
+                factory_root.parent / name if name in PLUMBING_FILES else root / name)
         if path.is_symlink() or sha(path) != expected:
             raise ValueError('release file mismatch: ' + name)
     if tuple(sys.version_info[:2]) < tuple(manifest['python_minimum']):

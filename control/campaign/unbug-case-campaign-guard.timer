@@ -1,0 +1,9 @@
+[Unit]
+Description=Continuous bounded campaign guard
+[Timer]
+OnActiveSec=15
+OnUnitActiveSec=60
+AccuracySec=1
+Unit=unbug-case-campaign-guard.service
+[Install]
+WantedBy=timers.target

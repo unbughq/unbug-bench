@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly encrypted durable factory backup
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=300
+Unit=unbug-durable-backup.service
+
+[Install]
+WantedBy=timers.target

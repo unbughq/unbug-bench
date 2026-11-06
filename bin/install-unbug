@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Install the standalone read-only unbug client; Python and SSH are its only dependencies."""
+import argparse
+import os
+from pathlib import Path
+import tempfile
+import zipfile
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--bin-dir', type=Path, default=Path.home() / '.local/bin')
+args = parser.parse_args()
+root = Path(__file__).resolve().parents[1]
+args.bin_dir.mkdir(parents=True, exist_ok=True)
+with tempfile.NamedTemporaryFile(dir=args.bin_dir, delete=False) as stream:
+    staged = Path(stream.name)
+try:
+    staged.write_bytes(b'#!/usr/bin/env python3\n')
+    with zipfile.ZipFile(staged, 'a', compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in ('__init__', 'client', 'contract', 'report'):
+            archive.write(root / f'factory/durable/{name}.py', f'durable/{name}.py')
+        archive.writestr('__main__.py', 'from durable.client import main\nraise SystemExit(main())\n')
+    staged.chmod(0o755)
+    target = args.bin_dir / 'unbug'
+    os.replace(staged, target)
+finally:
+    staged.unlink(missing_ok=True)
+print(f'Installed {target}')

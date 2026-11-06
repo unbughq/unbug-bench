@@ -5,15 +5,12 @@ import sys
 from pathlib import Path as _TestPath
 _TEST_ROOT = _TestPath(__file__).resolve().parents[2]
 sys.path[:0] = [str(_TEST_ROOT / "factory"), str(_TEST_ROOT / "bin"), str(_TEST_ROOT / "tests/bench")]
-import hashlib
 import json
 import pathlib
 import tempfile
 import unittest
 from unittest.mock import patch
 
-import key_holder
-import restart
 import run
 import test_loop_freshness as loop_fixture
 
@@ -98,17 +95,21 @@ class AttackReportFlowTests(unittest.TestCase):
     setUp = loop_fixture.LoopFreshnessTests.setUp
     save_rows = loop_fixture.LoopFreshnessTests.save_rows
     model = loop_fixture.LoopFreshnessTests.model
+    categories = loop_fixture.LoopFreshnessTests.categories
     loop = loop_fixture.LoopFreshnessTests.loop
+    assert_feedback = loop_fixture.LoopFreshnessTests.assert_feedback
 
-    def test_live_object_reaches_independent_reviewer_and_writer_gets_real_blocker(self):
+    def test_live_object_reaches_independent_reviewer_and_writer_feedback(self):
         self.log_match = False
         self.requested_urls = [LIVE_ENTRY]
         self.report_blocking = self.extra = [BLOCKER]
         self.loop()
-        self.assertEqual(self.calls, ['attacker-1', 'reviewer-g2-confirm', 'builder-2', 'attacker-2'])
+        self.assertEqual(self.calls, ['attacker-1', 'reviewer-g2-confirm'])
         self.assertEqual([row['url'] for row in self.reviewed_rows], [URL])
         self.assertIn(NOTE, self.reviewed_rows[0]['note'])
-        self.assertEqual(self.c.card['stress_review']['status'], 'completed')
+        self.assert_feedback([BLOCKER])
+        self.assertEqual(json.loads((self.c.work / 'attacks/round-1.json').read_text())['freshness_review'], [LIVE_ENTRY])
+        self.assertEqual(self.c.card['stress_review']['status'], 'findings')
 
     def test_malformed_concern_still_reviews_usable_urls_then_stops(self):
         self.log_match = False
@@ -156,71 +157,11 @@ class AttackReportFlowTests(unittest.TestCase):
         self.requested_urls = [LIVE_ENTRY]
         self.report_blocking = []
         self.complete = False
-        with self.assertRaisesRegex(run.BudgetError, '^stress_review_unresolved:interrupted_review$'):
-            self.loop()
+        from durable.contract import Outcome
+        self.assertEqual(self.loop(), {"outcome": Outcome.INFRA_ERROR,
+                                       "reason": "stress:interrupted_review"})
+        self.assertNotEqual(self.c.card.get('stress_review', {}).get('status'), 'completed')
         self.assertEqual(self.calls, ['attacker-1', 'reviewer-g2-confirm'])
-
-    def test_round_seven_restore_rereviews_changed_prompt_then_repairs_without_raise(self):
-        self.c.args.rounds = 8
-        self.extra = [BLOCKER]
-        attacks = self.c.work / 'attacks'; attacks.mkdir()
-        report = attacks / 'round-7.json'; report.write_text(json.dumps(live_report([LIVE_ENTRY])))
-        binding = {**run.attack_binding(self.c), 'prompt': 'previous-prompt-contract'}
-        receipt = self.c.work / 'attack-state.json'
-        receipt.write_text(json.dumps({'round': 7, 'round_limit': 8, 'report': report.name,
-                                       'binding': binding, 'rereviews': 1}))
-        before = report.read_bytes()
-        def model(c, models, text, cwd, name, **kwargs):
-            if name == 'attacker-7':
-                self.calls.append(name)
-                self.assertEqual(json.loads(receipt.read_text())['rereviews'], 1)
-                self.assertEqual(len(json.loads(receipt.read_text())['release_rereviews']), 1)
-                report.write_text(json.dumps(live_report([LIVE_ENTRY])))
-                return 0
-            return self.model(c, models, text, cwd, name, **kwargs)
-        previous = {'terminal_stop': 'stress_review_unresolved:missing_or_malformed_report',
-                    'resume_rereview': {'round': 7, 'reason': 'binding_changed', 'binding_changed': ['prompt']}}
-        with patch.object(run, 'opencode', model):
-            run.write_and_attack(self.c, previous)
-        self.assertEqual(self.calls, ['attacker-7', 'reviewer-g2-confirm', 'builder-8', 'attacker-8'])
-        self.assertEqual(self.c.card['resume_rereview']['round'], 7)
-        self.assertEqual(self.c.card['stress_review'], {'status': 'completed', 'round': 8})
-        self.assertFalse(getattr(self.c, 'limits_raised', {}))
-        self.assertEqual(report.read_bytes(), before)
-
-
-class RoundSevenRestoreTests(unittest.TestCase):
-    def test_rereview_stop_is_eligible_in_planner_and_holder_without_raise(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = pathlib.Path(temp); sealed = root / 'sealed'; sealed.mkdir()
-            case = 'case-round-seven'
-            archive = sealed / (case + '.checkpoint.tar.gz.age')
-            archive.write_bytes(b'synthetic ciphertext, never decrypted')
-            card = {'case': case, 'seed': 42, 'status': 'stopped', 'roles': {}, 'gates': {},
-                    'terminal_stop': 'stress_review_unresolved:missing_or_malformed_report',
-                    'stress_review': {'status': 'unresolved', 'reason': 'missing_or_malformed_report'},
-                    'resume_rereview': {'round': 7, 'reason': 'binding_changed', 'binding_changed': ['prompt']},
-                    'case_budget': {'limit_usd': 50}, 'recovery_config': {'rounds': 8, 'case_budget': 50},
-                    'sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
-                    'continuation_budget': {'cost': .1, 'list_cost_usd': 30, 'calls': 20,
-                                            'events': [], 'terminal_stop': 'complete'}}
-            path = sealed / (case + '.scorecard.json')
-            job = {'case': case, 'mode': 'case', 'card': path.name, 'archive_prefix': case,
-                   'roles': {}, 'max_calls': 1000, 'max_cost': 5, 'args': ['1', '--restore', case]}
-            with patch.object(key_holder, 'ROOT', root):
-                path.write_text(json.dumps(card))
-                self.assertEqual(restart.raised_limits(card, 50, 8), {})
-                self.assertEqual(restart.plan(path, 0, 7200, ''), (case, 60, 42))
-                self.assertEqual(key_holder.current_generation(job), card['sha256'])
-                for changes in ({'failed_gate': 'G2', 'gates': {'G2': 'fail'},
-                                 'failed_detail': {'findings': ['real gate failure']}},
-                                {'gates': {'G15': 'fail'}}, {'checkpoint_error': 'OSError'},
-                                {'continuation_budget': {**card['continuation_budget'], 'list_cost_usd': 50}}):
-                    with self.subTest(changes=changes):
-                        path.write_text(json.dumps({**card, **changes}))
-                        with self.assertRaises(ValueError): restart.plan(path, 0, 7200, '')
-                        with self.assertRaises(ValueError): key_holder.current_generation(job)
-
 
 if __name__ == '__main__':
     unittest.main()

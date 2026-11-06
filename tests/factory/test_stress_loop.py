@@ -9,7 +9,8 @@ import subprocess
 import unittest
 from unittest.mock import patch
 import run
-import test_attack_recovery as recovery
+import tempfile
+import types
 from attack_findings import classify
 
 PRIVATE = Path('/private/tmp/claude-501/-Users-bugsincode-Developer-unbug-bench/00d02e9b-ca70-4919-b958-898ec30f1b3a/scratchpad/e15450-open/checkpoint/case-20261024T043353Z-e15450')
@@ -17,10 +18,28 @@ PRIVATE = Path('/private/tmp/claude-501/-Users-bugsincode-Developer-unbug-bench/
 
 class StressLoopTests(unittest.TestCase):
     def harness(self):
-        h = recovery.AttackRecoveryTests()
-        h.setUp()
-        self.addCleanup(h.doCleanups)
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name); case = root / 'case'
+        (case / 'scenarios/S1').mkdir(parents=True)
+        for name in ('case.json', 'answer-key.json', 'scenarios/S1/key.json'):
+            (case / name).write_text('{}')
+        (case / 'statement.md').write_text('synthetic selected case')
+        c = types.SimpleNamespace(work=root, case=case, case_id='synthetic', card={}, seed=7,
+            manifest0='synthetic bench revision', models={'builder': ['writer'], 'attacker': ['tester']},
+            args=types.SimpleNamespace(dry_run=False, source='hunt', rounds=3, runs=1, scenario_runs=1))
+        h = types.SimpleNamespace(c=c)
+        for name, value in (('g1', (True, {'problems': []})), ('early_checks', None),
+                            ('early_review', None), ('ensure_freshness', None), ('engine_prepare_bench', None)):
+            mocked = patch.object(run, name, return_value=value)
+            setattr(h, name, mocked.start()); self.addCleanup(mocked.stop)
         return h
+
+    def stress(self, h, result, number=1):
+        def categories(c, n, report, receipt, completed):
+            report.write_text(json.dumps(result))
+            completed()
+        with patch.object(run, 'stress_categories', categories):
+            return run.engine_stress_round(h.c, number)
 
     def test_typed_and_legacy_classification_is_conservative(self):
         operational = 'Validation unfinished: a tester patch could not be applied.'
@@ -35,62 +54,36 @@ class StressLoopTests(unittest.TestCase):
         for values in (None, {}, [False], ['']):
             self.assertIsNone(classify({'complete': True, 'blocking': [], 'unfinished_validation': values}))
 
-    def test_live_and_resumed_unfinished_validation_never_reach_writer_or_pass(self):
+    def test_unfinished_validation_never_grants_writer_feedback_or_pass(self):
+        from durable.contract import Outcome
         for legacy in (False, True):
-            for resume in (False, True):
-                with self.subTest(legacy=legacy, resume=resume):
-                    h = self.harness()
-                    result = {'complete': True, 'blocking': ['review incomplete'] if legacy else []}
-                    if legacy: result['blocking'].append('Validation unfinished: tester command failed.')
-                    else: result['unfinished_validation'] = ['A diagnostic was never executed.']
-                    calls = []
-                    def model(c, models, text, cwd, name):
-                        calls.append(name)
-                        self.assertEqual(name, 'attacker-1')
-                        h.report_path(text).write_text(json.dumps(result))
-                    if resume:
-                        h.interrupt(result)
-                    with patch.object(run, 'opencode', model), self.assertRaisesRegex(
-                            run.BudgetError, 'stress_review_unresolved:unfinished_validation'):
-                        run.build(h.c)
-                    self.assertEqual(calls, [] if resume else ['attacker-1'])
-                    h.early_review.assert_not_called()
-                    h.doCleanups()
+            with self.subTest(legacy=legacy):
+                h = self.harness()
+                result = {'complete': True, 'blocking': ['review incomplete'] if legacy else []}
+                if legacy: result['blocking'].append('Validation unfinished: tester command failed.')
+                else: result['unfinished_validation'] = ['A diagnostic was never executed.']
+                with patch.object(run, 'opencode') as model:
+                    outcome = self.stress(h, result)
+                self.assertEqual(outcome, {'outcome': Outcome.INFRA_ERROR,
+                                          'reason': 'stress:unfinished_validation'})
+                model.assert_not_called()
+                h.early_review.assert_not_called()
+                self.assertNotEqual(h.c.card.get('stress_review', {}).get('status'), 'completed')
 
-    def test_blocking_defects_precede_unfinished_validation_live_and_saved(self):
-        # Synthetic shape of attempt 5: broken judge/reset prevented diagnostics.
+    def test_blocking_defects_precede_unfinished_validation(self):
+        from durable.contract import Outcome
         result = {'complete': False, 'blocking': ['Judge raises KeyError on establish.',
                   'Guard reset collides with the baseline function.'],
                   'unfinished_validation': ['No checkpoint or strategy could produce a verdict.']}
-        for resume in (False, True):
-            with self.subTest(resume=resume):
-                h = self.harness()
-                if resume: h.interrupt(result)
-                calls = []
-                def model(c, models, text, cwd, name):
-                    calls.append(name)
-                    if name == 'builder-2':
-                        self.assertIn(result['blocking'][0], text)
-                        (c.case / 'repair.txt').write_text('judge and reset repaired')
-                    else:
-                        h.report_path(text).write_text(json.dumps(result if name == 'attacker-1'
-                            else {'complete': True, 'blocking': []}))
-                with patch.object(run, 'opencode', model): run.build(h.c)
-                self.assertEqual(calls, ([] if resume else ['attacker-1']) + ['builder-2', 'attacker-2'])
-                self.assertEqual(h.c.card['stress_review'], {'status': 'completed', 'round': 2})
-                h.early_review.assert_called_once()
-                h.doCleanups()
-
-    def test_mixed_report_at_round_limit_cannot_grant_stress_pass(self):
-        h = self.harness(); h.c.args.rounds = 1
-        h.interrupt({'complete': False, 'blocking': ['Broken judge.'],
-                     'unfinished_validation': ['Diagnostics blocked.']})
-        with patch.object(run, 'opencode', return_value=0) as model, self.assertRaisesRegex(
-                run.BudgetError, 'rounds_exhausted'):
-            run.build(h.c)
-        self.assertEqual([call.args[4] for call in model.call_args_list], ['builder-precheck'])
+        h = self.harness()
+        outcome = self.stress(h, result)
+        self.assertEqual(outcome['outcome'], Outcome.OK)
+        self.assertEqual(outcome['reason'], 'stress:findings')
+        self.assertEqual(json.loads(outcome['feedback'])['problems'], result['blocking'])
+        self.assertEqual(run.attack_report(h.c.work / 'attacks/round-1.json')['unfinished_validation'],
+                         result['unfinished_validation'])
+        self.assertEqual(h.c.card['stress_review'], {'status': 'findings', 'round': 1})
         h.early_review.assert_not_called()
-        self.assertEqual(h.c.card['stress_review']['status'], 'unresolved')
 
     def test_early_saved_cheats_run_once_each_and_reopenings_are_writer_feedback(self):
         h = self.harness()
@@ -125,18 +118,14 @@ class StressLoopTests(unittest.TestCase):
             self.assertEqual(checkpoint.call_count, 1)
 
     def test_reopened_cheat_returns_to_writer_before_next_stress_and_is_rechecked(self):
-        h = self.harness(); h.c.seed = 4; h.c.args.rounds = 3
+        from durable.contract import Outcome
+        h = self.harness(); h.c.seed = 4
         (h.c.case / 'guards/cheats/alpha').mkdir(parents=True)
-        h.interrupt({'complete': True, 'blocking': ['A synthetic defect.']})
         calls = []
         def model(c, models, text, cwd, name):
             calls.append(name)
-            if name.startswith('builder-'):
-                if name == 'builder-3': self.assertIn('Retained cheat passed after repair:', text)
-                (c.case / 'repair.txt').write_text(name)
-            else:
-                self.assertEqual(name, 'attacker-3')
-                h.report_path(text).write_text('{"complete": true, "blocking": []}')
+            if name == 'builder-2-fix-1': self.assertIn('Retained cheat passed after repair:', text)
+            (c.case / 'repair.txt').write_text(name)
         records = [({}, [{'errors': [], 'checker': {'valid': True},
                           'judge': {'checks': {'synthetic': value}, 'paths': {}}}])
                    for value in (True, False)]
@@ -146,23 +135,17 @@ class StressLoopTests(unittest.TestCase):
              patch.object(run.GatePipeline, 'check', return_value=(True, {})), \
              patch.object(run, 'public_progress'), patch.object(run, 'log'):
             h.early_checks.side_effect = lambda c: run._gate_pipeline().early_checks(c)
-            run.build(h.c)
-        self.assertEqual(calls, ['builder-2', 'builder-3', 'attacker-3'])
+            outcome = run.engine_writer_round(h.c, 2, run._feedback('stress', ['A synthetic defect.']))
+        self.assertEqual(outcome['outcome'], Outcome.OK)
+        self.assertEqual(calls, ['builder-2', 'builder-2-fix-1'])
         self.assertEqual(checkpoint.call_count, 2)
         self.assertNotIn('G6', h.c.early)
+        self.assertNotIn('stress_review', h.c.card)
+        self.assertEqual(self.stress(h, {'complete': True, 'blocking': []}, 2)['reason'], 'stress:clean')
         state = json.loads((h.c.work / 'attack-state.json').read_text())
-        self.assertEqual(state['round'], 3)
+        self.assertEqual(state['round'], 2)
         self.assertEqual(state['binding'], run.attack_binding(h.c))
         self.assertFalse(state['review_pending'])
-
-    def test_final_repair_gets_early_validation_without_granting_stress_pass(self):
-        h = self.harness(); h.c.args.rounds = 1
-        h.interrupt({'complete': True, 'blocking': ['A synthetic defect.']})
-        with patch.object(run, 'opencode', return_value=0), \
-             self.assertRaisesRegex(run.BudgetError, 'rounds_exhausted'):
-            run.build(h.c)
-        h.early_checks.assert_called_once()
-        self.assertEqual(h.c.card['stress_review']['status'], 'unresolved')
 
     @unittest.skipUnless(os.environ.get('UNBUG_PRIVATE_REPLAY') == '1' and PRIVATE.is_dir(), 'private e15450 replay artifacts absent')
     def test_private_e15450_replay(self):

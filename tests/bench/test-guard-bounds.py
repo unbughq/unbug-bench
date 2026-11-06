@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory() as temp:
     (root / 'factory').mkdir()
     shutil.copy(_BENCH_ROOT / 'factory/boat_lifecycle.py', root / 'factory/boat_lifecycle.py')
     (root / 'results/spend').mkdir(parents=True)
-    shutil.copy((_BENCH_ROOT / "bin" / 'boat-launch-guards.sh'), root / 'bin/boat-launch-guards.sh')
+    shutil.copy((_BENCH_ROOT / "bin" / 'exam-launch-guards.sh'), root / 'bin/exam-launch-guards.sh')
     for name, code in {
         'boat-spend': '#!/bin/sh\necho 30\n',
         'boat-call': '#!/bin/sh\necho "$BOAT_COMMAND_TIMEOUT_SECONDS" > "$TEST_ROOT/timeout"\necho \'{"event":"created","id":"vm-synthetic"}\'\n',
@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory() as temp:
         path.chmod(0o755)
     script = '''set -eu
 root=$TEST_ROOT; n=1; label=factory; ttl_hours=0.01; max_spend=1
-. "$root/bin/boat-launch-guards.sh"
+. "$root/bin/exam-launch-guards.sh"
 guard_init
 trap - 0 INT TERM
 [ "$margin" -gt 0 ] && [ "$margin" -lt "$ttl_seconds" ] && [ "$retire_at" -gt 0 ]

@@ -42,3 +42,16 @@ def offline_router():
     stack.enter_context(patch.dict('os.environ', {'UNBUG_PROVIDER_WAIT': '1'}))
     atexit.register(stack.close)
     return stack, store
+
+
+def historical_minimax_profile():
+    """Replay the captured 2026-10-31 tariff, not a claim about today's endpoint.
+
+    Verified against router-item8-minimax-availability.json.gz by its profile test.
+    Financial fault tests freeze that input so provider changes cannot alter the
+    authored credit/unknown-spend examples.
+    """
+    return patch.dict(model_router.GATED_OPENROUTER, {
+        'openrouter/minimax/minimax-m3.1-flash': dict(endpoint='tenstorrent/fp8',
+            prices=('0.05','0.005','0.2'),context=1000000,output=900000,windows=3,
+            cache_write='0',source_date='2026-10-31')})

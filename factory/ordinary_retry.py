@@ -6,7 +6,6 @@ from pathlib import Path
 import time
 
 from budget import BudgetError
-import job_authority
 import model_router
 import model_runtime
 from registry import atomic_json
@@ -24,7 +23,8 @@ def read(path, default=None):
 
 
 def check(c):
-    job_authority.for_case(c)
+    if time.time() >= model_router.epoch(c.batch_deadline):
+        raise BudgetError('provider_wait_deadline')
     cancel = getattr(c, 'role_cancel', None)
     if cancel is not None and cancel.is_set(): raise BudgetError('cancelled')
 
@@ -129,6 +129,22 @@ def answer(c, models, identity, kind, schema, request, invoke, validate):
     if not isinstance(state.get('spent_routes'), list) or not set(state['spent_routes']) <= approved:
         raise BudgetError('ordinary_retry_state_invalid')
     def save(): atomic_json(path, state)
+    attempt = getattr(getattr(c, 'engine', None), 'key', None)
+    previous = state.get('engine_attempt')
+    if previous is not None and not isinstance(previous, str):
+        raise BudgetError('ordinary_retry_state_invalid')
+    if attempt is not None and attempt != previous:
+        last = state['attempts'][-1] if state['attempts'] else None
+        if previous is not None and last and last['phase'] == 'invalid' and approved <= set(state['spent_routes']):
+            history = state.setdefault('exhausted_attempts', [])
+            if not isinstance(history, list): raise BudgetError('ordinary_retry_state_invalid')
+            history.append({'engine_attempt': previous, 'spent_routes': list(state['spent_routes'])})
+            state['spent_routes'] = []
+            state['attempts'].append({'kind': 'judgment', 'phase': 'pending',
+                                     'output': f'answer-{len(state["attempts"])}.json'})
+        # Pending/valid work also adopts the new key, preventing a second reset in this attempt.
+        state['engine_attempt'] = attempt
+        save()
     def payload(row):
         output = directory / row['output']
         raw = output.read_bytes() if output.is_file() else b''
@@ -175,7 +191,6 @@ def answer(c, models, identity, kind, schema, request, invoke, validate):
         if output.exists():
             partial = directory / (row['output'] + '.partial-' + str(time.time_ns()))
             output.rename(partial)
-        model_runtime.prepare_dispatch(c)
         context = copy.copy(c)
         excluded = set(getattr(c, 'router_excluded', ()))
         excluded.update(r['pool'] + '/' + r['route'] for r in routes if r['route'] in state['spent_routes']

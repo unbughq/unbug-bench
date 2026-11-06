@@ -133,14 +133,13 @@ harness = r'''
 import copy, json, pathlib, sys, types
 from unittest import mock
 import run
-import gate_state, worker_release
-run.os.environ.setdefault("UNBUG_JUDGE", "1")  # stamp the same effective environment main() applies
+import gate_state
 root = pathlib.Path(sys.argv[1]); mode = sys.argv[2]; work = root / "work/case-synthetic"
 (work / "case").mkdir(parents=True); (work / "logs").mkdir()
 (work / "case/authored").write_text("synthetic authored case")
 (work / "case/base").mkdir(); (work / "case/base/judge.py").write_text("synthetic checker")
 config = dict(version=1, rounds=3, runs=10, scenario_runs=3, pilot_tries=3, pilot_runs=5,
-    calibrator_minutes=30, max_role_calls=400, max_total_calls=1000, max_cost=5,
+    dry_run=False, calibrator_minutes=30, max_role_calls=400, max_total_calls=1000, max_cost=5,
     no_progress_minutes=45, max_zero_tokens=3, agent_timeout=14400, max_repairs=2)
 roles = {"writer": {"model": "synthetic/writer", "effort": "high"}}
 previous = {"gates": {gate: "pass" for gate in run.GATES},
@@ -164,17 +163,6 @@ if mode == "case": (work / "case/base/judge.py").write_text("changed checker")
 if mode == "freshness": (work / "case/freshness.jsonl").write_text('{"hit": true}')
 for role in ("strong_calibrator", "easy_calibrator"):
     (work / role).mkdir(); (work / role / "results.json").write_text('[{"solved": true}]')
-run.HOME = root; run.SEALED = root / "sealed"; run.BENCH = bench
-run.sh = lambda *a, **kw: 0; run.bench_manifest = lambda: "synthetic"
-run.pilot_homes = lambda: []
-def pick_models(c):
-    c.card["roles"] = copy.deepcopy(roles)
-    return {}
-run.pick_models = pick_models
-worker_release.verify_selected_drivers = lambda models, resolver: {"synthetic_qualified": True}
-def build(c):
-    assert c.card["driver_qualification"] == {"synthetic_qualified": True}
-run.build = build; run.seal = lambda *a, **kw: None
 def gates(c):
     assert not c.card["gates"], (mode, c.card["gates"])
     assert not c.card.get("gate_results"), "old pass flags must not bypass receipt validation"
@@ -187,15 +175,22 @@ def gates(c):
     assert (work / "case/authored").read_text() == "synthetic authored case"
     (root / "checked").touch()
     raise run.BudgetError("synthetic-test-stop")
-run.run_gates = gates
-with mock.patch.object(sys, "argv", ["run.py", "--source", "port", "--seed", "42", "--no-progress-minutes", "45", "--resume", "case-synthetic", "--resume-bench-sha", "synthetic", "--skip-build"]):
-    run.main()
+c = receipt_context
+c.card, c.stopped = previous, False
+with mock.patch.object(run, "run_gates", gates), \
+     mock.patch.object(run, "g1", return_value=(True, {"problems": []})), \
+     mock.patch.object(run, "ensure_freshness"):
+    try:
+        run.engine_gates(c)
+    except run.BudgetError as error:
+        assert str(error) == "synthetic-test-stop"
+    else:
+        raise AssertionError("gate verification did not run")
 '''
 for mode in ("legacy", "unchanged", "release", "config", "seed", "roles", "case", "freshness"):
     with tempfile.TemporaryDirectory() as tmp:
         result = subprocess.run([sys.executable, "-c", harness, tmp, mode], cwd=(pathlib.Path(__file__).resolve().parents[2] / "factory"), capture_output=True, text=True)
         assert result.returncode == 0, (mode, result.stderr)
-        assert (pathlib.Path(tmp) / "checked").exists(), (mode, result.stdout,
-            pathlib.Path(tmp, "work/case-synthetic/logs/stdio.log").read_text())
+        assert (pathlib.Path(tmp) / "checked").exists(), (mode, result.stdout)
 
 print("PASS calibration recovery: SIGKILL, partial resume, identity and artifact checks, legacy rejection, symmetric probe reuse, three independent attempts, kept-gate verification")

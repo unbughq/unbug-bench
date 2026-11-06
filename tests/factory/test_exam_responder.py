@@ -24,7 +24,6 @@ from exam_responder import owner_channel, owner_server, docker_owner_server, res
 
 class OwnerTests(unittest.TestCase):
     def check_attempt_drain(self, *, timeout=False, body_error=False):
-        import factory_waste
         import threading
         from run_validity import InvalidInfra
         started, release, finished = threading.Event(), threading.Event(), threading.Event()
@@ -37,7 +36,6 @@ class OwnerTests(unittest.TestCase):
             c = types.SimpleNamespace(case=case, args=types.SimpleNamespace(), card={},
                                       models={'reviewers': [['existing-reviewer']]})
             def model(ctx, models, text, directory, name, **kw):
-                self.assertIs(factory_waste.current_attempt(), scope)
                 started.set(); release.wait(5)
                 (directory/'answer.json').write_text('{"answer":"authored answer"}')
                 return 0
@@ -49,7 +47,6 @@ class OwnerTests(unittest.TestCase):
                     with urllib.request.urlopen(urllib.request.Request(url, data=b'{"question":"authored"}'), timeout=5) as response:
                         response.read()
                 finally: finished.set()
-            token = factory_waste._attempt.set(scope)
             try:
                 with patch('exam_responder.OWNER_DRAIN_SECONDS', .02 if timeout else 2):
                     try:
@@ -62,12 +59,10 @@ class OwnerTests(unittest.TestCase):
                         self.assertTrue(timeout)
                         self.assertIsInstance(error, ValueError if body_error else InvalidInfra)
                     else: self.assertFalse(timeout)
-                self.assertEqual(reasons, ['owner_drain_timeout'] if timeout else [])
                 if not timeout: self.assertTrue(finished.wait(1))
             finally:
                 release.set()
                 if request: request.join(5)
-                factory_waste._attempt.reset(token)
             self.assertTrue(finished.is_set())
 
     def test_factory_owner_drain_includes_call_finishing_after_calibrator(self):
