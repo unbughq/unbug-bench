@@ -45,7 +45,7 @@ def read_config(path):
     return value
 
 
-def pack(encoded, path, status=None):
+def pack(encoded, path, status=None, *, names=None):
     """status: a caller's own status reply for this config, so a preflight makes one RPC, not two."""
     if len(encoded) > LIMIT: raise ValueError()  # shared with main's bounded stdin read
     config = read_config(path)
@@ -61,12 +61,26 @@ def pack(encoded, path, status=None):
             if (not member.isfile() or '/' in name or name.startswith('.') or name in seen or name in NAMES):
                 raise ValueError()
             seen.add(name)
+            if names is not None and name not in names:
+                continue
             target.addfile(member, source.extractfile(member))
+        if names is not None and not set(names) <= seen:
+            raise ValueError('selected worker credentials missing')
         for name, field in zip(NAMES, ('url', 'token', 'ca_pem')):
             data = config[field].encode()
             member = tarfile.TarInfo(name); member.size = len(data); member.mode = 0o600
             target.addfile(member, io.BytesIO(data))
     return base64.b64encode(output.getvalue())
+
+
+def worker_environment(directory):
+    """Router authority stays in the worker parent; model_runtime strips it from pilots."""
+    directory = Path(directory)
+    if not any((directory / name).exists() for name in NAMES):
+        return {}
+    url, token, _ = [(directory / name).read_text().strip() for name in NAMES]
+    return {'FACTORY_ROUTER_URL': url, 'FACTORY_ROUTER_TOKEN': token,
+            'FACTORY_ROUTER_CA_FILE': str(directory / NAMES[2])}
 
 
 def main():

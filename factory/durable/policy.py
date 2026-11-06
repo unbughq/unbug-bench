@@ -81,7 +81,8 @@ class Counters:
 
 
 def is_credential_problem(result: StepResult) -> bool:
-    return result.outcome is Outcome.INFRA_ERROR and result.reason == "router:credential_expiring"
+    return result.outcome is Outcome.INFRA_ERROR and result.reason in (
+        "router:credential_expiring", "infra:credentials_unavailable")
 
 
 def decide(step: Step, result: StepResult, counters: Counters, spec: BatchSpec, *,

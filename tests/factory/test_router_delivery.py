@@ -33,6 +33,33 @@ def archive(names=('claude-token',)):
 
 @unittest.skipUnless(shutil.which('openssl'),'openssl required for offline TLS proof')
 class DeliveryTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('age') and shutil.which('age-keygen'), 'age required')
+    def test_durable_delivery_decrypts_in_memory_and_selects_only_model_accounts(self):
+        from durable.runtime import Runtime
+        with tempfile.TemporaryDirectory() as tmp, router(tmp) as (config, _, __):
+            root = Path(tmp)
+            identity = root / 'identity'
+            subprocess.run(['age-keygen', '-o', str(identity)], capture_output=True, check=True)
+            public = subprocess.run(['age-keygen', '-y', str(identity)], capture_output=True, check=True).stdout.decode().strip()
+            names = ['claude-factory-token-2', 'openrouter-key']
+            encrypted = subprocess.run(['age', '-r', public], input=base64.b64decode(archive(
+                (*names, 'r2-env', 'statements-key', 'claude-token'))), capture_output=True, check=True).stdout
+            bundle = root / 'credentials.age'; bundle.write_bytes(encrypted); bundle.chmod(0o600)
+            runtime = Runtime.__new__(Runtime)
+            runtime.config = {'worker_credentials': {'bundle_file': str(bundle), 'identity_file': str(identity),
+                               'router_client_file': str(config), 'accounts': names}}
+            packed = runtime.worker_credentials()
+            ram = root / 'ram'; ram.mkdir()
+            with tarfile.open(fileobj=io.BytesIO(base64.b64decode(packed))) as tar:
+                self.assertEqual(set(tar.getnames()), {*names, *delivery.NAMES})
+                tar.extractall(ram, filter='data')
+            env = delivery.worker_environment(ram)
+            self.assertEqual(env['FACTORY_ROUTER_TOKEN'], TOKEN)
+            self.assertIn('paid', model_router.router_request(env['FACTORY_ROUTER_URL'],
+                          env['FACTORY_ROUTER_TOKEN'], 'status', {}, ca_file=env['FACTORY_ROUTER_CA_FILE']))
+            runtime.config['worker_credentials']['accounts'].append('codex-auth.json')
+            with self.assertRaises(ValueError): runtime.worker_credentials()
+
     def test_pack_and_real_authenticated_tls(self):
         with tempfile.TemporaryDirectory() as tmp, router(tmp) as (config,store,server):
             packed=delivery.pack(archive(),config)

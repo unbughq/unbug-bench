@@ -7,10 +7,12 @@ or database_url_file. output_retry_s defaults to 60; image defaults to bench-env
 Use application_version=durable.engine.APP_VERSION, pinned for this database lifetime.
 For the supplied units state_dir must be /home/user/.unbug-durable. The configuration,
 DSN file, restore identity and operator payload files must be owned regular 0600 files.
-Worker model credentials must already exist on the chosen image.
+Optional worker_credentials selects an encrypted bundle_file, identity_file,
+router_client_file and account names. Only selected model credentials reach worker RAM.
 """
 from __future__ import annotations
 
+import base64
 import fcntl
 from contextlib import contextmanager
 import json
@@ -19,6 +21,7 @@ import math
 import os
 from pathlib import Path
 import stat
+import subprocess
 import threading
 
 from durable.artifacts import AgeSealer, LocalObjects, R2Objects, SealedStore, check_scope
@@ -145,12 +148,29 @@ class Runtime:
             self.store = PublishingStore(objects_for(config), self.keys)
             self.releases = ReleaseStore(self.state / "releases")
             self.pool = BoatPool(self.state / "pool", self.releases, config["pool_id"], image=config.get("image", "bench-env"))
+            if "worker_credentials" in config:
+                from model_router import ACCOUNTS
+                names = config["worker_credentials"]["accounts"]
+                if not isinstance(names, list) or not names or not set(names) <= set(ACCOUNTS):
+                    raise RuntimeErrorCode("invalid_worker_accounts")
+                self.pool.credential_bundle = self.worker_credentials
             self.channel = BoatChannel(self.store, keys=self.keys, sealer=self.sealer, output_retry_s=retry)
             self.executor = Executor(self.pool, self.channel, self.ledger, self.store, self.sealer, self.keys)
             self.engine = Engine(system_database_url=config["database_url"], executor=self.executor)
         except Exception:
             self.close()
             raise
+
+    def worker_credentials(self):
+        """Decrypt only in memory; never send storage credentials or founder keys to workers."""
+        from router_delivery import pack
+        config = self.config["worker_credentials"]
+        private_bytes(config["identity_file"])
+        done = subprocess.run(["age", "-d", "-i", config["identity_file"]],
+                              input=private_bytes(config["bundle_file"]), capture_output=True, timeout=30)
+        if done.returncode:
+            raise RuntimeErrorCode("worker_credentials_unavailable")
+        return pack(base64.b64encode(done.stdout), config["router_client_file"], names=config["accounts"])
 
     def launch(self):
         # No cleanup/release on reconciliation failure: journals retain ownership.

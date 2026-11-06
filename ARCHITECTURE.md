@@ -74,6 +74,9 @@ recovered work can enqueue. Attach to existing workflow IDs when resuming.
 
 The case sequence is ADMIT → WRITER → STRESS → GATES → SEAL, with bounded repair,
 diagnosis, extension and reviewer-escalation paths. ADMIT is serialized per batch;
+the active scheduler checks its recorded deadline after funding, before the first
+ADMIT dispatch. Queued or unfunded admissions expire with their holds released;
+an ADMIT already dispatched may continue across the cutoff and provider waits.
 GATES retains the existing pipeline and per-gate cache rather than duplicating it.
 Workers publish encrypted snapshots at model and gate boundaries. The channel
 fetches the latest committed snapshot; progress not fetched before a worker loss
@@ -85,6 +88,11 @@ DBOS records identifiers, keyed digests, fixed reason codes and numbers only.
 Case material belongs in encrypted artifacts, opened in worker RAM. The control
 side transfers blobs; workers receive no R2 credentials. Invoke executors through
 `guarded_run`; sanitize exception paths and disable Conductor/DBOS Cloud.
+Optional `worker_credentials` configuration names an encrypted bundle, control
+identity, router client file and selected model accounts. The controller decrypts
+in memory and delivers only those accounts and router authority into worker RAM
+after release qualification, including on reuse. Credentials never enter images,
+release bundles or workflow records; isolated model users lose router authority.
 
 Reserve allowance before dispatch and settle actual usage idempotently. Worker
 model calls atomically reserve their router Lease maxima against that attempt

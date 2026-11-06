@@ -246,6 +246,14 @@ def attempt_workflow(job: dict) -> dict:
     if si.step.kind is StepKind.ADMIT:
         si = replace(si, registry=Ref(**latest_registry_step(si.batch_id, job["initial_registry"])))
     grant = Grant(**reserve_step(to_record(si), job["request"], job["case_limit"], job["draws"]))
+    # A case waiting for a slot or funding has not yet begun admission. Record
+    # the cutoff after reserve (which may block), before provisioning a worker.
+    # Retries of an already dispatched ADMIT continue, including provider waits.
+    if (si.step.kind is StepKind.ADMIT and job.get("admission_deadline") is not None
+            and DBOS.patch("admission_deadline_gate") and now_step() >= job["admission_deadline"]):
+        release_unstarted_step(to_record(si))
+        DBOS.send(si.batch_id, {"kind": "settled"}, topic=CASE_EVENT)
+        return {"started": False, "action": Action.STOP_ADMISSION.value, "reason": "infra:deadline"}
     early = decide_grant(si.step, grant)
     if early is not None:
         release_unstarted_step(to_record(si))
@@ -481,6 +489,7 @@ class _Case:
         pool_since = None
         requested_minimum = 0
         admit = step.kind is StepKind.ADMIT
+        admission_started = False
         while True:
             attempt += 1
             pv, bv = versions if versions is not None else (self.current("plumbing"), self.bench)
@@ -495,6 +504,8 @@ class _Case:
                    "request": max(requested_minimum, request_usd_micros(step, counters, self.spec)),
                    "case_limit": self.spec.case_money_usd_micros, "draws": draws_case_money(step, counters),
                    "prev": prev}
+            if admit and not admission_started:
+                job["admission_deadline"] = self.spec.deadline_epoch
             queue = DBOS.retrieve_queue(steps_queue(self.batch_id))
             with SetWorkflowID(si.idempotency_key):
                 out = queue.enqueue(slot_workflow, job).get_result()
@@ -507,11 +518,12 @@ class _Case:
                 if action is Action.WAIT_FOR_BOUND:
                     self.wait_for_bound()
                     continue
-                self.last_reason = "engine:below_minimum_grant"
+                self.last_reason = out.get("reason", "engine:below_minimum_grant")
                 return action, None
             result = step_result_from_record(out["result"])
             grant = Grant(**out["grant"])
             if out["worker_id"] is not None:
+                admission_started = True
                 prev = {"input": out["input"], "started_at": out["started_at"], "worker_id": out["worker_id"]}
                 self.worker_id = out["worker_id"]
             if step.kind is StepKind.GATES:
@@ -545,7 +557,7 @@ class _Case:
             if step.kind is StepKind.DIAGNOSIS and result.outcome is Outcome.OK:
                 return None, result
             action = decide(step, result, self.counters(infra, limits, free, late), self.spec, grant=grant, now=now)
-            if pool_wait and admit and pool_now >= self.spec.deadline_epoch:
+            if pool_wait and admit and not admission_started and pool_now >= self.spec.deadline_epoch:
                 action = Action.STOP_ADMISSION   # the batch deadline stops new cases
             if (action is Action.RETRY and is_money_stop(result)
                     and grant.limited_by is LimitedBy.NOTHING and not job["draws"]):

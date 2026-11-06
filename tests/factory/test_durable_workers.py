@@ -448,6 +448,22 @@ class PoolTests(unittest.TestCase):
         self.assertEqual(len(later), 2)   # one inventory read, one RELEASE.json read
         self.assertNotEqual(self.acquire(pool, case="case-20261105T000000Z-def456").worker_id, first.worker_id)
 
+    def test_credentials_follow_qualification_and_refresh_on_worker_reuse(self):
+        pool = self.h.pool()
+        pool.credential_bundle = lambda: b'public-offline-credential-sentinel'
+        step, deliveries = pool._step, []
+        def capture(worker, name, script, timeout, **kwargs):
+            if name != 'credentials_unavailable':
+                return step(worker, name, script, timeout, **kwargs)
+            self.assertTrue((self.h.home(worker) / RELEASE_MANIFEST).is_file())
+            self.assertNotIn('public-offline-credential-sentinel', script)
+            deliveries.append(kwargs['stdin'])
+            return b''
+        pool._step = capture
+        first = self.acquire(pool)
+        self.assertEqual(self.acquire(pool), first)
+        self.assertEqual(deliveries, [b'public-offline-credential-sentinel'] * 2)
+
     def test_plumbing_release_installs_beside_the_old_one_on_the_same_worker(self):
         pool = self.h.pool()
         lease = self.acquire(pool)

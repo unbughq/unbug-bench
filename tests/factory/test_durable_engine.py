@@ -44,6 +44,34 @@ def steps(r, case):
 
 
 class StepSequence(unittest.TestCase):
+    def test_queued_admission_expires_without_dispatch_or_retaining_money(self):
+        r, out = run({"deadline_in": 3.0,
+                      "spec": {"target_sealed": 2, "max_cases_started": 2},
+                      "script": {"1/admit/1": {"dur": 4.0}, "2/admit/1": {"dur": 4.0}}})
+        self.addCleanup(r.close)
+        self.assertCountEqual(out["result"]["cases"].values(), ["sealed", "stopped_admission"])
+        expired = next(c for c, status in out["result"]["cases"].items() if status == "stopped_admission")
+        self.assertFalse(any(x["key"].startswith(expired + "/") for x in r.starts()))
+        self.assertFalse(any(x.get("case") == expired for x in r.pool_log()))
+        self.assertEqual(out["ledger"]["batches"]["b-t"]["held"], 0)
+        self.assertEqual(card(out, expired)["reason"], "infra:deadline")
+
+    def test_unfunded_admission_expires_while_waiting_for_the_bound(self):
+        r, out = run({"deadline_in": 3.0,
+                      "spec": {"money_bound_usd_micros": 500_000, "max_cases_started": 1}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "stopped_admission"})
+        self.assertFalse(r.starts())
+        self.assertEqual(out["ledger"]["batches"]["b-t"]["held"], 0)
+
+    def test_admitted_case_keeps_its_provider_retry_after_the_cutoff(self):
+        r, out = run({"deadline_in": 3.0, "spec": {"max_cases_started": 1},
+                      "script": {"1/admit/1": {"outcome": "provider_limit", "reason": "router:claude_limit",
+                                               "retry_in": 4.0, "paid": 0}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(steps(r, 1)[:2], ["admit", "admit"])
+
     def test_straight_to_seal(self):
         r, out = run({})
         self.addCleanup(r.close)
@@ -159,6 +187,14 @@ class Outcomes(unittest.TestCase):
         reserves = [x["t"] for x in r.ledger_log() if x["op"] == "reserve" and "/admit/" in x["key"]]
         self.assertEqual(len(reserves), 5)
         self.assertTrue(all(b - a >= 0.3 for a, b in zip(reserves, reserves[1:])), reserves)
+
+    def test_credential_delivery_recovers_without_spending_the_infra_allowance(self):
+        r, out = run({"pool_failures": 4, "pool_reason": "infra:credentials_unavailable",
+                      "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "timing": {"credential_retry_s": 0.2}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+        self.assertEqual(len([x for x in r.ledger_log() if x["op"] == "reserve" and "/admit/" in x["key"]]), 5)
 
     def test_boat_inventory_outage_waits_like_a_create_failure(self):
         r, out = run({"pool_failures": 4, "pool_reason": "infra:inventory_unavailable",

@@ -325,6 +325,7 @@ class BoatPool:
         # An unconfirmed create keeps its identity this long, from the saved intent: three create
         # timeouts. Boat's exit status and stderr never prove that no sandbox will appear.
         self.create_settle = create_settle_seconds
+        self.credential_bundle = None
 
     # -- journal
 
@@ -440,6 +441,7 @@ class BoatPool:
             if worker is not None:
                 installed = self._installed(worker)
                 if installed == {"plumbing_version": plumbing_version, "bench_version": bench_version}:
+                    self._deliver_credentials(worker)
                     return WorkerLease(lease_worker_id(worker), case_id)
                 if installed is not None and installed["bench_version"] != bench_version:
                     # The bench comes from the image: this worker can never serve it.
@@ -453,12 +455,30 @@ class BoatPool:
                 if fresh:
                     self._wait_ready(worker)
                 self._install(worker, plumbing_version, bench_version, prepare_image=prepare_image)
+                self._deliver_credentials(worker)
             except PoolError as error:
                 if fresh or error.reason == "infra:bench_mismatch":
                     with contextlib.suppress(PoolError):
                         self._delete_locked(case_id, worker)
                 raise
             return WorkerLease(lease_worker_id(worker), case_id)
+
+    def _deliver_credentials(self, worker):
+        if self.credential_bundle is None:
+            return
+        # Reuse the existing RAM-only delivery command; credentials never enter argv.
+        script = ("set -eu; umask 077; sudo -n loginctl enable-linger \"$(id -un)\"; "
+                  "rm -rf /dev/shm/secrets; mkdir /dev/shm/secrets; "
+                  "base64 -d | tar -x -C /dev/shm/secrets; chmod 700 /dev/shm/secrets; "
+                  "chmod 600 /dev/shm/secrets/*")
+        failed = False
+        try:
+            data = self.credential_bundle()
+            self._step(worker, "credentials_unavailable", script, 120, stdin=data)
+        except Exception:
+            failed = True
+        if failed:
+            raise PoolError("infra:credentials_unavailable")
 
     def release(self, lease: WorkerLease) -> None:
         with self._lock(lease.case_id):
