@@ -147,6 +147,11 @@ funded window (at most $50); explicit Claude profile ceilings remain binding.
 The router persists and validates that quote, and the worker atomically reserves
 it before execution. Exam calibrators leave a qualified reviewer window outside
 their hold so nested owner questions remain funded. This changes no case/batch bound and retains unknown charges.
+The router's operator configuration may set `paid_ceiling_usd`, an absolute shared
+wallet spending limit including all retained charges. Restart applies an explicit
+limit transactionally without resetting settled or uncertain spending; live wallet
+credit is checked separately on every paid request. Without this setting, the
+historical first-use qualification ceiling remains fixed across restarts.
 
 Poll transport failures do not prove a worker is absent. Cancel or establish that
 the old attempt is finished before starting another. Enforce release identity and

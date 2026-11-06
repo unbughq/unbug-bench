@@ -101,6 +101,46 @@ class PaidTests(unittest.TestCase):
         self.assertFalse(self.reserve(lease)[1]['granted'])
         self.assertEqual(self.status()['total_usd'], '11.500000000')
 
+    def test_operator_ceiling_change_preserves_spending_and_unknown_holds(self):
+        self.credit = Decimal('.46')
+        lease = admit(self.store)
+        settled, _ = self.reserve(lease)
+        self.store.rpc('paid_settle', settled | {'usage': dict(prompt_tokens=1000000, completion_tokens=900000)})
+        unknown, _ = self.reserve(lease)
+        self.store.rpc('paid_settle', unknown | {'usage': None})
+        self.credit = Decimal('100')
+        self.assertFalse(self.reserve(lease)[1]['granted'])  # More wallet credit cannot raise the limit.
+        with closing(sqlite3.connect(self.path)) as db:
+            before = db.execute('SELECT * FROM paid_requests ORDER BY id').fetchall()
+        self.store = router.Store(self.path, clock=lambda: self.now[0], credit_reader=lambda: self.credit,
+                                  paid_ceiling_usd='1.15')
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertEqual(db.execute('SELECT * FROM paid_requests ORDER BY id').fetchall(), before)
+        self.assertEqual(self.status()['total_usd'], '0.460000000')
+        for _ in range(3): self.assertTrue(self.reserve(lease)[1]['granted'])
+        self.assertFalse(self.reserve(lease)[1]['granted'])
+        self.store = router.Store(self.path, credit_reader=lambda: self.credit)
+        self.assertEqual(self.status()['ceiling_usd'], '1.150000000')
+        self.assertEqual(self.status()['total_usd'], '1.150000000')
+        self.assertFalse(self.reserve(lease)[1]['granted'])
+
+    def test_explicit_limit_does_not_freeze_to_initial_credit_and_still_checks_wallet(self):
+        self.credit = Decimal('.23')
+        self.store = router.Store(self.path, credit_reader=lambda: self.credit, paid_ceiling_usd='1')
+        lease = admit(self.store)
+        self.assertTrue(self.reserve(lease)[1]['granted'])
+        self.assertFalse(self.reserve(lease)[1]['granted'])
+        self.credit = Decimal('1')
+        self.assertTrue(self.reserve(lease)[1]['granted'])
+        self.assertEqual(self.status()['ceiling_usd'], '1.000000000')
+        for bad in (True, -1, 'NaN', 'Infinity', '10000000000', 'bad'):
+            with self.assertRaises(ValueError):
+                router.Store(self.path, paid_ceiling_usd=bad)
+        with self.assertRaisesRegex(ValueError, 'below retained spending'):
+            router.Store(self.path, paid_ceiling_usd='.45')
+        self.assertEqual(self.status()['ceiling_usd'], '1.000000000')
+        self.assertEqual(self.status()['total_usd'], '0.460000000')
+
     def test_unknown_credit_low_credit_and_deadline_fail_closed(self):
         lease = admit(self.store)
         for bad in (None, -1, float('nan'), float('inf'), True, 'no'):

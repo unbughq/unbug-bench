@@ -271,7 +271,11 @@ def _paid_charge(profile, usage):
 
 class Store:
     """One short SQLite transaction per RPC; no process-local availability cache."""
-    def __init__(self, path, *, capacities=None, accounts=ACCOUNTS, clock=time.time, credit_reader=None):
+    def __init__(self, path, *, capacities=None, accounts=ACCOUNTS, clock=time.time, credit_reader=None,
+                 paid_ceiling_usd=None):
+        approved_ceiling = None if paid_ceiling_usd is None else _nano(paid_ceiling_usd, ROUND_FLOOR)
+        if approved_ceiling is not None and approved_ceiling > 2**63 - 1:
+            raise ValueError('invalid paid ceiling')
         self.credit_reader = credit_reader
         self.path, self.clock = str(path), clock
         self.capacities, self.accounts = capacities or {}, tuple(accounts)
@@ -290,6 +294,14 @@ class Store:
                              'hold INTEGER, charge INTEGER, state TEXT, settled_at REAL, usage TEXT);')
             if 'seen' not in {row[1] for row in db.execute('PRAGMA table_info(requests)')}:
                 db.execute('ALTER TABLE requests ADD COLUMN seen REAL NOT NULL DEFAULT 0')
+            if approved_ceiling is not None:
+                # Operator configuration changes the limit, never the retained charges.
+                db.execute('BEGIN IMMEDIATE')
+                total, _ = _paid_counts(db, self.clock() - CREDIT_OVERLAP)
+                if approved_ceiling < total:
+                    raise ValueError('paid ceiling below retained spending')
+                db.execute('INSERT INTO paid_account(id,ceiling,credit) VALUES(1,?,NULL) '
+                           'ON CONFLICT(id) DO UPDATE SET ceiling=excluded.ceiling', (approved_ceiling,))
 
     def rpc(self, operation, data, *, handling_started=None):
         started = time.monotonic() if handling_started is None else handling_started
@@ -480,7 +492,7 @@ class Store:
         if time.monotonic() - started >= 4: return denied('binding')
         account = db.execute('SELECT ceiling FROM paid_account WHERE id=1').fetchone()
         ceiling = account[0] if account else min(PAID_CEILING, credit) if credit is not None else None
-        if ceiling is not None and (type(ceiling) is not int or not 0 <= ceiling <= PAID_CEILING):
+        if ceiling is not None and (type(ceiling) is not int or not 0 <= ceiling <= 2**63 - 1):
             raise ValueError('invalid paid ceiling')
         if credit is None: return denied('credit')
         profile = GATED_OPENROUTER[lease['route']]
@@ -797,7 +809,9 @@ def main():
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
     token = os.environ.get('FACTORY_ROUTER_TOKEN', '')
-    server = Server(('0.0.0.0', 8765), Store(production_database(config), capacities=config.get('capacities'), accounts=config.get('accounts', ACCOUNTS), credit_reader=available_credit), token)
+    server = Server(('0.0.0.0', 8765), Store(production_database(config), capacities=config.get('capacities'),
+        accounts=config.get('accounts', ACCOUNTS), credit_reader=available_credit,
+        paid_ceiling_usd=config.get('paid_ceiling_usd')), token)
     server.enable_tls(os.environ['FACTORY_ROUTER_CERT'], os.environ['FACTORY_ROUTER_KEY'])
     server.serve_forever()
 
