@@ -57,6 +57,9 @@ references and package interfaces. Its reviewed change permits restoring ADMIT
 checkpoints; the wire fields remain the same. The candidate integrates the DBOS engine, executor,
 Boat worker pool/channel, worker-side steps, SQL ledger and wrapped-key service.
 `runtime.py` composes these components; `cli.py` exposes a private operator socket.
+`client.py` reads that operator's public status/report over SSH using a saved local
+connection and default batch. `bin/install-unbug` packages a standalone read-only
+client with Python's standard library; it neither imports DBOS nor starts recovery.
 Plumbing bundles include their authenticated `bin/processes.py` runtime helper;
 factory imports and qualification use that release copy. Scientific bench files
 remain on the separately pinned worker image.

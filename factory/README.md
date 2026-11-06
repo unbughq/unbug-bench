@@ -7,13 +7,30 @@
 ## Entry points
 
 - `python3 factory/run.py --help`: one worker's case build and gate options.
-- `python3 factory/batch.py --help`: build a pinned public batch release.
-- `bin/control-vm --help`: provision and operate the control VM.
-- `factory/launch.sh`: launch or resume an approved worker through the holder.
-- `factory/collect.sh`: collect worker evidence through the existing control path.
+- `unbug status [BATCH]` / `unbug report [BATCH] --json`: read the controller's scorecard.
+- `bin/unbug --config CONFIG --help`: controller-local administration through its private socket.
 
 Use the approved batch manifests and release qualification when launching real
 workers. A source change does not update deployed pins or authorize paid work.
+
+## Operator client
+
+`python3 bin/install-unbug` installs a standalone read-only client in `~/.local/bin`.
+It is independent of the source checkout and needs only Python 3 and SSH. Save this
+connection shape in `~/.config/unbug/client.json`, replacing the example paths, and
+set its permissions to `600`:
+
+```json
+{
+  "ssh": ["ssh", "-i", "/path/to/key", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "user@controller"],
+  "command": ["/path/to/venv/bin/python", "/path/to/bin/unbug", "--config", "/path/to/controller-config.json"],
+  "batch": "b-current"
+}
+```
+
+The profile contains connection arguments and paths, never credential contents or
+the controller configuration itself. `unbug --connection FILE status` selects another
+connection. On the controller, existing `--config` operator commands are unchanged.
 
 ## Execution
 
