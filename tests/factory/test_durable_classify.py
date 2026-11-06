@@ -204,6 +204,7 @@ class RealStops(unittest.TestCase):
         "cleanup_failed": ("infra_error", "infra:cleanup_failed"),
         "codex_error": ("infra_error", "router:codex_error"),
         "codex_login_expired": ("infra_error", "router:credential_expiring"),
+        "containment_unavailable": ("infra_error", "infra:cleanup_failed"),
         "cost_limit": ("exhausted", "writer:money"),
         "budget_exhausted:grant_insufficient": ("exhausted", "writer:money"),
         "credential_expiring": ("infra_error", "router:credential_expiring"),
