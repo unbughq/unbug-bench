@@ -461,6 +461,11 @@ class AttemptBudget(unittest.TestCase):
         gate = model_call_gate.Allowance(replace(lease, max_usd=float(hold) - 0.01), deadline=time.monotonic()+2)
         self.assertIsNone(gate.reserve(model_call_gate.worst_request(lease.route)['output_tokens']
                                        if lease.route in model_call_gate.CLAUDE_PROFILES else 1))
+        # ...and accepts exactly the hold plus the gate's headroom: the hold is not overstated.
+        fits = model_call_gate.Allowance(replace(lease, max_usd=float(hold + model_call_gate.HEADROOM)), deadline=time.monotonic()+2)
+        self.assertIsNotNone(fits.reserve(model_call_gate.worst_request(lease.route)['output_tokens']
+                                          if lease.route in model_call_gate.CLAUDE_PROFILES else 1))
+        fits.close()
         self.assertEqual(model_call_gate.request_hold('claude/claude-opus-5-5'), Decimal('9.520896'))
         self.assertIsNone(model_call_gate.request_hold('codex/gpt-6.1-sol'))
 
