@@ -629,6 +629,26 @@ class Releases(unittest.TestCase):
         self.assertEqual(out['ledger']['batches']['b-t']['held'], 0)
         self.assertEqual(card(out, C1)['status'], 'sealed')
 
+    def test_admission_backoff_keeps_a_healthy_worker(self):
+        """On 7 November each backoff made a new worker, and the campaign ran out of them."""
+        r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+            'timing': {'admission_backoff_s': 0.05},
+            'script': {f'1/admit/{n}': {'outcome': 'infra_error', 'reason': 'infra:timeout', 'checkpoint': True}
+                       for n in (1, 2, 3)}})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'sealed'})
+        self.assertEqual({start(r, f'{C1}/1/admit/{n}')['worker'] for n in (1, 2, 3, 4)}, {'w-1-1'})
+        self.assertEqual(len([x for x in r.pool_log() if x['op'] == 'provision']), 1)
+
+    def test_a_worker_that_died_during_backoff_is_replaced(self):
+        r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+            'timing': {'admission_backoff_s': 0.05},
+            'dead_on_start': [f'{C1}/1/admit/1'],
+            'script': {'1/admit/1': {'outcome': 'infra_error', 'reason': 'infra:timeout'}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'sealed'})
+        self.assertEqual(start(r, f'{C1}/1/admit/2')['worker'], 'w-1-2')
+
     def test_admission_that_keeps_failing_says_so_and_recovers_its_status(self):
         r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
             'timing': {'admission_backoff_s': 0.05, 'admission_alert_after': 1},

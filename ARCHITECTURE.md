@@ -118,9 +118,9 @@ case snapshot under the same case key, retaining its ledger and completed model
 receipts while reading the current serialized registry. Contract version 6 relaxes
 only ADMIT's input snapshot restriction; other steps still require a snapshot.
 The engine guards the changed retry input with a DBOS patch for replay compatibility.
-An ADMIT infrastructure failure that exhausts its retries backs off without a worker,
-queue slot or outstanding grant, then retries the same release once from its snapshot
-and ledger. The wait doubles to an hour. The case is held after eight backoffs, and as
+An ADMIT infrastructure failure that exhausts its retries backs off without a
+queue slot or outstanding grant, keeping any healthy worker so retries don't spend the
+worker creation allowance, then retries the same release once from its snapshot and ledger. The wait doubles to an hour. The case is held after eight backoffs, and as
 soon as its infrastructure waste reaches the case's money or the worker creation limit
 is hit, with no further retry. After a batch deadline, checked again after each wait,
 admission stops.

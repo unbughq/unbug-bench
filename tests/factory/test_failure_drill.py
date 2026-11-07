@@ -254,6 +254,7 @@ class Drill(unittest.TestCase):
                     for n in (1, 2, 3)}))
         self.finish(run, process)
         self.assertEqual(len([s for s in run.starts() if "/admit/" in s["key"]]), 4)
+        self.assertEqual(len([x for x in run.pool_log() if x["op"] == "provision"]), 1)   # one worker throughout
 
     def test_postgres_restart_mid_attempt(self):
         binaries = [shutil.which(n) for n in ("initdb", "pg_ctl")]
