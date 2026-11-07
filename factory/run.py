@@ -446,7 +446,7 @@ def freshness_topup(c, *, reverify_timeout=None, completed_roles=(), role_comple
     finish_freshness_repair(c)
     counts_before = freshness_counts(c)
     if under_engine(c):
-        # Busy searching is not a stall. The attempt's deadline and the no-progress check bound it.
+        # Busy searching is not a stall. The attempt's deadline, call limits and grant bound it.
         deadline = c.engine.deadline_monotonic
     else:
         if reverify_timeout is None:

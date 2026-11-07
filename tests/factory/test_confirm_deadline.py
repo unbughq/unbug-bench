@@ -18,6 +18,12 @@ from test_freshness_restore_fixes import FreshnessRestoreTests
 
 
 class ConfirmDeadlineTests(FreshnessRestoreTests):
+    def test_the_stress_cap_stays_on_stress_review_and_off_freshness_search(self):
+        self.c.args.agent_timeout = 14400
+        self.assertEqual(model_runtime.role_timeout(self.c, 'attacker-freshness', 9000), 9000)
+        self.assertEqual(model_runtime.role_timeout(self.c, 'attacker-1', 9000), model_runtime.attacker_timeout(self.c))
+        self.assertEqual(model_runtime.role_timeout(self.c, 'builder-selection-1', None), None)
+
     def test_under_the_engine_only_the_attempt_deadline_bounds_a_confirmation(self):
         import time, types
         self.c.engine = types.SimpleNamespace(deadline_monotonic=time.monotonic() + 14000)

@@ -18,6 +18,7 @@ import math
 import os
 from pathlib import Path
 import re
+import sqlite3
 import time
 from typing import Callable, Optional
 import urllib.request
@@ -27,6 +28,7 @@ from durable.workers import _atomic_json
 RETRY_WAITS_S = (2.0, 6.0)   # a check gets three tries; the unit timeout fits a pass where all fail
 GRACE_S = 120.0              # a controller that just came up is not judged yet
 CHECKPOINT_GRACE_S = 600.0   # after a hard stop, for steps in flight; a pass runs once a minute
+ROUTER_MARGIN_USD = 1.0      # the router refuses a call that would pass its ceiling, so spend stalls below it
 ESCALATE_S = 900.0           # sustained failure raises an alert; it still stops nothing
 DOWN_ALERT_S = 600.0
 MARKER_TTL_S = 600.0         # a dead guard cannot pause admission for longer than this
@@ -225,7 +227,7 @@ class Guard:
             """The router's charges are the real spend, and the ledger has read low."""
             spent, ceiling = self.router()
             health["router_spent_usd"] = round(spent, 6)
-            return spent >= ceiling
+            return spent >= ceiling - ROUTER_MARGIN_USD
         def terminal():
             report = self.rpc("status")
             cases = report["cases"]
@@ -338,6 +340,17 @@ class Guard:
                     except Exception:   # kept unsent; the next pass tries again
                         pass
         self.save("alerts.json", alerts)
+
+
+def router_spend(path) -> tuple:
+    """Real spend and the ceiling, in dollars, read-only from the router's books."""
+    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        spent = db.execute("SELECT COALESCE(SUM(charge), 0) FROM paid_requests").fetchone()[0]
+        row = db.execute("SELECT ceiling FROM paid_account").fetchone()
+    finally:
+        db.close()
+    return spent / 1e9, (row[0] / 1e9 if row and row[0] is not None else math.inf)   # no ceiling set: no limit here
 
 
 def webhook(url: str) -> Callable:

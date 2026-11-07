@@ -50,6 +50,13 @@ def invocation_maximum(c, lease):
     return Decimal(str(lease.max_usd)).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
 
 
+def role_timeout(c, name, timeout):
+    """The stress-review cap applies to stress review, not to the attacker's freshness search."""
+    if invocation_role(name) == 'stress_tester' and not name.endswith('-freshness'):
+        return min(timeout or c.args.agent_timeout, attacker_timeout(c))
+    return timeout
+
+
 def attacker_timeout(c):
     # Stress review reads the case's files. Keep a twenty-minute exploration
     # base, add a minute per input file, bounded by forty minutes/operator cap.
@@ -554,8 +561,7 @@ class ModelRuntime:
             model_id = model_call_gate.claude_profile(model)['model'].partition('/')[2]
         driver = driver if driver in ("codex", "claude") else "opencode"
         role = invocation_role(name)
-        if role == 'stress_tester' and not name.endswith('-freshness'):   # that cap is for stress review
-            timeout = min(timeout or c.args.agent_timeout, attacker_timeout(c))
+        timeout = role_timeout(c, name, timeout)
         effort = c.card.get('roles', {}).get(role, {}).get('effort', model_effort(model))
         memory_scratch = False
         env, scratch = {k: v for k, v in {**os.environ, **getattr(c, "model_env", {})}.items()

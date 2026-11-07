@@ -68,6 +68,7 @@ class Timing:
     admission_backoff_s: float = 300.0     # first wait after admission uses up its infra retries; then doubles
     admission_backoff_max_s: float = 3600.0
     admission_alert_after: int = 4         # backoffs before the status asks for attention, about 75 minutes
+    admission_max_backoffs: int = 8        # then the case is held: one failing case must not drain a batch
     reconcile_retry_s: float = 30.0    # after a failed reconcile of an unconfirmed attempt
     unconfirmed_limit_s: float = UNCONFIRMED_WORKER_LIMIT_S  # then it counts as lost
     pool_wait_ceiling_s: float = POOL_WAIT_CEILING_S  # total worker-create waiting per seq before it counts
@@ -570,7 +571,7 @@ class _Case:
         pool_since = None
         requested_minimum = 0
         failed_releases = []
-        backoffs = 0
+        backoffs, admission_waste = 0, 0
         admit = step.kind is StepKind.ADMIT
         admission_started = False
         while True:
@@ -684,6 +685,10 @@ class _Case:
                     # Infra failures are retried, never scored. Money and the deadline bound this.
                     if now_step() >= self.spec.deadline_epoch:
                         return Action.STOP_ADMISSION, result
+                    admission_waste += result.usage.paid_usd_micros
+                    if (backoffs >= _RT.timing.admission_max_backoffs or result.reason == "infra:creation_limit"
+                            or admission_waste >= self.spec.case_money_usd_micros):
+                        return Action.HOLD, result
                     backoffs += 1
                     if backoffs > _RT.timing.admission_alert_after:
                         self.status = 'retrying_admission'
@@ -691,7 +696,7 @@ class _Case:
                     self.release_worker()
                     DBOS.sleep(min(_RT.timing.admission_backoff_max_s,
                                    _RT.timing.admission_backoff_s * 2 ** min(backoffs - 1, 16)))
-                    infra = 0
+                    infra = self.spec.max_infra_retries_per_step   # one attempt per backoff
                     continue
                 if self.factory_bug_resumes >= min(self.spec.max_factory_bug_resumes, 3):
                     return Action.HOLD, result

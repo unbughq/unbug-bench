@@ -3,13 +3,12 @@ import json
 import os
 from pathlib import Path
 import socket
-import sqlite3
 import subprocess
 import sys
 
 root = Path(os.environ.get('UNBUG_CAMPAIGN_ROOT', Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'factory'))
-from durable.guard import CHECKPOINT_GRACE_S, CheckFailed, Guard, webhook
+from durable.guard import CHECKPOINT_GRACE_S, CheckFailed, Guard, router_spend, webhook
 from durable.workers import BoatCli, BoatPool, ReleaseStore
 
 SERVICE = 'unbug-durable-case-campaign.service'
@@ -54,19 +53,9 @@ def count():
     return json.loads(marker.read_text()) if marker.exists() else 0
 
 
-def router():
-    """Real spend and the ceiling, in dollars. Read-only: the guard never writes the router's books."""
-    db = sqlite3.connect(f"file:{os.environ.get('UNBUG_ROUTER_DB', '/home/user/.unbug-control/router/factory.sqlite3')}?mode=ro", uri=True)
-    try:
-        spent = db.execute('SELECT COALESCE(SUM(charge), 0) FROM paid_requests').fetchone()[0]
-        ceiling = db.execute('SELECT ceiling FROM paid_account').fetchone()[0]
-    finally:
-        db.close()
-    return spent / 1e9, ceiling / 1e9
-
-
 url = os.environ.get('UNBUG_ALERT_WEBHOOK')
 Guard(request, state / 'guard', boat=cli.probe, rpc=rpc, service=Service(),
-      ours=lambda row: pool._live(row) and pool._ours(row) is not None, count=count, delete=pool._delete_raw, router=router,
+      ours=lambda row: pool._live(row) and pool._ours(row) is not None, count=count, delete=pool._delete_raw,
+      router=lambda: router_spend(os.environ.get('UNBUG_ROUTER_DB', '/home/user/.unbug-control/router/factory.sqlite3')),
       checkpoint_grace_s=float(os.environ.get('UNBUG_CHECKPOINT_GRACE_S', CHECKPOINT_GRACE_S)),
       notify=webhook(url) if url else None).run(cleanup='--cleanup' in sys.argv)
