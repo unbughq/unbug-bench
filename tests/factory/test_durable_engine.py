@@ -225,7 +225,8 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
     def test_a_lasting_create_outage_ends_at_the_wait_ceiling_then_the_infra_allowance(self):
-        r, out = run({"pool_failures": 1000, "pool_reason": "infra:worker_create_failed",
+        r, out = run({"disabled_patches": ["admission_infra_backoff"],   # the path of already-parked workflows
+                      "pool_failures": 1000, "pool_reason": "infra:worker_create_failed",
                       "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1, "max_factory_bug_resumes": 0},
                       "timing": {"pause_retry_s": 0.2, "pool_wait_ceiling_s": 5.0}}, timeout=60)
         self.addCleanup(r.close)
@@ -615,8 +616,39 @@ class Releases(unittest.TestCase):
         self.assertEqual(json.loads((r.work/'state/pool/acquire-failures.json').read_text()), 1)
         self.assertEqual(out['ledger']['batches']['b-t']['held'], 0)
 
-    def test_admission_infrastructure_failure_waits_for_fix_and_retains_state(self):
+    def test_admission_infrastructure_failure_backs_off_and_retries_alone(self):
         r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+            'timing': {'admission_backoff_s': 0.05},
+            'script': {f'1/admit/{n}': {'outcome': 'infra_error', 'reason': 'infra:timeout', 'paid': 1000,
+                                        'checkpoint': True} for n in (1, 2, 3)}})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'sealed'})
+        self.assertEqual(steps(r, 1)[:5], ['admit'] * 4 + ['writer:1'])
+        self.assertEqual(start(r, C1+'/1/admit/4')['opened']['snapshot'], 'snapshot '+C1+'/1/admit/3')
+        self.assertEqual(start(r, C1+'/1/admit/4')['pv'], '1111')   # no new release needed
+        self.assertEqual(out['ledger']['batches']['b-t']['held'], 0)
+        self.assertEqual(card(out, C1)['status'], 'sealed')
+
+    def test_admission_that_keeps_failing_says_so_and_recovers_its_status(self):
+        r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+            'timing': {'admission_backoff_s': 0.05, 'admission_alert_after': 1},
+            'script': {f'1/admit/{n}': {'outcome': 'infra_error', 'reason': 'infra:timeout'} for n in (1, 2, 3)},
+            'actions': [{'when': {'case': 1, 'status': 'retrying_admission'}, 'bound': 10_000_000_001}]})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'sealed'})
+        actions = [json.loads(line) for line in (r.work/'state/worker/actions.log').read_text().splitlines()]
+        self.assertEqual(actions[0]['status'], 'retrying_admission')
+
+    def test_admission_backoff_stops_at_the_batch_deadline(self):
+        r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+            'deadline_in': 2.0, 'timing': {'admission_backoff_s': 0.2},
+            'script': {'1/admit/*': {'outcome': 'infra_error', 'reason': 'infra:timeout'}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'stopped_admission'})
+        self.assertEqual(out['ledger']['batches']['b-t']['held'], 0)
+
+    def test_admission_infrastructure_failure_waits_for_fix_and_retains_state(self):
+        r, out = run({'disabled_patches': ['admission_infra_backoff'], 'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
             'script': {'1/admit/1': {'outcome': 'infra_error', 'reason': 'admit:registry_unavailable',
                                     'paid': 12000, 'checkpoint': True}},
             'actions': [{'when': {'case': 1, 'status': 'waiting_for_release'}, 'plumbing': '3'*64}]})
@@ -635,7 +667,7 @@ class Releases(unittest.TestCase):
         self.assertEqual(actions[0]['held'], 0)
 
     def test_repeated_or_unrelated_updates_do_not_retry_a_failed_release(self):
-        r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+        r, out = run({'disabled_patches': ['admission_infra_backoff'], 'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
             'script': {'1/admit/1': {'outcome': 'infra_error', 'reason': 'infra:unclassified_stop'}},
             'actions': [
                 {'when': {'case': 1, 'status': 'waiting_for_release'}, 'plumbing': '1'*64,
@@ -648,7 +680,7 @@ class Releases(unittest.TestCase):
         self.assertEqual(len([s for s in r.starts() if '/admit/' in s['key']]), 2)
 
     def test_admission_repair_resumptions_are_capped_at_three(self):
-        r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0,
+        r, out = run({'disabled_patches': ['admission_infra_backoff'], 'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0,
                               'max_factory_bug_resumes': 9},
             'script': {'1/admit/*': {'outcome': 'infra_error', 'reason': 'infra:unclassified_stop'}},
             'actions': [{'when': {'case': 1, 'status': 'waiting_for_release',
@@ -668,6 +700,7 @@ class Releases(unittest.TestCase):
 
     def test_fix_arriving_during_the_failed_attempt_is_used(self):
         r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+            'timing': {'admission_backoff_s': 0.05},
             'script': {'1/admit/1': {'outcome': 'infra_error', 'reason': 'infra:unclassified_stop', 'dur': 1}},
             'actions': [{'when': {'started': C1+'/1/admit/1'}, 'plumbing': '3'*64}]})
         self.addCleanup(r.close)
@@ -675,7 +708,7 @@ class Releases(unittest.TestCase):
         self.assertEqual(out['result']['cases'], {C1: 'sealed'})
 
     def test_control_restart_preserves_admission_release_wait(self):
-        r = EngineRun({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+        r = EngineRun({'disabled_patches': ['admission_infra_backoff'], 'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
             'script': {'1/admit/1': {'outcome': 'infra_error', 'reason': 'infra:unclassified_stop',
                                    'checkpoint': True}},
             'actions': [

@@ -65,6 +65,9 @@ class Timing:
                                     # (WP4's flat backoff); a pause never counts as an infra retry
     credential_retry_s: float = 900.0  # retry a visible credential configuration wait
     degraded_poll_s: float = 15.0      # recheck while the guard has new attempts paused
+    admission_backoff_s: float = 300.0     # first wait after admission uses up its infra retries; then doubles
+    admission_backoff_max_s: float = 3600.0
+    admission_alert_after: int = 4         # backoffs before the status asks for attention, about 75 minutes
     reconcile_retry_s: float = 30.0    # after a failed reconcile of an unconfirmed attempt
     unconfirmed_limit_s: float = UNCONFIRMED_WORKER_LIMIT_S  # then it counts as lost
     pool_wait_ceiling_s: float = POOL_WAIT_CEILING_S  # total worker-create waiting per seq before it counts
@@ -567,6 +570,7 @@ class _Case:
         pool_since = None
         requested_minimum = 0
         failed_releases = []
+        backoffs = 0
         admit = step.kind is StepKind.ADMIT
         admission_started = False
         while True:
@@ -676,6 +680,19 @@ class _Case:
                     and DBOS.patch('admission_release_recovery')):
                 if not admission_started and now_step() >= self.spec.deadline_epoch:
                     return Action.STOP_ADMISSION, result
+                if DBOS.patch('admission_infra_backoff'):
+                    # Infra failures are retried, never scored. Money and the deadline bound this.
+                    if now_step() >= self.spec.deadline_epoch:
+                        return Action.STOP_ADMISSION, result
+                    backoffs += 1
+                    if backoffs > _RT.timing.admission_alert_after:
+                        self.status = 'retrying_admission'
+                    self.card()
+                    self.release_worker()
+                    DBOS.sleep(min(_RT.timing.admission_backoff_max_s,
+                                   _RT.timing.admission_backoff_s * 2 ** min(backoffs - 1, 16)))
+                    infra = 0
+                    continue
                 if self.factory_bug_resumes >= min(self.spec.max_factory_bug_resumes, 3):
                     return Action.HOLD, result
                 # Use the release actually dispatched, including queued release changes.
@@ -726,6 +743,8 @@ class _Case:
             self.tell("stop_admission")
             self.finish("held" if action is Action.HOLD else "stopped_admission")
         assert action is Action.ADVANCE, action
+        if self.status == "retrying_admission":
+            self.status = "running"
         self.card()
         phase, feedback, ruling = "writer", None, None
         while True:

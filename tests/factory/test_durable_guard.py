@@ -343,6 +343,39 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(self.tick()["phase"], "stopped")
         self.assertEqual(self.f.deleted, ["bx_aaaaaaaa"])
 
+    def test_real_router_spend_stops_when_the_ledger_reads_low(self):
+        """Live on 6 November the ledger booked $0.91 for an attempt the router charged $4.91."""
+        self.f.money = {"spent": 1, "bound": 2, "held": 0}
+        guard = self.f.guard(router=lambda: (49.95, 49.95))
+        self.f.clock += 60
+        out = guard.run()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("stopped", "money_ceiling"))
+        self.assertEqual(out["router_spent_usd"], 49.95)
+
+    def test_router_below_its_ceiling_changes_nothing_and_unreadable_only_degrades(self):
+        self.f.money = {"spent": 1, "bound": 2, "held": 0}
+        self.f.clock += 60
+        self.assertEqual(self.f.guard(router=lambda: (5.0, 49.95)).run()["phase"], "healthy")
+        self.f.clock += 60
+        out = self.f.guard(router=lambda: 1 / 0).run()
+        self.assertEqual((out["phase"], out["failed_checks"]), ("degraded", ["router_spend"]))
+
+    def test_no_budget_alert_while_an_attempt_holds_money(self):
+        self.f.cases[0]["status"] = "waiting_for_bound"
+        self.f.money = {"spent": 1, "bound": 2, "held": 1}
+        self.tick()
+        self.assertEqual(self.f.sent, [])
+        self.f.money = {"spent": 2, "bound": 2, "held": 0}
+        self.tick()
+        self.assertEqual(len(self.f.sent), 1)
+
+    def test_admission_that_keeps_failing_raises_one_alert(self):
+        self.f.cases[0]["status"] = "retrying_admission"
+        self.tick()
+        self.tick()
+        self.assertEqual(len(self.f.sent), 1)
+        self.assertIn("still retrying", self.f.sent[0])
+
     def test_a_failed_stop_or_delete_is_retried(self):
         self.f.money = {"spent": 3, "bound": 2}
         delete, left = self.f.delete, [3]

@@ -18,6 +18,29 @@ from test_freshness_restore_fixes import FreshnessRestoreTests
 
 
 class ConfirmDeadlineTests(FreshnessRestoreTests):
+    def test_under_the_engine_only_the_attempt_deadline_bounds_a_confirmation(self):
+        import time, types
+        self.c.engine = types.SimpleNamespace(deadline_monotonic=time.monotonic() + 14000)
+        self.addCleanup(lambda: delattr(self.c, 'engine'))
+        self.assertGreater(run.confirm_timeout(self.c, 20), 13000)
+
+    def test_a_progressing_freshness_search_keeps_the_attempt_deadline(self):
+        """The 6 November stop: both roles shared 20 minutes and a busy search hit it."""
+        import time, types
+        (self.c.case / 'statement.md').write_text('statement')
+        self.c.engine = types.SimpleNamespace(deadline_monotonic=time.monotonic() + 14000)
+        self.addCleanup(lambda: delattr(self.c, 'engine'))
+        windows = []
+        def search(c, models, text, cwd, name, **kw):
+            windows.append((name, kw['deadline'] - time.monotonic()))
+        self.c.models = {'builder': ['m'], 'attacker': ['m']}
+        with patch.object(run, 'opencode', search), patch.object(run, 'case_budget_boundary'), \
+                patch.object(run, 'freshness_lines', return_value=[]), patch.object(run, 'run_context', return_value=''), \
+                patch.object(run, 'finish_freshness_repair'):
+            run.freshness_topup(self.c)
+        self.assertEqual([name for name, _ in windows], ['builder-freshness', 'attacker-freshness'])
+        self.assertTrue(all(seconds > 13000 for _, seconds in windows), windows)
+
     def test_deadline_formula_cap_and_agent_timeout(self):
         self.addCleanup(offline_router()[0].close)
         for rows, agent, seconds in ((1,14400,420),(5,14400,900),(20,14400,1800),(10,600,600)):

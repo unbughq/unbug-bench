@@ -246,6 +246,15 @@ class Drill(unittest.TestCase):
         self.resume(run)
         self.assertEqual(len([s for s in run.starts() if s["key"] == WRITER]), 1)
 
+    def test_admission_timeouts_recover_alone(self):
+        """The 7 November park: infra retries used up, and no release should be needed."""
+        run, process = self.start(scenario(
+            spec={"max_cases_started": 1, "max_infra_retries_per_step": 0}, timing={"admission_backoff_s": 0.1},
+            script={f"1/admit/{n}": {"outcome": "infra_error", "reason": "infra:timeout", "checkpoint": True}
+                    for n in (1, 2, 3)}))
+        self.finish(run, process)
+        self.assertEqual(len([s for s in run.starts() if "/admit/" in s["key"]]), 4)
+
     def test_postgres_restart_mid_attempt(self):
         binaries = [shutil.which(n) for n in ("initdb", "pg_ctl")]
         if not all(binaries):

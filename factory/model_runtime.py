@@ -554,7 +554,7 @@ class ModelRuntime:
             model_id = model_call_gate.claude_profile(model)['model'].partition('/')[2]
         driver = driver if driver in ("codex", "claude") else "opencode"
         role = invocation_role(name)
-        if role == 'stress_tester':
+        if role == 'stress_tester' and not name.endswith('-freshness'):   # that cap is for stress review
             timeout = min(timeout or c.args.agent_timeout, attacker_timeout(c))
         effort = c.card.get('roles', {}).get(role, {}).get('effort', model_effort(model))
         memory_scratch = False

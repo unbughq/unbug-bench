@@ -445,10 +445,14 @@ def freshness_topup(c, *, reverify_timeout=None, completed_roles=(), role_comple
     from registry import atomic_json
     finish_freshness_repair(c)
     counts_before = freshness_counts(c)
-    if reverify_timeout is None:
-        reverify_timeout = min(1200, max(300, 60 * sum(
-            search_evidence_error(row) is not None for row in freshness_lines(c))))
-    deadline = time.monotonic() + min(reverify_timeout, getattr(c.args, 'agent_timeout', 1200))
+    if under_engine(c):
+        # Busy searching is not a stall. The attempt's deadline and the no-progress check bound it.
+        deadline = c.engine.deadline_monotonic
+    else:
+        if reverify_timeout is None:
+            reverify_timeout = min(1200, max(300, 60 * sum(
+                search_evidence_error(row) is not None for row in freshness_lines(c))))
+        deadline = time.monotonic() + min(reverify_timeout, getattr(c.args, 'agent_timeout', 1200))
     for who, model_key in (("builder", "builder"), ("attacker", "attacker")):
         if who in completed_roles: continue
         n = freshness_counts(c)
@@ -1435,6 +1439,9 @@ def _g2(c):
 def confirm_timeout(c, flagged_count):
     # Five minutes for case/version context, two minutes per URL retrieval and
     # judgment. Thirty minutes bounds large batches; the operator cap wins.
+    # Under the engine the attempt's deadline bounds it instead.
+    if under_engine(c):
+        return max(0.001, c.engine.deadline_monotonic - time.monotonic())
     return min(1800, 300 + 120 * flagged_count,
                getattr(getattr(c, 'args', None), 'agent_timeout', 1800))
 
