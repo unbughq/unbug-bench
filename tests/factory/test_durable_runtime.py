@@ -291,6 +291,26 @@ class RuntimeTests(unittest.TestCase):
                     runtime.start(to_record(bad_spec), to_record(registry), to_record(imported))
                 runtime.config = {**runtime.config, "worker_credentials": {"legacy_registry": True}}
 
+    def test_start_refuses_money_that_cannot_hold_one_request(self):
+        # b5521c, 7 November: $3 and $9 could never hold one Claude request ($9.52), so every
+        # admission attempt was cut off. Start now refuses such a batch by name.
+        runtime = self.runtime()
+        models = {"builder": ["openrouter/minimax/minimax-m3.1-flash"], "attacker": ["openrouter/deepseek/deepseek-v4.1-flash"],
+                  "reviewers": [["openrouter/xiaomi/mimo-v2.6-pro"]], "strong_calibrator": ["claude/claude-opus-5-5"],
+                  "easy_calibrator": ["openrouter/z-ai/glm-5.3-flash"]}
+        inputs = runtime.prepare("b-offline", ArtifactKind.INPUTS, json.dumps({"dry_run": False, "models": models}).encode())
+        registry = runtime.prepare("b-offline", ArtifactKind.STATEMENT_REGISTRY, b"registry")
+        spec = lambda bound, case: BatchSpec(batch_id="b-offline", plumbing_version="a" * 64, bench_version="b" * 64,
+            app_repo="medusajs/medusa", app_commit="c" * 40, inputs=inputs, target_sealed=1,
+            money_bound_usd_micros=bound, deadline_epoch=4e9, case_money_usd_micros=case)
+        with patch("dbos.DBOS.get_workflow_status", return_value=None), patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start:
+            for bound, case in ((9_000_000, 50_000_000), (50_000_000, 9_520_895)):
+                with self.assertRaisesRegex(RuntimeErrorCode, "bound_below_call_hold"):
+                    runtime.start(to_record(spec(bound, case)), to_record(registry))
+            start.assert_not_called()
+            runtime.start(to_record(spec(9_520_896, 9_520_896)), to_record(registry))
+            start.assert_called_once()
+
     def test_second_owner_rejected(self):
         self.runtime()
         with self.assertRaises(RuntimeErrorCode):

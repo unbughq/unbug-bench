@@ -271,9 +271,11 @@ def _gate_bound(receipt):
     process outlived the stop. Receipts without a closed gate snapshot get None.
     """
     cap = receipt.get('cap_used')
-    # No forwarded request: an unstarted gate's default snapshot, so keep the maximum.
+    # No forwarded request is an unstarted gate's default snapshot (keep the maximum), unless
+    # the gate itself refused: only a running gate sets exhausted, and it forwarded nothing, so
+    # the call cost nothing. (b5521c, 7 November: refused Claude preflights booked their holds.)
     if (not isinstance(cap, dict) or cap.get('closed') is not True or type(cap.get('forwarded_requests')) is not int
-            or cap['forwarded_requests'] < 1): return None
+            or (cap['forwarded_requests'] < 1 and cap.get('exhausted') is not True)): return None
     try: values = [Decimal(str(cap[k])) for k in ('settled_usd', 'held_usd')]
     except (KeyError, InvalidOperation, TypeError): return None
     if not all(v.is_finite() and v >= 0 for v in values): return None

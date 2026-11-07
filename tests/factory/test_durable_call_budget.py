@@ -428,5 +428,41 @@ class AttemptBudget(unittest.TestCase):
         self.assertEqual(snapshot['unknown_requests'], 1)
         self.assertGreater(Decimal(snapshot['held_usd']), 0)
 
+    def test_a_gate_that_refused_every_request_books_nothing(self):
+        # b5521c, 7 November: a Claude preflight whose first request could not fit its hold
+        # was booked as spending the whole hold, three times, though nothing reached Anthropic.
+        def settle(cap):
+            lease = self.lease()
+            row = self.reserve(lease)
+            receipt = dict(lease_id=lease.lease_id, final_usage_known=False, events=[], booked_event_ids=[],
+                           outcome='interrupted', cap_used=cap)
+            directory = self.root / 'usage-receipts'; directory.mkdir(exist_ok=True)
+            (directory / (lease.lease_id + '.json')).write_text(json.dumps(receipt))
+            budget.complete_invocation(self.root, self.ledger, lease.lease_id)
+            model_router.finish(lease.lease_id, 'interrupted', 'usage-receipts/' + lease.lease_id + '.json')
+            return row, json.loads(self.ledger.read_text())['invocation_reservations'][lease.lease_id]
+        probe = self.lease()
+        gate = model_call_gate.Allowance(replace(probe, max_usd=1.0), deadline=time.monotonic()+2)
+        model_router.finish(probe.lease_id, 'denied', None)
+        self.assertIsNone(gate.reserve(32768))           # the hold does not fit: refused, never forwarded
+        gate.close()
+        refused = gate.snapshot()
+        self.assertEqual((refused['forwarded_requests'], refused['exhausted'], refused['closed']), (0, True, True))
+        _, row = settle(refused)
+        self.assertEqual(Decimal(row['estimated_gap_usd']), 0)
+        # An unstarted gate's default snapshot still keeps the whole maximum.
+        reserved, row = settle(model_call_gate.empty_usage(ROUTE))
+        self.assertEqual(Decimal(row['estimated_gap_usd']), Decimal(reserved['maximum_usd']))
+
+    def test_request_hold_is_the_gate_reservation(self):
+        lease = self.lease()
+        model_router.finish(lease.lease_id, 'denied', None)
+        hold = model_call_gate.request_hold(lease.route)
+        gate = model_call_gate.Allowance(replace(lease, max_usd=float(hold) - 0.01), deadline=time.monotonic()+2)
+        self.assertIsNone(gate.reserve(model_call_gate.worst_request(lease.route)['output_tokens']
+                                       if lease.route in model_call_gate.CLAUDE_PROFILES else 1))
+        self.assertEqual(model_call_gate.request_hold('claude/claude-opus-5-5'), Decimal('9.520896'))
+        self.assertIsNone(model_call_gate.request_hold('codex/gpt-6.1-sol'))
+
 
 if __name__ == '__main__': unittest.main()

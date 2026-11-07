@@ -151,6 +151,27 @@ def empty_usage(route=GATED_CLAUDE):
         held_output_tokens=0, max_request_output_tokens=GATED_OPENROUTER[route]['output'] if route in GATED_OPENROUTER else (claude_profile(route) or {'output': CLAUDE_OUTPUT})['output'], exhausted=False, closed=True)
 
 
+def worst_request(route, output=None):
+    """The usage one request may reach on a gated route; its price is that request's hold."""
+    if route in CLAUDE_PROFILES:
+        worst = dict.fromkeys(CLAUDE_GATE_FIELDS, 0)
+        profile = claude_profile(route)
+        incoming = max(range(3), key=lambda i: CLAUDE_PRICES[profile['model']][i])
+        worst[CLAUDE_GATE_FIELDS[incoming]] = profile['context']
+        worst['output_tokens'] = profile['output'] if output is None else output
+        return worst
+    profile = GATED_OPENROUTER[route]
+    return dict(prompt_tokens=profile['context'], completion_tokens=profile['output'])
+
+
+def request_hold(route):
+    """USD one request on this gated route reserves before it is forwarded, or None if ungated."""
+    if route not in CLAUDE_PROFILES and route not in GATED_OPENROUTER: return None
+    usage = worst_request(route)
+    cost = claude_gate_cost(usage, route) if route in CLAUDE_PROFILES else openrouter_gate_cost(route, usage)
+    return None if cost is None else Decimal(cost)
+
+
 class Allowance:
     def __init__(self, lease, cancel=None, deadline=math.inf):
         self.lease, self.cancel = lease, cancel
@@ -179,15 +200,7 @@ class Allowance:
         return None if cost is None else (cost, usage['prompt_tokens'], usage['completion_tokens'])
 
     def reserve(self, output):
-        if self.lease.route in CLAUDE_PROFILES:
-            worst = dict.fromkeys(CLAUDE_GATE_FIELDS, 0)
-            profile = claude_profile(self.lease.route)
-            incoming = max(range(3), key=lambda i: CLAUDE_PRICES[profile['model']][i])
-            worst[CLAUDE_GATE_FIELDS[incoming]], worst['output_tokens'] = profile['context'], output
-        else:
-            profile = GATED_OPENROUTER[self.lease.route]
-            worst = dict(prompt_tokens=profile['context'], completion_tokens=profile['output'])
-        allowance = self.amount(worst)
+        allowance = self.amount(worst_request(self.lease.route, output))
         with self.condition:
             maximum = (Decimal(str(self.lease.max_usd)), self.lease.max_input_tokens, self.lease.max_output_tokens)
             while not self.closed and not self.is_set():
