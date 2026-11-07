@@ -357,9 +357,10 @@ class GuardTests(unittest.TestCase):
     def test_router_books_are_read_for_real(self):
         db = self.f.state_dir / "router.sqlite3"
         conn = sqlite3.connect(db)
-        conn.executescript("""CREATE TABLE paid_requests (charge INTEGER);
+        conn.executescript("""CREATE TABLE paid_requests (charge INTEGER, state TEXT);
             CREATE TABLE paid_account (id INTEGER, ceiling INTEGER);
-            INSERT INTO paid_requests VALUES (1000000000), (500000000), (NULL);""")
+            INSERT INTO paid_requests VALUES (1000000000, 'settled'), (500000000, 'unknown'), (NULL, 'settled'),
+                (11000000000, 'pending');""")   # holds of calls in flight are not spend
         conn.commit()
         self.assertEqual(router_spend(db), (1.5, math.inf))   # no ceiling row: never a false deadlock
         conn.execute("INSERT INTO paid_account VALUES (1, 49946728440)")

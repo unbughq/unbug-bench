@@ -615,6 +615,8 @@ class _Case:
                 self.bench = out["input"]["bench_version"]
                 self.gates_versions = (out["input"]["plumbing_version"], self.bench)
             self.absorb(step, attempt, result)
+            if result.outcome is Outcome.INFRA_ERROR:
+                admission_waste += result.usage.paid_usd_micros
             # A batch-deadline stop after deadline_epoch (or an operator pause) is never counted as
             # an infra error: the batch deadline stops new cases and extensions, not this step.
             now = now_step() if result.reason == DEADLINE_REASON else None
@@ -685,7 +687,6 @@ class _Case:
                     # Infra failures are retried, never scored. Money and the deadline bound this.
                     if now_step() >= self.spec.deadline_epoch:
                         return Action.STOP_ADMISSION, result
-                    admission_waste += result.usage.paid_usd_micros
                     if (backoffs >= _RT.timing.admission_max_backoffs or result.reason == "infra:creation_limit"
                             or admission_waste >= self.spec.case_money_usd_micros):
                         return Action.HOLD, result

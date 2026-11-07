@@ -656,6 +656,14 @@ class Releases(unittest.TestCase):
         self.assertEqual(out['result']['cases'], {C1: 'held'})
         self.assertEqual(len([s for s in r.starts() if '/admit/' in s['key']]), 3)
 
+    def test_retried_attempts_count_toward_the_waste_cap(self):
+        r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 2, 'case_money_usd_micros': 5000},
+            'timing': {'admission_backoff_s': 0.01},
+            'script': {'1/admit/*': {'outcome': 'infra_error', 'reason': 'infra:timeout', 'paid': 2000}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'held'})
+        self.assertEqual(len([s for s in r.starts() if '/admit/' in s['key']]), 3)   # no backoff at all
+
     def test_running_out_of_workers_holds_at_once(self):
         r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
             'timing': {'admission_backoff_s': 0.01},

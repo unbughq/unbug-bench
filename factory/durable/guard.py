@@ -346,7 +346,8 @@ def router_spend(path) -> tuple:
     """Real spend and the ceiling, in dollars, read-only from the router's books."""
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
-        spent = db.execute("SELECT COALESCE(SUM(charge), 0) FROM paid_requests").fetchone()[0]
+        # A pending row carries its full hold, not a charge. Unknown charges stay counted.
+        spent = db.execute("SELECT COALESCE(SUM(charge), 0) FROM paid_requests WHERE state != 'pending'").fetchone()[0]
         row = db.execute("SELECT ceiling FROM paid_account").fetchone()
     finally:
         db.close()
