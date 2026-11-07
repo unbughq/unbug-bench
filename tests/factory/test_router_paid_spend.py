@@ -156,6 +156,40 @@ class PaidTests(unittest.TestCase):
         self.credit = None
         self.assertFalse(self.reserve(lease)[1]['granted'])
 
+    def unknown_holds(self, n):
+        self.credit = Decimal('100')
+        for _ in range(n):
+            lease = admit(self.store)
+            data, result = self.reserve(lease)
+            self.assertTrue(result['granted'])
+            self.store.rpc('paid_settle', data | {'usage': None})   # an interrupted call: cost never confirmed
+
+    def test_stale_unknown_holds_stop_blocking_calls_the_balance_can_pay(self):
+        """7 November: unconfirmed holds from interrupted calls counted against the balance forever,
+        though the provider had long since billed them, and a call the balance could pay was refused."""
+        self.unknown_holds(15)                       # 15 interrupted calls at this profile's $0.23 hold: $3.45
+        self.credit = Decimal('3.60')                # the provider balance, which already includes them
+        lease = admit(self.store)
+        self.assertFalse(self.reserve(lease)[1]['granted'])   # inside the billing window: still counted
+        self.now[0] += 901                            # past the window
+        lease = admit(self.store)
+        self.assertTrue(self.reserve(lease)[1]['granted'])
+        self.assertEqual(self.status()['total_usd'], '3.680000000')   # spend history keeps every hold
+
+    def test_rows_from_before_the_timestamp_age_by_their_lease_end(self):
+        self.unknown_holds(15)
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("UPDATE paid_requests SET settled_at=NULL WHERE state='unknown'")
+        self.credit = Decimal('3.60')
+        self.now[0] += 901 + router.LEASE_SECONDS
+        self.assertTrue(self.reserve(admit(self.store))[1]['granted'])
+
+    def test_a_balance_that_cannot_pay_is_still_refused(self):
+        self.unknown_holds(2)
+        self.now[0] += 901
+        self.credit = Decimal('.20')                  # less than one request's $0.23 hold
+        self.assertFalse(self.reserve(admit(self.store))[1]['granted'])
+
     def test_unknown_cancellation_expiry_finish_and_replay_count_once(self):
         for operation in ('cancel', 'expire', 'finish', 'unknown'):
             lease = admit(self.store)
