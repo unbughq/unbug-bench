@@ -192,7 +192,13 @@ def outstanding_reservations(ledger, exclude_lease=None):
     total = Decimal(0)
     for lease_id, row in ledger.get('invocation_reservations', {}).items():
         if row['state'] != 'pending' or lease_id == exclude_lease: continue
-        booked = sum((event_charge(events[i]) for i in row['event_ids'] if i in events), Decimal(0))
+        # A running call's events are bound by lease and invocation before settlement lists them
+        # (the same join as _settle_leaf). Missing them counted its spend twice: once in the case
+        # total and again as unused reservation, so usage_reservation_exceeded stopped a call that
+        # held the whole remaining grant at its first priced event.
+        ids = set(row['event_ids']) | {i for i, e in events.items()
+                                       if e.get('lease_id') == lease_id and e.get('invocation_id') == row['invocation_id']}
+        booked = sum((event_charge(events[i]) for i in ids), Decimal(0))
         total += max(Decimal(0), usd(row['maximum_usd']) - booked)
     return total
 
