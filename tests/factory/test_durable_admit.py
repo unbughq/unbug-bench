@@ -481,6 +481,25 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(entries[old]["status"], "screening")   # the old entry stays occupied
         self.assertEqual(entries[CASE]["statement_sha256"], hashlib.sha256(text.encode()).hexdigest())
 
+    def test_unpinned_import_takes_the_first_slot_with_the_october_writer_family(self):
+        from model_router import family
+        old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        value = self.real_inputs("unused", import_spent_usd_micros=2_500_000)
+        value.pop("candidate"); value.pop("models")
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        for writer, slot in (("claude/claude-opus-5-5", 1), ("opencode-go/deepseek-v4", 7)):
+            with self.subTest(writer=writer):
+                step_input = self.import_step(inputs, registry, self.legacy_archive(old, text, writer=writer))
+                result, outputs = self.run_admit(step_input)
+                # Past the family check; the offline router has no bounded route for the table's models.
+                self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "router:unbounded_route"))
+                _, c = self.restore(step_input, result, outputs)
+                self.assertEqual(c.card["rotation_slot"], slot)
+                self.assertEqual(family(c.card["roles"]["writer"]["model"]), family(writer))
+                self.assertNotEqual(family(c.card["roles"]["strong_calibrator"]["model"]), family(writer))
+                self.assertEqual(self.calls, [])
+
     def test_unwritten_import_continues_with_the_writer(self):
         old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
         registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")

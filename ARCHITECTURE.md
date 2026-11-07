@@ -158,7 +158,9 @@ search evidence are dropped, and the old card survives as numbers in `imported_f
 The existing screens then run once on the case's own statement, skipping only its old
 registry entry, and a rejection ends the case without selecting another idea. A case
 whose old card passed G1 starts at STRESS; others start at WRITER. Every gate reruns.
-The old writer must share today's writer family, so separation rules still hold. The
+The old writer must share today's writer family, so separation rules still hold. Unless
+INPUTS pins models or a slot, ADMIT takes the first rotation slot with that writer family;
+only an October family absent from the table, or a conflicting pin, refuses the import. The
 old spend is not carried in the ledger: INPUTS declares it as `import_spent_usd_micros`,
 ADMIT refuses unless it matches the old card, and `start` refuses unless it plus the
 batch's `case_money_usd_micros` fits the default per-case ceiling. Import refusals

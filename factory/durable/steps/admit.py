@@ -272,6 +272,15 @@ def _import_legacy(ciphertext, work, inputs, case_id):
         shutil.rmtree(staging, ignore_errors=True)
     atomic_json(work / "continuation-budget.json", {"calls": 0, "events": [], "cost": 0})
     fresh = _card(inputs, case_id, False)
+    if inputs.get("rotation_slot") is None and not inputs.get("models"):
+        # Today's writer must share the October writer's family (ADMIT checks it once models are
+        # picked): take the first cohort slot with that writer; its other roles stay separated.
+        from model_router import family
+        import model_runtime
+        table = model_runtime.PROMPTS.parent / os.environ.get("FACTORY_ROTATION", "rotation-3writers.json")
+        slots = json.loads(table.read_text())["slots"]
+        fresh["rotation_slot"] = next((i for i, slot in enumerate(slots, 1) if slot.get("writer") == family(writer)),
+                                      fresh["rotation_slot"])
     fresh["imported_from"] = summary
     atomic_json(work / "scorecard.json", fresh)
     return summary
