@@ -229,24 +229,35 @@ could not show a reduction in human effort.
 
 ## 7. Who is compared
 
-The main comparison uses the same underlying model for both arms:
+The arms were locked by the founder on 7 November 2026. Each one answers a question a
+skeptical reader would ask.
 
-| Arm | Workflow | Purpose |
-| --- | --- | --- |
-| B | Claude Code with strong testing tools. | The main baseline that Unbug must improve on. |
-| C | Unbug on the same model. | Test the value of Unbug's workflow and ongoing protection. |
+| Arm | Model | Workflow | Question it answers |
+| --- | --- | --- | --- |
+| Claude Code with strong testing tools | Claude | The main baseline. | What Unbug must improve on. |
+| Unbug on Claude | Claude | Unbug with ongoing ownership. | The product claim, against the baseline above. |
+| Unbug on Claude, one-shot | Claude | Starts from the same initial work as Unbug on Claude, then stops: no ongoing ownership. | Is the value in staying on watch? |
+| Codex with strong testing tools | Codex | The same tools as the Claude baseline. | The baseline for the cross-model check. |
+| Unbug on Codex | Codex | Unbug with ongoing ownership. | Does Unbug's advantage hold on another model? |
 
-The wider design also includes plain Claude Code, plain Codex, Unbug on Codex,
-and a one-shot Unbug comparison. The one-shot comparison is intended to start
-from the same initial work as ongoing Unbug. It helps isolate the benefit of
-continued ownership.
+The headline comparison is Unbug on Claude against Claude Code with strong testing tools.
+Using the same model in that pair reduces the risk of mistaking a stronger model for a
+better workflow. The two Codex arms use identical tools to the Claude baseline, so the
+only difference between the two baselines is the model.
 
-Using the same model in the main pair reduces the risk of mistaking a stronger
-model for a better workflow. Tools, budgets, owner answers, and access rules must
-follow the agreed conditions for the comparison.
+Not included, and why:
 
-These are planned comparisons. Their inclusion here does not mean that every arm
-or pairing is complete or has produced scored results.
+- Plain Claude Code and plain Codex without testing tools are weaker than the tooled
+  baselines, so beating them would show little.
+- Unbug on Codex, one-shot, is added only if the Claude one-shot arm shows that ongoing
+  ownership matters.
+
+If the budget is tight, the two Codex arms are cut before tries on the headline pair.
+Tools, budgets, owner answers and access rules must follow the agreed conditions for
+each comparison.
+
+These are the planned arms. Their inclusion here does not mean that every arm has
+produced scored results.
 
 ### What the Unbug contestant looks like
 
