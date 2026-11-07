@@ -18,6 +18,7 @@ import math
 import os
 from pathlib import Path
 import re
+import sqlite3
 import time
 from typing import Callable, Optional
 import urllib.request
@@ -27,6 +28,7 @@ from durable.workers import _atomic_json
 RETRY_WAITS_S = (2.0, 6.0)   # a check gets three tries; the unit timeout fits a pass where all fail
 GRACE_S = 120.0              # a controller that just came up is not judged yet
 CHECKPOINT_GRACE_S = 600.0   # after a hard stop, for steps in flight; a pass runs once a minute
+ROUTER_MARGIN_USD = 1.0      # the router refuses a call that would pass its ceiling, so spend stalls below it
 ESCALATE_S = 900.0           # sustained failure raises an alert; it still stops nothing
 DOWN_ALERT_S = 600.0
 MARKER_TTL_S = 600.0         # a dead guard cannot pause admission for longer than this
@@ -46,6 +48,7 @@ CASE_ALERTS = {
     "held": "{case} is held and needs your decision.",
     "waiting_for_bound": "{case} is waiting for budget. Raise the batch bound or retire it.",
     "waiting_for_release": "{case} is waiting for a fixed plumbing release.",
+    "retrying_admission": "{case} keeps failing admission on infrastructure and is still retrying. Check its stop reason.",
     "stopped_admission": "{case} stopped admission. Decide whether to start a new batch.",
 }
 
@@ -70,11 +73,12 @@ class CheckFailed(Exception):
 class Guard:
     def __init__(self, request: dict, directory: Path, *, boat: Callable, rpc: Callable, service,
                  ours: Callable, count: Callable, delete: Callable, notify: Optional[Callable] = None,
+                 router: Optional[Callable] = None,
                  grace_s: float = GRACE_S, escalate_s: float = ESCALATE_S,
                  checkpoint_grace_s: float = CHECKPOINT_GRACE_S, clock=time.time, sleep=time.sleep):
         self.request, self.directory = request, Path(directory)
         self.boat, self.rpc, self.service, self.ours, self.count = boat, rpc, service, ours, count
-        self.delete, self.checkpoint_grace_s = delete, checkpoint_grace_s
+        self.delete, self.checkpoint_grace_s, self.router = delete, checkpoint_grace_s, router
         self.notify = notify
         self.grace_s, self.escalate_s = grace_s, escalate_s
         self.clock, self.sleep = clock, sleep
@@ -178,7 +182,8 @@ class Guard:
         health = {"at": now, "phase": "healthy", "degraded_since": status.get("degraded_since"),
                   "down_since": status.get("down_since"), "hard_stop": status.get("hard_stop"),
                   "finished": status.get("finished", False), "failed_checks": [], "owned_workers": None,
-                  "stopping_since": status.get("stopping_since"), "controller_stopped": status.get("controller_stopped", False)}
+                  "stopping_since": status.get("stopping_since"), "controller_stopped": status.get("controller_stopped", False),
+                  "money_held": None, "router_spent_usd": status.get("router_spent_usd")}
         ok, service = self.check("service_state", self.service.state)
         active, active_since, ready_since = service if ok else ("unknown", None, None)
         if health["finished"]:
@@ -216,7 +221,13 @@ class Guard:
     def _controller(self, health: dict) -> Optional[str]:
         def over_ceiling():
             money = self.rpc("budget")
+            health["money_held"] = money.get("held")
             return money["spent"] > money["bound"]
+        def router_over_ceiling():
+            """The router's charges are the real spend, and the ledger has read low."""
+            spent, ceiling = self.router()
+            health["router_spent_usd"] = round(spent, 6)
+            return spent >= ceiling - ROUTER_MARGIN_USD
         def terminal():
             report = self.rpc("status")
             cases = report["cases"]
@@ -227,6 +238,10 @@ class Guard:
         ok, over = self.check("ledger", over_ceiling)
         if ok and over:
             return "money_ceiling"
+        if self.router is not None:
+            ok, over = self.check("router_spend", router_over_ceiling)
+            if ok and over:
+                return "money_ceiling"
         ok, finished = self.check("controller_status", terminal)
         if ok and finished:
             done, _ = self.check("publish", lambda: self.rpc("publish"))
@@ -302,7 +317,12 @@ class Guard:
             out["controller_down"] = (f"The controller has been down for {int((now - down) / 60)} minutes "
                                       "and has not restarted. Check its service log.")
         for case in self.load("scorecard.json", {}).get("cases", []):
-            if isinstance(case, dict) and case.get("status") in CASE_ALERTS and "case" in case:
+            if not isinstance(case, dict):
+                continue
+            # While another attempt holds money, the wait may end by itself.
+            if case.get("status") == "waiting_for_bound" and health.get("money_held"):
+                continue
+            if case.get("status") in CASE_ALERTS and "case" in case:
                 out[f"case:{case['case']}:{case['status']}"] = CASE_ALERTS[case["status"]].format(case=case["case"])
         return out
 
@@ -320,6 +340,18 @@ class Guard:
                     except Exception:   # kept unsent; the next pass tries again
                         pass
         self.save("alerts.json", alerts)
+
+
+def router_spend(path) -> tuple:
+    """Real spend and the ceiling, in dollars, read-only from the router's books."""
+    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        # A pending row carries its full hold, not a charge. Unknown charges stay counted.
+        spent = db.execute("SELECT COALESCE(SUM(charge), 0) FROM paid_requests WHERE state != 'pending'").fetchone()[0]
+        row = db.execute("SELECT ceiling FROM paid_account").fetchone()
+    finally:
+        db.close()
+    return spent / 1e9, (row[0] / 1e9 if row and row[0] is not None else math.inf)   # no ceiling set: no limit here
 
 
 def webhook(url: str) -> Callable:

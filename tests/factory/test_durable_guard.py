@@ -1,14 +1,16 @@
 """The campaign guard, with the VM's real request shape and a fake Boat, socket and service."""
 import http.server
 import json
+import math
 from pathlib import Path
+import sqlite3
 import sys
 import tempfile
 import threading
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "factory"))
-from durable.guard import CheckFailed, Guard, degraded, health, scrub, webhook
+from durable.guard import CheckFailed, Guard, degraded, health, router_spend, scrub, webhook
 from durable.report import render_status
 
 REQUEST = {"batch_id": "b-sealday20261106r3", "case_id": "case-sealday20261106r3-1",
@@ -342,6 +344,53 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(self.f.deleted, [])
         self.assertEqual(self.tick()["phase"], "stopped")
         self.assertEqual(self.f.deleted, ["bx_aaaaaaaa"])
+
+    def test_real_router_spend_stops_when_the_ledger_reads_low(self):
+        """Live on 6 November the ledger booked $0.91 for an attempt the router charged $4.91."""
+        self.f.money = {"spent": 1, "bound": 2, "held": 0}
+        guard = self.f.guard(router=lambda: (49.2, 49.95))   # short of it, as the router never quite reaches it
+        self.f.clock += 60
+        out = guard.run()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("stopped", "money_ceiling"))
+        self.assertEqual(out["router_spent_usd"], 49.2)
+
+    def test_router_books_are_read_for_real(self):
+        db = self.f.state_dir / "router.sqlite3"
+        conn = sqlite3.connect(db)
+        conn.executescript("""CREATE TABLE paid_requests (charge INTEGER, state TEXT);
+            CREATE TABLE paid_account (id INTEGER, ceiling INTEGER);
+            INSERT INTO paid_requests VALUES (1000000000, 'settled'), (500000000, 'unknown'), (NULL, 'settled'),
+                (11000000000, 'pending');""")   # holds of calls in flight are not spend
+        conn.commit()
+        self.assertEqual(router_spend(db), (1.5, math.inf))   # no ceiling row: never a false deadlock
+        conn.execute("INSERT INTO paid_account VALUES (1, 49946728440)")
+        conn.commit()
+        conn.close()
+        self.assertEqual(router_spend(db), (1.5, 49.94672844))
+
+    def test_router_below_its_ceiling_changes_nothing_and_unreadable_only_degrades(self):
+        self.f.money = {"spent": 1, "bound": 2, "held": 0}
+        self.f.clock += 60
+        self.assertEqual(self.f.guard(router=lambda: (5.0, 49.95)).run()["phase"], "healthy")
+        self.f.clock += 60
+        out = self.f.guard(router=lambda: 1 / 0).run()
+        self.assertEqual((out["phase"], out["failed_checks"]), ("degraded", ["router_spend"]))
+
+    def test_no_budget_alert_while_an_attempt_holds_money(self):
+        self.f.cases[0]["status"] = "waiting_for_bound"
+        self.f.money = {"spent": 1, "bound": 2, "held": 1}
+        self.tick()
+        self.assertEqual(self.f.sent, [])
+        self.f.money = {"spent": 2, "bound": 2, "held": 0}
+        self.tick()
+        self.assertEqual(len(self.f.sent), 1)
+
+    def test_admission_that_keeps_failing_raises_one_alert(self):
+        self.f.cases[0]["status"] = "retrying_admission"
+        self.tick()
+        self.tick()
+        self.assertEqual(len(self.f.sent), 1)
+        self.assertIn("still retrying", self.f.sent[0])
 
     def test_a_failed_stop_or_delete_is_retried(self):
         self.f.money = {"spent": 3, "bound": 2}

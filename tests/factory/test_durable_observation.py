@@ -82,6 +82,16 @@ class ObservationTests(unittest.TestCase):
                          'newer attempt is recorded', 'historical', 'liveness is not polled'):
             self.assertIn(expected, text)
 
+    def test_a_case_running_after_its_budget_wait_is_shown_as_running(self):
+        self.card['cases'][0]['status'] = 'waiting_for_bound'
+        self.card['totals'] = {'waiting_for_bound': 1}
+        with self.client():
+            result = observe(self.config, self.card)
+        self.assertEqual((result['cases'][0]['status'], result['totals']), ('running', {'running': 1}))
+        (self.root / 'pool' / 'case-one.json').unlink()   # no worker: it really is waiting
+        with self.client():
+            self.assertEqual(observe(self.config, self.card)['cases'][0]['status'], 'waiting_for_bound')
+
     def test_missing_metadata_keeps_the_scorecard_and_reports_unavailable(self):
         with patch('durable.observation._budget', side_effect=RuntimeError('private database detail')), \
              patch('dbos.DBOSClient', side_effect=RuntimeError('private credential detail')):

@@ -9,6 +9,7 @@ import time
 from durable.classify import PUBLISHED_REASONS
 from durable.contract import Outcome, Step
 from durable.guard import health as guard_health
+from durable.report import STATUSES
 
 
 def _number(value):
@@ -152,6 +153,13 @@ def observe(config, card, *, client=None):
                     load_input=True, load_output=True, sort_desc=True, limit=25)
                 if attempts:
                     context['latest_attempt'] = _attempt(attempts[0], case['case'], card['batch'])
+                    # A case card updates at step boundaries; the wake that ended a wait writes nothing.
+                    if (case['status'] == 'waiting_for_bound' and context['latest_attempt']
+                            and context['latest_attempt']['status'] == 'PENDING'
+                            and context['worker'].get('state') == 'assigned'):
+                        case['status'] = 'running'
+                        card['totals'] = {status: count for status in STATUSES
+                            if (count := sum(row['status'] == status for row in card['cases']))}
                 for row in attempts:
                     if row.status == 'SUCCESS':
                         result = _result(row, case['case'], card['batch'])
