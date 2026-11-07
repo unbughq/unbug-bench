@@ -698,7 +698,10 @@ class _Case:
                     if backoffs > _RT.timing.admission_alert_after:
                         self.status = 'retrying_admission'
                     self.card()
-                    self.release_worker()
+                    # A retry on a fresh worker spends the campaign's creation allowance, and
+                    # acquire still checks this one is alive. An idle worker costs cents.
+                    if not DBOS.patch('admission_backoff_keeps_worker'):
+                        self.release_worker()
                     DBOS.sleep(min(_RT.timing.admission_backoff_max_s,
                                    _RT.timing.admission_backoff_s * 2 ** min(backoffs - 1, 16)))
                     if now_step() >= self.spec.deadline_epoch:   # the sleep may have crossed it
