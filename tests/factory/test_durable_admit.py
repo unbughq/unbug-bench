@@ -392,7 +392,7 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(c.card["admission"]["status"], "exhausted")
         self.assertEqual(c.card["candidate_attempts"], 3)
 
-    def legacy_archive(self, old, statement, *, commit="a" * 40, gates=None):
+    def legacy_archive(self, old, statement, *, commit="a" * 40, gates=None, writer="opencode-go/minimax-m3", link=False):
         """A pre-durable checkpoint as run_artifacts.seal wrote it, rewrapped to the statement key:
         `tar -C <work parent> -czf - <case id> | age -r <recipient>`, links and caches included."""
         import worker_secrets
@@ -410,6 +410,7 @@ class AdmitTests(unittest.TestCase):
         (work / "case/guards/reference.py").write_text("print('guard')")
         (work / "scorecard.json").write_text(json.dumps({"case": old, "seed": 3, "source": "port",
             "gates": gates if gates is not None else {"G1": "pass", "G2": "pass"}, "failed_gate": None,
+            "models": {"builder": [writer]},
             "continuation_budget": {"cost": 2.5, "calls": 9, "events": []}}))
         (work / "continuation-budget.json").write_text(json.dumps({"cost": 2.5, "calls": 9, "events": []}))
         for name in ("gate-cache", "public-search.json", "freshness-verdict.json", "idea-realism.json"):
@@ -418,8 +419,16 @@ class AdmitTests(unittest.TestCase):
         (work / "agent-state").mkdir()
         (work / "agent-state/link").symlink_to("/etc/passwd")
         (work / ".casekey").write_text("AGE-SECRET-KEY-OLD")
+        if link:
+            (work / "case/escape").symlink_to("../..")
         tar = subprocess.run(["tar", "-C", str(work.parent), "-czf", "-", old], capture_output=True, check=True).stdout
         return subprocess.run(["age", "-r", recipient], input=tar, capture_output=True, check=True).stdout
+
+    def import_inputs(self, spent=2_500_000, candidate=False):
+        value = self.real_inputs("candidate text", import_spent_usd_micros=spent)
+        if not candidate:
+            value.pop("candidate")
+        return self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
 
     def import_step(self, inputs, registry, archive):
         from dataclasses import replace
@@ -442,8 +451,7 @@ class AdmitTests(unittest.TestCase):
     def test_import_keeps_only_the_old_case_tree_and_reruns_every_screen(self):
         old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
         registry = self.admitted_registry((old, text), ("case-prior", "# Candidate\n\nRefund exceeds the order."))
-        value = self.real_inputs("unused"); value.pop("candidate")
-        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        inputs = self.import_inputs()
         requests = []
         original = self.model
         self.model = lambda c, models, text_, *a, **kw: (requests.append(text_), original(c, models, text_, *a, **kw))[1]
@@ -466,7 +474,8 @@ class AdmitTests(unittest.TestCase):
             self.assertFalse((work / gone).exists(), gone)
         self.assertEqual((c.card["case"], c.card["gates"], c.card["failed_gate"]), (CASE, {}, None))
         self.assertEqual(c.card["imported_from"], {"case": old, "source": "port", "gates": {"G1": "pass", "G2": "pass"},
-                                                   "failed_gate": None, "spent_usd": 2.5, "written": True})
+                                                   "failed_gate": None, "spent_usd": 2.5,
+                                                   "writer": "opencode-go/minimax-m3", "written": True})
         self.assertEqual(json.loads((work / "continuation-budget.json").read_text())["calls"], 0)
         entries = self.registry_doc(result, outputs)["registry"]["entries"]
         self.assertEqual(entries[old]["status"], "screening")   # the old entry stays occupied
@@ -475,18 +484,14 @@ class AdmitTests(unittest.TestCase):
     def test_unwritten_import_continues_with_the_writer(self):
         old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
         registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
-        value = self.real_inputs("unused"); value.pop("candidate")
-        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
-        result, _ = self.run_admit(self.import_step(inputs, registry, self.legacy_archive(old, text, gates={})))
+        result, _ = self.run_admit(self.import_step(self.import_inputs(), registry, self.legacy_archive(old, text, gates={})))
         self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:selected"))
 
     def test_rejected_import_ends_without_choosing_another_idea(self):
         old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
         self.freshness.return_value = (False, {"outcome": "public_match"})
         registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
-        value = self.real_inputs("unused"); value.pop("candidate")
-        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
-        step_input = self.import_step(inputs, registry, self.legacy_archive(old, text))
+        step_input = self.import_step(self.import_inputs(), registry, self.legacy_archive(old, text))
         result, outputs = self.run_admit(step_input)
         self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:exhausted"))
         self.assertFalse(any(name.startswith("builder-selection") for name in self.calls))
@@ -496,14 +501,22 @@ class AdmitTests(unittest.TestCase):
     def test_import_refuses_another_app_pin_or_an_unreadable_archive(self):
         old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell."
         registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
-        value = self.real_inputs("unused"); value.pop("candidate")
-        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
-        for archive in (self.legacy_archive(old, text, commit="b" * 40),
+        inputs = self.import_inputs()
+        wrong_spend, with_candidate = self.import_inputs(spent=2_400_000), self.import_inputs(candidate=True)
+        cases = [(inputs, self.legacy_archive(old, text, commit="b" * 40)),
+                 (inputs, self.legacy_archive(old, text, writer="opencode-go/deepseek-v4")),
+                 (inputs, self.legacy_archive(old, text, link=True)),
+                 (wrong_spend, self.legacy_archive(old, text)),
+                 (with_candidate, self.legacy_archive(old, text))]
+        for archive in (
                         subprocess.run(["age", "-r", subprocess.run(["age-keygen"], capture_output=True, check=True)
                                         .stdout.decode().split("public key: ")[1].split()[0]],
-                                       input=b"not yours", capture_output=True, check=True).stdout):
-            result, _ = self.run_admit(self.import_step(inputs, registry, archive))
-            self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "admit:import_invalid"))
+                                       input=b"not yours", capture_output=True, check=True).stdout,):
+            cases.append((inputs, archive))
+        for step_inputs, archive in cases:
+            result, _ = self.run_admit(self.import_step(step_inputs, registry, archive))
+            # Deterministic refusals end admission instead of retrying on new workers.
+            self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_invalid"))
             self.assertEqual(self.calls, [])
 
     def test_batch_ordinals_follow_existing_role_rotation(self):

@@ -273,16 +273,19 @@ class RuntimeTests(unittest.TestCase):
         plain.chmod(0o600)
         with self.assertRaisesRegex(RuntimeErrorCode, "import_invalid"):
             dispatch(runtime, {"op": "prepare", "scope": "case-offline-1", "kind": "case", "content_path": str(plain)})
-        inputs = runtime.prepare("b-offline", ArtifactKind.INPUTS, b"inputs")
+        inputs = runtime.prepare("b-offline", ArtifactKind.INPUTS, json.dumps({"import_spent_usd_micros": 2_500_000}).encode())
         registry = runtime.prepare("b-offline", ArtifactKind.STATEMENT_REGISTRY, b"registry")
         spec = BatchSpec(batch_id="b-offline", plumbing_version="a" * 64, bench_version="b" * 64,
                          app_repo="medusajs/medusa", app_commit="c" * 40, inputs=inputs, target_sealed=1,
-                         money_bound_usd_micros=100, deadline_epoch=4e9, max_cases_started=1)
+                         money_bound_usd_micros=100, deadline_epoch=4e9, max_cases_started=1,
+                         case_money_usd_micros=47_500_000)
         runtime.config = {**runtime.config, "worker_credentials": {"legacy_registry": True}}
         with patch("dbos.DBOS.get_workflow_status", return_value=None), patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start:
             runtime.start(to_record(spec), to_record(registry), to_record(imported))
             start.assert_called_once_with(spec, registry, imported)
-            for bad_spec, config in ((replace(spec, max_cases_started=2), runtime.config), (spec, {**runtime.config, "worker_credentials": {}})):
+            # One case only, the legacy statement key delivered, and old + new case money within $50.
+            for bad_spec, config in ((replace(spec, max_cases_started=2), runtime.config), (spec, {**runtime.config, "worker_credentials": {}}),
+                                     (replace(spec, case_money_usd_micros=47_500_001), runtime.config)):
                 runtime.config = config
                 with self.assertRaisesRegex(RuntimeErrorCode, "import_invalid"):
                     runtime.start(to_record(bad_spec), to_record(registry), to_record(imported))

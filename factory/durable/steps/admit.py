@@ -43,6 +43,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import os
 import pathlib
 import re
@@ -233,18 +234,31 @@ def _import_legacy(ciphertext, work, inputs, case_id):
             # Agent state and bench results may hold links; only the case tree and card are read.
             wanted = [m for m in members if m.name == f"{name}/scorecard.json" or m.name == f"{name}/case"
                       or m.name.startswith(f"{name}/case/")]
+            # A link could point the kept tree outside it once moved; case trees need none.
+            if any(m.issym() or m.islnk() for m in wanted):
+                raise _Invalid("import")
             tar.extractall(staging, members=wanted, filter="data")
         old, case = staging / name, staging / name / "case"
         card = json.loads((old / "scorecard.json").read_text())
         if not case.is_dir() or not (case / "statement.md").is_file() or card.get("case") != old.name:
             raise _Invalid("import")
-        app = json.loads((case / "case.json").read_text()).get("app") or {}
-        if (app.get("repo"), app.get("commit")) != (inputs["app_repo"], inputs["app_commit"]):
+        meta = json.loads((case / "case.json").read_text())
+        app = meta.get("app") or {}
+        if ((app.get("repo"), app.get("commit")) != (inputs["app_repo"], inputs["app_commit"])
+                or meta.get("source") != inputs["source"] or inputs.get("candidate") is not None):
             raise _Invalid("import")
         gates = card.get("gates") if isinstance(card.get("gates"), dict) else {}
         spent = (card.get("continuation_budget") or {}).get("cost")
+        # The old spend counts against this case's money: the operator declares it, and
+        # runtime.start keeps the declared amount plus the batch's case money within the default.
+        if (type(spent) not in (int, float) or not 0 <= spent < 1e4
+                or inputs.get("import_spent_usd_micros") != math.ceil(spent * 1_000_000)):
+            raise _Invalid("import")
+        writer = ((card.get("models") or {}).get("builder") or [None])[0]
+        if not isinstance(writer, str):
+            raise _Invalid("import")
         summary = {"case": old.name, "source": card.get("source"), "gates": dict(gates),
-                   "failed_gate": card.get("failed_gate"), "spent_usd": spent if type(spent) in (int, float) else None,
+                   "failed_gate": card.get("failed_gate"), "spent_usd": spent, "writer": writer,
                    "written": gates.get("G1") == "pass"}
         if work.exists():
             shutil.rmtree(work)
@@ -450,8 +464,9 @@ def run(worker, step_input, keys):
                     return fail("admit:inputs_invalid")
                 try:
                     _import_legacy(restored, work, inputs, step_input.case_id)
-                except (_Invalid, OSError, ValueError, KeyError, AttributeError, tarfile.TarError):
-                    return fail("admit:import_invalid")
+                except (_Invalid, OSError, ValueError, KeyError, AttributeError, TypeError, tarfile.TarError):
+                    # Deterministic: a retry would only rebuild a worker for the same refusal.
+                    return StepResult(Outcome.EXHAUSTED, "admit:import_invalid"), {}
             else:
                 worker_step.restore(restored, work)
         else:
@@ -461,6 +476,13 @@ def run(worker, step_input, keys):
             atomic_json(work / "scorecard.json", _card(inputs, step_input.case_id, inputs["dry_run"]))
         c = runner.context_for_step(step_input, work)
         _pin_models(c, runner, inputs)
+        imported = c.card.get("imported_from")
+        if imported:
+            # Every separation rule compares against c.models["builder"]: the October writer
+            # wrote the imported tree, so today's writer must be of the same family.
+            from model_router import family
+            if family(imported["writer"]) != family(c.models["builder"][0]):
+                return StepResult(Outcome.EXHAUSTED, "admit:import_invalid"), {}
         before = worker_step.ledger_totals(c.ledger)
         worker._save_baseline(step_input, c.ledger, before)
         worker.bind_checkpoint(step_input, c, sealer, case_key, runner)

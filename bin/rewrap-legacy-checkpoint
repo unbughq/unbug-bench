@@ -17,7 +17,10 @@ printf '%s\n' "$recipient" | python3 -c 'import re,sys; sys.exit(0 if re.fullmat
 umask 077
 mkdir -p "$out"
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT INT TERM
+# INT/TERM must end the run; EXIT removes the identity copy and any partial output.
+# The identity sits in this 0700 temp dir for the run (a kill -9 leaves it there).
+trap 'exit 1' INT TERM
+trap 'rm -rf "$tmp"; rm -f "$out"/*.import.age.part' EXIT
 cat > "$tmp/identity"
 for case in "$@"; do
   printf '%s\n' "$case" | python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"case-[A-Za-z0-9-]{1,80}\n", sys.stdin.read()) else "bad case id")'
