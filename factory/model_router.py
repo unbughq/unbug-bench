@@ -271,8 +271,12 @@ def _paid_charge(profile, usage):
                 type(output) is not int or not 0 <= output <= profile['output']): return None
         value = (incoming * Decimal(profile['prices'][0]) + output * Decimal(profile['prices'][2])) / 1_000_000
         if 'cost' in usage:
+            # The provider's own charge, within this request's maximum, is what the balance loses.
+            # The token estimate prices every prompt token at the full rate and ignores cached ones;
+            # on 7 November it booked $29.29 where OpenRouter charged $3.25.
             cost = usage['cost']
             if type(cost) not in (int, float) or not finite(cost) or not 0 <= Decimal(str(cost)) <= value: return None
+            return _nano(Decimal(str(cost)), ROUND_CEILING)
         return _nano(value)
     except (KeyError, TypeError, ValueError, InvalidOperation): return None
 

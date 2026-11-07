@@ -190,6 +190,24 @@ class PaidTests(unittest.TestCase):
         self.credit = Decimal('.20')                  # less than one request's $0.23 hold
         self.assertFalse(self.reserve(admit(self.store))[1]['granted'])
 
+    def test_a_request_is_charged_what_the_provider_reports(self):
+        """A real MiniMax request of 7 November: 306,502 prompt tokens, mostly cached."""
+        profile = {'prices': ['0.15', '0.015', '0.6'], 'context': 1048576, 'output': 524288}
+        usage = {'prompt_tokens': 306502, 'completion_tokens': 558, 'cost': 0.00499362}
+        self.assertEqual(router._paid_charge(profile, usage), 4993620)              # $0.004993620
+        estimate = dict(usage); del estimate['cost']
+        self.assertEqual(router._paid_charge(profile, estimate), 46310100)          # the old $0.0463101
+        self.assertIsNone(router._paid_charge(profile, dict(usage, cost=1.0)))      # past its maximum: refused
+        self.assertIsNone(router._paid_charge(profile, dict(usage, cost=-0.01)))
+
+    def test_settled_spend_follows_the_provider_cost(self):
+        self.credit = Decimal('100')
+        data, result = self.reserve(admit(self.store))
+        self.assertTrue(result['granted'])
+        usage = dict(prompt_tokens=1000000, completion_tokens=900000, cost=0.05)   # the hold's full shape, cached
+        self.assertTrue(self.store.rpc('paid_settle', data | {'usage': usage})['settled'])
+        self.assertEqual(self.status()['total_usd'], '0.050000000')
+
     def test_unknown_cancellation_expiry_finish_and_replay_count_once(self):
         for operation in ('cancel', 'expire', 'finish', 'unknown'):
             lease = admit(self.store)
