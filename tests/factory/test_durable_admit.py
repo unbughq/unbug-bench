@@ -397,10 +397,11 @@ class AdmitTests(unittest.TestCase):
         `tar -C <work parent> -czf - <case id> | age -r <recipient>`, links and caches included."""
         import worker_secrets
         root = pathlib.Path(tempfile.mkdtemp(dir=self.home))
-        identity = root / "statements-key"
-        subprocess.run(["age-keygen", "-o", str(identity)], capture_output=True, check=True)
-        recipient = subprocess.run(["age-keygen", "-y", str(identity)], capture_output=True, check=True).stdout.decode().strip()
-        patch.object(worker_secrets, "SECRETS", root).start()
+        if not hasattr(self, "statement_key"):   # one worker statement key per test, as on a real worker
+            self.statement_key = pathlib.Path(tempfile.mkdtemp(dir=self.home)) / "statements-key"
+            subprocess.run(["age-keygen", "-o", str(self.statement_key)], capture_output=True, check=True)
+            patch.object(worker_secrets, "SECRETS", self.statement_key.parent).start()
+        recipient = subprocess.run(["age-keygen", "-y", str(self.statement_key)], capture_output=True, check=True).stdout.decode().strip()
         work = root / "work" / old
         (work / "case").mkdir(parents=True)
         (work / "case/statement.md").write_text(statement)
@@ -522,27 +523,34 @@ class AdmitTests(unittest.TestCase):
         registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
         inputs = self.import_inputs()
         wrong_spend, with_candidate = self.import_inputs(spent=2_400_000), self.import_inputs(candidate=True)
-        cases = [(inputs, self.legacy_archive(old, text, commit="b" * 40)),
-                 (inputs, self.legacy_archive(old, text, writer="opencode-go/deepseek-v4")),
-                 (inputs, self.legacy_archive(old, text, link=True)),
-                 (wrong_spend, self.legacy_archive(old, text)),
-                 (with_candidate, self.legacy_archive(old, text))]
-        for archive in (
-                        subprocess.run(["age", "-r", subprocess.run(["age-keygen"], capture_output=True, check=True)
-                                        .stdout.decode().split("public key: ")[1].split()[0]],
-                                       input=b"not yours", capture_output=True, check=True).stdout,):
-            cases.append((inputs, archive))
+        foreign = subprocess.run(["age", "-r", subprocess.run(["age-keygen"], capture_output=True, check=True)
+                                  .stdout.decode().split("public key: ")[1].split()[0]],
+                                 input=b"not yours", capture_output=True, check=True).stdout
+        # Each refusal names its check (fixed codes only), so a real archive's refusal is diagnosable.
+        cases = [(inputs, self.legacy_archive(old, text, commit="b" * 40), "import_pin"),
+                 (inputs, self.legacy_archive(old, text, writer="opencode-go/deepseek-v4"), "import_writer"),
+                 (inputs, self.legacy_archive(old, text, link=True), "import_links"),
+                 (wrong_spend, self.legacy_archive(old, text), "import_spend"),
+                 (with_candidate, self.legacy_archive(old, text), "import_source"),
+                 (inputs, foreign, "import_key")]
         # The worker's environment failing is infrastructure, retried; it never refuses the case.
         import worker_secrets
         archive = self.legacy_archive(old, text)
         with patch.object(worker_secrets, "SECRETS", self.home / "no-key"):
             result, _ = self.run_admit(self.import_step(inputs, registry, archive))
         self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "admit:processing_failed"))
-        for step_inputs, archive in cases:
+        from durable.classify import PUBLISHED_REASONS
+        self.assertTrue({"admit:" + code for code in admit.IMPORT_REFUSALS} <= PUBLISHED_REASONS)
+        for step_inputs, archive, code in cases:
             result, _ = self.run_admit(self.import_step(step_inputs, registry, archive))
             # Deterministic refusals end admission instead of retrying on new workers.
-            self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_invalid"))
+            self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:" + code))
             self.assertEqual(self.calls, [])
+        # A checkpoint's own card may predate the public card the operator copies: a higher
+        # declared spend is accepted and is what the case is charged.
+        result, outputs = self.run_admit(self.import_step(self.import_inputs(spent=3_000_000), registry,
+                                                          self.legacy_archive(old, text)))
+        self.assertEqual(result.reason, "admit:imported_written")
 
     def test_batch_ordinals_follow_existing_role_rotation(self):
         from dataclasses import replace
