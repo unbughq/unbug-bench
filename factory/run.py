@@ -620,18 +620,28 @@ def prior_statements(c):
         (c.work / "public-search.json").write_bytes(opened.stdout)
     return open_statements(c, encrypted_files)
 
-# One selection pass stops after this many model requests. Its history grows every turn, so
-# later turns get slow: on 7 November one pass made 77 requests with prompts reaching 514k tokens.
+# On 7 November one selection call made 77 requests, its prompt reached 514k tokens and
+# requests slowed to one per 3.5 minutes. OpenCode compacts only near the context limit it is
+# told, which was the model's full 1M. Selection gets a working limit, so compaction starts at
+# 200k, and a request cap per pass as a backstop.
+SELECTION_CONTEXT = 200_000
 SELECTION_CALLS = 40
 SELECTION_PASSES = 3
 
 
 @contextlib.contextmanager
 def role_call_cap(c, calls):
-    previous = c.args.max_role_calls
+    from model_call_gate import WORKING_CONTEXT_ENV
+    previous = getattr(c.args, 'max_role_calls', calls)
+    env = c.__dict__.setdefault('model_env', {})
+    saved = env.get(WORKING_CONTEXT_ENV)
     c.args.max_role_calls = min(previous, calls)
+    env[WORKING_CONTEXT_ENV] = str(SELECTION_CONTEXT)
     try: yield
-    finally: c.args.max_role_calls = previous
+    finally:
+        c.args.max_role_calls = previous
+        if saved is None: env.pop(WORKING_CONTEXT_ENV, None)
+        else: env[WORKING_CONTEXT_ENV] = saved
 
 
 def select_candidate(c, occupied):

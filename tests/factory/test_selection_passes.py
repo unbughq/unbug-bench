@@ -60,6 +60,32 @@ class SelectionPasses(unittest.TestCase):
                 run.select_candidate(self.c, {})
         self.assertEqual(self.calls, ['builder-selection'])
 
+    def test_selection_alone_gets_the_working_context(self):
+        seen = []
+        def call(c, models, text, cwd, name, **kw):
+            seen.append(c.model_env.get('FACTORY_MODEL_WORKING_CONTEXT'))
+            (c.case / 'statement.md').write_text('statement')
+            return 0
+        with patch.object(run, 'opencode', call), patch.object(run, 'prompt', lambda r, e: ''), \
+                patch.object(run, 'selection_context', lambda c, o, **m: m):
+            run.select_candidate(self.c, {})
+        self.assertEqual(seen, ['200000'])
+        self.assertNotIn('FACTORY_MODEL_WORKING_CONTEXT', self.c.model_env)   # other roles keep the full limit
+
+    def test_compaction_starts_at_the_working_limit_and_routing_keeps_the_true_one(self):
+        import json, model_call_gate, model_router
+        route = next(iter(model_call_gate.GATED_OPENROUTER))
+        lease = types.SimpleNamespace(route=route)
+        gate = types.SimpleNamespace(server=types.SimpleNamespace(server_port=1), token='t')
+        def limit(env):
+            cfg = json.loads(model_call_gate.openrouter_environment(lease, env, gate)['OPENCODE_CONFIG_CONTENT'])
+            self.assertEqual(cfg['compaction'], {'auto': True})
+            return next(iter(cfg['provider']['openrouter']['models'].values()))['limit']['context']
+        full = model_call_gate.GATED_OPENROUTER[route]['context']
+        self.assertEqual(limit({}), full)
+        self.assertEqual(limit({'FACTORY_MODEL_WORKING_CONTEXT': '200000'}), min(full, 200000))
+        self.assertEqual(limit({'FACTORY_MODEL_WORKING_CONTEXT': 'junk'}), full)
+
     def test_the_prompt_tells_the_model_to_continue(self):
         text = (Path(run.__file__).parent / 'prompts' / 'selection.md').read_text()
         self.assertIn('selection_progress_path', text)
