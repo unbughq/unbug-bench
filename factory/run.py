@@ -620,6 +620,38 @@ def prior_statements(c):
         (c.work / "public-search.json").write_bytes(opened.stdout)
     return open_statements(c, encrypted_files)
 
+# One selection pass stops after this many model requests. Its history grows every turn, so
+# later turns get slow: on 7 November one pass made 77 requests with prompts reaching 514k tokens.
+SELECTION_CALLS = 40
+SELECTION_PASSES = 3
+
+
+@contextlib.contextmanager
+def role_call_cap(c, calls):
+    previous = c.args.max_role_calls
+    c.args.max_role_calls = min(previous, calls)
+    try: yield
+    finally: c.args.max_role_calls = previous
+
+
+def select_candidate(c, occupied):
+    """Run selection in bounded passes. A pass that reaches its request cap leaves selection.json,
+    its running notes, in the case directory the checkpoint retains. The next pass, or a retried
+    attempt, continues from it instead of exploring again from an empty history."""
+    progress = c.case / "selection.json"
+    for n in range(SELECTION_PASSES):
+        more = {"round": "selection"}
+        if progress.is_file():
+            more = {"round": "selection_continuation", "selection_progress_path": str(progress)}
+        name = "builder-selection" if n == 0 and "selection_progress_path" not in more else f"builder-selection-pass-{n + 1}"
+        try:
+            with role_call_cap(c, SELECTION_CALLS):
+                return opencode(c, c.models["builder"], prompt("selection", selection_context(c, occupied, **more)),
+                                c.case, name)
+        except BudgetError as error:
+            if str(error) != "call_limit" or not progress.is_file() or n == SELECTION_PASSES - 1: raise
+
+
 def statement_precheck(c):
     """Cheap selection, complete internal semantic dedup and public evidence before construction."""
     statement = c.case / "statement.md"
@@ -627,8 +659,7 @@ def statement_precheck(c):
         try: occupied = selection_statements(c)
         except (OSError, ValueError, RuntimeError) as error:
             raise BudgetError("selection_board_unavailable") from error
-        if opencode(c, c.models["builder"], prompt("selection", selection_context(c, occupied, round="selection")),
-                    c.case, "builder-selection"):
+        if select_candidate(c, occupied):
             c.precheck_problems = ["candidate selection failed"]; return False
     if not statement.is_file() or not statement.read_text().strip():
         c.precheck_problems = ["missing statement.md"]; return False
