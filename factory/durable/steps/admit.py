@@ -252,7 +252,7 @@ def _import_legacy(ciphertext, work, inputs, case_id):
             raise _Invalid("import_layout")
         meta = json.loads((case / "case.json").read_text())
         app = meta.get("app") or {}
-        if (app.get("repo"), app.get("commit")) != (inputs["app_repo"], inputs["app_commit"]):
+        if not _same_app(app, inputs):
             raise _Invalid("import_pin")
         if meta.get("source", card.get("source")) != inputs["source"] or inputs.get("candidate") is not None:
             raise _Invalid("import_source")
@@ -292,6 +292,23 @@ def _import_legacy(ciphertext, work, inputs, case_id):
     fresh["imported_from"] = summary
     atomic_json(work / "scorecard.json", fresh)
     return summary
+
+
+def _same_app(app, inputs):
+    """The old case was built on the app this batch pins. October case trees name the pinned
+    Medusa release by tag (`commit: "v2.19.0"`, or a `version` starting with it); today's INPUTS
+    name its commit. A tag counts only if it is exactly the release the bench image pins."""
+    if (app.get("repo"), app.get("commit")) == (inputs["app_repo"], inputs["app_commit"]):
+        return True
+    if app.get("repo", inputs["app_repo"]) != inputs["app_repo"]:
+        return False
+    import run
+    pinned = json.loads((run.BENCH / "projects/medusa/package.json").read_text())["dependencies"]["@medusajs/medusa"]
+    semver = r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?"
+    tag = re.fullmatch(r"v?(" + semver + ")", str(app.get("commit", "")))
+    version = re.match(r"v?(" + semver + r")(?=\s|$)", str(app.get("version", "")))
+    old = (tag or version)[1] if tag or version else None
+    return old is not None and old == pinned
 
 
 def _card(value, case_id, dry_run):
