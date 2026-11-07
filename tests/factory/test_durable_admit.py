@@ -392,6 +392,120 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(c.card["admission"]["status"], "exhausted")
         self.assertEqual(c.card["candidate_attempts"], 3)
 
+    def legacy_archive(self, old, statement, *, commit="a" * 40, gates=None):
+        """A pre-durable checkpoint as run_artifacts.seal wrote it, rewrapped to the statement key:
+        `tar -C <work parent> -czf - <case id> | age -r <recipient>`, links and caches included."""
+        import worker_secrets
+        root = pathlib.Path(tempfile.mkdtemp(dir=self.home))
+        identity = root / "statements-key"
+        subprocess.run(["age-keygen", "-o", str(identity)], capture_output=True, check=True)
+        recipient = subprocess.run(["age-keygen", "-y", str(identity)], capture_output=True, check=True).stdout.decode().strip()
+        patch.object(worker_secrets, "SECRETS", root).start()
+        work = root / "work" / old
+        (work / "case").mkdir(parents=True)
+        (work / "case/statement.md").write_text(statement)
+        (work / "case/promise.md").write_text("# Promise\n\nCheckout holds the stock it promised.")
+        (work / "case/case.json").write_text(json.dumps({"source": "port", "app": {"repo": "medusajs/medusa", "commit": commit}}))
+        (work / "case/guards").mkdir()
+        (work / "case/guards/reference.py").write_text("print('guard')")
+        (work / "scorecard.json").write_text(json.dumps({"case": old, "seed": 3, "source": "port",
+            "gates": gates if gates is not None else {"G1": "pass", "G2": "pass"}, "failed_gate": None,
+            "continuation_budget": {"cost": 2.5, "calls": 9, "events": []}}))
+        (work / "continuation-budget.json").write_text(json.dumps({"cost": 2.5, "calls": 9, "events": []}))
+        for name in ("gate-cache", "public-search.json", "freshness-verdict.json", "idea-realism.json"):
+            (work / name).write_text("old evidence") if "." in name else (work / name).mkdir()
+        (work / "gate-cache/G2.json").write_text("old pass")
+        (work / "agent-state").mkdir()
+        (work / "agent-state/link").symlink_to("/etc/passwd")
+        (work / ".casekey").write_text("AGE-SECRET-KEY-OLD")
+        tar = subprocess.run(["tar", "-C", str(work.parent), "-czf", "-", old], capture_output=True, check=True).stdout
+        return subprocess.run(["age", "-r", recipient], input=tar, capture_output=True, check=True).stdout
+
+    def import_step(self, inputs, registry, archive):
+        from dataclasses import replace
+        snapshot = self.push(ArtifactKind.CASE_SNAPSHOT, self.case_key, archive)
+        return replace(self.step(inputs, registry), snapshot=snapshot)
+
+    def admitted_registry(self, *cases):
+        """A registry holding each (case, statement), admitted through this same adapter."""
+        from dataclasses import replace
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        for case, text in cases:
+            inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(self.real_inputs(text)).encode())
+            result, blobs = self.run_admit(replace(self.step(inputs, registry), case_id=case))
+            self.assertEqual(result.outcome, Outcome.OK)
+            (self.home / "durable/blobs" / worker_step.blob_name(result.registry)).write_bytes(blobs[worker_step.blob_name(result.registry)])
+            registry = result.registry
+        self.calls.clear()
+        return registry
+
+    def test_import_keeps_only_the_old_case_tree_and_reruns_every_screen(self):
+        old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.admitted_registry((old, text), ("case-prior", "# Candidate\n\nRefund exceeds the order."))
+        value = self.real_inputs("unused"); value.pop("candidate")
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        requests = []
+        original = self.model
+        self.model = lambda c, models, text_, *a, **kw: (requests.append(text_), original(c, models, text_, *a, **kw))[1]
+        patch.object(run, "model_call", side_effect=self.model).start()
+        patch.object(run, "opencode", side_effect=self.model).start()
+        step_input = self.import_step(inputs, registry, self.legacy_archive(old, text))
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:imported_written"))
+        check_result_for(step_input.step, result)
+        # Dedup ran against the other prior idea, never against the case's own old entry; no reselection.
+        dedup = json.loads(next(t for t in requests if '"earlier_statements"' in t).rsplit("\n", 1)[-1])
+        self.assertEqual(set(dedup["earlier_statements"]), {"case-prior"})
+        self.assertIn("reviewer-idea-realism", self.calls)
+        self.assertFalse(any(name.startswith("builder-selection") for name in self.calls))
+        self.freshness.assert_called()
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual((work / "case/statement.md").read_text(), text)
+        self.assertTrue((work / "case/guards/reference.py").is_file())
+        for gone in ("gate-cache", "public-search.json", "freshness-verdict.json", "agent-state", ".casekey"):
+            self.assertFalse((work / gone).exists(), gone)
+        self.assertEqual((c.card["case"], c.card["gates"], c.card["failed_gate"]), (CASE, {}, None))
+        self.assertEqual(c.card["imported_from"], {"case": old, "source": "port", "gates": {"G1": "pass", "G2": "pass"},
+                                                   "failed_gate": None, "spent_usd": 2.5, "written": True})
+        self.assertEqual(json.loads((work / "continuation-budget.json").read_text())["calls"], 0)
+        entries = self.registry_doc(result, outputs)["registry"]["entries"]
+        self.assertEqual(entries[old]["status"], "screening")   # the old entry stays occupied
+        self.assertEqual(entries[CASE]["statement_sha256"], hashlib.sha256(text.encode()).hexdigest())
+
+    def test_unwritten_import_continues_with_the_writer(self):
+        old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        value = self.real_inputs("unused"); value.pop("candidate")
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        result, _ = self.run_admit(self.import_step(inputs, registry, self.legacy_archive(old, text, gates={})))
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:selected"))
+
+    def test_rejected_import_ends_without_choosing_another_idea(self):
+        old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        self.freshness.return_value = (False, {"outcome": "public_match"})
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        value = self.real_inputs("unused"); value.pop("candidate")
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        step_input = self.import_step(inputs, registry, self.legacy_archive(old, text))
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:exhausted"))
+        self.assertFalse(any(name.startswith("builder-selection") for name in self.calls))
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual(len(c.card["rejected_candidates"]), 1)
+
+    def test_import_refuses_another_app_pin_or_an_unreadable_archive(self):
+        old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell."
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        value = self.real_inputs("unused"); value.pop("candidate")
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        for archive in (self.legacy_archive(old, text, commit="b" * 40),
+                        subprocess.run(["age", "-r", subprocess.run(["age-keygen"], capture_output=True, check=True)
+                                        .stdout.decode().split("public key: ")[1].split()[0]],
+                                       input=b"not yours", capture_output=True, check=True).stdout):
+            result, _ = self.run_admit(self.import_step(inputs, registry, archive))
+            self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "admit:import_invalid"))
+            self.assertEqual(self.calls, [])
+
     def test_batch_ordinals_follow_existing_role_rotation(self):
         from dataclasses import replace
         import model_runtime

@@ -148,6 +148,19 @@ statement identity to worker RAM. ADMIT verifies and rewraps occupied statements
 under the batch key there, preserving registry history without opening case
 material on the controller. The source registry remains untouched.
 
+A pre-durable case can be imported as a one-case batch. On the founder's Mac,
+`bin/rewrap-legacy-checkpoint` streams its founder-encrypted archive to the statement
+recipient; `prepare <first case id> case <file>` stores that ciphertext unopened under the
+case scope, and `start --import-file` passes the ref as the first ADMIT snapshot (only with
+`max_cases_started` 1 and `legacy_registry`). ADMIT opens it in worker RAM with the
+statement key and keeps only the old case tree: its card, ledger, caches, reviews and
+search evidence are dropped, and the old card survives as numbers in `imported_from`.
+The existing screens then run once on the case's own statement, skipping only its old
+registry entry, and a rejection ends the case without selecting another idea. A case
+whose old card passed G1 starts at STRESS; others start at WRITER. Every gate reruns.
+The old spend is not carried in the ledger; the operator lowers `case_money_usd_micros`
+by `imported_from.spent_usd` when writing the batch spec.
+
 Reserve allowance before dispatch and settle actual usage idempotently. Worker
 model calls atomically reserve their router Lease maxima against that attempt
 before launch, including parallel roles. Supported provider gates must enforce

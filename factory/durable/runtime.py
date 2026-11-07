@@ -230,11 +230,21 @@ class Runtime:
         self.store.put_sealed(scope, ref, ciphertext)
         return ref
 
-    def start(self, spec_record, registry_record):
+    def start(self, spec_record, registry_record, import_record=None):
         spec = batch_spec_from_record(spec_record)
         registry = Ref(**registry_record)
         if registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
             raise RuntimeErrorCode("registry_required")
+        imported = None
+        if import_record is not None:
+            # A legacy import is the batch's only case, prepared under that case's scope.
+            from durable.engine import case_id_for
+            imported = Ref(**import_record)
+            if (imported.kind is not ArtifactKind.CASE_SNAPSHOT or spec.max_cases_started != 1
+                    or not self.config.get("worker_credentials", {}).get("legacy_registry")):
+                raise RuntimeErrorCode("import_invalid")
+            case = case_id_for(spec.batch_id, 1)
+            self.sealer.open(self.keys.scope_key(case), imported, self.store.get_sealed(case, imported))
         from dbos import DBOS
         existing = DBOS.get_workflow_status(spec.batch_id)
         if existing is not None and existing.status not in ("PENDING", "ENQUEUED"):
@@ -243,7 +253,7 @@ class Runtime:
         for ref in (spec.inputs, registry):
             self.sealer.open(self.keys.scope_key(spec.batch_id), ref, self.store.get_sealed(spec.batch_id, ref))
         self.releases.bundle(spec.plumbing_version)
-        self.engine.start_batch(spec, registry)
+        self.engine.start_batch(spec, registry, imported)
         return {"batch_id": spec.batch_id}
 
     def drain(self):

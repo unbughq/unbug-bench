@@ -33,11 +33,18 @@ def dispatch(runtime, request):
     op = request["op"]
     if op == "prepare":
         kind = ArtifactKind(request["kind"])
+        if kind is ArtifactKind.CASE_SNAPSHOT:
+            # A rewrapped legacy checkpoint is too large for one socket line: read it on this host.
+            # Its bytes stay age ciphertext to the worker statement key; the controller cannot open them.
+            content = private_bytes(request["content_path"])
+            if not content.startswith(b"age-encryption.org/v1\n"):
+                raise RuntimeErrorCode("import_invalid")
+            return to_record(runtime.prepare(request["scope"], kind, content))
         if kind not in (ArtifactKind.INPUTS, ArtifactKind.STATEMENT_REGISTRY, ArtifactKind.FOUNDER_RULING):
             raise RuntimeErrorCode("unsupported_preparation")
         return to_record(runtime.prepare(request["scope"], kind, base64.b64decode(request["content"], validate=True)))
     if op == "start":
-        return runtime.start(request["spec"], request["registry"])
+        return runtime.start(request["spec"], request["registry"], request.get("import"))
     if op == "install":
         digest = runtime.releases.put_bundle(base64.b64decode(request["content"], validate=True))
         runtime.releases.register_bench(request["bench_version"], request["image"])
@@ -150,11 +157,12 @@ def main(argv=None):
     reconcile_parser.add_argument("--cleared-record", action="append", default=[], help="case id of an uncertain pool record already checked in Boat; repeat per record")
     prepare = commands.add_parser("prepare")
     prepare.add_argument("scope")
-    prepare.add_argument("kind", choices=[k.value for k in (ArtifactKind.INPUTS, ArtifactKind.STATEMENT_REGISTRY, ArtifactKind.FOUNDER_RULING)])
+    prepare.add_argument("kind", choices=[k.value for k in (ArtifactKind.INPUTS, ArtifactKind.STATEMENT_REGISTRY, ArtifactKind.FOUNDER_RULING, ArtifactKind.CASE_SNAPSHOT)])
     prepare.add_argument("content_file")
     start = commands.add_parser("start")
     start.add_argument("spec_file")
     start.add_argument("registry_file")
+    start.add_argument("--import-file", help="ref printed by `prepare <first case id> case <rewrapped checkpoint>`")
     install = commands.add_parser("install")
     install.add_argument("content_file", help="existing worker release bundle")
     install.add_argument("bench_version")
@@ -183,9 +191,12 @@ def main(argv=None):
         elif args["op"] == "resume":
             result = resume(config)
         else:
-            for field in ("spec", "registry", "payload"):
-                if field + "_file" in args:
+            for field in ("spec", "registry", "payload", "import"):
+                if args.get(field + "_file") is not None:
                     args[field] = json.loads(private_bytes(args.pop(field + "_file")))
+            args.pop("import_file", None)
+            if args.get("kind") == ArtifactKind.CASE_SNAPSHOT.value:
+                args["content_path"] = str(Path(args.pop("content_file")).resolve())
             if "content_file" in args:
                 args["content"] = base64.b64encode(private_bytes(args.pop("content_file"))).decode()
             with socket.socket(socket.AF_UNIX) as client:

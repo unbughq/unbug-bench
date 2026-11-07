@@ -58,6 +58,17 @@ class StepSequence(unittest.TestCase):
                 self.assertEqual(retry['opened'].get('snapshot'), None if legacy else 'snapshot ' + C1 + '/1/admit/1')
                 self.assertEqual(out['result']['cases'], {C1: 'sealed'})
 
+    def test_import_restores_its_checkpoint_and_a_written_case_starts_at_stress(self):
+        for written in (True, False):
+            with self.subTest(written=written):
+                r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1},
+                              'script': {'1/admit/1': {'reason': 'admit:imported_written' if written else 'admit:selected'}}})
+                self.addCleanup(r.close)
+                self.assertEqual(start(r, C1 + '/1/admit/1')['opened'].get('snapshot'), 'legacy import')
+                expected = [('1', 'admit', '1')] + ([] if written else [('2', 'writer:1', '1')])
+                self.assertEqual(r.keys(1)[:len(expected) + 1], expected + [(str(len(expected) + 1), 'stress:1', '1')])
+                self.assertEqual(out['result']['cases'], {C1: 'sealed'})
+
     def test_queued_admission_expires_without_dispatch_or_retaining_money(self):
         r, out = run({"deadline_in": 3.0,
                       "spec": {"target_sealed": 2, "max_cases_started": 2},
