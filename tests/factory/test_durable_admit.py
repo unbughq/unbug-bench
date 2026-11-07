@@ -528,6 +528,7 @@ class AdmitTests(unittest.TestCase):
                                  input=b"not yours", capture_output=True, check=True).stdout
         # Each refusal names its check (fixed codes only), so a real archive's refusal is diagnosable.
         cases = [(inputs, self.legacy_archive(old, text, commit="b" * 40), "import_pin"),
+                 (inputs, self.legacy_archive(old, text, commit="v2.18.0"), "import_pin"),
                  (inputs, self.legacy_archive(old, text, writer="opencode-go/deepseek-v4"), "import_writer"),
                  (inputs, self.legacy_archive(old, text, link=True), "import_links"),
                  (wrong_spend, self.legacy_archive(old, text), "import_spend"),
@@ -546,6 +547,10 @@ class AdmitTests(unittest.TestCase):
             # Deterministic refusals end admission instead of retrying on new workers.
             self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:" + code))
             self.assertEqual(self.calls, [])
+        # October trees name the pinned release by tag; the bench image pins Medusa 2.19.0.
+        for commit in ("v2.19.0", "2.19.0"):
+            result, _ = self.run_admit(self.import_step(inputs, registry, self.legacy_archive(old, text, commit=commit)))
+            self.assertEqual(result.reason, "admit:imported_written", commit)
         # A checkpoint's own card may predate the public card the operator copies: a higher
         # declared spend is accepted and is what the case is charged.
         result, outputs = self.run_admit(self.import_step(self.import_inputs(spent=3_000_000), registry,
