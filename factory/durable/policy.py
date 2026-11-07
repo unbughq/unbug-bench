@@ -37,6 +37,8 @@ DEADLINE_REASON = "infra:deadline"
 # that it counts against max_infra_retries_per_step like any infra error. Six hours rides out a provider
 # quota or a Boat incident; a bad image or a lasting outage still ends instead of holding the batch.
 POOL_WAIT_CEILING_S = 21_600.0
+USAGE_STOP_REASONS = frozenset({"infra:usage_unknown", "infra:missing_usage", "infra:unpriced_usage",
+                                "infra:usage_monitor", "infra:usage_reservation_exceeded"})
 # How long past its deadline an attempt may stay unconfirmed before its worker is deleted and the
 # attempt counts as lost, so a controller recovering an unanswering worker never waits forever.
 UNCONFIRMED_WORKER_LIMIT_S = 9000.0
@@ -197,8 +199,7 @@ def is_money_stop(result: StepResult) -> bool:
 def settles_lost(result: StepResult) -> bool:
     """Every infra:cancelled result, and every result the executor made for an attempt whose
     usage it cannot know, settles with settle_lost (design review 5, N6)."""
-    return result.reason in LOST_REASONS or (result.reason == "infra:usage_unknown"
-                                             and result.usage == Usage())
+    return result.reason in LOST_REASONS or (result.reason in USAGE_STOP_REASONS and result.usage == Usage())
 
 
 def draws_case_money(step: Step, counters: Counters) -> bool:

@@ -58,6 +58,12 @@ class Decide(unittest.TestCase):
         self.assertIs(d(GATES, StepResult(Outcome.EXHAUSTED, "writer:money")), Action.DIAGNOSE)
         self.assertIs(d(GATES, StepResult(Outcome.NEEDS_FOUNDER, "g16:split_review", gate="G16")), Action.ESCALATE)
 
+    def test_every_usage_stop_still_settles_as_lost_when_nothing_was_reported(self):
+        for code in ("infra:usage_unknown", "infra:missing_usage", "infra:unpriced_usage",
+                     "infra:usage_monitor", "infra:usage_reservation_exceeded"):
+            self.assertTrue(settles_lost(StepResult(Outcome.INFRA_ERROR, code)), code)
+            self.assertFalse(settles_lost(StepResult(Outcome.INFRA_ERROR, code, Usage(calls=1, paid_usd_micros=5))), code)
+
     def test_an_extension_never_repairs(self):
         rep = StepResult(Outcome.GATE_FAILED, "g4:not_real", gate="G4", feedback=FB, repairable=True)
         self.assertIs(d(GATES, rep, writer_rounds_used=3, extensions_used=1, in_extension=True), Action.DIAGNOSE)
