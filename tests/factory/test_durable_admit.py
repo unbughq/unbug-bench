@@ -392,7 +392,8 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(c.card["admission"]["status"], "exhausted")
         self.assertEqual(c.card["candidate_attempts"], 3)
 
-    def legacy_archive(self, old, statement, *, commit="a" * 40, gates=None, writer="opencode-go/minimax-m3", link=False):
+    def legacy_archive(self, old, statement, *, commit="a" * 40, gates=None, writer="opencode-go/minimax-m3", link=False,
+                       repo="medusajs/medusa", lockfile=None):
         """A pre-durable checkpoint as run_artifacts.seal wrote it, rewrapped to the statement key:
         `tar -C <work parent> -czf - <case id> | age -r <recipient>`, links and caches included."""
         import worker_secrets
@@ -406,7 +407,10 @@ class AdmitTests(unittest.TestCase):
         (work / "case").mkdir(parents=True)
         (work / "case/statement.md").write_text(statement)
         (work / "case/promise.md").write_text("# Promise\n\nCheckout holds the stock it promised.")
-        (work / "case/case.json").write_text(json.dumps({"source": "port", "app": {"repo": "medusajs/medusa", "commit": commit}}))
+        app = {"repo": repo, "commit": commit}
+        if lockfile is not None:
+            app["lockfile_sha256"] = lockfile
+        (work / "case/case.json").write_text(json.dumps({"source": "port", "app": app}))
         (work / "case/guards").mkdir()
         (work / "case/guards/reference.py").write_text("print('guard')")
         (work / "scorecard.json").write_text(json.dumps({"case": old, "seed": 3, "source": "port",
@@ -547,10 +551,18 @@ class AdmitTests(unittest.TestCase):
             # Deterministic refusals end admission instead of retrying on new workers.
             self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:" + code))
             self.assertEqual(self.calls, [])
-        # October trees name the pinned release by tag; the bench image pins Medusa 2.19.0.
-        for commit in ("v2.19.0", "2.19.0"):
-            result, _ = self.run_admit(self.import_step(inputs, registry, self.legacy_archive(old, text, commit=commit)))
-            self.assertEqual(result.reason, "admit:imported_written", commit)
+        # October trees name the pinned release by tag and the repo by URL, with the lockfile hash;
+        # the bench image pins Medusa 2.19.0 (b5521c's real case.json, 7 November).
+        lock = hashlib.sha256((pathlib.Path(os.environ["BENCH"]) / "projects/medusa/package-lock.json").read_bytes()).hexdigest()
+        for commit, repo, lockfile, reason in (
+                ("v2.19.0", "medusajs/medusa", None, "admit:imported_written"),
+                ("2.19.0", "medusajs/medusa", None, "admit:imported_written"),
+                ("v2.19.0", "https://github.com/medusajs/medusa", lock, "admit:imported_written"),
+                ("v2.19.0", "https://github.com/medusajs/medusa", "0" * 64, "admit:import_pin"),
+                ("v2.19.0", "https://github.com/someone/medusa", lock, "admit:import_pin")):
+            result, _ = self.run_admit(self.import_step(inputs, registry,
+                self.legacy_archive(old, text, commit=commit, repo=repo, lockfile=lockfile)))
+            self.assertEqual(result.reason, reason, (commit, repo, lockfile))
         # A checkpoint's own card may predate the public card the operator copies: a higher
         # declared spend is accepted and is what the case is charged.
         result, outputs = self.run_admit(self.import_step(self.import_inputs(spent=3_000_000), registry,

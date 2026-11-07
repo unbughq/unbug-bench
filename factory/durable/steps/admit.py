@@ -298,12 +298,18 @@ def _same_app(app, inputs):
     """The old case was built on the app this batch pins. October case trees name the pinned
     Medusa release by tag (`commit: "v2.19.0"`, or a `version` starting with it); today's INPUTS
     name its commit. A tag counts only if it is exactly the release the bench image pins."""
-    if (app.get("repo"), app.get("commit")) == (inputs["app_repo"], inputs["app_commit"]):
-        return True
-    if app.get("repo", inputs["app_repo"]) != inputs["app_repo"]:
+    # October trees write the repo as its GitHub URL ("https://github.com/medusajs/medusa").
+    repo = re.sub(r"^https://github\.com/|\.git$", "", str(app.get("repo", inputs["app_repo"])))
+    if repo != inputs["app_repo"]:
         return False
     import run
-    pinned = json.loads((run.BENCH / "projects/medusa/package.json").read_text())["dependencies"]["@medusajs/medusa"]
+    medusa = run.BENCH / "projects/medusa"
+    # A recorded lockfile hash must be today's bench lockfile: the exact same dependency set.
+    if "lockfile_sha256" in app and app["lockfile_sha256"] != hashlib.sha256((medusa / "package-lock.json").read_bytes()).hexdigest():
+        return False
+    if app.get("commit") == inputs["app_commit"]:
+        return True
+    pinned = json.loads((medusa / "package.json").read_text())["dependencies"]["@medusajs/medusa"]
     semver = r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?"
     tag = re.fullmatch(r"v?(" + semver + ")", str(app.get("commit", "")))
     version = re.match(r"v?(" + semver + r")(?=\s|$)", str(app.get("version", "")))
