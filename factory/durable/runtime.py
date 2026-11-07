@@ -25,7 +25,7 @@ import subprocess
 import threading
 
 from durable.artifacts import AgeSealer, LocalObjects, R2Objects, SealedStore, check_scope
-from durable.contract import ArtifactKind, Ref, assert_no_conductor, batch_spec_from_record
+from durable.contract import ArtifactKind, BatchSpec, Ref, assert_no_conductor, batch_spec_from_record
 from durable.guard import degraded as guard_degraded
 from durable.keys import AgeKeyService
 from durable.ledger import SqlLedger
@@ -230,11 +230,31 @@ class Runtime:
         self.store.put_sealed(scope, ref, ciphertext)
         return ref
 
-    def start(self, spec_record, registry_record):
+    def start(self, spec_record, registry_record, import_record=None):
         spec = batch_spec_from_record(spec_record)
         registry = Ref(**registry_record)
         if registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
             raise RuntimeErrorCode("registry_required")
+        imported = None
+        if import_record is not None:
+            # A legacy import is the batch's only case, prepared under that case's scope.
+            from durable.engine import case_id_for
+            imported = Ref(**import_record)
+            if (imported.kind is not ArtifactKind.CASE_SNAPSHOT or spec.max_cases_started != 1
+                    or self.config.get("worker_credentials", {}).get("legacy_registry") is not True):
+                raise RuntimeErrorCode("import_invalid")
+            case = case_id_for(spec.batch_id, 1)
+            self.sealer.open(self.keys.scope_key(case), imported, self.store.get_sealed(case, imported))
+            # The old spend, declared in INPUTS and checked by ADMIT against the old card, plus this
+            # batch's case money stays within one case's default ceiling.
+            try:
+                declared = json.loads(self.sealer.open(self.keys.scope_key(spec.batch_id), spec.inputs,
+                    self.store.get_sealed(spec.batch_id, spec.inputs))).get("import_spent_usd_micros")
+            except (ValueError, AttributeError):
+                declared = None
+            if (type(declared) is not int or declared < 0
+                    or declared + spec.case_money_usd_micros > BatchSpec.case_money_usd_micros):
+                raise RuntimeErrorCode("import_invalid")
         from dbos import DBOS
         existing = DBOS.get_workflow_status(spec.batch_id)
         if existing is not None and existing.status not in ("PENDING", "ENQUEUED"):
@@ -243,7 +263,7 @@ class Runtime:
         for ref in (spec.inputs, registry):
             self.sealer.open(self.keys.scope_key(spec.batch_id), ref, self.store.get_sealed(spec.batch_id, ref))
         self.releases.bundle(spec.plumbing_version)
-        self.engine.start_batch(spec, registry)
+        self.engine.start_batch(spec, registry, imported)
         return {"batch_id": spec.batch_id}
 
     def drain(self):

@@ -619,7 +619,14 @@ def engine_main(workdir):
             fakes["worker"].f.write("in-flight.json", engine.in_flight())
             time.sleep(0.05)
     threading.Thread(target=report_in_flight, daemon=True).start()
-    handle = engine.start_batch(spec, registry)
+    imported = None
+    if scenario.get("import_snapshot"):
+        # A rewrapped legacy checkpoint, prepared under the first case's scope like `prepare <case> case`.
+        from durable.engine import case_id_for
+        case = case_id_for(spec.batch_id, 1)
+        imported, ct = fakes["sealer"].seal(fakes["keys"].scope_key(case), ArtifactKind.CASE_SNAPSHOT, b"legacy import")
+        fakes["store"].put_sealed(case, imported, ct)
+    handle = engine.start_batch(spec, registry, imported)
     from dbos import DBOS
 
     stop = threading.Event()

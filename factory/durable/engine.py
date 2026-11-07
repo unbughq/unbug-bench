@@ -762,6 +762,8 @@ class _Case:
             self.status = "running"
         self.card()
         phase, feedback, ruling = "writer", None, None
+        if r is not None and r.reason == "admit:imported_written":
+            phase = "stress"   # an imported case whose writing passed G1 starts with a stress round
         while True:
             if phase == "writer":
                 action, r = self.run_seq(Step(StepKind.WRITER, self.round), feedback=feedback)
@@ -884,6 +886,9 @@ class _Case:
 def case_workflow(job: dict) -> dict:
     spec = batch_spec_from_record(job["spec"])
     case = _Case(spec, job["case_id"], job["initial_registry"], job.get("replacement_of"))
+    if job.get("import_snapshot") is not None:
+        # A legacy import: ADMIT's first attempt restores the rewrapped old checkpoint.
+        case.snapshot = Ref(**job["import_snapshot"])
     queue_v2 = job.get("queue_v2", False)
     if type(queue_v2) is not bool:
         raise ContractError("bad internal admission switch")
@@ -930,8 +935,9 @@ def case_workflow(job: dict) -> dict:
 # ---- the batch workflow --------------------------------------------------------------------------
 
 class _Batch:
-    def __init__(self, spec: BatchSpec, initial_registry: dict):
+    def __init__(self, spec: BatchSpec, initial_registry: dict, import_snapshot: Optional[dict] = None):
         self.spec, self.initial_registry = spec, initial_registry
+        self.import_snapshot = import_snapshot
         self.cases: list = []
         self.done: dict = {}
         self.sealed: list = []
@@ -947,6 +953,8 @@ class _Batch:
         case_id = case_id_for(self.spec.batch_id, len(self.cases) + 1)
         job = {"spec": to_record(self.spec), "case_id": case_id, "initial_registry": self.initial_registry,
                "replacement_of": replacement_of}
+        if self.import_snapshot is not None and not self.cases:
+            job["import_snapshot"] = self.import_snapshot   # only the first case; replacements select afresh
         with SetWorkflowID(case_id):
             DBOS.start_workflow(case_workflow, job)
         self.cases.append(case_id)
@@ -1318,7 +1326,7 @@ def batch_workflow(job: dict) -> dict:
         batch = _BatchV2(spec, job["initial_registry"])
         batch.probe_enabled = probe_enabled
     else:
-        batch = _Batch(spec, job["initial_registry"])
+        batch = _Batch(spec, job["initial_registry"], job.get("import_snapshot"))
     return batch.run()
 
 
@@ -1368,18 +1376,23 @@ class Engine:
             DBOS.register_queue(decision_queue(spec.batch_id), global_concurrency=1,
                                 polling_interval_sec=self.timing.queue_poll_s, on_conflict="always_update")
 
-    def start_batch(self, spec: BatchSpec, initial_registry: Ref):
+    def start_batch(self, spec: BatchSpec, initial_registry: Ref, import_snapshot: Optional[Ref] = None):
         """Attach to the batch if it exists (rule 3); start it otherwise. initial_registry is the
-        batch's first STATEMENT_REGISTRY (BatchSpec has none; contract finding 2)."""
+        batch's first STATEMENT_REGISTRY (BatchSpec has none; contract finding 2). import_snapshot,
+        a CASE_SNAPSHOT of the batch's first case, imports a legacy checkpoint as that case."""
         if not isinstance(initial_registry, Ref) or initial_registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
             raise ContractError("initial_registry must be a registry Ref")
+        if import_snapshot is not None and (not isinstance(import_snapshot, Ref)
+                                            or import_snapshot.kind is not ArtifactKind.CASE_SNAPSHOT):
+            raise ContractError("import_snapshot must be a case snapshot Ref")
         self.register_queues(spec)
         if DBOS.get_workflow_status(spec.batch_id) is not None:
             return DBOS.retrieve_workflow(spec.batch_id)
         with SetWorkflowID(spec.batch_id):
-            return DBOS.start_workflow(batch_workflow, {"spec": to_record(spec),
-                                                        "initial_registry": to_record(initial_registry),
-                                                        "queue_v2": False})
+            job = {"spec": to_record(spec), "initial_registry": to_record(initial_registry), "queue_v2": False}
+            if import_snapshot is not None:
+                job["import_snapshot"] = to_record(import_snapshot)
+            return DBOS.start_workflow(batch_workflow, job)
 
     def send(self, batch_id: str, topic: Topic, payload) -> None:
         """The operator messages (WP8 wraps this). FOUNDER_REPLY goes to its case; the rest to

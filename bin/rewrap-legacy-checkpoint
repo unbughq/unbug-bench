@@ -1,0 +1,37 @@
+#!/bin/sh
+# Founder, once, on this Mac:
+#   <founder identity> | bin/rewrap-legacy-checkpoint OUT_DIR case-<id> [case-<id> ...]
+# Pre-durable checkpoints are encrypted to the founder recipient. For each case this streams
+#   age -d (founder identity) | age -r (factory/statements-recipient.txt)
+# into OUT_DIR/<case>.import.age. Plaintext only passes through the pipe; the founder identity
+# stays in a private temp file that is removed on exit. The latest archive is used: the final
+# sealed/<case>.tar.gz.age when present, otherwise sealed/<case>.checkpoint.tar.gz.age.
+# Workers open the result with the statement key they already receive for the legacy registry.
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd)
+[ $# -ge 2 ] || { echo "usage: <founder identity> | $0 OUT_DIR case-<id>..." >&2; exit 2; }
+[ ! -t 0 ] || { echo "pipe the founder identity on stdin" >&2; exit 1; }
+out=$1; shift
+recipient=$(cat "$root/factory/statements-recipient.txt")
+printf '%s\n' "$recipient" | python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"age1[0-9a-z]{58}\n", sys.stdin.read()) else "bad statements recipient")'
+umask 077
+mkdir -p "$out"
+tmp=$(mktemp -d)
+# INT/TERM must end the run; EXIT removes the identity copy and any partial output.
+# The identity sits in this 0700 temp dir for the run (a kill -9 leaves it there).
+trap 'exit 1' INT TERM
+trap 'rm -rf "$tmp"; rm -f "$out"/*.import.age.part' EXIT
+cat > "$tmp/identity"
+for case in "$@"; do
+  printf '%s\n' "$case" | python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"case-[A-Za-z0-9-]{1,80}\n", sys.stdin.read()) else "bad case id")'
+  src="$root/sealed/$case.tar.gz.age"
+  [ -f "$src" ] || src="$root/sealed/$case.checkpoint.tar.gz.age"
+  [ -f "$src" ] || { echo "$case: no archive in sealed/" >&2; exit 1; }
+  dst="$out/$case.import.age"
+  [ ! -e "$dst" ] || { echo "$case: $dst exists" >&2; exit 1; }
+  # pipefail is not POSIX: check the decrypt half separately through a status file.
+  { age -d -i "$tmp/identity" "$src" || echo failed > "$tmp/status"; } | age -r "$recipient" -o "$dst.part"
+  if [ -e "$tmp/status" ]; then rm -f "$dst.part"; echo "$case: could not decrypt $src" >&2; exit 1; fi
+  mv "$dst.part" "$dst"
+  echo "$case: $(basename "$src") -> $dst"
+done

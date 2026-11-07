@@ -207,7 +207,7 @@ class RuntimeTests(unittest.TestCase):
                          deadline_epoch=4e9, max_concurrency=1)
         with patch("dbos.DBOS.get_workflow_status", return_value=None), patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start:
             self.assertEqual(runtime.start(to_record(spec), to_record(registry)), {"batch_id": "b-offline"})
-            start.assert_called_once_with(spec, registry)
+            start.assert_called_once_with(spec, registry, None)
             self.assertNotIn("arbitrary admission payload", repr(start.call_args))
         for state in ("SUCCESS", "ERROR", "CANCELLED", "MAX_RECOVERY_ATTEMPTS_EXCEEDED"):
             with patch("dbos.DBOS.get_workflow_status", return_value=SimpleNamespace(status=state)), patch.object(runtime.engine, "start_batch") as start:
@@ -239,6 +239,57 @@ class RuntimeTests(unittest.TestCase):
             finally:
                 thread.join(timeout=5)
         self.assertEqual(runtime.sealer.open(runtime.keys.scope_key("b-offline"), Ref(**record), runtime.store.get_sealed("b-offline", Ref(**record))), b"opaque socket payload")
+
+    def test_legacy_import_is_prepared_from_a_host_path_and_starts_a_one_case_batch(self):
+        import socketserver
+        import threading
+        from dataclasses import replace
+        from durable.cli import Handler
+        runtime = self.runtime()
+        config_path = self.root / "config"
+        config_path.write_text("{}")
+        config_path.chmod(0o600)
+        archive = self.root / "case-old.import.age"
+        archive.write_bytes(b"age-encryption.org/v1\n-> X25519 opaque legacy ciphertext")
+        archive.chmod(0o600)
+        with socketserver.UnixStreamServer(str(runtime.state / "operator.sock"), Handler) as server:
+            server.runtime = runtime
+            thread = threading.Thread(target=server.handle_request)
+            thread.start()
+            try:
+                with patch("durable.cli.load_config", return_value=self.config), patch("sys.stdout", new_callable=io.StringIO) as output:
+                    self.assertEqual(main(["--config", str(config_path), "prepare", "case-offline-1", "case", str(archive)]), 0)
+                    record = json.loads(output.getvalue())
+            finally:
+                thread.join(timeout=5)
+        imported = Ref(**record)
+        self.assertEqual(runtime.store.get_sealed("case-offline-1", imported)[:21], b"age-encryption.org/v1")
+        self.assertEqual(runtime.sealer.open(runtime.keys.scope_key("case-offline-1"), imported,
+                         runtime.store.get_sealed("case-offline-1", imported)), archive.read_bytes())
+        # Only real age ciphertext is accepted: the controller never receives a plaintext case.
+        from durable.cli import dispatch
+        plain = self.root / "plain"
+        plain.write_bytes(b"case plaintext")
+        plain.chmod(0o600)
+        with self.assertRaisesRegex(RuntimeErrorCode, "import_invalid"):
+            dispatch(runtime, {"op": "prepare", "scope": "case-offline-1", "kind": "case", "content_path": str(plain)})
+        inputs = runtime.prepare("b-offline", ArtifactKind.INPUTS, json.dumps({"import_spent_usd_micros": 2_500_000}).encode())
+        registry = runtime.prepare("b-offline", ArtifactKind.STATEMENT_REGISTRY, b"registry")
+        spec = BatchSpec(batch_id="b-offline", plumbing_version="a" * 64, bench_version="b" * 64,
+                         app_repo="medusajs/medusa", app_commit="c" * 40, inputs=inputs, target_sealed=1,
+                         money_bound_usd_micros=100, deadline_epoch=4e9, max_cases_started=1,
+                         case_money_usd_micros=47_500_000)
+        runtime.config = {**runtime.config, "worker_credentials": {"legacy_registry": True}}
+        with patch("dbos.DBOS.get_workflow_status", return_value=None), patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start:
+            runtime.start(to_record(spec), to_record(registry), to_record(imported))
+            start.assert_called_once_with(spec, registry, imported)
+            # One case only, the legacy statement key delivered, and old + new case money within $50.
+            for bad_spec, config in ((replace(spec, max_cases_started=2), runtime.config), (spec, {**runtime.config, "worker_credentials": {}}),
+                                     (replace(spec, case_money_usd_micros=47_500_001), runtime.config)):
+                runtime.config = config
+                with self.assertRaisesRegex(RuntimeErrorCode, "import_invalid"):
+                    runtime.start(to_record(bad_spec), to_record(registry), to_record(imported))
+                runtime.config = {**runtime.config, "worker_credentials": {"legacy_registry": True}}
 
     def test_second_owner_rejected(self):
         self.runtime()

@@ -20,6 +20,8 @@ INPUTS (batch key), reusing the card and case.json schemas:
      "models": {...}, "recovery_config": {...},
      "candidate": {"statement": "...", "statement_sha256": "<64 hex>"}}
         `candidate` is optional. Without it the existing selector proposes a statement.
+        An initial snapshot that is a legacy checkpoint (still age ciphertext to the statement
+        key) is an import: see `_import_legacy`.
         Every real candidate runs the existing semantic dedup, public freshness and
         independent idea-realism checks before it can be handed to WRITER.
         Optional `rotation_slot` overrides the existing cohort table; otherwise engine
@@ -41,11 +43,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import os
 import pathlib
 import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
 
 from durable.contract import ArtifactKind, Outcome, Ref, StepKind, StepResult, Usage
@@ -201,6 +205,87 @@ def _upgrade_registry(plaintext, sealer, batch_key):
     return json.dumps(value, sort_keys=True).encode()
 
 
+AGE = b"age-encryption.org/v1\n"
+
+
+def _import_legacy(ciphertext, work, inputs, case_id):
+    """Turn a rewrapped pre-durable checkpoint into this case's first work tree, in worker RAM.
+
+    Only the old case tree is kept. Its card, ledger, gate caches, reviews and search evidence
+    are dropped, so every screen and gate reruns on today's factory; the old card survives only
+    as numbers in `imported_from`. Returns that summary.
+    """
+    from worker_secrets import SECRETS
+    from registry import atomic_json
+    import io
+    if not (SECRETS / "statements-key").is_file():
+        raise OSError("statement key not delivered")   # the worker's environment, not the archive
+    opened = subprocess.run(["age", "-d", "-i", str(SECRETS / "statements-key")], input=ciphertext,
+                            capture_output=True, timeout=600)
+    if opened.returncode:
+        raise _Invalid("import")
+    staging = pathlib.Path(tempfile.mkdtemp(dir=work.parent, prefix="import-"))
+    try:
+        with tarfile.open(fileobj=io.BytesIO(opened.stdout), mode="r:gz") as tar:
+            # A macOS tar adds AppleDouble "._*" metadata members; they are never case content.
+            members = [m for m in tar.getmembers() if not pathlib.PurePosixPath(m.name).name.startswith("._")]
+            roots = {pathlib.PurePosixPath(m.name).parts[0] for m in members if m.name not in ("", ".")}
+            if len(roots) != 1 or _CASE.fullmatch(next(iter(roots))) is None:
+                raise _Invalid("import")
+            name = next(iter(roots))
+            # Agent state and bench results may hold links; only the case tree and card are read.
+            wanted = [m for m in members if m.name == f"{name}/scorecard.json" or m.name == f"{name}/case"
+                      or m.name.startswith(f"{name}/case/")]
+            # A link could point the kept tree outside it once moved; case trees need none.
+            if any(m.issym() or m.islnk() for m in wanted):
+                raise _Invalid("import")
+            tar.extractall(staging, members=wanted, filter="data")
+        old, case = staging / name, staging / name / "case"
+        if not (old / "scorecard.json").is_file() or not (case / "case.json").is_file():
+            raise _Invalid("import")
+        card = json.loads((old / "scorecard.json").read_text())
+        if not case.is_dir() or not (case / "statement.md").is_file() or card.get("case") != old.name:
+            raise _Invalid("import")
+        meta = json.loads((case / "case.json").read_text())
+        app = meta.get("app") or {}
+        if ((app.get("repo"), app.get("commit")) != (inputs["app_repo"], inputs["app_commit"])
+                or meta.get("source") != inputs["source"] or inputs.get("candidate") is not None):
+            raise _Invalid("import")
+        gates = card.get("gates") if isinstance(card.get("gates"), dict) else {}
+        spent = (card.get("continuation_budget") or {}).get("cost")
+        # The old spend counts against this case's money: the operator declares it, and
+        # runtime.start keeps the declared amount plus the batch's case money within the default.
+        if (type(spent) not in (int, float) or not 0 <= spent < 1e4
+                or inputs.get("import_spent_usd_micros") != math.ceil(spent * 1_000_000)):
+            raise _Invalid("import")
+        writer = ((card.get("models") or {}).get("builder") or [None])[0]
+        if not isinstance(writer, str):
+            raise _Invalid("import")
+        summary = {"case": old.name, "source": card.get("source"), "gates": dict(gates),
+                   "failed_gate": card.get("failed_gate"), "spent_usd": spent, "writer": writer,
+                   "written": gates.get("G1") == "pass"}
+        if work.exists():
+            shutil.rmtree(work)
+        work.mkdir()
+        case.rename(work / "case")
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    atomic_json(work / "continuation-budget.json", {"calls": 0, "events": [], "cost": 0})
+    fresh = _card(inputs, case_id, False)
+    if inputs.get("rotation_slot") is None and not inputs.get("models"):
+        # Today's writer must share the October writer's family (ADMIT checks it once models are
+        # picked): take the first cohort slot with that writer; its other roles stay separated.
+        from model_router import family
+        import model_runtime
+        table = model_runtime.PROMPTS.parent / os.environ.get("FACTORY_ROTATION", "rotation-3writers.json")
+        slots = json.loads(table.read_text())["slots"]
+        fresh["rotation_slot"] = next((i for i, slot in enumerate(slots, 1) if slot.get("writer") == family(writer)),
+                                      fresh["rotation_slot"])
+    fresh["imported_from"] = summary
+    atomic_json(work / "scorecard.json", fresh)
+    return summary
+
+
 def _card(value, case_id, dry_run):
     card = {"case": case_id, "dry_run": dry_run, "seed": value["seed"], "gates": {}, "failed_gate": None,
             "factory_slots_prepared": 1}
@@ -266,13 +351,14 @@ def _pin_models(c, runner, inputs):
     c.models = c.card["models"] = selected
 
 
-def _prior_statements(root, refs, sealer, batch_key, case_id, work):
+def _prior_statements(root, refs, sealer, batch_key, case_id, work, imported=None):
     state = json.loads((root / "registry.json").read_text())
     prior = {}
     directory = work / "statements"
     directory.mkdir(exist_ok=True)
     for case, entry in state["entries"].items():
-        if case == case_id or entry["status"] == "released":
+        # An import is its old case's own idea: that entry is not a duplicate of it.
+        if case in (case_id, imported) or entry["status"] == "released":
             continue
         digest = entry["cipher_sha256"]
         ref = Ref(refs[digest], ArtifactKind.STATEMENT_REGISTRY)
@@ -290,7 +376,8 @@ def _screen(c, runner, registry, refs, sealer, batch_key, step_input):
     from admission import MAX_CANDIDATES
     from registry import atomic_json
     root = registry.root
-    revision, prior = _prior_statements(root, refs, sealer, batch_key, step_input.case_id, c.work)
+    imported = (c.card.get("imported_from") or {}).get("case")
+    revision, prior = _prior_statements(root, refs, sealer, batch_key, step_input.case_id, c.work, imported)
     c.engine_prior_statements, c.engine_registry_revision = prior, revision
 
     def reserve():
@@ -310,7 +397,9 @@ def _screen(c, runner, registry, refs, sealer, batch_key, step_input):
 
     c.engine_reserve_candidate = reserve
     rejected = c.card.setdefault("rejected_candidates", [])
-    while len(rejected) < MAX_CANDIDATES:
+    # An import has exactly one candidate, its own; a rejection never replaces its case tree.
+    limit = 1 if imported else MAX_CANDIDATES
+    while len(rejected) < limit:
         c.card["candidate_attempts"] = len(rejected) + 1
         if runner.statement_precheck(c):
             return True
@@ -329,7 +418,7 @@ def _screen(c, runner, registry, refs, sealer, batch_key, step_input):
             if (old / name).is_file(): shutil.copyfile(old / name, c.case / name)
         atomic_json(c.work / "selection-rejections.json", rejected)
         c.__dict__.pop("precheck_problems", None)
-        if len(rejected) < MAX_CANDIDATES:
+        if len(rejected) < limit:
             request = runner.prompt("selection", runner.selection_context(c, prior, round="reselection",
                 rejected_candidate_dir=str(old), rejection_feedback_path=str(c.work / "selection-rejections.json"),
                 rejected_statement_hashes=[r["statement_sha256"] for r in rejected]))
@@ -382,7 +471,19 @@ def run(worker, step_input, keys):
         # Keep the ledger at its stable path: the supervisor can account a killed/failed attempt.
         work = base / step_input.case_id
         if step_input.snapshot is not None:
-            worker_step.restore(worker.open_blob(sealer, case_key, step_input.snapshot), work)
+            restored = worker.open_blob(sealer, case_key, step_input.snapshot)
+            if restored.startswith(AGE):
+                if inputs["dry_run"]:
+                    return fail("admit:inputs_invalid")
+                try:
+                    _import_legacy(restored, work, inputs, step_input.case_id)
+                except (_Invalid, ValueError, KeyError, AttributeError, TypeError, tarfile.TarError):
+                    # The archive itself is wrong: a retry would only rebuild a worker for the same refusal.
+                    return StepResult(Outcome.EXHAUSTED, "admit:import_invalid"), {}
+                except OSError:
+                    return fail("admit:processing_failed")   # missing key, full disk: an ordinary retry
+            else:
+                worker_step.restore(restored, work)
         else:
             shutil.rmtree(work, ignore_errors=True)
             work.mkdir()
@@ -390,6 +491,13 @@ def run(worker, step_input, keys):
             atomic_json(work / "scorecard.json", _card(inputs, step_input.case_id, inputs["dry_run"]))
         c = runner.context_for_step(step_input, work)
         _pin_models(c, runner, inputs)
+        imported = c.card.get("imported_from")
+        if imported:
+            # Every separation rule compares against c.models["builder"]: the October writer
+            # wrote the imported tree, so today's writer must be of the same family.
+            from model_router import family
+            if family(imported["writer"]) != family(c.models["builder"][0]):
+                return StepResult(Outcome.EXHAUSTED, "admit:import_invalid"), {}
         before = worker_step.ledger_totals(c.ledger)
         worker._save_baseline(step_input, c.ledger, before)
         worker.bind_checkpoint(step_input, c, sealer, case_key, runner)
@@ -404,6 +512,8 @@ def run(worker, step_input, keys):
             runner.provider_preflight(c)
             accepted = _screen(c, runner, registry, refs, sealer, batch_key, step_input)
             reason = "admit:selected" if accepted else "admit:exhausted"
+            if accepted and (c.card.get("imported_from") or {}).get("written"):
+                reason = "admit:imported_written"  # the engine resumes a written case at STRESS
         snap = snapshot()
         usage = account()
         if not accepted:
