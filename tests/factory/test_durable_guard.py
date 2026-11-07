@@ -358,15 +358,31 @@ class GuardTests(unittest.TestCase):
         db = self.f.state_dir / "router.sqlite3"
         conn = sqlite3.connect(db)
         conn.executescript("""CREATE TABLE paid_requests (charge INTEGER, state TEXT);
-            CREATE TABLE paid_account (id INTEGER, ceiling INTEGER);
+            CREATE TABLE paid_account (id INTEGER, ceiling INTEGER, credit INTEGER);
             INSERT INTO paid_requests VALUES (1000000000, 'settled'), (500000000, 'unknown'), (NULL, 'settled'),
                 (11000000000, 'pending');""")   # holds of calls in flight are not spend
         conn.commit()
-        self.assertEqual(router_spend(db), (1.5, math.inf))   # no ceiling row: never a false deadlock
-        conn.execute("INSERT INTO paid_account VALUES (1, 49946728440)")
+        self.assertEqual(router_spend(db), (1.5, math.inf, None))   # no ceiling row: never a false deadlock
+        conn.execute("INSERT INTO paid_account VALUES (1, 49946728440, 8771396466)")
         conn.commit()
         conn.close()
-        self.assertEqual(router_spend(db), (1.5, 49.94672844))
+        self.assertEqual(router_spend(db), (1.5, 49.94672844, 8.771396466))
+
+    def test_low_provider_credit_and_a_credit_refusal_each_alert_once(self):
+        """7 November: the account fell to $8.77 and calls were refused with no alert."""
+        self.f.money = {"spent": 1, "bound": 2, "held": 0}
+        self.f.cases[0]["reason"] = "router:credit"
+        for _ in range(3):
+            self.f.clock += 60
+            self.f.guard(router=lambda: (5.0, 49.95, 8.77)).run()
+        self.assertEqual(len(self.f.sent), 2)
+        self.assertTrue(any("$8.77" in m for m in self.f.sent))
+        self.assertTrue(any("lack of credit" in m for m in self.f.sent))
+        self.f.sent.clear()
+        self.f.cases[0]["reason"] = None
+        self.f.clock += 60
+        self.f.guard(router=lambda: (5.0, 49.95, 120.0)).run()
+        self.assertEqual(self.f.sent, [])
 
     def test_router_below_its_ceiling_changes_nothing_and_unreadable_only_degrades(self):
         self.f.money = {"spent": 1, "bound": 2, "held": 0}
