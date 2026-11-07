@@ -513,6 +513,12 @@ class AdmitTests(unittest.TestCase):
                                         .stdout.decode().split("public key: ")[1].split()[0]],
                                        input=b"not yours", capture_output=True, check=True).stdout,):
             cases.append((inputs, archive))
+        # The worker's environment failing is infrastructure, retried; it never refuses the case.
+        import worker_secrets
+        archive = self.legacy_archive(old, text)
+        with patch.object(worker_secrets, "SECRETS", self.home / "no-key"):
+            result, _ = self.run_admit(self.import_step(inputs, registry, archive))
+        self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "admit:processing_failed"))
         for step_inputs, archive in cases:
             result, _ = self.run_admit(self.import_step(step_inputs, registry, archive))
             # Deterministic refusals end admission instead of retrying on new workers.

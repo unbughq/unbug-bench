@@ -218,6 +218,8 @@ def _import_legacy(ciphertext, work, inputs, case_id):
     from worker_secrets import SECRETS
     from registry import atomic_json
     import io
+    if not (SECRETS / "statements-key").is_file():
+        raise OSError("statement key not delivered")   # the worker's environment, not the archive
     opened = subprocess.run(["age", "-d", "-i", str(SECRETS / "statements-key")], input=ciphertext,
                             capture_output=True, timeout=600)
     if opened.returncode:
@@ -239,6 +241,8 @@ def _import_legacy(ciphertext, work, inputs, case_id):
                 raise _Invalid("import")
             tar.extractall(staging, members=wanted, filter="data")
         old, case = staging / name, staging / name / "case"
+        if not (old / "scorecard.json").is_file() or not (case / "case.json").is_file():
+            raise _Invalid("import")
         card = json.loads((old / "scorecard.json").read_text())
         if not case.is_dir() or not (case / "statement.md").is_file() or card.get("case") != old.name:
             raise _Invalid("import")
@@ -464,9 +468,11 @@ def run(worker, step_input, keys):
                     return fail("admit:inputs_invalid")
                 try:
                     _import_legacy(restored, work, inputs, step_input.case_id)
-                except (_Invalid, OSError, ValueError, KeyError, AttributeError, TypeError, tarfile.TarError):
-                    # Deterministic: a retry would only rebuild a worker for the same refusal.
+                except (_Invalid, ValueError, KeyError, AttributeError, TypeError, tarfile.TarError):
+                    # The archive itself is wrong: a retry would only rebuild a worker for the same refusal.
                     return StepResult(Outcome.EXHAUSTED, "admit:import_invalid"), {}
+                except OSError:
+                    return fail("admit:processing_failed")   # missing key, full disk: an ordinary retry
             else:
                 worker_step.restore(restored, work)
         else:
