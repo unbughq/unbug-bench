@@ -167,9 +167,12 @@ WORKER_POOL_REASONS = frozenset({"infra:worker_create_failed", "infra:worker_cre
 # Reasons safe for the public scorecard. "A model refused this case" hints at the case's
 # content, so router:refusal stays private. report.py shows any other reason as its
 # outcome alone.
-PUBLISHED_REASONS = frozenset((REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS) - {"router:refusal"})
+# Legacy import refusals (durable/steps/admit.py IMPORT_REFUSALS): which check failed, never what it saw.
+IMPORT_REASONS = frozenset("admit:" + code for code in ("import_key", "import_layout", "import_links", "import_pin",
+                           "import_source", "import_spend", "import_writer", "import_invalid"))
+PUBLISHED_REASONS = frozenset((REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS | IMPORT_REASONS) - {"router:refusal"})
 
-if not all(REASON.fullmatch(r) for r in REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS):
+if not all(REASON.fullmatch(r) for r in REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS | IMPORT_REASONS):
     raise ContractError("a WP4 reason breaks the REASON grammar")
 
 

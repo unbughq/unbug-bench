@@ -373,7 +373,10 @@ class Secrecy(unittest.TestCase):
                          Classified(Outcome.INFRA_ERROR, UNCLASSIFIED))
 
     def test_published_allowlist(self):
-        self.assertTrue(PUBLISHED_REASONS <= REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS)
+        from durable.classify import IMPORT_REASONS
+        from durable.steps.admit import IMPORT_REFUSALS
+        self.assertEqual(IMPORT_REASONS, {'admit:' + code for code in IMPORT_REFUSALS})
+        self.assertTrue(PUBLISHED_REASONS <= REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS | IMPORT_REASONS)
         self.assertTrue(all(REASON.fullmatch(r) for r in PUBLISHED_REASONS))
         self.assertNotIn("router:refusal", PUBLISHED_REASONS)
         self.assertEqual(REASONS - PUBLISHED_REASONS, {"router:refusal"})

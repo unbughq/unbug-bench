@@ -206,6 +206,9 @@ def _upgrade_registry(plaintext, sealer, batch_key):
 
 
 AGE = b"age-encryption.org/v1\n"
+# Fixed refusal codes, published on the scorecard: they name the failed check, never case content.
+IMPORT_REFUSALS = ("import_key", "import_layout", "import_links", "import_pin", "import_source",
+                   "import_spend", "import_writer", "import_invalid")
 
 
 def _import_legacy(ciphertext, work, inputs, case_id):
@@ -223,7 +226,7 @@ def _import_legacy(ciphertext, work, inputs, case_id):
     opened = subprocess.run(["age", "-d", "-i", str(SECRETS / "statements-key")], input=ciphertext,
                             capture_output=True, timeout=600)
     if opened.returncode:
-        raise _Invalid("import")
+        raise _Invalid("import_key")
     staging = pathlib.Path(tempfile.mkdtemp(dir=work.parent, prefix="import-"))
     try:
         with tarfile.open(fileobj=io.BytesIO(opened.stdout), mode="r:gz") as tar:
@@ -231,36 +234,41 @@ def _import_legacy(ciphertext, work, inputs, case_id):
             members = [m for m in tar.getmembers() if not pathlib.PurePosixPath(m.name).name.startswith("._")]
             roots = {pathlib.PurePosixPath(m.name).parts[0] for m in members if m.name not in ("", ".")}
             if len(roots) != 1 or _CASE.fullmatch(next(iter(roots))) is None:
-                raise _Invalid("import")
+                raise _Invalid("import_layout")
             name = next(iter(roots))
             # Agent state and bench results may hold links; only the case tree and card are read.
             wanted = [m for m in members if m.name == f"{name}/scorecard.json" or m.name == f"{name}/case"
                       or m.name.startswith(f"{name}/case/")]
             # A link could point the kept tree outside it once moved; case trees need none.
             if any(m.issym() or m.islnk() for m in wanted):
-                raise _Invalid("import")
+                raise _Invalid("import_links")
             tar.extractall(staging, members=wanted, filter="data")
         old, case = staging / name, staging / name / "case"
-        if not (old / "scorecard.json").is_file() or not (case / "case.json").is_file():
-            raise _Invalid("import")
+        if (not (old / "scorecard.json").is_file() or not (case / "case.json").is_file()
+                or not (case / "statement.md").is_file()):
+            raise _Invalid("import_layout")
         card = json.loads((old / "scorecard.json").read_text())
-        if not case.is_dir() or not (case / "statement.md").is_file() or card.get("case") != old.name:
-            raise _Invalid("import")
+        if card.get("case") != old.name:
+            raise _Invalid("import_layout")
         meta = json.loads((case / "case.json").read_text())
         app = meta.get("app") or {}
-        if ((app.get("repo"), app.get("commit")) != (inputs["app_repo"], inputs["app_commit"])
-                or meta.get("source") != inputs["source"] or inputs.get("candidate") is not None):
-            raise _Invalid("import")
+        if (app.get("repo"), app.get("commit")) != (inputs["app_repo"], inputs["app_commit"]):
+            raise _Invalid("import_pin")
+        if meta.get("source", card.get("source")) != inputs["source"] or inputs.get("candidate") is not None:
+            raise _Invalid("import_source")
         gates = card.get("gates") if isinstance(card.get("gates"), dict) else {}
         spent = (card.get("continuation_budget") or {}).get("cost")
-        # The old spend counts against this case's money: the operator declares it, and
-        # runtime.start keeps the declared amount plus the batch's case money within the default.
-        if (type(spent) not in (int, float) or not 0 <= spent < 1e4
-                or inputs.get("import_spent_usd_micros") != math.ceil(spent * 1_000_000)):
-            raise _Invalid("import")
+        # The old spend counts against this case's money: the operator declares it from the public
+        # card, which is never older than a checkpoint's own card, and runtime.start keeps the
+        # declared amount plus the batch's case money within the default.
+        declared = inputs.get("import_spent_usd_micros")
+        if (type(spent) not in (int, float) or not 0 <= spent < 1e4 or type(declared) is not int
+                or declared < math.ceil(spent * 1_000_000)):
+            raise _Invalid("import_spend")
+        spent = declared / 1_000_000
         writer = ((card.get("models") or {}).get("builder") or [None])[0]
         if not isinstance(writer, str):
-            raise _Invalid("import")
+            raise _Invalid("import_writer")
         summary = {"case": old.name, "source": card.get("source"), "gates": dict(gates),
                    "failed_gate": card.get("failed_gate"), "spent_usd": spent, "writer": writer,
                    "written": gates.get("G1") == "pass"}
@@ -477,9 +485,10 @@ def run(worker, step_input, keys):
                     return fail("admit:inputs_invalid")
                 try:
                     _import_legacy(restored, work, inputs, step_input.case_id)
-                except (_Invalid, ValueError, KeyError, AttributeError, TypeError, tarfile.TarError):
+                except (_Invalid, ValueError, KeyError, AttributeError, TypeError, tarfile.TarError) as error:
                     # The archive itself is wrong: a retry would only rebuild a worker for the same refusal.
-                    return StepResult(Outcome.EXHAUSTED, "admit:import_invalid"), {}
+                    code = str(error) if str(error) in IMPORT_REFUSALS else "import_invalid"
+                    return StepResult(Outcome.EXHAUSTED, "admit:" + code), {}
                 except OSError:
                     return fail("admit:processing_failed")   # missing key, full disk: an ordinary retry
             else:
@@ -497,7 +506,7 @@ def run(worker, step_input, keys):
             # wrote the imported tree, so today's writer must be of the same family.
             from model_router import family
             if family(imported["writer"]) != family(c.models["builder"][0]):
-                return StepResult(Outcome.EXHAUSTED, "admit:import_invalid"), {}
+                return StepResult(Outcome.EXHAUSTED, "admit:import_writer"), {}
         before = worker_step.ledger_totals(c.ledger)
         worker._save_baseline(step_input, c.ledger, before)
         worker.bind_checkpoint(step_input, c, sealer, case_key, runner)
