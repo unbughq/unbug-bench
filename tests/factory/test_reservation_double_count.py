@@ -78,6 +78,12 @@ class RunningReservation(unittest.TestCase):
         with self.assertRaises(budget.BudgetError):
             self.reserve(self.lease(2), Decimal('0.01'))
 
+    def test_a_listed_event_missing_from_the_ledger_stops_the_call(self):
+        row = self.reserve(self.lease(1), Decimal(4))
+        ledger = json.loads(self.path.read_text())
+        ledger['invocation_reservations'][row['lease_id']]['event_ids'].append('gone')
+        self.assertTrue(self.check(ledger, row))
+
     def test_unknown_spend_still_stops_the_call(self):
         row = self.reserve(self.lease(1), Decimal(4))
         ledger = json.loads(self.path.read_text())

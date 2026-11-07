@@ -179,7 +179,9 @@ WORKER_POOL_REASONS = frozenset({"infra:worker_create_failed", "infra:worker_cre
 # Legacy import refusals (durable/steps/admit.py IMPORT_REFUSALS): which check failed, never what it saw.
 IMPORT_REASONS = frozenset("admit:" + code for code in ("import_key", "import_layout", "import_links", "import_pin",
                            "import_source", "import_spend", "import_writer", "import_invalid"))
-PUBLISHED_REASONS = frozenset((REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS | IMPORT_REASONS) - {"router:refusal"})
+# A preflight refusal is a refusal too: it may react to the case directory it ran in.
+_PRIVATE = {"router:refusal"} | {f"router:preflight_{r}_refusal" for r in PREFLIGHT_ROLES.values()}
+PUBLISHED_REASONS = frozenset((REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS | IMPORT_REASONS) - _PRIVATE)
 
 if not all(REASON.fullmatch(r) for r in REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS | IMPORT_REASONS):
     raise ContractError("a WP4 reason breaks the REASON grammar")

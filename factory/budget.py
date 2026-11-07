@@ -193,14 +193,17 @@ def reservation_booked(ledger, lease_id, row, events=None):
     if events is None: events = {e['id']: e for e in ledger.get('events', []) if e.get('id')}
     ids = set(row['event_ids']) | {i for i, e in events.items()
                                    if e.get('lease_id') == lease_id and e.get('invocation_id') == row['invocation_id']}
-    return sum((event_charge(events[i]) for i in ids if i in events), Decimal(0))
+    if not ids <= events.keys(): return None   # a listed event is missing: the ledger cannot be trusted
+    return sum((event_charge(events[i]) for i in ids), Decimal(0))
 
 
 def reservation_exceeded(ledger, lease_id):
     """A running reserved call's stop condition: unknown spend, or more booked than it reserved."""
     if case_spending(ledger)['total_spent_usd'] is None: return True
+    # Any state: a row settled or estimated while its stream continues is held to the same maximum.
     row = ledger['invocation_reservations'][lease_id]
-    return reservation_booked(ledger, lease_id, row) > usd(row['maximum_usd'])
+    booked = reservation_booked(ledger, lease_id, row)
+    return booked is None or booked > usd(row['maximum_usd'])
 
 
 def outstanding_reservations(ledger, exclude_lease=None):
@@ -209,7 +212,9 @@ def outstanding_reservations(ledger, exclude_lease=None):
     for lease_id, row in ledger.get('invocation_reservations', {}).items():
         if row['state'] != 'pending' or lease_id == exclude_lease: continue
         # Missing the bound events counted a running call's spend twice (7 November).
-        total += max(Decimal(0), usd(row['maximum_usd']) - reservation_booked(ledger, lease_id, row, events))
+        booked = reservation_booked(ledger, lease_id, row, events)
+        if booked is None: raise BudgetError('usage_event_missing')
+        total += max(Decimal(0), usd(row['maximum_usd']) - booked)
     return total
 
 

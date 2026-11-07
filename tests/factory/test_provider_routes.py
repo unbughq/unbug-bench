@@ -49,7 +49,7 @@ class ProviderRoutesTest(TestCase):
         self.addCleanup(offline_router()[0].close)
         for reason, stop in (("provider_limit:openrouter/deepseek/deepseek-v4.1-flash",
                               "provider_limit:openrouter/deepseek/deepseek-v4.1-flash"),
-                             ("opencode_error", "provider_preflight_failed")):
+                             ("opencode_error", "provider_preflight_failed:stress_tester:opencode_error")):
             c = self.preflight_context()
             with mock.patch.object(run, "opencode", side_effect=run.BudgetError(reason)) as call:
                 with self.assertRaisesRegex(run.BudgetError, "^" + stop + "$"):

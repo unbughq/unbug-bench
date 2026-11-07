@@ -320,6 +320,10 @@ class RealStops(unittest.TestCase):
             c = classify(stop, step=StepKind.ADMIT, now=NOW)
             self.assertEqual((c.outcome, c.reason), (Outcome.INFRA_ERROR, reason), stop)
             self.assertIn(c.reason, PUBLISHED_REASONS)
+        # A refusal hints at the case's content: classified, but never published.
+        c = classify("provider_preflight_failed:reviewer:refusal", step=StepKind.ADMIT, now=NOW)
+        self.assertEqual(c.reason, "router:preflight_review_refusal")
+        self.assertNotIn(c.reason, PUBLISHED_REASONS)
 
     def test_every_runner_label_has_its_reviewed_outcome(self):
         labels = self.runner_labels()
@@ -391,7 +395,9 @@ class Secrecy(unittest.TestCase):
         self.assertTrue(PUBLISHED_REASONS <= REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS | IMPORT_REASONS)
         self.assertTrue(all(REASON.fullmatch(r) for r in PUBLISHED_REASONS))
         self.assertNotIn("router:refusal", PUBLISHED_REASONS)
-        self.assertEqual(REASONS - PUBLISHED_REASONS, {"router:refusal"})
+        from durable.classify import PREFLIGHT_ROLES
+        self.assertEqual(REASONS - PUBLISHED_REASONS,
+                         {"router:refusal"} | {f"router:preflight_{r}_refusal" for r in PREFLIGHT_ROLES.values()})
         for _, stop in STOPS:
             self.assertIn(classify(stop, step=StepKind.WRITER, now=NOW).reason, PUBLISHED_REASONS)
 

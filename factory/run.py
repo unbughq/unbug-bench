@@ -392,7 +392,7 @@ def provider_preflight(c):
             if code: raise BudgetError("process_error")
             row["status"] = "completed"
         except BudgetError as error:
-            if str(error) in ("budget_exhausted", "codex_login_expired", "provider_wait", "model_call_cap"): raise
+            if str(error).partition(":")[0] in ("budget_exhausted", "codex_login_expired", "provider_wait", "model_call_cap"): raise
             row.update(status="failed", reason=str(error))
             if str(error).startswith("provider_limit:"): raise
             # A bad startup route needs a decision, not an automatic new authoring attempt. The role and
