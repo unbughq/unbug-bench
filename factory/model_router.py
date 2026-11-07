@@ -243,15 +243,23 @@ def _paid_envelope(operation, data):
 
 
 def _paid_counts(db, since):
+    """Total charges, and charges the provider's balance may not show yet. A settled or unknown
+    request older than the credit window is already in that balance; counting it again blocked
+    calls with credit to spare (7 November). An unknown row's time is when it became unknown, or
+    its lease's end for rows written before that was recorded; with neither it stays counted."""
     total = outstanding = 0
-    for hold, charge, state, settled in db.execute('SELECT hold,charge,state,settled_at FROM paid_requests'):
+    for hold, charge, state, settled, ended in db.execute(
+            'SELECT p.hold,p.charge,p.state,p.settled_at,l.expires FROM paid_requests p LEFT JOIN leases l ON l.id=p.lease_id'):
         if (type(hold) is not int or hold < 0 or type(charge) is not int or not 0 <= charge <= hold
                 or state not in ('pending', 'unknown', 'settled') or
                 (state != 'settled' and charge != hold) or
                 (state == 'settled' and not finite(settled))):
             raise ValueError('invalid paid ledger')
         total += charge
-        if state != 'settled' or settled >= since: outstanding += charge
+        if state == 'unknown':
+            at = settled if finite(settled) else ended if finite(ended) else None
+            if at is None or at >= since: outstanding += charge
+        elif state != 'settled' or settled >= since: outstanding += charge
     return total, outstanding
 
 
@@ -317,7 +325,7 @@ class Store:
             db.execute('PRAGMA synchronous=FULL')
             db.execute('BEGIN IMMEDIATE')
             db.execute("UPDATE leases SET outcome='expired' WHERE outcome IS NULL AND expires<=?", (now,))
-            db.execute("UPDATE paid_requests SET state='unknown' WHERE state='pending' AND lease_id IN (SELECT id FROM leases WHERE outcome IS NOT NULL)")
+            db.execute("UPDATE paid_requests SET state='unknown',settled_at=? WHERE state='pending' AND lease_id IN (SELECT id FROM leases WHERE outcome IS NOT NULL)", (now,))
             health = {k: json.loads(v) for k, v in db.execute('SELECT pool,value FROM health')}
             for key, value in health.items():
                 if value.get('reason') not in ('credit', 'credential_expiring') and value.get('blocked_until', 0) <= now:
@@ -468,7 +476,7 @@ class Store:
                     db.execute('INSERT INTO observations VALUES (?)', (identity,))
                 result = {'observed': True}
             else: raise ValueError('unknown router operation')
-            db.execute("UPDATE paid_requests SET state='unknown' WHERE state='pending' AND lease_id IN (SELECT id FROM leases WHERE outcome IS NOT NULL)")
+            db.execute("UPDATE paid_requests SET state='unknown',settled_at=? WHERE state='pending' AND lease_id IN (SELECT id FROM leases WHERE outcome IS NOT NULL)", (now,))
             save_health()
             return result
 
@@ -514,7 +522,7 @@ class Store:
         charge = _paid_charge(json.loads(row[1]), data['usage'])
         known = charge is not None and charge <= row[2]
         db.execute('UPDATE paid_requests SET charge=?,state=?,settled_at=?,usage=? WHERE id=?',
-            (charge if known else row[2], 'settled' if known else 'unknown', now if known else None,
+            (charge if known else row[2], 'settled' if known else 'unknown', now,
              usage if known else None, data['request_id']))
         return dict(settled=known)
 
