@@ -166,7 +166,10 @@ ADMIT refuses unless it matches the old card, and `start` refuses unless it plus
 batch's `case_money_usd_micros` fits the default per-case ceiling. Import refusals
 (`admit:import_invalid`) are deterministic, so they end admission instead of retrying.
 
-Reserve allowance before dispatch and settle actual usage idempotently. Worker
+Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused
+every request (exhausted, nothing forwarded) settles at $0, not its hold; `start` refuses a batch
+whose batch or case money cannot hold one request on its dearest gated route (`bound_below_call_hold`;
+a Claude request reserves $9.52, its full context with the uplift). Worker
 model calls atomically reserve their router Lease maxima against that attempt
 before launch, including parallel roles. Supported provider gates must enforce
 those maxima; unbounded routes are refused. This requires live qualification. Lost

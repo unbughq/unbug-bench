@@ -118,6 +118,32 @@ class PublishingStore(SealedStore):
         super().put_sealed(scope, ref, ciphertext)
 
 
+def largest_call_hold(inputs_plaintext):
+    """Micro-USD of the largest single-request hold among the batch's gated model routes.
+
+    Explicit INPUTS models are used as given; without them every rotation family may be
+    chosen. None for an opaque, dry-run or ungated batch: nothing to compare.
+    """
+    import math
+    from model_call_gate import request_hold
+    try:
+        value = json.loads(inputs_plaintext)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(value, dict) or value.get("dry_run") is not False:
+        return None
+    models = value.get("models")
+    if isinstance(models, dict) and models:   # empty models mean the rotation, as in ADMIT
+        chains = [chain for role, chain in models.items() if role != "reviewers"] + list(models.get("reviewers") or [])
+        routes = [chain[0] for chain in chains if isinstance(chain, list) and chain and isinstance(chain[0], str)]
+    else:
+        import model_runtime
+        table = json.loads((model_runtime.PROMPTS.parent / os.environ.get("FACTORY_ROTATION", "rotation-3writers.json")).read_text())
+        routes = [family["model"] for family in table["families"].values()]
+    holds = [h for h in map(request_hold, routes) if h is not None]
+    return math.ceil(max(holds) * 1_000_000) if holds else None
+
+
 class Runtime:
     def __init__(self, config):
         from durable.channel import BoatChannel
@@ -260,8 +286,14 @@ class Runtime:
         if existing is not None and existing.status not in ("PENDING", "ENQUEUED"):
             raise RuntimeErrorCode("batch_already_finished")
         # Authenticate opaque inputs without coupling to the admission payload schema.
-        for ref in (spec.inputs, registry):
-            self.sealer.open(self.keys.scope_key(spec.batch_id), ref, self.store.get_sealed(spec.batch_id, ref))
+        opened = [self.sealer.open(self.keys.scope_key(spec.batch_id), ref, self.store.get_sealed(spec.batch_id, ref))
+                  for ref in (spec.inputs, registry)]
+        # One request reserves its route's worst case before it is forwarded. Money that can't
+        # cover the largest such hold can never run that role: refuse now, by name.
+        hold = largest_call_hold(opened[0])
+        # The gate also keeps one micro-USD of headroom (model_call_gate.HEADROOM).
+        if hold is not None and hold + 1 > min(spec.money_bound_usd_micros, spec.case_money_usd_micros):
+            raise RuntimeErrorCode("bound_below_call_hold")
         self.releases.bundle(spec.plumbing_version)
         self.engine.start_batch(spec, registry, imported)
         return {"batch_id": spec.batch_id}
