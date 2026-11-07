@@ -250,7 +250,7 @@ class RealStops(unittest.TestCase):
         "opencode_error": ("infra_error", "router:opencode_error"),
         "process_error": ("infra_error", "router:process_error"),
         "provider_limit:": ("provider_limit", "router:provider_limit"),
-        "provider_preflight_failed": ("infra_error", "router:preflight_failed"),
+        "provider_preflight_failed:x:x": ("infra_error", "router:preflight_failed"),
         "provider_routes_exhausted": ("provider_limit", "router:provider_wait"),
         "provider_wait_deadline": ("infra_error", "infra:deadline"),
         "refusal:": ("infra_error", "router:refusal"),
@@ -308,6 +308,18 @@ class RealStops(unittest.TestCase):
                 elif isinstance(arg, ast.JoinedStr):
                     labels.add("".join(v.value if isinstance(v, ast.Constant) else "x" for v in arg.values))
         return labels
+
+    def test_preflight_failures_name_role_and_stop_with_fixed_codes(self):
+        from durable.classify import PUBLISHED_REASONS
+        for stop, reason in (("provider_preflight_failed:reviewer:timeout", "router:preflight_review_timeout"),
+                             ("provider_preflight_failed:reviewer2:process_error", "router:preflight_second_process"),
+                             ("provider_preflight_failed:strong_tester:credential_expiring", "router:preflight_strong_credential"),
+                             ("provider_preflight_failed:reviewer:/home/user/secret path", "router:preflight_failed"),
+                             ("provider_preflight_failed:unknown_role:timeout", "router:preflight_failed"),
+                             ("provider_preflight_failed", "router:preflight_failed")):
+            c = classify(stop, step=StepKind.ADMIT, now=NOW)
+            self.assertEqual((c.outcome, c.reason), (Outcome.INFRA_ERROR, reason), stop)
+            self.assertIn(c.reason, PUBLISHED_REASONS)
 
     def test_every_runner_label_has_its_reviewed_outcome(self):
         labels = self.runner_labels()

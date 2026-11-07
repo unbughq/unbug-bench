@@ -68,7 +68,6 @@ _FIXED = {
     "model_unavailable": (_I, "router:model_unavailable"),
     "zero_tokens": (_I, "router:zero_tokens"),
     "refusal": (_I, "router:refusal"),
-    "provider_preflight_failed": (_I, "router:preflight_failed"),
     "admission_registry_unavailable": (_I, "admit:registry_unavailable"),
     "selection_board_unavailable": (_I, "admit:selection_board_unavailable"),
     "admission_dedup_unavailable": (_I, "admit:dedup_unavailable"),
@@ -150,7 +149,17 @@ _EXCEPTION = re.compile(r"[A-Z][A-Za-z0-9]*(Error|Exception|Exit|Interrupt)")
 
 UNCLASSIFIED = "infra:unclassified_stop"
 
+# run.provider_preflight's roles and the CLI's own stop, in short fixed forms (REASON allows 32).
+PREFLIGHT_ROLES = {"stress_tester": "stress", "strong_tester": "strong", "easy_tester": "easy",
+                   "reviewer": "review", "reviewer2": "second"}
+PREFLIGHT_STOPS = {"process_error": "process", "claude_error": "claude", "codex_error": "codex",
+                   "opencode_error": "opencode", "refusal": "refusal", "zero_tokens": "zero_tokens",
+                   "timeout": "timeout", "stalled": "stalled", "credential_expiring": "credential",
+                   "model_unavailable": "model"}
+
 REASONS = frozenset({r for _, r in _FIXED.values()} | {r for _, r in _LIMIT_FAMILY}
+                    | {"router:preflight_failed"}
+                    | {f"router:preflight_{r}_{c}" for r in PREFLIGHT_ROLES.values() for c in PREFLIGHT_STOPS.values()}
                     | {r for _, r in _WAIT.values()}
                     | {"router:provider_limit", "infra:usage_unknown", "infra:cli_version",
                        "infra:runner_exception", UNCLASSIFIED}
@@ -195,6 +204,11 @@ def _lookup(stop) -> tuple[Outcome, Optional[str], str]:
     if head == "provider_limit":
         route = rest.strip()
         return _P, None, next((r for prefix, r in _LIMIT_FAMILY if route.startswith(prefix)), "router:provider_limit")
+    if head == "provider_preflight_failed":
+        role, _, cause = rest.strip().partition(":")
+        if role in PREFLIGHT_ROLES and cause in PREFLIGHT_STOPS:
+            return _I, None, f"router:preflight_{PREFLIGHT_ROLES[role]}_{PREFLIGHT_STOPS[cause]}"
+        return _I, None, "router:preflight_failed"
     if head in _FIXED:
         outcome, reason = _FIXED[head]
         return outcome, None, reason
