@@ -664,8 +664,23 @@ class Releases(unittest.TestCase):
         self.assertEqual(out['result']['cases'], {C1: 'held'})
         self.assertEqual(len([s for s in r.starts() if '/admit/' in s['key']]), 3)   # no backoff at all
 
-    def test_running_out_of_workers_holds_at_once(self):
+    def test_no_retry_is_funded_once_waste_reaches_the_case_money(self):
+        r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 2, 'case_money_usd_micros': 5000},
+            'script': {'1/admit/*': {'outcome': 'infra_error', 'reason': 'infra:timeout', 'paid': 5000}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'held'})
+        self.assertEqual(len([s for s in r.starts() if '/admit/' in s['key']]), 1)
+
+    def test_a_backoff_that_crosses_the_deadline_starts_nothing(self):
         r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 0},
+            'deadline_in': 3.0, 'timing': {'admission_backoff_s': 5.0},
+            'script': {'1/admit/1': {'outcome': 'infra_error', 'reason': 'infra:timeout'}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out['result']['cases'], {C1: 'stopped_admission'})
+        self.assertEqual(len([s for s in r.starts() if '/admit/' in s['key']]), 1)
+
+    def test_running_out_of_workers_holds_at_once(self):
+        r, out = run({'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 2},
             'timing': {'admission_backoff_s': 0.01},
             'script': {'1/admit/*': {'outcome': 'infra_error', 'reason': 'infra:creation_limit'}}})
         self.addCleanup(r.close)

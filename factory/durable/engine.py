@@ -617,6 +617,11 @@ class _Case:
             self.absorb(step, attempt, result)
             if result.outcome is Outcome.INFRA_ERROR:
                 admission_waste += result.usage.paid_usd_micros
+                # Checked here so a retry is never funded past either limit.
+                if (admit and (admission_waste >= self.spec.case_money_usd_micros
+                               or result.reason == "infra:creation_limit")
+                        and DBOS.patch('admission_waste_cutoff')):
+                    return Action.HOLD, result
             # A batch-deadline stop after deadline_epoch (or an operator pause) is never counted as
             # an infra error: the batch deadline stops new cases and extensions, not this step.
             now = now_step() if result.reason == DEADLINE_REASON else None
@@ -687,8 +692,7 @@ class _Case:
                     # Infra failures are retried, never scored. Money and the deadline bound this.
                     if now_step() >= self.spec.deadline_epoch:
                         return Action.STOP_ADMISSION, result
-                    if (backoffs >= _RT.timing.admission_max_backoffs or result.reason == "infra:creation_limit"
-                            or admission_waste >= self.spec.case_money_usd_micros):
+                    if backoffs >= _RT.timing.admission_max_backoffs:
                         return Action.HOLD, result
                     backoffs += 1
                     if backoffs > _RT.timing.admission_alert_after:
@@ -697,6 +701,8 @@ class _Case:
                     self.release_worker()
                     DBOS.sleep(min(_RT.timing.admission_backoff_max_s,
                                    _RT.timing.admission_backoff_s * 2 ** min(backoffs - 1, 16)))
+                    if now_step() >= self.spec.deadline_epoch:   # the sleep may have crossed it
+                        return Action.STOP_ADMISSION, result
                     infra = self.spec.max_infra_retries_per_step   # one attempt per backoff
                     continue
                 if self.factory_bug_resumes >= min(self.spec.max_factory_bug_resumes, 3):

@@ -9,6 +9,7 @@ import time
 from durable.classify import PUBLISHED_REASONS
 from durable.contract import Outcome, Step
 from durable.guard import health as guard_health
+from durable.report import STATUSES
 
 
 def _number(value):
@@ -157,6 +158,8 @@ def observe(config, card, *, client=None):
                             and context['latest_attempt']['status'] == 'PENDING'
                             and context['worker'].get('state') == 'assigned'):
                         case['status'] = 'running'
+                        card['totals'] = {status: count for status in STATUSES
+                            if (count := sum(row['status'] == status for row in card['cases']))}
                 for row in attempts:
                     if row.status == 'SUCCESS':
                         result = _result(row, case['case'], card['batch'])

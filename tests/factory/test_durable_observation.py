@@ -84,8 +84,10 @@ class ObservationTests(unittest.TestCase):
 
     def test_a_case_running_after_its_budget_wait_is_shown_as_running(self):
         self.card['cases'][0]['status'] = 'waiting_for_bound'
+        self.card['totals'] = {'waiting_for_bound': 1}
         with self.client():
-            self.assertEqual(observe(self.config, self.card)['cases'][0]['status'], 'running')
+            result = observe(self.config, self.card)
+        self.assertEqual((result['cases'][0]['status'], result['totals']), ('running', {'running': 1}))
         (self.root / 'pool' / 'case-one.json').unlink()   # no worker: it really is waiting
         with self.client():
             self.assertEqual(observe(self.config, self.card)['cases'][0]['status'], 'waiting_for_bound')
