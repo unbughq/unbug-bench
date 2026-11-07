@@ -39,7 +39,7 @@ class ProviderRoutesTest(TestCase):
         with mock.patch.object(run, "opencode", return_value=0) as call:
             run.provider_preflight(c)
         self.assertEqual(call.call_count, 3)
-        self.assertTrue(all(item.kwargs["timeout"] == 60 for item in call.call_args_list))
+        self.assertTrue(all(item.kwargs["timeout"] == 180 for item in call.call_args_list))
         self.assertNotIn(c.models["builder"], [item.args[1] for item in call.call_args_list])
         self.assertTrue(all(row["status"] == "completed" and row["scope"] == "availability_only"
                             for row in c.card["provider_preflight"]))

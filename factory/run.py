@@ -365,6 +365,9 @@ def run_context(c, **more):
     return "```json\n" + json.dumps(d, indent=2) + "\n```\n"
 
 
+PROVIDER_PREFLIGHT_S = 180   # a slow route is not an unavailable one; an hour-long retry costs more
+
+
 def provider_preflight(c):
     """Check non-writer routes before spending on construction; availability is not a gate pass."""
     rows = c.card["provider_preflight"] = []
@@ -384,7 +387,8 @@ def provider_preflight(c):
         started = time.monotonic()
         try:
             code = opencode(c, chain, "Reply exactly OK. Do not use tools or read files. "
-                            "This is a provider availability check, not a case task.", c.case, name, timeout=60)
+                            "This is a provider availability check, not a case task.", c.case, name,
+                            timeout=PROVIDER_PREFLIGHT_S)
             if code: raise BudgetError("process_error")
             row["status"] = "completed"
         except BudgetError as error:

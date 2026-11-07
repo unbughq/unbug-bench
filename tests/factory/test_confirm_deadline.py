@@ -18,6 +18,13 @@ from test_freshness_restore_fixes import FreshnessRestoreTests
 
 
 class ConfirmDeadlineTests(FreshnessRestoreTests):
+    def test_a_slow_route_gets_three_minutes_to_answer_its_availability_check(self):
+        seen = []
+        self.c.models = {'attacker': ['a'], 'reviewers': [['r']], 'strong_calibrator': ['s'], 'easy_calibrator': ['e']}
+        with patch.object(run, 'opencode', lambda *args, **kw: seen.append(kw['timeout']) or 0):
+            run.provider_preflight(self.c)
+        self.assertEqual(seen, [180] * 4)
+
     def test_the_stress_cap_stays_on_stress_review_and_off_freshness_search(self):
         self.c.args.agent_timeout = 14400
         self.assertEqual(model_runtime.role_timeout(self.c, 'attacker-freshness', 9000), 9000)
