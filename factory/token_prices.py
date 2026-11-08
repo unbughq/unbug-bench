@@ -34,6 +34,17 @@ GATED_OPENROUTER = {
 }
 
 
+# OpenCode's free routes (founder 2026-11-08). They have no gate: their money maximum is $0, and the
+# per-call reservation check (budget.check_reservation) stops a call the moment it books any cost.
+FREE_ROUTES = frozenset({'opencode/deepseek-v4.1-flash-free', 'opencode/minimax-m3.1-flash-free',
+                         'opencode/glm-5.3-flash-free'})
+
+
+def free_maximum(route):
+    if route not in FREE_ROUTES: return None
+    return dict(max_usd=0.0, max_input_tokens=0, max_output_tokens=0, price_source='free:' + route)
+
+
 def openrouter_gate_maximum(route):
     profile = GATED_OPENROUTER.get(route)
     if profile is None or Decimal(profile['cache_write']) != 0: return None

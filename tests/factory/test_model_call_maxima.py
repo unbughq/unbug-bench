@@ -138,6 +138,12 @@ class MaximaTests(unittest.TestCase):
         models = {r for c in router.CHAINS for r in c} | {'codex/gpt-6.1-sol', 'claude/unknown', 'unknown/model'}
         models |= {*CLAUDE_PROFILES, GATED_CLAUDE + ':large'}
         models |= {c['terminal_stop'].partition(':')[2] for c in LIMITS}
+        # OpenCode's free routes are bounded at $0 (founder 2026-11-08), so a chain reaching one qualifies.
+        from token_prices import FREE_ROUTES
+        def reaches_free(model):
+            try: return any(r['route'] in FREE_ROUTES for r in router.routes(model, router.ACCOUNTS))
+            except ValueError: return False
+        qualified |= {m for m in models if reaches_free(m)}
         for model in models:
             result = store.rpc('acquire', dict(paid_protocol=1,id=uuid.uuid4().hex, model=model, accounts=list(router.ACCOUNTS),
                 role='writer', deadline=time.time()+3600))
@@ -152,6 +158,8 @@ class MaximaTests(unittest.TestCase):
                     self.assertEqual((actual.max_usd, actual.max_input_tokens, actual.max_output_tokens),
                                      (float(cap), int(cap * (2000000 if actual.route.startswith(GATED_CLAUDE45) else 5000000)),
                                       int(cap * (40000 if actual.route.startswith(GATED_CLAUDE45) else 50000))))
+                elif actual.route in FREE_ROUTES:
+                    self.assertEqual(actual.max_usd, 0.0)        # free: nothing held, any booked cost stops it
                 else:
                     self.assertIn(actual.route, GATED_OPENROUTER)
                 store.rpc('finish',dict(lease_id=actual.lease_id,outcome='denied',receipt=None))

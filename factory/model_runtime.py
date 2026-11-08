@@ -23,7 +23,7 @@ import tempfile
 import time
 from budget import BudgetError, run_budgeted, case_spending, require_case_budget, invocation_role
 import model_router
-from token_prices import GATED_OPENROUTER
+from token_prices import FREE_ROUTES, GATED_OPENROUTER
 import model_call_gate
 from model_router import family
 from registry import atomic_json
@@ -121,7 +121,9 @@ def require_bounded_models(c):
              ('strong_calibrator', models['strong_calibrator']), ('easy_calibrator', models['easy_calibrator'])]
     roles += [('reviewer' if i == 0 else 'reviewer2', chain) for i, chain in enumerate(models['reviewers'])]
     for role, chain in roles:
+        # A walled role is never leased a free route (ModelRuntime._call).
         if not any(model_router.route_maximum(row['route']) is not None
+                   and not (role in model_router.WALLED_ROLES and row['route'] in FREE_ROUTES)
                    for row in model_router.routes(chain[0], getattr(c, 'router_accounts', model_router.ACCOUNTS))):
             raise model_router.ProviderWait(role, model_router.Wait('unbounded_route',
                 model_router.retry_at('unbounded_route'), route=chain[0]))
@@ -275,6 +277,22 @@ def writer_round_estimate(c):
     return round(max([8.0, *rounds.values(), *interrupted]), 2)
 
 
+def free_usage_settled(lease):
+    """A failed free call's usage needs no settling before the next route: it is bounded at $0 and
+    checked only against OpenCode's report (founder 2026-11-08). Its receipt keeps the evidence."""
+    return lease.route in FREE_ROUTES and lease.max_usd == 0
+
+
+def call_failure_reason(label, route):
+    """A per-call failure that moves this call to its chain's next route, or None (the step fails).
+    A free route's broken usage report or provider mismatch also moves on: the next route is gated."""
+    if label.startswith('provider_limit'): return 'quota'
+    if label in ('codex_login_expired', 'credential_expiring'): return 'credential_expiring'
+    if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:'): return 'outage'
+    if route in FREE_ROUTES and label in ('missing_usage', 'invalid_usage', 'free_route_mismatch'): return 'outage'
+    return None
+
+
 @dataclass(frozen=True)
 class ModelRuntime:
     """Execute one routed role call with caller-owned operational adapters."""
@@ -334,6 +352,16 @@ class ModelRuntime:
         call_group = uuid.uuid4().hex
         operation_id = getattr(c, 'model_operation_id', None) or str(uuid.uuid4())
         duration = timeout or getattr(getattr(c, 'args', None), 'agent_timeout', 2400)
+        if user is not None or role in model_router.WALLED_ROLES:
+            # A walled role reaches only a gate's port, and a free route has no gate: it takes the
+            # family's gated or subscription route instead (model_call_gate.enforce refuses it too).
+            # Calibrator preflights run unwalled but are excluded the same way, so they test the real route.
+            accounts = getattr(c, 'router_accounts', model_router.ACCOUNTS)
+            context.router_excluded = (*getattr(context, 'router_excluded', ()), *model_router.free_lanes(requested, accounts))
+            if not [r for r in model_router._bounded_routes(requested, accounts)
+                    if r['pool'] + '/' + r['route'] not in context.router_excluded]:
+                raise model_router.ProviderWait(role, model_router.Wait('unbounded_route',
+                    model_router.retry_at('unbounded_route'), route=requested))
         while True:
             if lease is None:
                 if getattr(c, 'engine', None) is not None:
@@ -419,9 +447,7 @@ class ModelRuntime:
                 failure = ({'reason': 'router_unavailable', 'model': lease.route} if lost is not None and lost.is_set()
                            else getattr(error, 'provider_failure', None))
                 if failure is None:
-                    label = str(error)
-                    reason = ('quota' if label.startswith('provider_limit') else 'credential_expiring' if label in ('codex_login_expired', 'credential_expiring') else
-                              'outage' if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:') else None)
+                    reason = call_failure_reason(str(error), lease.route)
                     if reason: failure = {'reason': reason, 'model': lease.route, 'per_call': True}
                 if not failure: raise
                 from durable.classify import FAILURE_STOPS
@@ -527,6 +553,7 @@ class ModelRuntime:
                                        or (last_wait.reason == 'router_unavailable'
                                            and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1')
                                        or (getattr(c, 'engine', None) is not None and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
+                                           and not free_usage_settled(lease)
                                            and not _read_json(accounting_work(c) / receipt, {}).get('final_usage_known', False)))
             context.force_budget_resume = c.force_budget_resume = True
             lease = None

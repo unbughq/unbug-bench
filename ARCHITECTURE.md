@@ -168,6 +168,13 @@ ADMIT refuses unless it matches the old card, and `start` refuses unless it plus
 batch's `case_money_usd_micros` fits the default per-case ceiling. Import refusals
 (`admit:import_invalid`) are deterministic, so they end admission instead of retrying.
 
+OpenCode's free routes (DeepSeek, MiniMax and GLM flash) are bounded at $0 with no gate: a call that books
+any cost, or reports a step from another provider or model, is stopped. It runs with OpenCode's own
+provider and its one model only, no outside config and no self-update. A calibrator is never leased one,
+since behind the wall it reaches only a gate's port: it takes its chain's next bounded route, and a chain
+with none (GLM and MiniMax free today) is refused up front as `unbounded_route`. A full or failing free
+lane hands an unwalled call to the next route in its chain (DeepSeek: paid OpenRouter).
+
 A durable case stopped by an infrastructure failure resumes instead: `start --resume-case
 <case>` makes it the only case of a new batch. It keeps its case ID, so its key, artifacts,
 snapshot card and admission binding stay valid. Only its workflow is new (`<case>@<batch>`),

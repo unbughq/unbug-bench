@@ -27,7 +27,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from budget import BudgetError
-from token_prices import GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, claude_gate_maximum, openrouter_gate_maximum
+from token_prices import GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, FREE_ROUTES, claude_gate_maximum, free_maximum, openrouter_gate_maximum
 
 WAIT_SECONDS, RENEW_SECONDS, LEASE_SECONDS = 60, 60, 180
 from worker_secrets import SECRETS
@@ -35,7 +35,9 @@ ACCOUNTS = ('claude-token', 'claude-factory-token-2', 'opencode-go-key',
             'opencode-go-key-2', 'codex-auth.json', 'openrouter-key')
 CHAINS = (
     ('opencode/deepseek-v4.1-flash-free', 'openrouter/deepseek/deepseek-v4.1-flash'),
-    ('opencode/minimax-m3.1-flash-free', 'openrouter/minimax/minimax-m3.1-flash:free'),
+    # Founder 2026-11-08: MiniMax free falls back to the paid gated route, as DeepSeek free does
+    # (the OpenRouter :free variant has no maximum, so it is never leased).
+    ('opencode/minimax-m3.1-flash-free', 'openrouter/minimax/minimax-m3.1-flash:free', 'openrouter/minimax/minimax-m3.1-flash'),
     ('opencode-go/mimo-v2.6-pro', 'openrouter/xiaomi/mimo-v2.6-pro'),
     ('opencode-go/muse-spark-1.3-contributor', 'openrouter/meta/muse-spark-1.3-contributor'),
     ('opencode/glm-5.3-flash-free', 'opencode-go/glm-5.3-flash'),
@@ -46,6 +48,7 @@ MAXIMUM_FIELDS = ('max_usd', 'max_input_tokens', 'max_output_tokens', 'price_sou
 
 def route_maximum(route):
     # Only explicit profiles qualify; native CLI knobs alone grant no lease.
+    if route in FREE_ROUTES: return free_maximum(route)
     return claude_gate_maximum(route) if route in CLAUDE_PROFILES else openrouter_gate_maximum(route)
 
 
@@ -69,6 +72,7 @@ def funded_maximum(route, funding):
     """
     maximum = route_maximum(route)
     if maximum is None: return None
+    if route in FREE_ROUTES: return maximum   # $0 whatever the funding: nothing to fund
     amount = min(_nano(funding, ROUND_FLOOR), _nano(50),
                  _nano(maximum['max_usd']) if route in CLAUDE_PROFILES else _nano(50))
     if amount <= 0: raise ValueError('empty invocation funding')
@@ -143,6 +147,15 @@ def routes(model, accounts=ACCOUNTS):
                                pool=account or ('opencode-free' if billing == 'free' else 'provider:' + route.partition('/')[0])))
     if any(r['family'] != family(model) for r in result): raise ValueError('fallback changed family')
     return result
+
+
+# Calibrators run behind the isolation wall (user=pilot): they can reach only a gate's port.
+WALLED_ROLES = ('strong_calibrator', 'easy_calibrator')
+
+
+def free_lanes(model, accounts):
+    """The lanes of model's chain that are free routes, as admission's excluded_lanes spells them."""
+    return tuple(r['pool'] + '/' + r['route'] for r in routes(model, accounts) if r['route'] in FREE_ROUTES)
 
 
 @dataclass(frozen=True)

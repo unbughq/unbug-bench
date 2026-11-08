@@ -253,7 +253,9 @@ class PaidTests(unittest.TestCase):
             self.assertTrue(pending.result()[1]['granted'])
 
     def test_protocol_binding_subscription_exclusion_and_canonical_path(self):
-        self.assertEqual(admit(self.store, protocol=False)['kind'], 'wait')
+        # Without the paid protocol a paid route is never leased; MiniMax's chain now leases its free route.
+        lease = admit(self.store, protocol=False)
+        self.assertEqual((lease.route, lease.billing), ('opencode/minimax-m3.1-flash-free', 'free'))
         subscription = admit(self.store, 'claude/claude-opus-4-5-20251101:compact', protocol=False)
         self.assertEqual(self.reserve(subscription)[1], dict(granted=False, reason='binding'))
         self.assertEqual(self.status()['total_usd'], '0.000000000')

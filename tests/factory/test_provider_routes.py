@@ -38,7 +38,9 @@ class ProviderRoutesTest(TestCase):
         c = self.preflight_context()
         with mock.patch.object(run, "opencode", return_value=0) as call:
             run.provider_preflight(c)
-        self.assertEqual(call.call_count, 3)
+        # Stress tester and easy calibrator share DeepSeek free, but the calibrator never takes the
+        # free lane, so its route is checked on its own (#41 review): attacker, reviewer, strong, easy.
+        self.assertEqual(call.call_count, 4)
         self.assertTrue(all(item.kwargs["timeout"] == 180 for item in call.call_args_list))
         self.assertNotIn(c.models["builder"], [item.args[1] for item in call.call_args_list])
         self.assertTrue(all(row["status"] == "completed" and row["scope"] == "availability_only"

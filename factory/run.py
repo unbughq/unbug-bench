@@ -13,6 +13,7 @@ from case_contract import CaseContract, ingredient_problems as case_ingredients
 from run_artifacts import RunArtifacts, shred_tree
 import model_runtime
 import model_router
+from token_prices import FREE_ROUTES
 from model_runtime import (family, model_effort, rotation, update_case_budget,
                            case_budget_boundary, pinned_cli, OPENCODE_BIN)
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -380,8 +381,11 @@ def provider_preflight(c):
                     'reviewer-provider-preflight' if i == 0 else f'reviewer{i+1}-provider-preflight')
                    for i, chain in enumerate(c.models['reviewers'])]
     for role, chain, name in checks:
-        if tuple(chain) in seen: continue
-        seen.add(tuple(chain))
+        # A calibrator never takes a free lane (ModelRuntime._call): where its chain has one, the
+        # calibrator's route differs from an unwalled role's, so it is checked on its own.
+        key = (tuple(chain), role in ('strong_tester', 'easy_tester') and chain[0] in FREE_ROUTES)
+        if key in seen: continue
+        seen.add(key)
         row = {"role": role, "model": chain[0], "scope": "availability_only", "status": "running"}
         rows.append(row)
         started = time.monotonic()

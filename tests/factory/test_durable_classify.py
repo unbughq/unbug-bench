@@ -265,6 +265,7 @@ class RealStops(unittest.TestCase):
         "total_call_limit": ("exhausted", "writer:total_call_limit"),
         "unbounded_route": ("infra_error", "infra:router_unavailable"),
         "unpriced_usage": ("infra_error", "infra:unpriced_usage"),
+        "free_route_mismatch": ("infra_error", "infra:free_route_mismatch"),
         "usage_event_conflict": ("infra_error", "infra:usage_unknown"),
         "usage_event_missing": ("infra_error", "infra:usage_unknown"),
         "usage_event_shared": ("infra_error", "infra:usage_unknown"),
