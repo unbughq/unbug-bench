@@ -94,7 +94,7 @@ class GuardTests(unittest.TestCase):
 
     def test_a_campaign_watches_several_batches(self):
         f = self.f
-        f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"]}
+        f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "approved_infrastructure_usd": 12}
         running, done = [{"case": "c1", "status": "running"}], [{"case": "c2", "status": "sealed"}]
         f.per_batch = {"b-one": (running, {"spent": 1, "bound": 25, "held": 3}),
                        "b-two": (done, {"spent": 2, "bound": 25, "held": 0})}
@@ -109,12 +109,21 @@ class GuardTests(unittest.TestCase):
         self.assertEqual({b for op, b in f.rpc_batches if op == "publish"}, {"b-one", "b-two"})
 
     def test_any_watched_batch_over_its_bound_is_a_hard_stop(self):
-        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"]}
+        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "approved_infrastructure_usd": 12}
         self.f.per_batch = {"b-two": (self.f.cases, {"spent": 26, "bound": 25})}
         self.hard("money_ceiling")
 
-    def test_more_workers_than_watched_batches_is_a_hard_stop(self):
+    def test_the_compute_bound_counts_one_wall_per_watched_batch(self):
+        # Two workers live for the whole wall need twice its compute: this request's $10 covers one.
         self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"]}
+        self.hard("compute_bound")
+        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "approved_infrastructure_usd": 12}
+        self.f.calls.clear(); self.f.stopped = 0
+        import shutil; shutil.rmtree(self.f.state_dir / "guard", ignore_errors=True)
+        self.assertEqual(self.tick()["hard_stop"], None)
+
+    def test_more_workers_than_watched_batches_is_a_hard_stop(self):
+        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "approved_infrastructure_usd": 12}
         self.f.rows = ["bx_aaaaaaaa", "bx_bbbbbbbb", "bx_cccccccc"]
         self.hard("worker_count", workers=("bx_aaaaaaaa", "bx_bbbbbbbb", "bx_cccccccc"))
 

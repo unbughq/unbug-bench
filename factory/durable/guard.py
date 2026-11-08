@@ -160,7 +160,9 @@ class Guard:
     def _breach(self, owned: list) -> Optional[str]:
         """A hard stop only on confirmed numbers. An unreadable number is a failed check."""
         r = self.request
-        worker_bound = r["max_worker_rate_usd_per_second"] * (r["wall_seconds"] + r["max_workers_lifetime"] * 7200)
+        # Each watched batch may keep one worker live for the whole wall.
+        worker_bound = r["max_worker_rate_usd_per_second"] * (len(self.batches) * r["wall_seconds"]
+                                                              + r["max_workers_lifetime"] * 7200)
         if (r["prior_compute_retained_usd"] + r["control_allowance_usd"] + worker_bound
                 > r["approved_infrastructure_usd"] - r["cleanup_margin_usd"]):
             return "compute_bound"

@@ -69,7 +69,7 @@ class Drill(unittest.TestCase):
     def guard(self, run, boat, *, calls):
         service = type("Service", (), {"state": lambda s: ("active", time.time() - 3600, time.time() - 3600),
                                        "stop": lambda s: calls.append("stop")})()
-        rpc = lambda op: {"status": {"cases": [{"case": C1, "status": "running"}]},
+        rpc = lambda op, batch=None: {"status": {"cases": [{"case": C1, "status": "running"}]},
                           "budget": {"spent": 0, "bound": 1}}[op]
         return Guard({**REQUEST, "deadline_epoch": time.time() + 3600}, run.work / "state/guard", boat=boat, rpc=rpc,
                      service=service, ours=lambda row: True, count=lambda: 1, delete=lambda worker: None,
@@ -193,7 +193,7 @@ class Drill(unittest.TestCase):
         def boat(args, timeout):
             return {"code": 0, "out": {"list": inventory(*live()), "usage": USAGE}.get(args[0], b"{}"),
                     "stderr": b"", "seconds": 0}
-        def rpc(op):
+        def rpc(op, batch=None):
             if op == "in_flight":
                 return _Files(run.work / "state/worker").read("in-flight.json", 0)
             return {"status": {"cases": [{"case": C1, "status": "running"}]}, "budget": {"spent": 2, "bound": 1}}[op]
