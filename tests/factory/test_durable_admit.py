@@ -514,7 +514,9 @@ class AdmitTests(unittest.TestCase):
         for card_extra, reason in ((ledger("opencode/minimax-m3.1-flash-free"), "admit:imported_written"),
                                    ({"roles": {"writer": {"model": "opencode/minimax-m3.1-flash-free"}}}, "admit:imported_written"),
                                    (ledger("openrouter/deepseek/deepseek-v4.1-flash"), "admit:import_writer"),
-                                   ({}, "admit:import_writer")):
+                                   ({}, "admit:import_writer_none"),
+                                   # Fixed codes say which structural part an archive lacks.
+                                   ({"case": "case-20261019T061459Z-other"}, "admit:import_layout_card_case")):
             with self.subTest(card_extra=card_extra):
                 # An October checkpoint card without models.builder (5813be): its ledger's writer
                 # calls or writer role name the family; a disagreeing record, or none, refuses.
@@ -525,7 +527,7 @@ class AdmitTests(unittest.TestCase):
         archive = self.legacy_archive(old, text, writer="opencode-go/minimax-m3",
                                       card_extra=ledger("openrouter/deepseek/deepseek-v4.1-flash"))
         result, _ = self.run_admit(self.import_step(inputs, registry, archive))
-        self.assertEqual(result.reason, "admit:import_writer")
+        self.assertEqual(result.reason, "admit:import_writer_conflict")
 
     def test_unwritten_import_continues_with_the_writer(self):
         old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
