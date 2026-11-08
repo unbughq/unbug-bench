@@ -168,6 +168,13 @@ ADMIT refuses unless it matches the old card, and `start` refuses unless it plus
 batch's `case_money_usd_micros` fits the default per-case ceiling. Import refusals
 (`admit:import_invalid`) are deterministic, so they end admission instead of retrying.
 
+A rejected idea publishes `admit:<screen>_<evidence>` (`durable/admission_reasons.py`): the
+screen (dedup, freshness, realism, other) and a fixed evidence kind read from structured
+fields only, such as `freshness_upstream_fix`. The sealed card keeps per-candidate codes
+(duplicate case ID, confirmed source classes, a release tag's version against the pin).
+`python3 factory/durable/admission_reasons.py --config <config> <case|batch>...` prints
+those codes for finished cases on the control VM: read-only, existing keys only.
+
 OpenCode's free routes (DeepSeek, MiniMax and GLM flash) are bounded at $0 with no gate: a call that books
 any cost, or reports a step from another provider or model, is stopped. It runs with OpenCode's own
 provider and its one model only, no outside config and no self-update. A calibrator is never leased one,

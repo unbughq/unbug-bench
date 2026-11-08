@@ -52,6 +52,7 @@ import subprocess
 import tarfile
 import tempfile
 
+from durable import admission_reasons
 from durable.contract import ArtifactKind, Outcome, Ref, StepKind, StepResult, Usage
 
 _VERSION = 1
@@ -457,13 +458,15 @@ def _screen(c, runner, registry, refs, sealer, batch_key, step_input):
         if runner.statement_precheck(c):
             return True
         digest = c.card.get("statement_sha256")
+        problems = getattr(c, "precheck_problems", [])
         if digest and not any(r["statement_sha256"] == digest for r in rejected):
             rejected.append({"statement_sha256": digest,
                              "screen": c.card.get("admission", {}).get("screen", "selection"),
-                             "problems": getattr(c, "precheck_problems", [])})
+                             "problems": problems, "codes": _rejection_codes(c, root, problems)})
         else:
             # A failed selection or repeated rejection still consumes a bounded candidate try.
-            rejected.append({"statement_sha256": digest, "screen": "selection_failed"})
+            rejected.append({"statement_sha256": digest, "screen": "selection_failed",
+                             "codes": admission_reasons.candidate_row({}, problems=problems or ["candidate selection failed"])})
         old = c.work / "statements" / f"rejected-{len(rejected)}"
         c.case.rename(old)
         c.case.mkdir()
@@ -477,8 +480,30 @@ def _screen(c, runner, registry, refs, sealer, batch_key, step_input):
                 rejected_statement_hashes=[r["statement_sha256"] for r in rejected]))
             if runner.opencode(c, c.models["builder"], request, c.case, f"builder-selection-{len(rejected) + 1}"):
                 return False
-    c.card["admission"] = {"status": "exhausted", "candidates": len(rejected)}
+    c.card["admission"] = {"status": "exhausted", "candidates": len(rejected),
+                           "reason": admission_reasons.reason_code(rejected)}
     return False
+
+
+def _rejection_codes(c, root, problems):
+    """Fixed codes for the candidate just rejected (durable/admission_reasons.py): which screen,
+    and what kind of evidence, read from structured fields only and never from idea text."""
+    try:
+        statuses = {case: entry["status"] for case, entry in
+                    json.loads((root / "registry.json").read_text())["entries"].items()}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        statuses = {}
+    try:
+        app = json.loads((c.case / "case.json").read_text()).get("app") or {}
+        repo = re.sub(r"^https://github\.com/|\.git$", "", str(app.get("repo", "")))
+    except (OSError, ValueError, AttributeError):
+        repo = ""
+    try:
+        verdict = json.loads((c.work / "freshness-verdict.json").read_text())
+    except (OSError, ValueError):
+        verdict = None
+    return admission_reasons.candidate_row(c.card, verdict=verdict, app_repo=repo if _REPO.fullmatch(repo) else None,
+                                           statuses=statuses, problems=problems, models=getattr(c, "models", None))
 
 
 def run(worker, step_input, keys):
@@ -565,7 +590,8 @@ def run(worker, step_input, keys):
             if not c.case.exists(): _write_case(c, inputs)
             runner.provider_preflight(c)
             accepted = _screen(c, runner, registry, refs, sealer, batch_key, step_input)
-            reason = "admit:selected" if accepted else "admit:exhausted"
+            # A rejection names its screen and evidence kind (admission_reasons.REJECTION_CODES).
+            reason = "admit:selected" if accepted else "admit:" + admission_reasons.reason_code(c.card.get("rejected_candidates", []))
             if accepted and (c.card.get("imported_from") or {}).get("written"):
                 reason = "admit:imported_written"  # the engine resumes a written case at STRESS
         snap = snapshot()
