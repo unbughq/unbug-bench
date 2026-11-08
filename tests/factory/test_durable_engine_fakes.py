@@ -572,6 +572,24 @@ def engine_main(workdir):
             time.sleep(scenario['pool_acquire_delay_s'])
             return acquire(*args)
         fakes['pool'].acquire = slow_acquire
+    if scenario.get('reserve_delay_s'):   # {"<seq>/<step>/<attempt>": seconds}, any case: orders reservations
+        reserve = fakes['ledger'].reserve
+        def delayed_reserve(batch_id, case_id, key, *args, **kw):
+            time.sleep(scenario['reserve_delay_s'].get(key.split('/', 1)[1], 0))
+            return reserve(batch_id, case_id, key, *args, **kw)
+        fakes['ledger'].reserve = delayed_reserve
+    if scenario.get('later_case_lease_fails'):   # [delay_s, reason]: every case but the first to lease fails
+        acquire_ok = fakes['pool'].acquire
+        first = work / 'first-leased-case'
+        def failing_acquire(case_id, *args):
+            if not first.exists():
+                first.write_text(case_id)
+            if first.read_text() == case_id:
+                return acquire_ok(case_id, *args)
+            time.sleep(scenario['later_case_lease_fails'][0])
+            from durable.workers import PoolError
+            raise PoolError(scenario['later_case_lease_fails'][1])
+        fakes['pool'].acquire = failing_acquire
     if scenario.get("verification_failures"):
         original_exists = fakes["store"].exists
         remaining = [scenario["verification_failures"]]

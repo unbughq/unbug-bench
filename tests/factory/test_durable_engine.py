@@ -587,6 +587,21 @@ class Money(unittest.TestCase):
         for x in short:   # a sub-minimum BATCH grant never started an attempt
             self.assertFalse([s for s in r.worker_log() if s["op"] == "start" and s["key"] == x["key"]])
 
+    def test_an_unstarted_release_wakes_the_case_its_hold_starved(self):
+        # The second case holds $50 while its worker lease is slow; the admitted first case gets
+        # $0.499 for its writer and waits. The lease then fails and releases the $50 unstarted:
+        # that must wake the first case, though a capped case's own sub-minimum release does not.
+        r, out = run({"spec": {"target_sealed": 2, "max_cases_started": 2, "money_bound_usd_micros": 50 * M + 500_000},
+                      "reserve_delay_s": {"2/writer:1/1": 1.0},
+                      "later_case_lease_fails": [3.0, "infra:creation_limit"]}, timeout=90)
+        self.addCleanup(r.close)
+        self.assertCountEqual(out["result"]["cases"].values(), ["sealed", "held"])
+        sealed = next(c for c, status in out["result"]["cases"].items() if status == "sealed")
+        starved = [x["amount"] for x in r.ledger_log() if x["op"] == "reserve" and x["key"] == f"{sealed}/2/writer:1/1"]
+        self.assertEqual(starved, [499_000])   # the sequence happened: it waited on the other case's hold
+        self.assertEqual(steps(r, int(sealed.rsplit("-", 1)[1])), ["admit", "writer:1", "stress:1", "gates:1", "seal"])
+        self.assertEqual(out["ledger"]["batches"]["b-t"]["held"], 0)
+
     def test_bound_raised_wakes_a_waiting_case(self):
         r, out = run({"spec": {"money_bound_usd_micros": 500_000},
                       "actions": [{"when": {"case": 1, "status": "waiting_for_bound"}, "bound": 10_000 * M}]})
