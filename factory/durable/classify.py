@@ -194,13 +194,15 @@ REJECTION_REASONS = frozenset("admit:" + code for code in (
     "freshness_third_party", "freshness_unrecorded", "freshness_mixed", "realism_rejected",
     "other_selection_failed", "other_missing_statement", "other_repeat_candidate", "other_unknown",
     "other_mixed", "rejected_mixed"))
+# A board-cleanup ADMIT (durable/board_cleanup.py) ends with a plan, never a case.
+BOARD_REASONS = frozenset({"admit:board_planned"})
 # A preflight refusal is a refusal too: it may react to the case directory it ran in.
 _PRIVATE = {"router:refusal"} | {f"router:preflight_{r}_refusal" for r in PREFLIGHT_ROLES.values()}
 PUBLISHED_REASONS = frozenset((REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS | IMPORT_REASONS
-                               | REJECTION_REASONS) - _PRIVATE)
+                               | REJECTION_REASONS | BOARD_REASONS) - _PRIVATE)
 
 if not all(REASON.fullmatch(r) for r in REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS | IMPORT_REASONS
-           | REJECTION_REASONS):
+           | REJECTION_REASONS | BOARD_REASONS):
     raise ContractError("a WP4 reason breaks the REASON grammar")
 
 

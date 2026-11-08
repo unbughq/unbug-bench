@@ -460,6 +460,47 @@ class AdmitTests(unittest.TestCase):
         self.calls.clear()
         return registry
 
+    def test_board_dedup_records_only_groups_and_never_changes_the_board(self):
+        from dataclasses import replace
+        texts = {"case-a": "# A\n\nOversell when two carts check out at once.",
+                 "case-b": "# B\n\nTwo simultaneous checkouts sell the last unit twice.",
+                 "case-c": "# C\n\nRefund exceeds the order total."}
+        registry = self.admitted_registry(*texts.items())
+        original = self.model
+        seen = {}
+        def model(c, models, text, cwd, name, **kwargs):
+            if name != "easy-calibrator-board-dedup":
+                return original(c, models, text, cwd, name, **kwargs)
+            self.calls.append(name)
+            request = json.loads(text.rsplit("\n", 1)[-1])
+            seen.update({k: pathlib.Path(v).read_text() for k, v in request["statements"].items()})
+            pathlib.Path(request["result_path"]).write_text(json.dumps({"groups": [["case-b", "case-a"]]}))
+            if kwargs.get("on_complete"):
+                c.model_lease = SimpleNamespace(route=models[0])
+                kwargs["on_complete"]()
+            return 0
+        patch.object(run, "model_call", side_effect=model).start()
+        patch.object(run, "opencode", side_effect=model).start()
+        value = self.real_inputs("unused", board_dedup=True); value.pop("candidate")
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        step_input = replace(self.step(inputs, registry), case_id="case-board-1")
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:board_planned"))
+        self.assertIsNone(result.registry)   # the board is never changed on the worker
+        check_result_for(step_input.step, result)
+        self.assertEqual(seen, texts)        # every unreleased statement was compared, in worker RAM
+        self.assertEqual(self.calls, ["easy-calibrator-board-dedup"])   # no screen, selection or preflight
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual(c.card["board_dedup"], {"entries": 3, "registry_revision": 3, "judge_family": "z-ai",
+                                                 "groups": [["case-a", "case-b"]]})
+        card = json.dumps(c.card)
+        self.assertTrue(all(t not in card for t in texts.values()))
+        from durable.board_cleanup import plan_groups
+        self.assertEqual(plan_groups(self.output(result.snapshot, outputs)), [["case-a", "case-b"]])
+        # A plan cannot carry a candidate or run on an import.
+        with self.assertRaises(admit._Invalid):
+            admit._inputs(json.dumps(self.real_inputs("x", board_dedup=True)).encode())
+
     def test_import_keeps_only_the_old_case_tree_and_reruns_every_screen(self):
         old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
         registry = self.admitted_registry((old, text), ("case-prior", "# Candidate\n\nRefund exceeds the order."))

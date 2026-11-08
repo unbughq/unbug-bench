@@ -249,6 +249,9 @@ def inspect_snapshot(raw):
     out = {"admission_status": admission.get("status") if admission.get("status") in (
                "exhausted", "rejected", "passed", "waiting", "evidence_incomplete") else "other",
            "imported": isinstance(card.get("imported_from"), dict), "candidates": rows}
+    old_case = (card.get("imported_from") or {}).get("case") if isinstance(card.get("imported_from"), dict) else None
+    if isinstance(old_case, str) and _CASE.fullmatch(old_case):
+        out["imported_case"] = old_case
     if rows:
         out["reason"] = "admit:" + reason_code(rows)
     return out
@@ -308,7 +311,7 @@ def _cases(client, target):
     raise ValueError("invalid_target")
 
 
-def backfill(config, targets, *, client=None, keys=None, store=None):
+def backfill(config, targets, *, client=None, keys=None, store=None, inspect=None):
     """One result per case. Never creates a key or writes anything."""
     from durable.artifacts import AgeSealer, SealedStore
     from durable.contract import Ref
@@ -358,6 +361,10 @@ def backfill(config, targets, *, client=None, keys=None, store=None):
                     results.append(entry)
                     continue
                 try:
+                    if inspect is not None:   # another read-only reader (board_cleanup.plan_groups)
+                        entry["inspected"] = inspect(raw)
+                        results.append(entry)
+                        continue
                     entry.update(inspect_snapshot(raw))
                 except Exception:
                     entry["error"] = "snapshot_unreadable"
