@@ -216,12 +216,18 @@ class RuntimeTests(unittest.TestCase):
                 start.assert_not_called()
 
     def test_resume_counts_the_earlier_spend_against_one_case_ceiling(self):
+        from durable.contract import Usage
         runtime = self.runtime()
-        old_inputs = runtime.prepare("b-old", ArtifactKind.INPUTS, b'{"import_spent_usd_micros": 30000000}')
+        old_inputs = runtime.prepare("b-old", ArtifactKind.INPUTS, b'{"import_spent_usd_micros": 5000000}')
         old = BatchSpec(batch_id="b-old", plumbing_version="a" * 64, bench_version="b" * 64,
                         app_repo="medusajs/medusa", app_commit="c" * 40, inputs=old_inputs, target_sealed=1,
                         money_bound_usd_micros=100, deadline_epoch=4e9, max_concurrency=1)
-        runtime.ledger.open("b-old", 100)
+        # $10 in the original batch and $20 in an earlier resume of the same case, plus $5 imported.
+        for batch, paid in (("b-old", 10_000_000), ("b-mid", 20_000_000)):
+            runtime.ledger.open(batch, 100_000_000)
+            key = f"case-old-1/{paid}/writer:1/1"
+            runtime.ledger.reserve(batch, "case-old-1", key, paid, 50_000_000)
+            runtime.ledger.settle(key, Usage(paid_usd_micros=paid))
         inputs = runtime.prepare("b-new", ArtifactKind.INPUTS, b"{}")
         registry = runtime.prepare("b-new", ArtifactKind.STATEMENT_REGISTRY, b"opaque registry")
         def spec(**kw):
@@ -229,14 +235,19 @@ class RuntimeTests(unittest.TestCase):
                                        app_repo="medusajs/medusa", app_commit="c" * 40, inputs=inputs,
                                        target_sealed=1, money_bound_usd_micros=100, deadline_epoch=4e9,
                                        max_concurrency=1, max_cases_started=1), **kw})
-        old_row = [SimpleNamespace(input={"args": [{"spec": to_record(old)}]})]
-        with patch("dbos.DBOS.get_workflow_status", return_value=None), patch("dbos.DBOS.list_workflows", return_value=old_row), \
+        def workflows(workflow_ids=None, workflow_id_prefix=None, **_):
+            if workflow_ids == ["b-old"]:
+                return [SimpleNamespace(input={"args": [{"spec": to_record(old)}]})]
+            assert workflow_id_prefix == "case-old-1@"
+            return [SimpleNamespace(workflow_id="case-old-1@b-mid")]
+        with patch("dbos.DBOS.get_workflow_status", return_value=None), patch("dbos.DBOS.list_workflows", side_effect=workflows), \
                 patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start:
-            for bad, code in ((spec(max_cases_started=2), "resume_invalid"), (spec(), "resume_money")):
+            for bad, code in ((spec(max_cases_started=2, case_money_usd_micros=1), "resume_invalid"),
+                              (spec(case_money_usd_micros=15_000_001), "resume_money")):
                 with self.assertRaisesRegex(RuntimeErrorCode, code):
                     runtime.start(to_record(bad), to_record(registry), None, "case-old-1")
             start.assert_not_called()
-            ok = spec(case_money_usd_micros=20_000_000)
+            ok = spec(case_money_usd_micros=15_000_000)   # $35 earlier + $15 = the $50 ceiling
             runtime.start(to_record(ok), to_record(registry), None, "case-old-1")
             start.assert_called_once_with(ok, registry, None, "case-old-1")
 

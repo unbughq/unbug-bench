@@ -299,7 +299,11 @@ class Runtime:
                     self.store.get_sealed(old_batch, old_inputs))).get("import_spent_usd_micros") or 0
             except (ValueError, AttributeError):
                 carried = 0
-            used = carried + self.ledger.case_balance(old_batch, resume_of, 0)["used"]
+            # Each earlier resume ran as "<case>@<batch>" and charged its own batch.
+            resumed = [w.workflow_id.partition("@")[2] for w in
+                       DBOS.list_workflows(workflow_id_prefix=resume_of + "@", load_input=False, load_output=False)]
+            used = carried + sum(self.ledger.case_balance(b, resume_of, 0)["used"]
+                                 for b in sorted({old_batch, *resumed}))
             if type(carried) is not int or used + spec.case_money_usd_micros > BatchSpec.case_money_usd_micros:
                 raise RuntimeErrorCode("resume_money")
         from dbos import DBOS

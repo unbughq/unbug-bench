@@ -918,7 +918,8 @@ class Resume(unittest.TestCase):
     STOPPED = {"spec": {"max_infra_retries_per_step": 2, "max_cases_started": 1},
                "script": {"1/stress:1/1": {"feedback": True},
                           "1/writer:2/1": {"outcome": "exhausted", "reason": "writer:rounds"},
-                          "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:creation_limit"}}}
+                          "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:stalled",
+                                            "diagnostic": True, "checkpoint": True}}}
 
     def resume(self, r, script=None):
         r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1}, "resume_of": C1,
@@ -937,9 +938,10 @@ class Resume(unittest.TestCase):
                                               ("7", "stress:3", "1"), ("8", "gates:3", "1"), ("9", "seal", "1")])
         self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
         self.assertEqual([s["case_id"] for s in out["result"]["sealed"]], [C1])
-        # The resumed diagnosis restores the last save and sees the earlier rounds' evidence.
+        # The resumed diagnosis restores the stopped attempts' last save and keeps their diagnostics.
         diag = start(r, f"{C1}/5/diagnosis/4")
-        self.assertEqual(diag["opened"]["snapshot"], f"snapshot {C1}/3/stress:1/1")
+        self.assertEqual(diag["opened"]["snapshot"], f"snapshot {C1}/5/diagnosis/3")
+        self.assertEqual(diag["evidence"], start(r, f"{C1}/5/diagnosis/3")["evidence"])
         self.assertEqual(start(r, f"{C1}/6/writer:3/1")["opened"]["feedback"], f"guidance {C1}/5/diagnosis/4")
         # Counters carry over: one diagnosis and one extension, never a fresh allowance.
         c = card(out, C1)
@@ -952,6 +954,18 @@ class Resume(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1: "retired"})
         out = self.resume(r, {"1/diagnosis/*": {"verdict": "close_to_passing"}})
         self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+
+    def test_a_resume_under_other_limits_diverges_instead_of_granting_more(self):
+        # Stopped at its diagnosis after one writer round; a default writer limit would run writer:2.
+        r, out = run({**self.STOPPED, "spec": {**self.STOPPED["spec"], "max_writer_rounds": 1},
+                      "script": {"1/stress:1/1": {"feedback": True},
+                                 "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:stalled"}}})
+        self.addCleanup(r.close)
+        self.assertEqual((out["result"]["cases"], r.keys(1)[-1][1]), ({C1: "held"}, "diagnosis"))
+        before = len(r.starts(1))
+        out = self.resume(r)
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "engine_error"})
+        self.assertEqual(r.starts(1)[before:], [])   # nothing new ran
 
     def test_a_case_stopped_by_a_verdict_is_not_resumable(self):
         stopped = {**self.STOPPED, "script": {**self.STOPPED["script"],

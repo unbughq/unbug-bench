@@ -635,9 +635,11 @@ class _Case:
         action is None for a DIAGNOSIS verdict."""
         self.seq += 1
         self.stage = step.name
-        attempt, infra, limits, free, late, prev = self.skip.get(self.seq, 0), 0, 0, 0, 0, None
-        if self.seq == self.resume_seq:
-            self.worker_id = None   # the first live seq of a resumed case leases its own worker
+        attempt, infra, limits, free, late, prev = 0, 0, 0, 0, 0, None
+        # A seq where a case stopped (this resume's or an earlier one's) first restores the attempts
+        # recorded before that stop: their snapshots, diagnostics and history carry over, and their
+        # keys prove the continuation is the same step. Only its infra retry allowance starts afresh.
+        recorded = self.skip.get(self.seq, 0)
         pool_since = None
         requested_minimum = 0
         failed_releases = []
@@ -661,11 +663,14 @@ class _Case:
                    "prev": prev}
             if admit and not admission_started:
                 job["admission_deadline"] = self.spec.deadline_epoch
-            if self.replaying and not recorded_step(si.idempotency_key):
+            restoring = attempt <= recorded
+            if (self.replaying or restoring) and not recorded_step(si.idempotency_key):
                 raise ContractError("resume:diverged")   # never start new work inside the replayed history
             queue = DBOS.retrieve_queue(steps_queue(self.batch_id))
             with SetWorkflowID(si.idempotency_key):
                 out = queue.enqueue(slot_workflow, job).get_result()
+            if restoring and not out["started"]:
+                continue
             if not out["started"]:
                 action = Action(out["action"])
                 if action is Action.RERUN_GATES:
@@ -688,6 +693,9 @@ class _Case:
                 self.bench = out["input"]["bench_version"]
                 self.gates_versions = (out["input"]["plumbing_version"], self.bench)
             self.absorb(step, attempt, result)
+            if restoring:
+                prev, self.worker_id = None, None   # its worker is gone; the first live attempt leases one
+                continue
             if result.outcome is Outcome.INFRA_ERROR:
                 admission_waste += result.usage.paid_usd_micros
                 # Checked here so a retry is never funded past either limit.
