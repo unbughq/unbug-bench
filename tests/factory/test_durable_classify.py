@@ -266,6 +266,7 @@ class RealStops(unittest.TestCase):
         "unbounded_route": ("infra_error", "infra:router_unavailable"),
         "unpriced_usage": ("infra_error", "infra:unpriced_usage"),
         "free_route_mismatch": ("infra_error", "infra:free_route_mismatch"),
+        "first_token_timeout": ("infra_error", "infra:first_token_timeout"),
         "usage_event_conflict": ("infra_error", "infra:usage_unknown"),
         "usage_event_missing": ("infra_error", "infra:usage_unknown"),
         "usage_event_shared": ("infra_error", "infra:usage_unknown"),

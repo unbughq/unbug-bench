@@ -38,16 +38,16 @@ class FreeRoutes(unittest.TestCase):
         self.assertGreater(model_router.route_maximum('openrouter/deepseek/deepseek-v4.1-flash')['max_usd'], 0)
         # Founder 2026-11-08: every free model runs on both OpenCode accounts, the second before the
         # fallback; never anonymously. DeepSeek free falls back to the paid gated route of its family.
-        # NVIDIA's lane comes first (test_nvidia_routes); it is closed until the router opens it.
+        # NVIDIA is a backup after the account lanes (test_nvidia_routes); it is closed until the router opens it.
         self.assertEqual([(r['route'], r['account'], r['pool']) for r in model_router.routes(FREE, model_router.ACCOUNTS)],
-                         [(NVIDIA, 'nvidia-key', 'nvidia-free:nvidia-key'),
-                          (FREE, 'opencode-go-key', 'opencode-free:opencode-go-key'),
+                         [(FREE, 'opencode-go-key', 'opencode-free:opencode-go-key'),
                           (FREE, 'opencode-go-key-2', 'opencode-free:opencode-go-key-2'),
+                          (NVIDIA, 'nvidia-key', 'nvidia-free:nvidia-key'),
                           ('openrouter/deepseek/deepseek-v4.1-flash', 'openrouter-key', 'openrouter-key')])
         self.assertEqual([(r['route'], r['account']) for r in model_router._bounded_routes(
                               'opencode/glm-5.3-flash-free', model_router.ACCOUNTS)],
-                         [('nvidia/z-ai/glm-5.3-flash', 'nvidia-key'),
-                          ('opencode/glm-5.3-flash-free', 'opencode-go-key'), ('opencode/glm-5.3-flash-free', 'opencode-go-key-2')])
+                         [('opencode/glm-5.3-flash-free', 'opencode-go-key'), ('opencode/glm-5.3-flash-free', 'opencode-go-key-2'),
+                          ('nvidia/z-ai/glm-5.3-flash', 'nvidia-key')])
         for route in ('opencode/deepseek-v4.1-flash-free', 'opencode/minimax-m3.1-flash-free', 'opencode/glm-5.3-flash-free'):
             rows = model_router.routes(route, model_router.ACCOUNTS)
             self.assertTrue(all(r['account'] for r in rows), route)
@@ -58,9 +58,9 @@ class FreeRoutes(unittest.TestCase):
         # So does MiniMax free (on either OpenCode account), past the unbounded OpenRouter :free variant.
         self.assertEqual([(r['route'], r['account']) for r in model_router._bounded_routes(
                               'opencode/minimax-m3.1-flash-free', model_router.ACCOUNTS)],
-                         [('nvidia/minimaxai/minimax-m3.1-flash', 'nvidia-key'),
-                          ('opencode/minimax-m3.1-flash-free', 'opencode-go-key'),
+                         [('opencode/minimax-m3.1-flash-free', 'opencode-go-key'),
                           ('opencode/minimax-m3.1-flash-free', 'opencode-go-key-2'),
+                          ('nvidia/minimaxai/minimax-m3.1-flash', 'nvidia-key'),
                           ('openrouter/minimax/minimax-m3.1-flash', 'openrouter-key')])
         # A batch that pins the paid route still asks it first: free routes run only where a batch pins them.
         self.assertEqual(model_router.routes('openrouter/minimax/minimax-m3.1-flash', model_router.ACCOUNTS)[0]['route'],
@@ -126,8 +126,8 @@ class FreeRoutes(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
                     runtime._call(SimpleNamespace(card={}), [FREE], 'x', '/', name, user=user)
                 self.assertEqual(seen.pop(), (model_runtime.invocation_role(name),
-                                              ('nvidia-free:nvidia-key/' + NVIDIA,
-                                               'opencode-free:opencode-go-key/' + FREE, 'opencode-free:opencode-go-key-2/' + FREE)))
+                                              ('opencode-free:opencode-go-key/' + FREE, 'opencode-free:opencode-go-key-2/' + FREE,
+                                               'nvidia-free:nvidia-key/' + NVIDIA)))
                 # GLM free has no bounded route behind the wall: refused as a configuration, not slept on.
                 with self.assertRaises(model_router.ProviderWait) as stop:
                     runtime._call(SimpleNamespace(card={}), ['opencode/glm-5.3-flash-free'], 'x', '/', name, user=user)

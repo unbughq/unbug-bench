@@ -40,10 +40,14 @@ GATED_OPENROUTER = {
 OPENCODE_FREE_ROUTES = frozenset({'opencode/deepseek-v4.1-flash-free', 'opencode/minimax-m3.1-flash-free',
                                   'opencode/glm-5.3-flash-free'})
 # NVIDIA's hosted inference (build.nvidia.com; OpenAI-compatible at integrate.api.nvidia.com/v1), founder
-# 2026-11-08: the same three models, no new family. Each is its model's first route, ahead of OpenCode's
-# free lanes and the paid fallback (model_router.routes), and is bounded at $0 like them. Keyed by the
-# model the rotation already requests, so no role's requested model changes.
+# 2026-11-08: the same three models, no new family. Only a backup: tried after OpenCode's account free
+# lanes and before the chain's paid or subscription fallback (model_router.routes), bounded at $0 like
+# them, and skipped when it is slow to answer (NVIDIA_FIRST_EVENT_SECONDS). Keyed by the model the
+# rotation already requests, so no role's requested model changes.
 NVIDIA_URL = 'https://integrate.api.nvidia.com/v1'
+# A 23:05Z live call took 267 s for 15 tokens (free-tier queue). No output event within this many seconds
+# ends the call as first_token_timeout, and it moves on to the next route.
+NVIDIA_FIRST_EVENT_SECONDS = 20
 NVIDIA_FIRST = {'opencode/deepseek-v4.1-flash-free': 'nvidia/deepseek-ai/deepseek-v4.1-flash',
                 'opencode/minimax-m3.1-flash-free': 'nvidia/minimaxai/minimax-m3.1-flash',
                 'opencode/glm-5.3-flash-free': 'nvidia/z-ai/glm-5.3-flash'}

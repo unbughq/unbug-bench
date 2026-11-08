@@ -214,7 +214,9 @@ the CLI produced, never provider text. `factory/free_route_smoke.py` makes one $
 per account and prints only those fields.
 
 NVIDIA's hosted inference (`integrate.api.nvidia.com`, OpenAI-compatible) serves the same three models
-as each one's first route, ahead of the OpenCode free lanes: `nvidia/deepseek-ai/deepseek-v4.1-flash`,
+as a backup only: after both OpenCode account free lanes and before the chain's paid or subscription
+fallback. A call with no output event within 20 s (`NVIDIA_FIRST_EVENT_SECONDS`; a live free-tier call
+took 267 s) ends as `first_token_timeout` and moves on. The routes are `nvidia/deepseek-ai/deepseek-v4.1-flash`,
 `nvidia/minimaxai/minimax-m3.1-flash` and `nvidia/z-ai/glm-5.3-flash` (`token_prices.NVIDIA_FIRST`,
 keyed by the model the rotation already requests, so no requested model changes). They are free routes
 in every respect above: $0 maximum, stop at any booked cost or a step from another provider or model,

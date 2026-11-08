@@ -23,7 +23,7 @@ import tempfile
 import time
 from budget import BudgetError, run_budgeted, case_spending, require_case_budget, invocation_role
 import model_router
-from token_prices import FREE_ROUTES, GATED_OPENROUTER
+from token_prices import FREE_ROUTES, GATED_OPENROUTER, NVIDIA_FIRST_EVENT_SECONDS, NVIDIA_ROUTES
 import model_call_gate
 from model_router import family
 from registry import atomic_json
@@ -307,7 +307,7 @@ def call_failure_reason(label, route):
     if label.startswith('provider_limit'): return 'quota'
     if label in ('codex_login_expired', 'credential_expiring'): return 'credential_expiring'
     if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:'): return 'outage'
-    if route in FREE_ROUTES and label in ('missing_usage', 'invalid_usage', 'free_route_mismatch'): return 'outage'
+    if route in FREE_ROUTES and label in ('missing_usage', 'invalid_usage', 'free_route_mismatch', 'first_token_timeout'): return 'outage'
     return None
 
 
@@ -737,7 +737,8 @@ class ModelRuntime:
                                   or getattr(c, "force_budget_resume", False),
                                   concurrent=getattr(c, 'engine', None) is not None or getattr(c.args, "concurrent_roles", False), cancel=gate,
                                   case_budget=getattr(c.args, 'case_budget', 50.0), role=role, invocation_name=name,
-                                  containment=not user, **attempt_kwargs)
+                                  containment=not user, first_event_timeout=NVIDIA_FIRST_EVENT_SECONDS if model in NVIDIA_ROUTES else None,
+                                  **attempt_kwargs)
             update_case_budget(c)
             c.budget_resumed = True; c.force_budget_resume = False
             self.progress(c, 'role:' + progress_role, 'completed' if result.returncode == 0 else 'failed',

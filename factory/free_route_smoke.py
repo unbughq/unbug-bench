@@ -38,7 +38,7 @@ import budget
 import model_call_gate
 import model_router
 import model_runtime
-from token_prices import FREE_ROUTES, NVIDIA_ROUTES
+from token_prices import FREE_ROUTES, NVIDIA_FIRST_EVENT_SECONDS, NVIDIA_ROUTES
 
 ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2', 'nvidia-key')
 
@@ -102,7 +102,8 @@ def smoke(account, model, secrets, timeout=180, *, variant='factory', run=budget
                '--title', 'factory-free-route-smoke', PROMPT]
         run(cmd, str(scratch), env, scratch / 'transcript.jsonl', scratch / 'ledger.json', timeout,
             max_cost=STOP_AT_ANY_COST, max_calls=5, max_total_calls=5, driver='opencode',
-            configured_model=route, containment=False)
+            configured_model=route, containment=False,
+            first_event_timeout=NVIDIA_FIRST_EVENT_SECONDS if model in NVIDIA_ROUTES else None)
         row['ok'] = True
     except budget.BudgetError as error:
         info = getattr(error, 'provider_error', None) or {}

@@ -135,8 +135,9 @@ def routes(model, accounts=ACCOUNTS):
     if any(a not in ACCOUNTS for a in accounts): raise ValueError('unapproved account')
     if model == 'opencode-go/deepseek-v4.1-flash': model = CHAINS[0][0]
     chain = next((list(c) if c[0] == model else [model, c[0]] for c in CHAINS if model in c), [model])
-    # Founder 2026-11-08: NVIDIA's hosted inference serves the same model first, at $0 (token_prices.NVIDIA_FIRST).
-    if chain[0] in NVIDIA_FIRST: chain.insert(0, NVIDIA_FIRST[chain[0]])
+    # 2026-11-08: NVIDIA's hosted inference serves the same model as a $0 backup (token_prices.NVIDIA_FIRST),
+    # after the OpenCode account free lanes and before the paid or subscription fallback.
+    if chain[0] in NVIDIA_FIRST: chain.insert(1, NVIDIA_FIRST[chain[0]])
     result = []
     for route in chain:
         billing = ('subscription' if route.startswith(('claude/', 'codex/', 'opencode-go/')) else

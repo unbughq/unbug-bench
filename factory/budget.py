@@ -864,7 +864,8 @@ def _check_containment(ledger):
 def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, call_cap_usd=None):
+                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, call_cap_usd=None,
+                 first_event_timeout=None):
     # Preserve the original whole-session lock unless concurrency is explicitly enabled.
     settings = locals()
     _check_containment(ledger_path)
@@ -891,7 +892,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
                  invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, call_cap_usd=None, _serial_lock=None, _activity_lock=None, _admission_lock=None,
-                 _provider_error=None):
+                 _provider_error=None, first_event_timeout=None):
     """Return CompletedProcess, or raise BudgetError without exposing transcript text.
 
     max_calls limits this invocation; max_total_calls and max_cost span roles.
@@ -1376,6 +1377,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                              stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                              **({} if containment else {'start_new_session': True}))
             if on_started is not None: on_started()
+            launched = time.monotonic()
             selector.register(process.stdout, selectors.EVENT_READ)
             pending = b''
             tool_cpu = tool_cpu_ticks(process.pid)
@@ -1386,6 +1388,10 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                     book_live(feed)
                     check_limits()
                 now = time.monotonic()
+                # A backup route that is slow to answer is skipped (NVIDIA's free tier queues: 2026-11-08).
+                if (first_event_timeout is not None and not provider_error.get('events_seen')
+                        and now - launched >= first_event_timeout):
+                    raise BudgetError('first_token_timeout')
                 if driver == 'opencode' and min(now - last_output, now - log_checked) >= min(60, progress_timeout / 2):
                     log_checked = now; silent_limit()
                 if now - last_output >= progress_timeout:

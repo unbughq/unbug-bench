@@ -1,4 +1,4 @@
-"""NVIDIA's hosted inference as the $0 first route for DeepSeek, MiniMax and GLM (founder 2026-11-08).
+"""NVIDIA's hosted inference as a $0 backup route for DeepSeek, MiniMax and GLM (2026-11-08).
 
 Synthetic only: no key, no network, no case material.
 """
@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -21,7 +22,7 @@ import model_call_gate
 import model_router
 import model_runtime
 from budget import BudgetError
-from token_prices import FREE_ROUTES, NVIDIA_FIRST, NVIDIA_ROUTES, NVIDIA_URL
+from token_prices import FREE_ROUTES, NVIDIA_FIRST, NVIDIA_FIRST_EVENT_SECONDS, NVIDIA_ROUTES, NVIDIA_URL
 
 DEEPSEEK, NV_DEEPSEEK = 'opencode/deepseek-v4.1-flash-free', 'nvidia/deepseek-ai/deepseek-v4.1-flash'
 MINIMAX, NV_MINIMAX = 'opencode/minimax-m3.1-flash-free', 'nvidia/minimaxai/minimax-m3.1-flash'
@@ -50,20 +51,22 @@ def cli(tmp, lines, record=None):
 
 
 class Routes(unittest.TestCase):
-    def test_nvidia_serves_the_same_model_first_at_zero(self):
+    def test_nvidia_is_a_backup_after_the_account_lanes_at_zero(self):
         self.assertEqual(NVIDIA_FIRST, {DEEPSEEK: NV_DEEPSEEK, MINIMAX: NV_MINIMAX, GLM: NV_GLM})
         self.assertTrue(NVIDIA_ROUTES <= FREE_ROUTES)
         for requested, nvidia in NVIDIA_FIRST.items():
             rows = model_router.routes(requested)
-            self.assertEqual((rows[0]['route'], rows[0]['account'], rows[0]['billing'], rows[0]['pool']),
+            # Both OpenCode account lanes first, then NVIDIA, then the paid or subscription fallback.
+            self.assertEqual([(r['route'], r['account']) for r in rows[:2]],
+                             [(requested, 'opencode-go-key'), (requested, 'opencode-go-key-2')])
+            self.assertEqual((rows[2]['route'], rows[2]['account'], rows[2]['billing'], rows[2]['pool']),
                              (nvidia, 'nvidia-key', 'free', 'nvidia-free:nvidia-key'))
+            self.assertNotIn(nvidia, [r['route'] for r in rows[3:]])
             # Same family: no new model and no family change (routes() refuses one anyway).
             self.assertEqual({r['family'] for r in rows}, {model_router.family(requested)})
             self.assertEqual(model_router.route_maximum(nvidia),
                              dict(max_usd=0.0, max_input_tokens=0, max_output_tokens=0, price_source='free:' + nvidia))
             self.assertEqual(model_router.funded_maximum(nvidia, '5'), model_router.route_maximum(nvidia))
-            # The rest of the chain is unchanged behind it.
-            self.assertEqual([r['route'] for r in rows[1:]][:2], [requested, requested])
         # DeepSeek and MiniMax still end on their paid gated OpenRouter route.
         self.assertEqual(model_router.routes(DEEPSEEK)[-1]['route'], PAID_DEEPSEEK)
         self.assertEqual(model_router.routes(MINIMAX)[-1]['route'], 'openrouter/minimax/minimax-m3.1-flash')
@@ -73,7 +76,7 @@ class Routes(unittest.TestCase):
             self.assertFalse(any(r['route'] in NVIDIA_ROUTES for r in model_router.routes(model)), model)
         # A worker without the account has no NVIDIA lane.
         accounts = [a for a in model_router.ACCOUNTS if a != 'nvidia-key']
-        self.assertEqual(model_router.routes(DEEPSEEK, accounts)[0]['route'], DEEPSEEK)
+        self.assertFalse(any(r['route'] in NVIDIA_ROUTES for r in model_router.routes(DEEPSEEK, accounts)))
 
     def test_walled_roles_never_get_nvidia(self):
         # Calibrators (and the easy calibrator's dedup, same role) reach only a gate's port: NVIDIA has no gate.
@@ -99,6 +102,8 @@ class Router(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
 
+    ACCOUNT_LANES = ['opencode-free:opencode-go-key/' + DEEPSEEK, 'opencode-free:opencode-go-key-2/' + DEEPSEEK]
+
     def acquire(self, store, model=DEEPSEEK, excluded=()):
         return store.rpc('acquire', dict(paid_protocol=1, id=uuid.uuid4().hex, model=model, accounts=list(model_router.ACCOUNTS),
                                          role='writer', deadline=4e9, excluded_lanes=list(excluded)))
@@ -110,32 +115,36 @@ class Router(unittest.TestCase):
         first = self.acquire(store)
         self.assertEqual((first['route'], first['account']), (DEEPSEEK, 'opencode-go-key'))
         self.assertEqual(store.rpc('capacity', {'route': NV_DEEPSEEK})['slots'], 0)
+        # The account lanes failed for this call: it skips the closed NVIDIA lane for paid OpenRouter.
+        self.assertEqual(self.acquire(store, excluded=self.ACCOUNT_LANES)['route'], PAID_DEEPSEEK)
         # Every other lane busy: the wait never names the closed NVIDIA lane.
-        self.acquire(store); self.acquire(store)
-        wait = self.acquire(store)
+        self.acquire(store)
+        wait = self.acquire(store, excluded=self.ACCOUNT_LANES)
         self.assertEqual(wait['kind'], 'wait')
         self.assertNotIn(wait['route'], NVIDIA_ROUTES)
 
-    def test_open_lane_is_first_and_a_429_falls_back_with_a_record(self):
+    def test_open_lane_follows_the_account_lanes_and_a_429_falls_back_with_a_record(self):
         store = model_router.Store(Path(self.tmp.name) / 'open.sqlite', capacities={'nvidia-free': 1})
-        first = self.acquire(store)
-        self.assertEqual((first['route'], first['account'], first['max_usd']), (NV_DEEPSEEK, 'nvidia-key', 0.0))
-        # Its one seat is taken: the next caller goes to the next route rather than queueing.
+        # The account lanes are asked first even with NVIDIA open.
         self.assertEqual(self.acquire(store)['route'], DEEPSEEK)
+        first = self.acquire(store, excluded=self.ACCOUNT_LANES)
+        self.assertEqual((first['route'], first['account'], first['max_usd']), (NV_DEEPSEEK, 'nvidia-key', 0.0))
+        # Its one seat is taken: the next caller goes to paid OpenRouter rather than queueing.
+        self.assertEqual(self.acquire(store, excluded=self.ACCOUNT_LANES)['route'], PAID_DEEPSEEK)
         error = {'error_class': 'opencode_error', 'http_status': 429, 'error_name': 'APIError', 'events_seen': 1}
         store.rpc('finish', dict(lease_id=first['lease_id'], outcome='interrupted', receipt=None, error=error))
         rows = store.rpc('status', {})['free_errors']
         self.assertEqual([(r['route'], r['account'], r['pool'], r['error_class'], r['http_status']) for r in rows],
                          [(NV_DEEPSEEK, 'nvidia-key', 'nvidia-free:nvidia-key', 'opencode_error', 429)])
         # The failed lane is excluded for that call, which moves on.
-        retry = self.acquire(store, excluded=['nvidia-free:nvidia-key/' + NV_DEEPSEEK])
-        self.assertNotEqual(retry['route'], NV_DEEPSEEK)
-        # A 429 (rate) observation blocks only NVIDIA's lane, not the OpenCode lanes behind it.
-        lane = self.acquire(store)
+        retry = self.acquire(store, excluded=[*self.ACCOUNT_LANES, 'nvidia-free:nvidia-key/' + NV_DEEPSEEK])
+        self.assertEqual(retry['route'], PAID_DEEPSEEK)
+        # A 429 (rate) observation blocks only NVIDIA's lane: later calls skip it for paid.
+        lane = self.acquire(store, excluded=self.ACCOUNT_LANES)
         self.assertEqual(lane['route'], NV_DEEPSEEK)
         store.rpc('observe', dict(lease_id=lane['lease_id'], reason='rate', observation_id=lane['lease_id'] + ':f'))
         store.rpc('finish', dict(lease_id=lane['lease_id'], outcome='interrupted', receipt=None))
-        self.assertNotEqual(self.acquire(store)['route'], NV_DEEPSEEK)
+        self.assertEqual(self.acquire(store, excluded=self.ACCOUNT_LANES)['route'], PAID_DEEPSEEK)
         # The operator can clear the lane by name.
         store.rpc('observe', dict(pool='nvidia-free:nvidia-key', healthy=True, observation_id='nvidia-ok'))
 
@@ -146,7 +155,9 @@ class Router(unittest.TestCase):
         store.capacities = {'nvidia-free': 1}
         tried = []
         def invoke(runtime, context, models, *args, **kwargs):
-            tried.append((models[0], context.model_env.get('NVIDIA_API_KEY'), context.model_env.get('OPENCODE_API_KEY')))
+            tried.append((models[0], context.model_env.get('NVIDIA_API_KEY')))
+            if models[0] == DEEPSEEK:   # both OpenCode account lanes hang without a word
+                raise BudgetError('opencode_error', provider_error={'events_seen': 0})
             if models[0] in NVIDIA_ROUTES:
                 raise BudgetError('opencode_error', provider_error={'http_status': 429, 'error_name': 'APIError', 'events_seen': 1})
             return 0
@@ -154,14 +165,14 @@ class Router(unittest.TestCase):
         c = SimpleNamespace(work=Path(self.tmp.name), card={})
         with mock.patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
             self.assertEqual(runtime.call(c, [DEEPSEEK], 't', '.', 'attacker-1'), 0)
-        # NVIDIA first with its own key, then OpenCode's free lane with its key. (A key left over from an
+        # Both account lanes, then NVIDIA with its own key, then paid OpenRouter. (A key left over from an
         # earlier attempt never reaches the CLI: enforce keeps only the leased provider's key.)
-        self.assertEqual([(r, n) for r, n, _ in tried[:1]] + [(r, o) for r, _, o in tried[1:]],
-                         [(NV_DEEPSEEK, 'synthetic-only'), (DEEPSEEK, 'synthetic-only')])
-        self.assertIsNone(tried[0][2])
+        self.assertEqual([r for r, _ in tried], [DEEPSEEK, DEEPSEEK, NV_DEEPSEEK, PAID_DEEPSEEK])
+        self.assertEqual(tried[2][1], 'synthetic-only')
+        self.assertIsNone(tried[0][1])
         rows = store.rpc('status', {})['free_errors']
-        self.assertEqual([(r['route'], r['error_class'], r['http_status'], r['error_name']) for r in rows],
-                         [(NV_DEEPSEEK, 'opencode_error', 429, 'APIError')])
+        self.assertEqual([(r['route'], r['error_class'], r['http_status'], r['error_name']) for r in rows
+                          if r['route'] in NVIDIA_ROUTES], [(NV_DEEPSEEK, 'opencode_error', 429, 'APIError')])
         self.assertEqual(model_runtime.call_failure_reason('opencode_error', NV_DEEPSEEK), 'outage')
 
 
@@ -215,6 +226,17 @@ class Execution(unittest.TestCase):
         for model_id, provider in (('deepseek-v4.1-flash', 'nvidia'), ('deepseek-ai/deepseek-v4.1-flash', 'openrouter')):
             with self.assertRaisesRegex(BudgetError, 'free_route_mismatch'):
                 self.run_cli(step(model_id, provider))
+        # Slow to answer: no output event within the limit skips it to the next route.
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / 'slow'; script.write_text('#!/bin/sh\nsleep 30\n'); script.chmod(0o755)
+            started = time.monotonic()
+            with self.assertRaisesRegex(BudgetError, 'first_token_timeout') as caught:
+                budget.run_budgeted([str(script)], tmp, {'PATH': '/bin:/usr/bin'}, Path(tmp) / 'o.jsonl', Path(tmp) / 'l.json',
+                                    30, driver='opencode', configured_model=NV_DEEPSEEK, containment=False, first_event_timeout=1)
+            self.assertLess(time.monotonic() - started, 10)
+            self.assertEqual(caught.exception.provider_error['events_seen'], 0)
+        self.assertEqual(model_runtime.call_failure_reason('first_token_timeout', NV_DEEPSEEK), 'outage')
+        self.assertEqual(NVIDIA_FIRST_EVENT_SECONDS, 20)
         # Any booked cost stops it (the smoke's own limit; a factory call is stopped by its $0 reservation).
         with self.assertRaisesRegex(BudgetError, 'cost_limit'):
             self.run_cli(step(cost=0.01), max_cost=free_route_smoke.STOP_AT_ANY_COST)
