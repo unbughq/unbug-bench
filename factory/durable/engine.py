@@ -555,6 +555,7 @@ class _Case:
         self.diagnoses_used = 0
         self.factory_bug_resumes = 0
         self.in_extension = False
+        self.recertify = False   # a sealed October case re-earning only the gates added since
         self.round = 1
         self.evidence: list = []
         self.history: list = []
@@ -874,6 +875,10 @@ class _Case:
         phase, feedback, ruling = "writer", None, None
         if r is not None and r.reason == "admit:imported_written":
             phase = "stress"   # an imported case whose writing passed G1 starts with a stress round
+        if r is not None and r.reason == "admit:imported_sealed":
+            # A sealed October case keeps its G1-G15 verdicts and reruns only GATES (G3, G16, G10,
+            # G17, G11) and SEAL. It is never rewritten: a gate that asks for a repair retires it.
+            self.recertify, phase = True, "gates"
         while True:
             if phase == "writer":
                 action, r = self.run_seq(Step(StepKind.WRITER, self.round), feedback=feedback)
@@ -911,6 +916,9 @@ class _Case:
                 self.in_extension = False
                 if action is Action.ADVANCE:
                     phase = "seal"
+                elif action is Action.REPAIR and self.recertify:
+                    self.stop_line(Action.RETIRE)
+                    self.finish("retired")
                 elif action is Action.REPAIR:
                     self.round += 1
                     phase, feedback = "writer", r.feedback
@@ -964,6 +972,8 @@ class _Case:
         decision = decide_diagnosis(r.verdict, progressed=prog, counters=self.counters(), spec=self.spec)
         if decision is Action.EXTEND and now_step() >= self.spec.deadline_epoch:
             decision = Action.RETIRE                        # no extension starts after the deadline
+        if decision is Action.EXTEND and self.recertify:
+            decision = Action.RETIRE                        # a recertified case is never rewritten
         self.stop_line(decision)
         if decision is Action.HOLD:
             self.finish("held")

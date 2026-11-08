@@ -114,13 +114,16 @@ def model_effort(model):
     return 'high' if model.startswith(('claude/', 'codex/')) else 'xhigh' if family(model) == 'meta' else 'default'
 
 
-def require_bounded_models(c):
-    """Reject a guaranteed later-route failure before authoring spends anything."""
+def require_bounded_models(c, roles=None):
+    """Reject a guaranteed later-route failure before authoring spends anything. `roles` limits the
+    check to the roles a case will call (a recertified case never calls its writer or stress tester)."""
     models = c.models
-    roles = [('writer', models['builder']), ('stress_tester', models['attacker']),
-             ('strong_calibrator', models['strong_calibrator']), ('easy_calibrator', models['easy_calibrator'])]
-    roles += [('reviewer' if i == 0 else 'reviewer2', chain) for i, chain in enumerate(models['reviewers'])]
-    for role, chain in roles:
+    chains = [('writer', models['builder']), ('stress_tester', models['attacker']),
+              ('strong_calibrator', models['strong_calibrator']), ('easy_calibrator', models['easy_calibrator'])]
+    chains += [('reviewer' if i == 0 else 'reviewer2', chain) for i, chain in enumerate(models['reviewers'])]
+    for role, chain in chains:
+        if roles is not None and role not in roles:
+            continue
         # A walled role is never leased a free route (ModelRuntime._call).
         if not any(model_router.route_maximum(row['route']) is not None
                    and not (role in model_router.WALLED_ROLES and row['route'] in FREE_ROUTES)

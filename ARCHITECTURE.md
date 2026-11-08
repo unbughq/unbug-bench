@@ -168,6 +168,21 @@ ADMIT refuses unless it matches the old card, and `start` refuses unless it plus
 batch's `case_money_usd_micros` fits the default per-case ceiling. Import refusals
 (`admit:import_invalid`) are deterministic, so they end admission instead of retrying.
 
+A case sealed before G16 and G17 existed is recertified the same way, with INPUTS
+`"recertify": true` and no pinned models, roles or slot. ADMIT refuses (`admit:import_recertify`)
+unless the archive's own card passed G1 to G15 (G12 aside) and names one model per role with
+its effort. Those models and efforts become the new card's, so the kept verdicts and the rerun
+gates have the same roles. `recertify_routes` may move the writer, stress tester or a calibrator
+to another model of the same family (the October GLM easy calibrator ran on a free route a
+walled calibrator can no longer lease); reviewers stay, since the exam's owner contract binds
+the reviewer. Only the calibrators and reviewers need a bounded route. The admission screens
+run as for any import. ADMIT then answers `admit:imported_sealed`, and the engine skips WRITER
+and STRESS: GATES keeps the October verdicts for `run.RECERTIFY_KEPT` and runs only G3 (to
+prepare the worker's runtime), G16, G10, G17 and G11, then SEAL writes the owner contract and
+delivery receipts as usual. G10 reruns because G17 and the receipts need this run's calibrator
+workspaces. A gate that asks for a repair, or a diagnosis that would extend, retires the case;
+a diagnosis that finds infrastructure holds it as for any case.
+
 OpenCode's free routes (DeepSeek, MiniMax and GLM flash) are bounded at $0 with no gate: a call that books
 any cost, or reports a step from another provider or model, is stopped. It runs with OpenCode's own
 provider and its one model only, no outside config and no self-update. A calibrator is never leased one,
