@@ -724,15 +724,40 @@ class FreeCall:
     def is_set(self): return self.cancel is not None and self.cancel.is_set()
 
 
+def free_environment(lease, env):
+    """OpenCode's own provider only, its one model, no user or project config, no self-update.
+    The provider entry (endpoint, key reference) comes from the runtime's config for this route."""
+    try: provider = json.loads(Path(env['OPENCODE_CONFIG']).read_text())['provider']['opencode']
+    except (KeyError, OSError, ValueError, TypeError): raise BudgetError('route_feature_unsupported') from None
+    model = lease.route.partition('/')[2]
+    cfg = dict(model=lease.route, small_model=lease.route, enabled_providers=['opencode'],
+               permission={'task': 'deny'}, compaction={'auto': True}, mcp={},
+               provider={'opencode': {**provider, 'whitelist': [model]}})
+    keys = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
+            'FACTORY_STRATEGY_DIAGNOSTIC', 'FACTORY_STRATEGY_SECONDS', 'FACTORY_STRATEGY_WORKERS')
+    clean = {k: env[k] for k in keys if k in env}
+    # Only a route that runs on an OpenCode account gets that account's key.
+    if lease.account and env.get('OPENCODE_API_KEY'): clean['OPENCODE_API_KEY'] = env['OPENCODE_API_KEY']
+    clean.update(OPENCODE_CONFIG_CONTENT=json.dumps(cfg), OPENCODE_ENABLE_EXA='1', OPENCODE_PURE='1',
+        OPENCODE_DISABLE_PROJECT_CONFIG='1', OPENCODE_DISABLE_AUTOUPDATE='1')
+    return clean
+
+
 @contextmanager
 def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
     import model_router
     from token_prices import FREE_ROUTES
     if lease.route in FREE_ROUTES:
-        # $0 maximum: any booked cost stops the call (budget.check_reservation). A walled role can
-        # reach only a gate's port, and a free route has none, so it keeps a gated route.
+        # $0 maximum: any booked cost stops the call (budget.check_reservation), and so does a step
+        # from any other provider or model (budget.py). A walled role can reach only a gate's port, so
+        # the runtime never leases it a free route; refusing here is the backstop.
         if not model_router.valid_maximum(lease) or lease.max_usd != 0: raise BudgetError('unbounded_route')
         if user is not None: raise BudgetError('route_feature_unsupported')
+        # No system or user OpenCode config may reach the call: its scratch XDG dirs replace them.
+        if Path('/etc/opencode').exists() or any(not env.get(k) for k in ('XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME')):
+            raise BudgetError('route_feature_unsupported')
+        clean = free_environment(lease, env)
+        env.clear(); env.update(clean)
         yield FreeCall(cancel)
         return
     if (lease.route not in CLAUDE_PROFILES and lease.route not in GATED_OPENROUTER) or not model_router.valid_maximum(lease):

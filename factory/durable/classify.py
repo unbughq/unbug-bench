@@ -109,6 +109,7 @@ _FIXED = {
     "missing_usage": (_I, "infra:missing_usage"),
     "invalid_usage": (_I, "infra:usage_unknown"),
     "unpriced_usage": (_I, "infra:unpriced_usage"),
+    "free_route_mismatch": (_I, "infra:free_route_mismatch"),
     "usage_monitor": (_I, "infra:usage_monitor"),
     "usage_reservation_exceeded": (_I, "infra:usage_reservation_exceeded"),
     "reservation_spend_unknown": (_I, "infra:reservation_spend_unknown"),

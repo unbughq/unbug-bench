@@ -1175,6 +1175,12 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 or not all(_number(tokens.get(k)) for k in ('input', 'output', 'reasoning'))
                 or not all(_number(tokens['cache'].get(k)) for k in ('read', 'write'))):
             raise BudgetError('missing_usage')
+        # A free route is checked only against OpenCode's own report (founder 2026-11-08), so a step from
+        # any other provider or model stops it: that step could be billed somewhere.
+        if str(configured_model).endswith('-free') and str(configured_model).startswith('opencode/'):
+            reported = (part.get('providerID', event.get('providerID')), part.get('modelID', event.get('modelID')))
+            if any(v is not None for v in reported) and reported != tuple(str(configured_model).split('/', 1)):
+                raise BudgetError('free_route_mismatch')
         seen.add(identity)
         finishes.add(key)
         count += 1

@@ -334,6 +334,11 @@ class ModelRuntime:
         call_group = uuid.uuid4().hex
         operation_id = getattr(c, 'model_operation_id', None) or str(uuid.uuid4())
         duration = timeout or getattr(getattr(c, 'args', None), 'agent_timeout', 2400)
+        if user is not None:
+            # A walled role reaches only a gate's port, and a free route has no gate: it takes the
+            # family's gated or subscription route instead (model_call_gate.enforce refuses it too).
+            context.router_excluded = (*getattr(context, 'router_excluded', ()),
+                *model_router.free_lanes(requested, getattr(c, 'router_accounts', model_router.ACCOUNTS)))
         while True:
             if lease is None:
                 if getattr(c, 'engine', None) is not None:
