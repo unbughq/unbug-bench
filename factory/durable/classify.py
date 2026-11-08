@@ -111,6 +111,8 @@ _FIXED = {
     "unpriced_usage": (_I, "infra:unpriced_usage"),
     "usage_monitor": (_I, "infra:usage_monitor"),
     "usage_reservation_exceeded": (_I, "infra:usage_reservation_exceeded"),
+    "reservation_spend_unknown": (_I, "infra:reservation_spend_unknown"),
+    "reservation_event_missing": (_I, "infra:reservation_event_missing"),
     "Invalid budget ledger; no process started": (_I, "infra:ledger_error"),
     "resume_while_active": (_I, "infra:ledger_error"),
     "reservation_mismatch": (_I, "infra:ledger_error"),
