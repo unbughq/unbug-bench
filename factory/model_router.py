@@ -787,7 +787,8 @@ def free_error(value):
     if events is not None and not (type(events) is int and 0 <= events <= 10**9): raise ValueError('invalid finish error')
     if not isinstance(error_class, str) or not re.fullmatch(r'[a-z_]{1,40}', error_class): raise ValueError('invalid finish error')
     if status is not None and not (type(status) is int and 100 <= status <= 599): raise ValueError('invalid finish error')
-    if name is not None and not (isinstance(name, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_.]{0,59}', name)): raise ValueError('invalid finish error')
+    from budget import PROVIDER_ERROR_NAMES
+    if name is not None and name not in PROVIDER_ERROR_NAMES: raise ValueError('invalid finish error')
     return dict(error_class=error_class, http_status=status, error_name=name, events_seen=events)
 
 

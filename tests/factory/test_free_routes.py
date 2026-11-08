@@ -233,8 +233,11 @@ class FreeRoutes(unittest.TestCase):
                                     Path(tmp) / 'ledger2.json', 1, driver='opencode', configured_model=FREE, containment=False)
             self.assertEqual(str(caught.exception), 'timeout')
             self.assertEqual(caught.exception.provider_error, {'events_seen': 0})
-        self.assertEqual(budget.provider_error_fields({'status_code': 'x', 'error_type': 'has spaces in it'}),
-                         {'http_status': None, 'error_name': None})
+        # The name is provider-controlled text: only known names pass, anything else is 'other'.
+        for name in ('has spaces in it', 'PrivateCaseInventoryPromise'):
+            self.assertEqual(budget.provider_error_fields({'status_code': 'x', 'error_type': name}),
+                             {'http_status': None, 'error_name': 'other'})
+        self.assertEqual(budget.provider_error_fields({'error_type': 'UnknownError'})['error_name'], 'UnknownError')
 
     def test_a_free_call_that_books_any_cost_is_stopped(self):
         with tempfile.TemporaryDirectory() as tmp:

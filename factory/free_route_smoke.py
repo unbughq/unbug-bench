@@ -93,6 +93,11 @@ def smoke(account, model, secrets, timeout=180, *, variant='factory', run=budget
         row['ok'] = True
     except budget.BudgetError as error:
         info = getattr(error, 'provider_error', None) or {}
+        if variant == 'go' and str(error) == 'unpriced_usage' and info.get('events_seen'):
+            # The Go plan is a subscription: an answer with tokens at cost 0 is a working route.
+            # A positive reported cost still stops the call (cost_limit).
+            row.update(ok=True, billing='subscription', events_seen=info['events_seen'])
+            return row
         row.update(error_class=re.sub(r'[^a-z_]', '_', str(error).partition(':')[0].lower())[:40] or 'unknown',
                    **{k: info.get(k) for k in ('http_status', 'error_name', 'events_seen')})
     except Exception as error:   # a missing CLI, say; its text is not printed

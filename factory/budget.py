@@ -32,12 +32,21 @@ class BudgetError(RuntimeError):
         self.provider_error = provider_error   # content-free: see provider_error_fields
 
 
+# Provider error names recorded in plaintext: a fixed list, since the name is provider-controlled text.
+# Any other name is recorded as 'other'.
+PROVIDER_ERROR_NAMES = frozenset({
+    'APIError', 'UnknownError', 'ProviderAuthError', 'AuthError', 'ProviderModelNotFoundError', 'ModelNotFoundError',
+    'ModelUnavailableError', 'ServiceUnavailableError', 'ServerError', 'OverloadedError', 'RateLimitError',
+    'GoUsageLimitError', 'ContextOverflowError', 'MessageOutputLengthError', 'MessageAbortedError',
+    'TimeoutError', 'AbortError', 'NetworkError', 'other'})
+
+
 def provider_error_fields(info):
-    """Only a provider error's HTTP status and error name, never its message: safe in plaintext."""
+    """Only a provider error's HTTP status and a known error name, never its message: safe in plaintext."""
     status, name = info.get('status_code'), info.get('error_type')
     # Only these fields: provider_error also counts output events ('events_seen').
     return {'http_status': status if type(status) is int and 100 <= status <= 599 else None,
-            'error_name': name if isinstance(name, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_.]{0,59}', name) else None}
+            'error_name': None if name is None else name if name in PROVIDER_ERROR_NAMES else 'other'}
 
 
 def classify_provider_failure(text, model, *, reset_at=None, retry_after=None, now=None,

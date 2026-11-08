@@ -204,7 +204,7 @@ class RouterTests(unittest.TestCase):
         # Provider text never fits the record.
         for bad in ({'error_class': 'opencode_error', 'message': 'case text'}, {'error_class': 'Some text here'},
                     {'error_class': 'x', 'http_status': 99}, {'error_class': 'x', 'error_name': 'two words'},
-                    {'error_class': 'x', 'events_seen': -1}):
+                    {'error_class': 'x', 'events_seen': -1}, {'error_class': 'x', 'error_name': 'PrivateCaseInventoryPromise'}):
             other = self.acquire(free)
             with self.assertRaises(ValueError):
                 self.store.rpc('finish', dict(lease_id=other['lease_id'], outcome='interrupted', receipt=None, error=bad))

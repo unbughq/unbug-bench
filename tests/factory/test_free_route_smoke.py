@@ -24,14 +24,14 @@ def fake_cli(tmp, lines, record):
     return str(script)
 
 
-def step(cost=0):
-    part = {'messageID': 'm', 'id': 'p', 'cost': cost, 'modelID': 'deepseek-v4.1-flash-free', 'providerID': 'opencode',
+def step(cost=0, model_id='deepseek-v4.1-flash-free', provider='opencode'):
+    part = {'messageID': 'm', 'id': 'p', 'cost': cost, 'modelID': model_id, 'providerID': provider,
             'tokens': {'input': 1, 'output': 1, 'reasoning': 0, 'cache': {'read': 0, 'write': 0}}}
     return [{'type': 'step_start', 'part': {'messageID': 'm'}}, {'type': 'step_finish', 'part': part}]
 
 
 class Smoke(unittest.TestCase):
-    def run_smoke(self, lines, account='opencode-go-key-2'):
+    def run_smoke(self, lines, account='opencode-go-key-2', variant='factory'):
         with tempfile.TemporaryDirectory() as tmp:
             secrets = Path(tmp) / 'secrets'; secrets.mkdir()
             (secrets / 'opencode-go-key').write_text('other-account-key\n')
@@ -39,7 +39,7 @@ class Smoke(unittest.TestCase):
             record = Path(tmp) / 'seen-key'
             with mock.patch.object(model_runtime, 'OPENCODE_BIN', fake_cli(tmp, lines, record)), \
                  mock.patch.object(model_runtime, '_opencode_flags', lambda binary: ()):
-                row = free_route_smoke.smoke(account, DEEPSEEK, secrets, timeout=30)
+                row = free_route_smoke.smoke(account, DEEPSEEK, secrets, timeout=30, variant=variant)
             seen = record.read_text().strip() if record.exists() else None
         self.assertNotIn(KEY, json.dumps(row))
         return row, seen
@@ -70,6 +70,18 @@ class Smoke(unittest.TestCase):
         route, clean = free_route_smoke._probe_environment('zen', DEEPSEEK, dict(env))
         cfg = json.loads(clean['OPENCODE_CONFIG_CONTENT'])
         self.assertEqual((route, cfg['provider']['opencode']['options']['baseURL']), (DEEPSEEK, 'https://opencode.ai/zen/v1'))
+
+    def test_a_go_answer_at_cost_zero_is_ok_and_a_reported_cost_still_stops(self):
+        go = dict(model_id='deepseek-v4.1-flash', provider='opencode-go')
+        row, seen = self.run_smoke(step(**go), variant='go')
+        self.assertEqual((row['ok'], row['billing'], row['route'], row['events_seen']),
+                         (True, 'subscription', 'opencode-go/deepseek-v4.1-flash', 2))
+        self.assertEqual(seen, KEY)
+        row, _ = self.run_smoke(step(cost=0.01, **go), variant='go')
+        self.assertEqual((row['ok'], row['error_class']), (False, 'cost_limit'))
+        # A silent Go call is not an answer.
+        row, _ = self.run_smoke([], variant='go')
+        self.assertFalse(row['ok'])
 
     def test_a_missing_account_file_is_reported_without_running(self):
         with tempfile.TemporaryDirectory() as tmp:
