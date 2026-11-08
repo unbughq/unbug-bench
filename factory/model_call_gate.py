@@ -731,19 +731,20 @@ CODEX_ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CODEX_HOME', 'SSL
 
 
 def free_environment(lease, env):
-    """OpenCode's own provider only, its one model, no user or project config, no self-update.
-    The provider entry (endpoint, key reference) comes from the runtime's config for this route."""
-    try: provider = json.loads(Path(env['OPENCODE_CONFIG']).read_text())['provider']['opencode']
+    """The route's one provider only (OpenCode's own, or NVIDIA), its one model, no user or project
+    config, no self-update. The provider entry (endpoint, key reference) comes from the runtime's config."""
+    name, _, model = lease.route.partition('/')
+    try: provider = json.loads(Path(env['OPENCODE_CONFIG']).read_text())['provider'][name]
     except (KeyError, OSError, ValueError, TypeError): raise BudgetError('route_feature_unsupported') from None
-    model = lease.route.partition('/')[2]
-    cfg = dict(model=lease.route, small_model=lease.route, enabled_providers=['opencode'],
+    cfg = dict(model=lease.route, small_model=lease.route, enabled_providers=[name],
                permission={'task': 'deny'}, compaction={'auto': True}, mcp={},
-               provider={'opencode': {**provider, 'whitelist': [model]}})
+               provider={name: {**provider, 'whitelist': [model]}})
     keys = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
             'FACTORY_STRATEGY_DIAGNOSTIC', 'FACTORY_STRATEGY_SECONDS', 'FACTORY_STRATEGY_WORKERS')
     clean = {k: env[k] for k in keys if k in env}
-    # Only a route that runs on an OpenCode account gets that account's key.
-    if lease.account and env.get('OPENCODE_API_KEY'): clean['OPENCODE_API_KEY'] = env['OPENCODE_API_KEY']
+    # Only a route that runs on an account gets that account's key, and only the key its provider reads.
+    key = 'NVIDIA_API_KEY' if name == 'nvidia' else 'OPENCODE_API_KEY'
+    if lease.account and env.get(key): clean[key] = env[key]
     clean.update(OPENCODE_CONFIG_CONTENT=json.dumps(cfg), OPENCODE_ENABLE_EXA='1', OPENCODE_PURE='1',
         OPENCODE_DISABLE_PROJECT_CONFIG='1', OPENCODE_DISABLE_AUTOUPDATE='1')
     return clean

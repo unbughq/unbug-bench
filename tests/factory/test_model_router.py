@@ -22,6 +22,7 @@ import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 import model_router as router
+from token_prices import NVIDIA_FIRST
 import model_runtime
 import budget
 import run
@@ -153,7 +154,8 @@ class RouterTests(unittest.TestCase):
         source, target = router.CHAINS[0]
         choices = router.routes(source)
         self.assertEqual([(r['route'], r['account'], r['billing']) for r in choices],
-                         [(source, 'opencode-go-key', 'free'), (source, 'opencode-go-key-2', 'free'), (target, 'openrouter-key', 'paid')])
+                         [('nvidia/deepseek-ai/deepseek-v4.1-flash', 'nvidia-key', 'free'),
+                          (source, 'opencode-go-key', 'free'), (source, 'opencode-go-key-2', 'free'), (target, 'openrouter-key', 'paid')])
         # Both OpenCode accounts' free lanes are tried before the paid route.
         first = self.acquire(source); self.observe(first, 'outage'); self.finish(first, 'interrupted')
         second = self.acquire(source)
@@ -257,7 +259,8 @@ class RouterTests(unittest.TestCase):
         for chain in router.CHAINS:
             for requested in chain:
                 rows = router.routes(requested)
-                self.assertEqual(rows[0]['route'], requested)
+                # A chain head is served first by NVIDIA, the same model (token_prices.NVIDIA_FIRST).
+                self.assertEqual(rows[0]['route'], NVIDIA_FIRST.get(requested, requested))
                 self.assertEqual({r['family'] for r in rows}, {model_runtime.family(requested)})
                 self.assertTrue(all(r['pool'] and r['billing'] in ('free', 'paid', 'subscription') for r in rows))
         self.assertEqual({r['account'] for r in router.routes('claude/claude-opus-5-5')}, {'claude-token', 'claude-factory-token-2'})

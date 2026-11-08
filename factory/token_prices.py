@@ -37,8 +37,18 @@ GATED_OPENROUTER = {
 
 # OpenCode's free routes (founder 2026-11-08). They have no gate: their money maximum is $0, and the
 # per-call reservation check (budget.check_reservation) stops a call the moment it books any cost.
-FREE_ROUTES = frozenset({'opencode/deepseek-v4.1-flash-free', 'opencode/minimax-m3.1-flash-free',
-                         'opencode/glm-5.3-flash-free'})
+OPENCODE_FREE_ROUTES = frozenset({'opencode/deepseek-v4.1-flash-free', 'opencode/minimax-m3.1-flash-free',
+                                  'opencode/glm-5.3-flash-free'})
+# NVIDIA's hosted inference (build.nvidia.com; OpenAI-compatible at integrate.api.nvidia.com/v1), founder
+# 2026-11-08: the same three models, no new family. Each is its model's first route, ahead of OpenCode's
+# free lanes and the paid fallback (model_router.routes), and is bounded at $0 like them. Keyed by the
+# model the rotation already requests, so no role's requested model changes.
+NVIDIA_URL = 'https://integrate.api.nvidia.com/v1'
+NVIDIA_FIRST = {'opencode/deepseek-v4.1-flash-free': 'nvidia/deepseek-ai/deepseek-v4.1-flash',
+                'opencode/minimax-m3.1-flash-free': 'nvidia/minimaxai/minimax-m3.1-flash',
+                'opencode/glm-5.3-flash-free': 'nvidia/z-ai/glm-5.3-flash'}
+NVIDIA_ROUTES = frozenset(NVIDIA_FIRST.values())
+FREE_ROUTES = OPENCODE_FREE_ROUTES | NVIDIA_ROUTES
 
 
 def free_maximum(route):
@@ -103,7 +113,7 @@ def invocation_maximum(model, bounds):
     elif model in GATED_OPENROUTER:
         prices = GATED_OPENROUTER[model]['prices']; rates = prices[0], prices[2]
     elif model in PAID_PRICES: rates = PAID_PRICES[model][:2]
-    elif isinstance(model, str) and model.endswith(('-free', ':free')): rates = (0, 0)
+    elif model in FREE_ROUTES or isinstance(model, str) and model.endswith(('-free', ':free')): rates = (0, 0)
     else: return None
     maximum = bounds['requests'] * (bounds['input_tokens'] * Decimal(str(rates[0]))
         + bounds['output_tokens'] * Decimal(str(rates[1]))) / 1000000 + fee

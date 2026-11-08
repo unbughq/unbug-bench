@@ -213,6 +213,20 @@ files. A free call that ends interrupted or denied leaves a plaintext end record
 the CLI produced, never provider text. `factory/free_route_smoke.py` makes one $0 call per free model
 per account and prints only those fields.
 
+NVIDIA's hosted inference (`integrate.api.nvidia.com`, OpenAI-compatible) serves the same three models
+as each one's first route, ahead of the OpenCode free lanes: `nvidia/deepseek-ai/deepseek-v4.1-flash`,
+`nvidia/minimaxai/minimax-m3.1-flash` and `nvidia/z-ai/glm-5.3-flash` (`token_prices.NVIDIA_FIRST`,
+keyed by the model the rotation already requests, so no requested model changes). They are free routes
+in every respect above: $0 maximum, stop at any booked cost or a step from another provider or model,
+never behind the wall, a plaintext end record when one does not finish. Usage is booked from the tokens
+NVIDIA reports; a step that reports no input tokens is `missing_usage` and moves to the next route. The
+call runs OpenCode's bundled OpenAI-compatible provider (`nvidia`) with only the `nvidia-key` account's
+key (`NVIDIA_API_KEY`). The lane (`nvidia-free:nvidia-key`) has 0 seats until router.json sets
+`capacities['nvidia-free']`, because no case material may go to NVIDIA before its logging and training
+terms are checked. A worker without the `nvidia-key` file leaves the lane out of its requests rather than
+waiting on it; workers get the file only when `worker_credentials.accounts` lists it.
+`free_route_smoke.py --account nvidia-key` sends one fixed toy prompt per NVIDIA model.
+
 Codex (`codex/gpt-6.1-sol`, the strong calibrator's other family) has no gate either. Its lease
 maximum is $50 at the Codex list price (`CODEX_PROFILES`), lowered by funding. The runtime reads Codex's
 own session log (`exec` without `--ephemeral`) every few seconds and books each request at list price as

@@ -22,7 +22,7 @@ import tempfile
 import time
 import uuid
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_CEILING
-from token_prices import CODEX_PRICES, CODEX_USAGE_FIELDS, codex_cost, codex_request_usages, claude_cost, claude_standard_usage
+from token_prices import CODEX_PRICES, CODEX_USAGE_FIELDS, FREE_ROUTES, NVIDIA_ROUTES, codex_cost, codex_request_usages, claude_cost, claude_standard_usage
 
 
 class BudgetError(RuntimeError):
@@ -1319,13 +1319,16 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         tokens_seen([tokens[k] for k in ('input', 'output', 'reasoning')] + list(tokens['cache'].values()))
         # A free route is checked only against OpenCode's own report (founder 2026-11-08), so a step from
         # any other provider or model stops it, once its cost is booked: that step could be billed somewhere.
-        if str(configured_model).endswith('-free') and str(configured_model).startswith('opencode/'):
+        if configured_model in FREE_ROUTES or (str(configured_model).endswith('-free') and str(configured_model).startswith('opencode/')):
             reported = (part.get('providerID', event.get('providerID')), part.get('modelID', event.get('modelID')))
             if any(v is not None for v in reported) and reported != tuple(str(configured_model).split('/', 1)):
                 raise BudgetError('free_route_mismatch')
+            # NVIDIA is booked from the tokens it reports: a step with no input tokens means no usage came back.
+            if configured_model in NVIDIA_ROUTES and not tokens['input'] and not tokens['cache']['read']:
+                raise BudgetError('missing_usage')
         if (part['cost'] == 0 and any([tokens[k] for k in ('input', 'output', 'reasoning')]
                                            + list(tokens['cache'].values()))
-                and not str(configured_model).endswith((':free', '-free'))):
+                and configured_model not in FREE_ROUTES and not str(configured_model).endswith((':free', '-free'))):
             raise BudgetError('unpriced_usage')
         check_limits()
 

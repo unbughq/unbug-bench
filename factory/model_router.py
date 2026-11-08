@@ -27,13 +27,16 @@ from urllib.parse import urlsplit
 import uuid
 
 from budget import BudgetError
-from token_prices import (GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, CODEX_PROFILES, FREE_ROUTES, claude_gate_maximum,
-                          codex_gate_maximum, free_maximum, openrouter_gate_maximum)
+from token_prices import (GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, CODEX_PROFILES, FREE_ROUTES, NVIDIA_FIRST,
+                          NVIDIA_ROUTES, claude_gate_maximum, codex_gate_maximum, free_maximum, openrouter_gate_maximum)
 
 WAIT_SECONDS, RENEW_SECONDS, LEASE_SECONDS = 60, 60, 180
 from worker_secrets import SECRETS
 ACCOUNTS = ('claude-token', 'claude-factory-token-2', 'opencode-go-key',
-            'opencode-go-key-2', 'codex-auth.json', 'openrouter-key')
+            'opencode-go-key-2', 'codex-auth.json', 'openrouter-key', 'nvidia-key')
+# Accounts a worker may lack: without the file, its lanes are left out of that worker's requests, so the
+# chain moves straight to its next route instead of waiting on a credential (_account_order).
+OPTIONAL_ACCOUNTS = ('nvidia-key',)
 CHAINS = (
     ('opencode/deepseek-v4.1-flash-free', 'openrouter/deepseek/deepseek-v4.1-flash'),
     # Founder 2026-11-08: MiniMax free falls back to the paid gated route, as DeepSeek free does
@@ -132,12 +135,14 @@ def routes(model, accounts=ACCOUNTS):
     if any(a not in ACCOUNTS for a in accounts): raise ValueError('unapproved account')
     if model == 'opencode-go/deepseek-v4.1-flash': model = CHAINS[0][0]
     chain = next((list(c) if c[0] == model else [model, c[0]] for c in CHAINS if model in c), [model])
+    # Founder 2026-11-08: NVIDIA's hosted inference serves the same model first, at $0 (token_prices.NVIDIA_FIRST).
+    if chain[0] in NVIDIA_FIRST: chain.insert(0, NVIDIA_FIRST[chain[0]])
     result = []
     for route in chain:
         billing = ('subscription' if route.startswith(('claude/', 'codex/', 'opencode-go/')) else
-                   'free' if route.endswith(('-free', ':free')) else 'paid')
+                   'free' if route in FREE_ROUTES or route.endswith(('-free', ':free')) else 'paid')
         labels = (('claude-factory-token-2', 'claude-token') if route.startswith('claude/') else ('codex-auth.json',) if route.startswith('codex/') else
-                  ('openrouter-key',) if route.startswith('openrouter/') else
+                  ('openrouter-key',) if route.startswith('openrouter/') else ('nvidia-key',) if route in NVIDIA_ROUTES else
                   ACCOUNTS[2:4] if route.startswith(('opencode-go/', 'opencode/')) else (None,))
         if labels != (None,):
             labels = tuple(a for a in (labels if route.startswith('claude/') else accounts)
@@ -160,13 +165,16 @@ FREE_ERROR_COLUMNS = ('lease_id', 'pool', 'route', 'account', 'outcome', 'error_
 
 
 def free_pool(account):
-    return 'opencode-free:' + account
+    return ('nvidia-free:' if account == 'nvidia-key' else 'opencode-free:') + account
 
 
 def lane_capacity(capacities, pool):
     """Seats for a pool. Each account's free lane takes capacities['opencode-free-account'] unless named;
-    'opencode-free' is only the old anonymous lane, so closing it never closes the account lanes."""
+    'opencode-free' is only the old anonymous lane, so closing it never closes the account lanes.
+    NVIDIA's lane is closed (0 seats) unless capacities['nvidia-free'] or the pool's own name opens it:
+    no case material goes to NVIDIA until the founder has checked its logging and training terms."""
     if pool in capacities: return capacities[pool]
+    if pool.startswith('nvidia-free:'): return capacities.get('nvidia-free', 0)
     return capacities.get('opencode-free-account', 1) if pool.startswith('opencode-free:') else 1
 
 
@@ -421,7 +429,9 @@ class Store:
                 if not finite(data['deadline']) or not now < data['deadline']: raise ValueError('expired admission deadline')
                 choices = [r for r in _bounded_routes(data['model'], [a for a in data['accounts'] if a in self.accounts], data.get('funding_usd'))
                            if (r['route'] not in GATED_OPENROUTER or type(data.get('paid_protocol')) is int and data['paid_protocol'] == 1)
-                           and eligible(r) and r['pool'] + '/' + r['route'] not in data.get('excluded_lanes', [])]
+                           and eligible(r) and r['pool'] + '/' + r['route'] not in data.get('excluded_lanes', [])
+                           # A closed NVIDIA lane is no choice at all, so it never becomes the route a wait names.
+                           and not (r['route'] in NVIDIA_ROUTES and not lane_capacity(self.capacities, r['pool']))]
                 payload = json.dumps(data, sort_keys=True, allow_nan=False)
                 previous = db.execute('SELECT payload FROM requests WHERE id=?', (identity,)).fetchone()
                 if previous and previous[0] != payload: raise ValueError('attempt id changed')
@@ -622,7 +632,9 @@ def _account_order(case):
     LABELS = {'opencode': {1: 'opencode-go-key', 2: 'opencode-go-key-2'},
               'claude': {1: 'claude-token', 2: 'claude-factory-token-2', 3: 'claude-factory-token-3'}}
     preferred = {LABELS[p].get(n) for p,n in (case.card.get('provider_accounts') or {}).items() if p in LABELS}
-    return sorted(getattr(case, 'router_accounts', ACCOUNTS),
+    accounts = [a for a in getattr(case, 'router_accounts', ACCOUNTS)
+                if a not in OPTIONAL_ACCOUNTS or (SECRETS / a).is_file()]
+    return sorted(accounts,
                   key=lambda a: (not (SECRETS / a).is_file(), a not in preferred))
 
 

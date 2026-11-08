@@ -13,15 +13,35 @@ ENDPOINTS = {'opencode/deepseek-v4.1-flash-free': 'https://opencode.ai/inference
 
 def provider_config(case, model):
     """Native free routes, each run on one of the two OpenCode accounts (founder 2026-11-08): the
-    router leases the account and model_call_gate.free_environment passes only that account's key."""
-    from token_prices import FREE_ROUTES
+    router leases the account and model_call_gate.free_environment passes only that account's key.
+    An NVIDIA route is its own OpenAI-compatible provider ('nvidia') on the nvidia-key account."""
+    from token_prices import FREE_ROUTES, NVIDIA_ROUTES
     if model not in FREE_ROUTES:
         raise ValueError('unapproved free route')
+    if model in NVIDIA_ROUTES:
+        return nvidia_provider(model)
     row = json.loads(CONFIG.read_text()).get('cases', {}).get(case) if CONFIG.is_file() else None
     if row and row.get('opencode_account') not in (1, 2):
         raise ValueError('original OpenCode account not verified')
     options = {'baseURL': ENDPOINTS[model], 'apiKey': '{env:OPENCODE_API_KEY}'}
     return {'options': options, 'whitelist': [model.split('/', 1)[1]]}
+
+
+def provider_name(model):
+    """The OpenCode provider a free route runs on: 'opencode' or 'nvidia'."""
+    return model.partition('/')[0]
+
+
+def nvidia_provider(model):
+    """OpenCode's bundled OpenAI-compatible SDK pointed at NVIDIA, this one model only, priced at $0 so
+    OpenCode books the reported tokens at no cost; any cost it does book stops the call
+    (budget.check_reservation). includeUsage asks for token counts on the streamed reply."""
+    from token_prices import NVIDIA_URL
+    model_id = model.partition('/')[2]
+    return {'npm': '@ai-sdk/openai-compatible', 'name': 'NVIDIA',
+            'options': {'baseURL': NVIDIA_URL, 'apiKey': '{env:NVIDIA_API_KEY}', 'includeUsage': True},
+            'models': {model_id: {'name': model_id, 'cost': {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0}}},
+            'whitelist': [model_id]}
 
 
 def selected(case, args):

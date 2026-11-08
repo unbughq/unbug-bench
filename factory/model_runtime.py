@@ -182,10 +182,10 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
     # Founder 2026-10-19: OpenCode v1.x answers Muse with "Invalid credential" unless the opencode provider points at Zen.
     cfg["provider"]["opencode"] = {"options": {"baseURL": "https://opencode.ai/zen/v1"}}
     if model in FREE_ROUTES:
-        from free_models import provider_config
-        cfg["provider"]["opencode"] = provider_config(case, model)
+        from free_models import provider_config, provider_name
+        cfg["provider"][provider_name(model)] = provider_config(case, model)
         cfg["small_model"] = model
-        path = path.with_name("factory-opencode-" + model.split("/", 1)[1] + ".json")
+        path = path.with_name("factory-" + model.replace("/", "-") + ".json")
     elif model and model.startswith(("openrouter/", "opencode-go/")):
         cfg["small_model"] = model  # compaction follows the same approved provider/model
         path = path.with_name("factory-" + model.replace("/", "-").replace(":", "-") + ".json")
@@ -201,6 +201,7 @@ def diagnosis_environment(env, driver, lease, home):
     clean.update(HOME=str(home), TMPDIR=str(home / '.cache'))
     key = ('CLAUDE_CODE_OAUTH_TOKEN' if driver == 'claude' else
            'OPENROUTER_API_KEY' if lease.account == 'openrouter-key' else
+           'NVIDIA_API_KEY' if lease.account == 'nvidia-key' else
            'OPENCODE_API_KEY' if driver == 'opencode' and lease.account else None)
     if key and key in env: clean[key] = env[key]
     return clean
@@ -444,7 +445,8 @@ class ModelRuntime:
                             provider_failure={'reason': 'credential_expiring', 'scope': 'account', 'model': lease.route})
                     if lease.account and lease.account != 'codex-auth.json':
                         key = ('CLAUDE_CODE_OAUTH_TOKEN' if lease.account.startswith('claude') else
-                               'OPENROUTER_API_KEY' if lease.account == 'openrouter-key' else 'OPENCODE_API_KEY')
+                               'OPENROUTER_API_KEY' if lease.account == 'openrouter-key' else
+                               'NVIDIA_API_KEY' if lease.account == 'nvidia-key' else 'OPENCODE_API_KEY')
                         context.model_env[key] = (model_router.SECRETS / lease.account).read_text().rstrip('\n')
                     limit = duration - active_seconds
                     if deadline is not None: limit = min(limit, deadline - time.monotonic())

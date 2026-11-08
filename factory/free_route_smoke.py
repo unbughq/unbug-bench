@@ -1,7 +1,11 @@
-"""One $0 call per free model per OpenCode account, to check each answers before going free-first.
+"""One $0 call per free model per account, to check each answers before going free-first.
 
     python3 factory/free_route_smoke.py [--secrets DIR] [--account opencode-go-key] [--model opencode/...]
                                         [--variant factory --variant zen --variant go]
+    python3 factory/free_route_smoke.py --account nvidia-key      # NVIDIA's three routes only
+
+The NVIDIA routes (nvidia/...) run on the nvidia-key account with the factory variant only. The
+prompt is the fixed toy line below: no case material is ever sent.
 
 Each call runs exactly as a factory free call does: OpenCode's own provider only, that one model,
 that one account's key (model_call_gate.free_environment), scratch config dirs, and a budget that
@@ -34,9 +38,16 @@ import budget
 import model_call_gate
 import model_router
 import model_runtime
-from token_prices import FREE_ROUTES
+from token_prices import FREE_ROUTES, NVIDIA_ROUTES
 
-ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')
+ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2', 'nvidia-key')
+
+
+def pairs(account, model):
+    """An NVIDIA route runs only on nvidia-key; an OpenCode free route only on an OpenCode account."""
+    return (model in NVIDIA_ROUTES) == (account == 'nvidia-key')
+
+
 PROMPT = 'Reply with the single word OK.'
 # Any booked cost stops the call: the free routes are bounded at $0.
 STOP_AT_ANY_COST = 1e-9
@@ -65,7 +76,8 @@ def _probe_environment(variant, model, env):
 
 
 def smoke(account, model, secrets, timeout=180, *, variant='factory', run=budget.run_budgeted):
-    if account not in ACCOUNTS or model not in FREE_ROUTES or variant not in VARIANTS:
+    if (account not in ACCOUNTS or model not in FREE_ROUTES or variant not in VARIANTS or not pairs(account, model)
+            or (model in NVIDIA_ROUTES and variant != 'factory')):
         raise ValueError('unapproved free route')
     row = {'account': account, 'model': model, 'variant': variant, 'ok': False, 'seconds': None, 'error_class': None,
            'http_status': None, 'error_name': None, 'events_seen': None}
@@ -79,7 +91,8 @@ def smoke(account, model, secrets, timeout=180, *, variant='factory', run=budget
     scratch = Path(tempfile.mkdtemp(prefix='free-route-smoke-'))
     started = time.monotonic()
     try:
-        env = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': str(scratch), 'OPENCODE_API_KEY': key,
+        env = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': str(scratch),
+               ('NVIDIA_API_KEY' if account == 'nvidia-key' else 'OPENCODE_API_KEY'): key,
                'OPENCODE_CONFIG': str(model_runtime.opencode_config(model)),
                **{name: str(scratch / name.lower()) for name in ('XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME')}}
         route, env = _probe_environment(variant, model, env)
@@ -111,15 +124,16 @@ def smoke(account, model, secrets, timeout=180, *, variant='factory', run=budget
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('--secrets', default=str(model_router.SECRETS), help='directory holding the account files')
-    parser.add_argument('--account', action='append', choices=ACCOUNTS, help='default: both')
+    parser.add_argument('--account', action='append', choices=ACCOUNTS, help='default: all three')
     parser.add_argument('--model', action='append', choices=sorted(FREE_ROUTES), help='default: all free models')
     parser.add_argument('--variant', action='append', choices=VARIANTS, help='default: factory')
     parser.add_argument('--timeout', type=int, default=180)
     args = parser.parse_args(argv)
     failed = False
     for account in args.account or ACCOUNTS:
-        for model in args.model or sorted(FREE_ROUTES):
+        for model in [m for m in args.model or sorted(FREE_ROUTES) if pairs(account, m)]:
             for variant in args.variant or ('factory',):
+                if model in NVIDIA_ROUTES and variant != 'factory': continue
                 row = smoke(account, model, args.secrets, args.timeout, variant=variant)
                 failed |= not row['ok']
                 print(json.dumps(row, sort_keys=True), flush=True)
