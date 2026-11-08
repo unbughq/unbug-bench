@@ -55,8 +55,8 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(normalized['provider'], dict(only=['tenstorrent/fp8'], allow_fallbacks=False,
             require_parameters=True, max_price=dict(prompt=.05, completion=.2, request=0, image=0)))
         self.assertEqual(normalized['max_tokens'], 32768)
-        for route in ('opencode/minimax-m3.1-flash-free', 'openrouter/minimax/minimax-m3.1-flash:free'):
-            self.assertIsNone(router.route_maximum(route))
+        self.assertEqual(router.route_maximum('opencode/minimax-m3.1-flash-free')['max_usd'], 0)
+        self.assertIsNone(router.route_maximum('openrouter/minimax/minimax-m3.1-flash:free'))
         self.assertNotIn(MINIMAX, [r['route'] for r in router.routes('opencode/minimax-m3.1-flash-free')])
 
     def test_current_minimax_official_endpoint_contract(self):
