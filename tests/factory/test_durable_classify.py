@@ -395,7 +395,10 @@ class Secrecy(unittest.TestCase):
         from durable.classify import IMPORT_REASONS
         from durable.steps.admit import IMPORT_REFUSALS
         self.assertEqual(IMPORT_REASONS, {'admit:' + code for code in IMPORT_REFUSALS})
-        self.assertTrue(PUBLISHED_REASONS <= REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS | IMPORT_REASONS)
+        from durable.classify import REJECTION_REASONS
+        from durable.admission_reasons import REJECTION_CODES
+        self.assertEqual(REJECTION_REASONS, {'admit:' + code for code in REJECTION_CODES})
+        self.assertTrue(PUBLISHED_REASONS <= REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS | IMPORT_REASONS | REJECTION_REASONS)
         self.assertTrue(all(REASON.fullmatch(r) for r in PUBLISHED_REASONS))
         self.assertNotIn("router:refusal", PUBLISHED_REASONS)
         from durable.classify import PREFLIGHT_ROLES
