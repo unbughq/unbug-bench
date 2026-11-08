@@ -56,7 +56,9 @@ automatically recoverable. Unit tests do not qualify a live worker release.
 references and package interfaces. Its reviewed change permits restoring ADMIT
 checkpoints; the wire fields remain the same. The candidate integrates the DBOS engine, executor,
 Boat worker pool/channel, worker-side steps, SQL ledger and wrapped-key service.
-`guard.py` is the campaign's minute-by-minute check: failures pause new attempts. Only a money,
+`guard.py` is the campaign's minute-by-minute check, for one batch (`batch_id`) or several started side
+by side (`batch_ids`: each keeps its own bound, the campaign finishes when all are terminal, and one live
+worker per watched batch is allowed): failures pause new attempts. Only a money,
 deadline or confirmed Boat limit is a hard stop: after a bounded checkpoint grace the guard stops the
 controller and deletes the workers. On SIGTERM the engine drains, then
 exits without touching DBOS again, and systemd restarts it unless an operator stopped it.
