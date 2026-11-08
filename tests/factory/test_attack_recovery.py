@@ -107,6 +107,26 @@ class AttackRecoveryTests(unittest.TestCase):
         self.assertEqual([call.args[4] for call in writer.call_args_list], ['builder-2'])
         self.early_review.assert_not_called()
 
+    def test_a_retry_from_a_receipt_without_a_round_start_is_not_called_unchanged(self):
+        # f46dac-2's held snapshot: written before receipts carried the round start, after the
+        # writer's interrupted edits. Its first retried call cannot be judged unchanged.
+        feedback = self.stress('{"complete": false, "blocking": ["reference misses stock update"]}')['feedback']
+        (self.c.case / 'repair.txt').write_text('edits of the interrupted call')
+        (self.c.work / 'attack-state.json').write_text(json.dumps({"engine": True, "round": 2, "call": 1,
+            "binding": {}, "report": "round-2.json", "repair_pending": True}))
+        self.step(StepKind.WRITER, 2)
+        with patch.object(run, 'opencode', return_value=0):
+            self.assertEqual(run.engine_writer_round(self.c, 2, feedback)['outcome'], Outcome.OK)
+
+    def test_a_round_start_from_other_feedback_is_not_reused(self):
+        feedback = self.stress('{"complete": false, "blocking": ["reference misses stock update"]}')['feedback']
+        (self.c.work / 'attack-state.json').write_text(json.dumps({"engine": True, "round": 2, "call": 1,
+            "round_start": {"case": "0" * 64, "feedback": "f" * 64}, "repair_pending": True}))
+        self.step(StepKind.WRITER, 2)
+        with patch.object(run, 'opencode', return_value=0):
+            result = run.engine_writer_round(self.c, 2, feedback)
+        self.assertEqual(result, {'outcome': Outcome.EXHAUSTED, 'reason': 'writer:unchanged_repair'})
+
 
 if __name__ == "__main__":
     unittest.main()
