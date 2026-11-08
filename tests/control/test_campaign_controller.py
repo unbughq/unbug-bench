@@ -190,11 +190,34 @@ class ControllerTests(unittest.TestCase):
         bound = json.loads((self.root / "campaign-compute-bound.json").read_text())
         self.assertEqual((bound["max_running_sandboxes"], bound["max_starts_per_hour"]), (3, 30))
 
+    def test_a_slow_inventory_is_timed_after_it_answers(self):
+        # Review of PR #40: an inventory call that takes 120 s must not backdate the start or stretch the TTL.
+        clock = [1000.0]
+        orig = self.pool._inventory
+        def slow():
+            clock[0] += 120
+            self.pool._inventory = orig   # only the first lookup is slow
+            return orig()
+        self.pool._inventory = slow
+        self.request["deadline_epoch"] = 2000
+        self.request["max_running_sandboxes"] = 20
+        self.request["approved_infrastructure_usd"] = 100
+        self.write()
+        with mock.patch("time.time", lambda: clock[0]):
+            self.create()
+            self.assertEqual(json.loads((self.root / "campaign-starts.json").read_text()), [1120.0])
+            self.assertEqual(self.pool.created[0][1], 2000 + 600 - 1120)   # expires at deadline + grace
+            for _ in range(STARTS_PER_MINUTE - 1):
+                self.pool._delete_raw(self.create())
+            with self.assertRaises(PoolError) as caught:
+                self.create()
+        self.assertEqual(caught.exception.reason, "infra:worker_start_rate")
+
     def test_reserve_start_keeps_one_day_of_starts(self):
         path = self.root / "starts.json"
         now = time.time()
         path.write_text(json.dumps([now - 90000, now - 100]))
-        reserve_start(path, self.request, lambda: 0, now)
+        self.assertEqual(reserve_start(path, self.request, lambda: 0, lambda: now), now)
         self.assertEqual(json.loads(path.read_text()), [now - 100, now])
 
 

@@ -71,11 +71,12 @@ class BoundedRuntime(Runtime):
    with open(self.state/'campaign-create.lock','a') as lock:
     fcntl.flock(lock,fcntl.LOCK_EX)
     request=json.loads((root/'campaign-request.json').read_text())
-    remaining=request['deadline_epoch']-time.time()
+    if request['deadline_epoch']-time.time()<1:raise PoolError('infra:campaign_deadline')
+    # Timed after the inventory lookup inside reserve_start, right before the create request.
+    now=reserve_start(self.state/'campaign-starts.json',request,running)
+    remaining=request['deadline_epoch']-now
     if remaining<1:raise PoolError('infra:campaign_deadline')
-    remaining+=grace()
-    reserve_start(self.state/'campaign-starts.json',request,running,time.time())
-    self.pool.ttl=min(7200,int(remaining))
+    self.pool.ttl=min(7200,int(remaining+grace()))
     worker=create(case,bench)
    assess(worker)
    return worker
