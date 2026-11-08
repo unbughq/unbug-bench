@@ -110,6 +110,7 @@ class AdmitTests(unittest.TestCase):
         self.worker = worker_step.Worker(self.home, sealer=AgeSealer(), runner=run)
         self.case_key, self.batch_key = os.urandom(32), os.urandom(32)
         self.calls, self.duplicate, self.model_error = [], None, None
+        self.second_agrees, self.second_judges = True, []
         # External search/model boundaries only; statement_precheck and idea_realism are real.
         self.freshness = patch.object(run, "_g2", return_value=(True, {"outcome": "fresh"})).start()
         self.addCleanup(patch.stopall)
@@ -135,6 +136,14 @@ class AdmitTests(unittest.TestCase):
         elif name == "reviewer-idea-realism":
             target = text.split('Write JSON to ')[1].split(': {')[0]
             pathlib.Path(target).write_text(json.dumps({"approve": True, "reason": "plausible"}))
+        elif name == "second-opinion-dedup":
+            self.second_judges.append(models[0])
+            target = json.loads(text.rsplit("\n", 1)[-1])["result_path"]
+            pathlib.Path(target).write_text(json.dumps({"same_bug": self.second_agrees, "reason": "checked"}))
+        elif name == "second-opinion-idea-realism":
+            self.second_judges.append(models[0])
+            target = text.split('Write JSON to ')[1].split(': {')[0]
+            pathlib.Path(target).write_text(json.dumps({"approve": not self.second_agrees, "reason": "checked"}))
         else:
             raise AssertionError("unexpected model invocation: " + name)
         if kwargs.get("on_complete"):
@@ -391,7 +400,7 @@ class AdmitTests(unittest.TestCase):
         # The fake builder proposes the same idea again; those tries judged nothing.
         self.assertEqual([r["codes"] for r in c.card["rejected_candidates"]], [
             {"screen": "dedup", "evidence": "board_duplicate", "judge_family": "z-ai",
-             "duplicate_of": CASE, "duplicate_status": "screening"}]
+             "duplicate_of": CASE, "duplicate_status": "screening", "second_family": "xiaomi", "agreed": True}]
             + [{"screen": "other", "evidence": "repeat_candidate"}] * 2)
         self.assertEqual(c.card["admission"]["reason"], "dedup_board_duplicate")
         self.assertIn("easy-calibrator-dedup", self.calls)
@@ -459,6 +468,40 @@ class AdmitTests(unittest.TestCase):
             registry = result.registry
         self.calls.clear()
         return registry
+
+    def test_a_second_family_that_disagrees_lets_the_idea_through(self):
+        from dataclasses import replace
+        text = "# Candidate\n\nOversell under checkout."
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(self.real_inputs(text)).encode())
+        empty = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        first, blobs = self.run_admit(self.step(inputs, empty))
+        (self.home / "durable/blobs" / worker_step.blob_name(first.registry)).write_bytes(blobs[worker_step.blob_name(first.registry)])
+        # GLM calls it a duplicate; the second family (the reviewer, not the writer or GLM) disagrees.
+        self.duplicate, self.second_agrees = CASE, False
+        self.selected = "# Candidate\n\nA different bug: refunds exceed the order."
+        second_input = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(self.real_inputs(self.selected)).encode())
+        second = replace(self.step(second_input, first.registry), case_id="case-second")
+        result, outputs = self.run_admit(second)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:selected"))
+        self.assertEqual(self.second_judges, ["openrouter/xiaomi/mimo-v2.6-pro"])
+        work, c = self.restore(second, result, outputs)
+        self.assertEqual(c.card["dedup"]["duplicate_of"], CASE)
+        self.assertEqual(c.card["dedup"]["second_opinion"], {"second_family": "xiaomi", "agreed": False})
+        from durable.admission_reasons import inspect_snapshot
+        self.assertEqual(inspect_snapshot(self.output(result.snapshot, outputs))["overturned"], ["dedup"])
+
+    def test_second_opinion_refuses_without_a_separate_family(self):
+        c = SimpleNamespace(models={"builder": ["openrouter/minimax/minimax-m3.1-flash"],
+                                    "attacker": ["openrouter/z-ai/glm-5.3-flash"],
+                                    "reviewers": [["openrouter/minimax/minimax-m3"]],
+                                    "easy_calibrator": ["openrouter/z-ai/glm-5.3-flash"]})
+        with self.assertRaises(ValueError):
+            run.second_opinion_chain(c, c.models["easy_calibrator"], (("reviewers", 0), ("attacker", None)))
+        # A free route is preferred among eligible judges.
+        c.models["reviewers"] = [["openrouter/xiaomi/mimo-v2.6-pro"]]
+        c.models["attacker"] = ["opencode/deepseek-v4.1-flash-free"]
+        self.assertEqual(run.second_opinion_chain(c, c.models["easy_calibrator"], (("reviewers", 0), ("attacker", None))),
+                         ["opencode/deepseek-v4.1-flash-free"])
 
     def test_board_dedup_records_only_groups_and_never_changes_the_board(self):
         from dataclasses import replace
@@ -647,7 +690,8 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:realism_rejected"))
         work, c = self.restore(step_input, result, outputs)
         self.assertEqual(c.card["rejected_candidates"][0]["codes"],
-                         {"screen": "realism", "evidence": "rejected", "judge_family": "xiaomi"})
+                         {"screen": "realism", "evidence": "rejected", "judge_family": "xiaomi",
+                          "second_family": "z-ai", "agreed": True})
         self.assertNotIn("private-reason-sentinel", json.dumps(c.card["rejected_candidates"]))
 
     def test_import_refuses_another_app_pin_or_an_unreadable_archive(self):

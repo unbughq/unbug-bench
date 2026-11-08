@@ -74,6 +74,8 @@ _FIXED = {
     "admission_dedup_invalid": (_I, "admit:dedup_invalid"),
     "admission_idea_review_unavailable": (_I, "admit:idea_review_unavailable"),
     "admission_idea_review_invalid": (_I, "admit:idea_review_invalid"),
+    "admission_second_opinion_unavailable": (_I, "admit:second_opinion_unavailable"),
+    "admission_second_opinion_invalid": (_I, "admit:second_opinion_invalid"),
     "freshness_evidence_unavailable": (_I, "infra:freshness_evidence_unavailable"),
     "freshness_review_unavailable": (_I, "infra:freshness_review_unavailable"),
     "freshness_repair_state_invalid": (_I, "infra:freshness_repair_state_invalid"),
