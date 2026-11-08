@@ -25,7 +25,7 @@ import subprocess
 import threading
 
 from durable.artifacts import AgeSealer, LocalObjects, R2Objects, SealedStore, check_scope
-from durable.contract import ArtifactKind, BatchSpec, Ref, assert_no_conductor, batch_spec_from_record
+from durable.contract import ArtifactKind, BatchSpec, CASE_ID, Ref, assert_no_conductor, batch_spec_from_record
 from durable.guard import degraded as guard_degraded
 from durable.keys import AgeKeyService
 from durable.ledger import SqlLedger
@@ -256,7 +256,7 @@ class Runtime:
         self.store.put_sealed(scope, ref, ciphertext)
         return ref
 
-    def start(self, spec_record, registry_record, import_record=None):
+    def start(self, spec_record, registry_record, import_record=None, resume_of=None):
         spec = batch_spec_from_record(spec_record)
         registry = Ref(**registry_record)
         if registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
@@ -281,6 +281,31 @@ class Runtime:
             if (type(declared) is not int or declared < 0
                     or declared + spec.case_money_usd_micros > BatchSpec.case_money_usd_micros):
                 raise RuntimeErrorCode("import_invalid")
+        if resume_of is not None:
+            # A case stopped by an infrastructure failure continues as this batch's only case, under its
+            # own case ID (engine.resume_point checks it may). Its earlier spend plus this batch's case
+            # money stays within one case's default ceiling, as for an import.
+            if import_record is not None or spec.max_cases_started != 1 or not (
+                    type(resume_of) is str and CASE_ID.fullmatch(resume_of)):
+                raise RuntimeErrorCode("resume_invalid")
+            from dbos import DBOS
+            old_batch = "b-" + resume_of[len("case-"):].rsplit("-", 1)[0]
+            rows = DBOS.list_workflows(workflow_ids=[old_batch], load_output=False)
+            if not rows:
+                raise RuntimeErrorCode("resume_invalid")
+            old_inputs = batch_spec_from_record(rows[0].input["args"][0]["spec"]).inputs
+            try:   # an imported case also carries the spend its import declared
+                carried = json.loads(self.sealer.open(self.keys.scope_key(old_batch), old_inputs,
+                    self.store.get_sealed(old_batch, old_inputs))).get("import_spent_usd_micros") or 0
+            except (ValueError, AttributeError):
+                carried = 0
+            # Each earlier resume ran as "<case>@<batch>" and charged its own batch.
+            resumed = [w.workflow_id.partition("@")[2] for w in
+                       DBOS.list_workflows(workflow_id_prefix=resume_of + "@", load_input=False, load_output=False)]
+            used = carried + sum(self.ledger.case_balance(b, resume_of, 0)["used"]
+                                 for b in sorted({old_batch, *resumed}))
+            if type(carried) is not int or used + spec.case_money_usd_micros > BatchSpec.case_money_usd_micros:
+                raise RuntimeErrorCode("resume_money")
         from dbos import DBOS
         existing = DBOS.get_workflow_status(spec.batch_id)
         if existing is not None and existing.status not in ("PENDING", "ENQUEUED"):
@@ -295,7 +320,7 @@ class Runtime:
         if hold is not None and hold + 1 > min(spec.money_bound_usd_micros, spec.case_money_usd_micros):
             raise RuntimeErrorCode("bound_below_call_hold")
         self.releases.bundle(spec.plumbing_version)
-        self.engine.start_batch(spec, registry, imported)
+        self.engine.start_batch(spec, registry, imported, resume_of)
         return {"batch_id": spec.batch_id}
 
     def drain(self):

@@ -626,7 +626,16 @@ def engine_main(workdir):
         case = case_id_for(spec.batch_id, 1)
         imported, ct = fakes["sealer"].seal(fakes["keys"].scope_key(case), ArtifactKind.CASE_SNAPSHOT, b"legacy import")
         fakes["store"].put_sealed(case, imported, ct)
-    handle = engine.start_batch(spec, registry, imported)
+    if scenario.get("resume_of"):
+        from durable.contract import ContractError
+        try:
+            handle = engine.start_batch(spec, registry, None, scenario["resume_of"])
+        except ContractError as error:
+            (work / "result.json").write_text(json.dumps({"refused": str(error)}))
+            print("ENGINE-DONE", flush=True)
+            os._exit(0)
+    else:
+        handle = engine.start_batch(spec, registry, imported)
     from dbos import DBOS
 
     stop = threading.Event()
