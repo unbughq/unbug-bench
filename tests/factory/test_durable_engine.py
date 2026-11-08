@@ -478,6 +478,18 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(start(r, f"{C1}/3/stress:1/2")["opened"]["snapshot"], f"snapshot {C1}/2/writer:1/1")
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
+    def test_short_sleep_keeps_the_worker(self):
+        # Waits up to release_worker_after_sleep_s retry on the same worker, so a rate limit spends
+        # no creation allowance (8 November: five cases' 15-minute waits used all 24).
+        r, out = run({"spec": {"release_worker_after_sleep_s": 60.0},
+                      "script": {"1/stress:1/1": {"outcome": "provider_limit", "reason": "router:rate",
+                                                  "retry_in": 1.0, "paid": 0}}})
+        self.addCleanup(r.close)
+        self.assertNotIn({"op": "release", "case": C1, "worker": "w-1-1"},
+                         [{k: v for k, v in x.items() if k != "t"} for x in r.pool_log()][:-1])
+        self.assertEqual(start(r, f"{C1}/3/stress:1/2")["worker"], "w-1-1")
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
     def test_stop_admission(self):
         r, out = run({"spec": {"target_sealed": 2},
                       "script": {"1/admit/1": {"outcome": "exhausted", "reason": "admit:no_fresh_bug"},

@@ -677,8 +677,12 @@ class _Case:
                 continue
             if action is Action.SLEEP:
                 seconds = wait_seconds(result.retry_at, now_step())
-                # A sequence of short waits must not monopolize worker capacity.
-                self.release_worker()
+                # A short wait keeps its worker: releasing it made every retry create a new one,
+                # and on 8 November the 15-minute rate waits of five cases spent the campaign's
+                # whole creation allowance. Only a wait past release_worker_after_sleep_s releases it.
+                if (not DBOS.patch('short_sleep_keeps_worker')
+                        or seconds > self.spec.release_worker_after_sleep_s):
+                    self.release_worker()
                 DBOS.sleep(seconds)
                 continue
             if action is Action.WAIT_FOR_BOUND:
