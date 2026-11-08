@@ -59,6 +59,18 @@ class Smoke(unittest.TestCase):
         self.assertFalse(row['ok'])
         self.assertEqual(row['error_class'], 'cost_limit')
 
+    def test_the_zen_and_go_variants_use_their_endpoint_and_model_id(self):
+        env = {'PATH': '/bin', 'HOME': '/h', 'XDG_CONFIG_HOME': 'c', 'XDG_DATA_HOME': 'd', 'XDG_CACHE_HOME': 'e',
+               'OPENCODE_API_KEY': KEY, 'OPENROUTER_API_KEY': 'other'}
+        route, clean = free_route_smoke._probe_environment('go', DEEPSEEK, dict(env))
+        cfg = json.loads(clean['OPENCODE_CONFIG_CONTENT'])
+        self.assertEqual((route, cfg['enabled_providers'], cfg['provider']['opencode-go']['whitelist']),
+                         ('opencode-go/deepseek-v4.1-flash', ['opencode-go'], ['deepseek-v4.1-flash']))
+        self.assertNotIn('OPENROUTER_API_KEY', clean)
+        route, clean = free_route_smoke._probe_environment('zen', DEEPSEEK, dict(env))
+        cfg = json.loads(clean['OPENCODE_CONFIG_CONTENT'])
+        self.assertEqual((route, cfg['provider']['opencode']['options']['baseURL']), (DEEPSEEK, 'https://opencode.ai/zen/v1'))
+
     def test_a_missing_account_file_is_reported_without_running(self):
         with tempfile.TemporaryDirectory() as tmp:
             row = free_route_smoke.smoke('opencode-go-key', DEEPSEEK, tmp)
