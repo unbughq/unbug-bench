@@ -333,7 +333,7 @@ def _recertify(card, routes):
     from run import RECERTIFY_KEPT
     gates, models, roles = card.get("gates"), card.get("models"), card.get("roles")
     if (card.get("dry_run") is not False or card.get("failed_gate") is not None or not isinstance(gates, dict)
-            or any(gates.get(g) != "pass" for g in (*RECERTIFY_KEPT, "G3", "G10", "G11"))
+            or any(gates.get(f"G{i}") != "pass" for i in range(1, 16) if i != 12)
             or not isinstance(models, dict) or not isinstance(roles, dict)):
         raise _Invalid("import_recertify")
     pairs = [("builder", "writer"), ("attacker", "stress_tester"), ("strong_calibrator", "strong_calibrator"),

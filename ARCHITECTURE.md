@@ -178,8 +178,8 @@ walled calibrator can no longer lease); reviewers stay, since the exam's owner c
 the reviewer. Every role still needs a bounded route: the admission screens and GATES rerun the
 freshness check, and expired October search evidence is topped up by the writer and stress
 tester. ADMIT then answers `admit:imported_sealed`, and the engine skips WRITER
-and STRESS: GATES keeps the October verdicts for `run.RECERTIFY_KEPT` and runs only G3 (to
-prepare the worker's runtime), G16, G10, G17 and G11, then SEAL writes the owner contract and
+and STRESS: GATES keeps the October verdicts for `run.RECERTIFY_KEPT` and runs only G2 (today's
+freshness), G3 (to prepare the worker's runtime), G16, G10, G17 and G11, then SEAL writes the owner contract and
 delivery receipts as usual. G10 reruns because G17 and the receipts need this run's calibrator
 workspaces. A gate that asks for a repair, or a diagnosis that would extend, retires the case;
 a diagnosis that finds infrastructure holds it as for any case.

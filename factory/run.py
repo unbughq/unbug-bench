@@ -38,9 +38,10 @@ DRY_SKIP = {"G2": "model gate", "G8": "model gate", "G9": "model gate", "G10": "
 DRY_SKIP.update({"G16": "independent model fix", "G17": "model diagnosis"})
 # Later gate failures the writer may repair (validate_and_repair; a repairable GATE_FAILED under the engine).
 # Recertifying a case sealed before G16/G17 existed: these rerun, in this order, on today's worker
-# (G3 prepares its runtime; G17 needs this run's G10 tries; G11 checks G10's passes and reads G17's
-# difficulty); every other gate up to G15 keeps its October verdict.
-RECERTIFY_RERUN = ("G3", "G16", "G10", "G17", "G11")
+# (G2 judges today's freshness, never October's; G3 prepares its runtime; G17 needs this run's G10
+# tries; G11 checks G10's passes and reads G17's difficulty); every other gate up to G15 keeps its
+# October verdict.
+RECERTIFY_RERUN = ("G2", "G3", "G16", "G10", "G17", "G11")
 RECERTIFY_KEPT = tuple(f"G{i}" for i in range(1, 16) if f"G{i}" not in (*RECERTIFY_RERUN, "G12"))  # SEAL sets G12
 REPAIRABLE_GATES = frozenset({"G4", "G5", "G6", "G8", "G9", "G11", "G13", "G14", "G15", "G16", "G17"})
 # Model state that holds transcripts: archived into the seal, then shredded.

@@ -82,8 +82,8 @@ class RepairProgressTests(unittest.TestCase):
                  patch.object(run, "ensure_freshness") as freshness:
                 result = run.engine_gates(c)
                 freshness.assert_called_once()
-            self.assertEqual(ran[0][0], ["G3", "G16", "G10", "G17", "G11"])
-            self.assertEqual(set(ran[0][1]), {"G1", "G2", "G4", "G5", "G6", "G7", "G8", "G9", "G13", "G14", "G15"})
+            self.assertEqual(ran[0][0], ["G2", "G3", "G16", "G10", "G17", "G11"])
+            self.assertEqual(set(ran[0][1]), {"G1", "G4", "G5", "G6", "G7", "G8", "G9", "G13", "G14", "G15"})
             self.assertEqual(c.card["gate_results"], {"G5": {"reference": "solved"}})
             self.assertEqual(c.card["kept_gate_source"]["case"], "case-old")
             self.assertEqual(result["outcome"], Outcome.OK)
@@ -94,6 +94,13 @@ class RepairProgressTests(unittest.TestCase):
                 result = run.engine_gates(c)
             # The engine retires a recertified case on any repair; this only reports it.
             self.assertEqual((result["outcome"], result["gate"], result["repairable"]), (Outcome.GATE_FAILED, "G17", True))
+            # Freshness is judged today: an October G2 pass never outlives a current public match.
+            with patch.object(run, "run_gates", lambda ctx: gates(ctx, "G2")), \
+                 patch.object(run, "g1", return_value=(True, {"problems": []})), \
+                 patch.object(run, "ensure_freshness", return_value=(False, {"outcome": "public_match"})):
+                result = run.engine_gates(c)
+            self.assertEqual((result["outcome"], result["gate"]), (Outcome.GATE_FAILED, "G2"))
+            self.assertEqual(c.card["gates"]["G2"], "fail")
 
     def test_receipt_requires_unchanged_inputs_and_retained_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
