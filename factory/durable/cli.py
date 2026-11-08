@@ -44,7 +44,7 @@ def dispatch(runtime, request):
             raise RuntimeErrorCode("unsupported_preparation")
         return to_record(runtime.prepare(request["scope"], kind, base64.b64decode(request["content"], validate=True)))
     if op == "start":
-        return runtime.start(request["spec"], request["registry"], request.get("import"))
+        return runtime.start(request["spec"], request["registry"], request.get("import"), request.get("resume"))
     if op == "install":
         digest = runtime.releases.put_bundle(base64.b64decode(request["content"], validate=True))
         runtime.releases.register_bench(request["bench_version"], request["image"])
@@ -56,7 +56,9 @@ def dispatch(runtime, request):
         runtime.engine.send(request["destination"], Topic(op), cls(**request["payload"]))
         return {"sent": True}
     if op == "founder_reply":
-        if not CASE_ID.fullmatch(request["destination"]):
+        # A resumed case runs as "<case>@<batch>" (engine.resume_point).
+        case, _, batch = request["destination"].partition("@")
+        if not CASE_ID.fullmatch(case) or (batch and not BATCH_ID.fullmatch(batch)):
             raise RuntimeErrorCode("invalid_case")
         payload = dict(request["payload"])
         if payload.get("ruling") is not None:
@@ -163,6 +165,8 @@ def main(argv=None):
     start.add_argument("spec_file")
     start.add_argument("registry_file")
     start.add_argument("--import-file", help="ref printed by `prepare <first case id> case <rewrapped checkpoint>`")
+    start.add_argument("--resume-case", help="a case stopped by an infrastructure failure (held or retired): "
+                       "continue it as this one-case batch's case, where it stopped")
     install = commands.add_parser("install")
     install.add_argument("content_file", help="existing worker release bundle")
     install.add_argument("bench_version")
@@ -195,6 +199,9 @@ def main(argv=None):
                 if args.get(field + "_file") is not None:
                     args[field] = json.loads(private_bytes(args.pop(field + "_file")))
             args.pop("import_file", None)
+            if args.get("resume_case") is not None:
+                args["resume"] = args.pop("resume_case")
+            args.pop("resume_case", None)
             if args.get("kind") == ArtifactKind.CASE_SNAPSHOT.value:
                 args["content_path"] = str(Path(args.pop("content_file")).resolve())
             if "content_file" in args:
