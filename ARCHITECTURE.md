@@ -174,6 +174,9 @@ fields only, such as `freshness_upstream_fix`. The sealed card keeps per-candida
 (duplicate case ID, confirmed source classes, a release tag's version against the pin).
 `python3 factory/durable/admission_reasons.py --config <config> <case|batch>...` prints
 those codes for finished cases on the control VM: read-only, existing keys only.
+`durable/free_route_errors.py` reads, the same way, why listed free-route leases ended early: from
+the case's latest snapshot only their usage-receipt fields and each OpenCode error event's name,
+HTTP status and first 200 characters of message.
 `durable/board_cleanup.py` dedupes the statement board: a one-case batch with INPUTS
 `"board_dedup": true` has ADMIT group the board's statements with the easy calibrator in
 worker RAM and record only case IDs (`admit:board_planned`, no registry returned); on the
