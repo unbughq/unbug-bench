@@ -385,8 +385,6 @@ def provider_preflight(c):
     checks[1:1] = [('reviewer' if i == 0 else 'reviewer2', chain,
                     'reviewer-provider-preflight' if i == 0 else f'reviewer{i+1}-provider-preflight')
                    for i, chain in enumerate(c.models['reviewers'])]
-    if c.card.get("recertify"):
-        checks = checks[1:]   # a recertified case never calls its stress tester
     for role, chain, name in checks:
         # A calibrator never takes a free lane (ModelRuntime._call): where its chain has one, the
         # calibrator's route differs from an unwalled role's, so it is checked on its own.

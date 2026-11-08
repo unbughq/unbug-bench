@@ -90,8 +90,10 @@ def _inputs(plaintext):
     if value.get("rotation_slot") is not None and (type(value["rotation_slot"]) is not int or value["rotation_slot"] < 1):
         raise _Invalid("inputs")
     if value.get("recertify") is not None and (value["recertify"] is not True or value["dry_run"]
-            or any(value.get(k) is not None for k in ("models", "roles", "rotation_slot", "candidate"))):
-        raise _Invalid("inputs")   # a recertified case keeps its sealed models and roles
+            or any(value.get(k) is not None for k in ("models", "roles", "rotation_slot", "candidate"))
+            or not isinstance(value.get("recovery_config"), dict)):
+        # A recertified case keeps its sealed models and roles; the exam reads its recovery_config.
+        raise _Invalid("inputs")
     routes = value.get("recertify_routes")
     if routes is not None and (value.get("recertify") is not True or not isinstance(routes, dict)
             or not set(routes) <= set(RECERTIFY_ROUTE_KEYS)
@@ -219,9 +221,6 @@ IMPORT_REFUSALS = ("import_key", "import_layout", "import_layout_root", "import_
                    "import_layout_statement", "import_layout_card_case", "import_links", "import_pin", "import_source",
                    "import_spend", "import_writer", "import_writer_none", "import_writer_conflict", "import_invalid",
                    "import_recertify")
-# A recertified case only ever calls these roles (dedup, G16, G10, G17, G11); its October writer
-# and stress tester are never called, so they need no bounded route today.
-RECERTIFY_ROLES = ("strong_calibrator", "easy_calibrator", "reviewer", "reviewer2")
 # INPUTS `recertify_routes` may move one of these roles to another route of the same model family
 # (the October GLM easy calibrator ran on a free route, which a walled calibrator may no longer lease).
 # Reviewers stay: the exam's owner contract is bound to the sealed reviewer.
@@ -609,6 +608,8 @@ def run(worker, step_input, keys):
             atomic_json(work / "continuation-budget.json", {"calls": 0, "events": [], "cost": 0})
             atomic_json(work / "scorecard.json", _card(inputs, step_input.case_id, inputs["dry_run"]))
         c = runner.context_for_step(step_input, work)
+        if inputs.get("recertify") is True and not c.card.get("recertify"):
+            return StepResult(Outcome.EXHAUSTED, "admit:import_recertify"), {}   # recertify needs a sealed import
         _pin_models(c, runner, inputs)
         imported = c.card.get("imported_from")
         if imported:
@@ -626,7 +627,7 @@ def run(worker, step_input, keys):
             reason, accepted = "admit:practice", True
         else:
             from model_runtime import require_bounded_models
-            require_bounded_models(c, roles=RECERTIFY_ROLES if c.card.get("recertify") else None)
+            require_bounded_models(c)
             if not c.case.exists(): _write_case(c, inputs)
             runner.provider_preflight(c)
             accepted = _screen(c, runner, registry, refs, sealer, batch_key, step_input)
