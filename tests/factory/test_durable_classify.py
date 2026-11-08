@@ -281,6 +281,9 @@ class RealStops(unittest.TestCase):
         "waste_operations_pending": ("infra_error", "infra:ledger_error"),
         "x_cli_not_x": ("infra_error", "infra:cli_version"),   # f'{kind}_cli_not_{want}', model_runtime.py
         "zero_tokens": ("infra_error", "router:zero_tokens"),
+        "provider_wait_unsettled": ("infra_error", "infra:provider_wait_unsettled"),
+        "provider_wait_record_missing": ("infra_error", "infra:provider_wait_record_missing"),
+        "route_feature_unsupported": ("infra_error", "infra:route_feature_unsupported"),
     }
     # Reviewed: labels that stay infra:unclassified_stop (still INFRA_ERROR, never scored).
     # The two bare wrappers only prefix a cause. The rest are lifecycle stops
@@ -288,7 +291,6 @@ class RealStops(unittest.TestCase):
     UNCLASSIFIED_BY_DESIGN = {
         "Budget ledger stopped: ", "Budget stopped: ",
         "freshness_public_match",
-        "provider_wait_record_missing", "provider_wait_unsettled", "route_feature_unsupported",
         "stress_publication_configuration_missing",
         "stress_review_unresolved:",
     }
@@ -338,6 +340,71 @@ class RealStops(unittest.TestCase):
         for label in self.UNCLASSIFIED_BY_DESIGN:
             self.assertEqual(classify(label, step=StepKind.WRITER, now=NOW),
                              Classified(Outcome.INFRA_ERROR, UNCLASSIFIED), label)
+
+    # run.run_step reports an exception it does not handle by its class name alone. A name
+    # without an Error/Exception/Exit/Interrupt suffix misses _EXCEPTION and, unless it is
+    # listed, ends as infra:unclassified_stop (1bb2ad-2 writer:1, 2026-11-08).
+    EXCEPTION_FILES = (*RUNNER_FILES, "../bin/run_validity.py", "../bin/processes.py")
+    EXCEPTION_MAPPED = {
+        "InvalidInfra": "infra:invalid_execution",
+        "InfrastructureExhausted": "infra:execution_retries_exhausted",
+        "RouterUnavailable": "infra:router_unavailable",
+    }
+    # Reviewed: classes that never reach run_step as a bare stop.
+    EXCEPTION_NOT_A_STOP = {
+        "ArtifactMissing",    # control-VM artifact store, not the worker
+        "CaseProblem",        # early checks and gate_pipeline turn it into feedback or a gate result
+        "CheckFailed",        # campaign guard, control VM
+        "Cancelled",          # run.py sh() turns it into BudgetError('cancelled')
+        "PauseRequested",     # run_step reports it as "paused"
+        "ProviderWait",       # run_step hands it to engine_provider_wait
+        "RuntimeErrorCode",   # durable/runtime.py, control VM
+        "_Changed", "_Conflict", "_Invalid", "_Stop",   # module-private, caught where raised
+    }
+
+    def exception_classes(self):
+        """Every class in EXCEPTION_FILES that derives, through these files, from a built-in exception."""
+        bases = {}
+        for name in self.EXCEPTION_FILES:
+            for node in ast.walk(ast.parse((ROOT / "factory" / name).read_text())):
+                if isinstance(node, ast.ClassDef):
+                    bases.setdefault(node.name, set()).update(
+                        getattr(b, "id", getattr(b, "attr", None)) for b in node.bases)
+        import builtins
+        builtin = {n for n, v in vars(builtins).items() if isinstance(v, type) and issubclass(v, BaseException)}
+        found, grew = set(), True
+        while grew:
+            grew = False
+            for cls, parents in bases.items():
+                if cls not in found and parents & (builtin | found):
+                    found.add(cls)
+                    grew = True
+        return found
+
+    def test_every_exception_class_stop_has_its_reviewed_outcome(self):
+        unmatched = {n for n in self.exception_classes() if not wp4._EXCEPTION.fullmatch(n)}
+        self.assertEqual(unmatched, set(self.EXCEPTION_MAPPED) | self.EXCEPTION_NOT_A_STOP,
+                         "an exception class was added or removed: review its stop")
+        for name, reason in self.EXCEPTION_MAPPED.items():
+            for kind in StepKind:
+                self.assertEqual(classify(name, step=kind, now=NOW), Classified(Outcome.INFRA_ERROR, reason), name)
+
+    def test_writer_path_stops_are_never_unclassified(self):
+        # Stops run_step can hand the classifier on a WRITER attempt (run.engine_writer_round,
+        # its model calls, G1 and early checks).
+        writer_stops = {
+            "InvalidInfra": "infra:invalid_execution",                  # checkpoint/verdicts, freshness retrieval
+            "InfrastructureExhausted": "infra:execution_retries_exhausted",  # infra-attempts.json allowance
+            "TimeoutExpired": "infra:timeout",                          # run.py sh(timeout=...) on a bench run
+            "provider_wait_unsettled": "infra:provider_wait_unsettled",
+            "provider_wait_record_missing": "infra:provider_wait_record_missing",
+            "route_feature_unsupported": "infra:route_feature_unsupported",
+            "Budget ledger stopped: route_feature_unsupported": "infra:route_feature_unsupported",
+        }
+        for stop, reason in writer_stops.items():
+            c = classify(stop, step=StepKind.WRITER, now=NOW)
+            self.assertEqual(c, Classified(Outcome.INFRA_ERROR, reason), stop)
+            self.assertIn(c.reason, PUBLISHED_REASONS, stop)
 
 
 class RetryAt(unittest.TestCase):

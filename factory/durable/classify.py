@@ -96,6 +96,15 @@ _FIXED = {
     'stress_category_state_invalid': (_I, 'infra:stress_category_state_invalid'),
     'stress_publication_not_quiescent': (_I, 'infra:stress_publication_not_quiescent'),
     'stress_validation_exhausted': (_I, 'infra:stress_validation_exhausted'),
+    # Writer-path stops that used to fall through to infra:unclassified_stop. run.run_step turns an
+    # exception it does not know into its class name, and these names miss _EXCEPTION's suffixes.
+    "InvalidInfra": (_I, "infra:invalid_execution"),          # bin/run_validity.py: no valid verdict
+    "InfrastructureExhausted": (_I, "infra:execution_retries_exhausted"),   # run_validity.retry
+    "TimeoutExpired": (_I, "infra:timeout"),                 # subprocess timeout from run.py sh()
+    # Router and route plumbing reached by any model call, the writer's included.
+    "provider_wait_unsettled": (_I, "infra:provider_wait_unsettled"),        # model_router.await_lease
+    "provider_wait_record_missing": (_I, "infra:provider_wait_record_missing"),  # run.write_provider_wait
+    "route_feature_unsupported": (_I, "infra:route_feature_unsupported"),    # model_call_gate free route
     "RouterUnavailable": (_I, "infra:router_unavailable"),
     "router_unavailable": (_I, "infra:router_unavailable"),
     "unbounded_route": (_I, "infra:router_unavailable"),
