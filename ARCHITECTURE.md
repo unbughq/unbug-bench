@@ -205,7 +205,8 @@ with none (GLM and MiniMax free today) is refused up front as `unbounded_route`.
 lane hands an unwalled call to the next route in its chain (DeepSeek: paid OpenRouter).
 Each free model runs on both OpenCode accounts, never anonymously: the first account's free lane, then
 the second's, then the chain's fallback. Each account's free lane is its own router pool
-(`opencode-free:<account>`, seats from `capacities['opencode-free']` unless named), so a free model's
+(`opencode-free:<account>`, seats from `capacities['opencode-free-account']` unless named; the old
+anonymous lane's `opencode-free` key does not apply to them), so a free model's
 limits never block that account's Go subscription lanes. Workers always receive both OpenCode account
 files. A free call that ends interrupted or denied leaves a plaintext end record in the router
 (`status` → `free_errors`): an error label, HTTP status, provider error name and how many output events

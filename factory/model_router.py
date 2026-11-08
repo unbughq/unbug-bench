@@ -146,7 +146,7 @@ def routes(model, accounts=ACCOUNTS):
             if account is not None and account not in accounts: continue
             # Founder 2026-11-08: free routes run on both OpenCode accounts, the second before any paid
             # fallback. Each account's free lane is its own pool, so a free model's limits never block
-            # that account's Go subscription lanes, and its seats come from capacities['opencode-free'].
+            # that account's Go subscription lanes, and its seats come from capacities['opencode-free-account'].
             pool = (free_pool(account) if route in FREE_ROUTES else
                     account or ('opencode-free' if billing == 'free' else 'provider:' + route.partition('/')[0]))
             result.append(dict(route=route, account=account, billing=billing, family=family(route), pool=pool))
@@ -164,9 +164,10 @@ def free_pool(account):
 
 
 def lane_capacity(capacities, pool):
-    """Seats for a pool; each account's free lane takes the configured free seat count unless named."""
+    """Seats for a pool. Each account's free lane takes capacities['opencode-free-account'] unless named;
+    'opencode-free' is only the old anonymous lane, so closing it never closes the account lanes."""
     if pool in capacities: return capacities[pool]
-    return capacities.get('opencode-free', 1) if pool.startswith('opencode-free:') else 1
+    return capacities.get('opencode-free-account', 1) if pool.startswith('opencode-free:') else 1
 
 
 # Calibrators run behind the isolation wall (user=pilot): they can reach only a gate's port.

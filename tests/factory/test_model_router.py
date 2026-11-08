@@ -171,10 +171,16 @@ class RouterTests(unittest.TestCase):
 
     def test_free_lanes_take_free_seats_per_account_and_never_block_the_go_subscription(self):
         free = 'opencode/glm-5.3-flash-free'
-        store = router.Store(self.root / 'seats.sqlite', clock=lambda: self.now[0], capacities={'opencode-free': 3})
+        store = router.Store(self.root / 'seats.sqlite', clock=lambda: self.now[0], capacities={'opencode-free-account': 3})
         self.assertEqual(store.rpc('capacity', {'route': free})['slots'], 6)        # 3 seats on each account
+        # Closing the old anonymous lane (opencode-free: 0) leaves the account lanes open.
+        store = router.Store(self.root / 'closed.sqlite', clock=lambda: self.now[0],
+                             capacities={'opencode-free': 0, 'opencode-free-account': 2})
+        self.assertEqual(store.rpc('capacity', {'route': free})['slots'], 4)
+        self.assertEqual(router.lane_capacity({'opencode-free': 0}, 'opencode-free'), 0)
+        self.assertEqual(router.lane_capacity({'opencode-free': 0}, 'opencode-free:opencode-go-key'), 1)
         store = router.Store(self.root / 'named.sqlite', clock=lambda: self.now[0],
-                             capacities={'opencode-free': 3, 'opencode-free:opencode-go-key-2': 1})
+                             capacities={'opencode-free-account': 3, 'opencode-free:opencode-go-key-2': 1})
         self.assertEqual(store.rpc('capacity', {'route': free})['slots'], 4)        # a named lane wins
         # A rate limit on the first account's free lane leaves its Go subscription lane open.
         lease = self.acquire(free)
