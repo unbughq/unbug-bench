@@ -2466,6 +2466,27 @@ def _feedback(source, problems, report=None):
                        "attack_report": report.name if report else None}, sort_keys=True).encode()
 
 
+def _writer_round_start(c, receipt_path, n):
+    """{"case": hash, "feedback": digest}: the case as writer round n found it, before any writer call.
+
+    A retry of the round (a provider limit or infra stop mid-call) restores the snapshot that call
+    left, the writer's partial edits included, so its own tree is not the round's starting point.
+    The receipt carries the start into that snapshot. A receipt this round wrote without one (code
+    before 8 November) leaves the start unknown: "case" is None and the round cannot be called
+    unchanged on its first call, only on later ones."""
+    digest = getattr(getattr(c, "engine", None), "source_binding", {}).get("feedback")
+    prior = jload(receipt_path, None)
+    if (isinstance(prior, dict) and prior.get("engine") is True and prior.get("round") == n
+            and (prior.get("repair_pending") or prior.get("awaiting_stress"))):
+        start = prior.get("round_start")
+        if start is None:
+            return {"case": None, "feedback": digest}
+        if (isinstance(start, dict) and start.get("feedback") == digest
+                and (start.get("case") is None or isinstance(start.get("case"), str))):
+            return {"case": start["case"], "feedback": digest}
+    return {"case": case_hash(c), "feedback": digest}
+
+
 def engine_writer_round(c, n, feedback):
     """WRITER round n: today's writer call, G1 and early checks; a G1 or early-check failure goes back
     to the writer within the round, bounded by the runner's round cap."""
@@ -2481,15 +2502,16 @@ def engine_writer_round(c, n, feedback):
     (c.work / "attacks").mkdir(exist_ok=True)
     receipt_path = c.work / "attack-state.json"
     requested = bool(problems or report)
+    start = _writer_round_start(c, receipt_path, n)
     for call in range(1, c.args.rounds + 1):
-        before = case_hash(c)
+        before = start["case"] if call == 1 else case_hash(c)
         atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
-                                   "report": f"round-{n}.json", "repair_pending": True})
+                                   "report": f"round-{n}.json", "round_start": start, "repair_pending": True})
         opencode(c, c.models["builder"], prompt("builder", run_context(c, round=n,
                  attack_report=str(report) if report else None, precheck_problems=problems)),
                  c.case, f"builder-{n}" if call == 1 else f"builder-{n}-fix-{call - 1}")
         c.card["builder_rounds"] = n
-        if requested and case_hash(c) == before:
+        if requested and before is not None and case_hash(c) == before:
             return {"outcome": Outcome.EXHAUSTED, "reason": "writer:unchanged_repair"}
         problems = g1(c)[1]["problems"] or None
         if not problems and not c.args.dry_run: problems = early_checks(c)
@@ -2497,7 +2519,7 @@ def engine_writer_round(c, n, feedback):
             if not c.args.dry_run:
                 ensure_freshness(c)
             atomic_json(receipt_path, {"engine": True, "round": n, "call": call, "binding": attack_binding(c),
-                                       "report": f"round-{n}.json", "awaiting_stress": True})
+                                       "report": f"round-{n}.json", "round_start": start, "awaiting_stress": True})
             return {"outcome": Outcome.OK, "reason": "writer:validated"}
         report, requested = None, True
     return {"outcome": Outcome.EXHAUSTED, "reason": "writer:rounds_exhausted"}

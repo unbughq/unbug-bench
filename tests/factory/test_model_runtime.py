@@ -93,6 +93,7 @@ class ModelRuntimeTests(unittest.TestCase):
             def budgeted(cmd, cwd, env, *a, **k):
                 self.assertFalse(any(k.startswith("FACTORY_ROUTER_") for k in env))
                 self.assertNotIn("public-case-router-sentinel", str(env))
+                if k["driver"] == "codex": assert callable(k.get("usage_feed")), "Codex usage is read live from its session log"
                 seen.append((cmd, env, k["driver"], (pathlib.Path(env.get("CODEX_HOME", "/nonexistent")) / "config.toml").read_text() if k["driver"] == "codex" else ""))
                 return subprocess.CompletedProcess(cmd, 0)
             with mock.patch.dict(os.environ, fake_env, clear=True), mock.patch.object(model_runtime, "pinned_cli", lambda kind: kind), \
@@ -105,7 +106,7 @@ class ModelRuntimeTests(unittest.TestCase):
             assert cenv['UNBUG_JUDGE'] == aenv['UNBUG_JUDGE'] == '1'
             assert "mcp_servers" not in config and 'model_provider = "boat-openai"' in config and "https://relay/v1" in config
             assert codex[:2] == ["codex", "exec"] and 'web_search="disabled"' in codex and 'model_reasoning_effort="high"' in codex
-            assert codex[codex.index("-m") + 1] == "gpt-6.1-sol" and "--ephemeral" in codex and "OPENAI_API_KEY" not in cenv
+            assert codex[codex.index("-m") + 1] == "gpt-6.1-sol" and "--ephemeral" not in codex and "OPENAI_API_KEY" not in cenv
             assert all(f in codex for f in ("multi_agent", "browser_use", "apps", "computer_use")), "no subagents, browser or connectors"
             assert claude[claude.index("--model") + 1] == "claude-opus-5-5" and claude[claude.index("--effort") + 1] == "high"
             assert claude_reviewer[-1] == "Bash,Edit,Read,Write", "no web outside the searching roles"

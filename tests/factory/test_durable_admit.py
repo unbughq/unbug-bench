@@ -801,8 +801,9 @@ class AdmitTests(unittest.TestCase):
     def test_unbounded_strong_or_second_reviewer_stops_before_any_model_spend(self):
         for role in ('strong_calibrator', 'reviewers'):
             value = self.real_inputs('unused')
-            if role == 'strong_calibrator': value['models'][role] = ['codex/gpt-6.1-sol']
-            else: value['models'][role].append(['codex/gpt-6.1-sol'])
+            # codex/gpt-6.1-sol is bounded now (CODEX_PROFILES); an unpriced Codex model still is not.
+            if role == 'strong_calibrator': value['models'][role] = ['codex/gpt-unpriced']
+            else: value['models'][role].append(['codex/gpt-unpriced'])
             inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
             registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b'')
             result, _ = self.run_admit(self.step(inputs, registry))

@@ -1055,6 +1055,71 @@ class Resume(unittest.TestCase):
                          [("5", "diagnosis", str(n)) for n in range(1, tried + 2)])
         self.assertEqual(card(out, C1)["diagnoses"], 1)
 
+    # f46dac-2 on 8 November: a rate limit mid-repair, then an "unchanged" retry, then factory_bug.
+    FACTORY_BUG = {"spec": {"max_cases_started": 1},
+                   "script": {"1/stress:1/1": {"feedback": True},
+                              "1/writer:2/1": {"outcome": "provider_limit", "checkpoint": True},
+                              "1/writer:2/2": {"outcome": "exhausted", "reason": "writer:unchanged_repair",
+                                               "checkpoint": True},
+                              "1/diagnosis/*": {"verdict": "factory_bug"}}}
+
+    def test_a_case_held_by_a_factory_bug_resumes_at_the_diagnosed_writer_step(self):
+        r, out = run(self.FACTORY_BUG)
+        self.addCleanup(r.close)
+        self.assertEqual((out["result"]["cases"], r.keys(1)[-1]), ({C1: "held"}, ("5", "diagnosis", "1")))
+        before = len(r.starts(1))
+        out = self.resume(r)
+        # The writer step runs again after its recorded attempts; its diagnosis is not replayed, and
+        # the next step takes the diagnosis's seq under its own key.
+        self.assertEqual(r.keys(1)[before:], [("4", "writer:2", "3"), ("5", "stress:2", "1"),
+                                              ("6", "gates:2", "1"), ("7", "seal", "1")])
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+        self.assertEqual(start(r, f"{C1}/4/writer:2/3")["opened"]["snapshot"], f"snapshot {C1}/4/writer:2/2")
+
+    def test_factory_bug_resumes_count_across_the_lineage(self):
+        r, out = run(self.FACTORY_BUG)
+        self.addCleanup(r.close)
+        again = {"1/writer:2/*": {"outcome": "exhausted", "reason": "writer:unchanged_repair"},
+                 "1/diagnosis/*": {"verdict": "factory_bug"}}
+        for n, batch in enumerate(("b-u", "b-v", "b-w"), start=1):
+            r2 = EngineRun({"spec": {"batch_id": batch, "max_cases_started": 1}, "resume_of": C1,
+                            "script": again}, workdir=r.work)
+            out = r2.run()
+            # A hold while resumes remain; the policy retires the lineage's fourth factory_bug.
+            self.assertEqual(out["result"]["cases"], {f"{C1}@{batch}": "held" if n < 3 else "retired"})
+        # Each diagnosis ran afresh under a new key, at the seq the first one used.
+        self.assertEqual([k for k in r.keys(1) if k[1] == "diagnosis"],
+                         [("5", "diagnosis", str(n)) for n in range(1, 5)])
+        r3 = EngineRun({"spec": {"batch_id": "b-x", "max_cases_started": 1}, "resume_of": C1}, workdir=r.work)
+        self.assertEqual(r3.run(), {"refused": "resume:not_stopped_by_infra"})
+
+    def test_a_factory_bug_found_by_a_resumed_diagnosis_resumes_too(self):
+        # The diagnosis first stopped on infra and was resumed; that resume's skip of the diagnosis
+        # seq must not make the step that now takes the seq look like replayed history.
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1},
+                      "script": {"1/stress:1/1": {"feedback": True},
+                                 "1/writer:2/*": {"outcome": "exhausted", "reason": "writer:unchanged_repair"},
+                                 "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:stalled"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        out = self.resume(r, {"1/diagnosis/*": {"verdict": "factory_bug"}})
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "held"})
+        r3 = EngineRun({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1}, workdir=r.work)
+        self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "sealed"})
+
+    def test_a_factory_bug_after_a_scientific_result_is_not_resumable(self):
+        for step, spec in (("writer:2", {"outcome": "exhausted", "reason": "writer:rounds_exhausted"}),
+                           ("gates:1", {"outcome": "gate_failed", "gate": "G5", "repairable": True})):
+            with self.subTest(step=step):
+                script = {"1/diagnosis/*": {"verdict": "factory_bug"}, f"1/{step}/*": spec}
+                if step == "writer:2":
+                    script["1/stress:1/1"] = {"feedback": True}
+                rounds = {"max_writer_rounds": 1} if step == "gates:1" else {}   # its repair goes to diagnosis
+                r, out = run({"spec": {"max_cases_started": 1, **rounds}, "script": script})
+                self.addCleanup(r.close)
+                self.assertEqual(out["result"]["cases"], {C1: "held"})
+                self.assertEqual(self.resume(r), {"refused": "resume:not_stopped_by_infra"})
+
 
 class Conductor(unittest.TestCase):
     def test_conductor_is_refused_before_and_after_construction(self):

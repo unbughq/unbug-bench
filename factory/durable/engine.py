@@ -32,7 +32,7 @@ from dbos import DBOS, SetWorkflowID
 
 from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised, ContractError, FounderAction,
                               CASE_ID, FounderReply, Grant, LimitedBy, Outcome, PlumbingRelease, Ref, Step, StepInput, StepKind,
-                              StepResult, Topic, WorkerLease, assert_no_conductor, batch_spec_from_record,
+                              StepResult, Topic, Verdict, WorkerLease, assert_no_conductor, batch_spec_from_record,
                               guarded_run, step_input_from_record, step_result_from_record, to_record,
                               wait_seconds)
 from durable.classify import CAMPAIGN_WAIT_REASONS, WORKER_POOL_REASONS
@@ -313,6 +313,12 @@ def recorded_step(idempotency_key: str) -> bool:
 
 RESUMABLE_STATUSES = ("held", "retired")
 RESUMABLE_OUTCOMES = (Outcome.INFRA_ERROR.value, Outcome.PROVIDER_LIMIT.value)
+# A case held by a factory_bug diagnosis resumes at the step that diagnosis looked at, but only
+# where that step's stop is a factory check, never a scientific result: re-running a gate or a
+# stress review would re-roll a verdict. On 8 November f46dac-2's writer:2 retry took the
+# interrupted call's own edits as its starting point and stopped as an unchanged repair.
+FACTORY_BUG_RESUMABLE = {"writer": ("writer:unchanged_repair",)}
+MAX_FACTORY_BUG_RESUMES = 3   # policy.decide_diagnosis holds at most this many in a lineage
 
 
 def resume_point(case_id: str) -> dict:
@@ -323,7 +329,9 @@ def resume_point(case_id: str) -> dict:
     attempts, and `seq` restarts after them with a fresh retry allowance. A case is resumable only
     when every workflow of it has finished as held or retired and its last attempt ended in an
     infrastructure or provider failure: never after a verdict, a gate, an exhausted limit or a
-    founder's decision."""
+    founder's decision. The one exception is a case held by a factory_bug diagnosis of a factory
+    check (FACTORY_BUG_RESUMABLE): it resumes at the diagnosed step, its diagnosis is not replayed,
+    and the resume counts against the lineage's factory_bug_resumes."""
     if type(case_id) is not str or not CASE_ID.fullmatch(case_id):
         raise ContractError("resume:bad_case")
     runs = (DBOS.list_workflows(workflow_ids=[case_id], name=case_workflow.__qualname__, load_input=False)
@@ -341,20 +349,54 @@ def resume_point(case_id: str) -> dict:
         parts = w.workflow_id.split("/")
         if len(parts) != 4 or parts[0] != case_id or not (parts[1].isdigit() and parts[3].isdigit()):
             continue
-        attempts[(int(parts[1]), int(parts[3]))] = w
+        # After a factory_bug resume the diagnosis seq is reused by the next step: the later one counts.
+        key = (int(parts[1]), int(parts[3]))
+        if key not in attempts or (w.created_at or 0, w.workflow_id) > (attempts[key].created_at or 0,
+                                                                         attempts[key].workflow_id):
+            attempts[key] = w
     if not attempts:
         raise ContractError("resume:no_attempts")
+
+    def result_of(w):
+        out = w.output
+        return out.get("result") if w.status == "SUCCESS" and isinstance(out, dict) else None
+
     seq, attempt = max(attempts)
-    last = attempts[(seq, attempt)]
-    result = (last.output or {}).get("result") if last.status == "SUCCESS" and isinstance(last.output, dict) else None
+    result = result_of(attempts[(seq, attempt)])
+    earlier = [(w.input["args"][0].get("resume") or {}) for w in runs if w.workflow_id != case_id]
+    factory_bug_resumes = max([r.get("factory_bug_resumes", 0) for r in earlier], default=0)
+    renumber = {}
+    for r in earlier:
+        for k, steps in r.get("renumber", {}).items():
+            for name, n in steps.items():
+                renumber.setdefault(int(k), {})[name] = max(renumber.get(int(k), {}).get(name, 0), n)
     if not (isinstance(result, dict) and result.get("outcome") in RESUMABLE_OUTCOMES):
-        raise ContractError("resume:not_stopped_by_infra")
+        diagnosed = sorted(a for s, a in attempts if s == seq - 1)
+        stopped = result_of(attempts[(seq - 1, diagnosed[-1])]) if diagnosed else None
+        kind = attempts[(seq - 1, diagnosed[-1])].workflow_id.split("/")[2].split(":")[0] if diagnosed else None
+        if not (latest.output.get("status") == "held"
+                and attempts[(seq, attempt)].workflow_id.split("/")[2] == StepKind.DIAGNOSIS.value
+                and isinstance(result, dict) and result.get("outcome") == Outcome.OK.value
+                and result.get("verdict") == Verdict.FACTORY_BUG.value
+                and isinstance(stopped, dict) and stopped.get("outcome") == Outcome.EXHAUSTED.value
+                and stopped.get("reason") in FACTORY_BUG_RESUMABLE.get(kind, ())):
+            raise ContractError("resume:not_stopped_by_infra")
+        if factory_bug_resumes >= MAX_FACTORY_BUG_RESUMES:   # defensive: the policy retires first
+            raise ContractError("resume:factory_bug_resumes_exhausted")
+        # A later diagnosis at that seq numbers its attempts after this one, so its key is new.
+        renumber[seq] = {StepKind.DIAGNOSIS.value: max(renumber.get(seq, {}).get(StepKind.DIAGNOSIS.value, 0), attempt)}
+        seq, attempt, factory_bug_resumes = seq - 1, diagnosed[-1], factory_bug_resumes + 1
     skip = {}
-    for w in runs:
-        if w.workflow_id != case_id:
-            skip.update({int(k): v for k, v in (w.input["args"][0].get("resume") or {}).get("skip", {}).items()})
+    for r in earlier:
+        skip.update({int(k): v for k, v in r.get("skip", {}).items()})
+    if seq < max(attempts)[0]:
+        # A factory_bug resume rewinds below seqs an earlier resume may have skipped into (its
+        # diagnosis after an infra stop): the steps that now take those seqs never ran there.
+        skip = {k: v for k, v in skip.items() if k < seq}
     skip[seq] = max(skip.get(seq, 0), attempt)
-    return {"seq": seq, "skip": {str(k): v for k, v in sorted(skip.items())}}
+    return {"seq": seq, "skip": {str(k): v for k, v in sorted(skip.items())},
+            "factory_bug_resumes": factory_bug_resumes,
+            "renumber": {str(k): v for k, v in sorted(renumber.items())}}
 
 
 # ---- the attempt workflow ------------------------------------------------------------------------
@@ -554,6 +596,9 @@ class _Case:
         self.extensions_used = 0
         self.diagnoses_used = 0
         self.factory_bug_resumes = 0
+        # factory_bug resumes of earlier batches in this lineage (resume_point). Kept apart from the
+        # counter the replayed admission recovery reads and increments, so the replay matches.
+        self.lineage_factory_bug_resumes = 0
         self.in_extension = False
         self.recertify = False   # a sealed October case re-earning only the gates added since
         self.round = 1
@@ -577,6 +622,9 @@ class _Case:
         self.workflow_id = case_id
         self.resume_seq = 0
         self.skip: dict = {}
+        # After a factory_bug resume: {seq: {step name: attempts}} recorded there by a step that
+        # is no longer replayed (its diagnosis). A step of that name at that seq numbers after them.
+        self.renumber: dict = {}
 
     @property
     def replaying(self) -> bool:
@@ -589,7 +637,7 @@ class _Case:
                         step_deadline_stops=late,
                         writer_rounds_used=self.writer_rounds_used,
                         extensions_used=self.extensions_used, diagnoses_used=self.diagnoses_used,
-                        factory_bug_resumes=self.factory_bug_resumes,
+                        factory_bug_resumes=self.factory_bug_resumes + self.lineage_factory_bug_resumes,
                         in_extension=self.in_extension)
 
     def card(self) -> None:
@@ -639,7 +687,7 @@ class _Case:
         action is None for a DIAGNOSIS verdict."""
         self.seq += 1
         self.stage = step.name
-        attempt, infra, limits, free, late, prev = 0, 0, 0, 0, 0, None
+        attempt, infra, limits, free, late, prev = self.renumber.get(self.seq, {}).get(step.name, 0), 0, 0, 0, 0, None
         # A seq where a case stopped (this resume's or an earlier one's) first restores the attempts
         # recorded before that stop: their snapshots, diagnostics and history carry over, and their
         # keys prove the continuation is the same step. Only its infra retry allowance starts afresh.
@@ -1018,6 +1066,9 @@ def case_workflow(job: dict) -> dict:
         case.workflow_id = DBOS.workflow_id
         case.resume_seq = resume["seq"]
         case.skip = {int(seq): attempt for seq, attempt in resume["skip"].items()}
+        # Earlier factory_bug resumes of this lineage: their diagnoses are no longer replayed.
+        case.lineage_factory_bug_resumes = resume.get("factory_bug_resumes", 0)
+        case.renumber = {int(seq): steps for seq, steps in resume.get("renumber", {}).items()}
     if job.get("import_snapshot") is not None:
         # A legacy import: ADMIT's first attempt restores the rewrapped old checkpoint.
         case.snapshot = Ref(**job["import_snapshot"])
@@ -1096,7 +1147,9 @@ class _Batch:
             # Only the first case; replacements select afresh.
             case_id = job["case_id"] = self.resume["case"]
             workflow_id = f"{case_id}@{self.spec.batch_id}"
-            job["resume"] = {"seq": self.resume["seq"], "skip": self.resume["skip"]}
+            job["resume"] = {"seq": self.resume["seq"], "skip": self.resume["skip"],
+                             "factory_bug_resumes": self.resume.get("factory_bug_resumes", 0),
+                             "renumber": self.resume.get("renumber", {})}
             self.case_ids[workflow_id] = case_id
         with SetWorkflowID(workflow_id):
             DBOS.start_workflow(case_workflow, job)
