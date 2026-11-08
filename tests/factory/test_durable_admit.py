@@ -411,7 +411,9 @@ class AdmitTests(unittest.TestCase):
         if lockfile is not None:
             app["lockfile_sha256"] = lockfile
         if meta:
-            (work / "case/case.json").write_text(json.dumps({"source": "port", "app": app}))
+            # An October writer kept its draft's design in case.json as well.
+            (work / "case/case.json").write_text(json.dumps({"source": "port", "app": app, "leak_words": ["oversell"],
+                "ingredients": {"unstated_rules": ["old"]}, "promise_checks": ["old-judge-path"]}))
         (work / "case/guards").mkdir()
         (work / "case/guards/reference.py").write_text("print('guard')")
         (work / "scorecard.json").write_text(json.dumps({"case": old, "seed": 3, "source": "port",
@@ -629,15 +631,25 @@ class AdmitTests(unittest.TestCase):
         work, c = self.restore(step_input, result, outputs)
         self.assertEqual(sorted(p.name for p in (work / "case").iterdir()), ["case.json", "promise.md", "statement.md"])
         self.assertEqual((work / "case/statement.md").read_text(), text)
+        # The October case.json held the old draft's design: only the batch's metadata remains.
+        self.assertEqual(json.loads((work / "case/case.json").read_text()), {
+            "source": "port", "app": {"repo": "medusajs/medusa", "commit": "a" * 40},
+            "promise_paths": ["store-checkout"], "promise_checks": [], "leak_words": []})
         for gone in ("gate-cache", "public-search.json", "freshness-verdict.json", "agent-state", ".casekey"):
             self.assertFalse((work / gone).exists(), gone)
         self.assertEqual((c.card["gates"], c.card["failed_gate"]), ({}, None))
         self.assertEqual(c.card["imported_from"], {"case": old, "source": "port", "gates": {"G1": "pass", "G2": "pass"},
                                                    "failed_gate": None, "spent_usd": 2.5, "mode": "idea_only",
-                                                   "idea_families": ["minimax", "xiaomi"], "case_json": "kept",
+                                                   "idea_families": ["minimax", "xiaomi"], "case_json": "checked",
                                                    "written": False})
         entries = self.registry_doc(result, outputs)["registry"]["entries"]
         self.assertEqual(entries[CASE]["statement_sha256"], hashlib.sha256(text.encode()).hexdigest())
+        # A statement other than the one the old case had admitted is not that idea.
+        self.calls.clear()
+        edited = self.legacy_archive(old, text + "\nEdited later.", writer=None, card_extra=self.OCTOBER_5813BE)
+        result, _ = self.run_admit(self.import_step(self.idea_inputs(), registry, edited))
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_idea_statement"))
+        self.assertEqual(self.calls, [])
 
     def test_idea_only_import_keeps_idea_authors_out_of_judging_and_needs_a_supported_writer(self):
         old, text = "case-20261017T212113Z-old", "# Candidate\n\nOversell when two carts check out at once."
@@ -669,7 +681,10 @@ class AdmitTests(unittest.TestCase):
         value = self.idea_value(); value.pop("models")
         inputs = self.idea_inputs(value)
         for card_extra, authors in ((self.OCTOBER_5813BE, {"minimax", "xiaomi"}),
-                                    ({"roles": {"writer": {"model": "opencode/deepseek-v4.1-flash-free"}}}, {"deepseek"})):
+                                    ({"roles": {"writer": {"model": "opencode/deepseek-v4.1-flash-free"}}}, {"deepseek"}),
+                                    # October ledger events name no role; `models_used` names the builder calls.
+                                    ({"roles": {"writer": {"model": "opencode/deepseek-v4.1-flash-free"}},
+                                      "models_used": {"builder-1": "opencode-go/mimo-v2.6-pro"}}, {"deepseek", "xiaomi"})):
             with self.subTest(authors=authors):
                 archive = self.legacy_archive(old, text, writer=None, card_extra=card_extra)
                 step_input = self.import_step(inputs, registry, archive)
@@ -698,7 +713,7 @@ class AdmitTests(unittest.TestCase):
             "source": "port", "app": {"repo": "medusajs/medusa", "commit": "a" * 40},
             "promise_paths": ["store-checkout"], "promise_checks": [], "leak_words": []})
         self.assertEqual((c.card["imported_from"]["case_json"], c.card["imported_from"]["idea_families"]),
-                         ("rebuilt", ["deepseek"]))
+                         ("missing", ["deepseek"]))
         # Without case.json only the old card names the source; it must be this batch's.
         hunt = self.legacy_archive(old, text, writer=None, meta=False,
                                    card_extra={"source": "hunt", "roles": {"writer": {"model": "opencode/deepseek-v4.1-flash-free"}}})

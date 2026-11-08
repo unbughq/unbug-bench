@@ -168,6 +168,14 @@ ADMIT refuses unless it matches the old card, and `start` refuses unless it plus
 batch's `case_money_usd_micros` fits the default per-case ceiling. Import refusals
 (`admit:import_invalid`) are deterministic, so they end admission instead of retrying.
 
+An archive whose draft cannot be kept (its writer changed family mid-run, or it stopped
+before its case.json) can be imported idea-only: INPUTS sets `"import_mode": "idea_only"`.
+ADMIT keeps only statement.md, promise.md and case.json, rebuilding a missing case.json from
+INPUTS when the old card names the same source. The case starts at WRITER whatever its old
+gates said. Its writer may be any MiniMax or DeepSeek writer. Every family the old card names
+as a writer is an idea author and may not hold a reviewer role or the easy calibrator
+(`admit:import_idea_family`). Spend, screens and the one-candidate rule are as above.
+
 OpenCode's free routes (DeepSeek, MiniMax and GLM flash) are bounded at $0 with no gate: a call that books
 any cost, or reports a step from another provider or model, is stopped. It runs with OpenCode's own
 provider and its one model only, no outside config and no self-update. A calibrator is never leased one,
