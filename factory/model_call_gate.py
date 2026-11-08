@@ -718,9 +718,23 @@ def openrouter_environment(lease, env, gate):
     return clean
 
 
+class FreeCall:
+    """A free route's stand-in for Gate: no proxy, no money to hold. It only carries cancellation."""
+    def __init__(self, cancel): self.cancel = cancel
+    def is_set(self): return self.cancel is not None and self.cancel.is_set()
+
+
 @contextmanager
 def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
     import model_router
+    from token_prices import FREE_ROUTES
+    if lease.route in FREE_ROUTES:
+        # $0 maximum: any booked cost stops the call (budget.check_reservation). A walled role can
+        # reach only a gate's port, and a free route has none, so it keeps a gated route.
+        if not model_router.valid_maximum(lease) or lease.max_usd != 0: raise BudgetError('unbounded_route')
+        if user is not None: raise BudgetError('route_feature_unsupported')
+        yield FreeCall(cancel)
+        return
     if (lease.route not in CLAUDE_PROFILES and lease.route not in GATED_OPENROUTER) or not model_router.valid_maximum(lease):
         raise BudgetError('unbounded_route')
     paid = lease.route in GATED_OPENROUTER

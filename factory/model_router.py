@@ -27,7 +27,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from budget import BudgetError
-from token_prices import GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, claude_gate_maximum, openrouter_gate_maximum
+from token_prices import GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, FREE_ROUTES, claude_gate_maximum, free_maximum, openrouter_gate_maximum
 
 WAIT_SECONDS, RENEW_SECONDS, LEASE_SECONDS = 60, 60, 180
 from worker_secrets import SECRETS
@@ -46,6 +46,7 @@ MAXIMUM_FIELDS = ('max_usd', 'max_input_tokens', 'max_output_tokens', 'price_sou
 
 def route_maximum(route):
     # Only explicit profiles qualify; native CLI knobs alone grant no lease.
+    if route in FREE_ROUTES: return free_maximum(route)
     return claude_gate_maximum(route) if route in CLAUDE_PROFILES else openrouter_gate_maximum(route)
 
 
@@ -69,6 +70,7 @@ def funded_maximum(route, funding):
     """
     maximum = route_maximum(route)
     if maximum is None: return None
+    if route in FREE_ROUTES: return maximum   # $0 whatever the funding: nothing to fund
     amount = min(_nano(funding, ROUND_FLOOR), _nano(50),
                  _nano(maximum['max_usd']) if route in CLAUDE_PROFILES else _nano(50))
     if amount <= 0: raise ValueError('empty invocation funding')

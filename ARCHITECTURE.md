@@ -168,6 +168,10 @@ ADMIT refuses unless it matches the old card, and `start` refuses unless it plus
 batch's `case_money_usd_micros` fits the default per-case ceiling. Import refusals
 (`admit:import_invalid`) are deterministic, so they end admission instead of retrying.
 
+OpenCode's free routes (DeepSeek, MiniMax and GLM flash) are bounded at $0 with no gate: a call that books
+any cost is stopped by its own reservation check, and a walled (isolated) role cannot use one because it
+reaches only a gate's port. Each falls back to its family's gated or subscription route.
+
 Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused
 every request (exhausted, nothing forwarded) settles at $0, not its hold; `start` refuses a batch
 whose batch or case money cannot hold one request on its dearest gated route (`bound_below_call_hold`;
