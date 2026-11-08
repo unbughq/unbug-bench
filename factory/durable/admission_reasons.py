@@ -22,8 +22,10 @@ nothing:
 
 For each case it finds the last ADMIT attempt that saved a snapshot, opens that snapshot in memory
 with the case's existing key, reads only scorecard.json, freshness-verdict.json and
-case/case.json (repo and pin), and prints one JSON line of codes. It never creates a key, writes
-an object, extracts the archive or prints a URL, statement or reviewer sentence.
+case/case.json (repo and pin), and prints one JSON line of codes. For a duplicate it also opens
+the board that attempt screened against (its batch's STATEMENT_REGISTRY, batch key) and prints
+the duplicate target's status there. It never creates a key, writes an object, extracts the
+archive, decodes a stored statement or prints a URL, statement or reviewer sentence.
 """
 from __future__ import annotations
 
@@ -273,8 +275,27 @@ def _admit_snapshots(client, case_id):
                 and isinstance(result.get("snapshot"), dict)
                 and type(value.get("seq")) is int and type(value.get("attempt")) is int):
             reason = result.get("reason") if result.get("reason") in PUBLISHED_REASONS else None
-            found.append((value["seq"], value["attempt"], reason, result["snapshot"]))
+            found.append((value["seq"], value["attempt"], reason, result["snapshot"],
+                          value.get("batch_id"), value.get("registry")))
     return sorted(found, key=lambda f: f[:2])
+
+
+def registry_statuses(plaintext):
+    """{case ID: board status} from a STATEMENT_REGISTRY plaintext. Statements in it stay
+    ciphertext and are never decoded; only each entry's fixed status is read."""
+    if not plaintext:
+        return {}
+    value = json.loads(plaintext)
+    entries = ((value.get("registry") or {}).get("entries") if isinstance(value, dict) else None) or {}
+    return {case: entry["status"] for case, entry in entries.items()
+            if isinstance(case, str) and _CASE.fullmatch(case) and isinstance(entry, dict)
+            and entry.get("status") in _REGISTRY_STATUS | {"released"}}
+
+
+def _with_statuses(entry, statuses):
+    for row in entry.get("candidates", []):
+        if row.get("duplicate_of") and "duplicate_status" not in row:
+            row["duplicate_status"] = statuses.get(row["duplicate_of"], "not_on_board")
 
 
 def _cases(client, target):
@@ -326,7 +347,7 @@ def backfill(config, targets, *, client=None, keys=None, store=None):
                     entry["error"] = "no_admit_snapshot" if attempts == [] else "workflows_unavailable"
                     results.append(entry)
                     continue
-                seq, attempt, reason, record = attempts[-1]
+                seq, attempt, reason, record, batch, board = attempts[-1]
                 entry.update(seq=seq, attempt=attempt, recorded_reason=reason)
                 try:
                     keys.wrapped_key(case_id)   # an existing key only: scope_key would create a missing one
@@ -342,6 +363,15 @@ def backfill(config, targets, *, client=None, keys=None, store=None):
                     entry["error"] = "snapshot_unreadable"
                 finally:
                     del raw
+                # The board this ADMIT screened against: each duplicate target's status there.
+                if any(r.get("duplicate_of") for r in entry.get("candidates", [])):
+                    try:
+                        keys.wrapped_key(batch)
+                        ref = Ref(**board)
+                        _with_statuses(entry, registry_statuses(
+                            sealer.open(keys.scope_key(batch), ref, store.get_sealed(batch, ref))))
+                    except Exception:
+                        entry["board"] = "unavailable"
                 results.append(entry)
     finally:
         for close in owned:

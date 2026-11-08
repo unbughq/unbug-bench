@@ -169,7 +169,8 @@ class FakeClient:
 class Backfill(unittest.TestCase):
     def test_backfill_prints_codes_for_the_last_admit_snapshot_only(self):
         sealer, case, other = AgeSealer(), "case-imp-b5521c-5-1", "case-imp-nokey-1"
-        keys = FakeKeys({case: os.urandom(32)})
+        batch = "b-imp-b5521c-5"
+        keys = FakeKeys({case: os.urandom(32), batch: os.urandom(32)})
         with tempfile.TemporaryDirectory() as tmp:
             store = SealedStore(LocalObjects(tmp))
             def sealed(card):
@@ -181,25 +182,42 @@ class Backfill(unittest.TestCase):
                            "rejected_candidates": [{"statement_sha256": "a" * 64, "screen": "internal_duplicate",
                                                     "codes": {"screen": "dedup", "evidence": "board_duplicate",
                                                               "duplicate_of": "case-old-1"}}]})
+            # The board ADMIT screened against: statuses are read, stored statements never decoded.
+            board = {"version": 1, "registry": {"revision": 2, "entries": {
+                "case-old-1": {"status": "completed", "statement_sha256": "a" * 64},
+                case: {"status": "screening"}}}, "objects": {"0" * 64: SECRET}}
+            ref, ciphertext = sealer.seal(keys.keys[batch], ArtifactKind.STATEMENT_REGISTRY, json.dumps(board).encode())
+            store.put_sealed(batch, ref, ciphertext)
             def row(seq, attempt, kind, result):
                 return SimpleNamespace(workflow_id=f"{case}/{seq}/x/{attempt}",
-                    input={"args": [{"input": {"case_id": case, "seq": seq, "attempt": attempt,
-                                               "step": to_record(Step(kind))}}]},
+                    input={"args": [{"input": {"case_id": case, "batch_id": batch, "seq": seq, "attempt": attempt,
+                                               "registry": to_record(ref), "step": to_record(Step(kind))}}]},
                     output={"result": result})
             rows = [row(1, 1, StepKind.ADMIT, {"outcome": "infra_error", "reason": "admit:processing_failed", "snapshot": old}),
                     row(1, 2, StepKind.ADMIT, {"outcome": "exhausted", "reason": "admit:exhausted", "snapshot": last}),
                     row(1, 3, StepKind.ADMIT, {"outcome": "infra_error", "reason": "infra:deadline"})]
-            client = FakeClient(rows, {("b-imp-b5521c-5", "cases"): [case]})
-            results = ar.backfill({}, ["b-imp-b5521c-5", other, "not a case"], client=client, keys=keys, store=store)
+            client = FakeClient(rows, {(batch, "cases"): [case]})
+            results = ar.backfill({}, [batch, other, "not a case"], client=client, keys=keys, store=store)
         self.assertEqual(results[0]["case"], case)
         self.assertEqual((results[0]["seq"], results[0]["attempt"]), (1, 2))
         self.assertEqual(results[0]["recorded_reason"], None)   # "admit:exhausted" was never published
         self.assertEqual(results[0]["reason"], "admit:dedup_board_duplicate")
         self.assertEqual(results[0]["candidates"][0]["duplicate_of"], "case-old-1")
+        self.assertEqual(results[0]["candidates"][0]["duplicate_status"], "completed")
+        self.assertNotIn(SECRET, json.dumps(results))
         self.assertEqual(results[1], {"case": other, "error": "no_admit_snapshot"})
         self.assertEqual(results[2], {"target": None, "error": "invalid_target"})
         # Only the case that already had a key was opened; nothing was created.
-        self.assertEqual(keys.opened, [case])
+        self.assertEqual(keys.opened, [case, batch])
+
+    def test_registry_statuses_and_an_unlisted_target(self):
+        self.assertEqual(ar.registry_statuses(b""), {})
+        legacy = {"version": 1, "legacy": True, "registry": {"revision": 1, "entries": {
+            "case-a": {"status": "known_public"}, "case-b": {"status": SECRET}}}, "objects": {}}
+        self.assertEqual(ar.registry_statuses(json.dumps(legacy).encode()), {"case-a": "known_public"})
+        entry = {"candidates": [{"duplicate_of": "case-gone"}]}
+        ar._with_statuses(entry, {})
+        self.assertEqual(entry["candidates"][0]["duplicate_status"], "not_on_board")
 
     def test_a_missing_key_is_never_created(self):
         case = "case-imp-x-1"
