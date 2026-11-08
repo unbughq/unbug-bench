@@ -218,6 +218,8 @@ class RealStops(unittest.TestCase):
         'admission_dedup_invalid': ("infra_error", 'admit:dedup_invalid'),
         'admission_idea_review_unavailable': ("infra_error", 'admit:idea_review_unavailable'),
         'admission_idea_review_invalid': ("infra_error", 'admit:idea_review_invalid'),
+        'admission_second_opinion_unavailable': ("infra_error", 'admit:second_opinion_unavailable'),
+        'admission_second_opinion_invalid': ("infra_error", 'admit:second_opinion_invalid'),
         'freshness_evidence_unavailable': ("infra_error", 'infra:freshness_evidence_unavailable'),
         'freshness_review_unavailable': ("infra_error", 'infra:freshness_review_unavailable'),
         'freshness_repair_state_invalid': ("infra_error", 'infra:freshness_repair_state_invalid'),

@@ -62,12 +62,17 @@ class AdmissionTests(unittest.TestCase):
         for mode in ("duplicate", "malformed", "unavailable", "public"):
             with self.subTest(mode=mode):
                 c = self.c; c.card = {}; c.__dict__.pop("precheck_problems", None)
+                earlier = c.work / "synthetic.md"; earlier.write_text("Synthetic earlier statement.")
                 def compare(ctx, models, text, cwd, name):
                     if mode == "unavailable": raise run.BudgetError("synthetic unavailable")
                     request = json.loads(text.split("\n", 1)[1])
+                    if name.endswith("-second-opinion-dedup"):   # a second family confirms the duplicate
+                        self.assertNotIn(models[0].split("/")[0], ("claude", "glm"))
+                        pathlib.Path(request["result_path"]).write_text(json.dumps({"same_bug": True, "reason": "same"}))
+                        return 0
                     verdict = {} if mode == "malformed" else {"duplicate_of": "case-old" if mode == "duplicate" else None, "reason": "Compared mechanisms"}
                     pathlib.Path(request["result_path"]).write_text(json.dumps(verdict)); return 0
-                with patch.object(run, "prior_statements", return_value={"case-old": "synthetic.md"}), \
+                with patch.object(run, "prior_statements", return_value={"case-old": str(earlier)}), \
                      patch.object(run, "model_call", compare), patch.object(run, "opencode") as builder, \
                      patch.object(run, "g2", return_value=(mode != "public", {"outcome": "public_match"} if mode == "public" else {})):
                     try: run.statement_precheck(c)

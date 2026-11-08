@@ -205,6 +205,10 @@ worker RAM and record only case IDs (`admit:board_planned`, no registry returned
 control VM `plan` (dry run), `apply` (new board file plus change log) and `revert` change
 entry statuses only. Sealed, live and known_public entries stay; each duplicate group keeps
 its most advanced member; other abandoned entries are released.
+A first judge's duplicate or realism rejection is final only when a second family agrees
+(`run.dedup_second_opinion`, `run.realism_second_opinion`): never the writer's or the first
+judge's family, a free route first, refused up front when none qualifies. On a disagreement
+the idea goes on to the next screen. Cards record `second_opinion` {second_family, agreed}.
 
 OpenCode's free routes (DeepSeek, MiniMax and GLM flash) are bounded at $0 with no gate: a call that books
 any cost, or reports a step from another provider or model, is stopped. It runs with OpenCode's own
