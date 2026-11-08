@@ -50,6 +50,23 @@ def invocation_maximum(c, lease):
     return Decimal(str(lease.max_usd)).quantize(Decimal('.000000001'), rounding=ROUND_CEILING)
 
 
+def codex_usage_feed(home, user=None):
+    """Read a Codex call's own session logs (CODEX_HOME/sessions/**/rollout-*.jsonl): their token_count
+    events are its per-request usage. A walled user's home is private, so that user reads them."""
+    # pipefail: an unreadable directory or log (find, cat) fails the read. Only grep's "no match" (1) means
+    # a readable log with no usage yet. Only the usage lines are kept: the log also holds every item.
+    script = ('set -o pipefail; [ -d "$1/sessions" ] || exit 0; '
+              'find "$1/sessions" -type f -name "rollout-*.jsonl" -print0 | sort -z | xargs -0 -r cat -- '
+              '| { grep -F \'"token_count"\' || [ $? -eq 1 ]; }')
+    cmd = ['bash', '-c', script, 'bash', str(home)]
+    if user: cmd = ['sudo', '-n', '-H', '-u', user] + cmd
+    def feed():
+        try: result = subprocess.run(cmd, capture_output=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired): return None
+        return result.stdout.decode(errors='replace') if result.returncode == 0 else None
+    return feed
+
+
 def role_timeout(c, name, timeout):
     """The stress-review cap applies to stress review, not to the attacker's freshness search."""
     if invocation_role(name) == 'stress_tester' and not name.endswith('-freshness'):
@@ -652,7 +669,8 @@ class ModelRuntime:
             env["CODEX_HOME"] = str(scratch)
             # No subagents, no web (hosted search, browser, apps/plugins, computer use), no image generation.
             off = [x for f in CODEX_OFF for x in ("--disable", f)]
-            cmd = [pinned_cli("codex"), "exec", "--json", "--ephemeral", "--skip-git-repo-check",
+            # Not --ephemeral: the session log in CODEX_HOME is Codex's per-request usage report (usage_feed).
+            cmd = [pinned_cli("codex"), "exec", "--json", "--skip-git-repo-check",
                    "--dangerously-bypass-approvals-and-sandbox", *off, "-m", model_id,
                    "-c", f'model_reasoning_effort="{effort}"', "-c", 'web_search="disabled"', "-C", str(cwd), text]
             if user:  # the pilot runs as its own Unix user with its own copy of the subscription config
@@ -689,6 +707,10 @@ class ModelRuntime:
                 reservation = c.invocation_reservation
                 attempt_kwargs = dict(attempt=c.engine, invocation_id=reservation['invocation_id'],
                     lease_id=reservation['lease_id'], on_started=lambda: c.model_process_state.update(started=True))
+            if driver == "codex":
+                # No gate: Codex's live usage holds the call to its reservation, or outside the engine to its lease maximum.
+                attempt_kwargs['usage_feed'] = codex_usage_feed(scratch, user)
+                if not attempt_kwargs.get('attempt'): attempt_kwargs['call_cap_usd'] = lease.max_usd
             with model_call_gate.enforce(lease, env, c.model_cap_used, limit, getattr(c, 'role_cancel', None), user=user) as gate:
                 if diagnosis and driver == 'opencode':
                     env.pop('OPENCODE_ENABLE_EXA', None)
