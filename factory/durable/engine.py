@@ -35,7 +35,7 @@ from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised
                               StepResult, Topic, WorkerLease, assert_no_conductor, batch_spec_from_record,
                               guarded_run, step_input_from_record, step_result_from_record, to_record,
                               wait_seconds)
-from durable.classify import WORKER_POOL_REASONS
+from durable.classify import CAMPAIGN_WAIT_REASONS, WORKER_POOL_REASONS
 from durable.executor import Executor, SeamError
 from durable.policy import (DEADLINE_REASON, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
                             draws_case_money, is_batch_deadline_stop, is_operational_wait, is_money_stop, is_pause,
@@ -633,7 +633,11 @@ class _Case:
             if pool_wait:
                 pool_now = now_step()
                 pool_since = pool_now if pool_since is None else pool_since
-                pool_wait = pool_now - pool_since < _RT.timing.pool_wait_ceiling_s
+                # Waiting for a free campaign slot is bounded by the batch deadline, not the ceiling:
+                # a slot frees whenever another case finishes. No replay diverges: nothing recorded
+                # these reasons before they existed.
+                pool_wait = (pool_now - pool_since < _RT.timing.pool_wait_ceiling_s
+                             or result.reason in CAMPAIGN_WAIT_REASONS)
             else:
                 pool_since = None
             late_stop = is_batch_deadline_stop(result, self.spec, now)

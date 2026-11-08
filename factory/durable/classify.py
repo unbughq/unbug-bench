@@ -172,8 +172,11 @@ CONTRACT_REASONS = frozenset({"infra:deadline", "infra:version_mismatch", "infra
                               "infra:cancelled", "engine:executor_raised", "engine:executor_bad_result"})
 
 # Fixed WP2 PoolError reasons; these reveal no provider output. The engine waits on them, within a ceiling.
+# Campaign worker limits (guard.reserve_start): wait for a free slot, up to the batch deadline.
+CAMPAIGN_WAIT_REASONS = frozenset({"infra:worker_slots_full", "infra:worker_start_rate"})
 WORKER_POOL_REASONS = frozenset({"infra:worker_create_failed", "infra:worker_create_unknown",
-                                 "infra:inventory_unavailable", "infra:worker_delete_unconfirmed"})
+                                 "infra:inventory_unavailable", "infra:worker_delete_unconfirmed"}
+                                | CAMPAIGN_WAIT_REASONS)
 
 # Reasons safe for the public scorecard. "A model refused this case" hints at the case's
 # content, so router:refusal stays private. report.py shows any other reason as its

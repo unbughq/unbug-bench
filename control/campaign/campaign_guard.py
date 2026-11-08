@@ -8,7 +8,7 @@ import sys
 
 root = Path(os.environ.get('UNBUG_CAMPAIGN_ROOT', Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'factory'))
-from durable.guard import CHECKPOINT_GRACE_S, CheckFailed, Guard, router_spend, webhook
+from durable.guard import CHECKPOINT_GRACE_S, CheckFailed, Guard, read_starts, router_spend, webhook
 from durable.workers import BoatCli, BoatPool, ReleaseStore
 
 SERVICE = 'unbug-durable-case-campaign.service'
@@ -49,8 +49,7 @@ class Service:
 
 
 def count():
-    marker = state / 'campaign-create-count.json'
-    return json.loads(marker.read_text()) if marker.exists() else 0
+    return read_starts(state / 'campaign-starts.json')
 
 
 url = os.environ.get('UNBUG_ALERT_WEBHOOK')

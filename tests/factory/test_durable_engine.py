@@ -247,6 +247,15 @@ class Outcomes(unittest.TestCase):
         self.assertGreaterEqual(len(reserves), 4)   # waited attempts, then the allowance's two
         self.assertLess(reserves[-1] - reserves[0], 30)
 
+    def test_waiting_for_a_campaign_slot_outlasts_the_wait_ceiling(self):
+        # Full slots free up when another case finishes; only the deadline ends the wait.
+        r, out = run({"disabled_patches": ["admission_infra_backoff"],
+                      "pool_failures": 8, "pool_reason": "infra:worker_slots_full",
+                      "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1, "max_factory_bug_resumes": 0},
+                      "timing": {"pause_retry_s": 0.2, "pool_wait_ceiling_s": 0.5}}, timeout=60)
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
     def test_a_create_outage_does_not_outlive_the_batch_deadline_in_admit(self):
         r, out = run({"pool_failures": 1000, "pool_reason": "infra:worker_create_failed", "deadline_in": 2.0,
                       "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1000}, "timing": {"pause_retry_s": 0.3}}, timeout=60)
