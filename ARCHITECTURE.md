@@ -168,6 +168,20 @@ ADMIT refuses unless it matches the old card, and `start` refuses unless it plus
 batch's `case_money_usd_micros` fits the default per-case ceiling. Import refusals
 (`admit:import_invalid`) are deterministic, so they end admission instead of retrying.
 
+A durable case stopped by an infrastructure failure resumes instead: `start --resume-case
+<case>` makes it the only case of a new batch. It keeps its case ID, so its key, artifacts,
+snapshot card and admission binding stay valid. Only its workflow is new (`<case>@<batch>`),
+and the batch maps it back for cards and seals. `engine.resume_point` allows this only when every
+workflow of the case finished held or retired and its last attempt ended `infra_error` or
+`provider_limit`, never after a verdict, gate, limit or founder decision. The new workflow
+replays every earlier seq from the attempts recorded under the case's keys, with no worker,
+wait or message. If any attempt it needs is missing, it fails (`resume:diverged`) rather than
+starting new work in that history. The stopped seq restarts after its recorded attempts.
+Counters, snapshot and evidence therefore come out of the same code that built them. `start`
+refuses unless the earlier spend (ledger plus any declared import spend) plus the batch's
+case money fits the default per-case ceiling. Run the resume batch with the stopped batch's
+limits, or the replay diverges.
+
 Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused
 every request (exhausted, nothing forwarded) settles at $0, not its hold; `start` refuses a batch
 whose batch or case money cannot hold one request on its dearest gated route (`bound_below_call_hold`;

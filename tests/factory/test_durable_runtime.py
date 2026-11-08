@@ -207,13 +207,38 @@ class RuntimeTests(unittest.TestCase):
                          deadline_epoch=4e9, max_concurrency=1)
         with patch("dbos.DBOS.get_workflow_status", return_value=None), patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start:
             self.assertEqual(runtime.start(to_record(spec), to_record(registry)), {"batch_id": "b-offline"})
-            start.assert_called_once_with(spec, registry, None)
+            start.assert_called_once_with(spec, registry, None, None)
             self.assertNotIn("arbitrary admission payload", repr(start.call_args))
         for state in ("SUCCESS", "ERROR", "CANCELLED", "MAX_RECOVERY_ATTEMPTS_EXCEEDED"):
             with patch("dbos.DBOS.get_workflow_status", return_value=SimpleNamespace(status=state)), patch.object(runtime.engine, "start_batch") as start:
                 with self.assertRaisesRegex(RuntimeErrorCode, "batch_already_finished"):
                     runtime.start(to_record(spec), to_record(registry))
                 start.assert_not_called()
+
+    def test_resume_counts_the_earlier_spend_against_one_case_ceiling(self):
+        runtime = self.runtime()
+        old_inputs = runtime.prepare("b-old", ArtifactKind.INPUTS, b'{"import_spent_usd_micros": 30000000}')
+        old = BatchSpec(batch_id="b-old", plumbing_version="a" * 64, bench_version="b" * 64,
+                        app_repo="medusajs/medusa", app_commit="c" * 40, inputs=old_inputs, target_sealed=1,
+                        money_bound_usd_micros=100, deadline_epoch=4e9, max_concurrency=1)
+        runtime.ledger.open("b-old", 100)
+        inputs = runtime.prepare("b-new", ArtifactKind.INPUTS, b"{}")
+        registry = runtime.prepare("b-new", ArtifactKind.STATEMENT_REGISTRY, b"opaque registry")
+        def spec(**kw):
+            return BatchSpec(**{**dict(batch_id="b-new", plumbing_version="a" * 64, bench_version="b" * 64,
+                                       app_repo="medusajs/medusa", app_commit="c" * 40, inputs=inputs,
+                                       target_sealed=1, money_bound_usd_micros=100, deadline_epoch=4e9,
+                                       max_concurrency=1, max_cases_started=1), **kw})
+        old_row = [SimpleNamespace(input={"args": [{"spec": to_record(old)}]})]
+        with patch("dbos.DBOS.get_workflow_status", return_value=None), patch("dbos.DBOS.list_workflows", return_value=old_row), \
+                patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start:
+            for bad, code in ((spec(max_cases_started=2), "resume_invalid"), (spec(), "resume_money")):
+                with self.assertRaisesRegex(RuntimeErrorCode, code):
+                    runtime.start(to_record(bad), to_record(registry), None, "case-old-1")
+            start.assert_not_called()
+            ok = spec(case_money_usd_micros=20_000_000)
+            runtime.start(to_record(ok), to_record(registry), None, "case-old-1")
+            start.assert_called_once_with(ok, registry, None, "case-old-1")
 
     def test_private_socket_client_prepare(self):
         import socketserver
@@ -282,7 +307,7 @@ class RuntimeTests(unittest.TestCase):
         runtime.config = {**runtime.config, "worker_credentials": {"legacy_registry": True}}
         with patch("dbos.DBOS.get_workflow_status", return_value=None), patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start:
             runtime.start(to_record(spec), to_record(registry), to_record(imported))
-            start.assert_called_once_with(spec, registry, imported)
+            start.assert_called_once_with(spec, registry, imported, None)
             # One case only, the legacy statement key delivered, and old + new case money within $50.
             for bad_spec, config in ((replace(spec, max_cases_started=2), runtime.config), (spec, {**runtime.config, "worker_credentials": {}}),
                                      (replace(spec, case_money_usd_micros=47_500_001), runtime.config)):
