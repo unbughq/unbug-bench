@@ -300,6 +300,9 @@ def free_usage_settled(lease):
     return lease.route in FREE_ROUTES and lease.max_usd == 0
 
 
+OPENCODE_ACCOUNTS = ('opencode-go-key', 'opencode-go-key-2')   # model_router.ACCOUNTS[2:4]
+
+
 def call_failure_reason(label, route):
     """A per-call failure that moves this call to its chain's next route, or None (the step fails).
     A free route's broken usage report or provider mismatch also moves on: the next route is gated."""
@@ -467,6 +470,11 @@ class ModelRuntime:
                     reason = call_failure_reason(str(error), lease.route)
                     if reason: failure = {'reason': reason, 'model': lease.route, 'per_call': True}
                 if not failure: raise
+                if failure.get('reason') == 'quota' and lease.account in OPENCODE_ACCOUNTS:
+                    # An OpenCode Go account's usage limit covers every call on that account, not this
+                    # one: publish it (router health blocks the account until its reset) instead of
+                    # excluding one lane, so later calls stop retrying an exhausted account.
+                    failure = {k: v for k, v in failure.items() if k != 'per_call'}
                 from durable.classify import FAILURE_STOPS
                 if failure.get('source_stop') not in FAILURE_STOPS:
                     failure = {k: v for k, v in failure.items() if k != 'source_stop'}

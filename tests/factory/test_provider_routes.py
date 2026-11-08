@@ -72,6 +72,34 @@ class ProviderRoutesTest(TestCase):
             self.assertEqual((row['route'], row['family'], row['outcome']), (chain[0], model_runtime.family(chain[0]), 'done'))
             self.assertNotIn('routes', c.__dict__)
 
+    def test_a_go_account_quota_blocks_that_account_instead_of_one_lane(self):
+        # 8 November, 1108a: every MiniMax call retried both exhausted Go accounts (~6 s a call),
+        # and router health never recorded either account.
+        stack, store = offline_router()
+        self.addCleanup(stack.close)
+        free = 'opencode/minimax-m3.1-flash-free'
+        tried = []
+        def invoke(runtime, context, models, *args, **kwargs):
+            tried.append((models[0], context.model_lease.account))
+            if models[0] == free:   # an unstructured usage-limit line: today's per-call path
+                raise model_runtime.BudgetError('provider_limit:' + free)
+            return 0
+        runtime = model_runtime.ModelRuntime(None, None, None, None, None)
+        with mock.patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
+            runtime.call(SimpleNamespace(card={}), [free], 't', '.', 'fixture')
+            self.assertEqual(tried[:2], [(free, 'opencode-go-key'), (free, 'opencode-go-key-2')])
+            fallback = tried[2]   # the chain's OpenRouter route (synthetic maxima bound every route here)
+            self.assertEqual((len(tried), fallback[1]), (3, 'openrouter-key'))
+            health = store.rpc('status', {})['health']
+            self.assertEqual({health[k]['reason'] for k in health if 'opencode-go-key' in k}, {'quota'})
+            self.assertTrue(all(any(a in k for k in health) for a in ('opencode-go-key', 'opencode-go-key-2')))
+            # The next call goes straight to the fallback: no exhausted account is retried.
+            tried.clear()
+            runtime.call(SimpleNamespace(card={}), [free], 't', '.', 'fixture')
+            self.assertEqual(tried, [fallback])
+        # Another route's per-call quota keeps its old, lane-only handling.
+        self.assertEqual(model_runtime.call_failure_reason('provider_limit:x', 'openrouter/minimax/minimax-m3.1-flash'), 'quota')
+
     def test_fallback_is_shared_and_billing_is_explicit(self):
         self.addCleanup(offline_router()[0].close)
         c = SimpleNamespace(work=self.work, card={})
