@@ -26,9 +26,18 @@ from token_prices import CODEX_PRICES, codex_cost, claude_cost, claude_standard_
 
 
 class BudgetError(RuntimeError):
-    def __init__(self, message, *, provider_failure=None):
+    def __init__(self, message, *, provider_failure=None, provider_error=None):
         super().__init__(message)
         self.provider_failure = provider_failure
+        self.provider_error = provider_error   # content-free: see provider_error_fields
+
+
+def provider_error_fields(info):
+    """Only a provider error's HTTP status and error name, never its message: safe in plaintext."""
+    status, name = info.get('status_code'), info.get('error_type')
+    # Only these fields: provider_error also counts output events ('events_seen').
+    return {'http_status': status if type(status) is int and 100 <= status <= 599 else None,
+            'error_name': name if isinstance(name, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_.]{0,59}', name) else None}
 
 
 def classify_provider_failure(text, model, *, reset_at=None, retry_after=None, now=None,
@@ -846,18 +855,29 @@ def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     settings = locals()
     _check_containment(ledger_path)
     path = Path(ledger_path)
-    with _activity(path, resume=resume) as (activity, reset, admission):
-        settings["resume"] = reset
-        if concurrent: return _run_budgeted(**settings, _activity_lock=activity, _admission_lock=admission)
-        with open(str(path) + '.lock', 'a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            return _run_budgeted(**settings, _serial_lock=lock, _activity_lock=activity, _admission_lock=admission)
+    provider_error = {'events_seen': 0}
+    try:
+        with _activity(path, resume=resume) as (activity, reset, admission):
+            settings["resume"] = reset
+            if concurrent: return _run_budgeted(**settings, _activity_lock=activity, _admission_lock=admission,
+                                                _provider_error=provider_error)
+            with open(str(path) + '.lock', 'a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                return _run_budgeted(**settings, _serial_lock=lock, _activity_lock=activity, _admission_lock=admission,
+                                     _provider_error=provider_error)
+    except BudgetError as error:
+        # Every stop carries the last provider error event's status and name, if any, and how many
+        # output events the CLI produced (0: it hung or died silently). All content-free.
+        error.provider_error = {**dict(provider_error), **(error.provider_error or {}),
+                                'events_seen': provider_error.get('events_seen', 0)}
+        raise
 
 
 def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, _serial_lock=None, _activity_lock=None, _admission_lock=None):
+                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, _serial_lock=None, _activity_lock=None, _admission_lock=None,
+                 _provider_error=None):
     """Return CompletedProcess, or raise BudgetError without exposing transcript text.
 
     max_calls limits this invocation; max_total_calls and max_cost span roles.
@@ -888,6 +908,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     path.parent.mkdir(parents=True, exist_ok=True)
     ledger = None
     invocation = invocation_id or uuid.uuid4().hex
+    provider_error = {} if _provider_error is None else _provider_error   # the last provider error event's content-free fields
 
     @contextmanager
     def transaction():
@@ -1019,7 +1040,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 rate_limits += 1
                 if rate_limits < 2 and not provider_model.startswith('openrouter/'): return True
             label = 'process_error' if observation['reason'] == 'outage' else 'provider_limit:' + provider_model
-            raise BudgetError(label, provider_failure=observation)
+            raise BudgetError(label, provider_failure=observation, provider_error=dict(provider_error) or None)
         return False
 
     def call():
@@ -1122,6 +1143,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
 
     def consume(line):
         nonlocal count, usages
+        provider_error['events_seen'] = provider_error.get('events_seen', 0) + 1
         try:
             event = json.loads(line)
         except (ValueError, UnicodeDecodeError):
@@ -1141,6 +1163,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         # Never scan tool output or echoed command/prompt text for provider errors.
         if kind == 'error' or (kind == 'system' and event.get('subtype') in ('error', 'api_retry', 'retry')) or (kind == 'result' and event.get('is_error')) or (driver == 'claude' and kind == 'assistant' and event.get('error')):
             info = provider_diagnostic(event)
+            provider_error.update(provider_error_fields(info))
             if diagnostic(**info, allow_outage=kind != 'system', shared=True): return
         elif driver == 'claude' and kind == 'result':
             diagnostic(str(event.get('result', '')), response=True)
@@ -1156,7 +1179,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             return consume_claude(event)
         kind, part = event.get('type'), event.get('part', {})
         if kind == 'error':
-            raise BudgetError('opencode_error')
+            raise BudgetError('opencode_error', provider_error=dict(provider_error) or None)
         if kind not in ('step_start', 'step_finish'):
             return
         if not isinstance(part, dict) or not part.get('messageID'):

@@ -42,8 +42,10 @@ class DeliveryTests(unittest.TestCase):
             subprocess.run(['age-keygen', '-o', str(identity)], capture_output=True, check=True)
             public = subprocess.run(['age-keygen', '-y', str(identity)], capture_output=True, check=True).stdout.decode().strip()
             names = ['claude-factory-token-2', 'openrouter-key']
+            # Founder 2026-11-08: both OpenCode accounts reach every worker even when the VM config omits them.
+            opencode = ['opencode-go-key', 'opencode-go-key-2']
             encrypted = subprocess.run(['age', '-r', public], input=base64.b64decode(archive(
-                (*names, 'r2-env', 'statements-key', 'claude-token'))), capture_output=True, check=True).stdout
+                (*names, *opencode, 'r2-env', 'statements-key', 'claude-token'))), capture_output=True, check=True).stdout
             bundle = root / 'credentials.age'; bundle.write_bytes(encrypted); bundle.chmod(0o600)
             runtime = Runtime.__new__(Runtime)
             runtime.config = {'worker_credentials': {'bundle_file': str(bundle), 'identity_file': str(identity),
@@ -51,7 +53,7 @@ class DeliveryTests(unittest.TestCase):
             packed = runtime.worker_credentials()
             ram = root / 'ram'; ram.mkdir()
             with tarfile.open(fileobj=io.BytesIO(base64.b64decode(packed))) as tar:
-                self.assertEqual(set(tar.getnames()), {*names, *delivery.NAMES})
+                self.assertEqual(set(tar.getnames()), {*names, *opencode, *delivery.NAMES})
                 tar.extractall(ram, filter='data')
             from worker_secrets import router_environment
             env = router_environment(ram)
@@ -60,7 +62,11 @@ class DeliveryTests(unittest.TestCase):
                           env['FACTORY_ROUTER_TOKEN'], 'status', {}, ca_file=env['FACTORY_ROUTER_CA_FILE']))
             runtime.config['worker_credentials']['legacy_registry'] = True
             with tarfile.open(fileobj=io.BytesIO(base64.b64decode(runtime.worker_credentials()))) as tar:
-                self.assertEqual(set(tar.getnames()), {*names, *delivery.NAMES, 'statements-key'})
+                self.assertEqual(set(tar.getnames()), {*names, *opencode, *delivery.NAMES, 'statements-key'})
+            runtime.config['worker_credentials']['accounts'] = [*names, 'opencode-go-key-2']   # no duplicate
+            with tarfile.open(fileobj=io.BytesIO(base64.b64decode(runtime.worker_credentials()))) as tar:
+                self.assertEqual(sorted(tar.getnames()).count('opencode-go-key-2'), 1)
+            runtime.config['worker_credentials']['accounts'] = list(names)
             runtime.config['worker_credentials']['accounts'].append('codex-auth.json')
             with self.assertRaises(ValueError): runtime.worker_credentials()
 

@@ -73,7 +73,8 @@ class ProviderRoutesTest(TestCase):
             self.assertNotIn('routes', c.__dict__)
 
     def test_fallback_is_shared_and_billing_is_explicit(self):
-        self.addCleanup(offline_router()[0].close)
+        stack, store = offline_router()
+        self.addCleanup(stack.close)
         c = SimpleNamespace(work=self.work, card={})
         tried = []
         def invoke(runtime, context, models, *args, **kwargs):
@@ -85,7 +86,13 @@ class ProviderRoutesTest(TestCase):
         runtime = model_runtime.ModelRuntime(None, None, None, None, None)
         with mock.patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
             runtime.call(c, [model_router.CHAINS[-1][0]], 't', '.', 'fixture')
-            self.assertEqual(tried, list(model_router.CHAINS[-1]))
+            # GLM free on each OpenCode account, then the Go subscription route.
+            self.assertEqual(tried, [model_router.CHAINS[-1][0], *model_router.CHAINS[-1]])
+            # Each failed free call left a content-free end record on its own account's lane.
+            rows = store.rpc('status', {})['free_errors']
+            self.assertEqual(sorted((r['account'], r['outcome'], r['error_class']) for r in rows),
+                             [('opencode-go-key', 'interrupted', 'opencode_error'),
+                              ('opencode-go-key-2', 'interrupted', 'opencode_error')])
             other = SimpleNamespace(card={})
             tried.clear()
             runtime.call(other, [model_router.CHAINS[-1][0]], 't', '.', 'fixture')

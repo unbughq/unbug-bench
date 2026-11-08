@@ -15,6 +15,7 @@ import budget
 import model_call_gate
 import model_router
 from budget import BudgetError
+from token_prices import FREE_ROUTES
 
 FREE = 'opencode/deepseek-v4.1-flash-free'
 
@@ -34,9 +35,22 @@ class FreeRoutes(unittest.TestCase):
         self.assertFalse(model_router.valid_maximum(vars(lease(max_usd=1.0))))   # a free lease holds nothing
         # Paid routes are unchanged.
         self.assertGreater(model_router.route_maximum('openrouter/deepseek/deepseek-v4.1-flash')['max_usd'], 0)
-        # DeepSeek free falls back to the paid gated route of the same family.
-        self.assertEqual([r['route'] for r in model_router.routes(FREE, model_router.ACCOUNTS)],
-                         [FREE, 'openrouter/deepseek/deepseek-v4.1-flash'])
+        # Founder 2026-11-08: every free model runs on both OpenCode accounts, the second before the
+        # fallback; never anonymously. DeepSeek free falls back to the paid gated route of its family.
+        self.assertEqual([(r['route'], r['account'], r['pool']) for r in model_router.routes(FREE, model_router.ACCOUNTS)],
+                         [(FREE, 'opencode-go-key', 'opencode-free:opencode-go-key'),
+                          (FREE, 'opencode-go-key-2', 'opencode-free:opencode-go-key-2'),
+                          ('openrouter/deepseek/deepseek-v4.1-flash', 'openrouter-key', 'openrouter-key')])
+        self.assertEqual([(r['route'], r['account']) for r in model_router._bounded_routes(
+                              'opencode/glm-5.3-flash-free', model_router.ACCOUNTS)],
+                         [('opencode/glm-5.3-flash-free', 'opencode-go-key'), ('opencode/glm-5.3-flash-free', 'opencode-go-key-2')])
+        for route in ('opencode/deepseek-v4.1-flash-free', 'opencode/minimax-m3.1-flash-free', 'opencode/glm-5.3-flash-free'):
+            rows = model_router.routes(route, model_router.ACCOUNTS)
+            self.assertTrue(all(r['account'] for r in rows), route)
+            self.assertTrue(all(model_router.route_maximum(r['route'])['max_usd'] == 0 for r in rows if r['route'] in FREE_ROUTES))
+        # A worker holding only one account still gets that account's free lane, then the fallback.
+        self.assertEqual([(r['route'], r['account']) for r in model_router.routes(FREE, ('opencode-go-key-2', 'openrouter-key'))],
+                         [(FREE, 'opencode-go-key-2'), ('openrouter/deepseek/deepseek-v4.1-flash', 'openrouter-key')])
         # So does MiniMax free (on either OpenCode account), past the unbounded OpenRouter :free variant.
         self.assertEqual([(r['route'], r['account']) for r in model_router._bounded_routes(
                               'opencode/minimax-m3.1-flash-free', model_router.ACCOUNTS)],
@@ -75,6 +89,14 @@ class FreeRoutes(unittest.TestCase):
             env = {'PATH': '/bin', 'OPENCODE_CONFIG': str(config), 'OPENCODE_API_KEY': 'k', **xdg}
             with model_call_gate.enforce(lease(minimax, account='opencode-go-key'), env, cap, 5, None): pass
             self.assertEqual(env['OPENCODE_API_KEY'], 'k')
+            # DeepSeek and GLM free on an account carry that account's key too, still bounded at $0.
+            for route in (FREE, 'opencode/glm-5.3-flash-free'):
+                env = {'PATH': '/bin', 'OPENCODE_CONFIG': str(config), 'OPENCODE_API_KEY': 'k2', **xdg}
+                with model_call_gate.enforce(lease(route, account='opencode-go-key-2'), env, cap, 5, None): pass
+                self.assertEqual(env['OPENCODE_API_KEY'], 'k2')
+                self.assertEqual(json.loads(env['OPENCODE_CONFIG_CONTENT'])['enabled_providers'], ['opencode'])
+            with self.assertRaisesRegex(BudgetError, 'unbounded_route'):
+                with model_call_gate.enforce(lease(FREE, account='opencode-go-key', max_usd=0.01), env, cap, 5, None): pass
             # Without scratch XDG dirs the user's own OpenCode config would load.
             with self.assertRaisesRegex(BudgetError, 'route_feature_unsupported'):
                 with model_call_gate.enforce(lease(), {'OPENCODE_CONFIG': str(config)}, cap, 5, None): pass
@@ -99,7 +121,7 @@ class FreeRoutes(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
                     runtime._call(SimpleNamespace(card={}), [FREE], 'x', '/', name, user=user)
                 self.assertEqual(seen.pop(), (model_runtime.invocation_role(name),
-                                              ('opencode-free/' + FREE,)))
+                                              ('opencode-free:opencode-go-key/' + FREE, 'opencode-free:opencode-go-key-2/' + FREE)))
                 # GLM free has no bounded route behind the wall: refused as a configuration, not slept on.
                 with self.assertRaises(model_router.ProviderWait) as stop:
                     runtime._call(SimpleNamespace(card={}), ['opencode/glm-5.3-flash-free'], 'x', '/', name, user=user)
@@ -146,7 +168,7 @@ class FreeRoutes(unittest.TestCase):
                 account='openrouter-key', pool='openrouter-key', family='deepseek', billing='paid', expires_at=2e9,
                 **model_router.route_maximum('openrouter/deepseek/deepseek-v4.1-flash'))
         case = SimpleNamespace(card={'roles': {'stress_tester': {'model': FREE}}}, router_model=FREE,
-                               router_excluded=('opencode-free/' + FREE,), router_deferred=False,
+                               router_excluded=model_router.free_lanes(FREE, model_router.ACCOUNTS), router_deferred=False,
                                router_wait=model_router.Wait('outage', 0, route=FREE), engine=object())
         saved = (model_router._admit, model_router._credential_ready, model_router._deadlines)
         model_router._admit, model_router._credential_ready = admit, lambda result: True
@@ -155,7 +177,7 @@ class FreeRoutes(unittest.TestCase):
             got = model_router.await_lease('stress_tester', case)
         finally:
             model_router._admit, model_router._credential_ready, model_router._deadlines = saved
-        self.assertEqual(asked, [('opencode-free/' + FREE,)])
+        self.assertEqual(asked, [tuple(sorted(model_router.free_lanes(FREE, model_router.ACCOUNTS)))])
         self.assertEqual(got.route, 'openrouter/deepseek/deepseek-v4.1-flash')
 
     def test_a_calibrator_preflight_is_not_merged_with_an_unwalled_one(self):
@@ -192,6 +214,27 @@ class FreeRoutes(unittest.TestCase):
                     run(model_id, provider, cost=0.25)
                 ledger = json.loads(max(Path(tmp).glob('ledger-*.json'), key=lambda p: p.stat().st_mtime_ns).read_text())
                 self.assertEqual(ledger['cost'], 0.25)   # the mismatched step's cost is booked before the stop
+
+    def test_an_opencode_error_carries_only_its_status_and_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            event = {'type': 'error', 'error': {'name': 'APIError', 'data': {'statusCode': 429, 'message': 'secret case text'}}}
+            script = Path(tmp) / 'cli.sh'
+            script.write_text('#!/bin/sh\n' + "echo '%s'\n" % json.dumps(event))
+            script.chmod(0o755)
+            with self.assertRaises(BudgetError) as caught:
+                budget.run_budgeted([str(script), '-m', FREE], tmp, {'PATH': '/bin:/usr/bin'}, Path(tmp) / 'out.jsonl',
+                                    Path(tmp) / 'ledger.json', 30, driver='opencode', configured_model=FREE, containment=False)
+            self.assertEqual(caught.exception.provider_error, {'http_status': 429, 'error_name': 'APIError', 'events_seen': 1})
+            self.assertNotIn('secret', json.dumps(caught.exception.provider_error))
+            # A CLI that hangs without a single event is told apart from one that errored.
+            script.write_text('#!/bin/sh\nsleep 30\n')
+            with self.assertRaises(BudgetError) as caught:
+                budget.run_budgeted([str(script), '-m', FREE], tmp, {'PATH': '/bin:/usr/bin'}, Path(tmp) / 'out2.jsonl',
+                                    Path(tmp) / 'ledger2.json', 1, driver='opencode', configured_model=FREE, containment=False)
+            self.assertEqual(str(caught.exception), 'timeout')
+            self.assertEqual(caught.exception.provider_error, {'events_seen': 0})
+        self.assertEqual(budget.provider_error_fields({'status_code': 'x', 'error_type': 'has spaces in it'}),
+                         {'http_status': None, 'error_name': None})
 
     def test_a_free_call_that_books_any_cost_is_stopped(self):
         with tempfile.TemporaryDirectory() as tmp:

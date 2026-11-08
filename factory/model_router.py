@@ -136,17 +136,35 @@ def routes(model, accounts=ACCOUNTS):
                    'free' if route.endswith(('-free', ':free')) else 'paid')
         labels = (('claude-factory-token-2', 'claude-token') if route.startswith('claude/') else ('codex-auth.json',) if route.startswith('codex/') else
                   ('openrouter-key',) if route.startswith('openrouter/') else
-                  ACCOUNTS[2:4] if route.startswith('opencode-go/') or 'minimax-m3.1-flash-free' in route
-                  or (route.startswith('opencode/') and billing == 'paid') else (None,))
+                  ACCOUNTS[2:4] if route.startswith(('opencode-go/', 'opencode/')) else (None,))
         if labels != (None,):
             labels = tuple(a for a in (labels if route.startswith('claude/') else accounts)
                            if a in labels and a in accounts)
         for account in labels:
             if account is not None and account not in accounts: continue
-            result.append(dict(route=route, account=account, billing=billing, family=family(route),
-                               pool=account or ('opencode-free' if billing == 'free' else 'provider:' + route.partition('/')[0])))
+            # Founder 2026-11-08: free routes run on both OpenCode accounts, the second before any paid
+            # fallback. Each account's free lane is its own pool, so a free model's limits never block
+            # that account's Go subscription lanes, and its seats come from capacities['opencode-free'].
+            pool = (free_pool(account) if route in FREE_ROUTES else
+                    account or ('opencode-free' if billing == 'free' else 'provider:' + route.partition('/')[0]))
+            result.append(dict(route=route, account=account, billing=billing, family=family(route), pool=pool))
     if any(r['family'] != family(model) for r in result): raise ValueError('fallback changed family')
     return result
+
+
+# A free call's end record. events_seen 0 means the CLI produced no output before it stopped.
+FREE_ERROR_COLUMNS = ('lease_id', 'pool', 'route', 'account', 'outcome', 'error_class', 'http_status', 'error_name',
+                      'events_seen', 'at')
+
+
+def free_pool(account):
+    return 'opencode-free:' + account
+
+
+def lane_capacity(capacities, pool):
+    """Seats for a pool; each account's free lane takes the configured free seat count unless named."""
+    if pool in capacities: return capacities[pool]
+    return capacities.get('opencode-free', 1) if pool.startswith('opencode-free:') else 1
 
 
 # Calibrators run behind the isolation wall (user=pilot): they can reach only a gate's port.
@@ -316,7 +334,10 @@ class Store:
                              'CREATE TABLE IF NOT EXISTS observations (id TEXT PRIMARY KEY);'
                              'CREATE TABLE IF NOT EXISTS paid_account (id INTEGER PRIMARY KEY CHECK(id=1), ceiling INTEGER, credit INTEGER);'
                              'CREATE TABLE IF NOT EXISTS paid_requests (id TEXT PRIMARY KEY, lease_id TEXT, route TEXT, profile TEXT, '
-                             'hold INTEGER, charge INTEGER, state TEXT, settled_at REAL, usage TEXT);')
+                             'hold INTEGER, charge INTEGER, state TEXT, settled_at REAL, usage TEXT);'
+                             # Content-free end records of free-route calls that did not finish (founder 2026-11-08).
+                             'CREATE TABLE IF NOT EXISTS free_errors (lease_id TEXT PRIMARY KEY, pool TEXT, route TEXT, account TEXT, '
+                             'outcome TEXT, error_class TEXT, http_status INTEGER, error_name TEXT, at REAL, events_seen INTEGER);')
             if 'seen' not in {row[1] for row in db.execute('PRAGMA table_info(requests)')}:
                 db.execute('ALTER TABLE requests ADD COLUMN seen REAL NOT NULL DEFAULT 0')
             if approved_ceiling is not None:
@@ -360,7 +381,7 @@ class Store:
                         (second.get('reason') in ('rate', 'quota') and second.get('blocked_until', 0) > now))
             def free(route):
                 occupied = sum(json.loads(r)['pool'] == route['pool'] for (r,) in db.execute('SELECT route FROM leases WHERE outcome IS NULL'))
-                return 0 if not eligible(route) or blocked(route) else max(0, self.capacities.get(route['pool'], 1) - occupied)
+                return 0 if not eligible(route) or blocked(route) else max(0, lane_capacity(self.capacities, route['pool']) - occupied)
             result = None
             if operation == 'paid_reserve':
                 result = self._paid_reserve(db, data, credit, fetched_at, started)
@@ -369,6 +390,8 @@ class Store:
             elif operation == 'status':
                 result = dict(observed_at=now, health=health, leases=[dict(lease_id=i, **json.loads(r), expires_at=e)
                     for i, r, e in db.execute('SELECT id,route,expires FROM leases WHERE outcome IS NULL')])
+                result['free_errors'] = [dict(zip(FREE_ERROR_COLUMNS, row)) for row in db.execute(
+                    'SELECT ' + ','.join(FREE_ERROR_COLUMNS) + ' FROM free_errors ORDER BY at DESC LIMIT 100')]
                 account = db.execute('SELECT ceiling,credit FROM paid_account WHERE id=1').fetchone()
                 total, outstanding = _paid_counts(db, now - CREDIT_OVERLAP)
                 result['paid'] = dict(total_usd=_dollars(total), outstanding_usd=_dollars(outstanding),
@@ -456,12 +479,18 @@ class Store:
                     result = dict(expires_at=expires, **json.loads(row[0]))
                 else:
                     if data['outcome'] not in ('done', 'interrupted', 'denied'): raise ValueError('invalid finish outcome')
+                    error = free_error(data.get('error'))
                     receipt = data.get('receipt')
                     if receipt is not None and (not isinstance(receipt, str) or not re.fullmatch(r'usage-receipts/[a-f0-9-]+\.json', receipt)):
                         raise ValueError('invalid receipt path')
                     if row[2] not in (None, 'expired') and (row[2], row[3]) != (data['outcome'], receipt):
                         raise ValueError('finish changed')
                     db.execute('UPDATE leases SET outcome=?,receipt=? WHERE id=?', (data['outcome'], receipt, data['lease_id']))
+                    route = json.loads(row[0])
+                    if error and data['outcome'] != 'done' and route['route'] in FREE_ROUTES:
+                        db.execute('INSERT OR IGNORE INTO free_errors (' + ','.join(FREE_ERROR_COLUMNS) + ') VALUES (?,?,?,?,?,?,?,?,?,?)',
+                            (data['lease_id'], route['pool'], route['route'], route['account'], data['outcome'], error['error_class'],
+                             error['http_status'], error['error_name'], error['events_seen'], now))
                     if data['outcome'] == 'done':
                         route = json.loads(row[0]); old = health.get(route['pool'], {})
                         old['ready_at'] = now
@@ -474,7 +503,7 @@ class Store:
                 if not db.execute('SELECT 1 FROM observations WHERE id=?', (identity,)).fetchone():
                     if data.get('healthy') is True:
                         pool = data['pool']
-                        if pool not in (*self.accounts, 'opencode-free') and not any(
+                        if pool not in (*self.accounts, 'opencode-free', *map(free_pool, self.accounts)) and not any(
                                 key == pool or key.startswith(pool + '/') for key in health):
                             raise ValueError('unapproved pool')
                         for key in list(health):
@@ -647,12 +676,12 @@ def _heartbeat(case, seconds):
     else: cancel.wait(seconds)
 
 
-def _finish_until_known(lease, outcome, receipt, role, case, deadline, *, since=None):
+def _finish_until_known(lease, outcome, receipt, role, case, deadline, *, since=None, error=None):
     """Retry one idempotent finish; never rerun completed model work."""
     enabled, batch_end, stop_at = _deadlines(case, deadline)
     started = time.monotonic() if since is None else since
     while True:
-        try: return finish(lease.lease_id, outcome, receipt)
+        try: return finish(lease.lease_id, outcome, receipt, error)
         except RouterUnavailable:
             if time.time() >= stop_at and not enabled:
                 raise BudgetError('provider_wait_deadline' if time.time() >= batch_end else 'timeout') from None
@@ -741,8 +770,23 @@ def await_lease(role, case, deadline=None):
         _heartbeat(case, seconds)
 
 
-def finish(lease_id, outcome, receipt):
-    return _rpc('finish', dict(lease_id=lease_id, outcome=outcome, receipt=receipt))
+def finish(lease_id, outcome, receipt, error=None):
+    data = dict(lease_id=lease_id, outcome=outcome, receipt=receipt)
+    if error: data['error'] = error
+    return _rpc('finish', data)
+
+
+def free_error(value):
+    """A free-route call's end record: an error label, HTTP status and error name, never provider text."""
+    if value is None: return None
+    if not isinstance(value, dict) or set(value) - {'error_class', 'http_status', 'error_name', 'events_seen'}: raise ValueError('invalid finish error')
+    error_class, status, name = value.get('error_class'), value.get('http_status'), value.get('error_name')
+    events = value.get('events_seen')
+    if events is not None and not (type(events) is int and 0 <= events <= 10**9): raise ValueError('invalid finish error')
+    if not isinstance(error_class, str) or not re.fullmatch(r'[a-z_]{1,40}', error_class): raise ValueError('invalid finish error')
+    if status is not None and not (type(status) is int and 100 <= status <= 599): raise ValueError('invalid finish error')
+    if name is not None and not (isinstance(name, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_.]{0,59}', name)): raise ValueError('invalid finish error')
+    return dict(error_class=error_class, http_status=status, error_name=name, events_seen=events)
 
 
 def observe(pool=None, *, healthy=False, observation_id=None, lease=None, reason=None, reset_at=None):

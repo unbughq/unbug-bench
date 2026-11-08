@@ -5,21 +5,22 @@ import pathlib
 
 CONFIG = pathlib.Path(__file__).with_name('free-model-cutover.json')
 FREE = {'opencode/minimax-m3.1-flash-free', 'opencode/deepseek-v4.1-flash-free'}
+# Each free model keeps the endpoint it already ran on; only the account key is new for DeepSeek and GLM.
+ENDPOINTS = {'opencode/deepseek-v4.1-flash-free': 'https://opencode.ai/inference/openai/v1',
+             'opencode/minimax-m3.1-flash-free': 'https://opencode.ai/inference/go/openai/v1',
+             'opencode/glm-5.3-flash-free': 'https://opencode.ai/zen/v1'}
 
 
 def provider_config(case, model):
-    """Native free routes; the Go reference uses the run's already-selected account."""
-    if model not in FREE:
+    """Native free routes, each run on one of the two OpenCode accounts (founder 2026-11-08): the
+    router leases the account and model_call_gate.free_environment passes only that account's key."""
+    from token_prices import FREE_ROUTES
+    if model not in FREE_ROUTES:
         raise ValueError('unapproved free route')
     row = json.loads(CONFIG.read_text()).get('cases', {}).get(case) if CONFIG.is_file() else None
-    if not row:  # 2026-10-20 founder: new cases use the free models too, on the run's own OpenCode account
-        row = {'opencode_account': 0}
-    elif row.get('opencode_account') not in (1, 2):
+    if row and row.get('opencode_account') not in (1, 2):
         raise ValueError('original OpenCode account not verified')
-    options = {'baseURL': 'https://opencode.ai/inference/openai/v1'}
-    if model == 'opencode/minimax-m3.1-flash-free':
-        options['baseURL'] = 'https://opencode.ai/inference/go/openai/v1'
-        options['apiKey'] = '{env:OPENCODE_API_KEY}'
+    options = {'baseURL': ENDPOINTS[model], 'apiKey': '{env:OPENCODE_API_KEY}'}
     return {'options': options, 'whitelist': [model.split('/', 1)[1]]}
 
 

@@ -152,8 +152,13 @@ class RouterTests(unittest.TestCase):
     def test_real_paid_deepseek_ledger_is_explicit_and_not_rebooked(self):
         source, target = router.CHAINS[0]
         choices = router.routes(source)
-        self.assertEqual([(r['route'], r['billing']) for r in choices], [(source, 'free'), (target, 'paid')])
+        self.assertEqual([(r['route'], r['account'], r['billing']) for r in choices],
+                         [(source, 'opencode-go-key', 'free'), (source, 'opencode-go-key-2', 'free'), (target, 'openrouter-key', 'paid')])
+        # Both OpenCode accounts' free lanes are tried before the paid route.
         first = self.acquire(source); self.observe(first, 'outage'); self.finish(first, 'interrupted')
+        second = self.acquire(source)
+        self.assertEqual((second['route'], second['account']), (source, 'opencode-go-key-2'))
+        self.observe(second, 'outage'); self.finish(second, 'interrupted')
         selected = self.acquire(source)
         self.assertEqual((selected['route'], selected['account'], selected['family']), (target, 'openrouter-key', 'deepseek'))
         for card in PAID:
@@ -163,6 +168,47 @@ class RouterTests(unittest.TestCase):
             self.assertTrue(all(e['id'] and e['tokens'] for e in events))
             self.assertIsNotNone(budget.case_spending(ledger)['spent_usd'])
             self.assertEqual(json.dumps(ledger, sort_keys=True), before)
+
+    def test_free_lanes_take_free_seats_per_account_and_never_block_the_go_subscription(self):
+        free = 'opencode/glm-5.3-flash-free'
+        store = router.Store(self.root / 'seats.sqlite', clock=lambda: self.now[0], capacities={'opencode-free': 3})
+        self.assertEqual(store.rpc('capacity', {'route': free})['slots'], 6)        # 3 seats on each account
+        store = router.Store(self.root / 'named.sqlite', clock=lambda: self.now[0],
+                             capacities={'opencode-free': 3, 'opencode-free:opencode-go-key-2': 1})
+        self.assertEqual(store.rpc('capacity', {'route': free})['slots'], 4)        # a named lane wins
+        # A rate limit on the first account's free lane leaves its Go subscription lane open.
+        lease = self.acquire(free)
+        self.assertEqual((lease['account'], lease['pool']), ('opencode-go-key', 'opencode-free:opencode-go-key'))
+        self.observe(lease, 'rate'); self.finish(lease, 'interrupted')
+        self.assertEqual(self.acquire(free)['account'], 'opencode-go-key-2')
+        mimo = self.acquire('opencode-go/mimo-v2.6-pro')
+        self.assertEqual((mimo['route'], mimo['account']), ('opencode-go/mimo-v2.6-pro', 'opencode-go-key'))
+        # The operator can clear a free lane by name.
+        self.store.rpc('observe', dict(pool='opencode-free:opencode-go-key', healthy=True, observation_id='free-lane-ok'))
+
+    def test_a_free_call_that_does_not_finish_leaves_a_content_free_end_record(self):
+        free = router.CHAINS[0][0]
+        lease = self.acquire(free)
+        error = {'error_class': 'opencode_error', 'http_status': 429, 'error_name': 'APIError', 'events_seen': 1}
+        self.store.rpc('finish', dict(lease_id=lease['lease_id'], outcome='interrupted', receipt=None, error=error))
+        self.store.rpc('finish', dict(lease_id=lease['lease_id'], outcome='interrupted', receipt=None, error=error))  # idempotent
+        rows = self.store.rpc('status', {})['free_errors']
+        self.assertEqual([{k: r[k] for k in ('lease_id', 'route', 'account', 'outcome', 'error_class', 'http_status',
+                                             'error_name', 'events_seen')} for r in rows],
+                         [dict(lease_id=lease['lease_id'], route=free, account='opencode-go-key', outcome='interrupted', **error)])
+        # A finished call, or a paid route, records nothing.
+        done = self.acquire(free); self.finish(done)
+        paid = self.acquire('openrouter/deepseek/deepseek-v4.1-flash')
+        self.store.rpc('finish', dict(lease_id=paid['lease_id'], outcome='interrupted', receipt=None, error=error))
+        self.assertEqual(len(self.store.rpc('status', {})['free_errors']), 1)
+        # Provider text never fits the record.
+        for bad in ({'error_class': 'opencode_error', 'message': 'case text'}, {'error_class': 'Some text here'},
+                    {'error_class': 'x', 'http_status': 99}, {'error_class': 'x', 'error_name': 'two words'},
+                    {'error_class': 'x', 'events_seen': -1}):
+            other = self.acquire(free)
+            with self.assertRaises(ValueError):
+                self.store.rpc('finish', dict(lease_id=other['lease_id'], outcome='interrupted', receipt=None, error=bad))
+            self.finish(other, 'interrupted')
 
     def test_wallet_credit_denial_is_shared_and_requires_explicit_topup(self):
         model = next(c['terminal_stop'].split(':', 1)[1] for c in LIMITS if 'openrouter/' in c['terminal_stop'])
@@ -523,7 +569,7 @@ class RouterTests(unittest.TestCase):
                     {'Authorization':'Bearer synthetic-token','Content-Type':'application/json'})
                 trust=ssl.create_default_context(cafile=str(cert))
                 with urllib.request.urlopen(request,context=trust,timeout=2) as response:
-                    self.assertEqual(json.load(response)['slots'],1)
+                    self.assertEqual(json.load(response)['slots'],2)   # one free seat per OpenCode account
         finally:server.shutdown();server.server_close();thread.join(timeout=2)
 
     def test_old_cancelled_receipts_are_not_checkpointed_or_reused(self):

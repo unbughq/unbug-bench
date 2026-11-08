@@ -187,6 +187,14 @@ provider and its one model only, no outside config and no self-update. A calibra
 since behind the wall it reaches only a gate's port: it takes its chain's next bounded route, and a chain
 with none (GLM and MiniMax free today) is refused up front as `unbounded_route`. A full or failing free
 lane hands an unwalled call to the next route in its chain (DeepSeek: paid OpenRouter).
+Each free model runs on both OpenCode accounts, never anonymously: the first account's free lane, then
+the second's, then the chain's fallback. Each account's free lane is its own router pool
+(`opencode-free:<account>`, seats from `capacities['opencode-free']` unless named), so a free model's
+limits never block that account's Go subscription lanes. Workers always receive both OpenCode account
+files. A free call that ends interrupted or denied leaves a plaintext end record in the router
+(`status` → `free_errors`): an error label, HTTP status, provider error name and how many output events
+the CLI produced, never provider text. `factory/free_route_smoke.py` makes one $0 call per free model
+per account and prints only those fields.
 
 A durable case stopped by an infrastructure failure resumes instead: `start --resume-case
 <case>` makes it the only case of a new batch. It keeps its case ID, so its key, artifacts,
