@@ -179,8 +179,10 @@ WORKER_POOL_REASONS = frozenset({"infra:worker_create_failed", "infra:worker_cre
 # content, so router:refusal stays private. report.py shows any other reason as its
 # outcome alone.
 # Legacy import refusals (durable/steps/admit.py IMPORT_REFUSALS): which check failed, never what it saw.
-IMPORT_REASONS = frozenset("admit:" + code for code in ("import_key", "import_layout", "import_links", "import_pin",
-                           "import_source", "import_spend", "import_writer", "import_invalid"))
+IMPORT_REASONS = frozenset("admit:" + code for code in (
+    "import_key", "import_layout", "import_layout_root", "import_layout_card", "import_layout_meta",
+    "import_layout_statement", "import_layout_card_case", "import_links", "import_pin", "import_source",
+    "import_spend", "import_writer", "import_writer_none", "import_writer_conflict", "import_invalid"))
 # A preflight refusal is a refusal too: it may react to the case directory it ran in.
 _PRIVATE = {"router:refusal"} | {f"router:preflight_{r}_refusal" for r in PREFLIGHT_ROLES.values()}
 PUBLISHED_REASONS = frozenset((REASONS | CONTRACT_REASONS | WORKER_POOL_REASONS | IMPORT_REASONS) - _PRIVATE)

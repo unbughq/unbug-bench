@@ -207,8 +207,9 @@ def _upgrade_registry(plaintext, sealer, batch_key):
 
 AGE = b"age-encryption.org/v1\n"
 # Fixed refusal codes, published on the scorecard: they name the failed check, never case content.
-IMPORT_REFUSALS = ("import_key", "import_layout", "import_links", "import_pin", "import_source",
-                   "import_spend", "import_writer", "import_invalid")
+IMPORT_REFUSALS = ("import_key", "import_layout", "import_layout_root", "import_layout_card", "import_layout_meta",
+                   "import_layout_statement", "import_layout_card_case", "import_links", "import_pin", "import_source",
+                   "import_spend", "import_writer", "import_writer_none", "import_writer_conflict", "import_invalid")
 
 
 def _import_legacy(ciphertext, work, inputs, case_id):
@@ -234,7 +235,7 @@ def _import_legacy(ciphertext, work, inputs, case_id):
             members = [m for m in tar.getmembers() if not pathlib.PurePosixPath(m.name).name.startswith("._")]
             roots = {pathlib.PurePosixPath(m.name).parts[0] for m in members if m.name not in ("", ".")}
             if len(roots) != 1 or _CASE.fullmatch(next(iter(roots))) is None:
-                raise _Invalid("import_layout")
+                raise _Invalid("import_layout_root")
             name = next(iter(roots))
             # Agent state and bench results may hold links; only the case tree and card are read.
             wanted = [m for m in members if m.name == f"{name}/scorecard.json" or m.name == f"{name}/case"
@@ -244,12 +245,14 @@ def _import_legacy(ciphertext, work, inputs, case_id):
                 raise _Invalid("import_links")
             tar.extractall(staging, members=wanted, filter="data")
         old, case = staging / name, staging / name / "case"
-        if (not (old / "scorecard.json").is_file() or not (case / "case.json").is_file()
-                or not (case / "statement.md").is_file()):
-            raise _Invalid("import_layout")
+        # Each missing part has its own fixed code, so a refused archive says what it lacks.
+        for path, code in ((old / "scorecard.json", "import_layout_card"), (case / "case.json", "import_layout_meta"),
+                           (case / "statement.md", "import_layout_statement")):
+            if not path.is_file():
+                raise _Invalid(code)
         card = json.loads((old / "scorecard.json").read_text())
         if card.get("case") != old.name:
-            raise _Invalid("import_layout")
+            raise _Invalid("import_layout_card_case")
         meta = json.loads((case / "case.json").read_text())
         app = meta.get("app") or {}
         if not _same_app(app, inputs):
@@ -306,8 +309,10 @@ def _old_writer(card):
                                          or str(event.get("invocation", "")).startswith("builder")):
             found.append(event.get("configured_model"))
     found = [m for m in found if isinstance(m, str) and m]
-    if not found or len({family(m) for m in found}) != 1:
-        raise _Invalid("import_writer")
+    if not found:
+        raise _Invalid("import_writer_none")
+    if len({family(m) for m in found}) != 1:
+        raise _Invalid("import_writer_conflict")
     return found[0]
 
 
