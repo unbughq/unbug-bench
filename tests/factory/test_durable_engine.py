@@ -288,6 +288,13 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(grants, [50 * M, 100 * M, 200 * M])
         self.assertGreaterEqual(out["ledger"]["batches"]["b-t"]["spent"], 3 * M)
 
+    def test_a_diagnosis_that_cannot_run_holds_the_case(self):
+        r, out = run({"spec": {"max_infra_retries_per_step": 2, "max_cases_started": 1},
+                      "script": {"1/writer:1/1": {"outcome": "exhausted", "reason": "writer:rounds"},
+                                 "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:creation_limit"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})   # never "retired": nothing was judged
+
     def test_infra_retries_then_diagnosis_with_the_engine_history(self):
         r, out = run({"spec": {"max_infra_retries_per_step": 2, "max_cases_started": 2},
                       "script": {"1/writer:1/*": {"outcome": "infra_error", "reason": "infra:stalled", "paid": 7000,

@@ -846,6 +846,11 @@ class _Case:
         self.card()
         action, r = self.run_seq(Step(StepKind.DIAGNOSIS), evidence=evidence)
         if action is not None:                              # a diagnosis is never diagnosed
+            # A diagnosis that never ran (no worker, an outage) holds the case like any other infra
+            # stop: on 8 November f46dac was retired, as if judged, when no worker could be created.
+            if r.outcome is Outcome.INFRA_ERROR and DBOS.patch('diagnosis_infra_holds'):
+                self.stop_line(Action.HOLD)
+                self.finish("held")
             self.stop_line(Action.RETIRE)
             self.finish("retired")
         self.verdict = r.verdict.value
