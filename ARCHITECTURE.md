@@ -184,6 +184,15 @@ delivery receipts as usual. G10 reruns because G17 and the receipts need this ru
 workspaces. A gate that asks for a repair, or a diagnosis that would extend, retires the case;
 a diagnosis that finds infrastructure holds it as for any case.
 
+An archive whose draft cannot be kept (its writer changed family mid-run, or it stopped
+before its case.json) can be imported idea-only: INPUTS sets `"import_mode": "idea_only"`.
+ADMIT keeps only statement.md, which must match the old case's registry entry when one
+records it; promise.md and case.json are written from INPUTS once the old case.json (if any)
+matches the pin and source, or the old card names the same source. The case starts at WRITER
+whatever its old gates said, with a MiniMax or DeepSeek writer. Every family the old card
+names as a writer is an idea author and may not hold a reviewer role or the easy calibrator
+(`admit:import_idea_family`). Spend, screens and the one-candidate rule are as above.
+
 A rejected idea publishes `admit:<screen>_<evidence>` (`durable/admission_reasons.py`): the
 screen (dedup, freshness, realism, other) and a fixed evidence kind read from structured
 fields only, such as `freshness_upstream_fix`. The sealed card keeps per-candidate codes

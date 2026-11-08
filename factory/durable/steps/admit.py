@@ -21,7 +21,8 @@ INPUTS (batch key), reusing the card and case.json schemas:
      "candidate": {"statement": "...", "statement_sha256": "<64 hex>"}}
         `candidate` is optional. Without it the existing selector proposes a statement.
         An initial snapshot that is a legacy checkpoint (still age ciphertext to the statement
-        key) is an import: see `_import_legacy`.
+        key) is an import: see `_import_legacy`. Optional `"import_mode": "idea_only"` keeps
+        only that archive's statement and case metadata and starts the case at WRITER.
         Every real candidate runs the existing semantic dedup, public freshness and
         independent idea-realism checks before it can be handed to WRITER.
         Optional `rotation_slot` overrides the existing cohort table; otherwise engine
@@ -99,6 +100,9 @@ def _inputs(plaintext):
     if routes is not None and (value.get("recertify") is not True or not isinstance(routes, dict)
             or not set(routes) <= set(RECERTIFY_ROUTE_KEYS)
             or not all(isinstance(m, str) and _MODEL.fullmatch(m) for m in routes.values())):
+        raise _Invalid("inputs")
+    # Idea-only keeps no verdicts, so it never combines with recertification.
+    if value.get("import_mode") not in (None, IDEA_ONLY) or (value.get("import_mode") and value.get("recertify")):
         raise _Invalid("inputs")
     if value["dry_run"]:
         return value
@@ -223,7 +227,10 @@ AGE = b"age-encryption.org/v1\n"
 IMPORT_REFUSALS = ("import_key", "import_layout", "import_layout_root", "import_layout_card", "import_layout_meta",
                    "import_layout_statement", "import_layout_card_case", "import_links", "import_pin", "import_source",
                    "import_spend", "import_writer", "import_writer_none", "import_writer_conflict", "import_invalid",
-                   "import_recertify")
+                   "import_recertify", "import_idea_writer", "import_idea_family", "import_idea_statement")
+IDEA_ONLY = "idea_only"
+# Writers an idea-only import may hand its statement to: the free OpenCode families.
+IDEA_WRITERS = ("minimax", "deepseek")
 # INPUTS `recertify_routes` may move one of these roles to another route of the same model family
 # (the October GLM easy calibrator ran on a free route, which a walled calibrator may no longer lease).
 # Reviewers stay: the exam's owner contract is bound to the sealed reviewer.
@@ -238,7 +245,16 @@ def _import_legacy(ciphertext, work, inputs, case_id):
     Only the old case tree is kept. Its card, ledger, gate caches, reviews and search evidence
     are dropped, so every screen and gate reruns on today's factory; the old card survives only
     as numbers in `imported_from`. Returns that summary.
+
+    Idea-only (`import_mode`): of the case tree only statement.md is kept; promise.md and
+    case.json are written from INPUTS once the old pin and source check out, so no part of the
+    old draft survives, and the case starts at WRITER. The old writer need not be
+    one family (5813be's writer moved from MiMo to MiniMax mid-run): every family its records
+    name is an idea author, which ADMIT keeps out of the reviewer and judge roles. A tree
+    without case.json (25fbfa stopped while writing its statement) gets one rebuilt from INPUTS,
+    whose source the old card must confirm instead.
     """
+    idea_only = inputs.get("import_mode") == IDEA_ONLY
     from worker_secrets import SECRETS
     from registry import atomic_json
     import io
@@ -266,14 +282,20 @@ def _import_legacy(ciphertext, work, inputs, case_id):
             tar.extractall(staging, members=wanted, filter="data")
         old, case = staging / name, staging / name / "case"
         # Each missing part has its own fixed code, so a refused archive says what it lacks.
+        # An idea-only import may rebuild a missing case.json (and only a missing one).
+        rebuilt = idea_only and not (case / "case.json").exists()
         for path, code in ((old / "scorecard.json", "import_layout_card"), (case / "case.json", "import_layout_meta"),
                            (case / "statement.md", "import_layout_statement")):
-            if not path.is_file():
+            if not path.is_file() and not (rebuilt and code == "import_layout_meta"):
                 raise _Invalid(code)
         card = json.loads((old / "scorecard.json").read_text())
         if card.get("case") != old.name:
             raise _Invalid("import_layout_card_case")
-        meta = json.loads((case / "case.json").read_text())
+        if rebuilt:
+            # No app pin survives without case.json; the old card must at least name this source.
+            meta = {"source": card.get("source"), "app": {"repo": inputs["app_repo"], "commit": inputs["app_commit"]}}
+        else:
+            meta = json.loads((case / "case.json").read_text())
         app = meta.get("app") or {}
         if not _same_app(app, inputs):
             raise _Invalid("import_pin")
@@ -289,13 +311,21 @@ def _import_legacy(ciphertext, work, inputs, case_id):
                 or declared < math.ceil(spent * 1_000_000)):
             raise _Invalid("import_spend")
         spent = declared / 1_000_000
-        writer = _old_writer(card)
-        recertify = _recertify(card, inputs.get("recertify_routes") or {}) if inputs.get("recertify") is True else None
-        summary = {"case": old.name, "source": card.get("source"), "gates": dict(gates),
-                   "failed_gate": card.get("failed_gate"), "spent_usd": spent, "writer": writer,
-                   "written": gates.get("G1") == "pass"}
-        if recertify is not None:
-            summary["recertify"] = True
+        recertify = None
+        if idea_only:
+            case = _idea_tree(case, staging / "idea", inputs)
+            authors = _idea_authors(card)
+            summary = {"case": old.name, "source": card.get("source"), "gates": dict(gates),
+                       "failed_gate": card.get("failed_gate"), "spent_usd": spent, "mode": IDEA_ONLY,
+                       "idea_families": authors, "case_json": "missing" if rebuilt else "checked", "written": False}
+        else:
+            writer = _old_writer(card)
+            recertify = _recertify(card, inputs.get("recertify_routes") or {}) if inputs.get("recertify") is True else None
+            summary = {"case": old.name, "source": card.get("source"), "gates": dict(gates),
+                       "failed_gate": card.get("failed_gate"), "spent_usd": spent, "writer": writer,
+                       "written": gates.get("G1") == "pass"}
+            if recertify is not None:
+                summary["recertify"] = True
         if work.exists():
             shutil.rmtree(work)
         work.mkdir()
@@ -317,11 +347,59 @@ def _import_legacy(ciphertext, work, inputs, case_id):
         import model_runtime
         table = model_runtime.PROMPTS.parent / os.environ.get("FACTORY_ROTATION", "rotation-3writers.json")
         slots = json.loads(table.read_text())["slots"]
-        fresh["rotation_slot"] = next((i for i, slot in enumerate(slots, 1) if slot.get("writer") == family(writer)),
-                                      fresh["rotation_slot"])
+        if idea_only:
+            # A supported writer, preferring an idea author's own family, in a slot whose
+            # reviewer is no idea author. ADMIT checks every judge once models are picked.
+            fits = [i for i, slot in enumerate(slots, 1) if slot.get("writer") in IDEA_WRITERS
+                    and slot.get("reviewer") not in authors]
+            fresh["rotation_slot"] = next((i for i in fits if slots[i - 1]["writer"] in authors),
+                                          fits[0] if fits else fresh["rotation_slot"])
+        else:
+            fresh["rotation_slot"] = next((i for i, slot in enumerate(slots, 1) if slot.get("writer") == family(writer)),
+                                          fresh["rotation_slot"])
     fresh["imported_from"] = summary
     atomic_json(work / "scorecard.json", fresh)
     return summary
+
+
+def _idea_tree(case, idea, inputs):
+    """The idea-only case tree: the old statement, and case metadata written fresh from INPUTS.
+
+    An October case.json is the writer's draft too (ingredients, steps, its own promise checks
+    and leak words), so once its pin and source are checked it is discarded with the rest."""
+    idea.mkdir()
+    (case / "statement.md").rename(idea / "statement.md")
+    (idea / "promise.md").write_text(inputs["promise"])
+    (idea / "case.json").write_text(json.dumps({
+        "source": inputs["source"], "app": {"repo": inputs["app_repo"], "commit": inputs["app_commit"]},
+        "promise_paths": inputs.get("promise_paths", []), "promise_checks": inputs.get("promise_checks", []),
+        "leak_words": []}, sort_keys=True))
+    return idea
+
+
+def _idea_authors(card):
+    """Every family the old card names as a writer: its pins, its roles, its ledger's writer calls
+    and the writer before an approved model transition. None refuses: the family rule needs one."""
+    from model_router import family
+    def first(value):
+        return value[0] if isinstance(value, list) and value and isinstance(value[0], str) else value
+    transition = card.get("model_transition") if isinstance(card.get("model_transition"), dict) else {}
+    found = [first((card.get("models") or {}).get("builder")), ((card.get("roles") or {}).get("writer") or {}).get("model")]
+    for side in ("before", "after"):
+        found.append(((transition.get(side) or {}).get("writer") or {}).get("model")
+                     if isinstance(transition.get(side), dict) else None)
+    # October ledgers name only the model per call; their builder calls are in `models_used`.
+    used = card.get("models_used") if isinstance(card.get("models_used"), dict) else {}
+    found += [model for call, model in used.items() if str(call).startswith("builder")]
+    events = (card.get("continuation_budget") or {}).get("events")
+    for event in events if isinstance(events, list) else []:
+        if isinstance(event, dict) and (event.get("role") == "writer"
+                                         or str(event.get("invocation", "")).startswith("builder")):
+            found.append(event.get("configured_model"))
+    families = sorted({family(m) for m in found if isinstance(m, str) and m})
+    if not families:
+        raise _Invalid("import_writer_none")
+    return families
 
 
 def _recertify(card, routes):
@@ -674,7 +752,20 @@ def run(worker, step_input, keys):
             return StepResult(Outcome.EXHAUSTED, "admit:import_recertify"), {}   # recertify needs a sealed import
         _pin_models(c, runner, inputs)
         imported = c.card.get("imported_from")
-        if imported:
+        if imported and imported.get("mode") == IDEA_ONLY:
+            # Only the statement survives, so today's writer writes the whole case: any supported
+            # writer. The idea's author families stay out of every reviewer and judge role.
+            from model_router import family
+            if family(c.models["builder"][0]) not in IDEA_WRITERS:
+                return StepResult(Outcome.EXHAUSTED, "admit:import_idea_writer"), {}
+            judges = [chain[0] for chain in c.models["reviewers"]] + [c.models["easy_calibrator"][0]]
+            if any(family(model) in imported["idea_families"] for model in judges):
+                return StepResult(Outcome.EXHAUSTED, "admit:import_idea_family"), {}
+            # The kept statement must be the one the old case had admitted, when the registry says.
+            entry = json.loads((registry.root / "registry.json").read_text())["entries"].get(imported["case"]) or {}
+            if entry.get("statement_sha256") not in (None, hashlib.sha256((c.case / "statement.md").read_bytes()).hexdigest()):
+                return StepResult(Outcome.EXHAUSTED, "admit:import_idea_statement"), {}
+        elif imported:
             # Every separation rule compares against c.models["builder"]: the October writer
             # wrote the imported tree, so today's writer must be of the same family.
             from model_router import family
