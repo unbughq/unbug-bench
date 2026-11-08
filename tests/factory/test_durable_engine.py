@@ -47,10 +47,11 @@ class StepSequence(unittest.TestCase):
     def test_admission_wait_restores_checkpoint_on_replacement_worker(self):
         for legacy in (False, True):
             with self.subTest(legacy=legacy):
+                # A wait past release_worker_after_sleep_s releases the worker (a shorter one keeps it).
                 r, out = run({'legacy_admit_snapshot': legacy,
-                    'spec': {'max_cases_started': 1},
+                    'spec': {'max_cases_started': 1, 'release_worker_after_sleep_s': .5},
                     'script': {'1/admit/1': {'outcome': 'provider_limit', 'reason': 'router:quota',
-                        'retry_in': .01, 'paid': 0, 'checkpoint': True}}})
+                        'retry_in': 3.0, 'paid': 0, 'checkpoint': True}}})
                 self.addCleanup(r.close)
                 first = start(r, C1 + '/1/admit/1')
                 retry = start(r, C1 + '/1/admit/2')
@@ -259,6 +260,15 @@ class Outcomes(unittest.TestCase):
         self.assertGreaterEqual(len(reserves), 4)   # waited attempts, then the allowance's two
         self.assertLess(reserves[-1] - reserves[0], 30)
 
+    def test_waiting_for_a_campaign_slot_outlasts_the_wait_ceiling(self):
+        # Full slots free up when another case finishes; only the deadline ends the wait.
+        r, out = run({"disabled_patches": ["admission_infra_backoff"],
+                      "pool_failures": 8, "pool_reason": "infra:worker_slots_full",
+                      "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1, "max_factory_bug_resumes": 0},
+                      "timing": {"pause_retry_s": 0.2, "pool_wait_ceiling_s": 0.5}}, timeout=60)
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
     def test_a_create_outage_does_not_outlive_the_batch_deadline_in_admit(self):
         r, out = run({"pool_failures": 1000, "pool_reason": "infra:worker_create_failed", "deadline_in": 2.0,
                       "spec": {"max_cases_started": 1, "max_infra_retries_per_step": 1000}, "timing": {"pause_retry_s": 0.3}}, timeout=60)
@@ -299,6 +309,13 @@ class Outcomes(unittest.TestCase):
         grants = [x["amount"] for x in r.ledger_log() if x["op"] == "reserve" and "/diagnosis/" in x["key"]]
         self.assertEqual(grants, [50 * M, 100 * M, 200 * M])
         self.assertGreaterEqual(out["ledger"]["batches"]["b-t"]["spent"], 3 * M)
+
+    def test_a_diagnosis_that_cannot_run_holds_the_case(self):
+        r, out = run({"spec": {"max_infra_retries_per_step": 2, "max_cases_started": 1},
+                      "script": {"1/writer:1/1": {"outcome": "exhausted", "reason": "writer:rounds"},
+                                 "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:creation_limit"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})   # never "retired": nothing was judged
 
     def test_infra_retries_then_diagnosis_with_the_engine_history(self):
         r, out = run({"spec": {"max_infra_retries_per_step": 2, "max_cases_started": 2},
@@ -381,9 +398,8 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 98 + ["stress:1", "gates:1", "seal"])
         writers = [x for x in r.starts(1) if "/2/writer:1/" in x["key"]]
         workers = [x["worker"] for x in writers]
-        releases = {x["worker"] for x in r.pool_log() if x["op"] == "release" and x["case"] == C1}
-        self.assertEqual(len(set(workers)), 98)
-        self.assertTrue(set(workers[:-1]) <= releases)
+        # Each short wait keeps the case's worker: 98 tries, one worker creation.
+        self.assertEqual(len(set(workers)), 1)
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
     def test_paid_provider_waits_book_waste_and_keep_running(self):
@@ -489,6 +505,18 @@ class Outcomes(unittest.TestCase):
                       [{k: v for k, v in x.items() if k != "t"} for x in r.pool_log()])
         self.assertEqual(start(r, f"{C1}/3/stress:1/2")["worker"], "w-1-2")
         self.assertEqual(start(r, f"{C1}/3/stress:1/2")["opened"]["snapshot"], f"snapshot {C1}/2/writer:1/1")
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
+    def test_short_sleep_keeps_the_worker(self):
+        # Waits up to release_worker_after_sleep_s retry on the same worker, so a rate limit spends
+        # no creation allowance (8 November: five cases' 15-minute waits used all 24).
+        r, out = run({"spec": {"release_worker_after_sleep_s": 60.0},
+                      "script": {"1/stress:1/1": {"outcome": "provider_limit", "reason": "router:rate",
+                                                  "retry_in": 1.0, "paid": 0}}})
+        self.addCleanup(r.close)
+        self.assertNotIn({"op": "release", "case": C1, "worker": "w-1-1"},
+                         [{k: v for k, v in x.items() if k != "t"} for x in r.pool_log()][:-1])
+        self.assertEqual(start(r, f"{C1}/3/stress:1/2")["worker"], "w-1-1")
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
     def test_stop_admission(self):
@@ -919,6 +947,85 @@ class Restart(unittest.TestCase):
         self.assertEqual(len(spans), 3)
         for (s1, e1), (s2, e2) in zip(spans, spans[1:]):
             self.assertGreaterEqual(s2, e1, spans)
+
+
+class Resume(unittest.TestCase):
+    """A case stopped by an infrastructure failure continues where it stopped, under its own ID."""
+
+    STOPPED = {"spec": {"max_infra_retries_per_step": 2, "max_cases_started": 1},
+               "script": {"1/stress:1/1": {"feedback": True},
+                          "1/writer:2/1": {"outcome": "exhausted", "reason": "writer:rounds"},
+                          "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:stalled",
+                                            "diagnostic": True, "checkpoint": True}}}
+
+    def resume(self, r, script=None):
+        r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1}, "resume_of": C1,
+                        "script": script or {}}, workdir=r.work)
+        return r2.run()
+
+    def test_a_held_case_resumes_at_its_failed_step_and_keeps_its_history(self):
+        r, out = run(self.STOPPED)
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        before = len(r.starts(1))
+        self.assertEqual(r.keys(1)[-1], ("5", "diagnosis", "3"))
+        out = self.resume(r, {"1/diagnosis/4": {"verdict": "close_to_passing"}})
+        # Only the diagnosis and what follows it run again: nothing before it is redone.
+        self.assertEqual(r.keys(1)[before:], [("5", "diagnosis", "4"), ("6", "writer:3", "1"),
+                                              ("7", "stress:3", "1"), ("8", "gates:3", "1"), ("9", "seal", "1")])
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+        self.assertEqual([s["case_id"] for s in out["result"]["sealed"]], [C1])
+        # The resumed diagnosis restores the stopped attempts' last save and keeps their diagnostics.
+        diag = start(r, f"{C1}/5/diagnosis/4")
+        self.assertEqual(diag["opened"]["snapshot"], f"snapshot {C1}/5/diagnosis/3")
+        self.assertEqual(diag["evidence"], start(r, f"{C1}/5/diagnosis/3")["evidence"])
+        self.assertEqual(start(r, f"{C1}/6/writer:3/1")["opened"]["feedback"], f"guidance {C1}/5/diagnosis/4")
+        # Counters carry over: one diagnosis and one extension, never a fresh allowance.
+        c = card(out, C1)
+        self.assertEqual((c["diagnoses"], c["extensions"], c["status"]), (1, 1, "sealed"))
+
+    def test_a_case_retired_before_the_hold_fix_resumes_too(self):
+        # f46dac on 8 November: retired only because its diagnosis could not get a worker.
+        r, out = run({**self.STOPPED, "disabled_patches": ["diagnosis_infra_holds"]})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "retired"})
+        out = self.resume(r, {"1/diagnosis/*": {"verdict": "close_to_passing"}})
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+
+    def test_a_resume_under_other_limits_diverges_instead_of_granting_more(self):
+        # Stopped at its diagnosis after one writer round; a default writer limit would run writer:2.
+        r, out = run({**self.STOPPED, "spec": {**self.STOPPED["spec"], "max_writer_rounds": 1},
+                      "script": {"1/stress:1/1": {"feedback": True},
+                                 "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:stalled"}}})
+        self.addCleanup(r.close)
+        self.assertEqual((out["result"]["cases"], r.keys(1)[-1][1]), ({C1: "held"}, "diagnosis"))
+        before = len(r.starts(1))
+        out = self.resume(r)
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "engine_error"})
+        self.assertEqual(r.starts(1)[before:], [])   # nothing new ran
+
+    def test_a_case_stopped_by_a_verdict_is_not_resumable(self):
+        stopped = {**self.STOPPED, "script": {**self.STOPPED["script"],
+                                              "1/diagnosis/*": {"verdict": "not_converging"}}}
+        r, out = run(stopped)
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "retired"})
+        self.assertEqual(self.resume(r), {"refused": "resume:not_stopped_by_infra"})
+
+    def test_a_resumed_case_that_stops_again_resumes_again(self):
+        r, out = run(self.STOPPED)
+        self.addCleanup(r.close)
+        again = {"1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:creation_limit"}}
+        self.assertEqual(self.resume(r, again)["result"]["cases"], {C1 + "@b-u": "held"})
+        tried = len([k for k in r.keys(1) if k[1] == "diagnosis"])
+        r3 = EngineRun({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1,
+                        "script": {"1/diagnosis/*": {"verdict": "close_to_passing"}}}, workdir=r.work)
+        out = r3.run()
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-v": "sealed"})
+        # Each resume starts after every attempt already recorded, its own included: no key repeats.
+        self.assertEqual([k for k in r.keys(1) if k[1] == "diagnosis"],
+                         [("5", "diagnosis", str(n)) for n in range(1, tried + 2)])
+        self.assertEqual(card(out, C1)["diagnoses"], 1)
 
 
 class Conductor(unittest.TestCase):

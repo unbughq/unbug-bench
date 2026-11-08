@@ -28,15 +28,19 @@ def install():
     prepare, agent, verifier = MultiStepTrial._prepare_step, MultiStepTrial._run_step_agent, MultiStepTrial._run_step_verifier
     stop = MultiStepTrial._stop_agent_environment
 
+    async def ensure_monitors(self):
+        if not hasattr(self, '_phase2_monitors'):
+            if any((spec := descriptor(self, s)) and spec.get('probe_kind') == 'medusa' for s in self.task.config.steps):
+                main = await self.agent_environment._platform._resolve_service_container('main')
+                self.agent_environment._phase2_reader = await DockerLiveReader.create(main)
+            self._phase2_monitors = {s.name: LiveMonitor(self.agent_environment, spec)
+                for s in self.task.config.steps if (spec := descriptor(self, s)) is not None}
+
     async def prepare_step(self, step, result, **kwargs):
         if descriptor(self, step) is None:
             await prepare(self, step, result, **kwargs)
-            if result.exception_info is None and not hasattr(self, '_phase2_monitors'):
-                if any((spec := descriptor(self, s)) and spec.get('probe_kind') == 'medusa' for s in self.task.config.steps):
-                    main = await self.agent_environment._platform._resolve_service_container('main')
-                    self.agent_environment._phase2_reader = await DockerLiveReader.create(main)
-                self._phase2_monitors = {s.name: LiveMonitor(self.agent_environment, spec)
-                    for s in self.task.config.steps if (spec := descriptor(self, s)) is not None}
+            if result.exception_info is None:
+                await ensure_monitors(self)
 
     async def agent_step(self, step, result, **kwargs):
         spec = descriptor(self, step)
@@ -85,6 +89,9 @@ def install():
     MultiStepTrial._run_step_agent = agent_step
     MultiStepTrial._run_step_verifier = verify_step
     MultiStepTrial._stop_agent_environment = stop_environment
+    MultiStepTrial._phase2_ensure_monitors = ensure_monitors
+    import fork  # paired C0 (no-op unless UNBUG_FORK_SAVE or UNBUG_FORK_FROM is set)
+    fork.install()
 
 
 if __name__ == '__main__':

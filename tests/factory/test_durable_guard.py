@@ -15,7 +15,7 @@ from durable.report import render_status
 
 REQUEST = {"batch_id": "b-sealday20261106r3", "case_id": "case-sealday20261106r3-1",
            "approved_infrastructure_usd": 10, "prior_compute_retained_usd": 2, "control_allowance_usd": 2,
-           "max_workers_lifetime": 12, "cleanup_margin_usd": 2, "deadline_epoch": 1794053270.0,
+           "max_running_sandboxes": 1, "max_starts_per_hour": 30, "cleanup_margin_usd": 2, "deadline_epoch": 1794053270.0,
            "wall_seconds": 86400, "max_worker_rate_usd_per_second": 2e-05}
 NOW = 1793990000.0
 USAGE = json.dumps({"dollars": 0.02, "billingMultiplier": 1.0, "secondsPerDollar": 100000}).encode()
@@ -37,7 +37,7 @@ class Fake:
         self.cases = [{"case": REQUEST["case_id"], "status": "running"}]
         self.money = {"spent": 1, "bound": 2}
         self.rpc_failures = 0
-        self.allowance = 7
+        self.allowance = [NOW - 7200, NOW - 600]
         self.in_flight = 0
         self.deleted = []
         self.rpc_batches, self.per_batch, self.request = [], {}, REQUEST
@@ -94,7 +94,8 @@ class GuardTests(unittest.TestCase):
 
     def test_a_campaign_watches_several_batches(self):
         f = self.f
-        f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "approved_infrastructure_usd": 12}
+        f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "max_running_sandboxes": 2,
+                          "approved_infrastructure_usd": 12}
         running, done = [{"case": "c1", "status": "running"}], [{"case": "c2", "status": "sealed"}]
         f.per_batch = {"b-one": (running, {"spent": 1, "bound": 25, "held": 3}),
                        "b-two": (done, {"spent": 2, "bound": 25, "held": 0})}
@@ -109,23 +110,65 @@ class GuardTests(unittest.TestCase):
         self.assertEqual({b for op, b in f.rpc_batches if op == "publish"}, {"b-one", "b-two"})
 
     def test_any_watched_batch_over_its_bound_is_a_hard_stop(self):
-        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "approved_infrastructure_usd": 12}
+        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "max_running_sandboxes": 2,
+                          "approved_infrastructure_usd": 12}
         self.f.per_batch = {"b-two": (self.f.cases, {"spent": 26, "bound": 25})}
         self.hard("money_ceiling")
 
-    def test_the_compute_bound_counts_one_wall_per_watched_batch(self):
-        # Two workers live for the whole wall need twice its compute: this request's $10 covers one.
-        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"]}
+    def test_the_compute_bound_counts_one_wall_per_running_slot(self):
+        # Three slots busy for the whole wall and grace need $5.22: this request's $4 of headroom covers two.
+        self.f.request = {**REQUEST, "max_running_sandboxes": 3}
         self.hard("compute_bound")
-        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "approved_infrastructure_usd": 12}
+        self.f.request = {**REQUEST, "max_running_sandboxes": 3, "approved_infrastructure_usd": 12}
         self.f.calls.clear(); self.f.stopped = 0
         import shutil; shutil.rmtree(self.f.state_dir / "guard", ignore_errors=True)
         self.assertEqual(self.tick()["hard_stop"], None)
 
-    def test_more_workers_than_watched_batches_is_a_hard_stop(self):
-        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "approved_infrastructure_usd": 12}
+    def test_starts_never_add_to_the_compute_bound(self):
+        # The old lifetime cap stopped every case once 30 workers had been created.
+        self.f.allowance = [NOW - 86400 + 3600 * h for h in range(24) for _ in range(5)]   # 120 starts a day
+        out = self.tick()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("healthy", None))
+
+    def test_a_request_without_worker_limits_only_degrades(self):
+        for bad in ({"max_running_sandboxes": None}, {"max_running_sandboxes": 101},
+                    {"max_starts_per_hour": 60}, {"max_starts_per_hour": True}):
+            with self.subTest(bad=bad):
+                self.f.request = {**REQUEST, **bad}
+                out = self.tick()
+                self.assertEqual((out["phase"], out["hard_stop"]), ("degraded", None))
+                self.assertIn("request", out["failed_checks"])
+        self.f.request = {k: v for k, v in REQUEST.items() if k != "max_running_sandboxes"}
+        self.assertEqual(self.tick()["phase"], "degraded")
+        self.f.request = {k: v for k, v in REQUEST.items() if k != "approved_infrastructure_usd"}
+        self.assertEqual(self.tick()["phase"], "degraded")
+        # The per-worker rate needs no limits and is still checked.
+        self.f.usage = json.dumps({"dollars": 0.02, "billingMultiplier": 10.0, "secondsPerDollar": 1000}).encode()
+        self.f.request = {**REQUEST, "max_running_sandboxes": None}
+        self.f.calls.clear()
+        self.hard("worker_rate")
+
+    def test_more_live_workers_than_the_running_cap_pauses_new_attempts(self):
+        # Our own cap (an operator may lower it mid-run) degrades; it is not a Boat breach.
+        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "max_running_sandboxes": 2,
+                          "approved_infrastructure_usd": 12}
         self.f.rows = ["bx_aaaaaaaa", "bx_bbbbbbbb", "bx_cccccccc"]
-        self.hard("worker_count", workers=("bx_aaaaaaaa", "bx_bbbbbbbb", "bx_cccccccc"))
+        out = self.tick()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("degraded", None))
+        self.assertIn("running_cap", out["failed_checks"])
+        self.assertEqual(self.f.deletes(), [])
+
+    def test_more_live_workers_than_the_boat_plan_is_a_hard_stop(self):
+        self.f.request = {**REQUEST, "max_running_sandboxes": 1}
+        self.f.rows = [f"bx_{i:08d}" for i in range(101)]
+        self.hard("worker_count", workers=tuple(self.f.rows))
+
+    def test_live_workers_past_the_whole_compute_bound_are_a_hard_stop(self):
+        # Each worker under the rate, but together past the $1.88 bound.
+        self.f.request = {**REQUEST, "max_running_sandboxes": 1}
+        self.f.rows = ["bx_aaaaaaaa", "bx_bbbbbbbb"]
+        self.f.usage = json.dumps({"dollars": 1.0, "billingMultiplier": 1.0, "secondsPerDollar": 100000}).encode()
+        self.hard("worker_rate", workers=("bx_aaaaaaaa", "bx_bbbbbbbb"))
 
     def test_healthy_pass_renews_the_worker(self):
         out = self.tick()
@@ -306,16 +349,25 @@ class GuardTests(unittest.TestCase):
         self.f.usage = json.dumps({"dollars": 0.02, "billingMultiplier": 10.0, "secondsPerDollar": 1000}).encode()
         self.hard("worker_rate")
 
-    def test_two_live_workers_is_a_hard_stop(self):
-        self.f.rows = ["bx_aaaaaaaa", "bx_bbbbbbbb"]
-        self.hard("worker_count", workers=("bx_aaaaaaaa", "bx_bbbbbbbb"))
-
-    def test_exceeded_allowance_is_a_hard_stop_but_unreadable_is_not(self):
+    def test_starting_faster_than_boat_allows_is_a_hard_stop_and_our_own_limit_degrades(self):
         self.f.allowance = "junk"
         self.assertEqual(self.tick()["phase"], "degraded")
-        self.f.allowance = 13
+        self.f.allowance = [self.f.clock + 60 - 90 * i for i in range(35)]   # 35 starts in the hour; our cap is 30
+        out = self.tick()
+        self.assertEqual((out["phase"], out["hard_stop"]), ("degraded", None))
+        self.assertIn("start_rate", out["failed_checks"])
+        self.f.allowance = [self.f.clock + 60 - 50 * i for i in range(61)]   # 61 in the hour; Boat allows 60
         self.f.calls.clear()
         self.hard("worker_allowance")
+
+    def test_each_start_window_is_checked(self):
+        from durable.guard import starts_over
+        self.assertFalse(starts_over([NOW - 1] * 10, 30, NOW))
+        self.assertTrue(starts_over([NOW - 1] * 11, 30, NOW))                           # a minute: 10
+        self.assertFalse(starts_over([NOW - 600 - i for i in range(30)], 30, NOW))
+        self.assertTrue(starts_over([NOW - 600 - i for i in range(30)], 30, NOW, adding=1))
+        self.assertTrue(starts_over([NOW - 7200 - 60 * i for i in range(181)], 59, NOW))  # a day: 180
+        self.assertFalse(starts_over([NOW - 86400] * 500, 30, NOW))                     # older than a day
 
     def test_deadline_is_a_hard_stop(self):
         self.f.clock = REQUEST["deadline_epoch"] - 60

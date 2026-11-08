@@ -23,7 +23,7 @@ import time
 from typing import Callable, Optional
 import urllib.request
 
-from durable.workers import _atomic_json
+from durable.workers import PoolError, _atomic_json
 
 RETRY_WAITS_S = (2.0, 6.0)   # a check gets three tries; the unit timeout fits a pass where all fail
 GRACE_S = 120.0              # a controller that just came up is not judged yet
@@ -35,14 +35,26 @@ DOWN_ALERT_S = 600.0
 MARKER_TTL_S = 600.0         # a dead guard cannot pause admission for longer than this
 EVIDENCE_KEPT = 200
 READ_LIMIT = 1 << 20
+# Worker limits. The campaign caps sandboxes running at once, never sandboxes started in total:
+# a case that needs a fresh worker waits for a free slot instead of stopping. Starts are only
+# rate-limited, below Boat's plan (100 running, 60 starts an hour, 12 a minute, 200 a day).
+# Going past the request's own limits only degrades (an operator may lower them mid-run);
+# going past Boat's plan is a confirmed allowance breach and a hard stop.
+BOAT_RUNNING_LIMIT = 100
+BOAT_STARTS_PER_HOUR = 60
+BOAT_STARTS_PER_MINUTE = 12
+BOAT_STARTS_PER_DAY = 200
+STARTS_PER_MINUTE = 10
+STARTS_PER_DAY = 180
+WORKER_TTL_S = 7200          # the longest a worker lives without a renewal
 TERMINAL = ("sealed", "retired", "held", "stopped_admission", "engine_error")
 HARD_STOPS = {
     "deadline": "The batch deadline passed.",
     "money_ceiling": "Spending passed the money ceiling. Check the ledger before raising it.",
     "compute_bound": "Reserved compute passed the approved infrastructure budget.",
-    "worker_count": "More than one live worker. Check Boat before restarting.",
-    "worker_allowance": "More workers were created than the allowance permits.",
-    "worker_rate": "A worker costs more than its approved rate or bound. Check Boat.",
+    "worker_count": "More live workers than the Boat plan allows. Check Boat before restarting.",
+    "worker_allowance": "Workers were started faster than the Boat plan allows. Check Boat.",
+    "worker_rate": "A worker costs more than its approved rate, or the live workers passed the compute bound. Check Boat.",
 }
 CASE_ALERTS = {
     "escalated": "{case} needs your ruling before it can continue.",
@@ -72,6 +84,75 @@ class CheckFailed(Exception):
     def __init__(self, code: str, detail=""):
         super().__init__(code)
         self.code, self.detail = code, scrub(detail)
+
+
+def campaign_limits(request: dict) -> tuple:
+    """(max_running_sandboxes, max_starts_per_hour) from the campaign request, or a failed check."""
+    running, hourly = request.get("max_running_sandboxes"), request.get("max_starts_per_hour")
+    if type(running) is not int or not 1 <= running <= BOAT_RUNNING_LIMIT:
+        raise CheckFailed("request_malformed", "max_running_sandboxes")
+    if type(hourly) is not int or not 1 <= hourly < BOAT_STARTS_PER_HOUR:
+        raise CheckFailed("request_malformed", "max_starts_per_hour")
+    return running, hourly
+
+
+def compute_bound(request: dict, grace_s: float) -> float:
+    """Worst-case worker compute in dollars: every running slot busy for the whole wall, plus the
+    checkpoint grace that each worker's TTL may run past the deadline, plus one more worker for a
+    full TTL as slack for a sandbox Boat lists late. Starts add nothing: a sandbox holds a slot
+    from its create request until Boat stops listing it as live."""
+    running, _ = campaign_limits(request)
+    return request["max_worker_rate_usd_per_second"] * (running * (request["wall_seconds"] + grace_s) + WORKER_TTL_S)
+
+
+def compute_fits(request: dict, grace_s: float) -> bool:
+    """Whether the worst case fits the founder's typed infrastructure approval."""
+    return (request["prior_compute_retained_usd"] + request["control_allowance_usd"] + compute_bound(request, grace_s)
+            <= request["approved_infrastructure_usd"] - request["cleanup_margin_usd"])
+
+
+def read_starts(path) -> list:
+    """Recorded worker start times. Missing means none; anything malformed is a failed check."""
+    try:
+        starts = json.loads(Path(path).read_text())
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError):
+        raise CheckFailed("allowance_malformed") from None
+    if not isinstance(starts, list) or not all(type(t) in (int, float) and math.isfinite(t) for t in starts):
+        raise CheckFailed("allowance_malformed")
+    return starts
+
+
+def starts_over(starts: list, hourly: int, now: float, adding: int = 0, *,
+                limits: Optional[tuple] = None) -> bool:
+    """Whether the starts in each rolling window (plus `adding`) pass a start limit: the
+    campaign's own by default, Boat's plan with limits=BOAT_START_LIMITS."""
+    minute, day = limits if limits is not None else (STARTS_PER_MINUTE, STARTS_PER_DAY)
+    return any(sum(1 for t in starts if now - t < window) + adding > limit
+               for window, limit in ((60, minute), (3600, hourly), (86400, day)))
+
+
+BOAT_START_LIMITS = (BOAT_STARTS_PER_MINUTE, BOAT_STARTS_PER_DAY)
+
+
+def reserve_start(path, request: dict, running: Callable, clock: Callable = lambda: time.time()) -> float:
+    """Record one worker start and return its time, or refuse it with a reason the engine waits on
+    (classify.py). The caller holds the campaign create lock until the create request has been
+    recorded, so `running` sees every earlier start. The clock is read after the inventory
+    lookup, which can take minutes, so the recorded time is when the create really goes out."""
+    try:
+        cap, hourly = campaign_limits(request)
+        starts = read_starts(path)
+    except CheckFailed:
+        raise PoolError("infra:compute_approval_unverified") from None
+    if running() >= cap:
+        raise PoolError("infra:worker_slots_full")
+    now = clock()
+    if starts_over(starts, hourly, now, adding=1):
+        raise PoolError("infra:worker_start_rate")
+    _atomic_json(Path(path), [t for t in starts if now - t < 86400] + [now])
+    return now
 
 
 class Guard:
@@ -132,6 +213,12 @@ class Guard:
         self.failed.append(name)
         return False, None
 
+    def flag(self, name: str, code: str, detail: str = "") -> None:
+        """A confirmed number past one of our own limits: it degrades, it does not stop."""
+        self.evidence.append({"at": self.clock(), "check": name, "try": 1, "code": code,
+                              "seconds": 0, "stderr": scrub(detail)})
+        self.failed.append(name)
+
     def _boat(self, args: list, timeout: float) -> bytes:
         done = self.boat(args, timeout)
         if done["code"]:
@@ -151,31 +238,40 @@ class Guard:
             raise CheckFailed("usage_malformed")
         return values[0], values[1] / values[2]
 
-    def _count(self) -> int:
-        count = self.count()
-        if type(count) is not int or count < 0:
+    def _count(self) -> list:
+        starts = self.count()
+        if not isinstance(starts, list) or not all(type(t) in (int, float) and math.isfinite(t) for t in starts):
             raise CheckFailed("allowance_malformed")
-        return count
+        return starts
 
     def _breach(self, owned: list) -> Optional[str]:
         """A hard stop only on confirmed numbers. An unreadable number is a failed check."""
         r = self.request
-        # Each watched batch may keep one worker live for the whole wall.
-        worker_bound = r["max_worker_rate_usd_per_second"] * (len(self.batches) * r["wall_seconds"]
-                                                              + r["max_workers_lifetime"] * 7200)
-        if (r["prior_compute_retained_usd"] + r["control_allowance_usd"] + worker_bound
-                > r["approved_infrastructure_usd"] - r["cleanup_margin_usd"]):
+        grace = self.checkpoint_grace_s
+        # An unreadable request confirms nothing: the checks that need it only degrade.
+        ok, limits = self.check("request", lambda: (*campaign_limits(r), compute_fits(r, grace),
+                                                    compute_bound(r, grace)))
+        cap, hourly, fits, worker_bound = limits if ok else (None, None, True, None)
+        if not fits:
             return "compute_bound"
-        # One worker per watched batch (each runs one case at a time).
-        if len(owned) > len(self.batches):
+        if len(owned) > BOAT_RUNNING_LIMIT:
             return "worker_count"
-        ok, count = self.check("worker_allowance", self._count)
-        if ok and count > r["max_workers_lifetime"]:
+        if cap is not None and len(owned) > cap:
+            # Past our own cap (an operator may have lowered it): pause new attempts, alert.
+            self.flag("running_cap", "over_cap", f"{len(owned)} live, cap {cap}")
+        ok, starts = self.check("worker_allowance", self._count)
+        if ok and starts_over(starts, BOAT_STARTS_PER_HOUR, self.clock(), limits=BOAT_START_LIMITS):
             return "worker_allowance"
+        if ok and hourly is not None and starts_over(starts, hourly, self.clock()):
+            self.flag("start_rate", "over_limit", f"cap {hourly} an hour")
+        spent = 0.0
         for row in owned:
             ok, usage = self.check("boat_usage", lambda: self._usage(row["id"]))
-            if ok and (usage[1] > r["max_worker_rate_usd_per_second"] or usage[0] > worker_bound):
+            if ok and usage[1] > r["max_worker_rate_usd_per_second"]:
                 return "worker_rate"
+            spent += usage[0] if ok else 0.0
+        if worker_bound is not None and spent > worker_bound:
+            return "worker_rate"   # the live workers alone already passed the whole bound
         return None
 
     def _extend(self, owned: list) -> None:

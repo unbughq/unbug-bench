@@ -31,11 +31,11 @@ from typing import Any, Mapping, Optional
 from dbos import DBOS, SetWorkflowID
 
 from durable.contract import (ArtifactKind, BatchSpec, BenchRelease, BoundRaised, ContractError, FounderAction,
-                              FounderReply, Grant, LimitedBy, Outcome, PlumbingRelease, Ref, Step, StepInput, StepKind,
+                              CASE_ID, FounderReply, Grant, LimitedBy, Outcome, PlumbingRelease, Ref, Step, StepInput, StepKind,
                               StepResult, Topic, WorkerLease, assert_no_conductor, batch_spec_from_record,
                               guarded_run, step_input_from_record, step_result_from_record, to_record,
                               wait_seconds)
-from durable.classify import WORKER_POOL_REASONS
+from durable.classify import CAMPAIGN_WAIT_REASONS, WORKER_POOL_REASONS
 from durable.executor import Executor, SeamError
 from durable.policy import (DEADLINE_REASON, POOL_WAIT_CEILING_S, UNCONFIRMED_WORKER_LIMIT_S, ENDS_LINE_OF_WORK, Action, Counters, deadline_s, decide, decide_diagnosis, decide_grant,
                             draws_case_money, is_batch_deadline_stop, is_operational_wait, is_money_stop, is_pause,
@@ -305,6 +305,58 @@ def failed_cases_step(case_ids: list) -> list:
     return sorted(w.workflow_id for w in bad)
 
 
+@DBOS.step()
+def recorded_step(idempotency_key: str) -> bool:
+    """Whether an attempt with this key was already started (by this case or the one it resumes)."""
+    return bool(DBOS.list_workflows(workflow_ids=[idempotency_key], load_input=False, load_output=False))
+
+
+RESUMABLE_STATUSES = ("held", "retired")
+RESUMABLE_OUTCOMES = (Outcome.INFRA_ERROR.value, Outcome.PROVIDER_LIMIT.value)
+
+
+def resume_point(case_id: str) -> dict:
+    """Where a case stopped by an infrastructure failure continues, from its recorded attempts.
+
+    The case keeps its ID, so its key, artifacts, snapshot card and admission binding stay valid;
+    only the new workflow ("<case>@<batch>") is new. Its seqs before `seq` replay the recorded
+    attempts, and `seq` restarts after them with a fresh retry allowance. A case is resumable only
+    when every workflow of it has finished as held or retired and its last attempt ended in an
+    infrastructure or provider failure: never after a verdict, a gate, an exhausted limit or a
+    founder's decision."""
+    if type(case_id) is not str or not CASE_ID.fullmatch(case_id):
+        raise ContractError("resume:bad_case")
+    runs = (DBOS.list_workflows(workflow_ids=[case_id], name=case_workflow.__qualname__, load_input=False)
+            + DBOS.list_workflows(workflow_id_prefix=case_id + "@", name=case_workflow.__qualname__))
+    if not runs:
+        raise ContractError("resume:unknown_case")
+    if any(w.status != "SUCCESS" for w in runs):
+        raise ContractError("resume:case_not_finished")
+    latest = max(runs, key=lambda w: (w.created_at or 0, w.workflow_id))
+    if not isinstance(latest.output, dict) or latest.output.get("status") not in RESUMABLE_STATUSES:
+        raise ContractError("resume:not_stopped_by_infra")
+    attempts = {}
+    for w in DBOS.list_workflows(workflow_id_prefix=case_id + "/", name=slot_workflow.__qualname__,
+                                 load_input=False):
+        parts = w.workflow_id.split("/")
+        if len(parts) != 4 or parts[0] != case_id or not (parts[1].isdigit() and parts[3].isdigit()):
+            continue
+        attempts[(int(parts[1]), int(parts[3]))] = w
+    if not attempts:
+        raise ContractError("resume:no_attempts")
+    seq, attempt = max(attempts)
+    last = attempts[(seq, attempt)]
+    result = (last.output or {}).get("result") if last.status == "SUCCESS" and isinstance(last.output, dict) else None
+    if not (isinstance(result, dict) and result.get("outcome") in RESUMABLE_OUTCOMES):
+        raise ContractError("resume:not_stopped_by_infra")
+    skip = {}
+    for w in runs:
+        if w.workflow_id != case_id:
+            skip.update({int(k): v for k, v in (w.input["args"][0].get("resume") or {}).get("skip", {}).items()})
+    skip[seq] = max(skip.get(seq, 0), attempt)
+    return {"seq": seq, "skip": {str(k): v for k, v in sorted(skip.items())}}
+
+
 # ---- the attempt workflow ------------------------------------------------------------------------
 
 @DBOS.workflow(max_recovery_attempts=None)
@@ -518,6 +570,16 @@ class _Case:
         self.last_reason: Optional[str] = None
         self.verdict: Optional[str] = None
         self.sealed: Optional[dict] = None
+        # A resumed case (resume_point) keeps its case ID and runs under another workflow ID.
+        # Seqs below resume_seq replay the attempts already recorded under that case ID, with
+        # no worker, wait or message; each seq in skip starts after its recorded attempts.
+        self.workflow_id = case_id
+        self.resume_seq = 0
+        self.skip: dict = {}
+
+    @property
+    def replaying(self) -> bool:
+        return self.seq < self.resume_seq
 
     # -- records and messages --
 
@@ -538,7 +600,9 @@ class _Case:
             "hard": None if self.sealed is None else self.sealed["hard"]})
 
     def tell(self, kind: str, *, _idempotency_key: Optional[str] = None, **fields) -> None:
-        DBOS.send(self.batch_id, {"kind": kind, "case": self.case_id, **fields}, topic=CASE_EVENT,
+        if self.replaying:
+            return   # the original workflow already told its own batch
+        DBOS.send(self.batch_id, {"kind": kind, "case": self.workflow_id, **fields}, topic=CASE_EVENT,
                   idempotency_key=_idempotency_key)
 
     def stop_line(self, action: Action) -> None:
@@ -547,6 +611,8 @@ class _Case:
             self.tell("line_stopped", action=action.value)
 
     def finish(self, status: str) -> None:
+        if self.replaying:
+            raise ContractError("resume:diverged")   # the recorded attempts went on past this point
         self.release_worker()
         if status == "sealed":
             DBOS.set_event("seal_cleanup_complete", True)
@@ -555,6 +621,8 @@ class _Case:
         raise _Stop(status)
 
     def release_worker(self) -> None:
+        if self.replaying:
+            self.worker_id = None   # a recorded worker; the original workflow released it
         if self.worker_id is not None:
             release_step(self.case_id, self.worker_id)
             self.worker_id = None
@@ -571,6 +639,10 @@ class _Case:
         self.seq += 1
         self.stage = step.name
         attempt, infra, limits, free, late, prev = 0, 0, 0, 0, 0, None
+        # A seq where a case stopped (this resume's or an earlier one's) first restores the attempts
+        # recorded before that stop: their snapshots, diagnostics and history carry over, and their
+        # keys prove the continuation is the same step. Only its infra retry allowance starts afresh.
+        recorded = self.skip.get(self.seq, 0)
         pool_since = None
         requested_minimum = 0
         failed_releases = []
@@ -594,9 +666,14 @@ class _Case:
                    "prev": prev}
             if admit and not admission_started:
                 job["admission_deadline"] = self.spec.deadline_epoch
+            restoring = attempt <= recorded
+            if (self.replaying or restoring) and not recorded_step(si.idempotency_key):
+                raise ContractError("resume:diverged")   # never start new work inside the replayed history
             queue = DBOS.retrieve_queue(steps_queue(self.batch_id))
             with SetWorkflowID(si.idempotency_key):
                 out = queue.enqueue(slot_workflow, job).get_result()
+            if restoring and not out["started"]:
+                continue
             if not out["started"]:
                 action = Action(out["action"])
                 if action is Action.RERUN_GATES:
@@ -604,7 +681,8 @@ class _Case:
                 self.history.append({"seq": self.seq, "step": step.name, "attempt": attempt,
                                      "outcome": "not_started", "action": action.value})
                 if action is Action.WAIT_FOR_BOUND:
-                    if not self.wait_for_bound(self.spec.deadline_epoch if admit and not admission_started else None):
+                    if not self.replaying and not self.wait_for_bound(
+                            self.spec.deadline_epoch if admit and not admission_started else None):
                         self.last_reason = DEADLINE_REASON
                         return Action.STOP_ADMISSION, None
                     continue
@@ -620,6 +698,9 @@ class _Case:
                 self.bench = out["input"]["bench_version"]
                 self.gates_versions = (out["input"]["plumbing_version"], self.bench)
             self.absorb(step, attempt, result)
+            if restoring:
+                prev, self.worker_id = None, None   # its worker is gone; the first live attempt leases one
+                continue
             if result.outcome is Outcome.INFRA_ERROR:
                 admission_waste += result.usage.paid_usd_micros
                 # Checked here so a retry is never funded past either limit.
@@ -638,7 +719,11 @@ class _Case:
             if pool_wait:
                 pool_now = now_step()
                 pool_since = pool_now if pool_since is None else pool_since
-                pool_wait = pool_now - pool_since < _RT.timing.pool_wait_ceiling_s
+                # Waiting for a free campaign slot is bounded by the batch deadline, not the ceiling:
+                # a slot frees whenever another case finishes. No replay diverges: nothing recorded
+                # these reasons before they existed.
+                pool_wait = (pool_now - pool_since < _RT.timing.pool_wait_ceiling_s
+                             or result.reason in CAMPAIGN_WAIT_REASONS)
             else:
                 pool_since = None
             late_stop = is_batch_deadline_stop(result, self.spec, now)
@@ -666,13 +751,17 @@ class _Case:
                     "router:credential_expiring", "infra:credentials_unavailable") else "waiting_for_router")
                 self.card()
                 self.release_worker()
-                DBOS.sleep(max(0.001, _RT.timing.credential_retry_s))
+                if not self.replaying:
+                    DBOS.sleep(max(0.001, _RT.timing.credential_retry_s))
                 self.status = "running"
                 self.last_reason = None
                 self.card()
                 continue
             if action is Action.RETRY and (late_stop or is_pause(result) or pool_wait):
                 # Wait before the retry, so a stop that repeats does not spin.
+                if self.replaying:
+                    self.worker_id = None
+                    continue
                 if _RT.timing.pause_retry_s > self.spec.release_worker_after_sleep_s and self.worker_id is not None:
                     release_step(self.case_id, self.worker_id)
                     self.worker_id = None
@@ -682,12 +771,18 @@ class _Case:
                 continue
             if action is Action.SLEEP:
                 seconds = wait_seconds(result.retry_at, now_step())
-                # A sequence of short waits must not monopolize worker capacity.
-                self.release_worker()
-                DBOS.sleep(seconds)
+                # A short wait keeps its worker: releasing it made every retry create a new one,
+                # and on 8 November the 15-minute rate waits of five cases spent the campaign's
+                # whole creation allowance. Only a wait past release_worker_after_sleep_s releases it.
+                if (not DBOS.patch('short_sleep_keeps_worker')
+                        or seconds > self.spec.release_worker_after_sleep_s):
+                    self.release_worker()
+                if not self.replaying:
+                    DBOS.sleep(seconds)
                 continue
             if action is Action.WAIT_FOR_BOUND:
-                if not self.wait_for_bound(self.spec.deadline_epoch if admit and not admission_started else None):
+                if not self.replaying and not self.wait_for_bound(
+                        self.spec.deadline_epoch if admit and not admission_started else None):
                     return Action.STOP_ADMISSION, result
                 continue
             if (admit and action is Action.STOP_ADMISSION and result.outcome is Outcome.INFRA_ERROR
@@ -708,8 +803,9 @@ class _Case:
                     # acquire still checks this one is alive. An idle worker costs cents.
                     if not DBOS.patch('admission_backoff_keeps_worker'):
                         self.release_worker()
-                    DBOS.sleep(min(_RT.timing.admission_backoff_max_s,
-                                   _RT.timing.admission_backoff_s * 2 ** min(backoffs - 1, 16)))
+                    if not self.replaying:
+                        DBOS.sleep(min(_RT.timing.admission_backoff_max_s,
+                                       _RT.timing.admission_backoff_s * 2 ** min(backoffs - 1, 16)))
                     if now_step() >= self.spec.deadline_epoch:   # the sleep may have crossed it
                         return Action.STOP_ADMISSION, result
                     infra = self.spec.max_infra_retries_per_step   # one attempt per backoff
@@ -718,7 +814,8 @@ class _Case:
                     return Action.HOLD, result
                 # Use the release actually dispatched, including queued release changes.
                 failed_releases.append(out['input']['plumbing_version'])
-                self.wait_for_release(failed_releases)
+                if not self.replaying:
+                    self.wait_for_release(failed_releases)
                 self.factory_bug_resumes += 1
                 infra = 0
                 continue
@@ -855,6 +952,11 @@ class _Case:
         self.card()
         action, r = self.run_seq(Step(StepKind.DIAGNOSIS), evidence=evidence)
         if action is not None:                              # a diagnosis is never diagnosed
+            # A diagnosis that never ran (no worker, an outage) holds the case like any other infra
+            # stop: on 8 November f46dac was retired, as if judged, when no worker could be created.
+            if r.outcome is Outcome.INFRA_ERROR and DBOS.patch('diagnosis_infra_holds'):
+                self.stop_line(Action.HOLD)
+                self.finish("held")
             self.stop_line(Action.RETIRE)
             self.finish("retired")
         self.verdict = r.verdict.value
@@ -876,6 +978,8 @@ class _Case:
 
     def escalate(self) -> Ref:
         """Park until a FOUNDER_REPLY. CONTINUE returns the ruling for the rerun; RETIRE retires."""
+        if self.replaying:
+            return None   # the rerun that followed the founder's reply is recorded; RETIRE is never resumable
         self.stop_line(Action.ESCALATE)
         self.release_worker()
         self.status = "escalated"
@@ -899,6 +1003,11 @@ class _Case:
 def case_workflow(job: dict) -> dict:
     spec = batch_spec_from_record(job["spec"])
     case = _Case(spec, job["case_id"], job["initial_registry"], job.get("replacement_of"))
+    resume = job.get("resume")
+    if resume is not None:
+        case.workflow_id = DBOS.workflow_id
+        case.resume_seq = resume["seq"]
+        case.skip = {int(seq): attempt for seq, attempt in resume["skip"].items()}
     if job.get("import_snapshot") is not None:
         # A legacy import: ADMIT's first attempt restores the rewrapped old checkpoint.
         case.snapshot = Ref(**job["import_snapshot"])
@@ -948,10 +1057,13 @@ def case_workflow(job: dict) -> dict:
 # ---- the batch workflow --------------------------------------------------------------------------
 
 class _Batch:
-    def __init__(self, spec: BatchSpec, initial_registry: dict, import_snapshot: Optional[dict] = None):
+    def __init__(self, spec: BatchSpec, initial_registry: dict, import_snapshot: Optional[dict] = None,
+                 resume: Optional[dict] = None):
         self.spec, self.initial_registry = spec, initial_registry
         self.import_snapshot = import_snapshot
-        self.cases: list = []
+        self.resume = resume
+        self.cases: list = []      # workflow IDs: a resumed case runs as "<case>@<batch>"
+        self.case_ids: dict = {}   # workflow ID -> case ID, where they differ
         self.done: dict = {}
         self.sealed: list = []
         self.waiting: list = []
@@ -965,14 +1077,20 @@ class _Batch:
                 and now_step() < self.spec.deadline_epoch)
 
     def start_case(self, replacement_of: Optional[str]) -> None:
-        case_id = case_id_for(self.spec.batch_id, len(self.cases) + 1)
+        case_id = workflow_id = case_id_for(self.spec.batch_id, len(self.cases) + 1)
         job = {"spec": to_record(self.spec), "case_id": case_id, "initial_registry": self.initial_registry,
                "replacement_of": replacement_of}
         if self.import_snapshot is not None and not self.cases:
             job["import_snapshot"] = self.import_snapshot   # only the first case; replacements select afresh
-        with SetWorkflowID(case_id):
+        if self.resume is not None and not self.cases:
+            # Only the first case; replacements select afresh.
+            case_id = job["case_id"] = self.resume["case"]
+            workflow_id = f"{case_id}@{self.spec.batch_id}"
+            job["resume"] = {"seq": self.resume["seq"], "skip": self.resume["skip"]}
+            self.case_ids[workflow_id] = case_id
+        with SetWorkflowID(workflow_id):
             DBOS.start_workflow(case_workflow, job)
-        self.cases.append(case_id)
+        self.cases.append(workflow_id)
         DBOS.set_event("cases", list(self.cases))
 
     def wake_waiting(self, settled_by: Optional[str] = None) -> None:
@@ -1016,7 +1134,7 @@ class _Batch:
             if case_id in self.waiting:
                 self.waiting.remove(case_id)
             if msg["status"] == "sealed":
-                self.sealed.append({"case_id": case_id, **msg["sealed"]})
+                self.sealed.append({"case_id": self.case_ids.get(case_id, case_id), **msg["sealed"]})
         elif kind == "nudge":
             self.operator()
 
@@ -1080,7 +1198,7 @@ class _Batch:
                     self.done[case_id] = "engine_error"
                 else:
                     self.done[case_id] = "sealed"
-                    self.sealed.append({"case_id": case_id, **seal})
+                    self.sealed.append({"case_id": self.case_ids.get(case_id, case_id), **seal})
             self.after_poll()
         return {"batch_id": spec.batch_id, "sealed": self.sealed, "cases": dict(self.done)}
 
@@ -1355,7 +1473,7 @@ def batch_workflow(job: dict) -> dict:
         batch = _BatchV2(spec, job["initial_registry"])
         batch.probe_enabled = probe_enabled
     else:
-        batch = _Batch(spec, job["initial_registry"], job.get("import_snapshot"))
+        batch = _Batch(spec, job["initial_registry"], job.get("import_snapshot"), job.get("resume"))
     return batch.run()
 
 
@@ -1405,10 +1523,13 @@ class Engine:
             DBOS.register_queue(decision_queue(spec.batch_id), global_concurrency=1,
                                 polling_interval_sec=self.timing.queue_poll_s, on_conflict="always_update")
 
-    def start_batch(self, spec: BatchSpec, initial_registry: Ref, import_snapshot: Optional[Ref] = None):
+    def start_batch(self, spec: BatchSpec, initial_registry: Ref, import_snapshot: Optional[Ref] = None,
+                    resume_of: Optional[str] = None):
         """Attach to the batch if it exists (rule 3); start it otherwise. initial_registry is the
         batch's first STATEMENT_REGISTRY (BatchSpec has none; contract finding 2). import_snapshot,
-        a CASE_SNAPSHOT of the batch's first case, imports a legacy checkpoint as that case."""
+        a CASE_SNAPSHOT of the batch's first case, imports a legacy checkpoint as that case.
+        resume_of, a case stopped by an infrastructure failure, continues it as the batch's first
+        case where it stopped (resume_point)."""
         if not isinstance(initial_registry, Ref) or initial_registry.kind is not ArtifactKind.STATEMENT_REGISTRY:
             raise ContractError("initial_registry must be a registry Ref")
         if import_snapshot is not None and (not isinstance(import_snapshot, Ref)
@@ -1417,10 +1538,15 @@ class Engine:
         self.register_queues(spec)
         if DBOS.get_workflow_status(spec.batch_id) is not None:
             return DBOS.retrieve_workflow(spec.batch_id)
+        if resume_of is not None and import_snapshot is not None:
+            raise ContractError("a batch either imports or resumes its first case")
+        resume = None if resume_of is None else {"case": resume_of, **resume_point(resume_of)}
         with SetWorkflowID(spec.batch_id):
             job = {"spec": to_record(spec), "initial_registry": to_record(initial_registry), "queue_v2": False}
             if import_snapshot is not None:
                 job["import_snapshot"] = to_record(import_snapshot)
+            if resume is not None:
+                job["resume"] = resume
             return DBOS.start_workflow(batch_workflow, job)
 
     def send(self, batch_id: str, topic: Topic, payload) -> None:
