@@ -47,10 +47,11 @@ class StepSequence(unittest.TestCase):
     def test_admission_wait_restores_checkpoint_on_replacement_worker(self):
         for legacy in (False, True):
             with self.subTest(legacy=legacy):
+                # A wait past release_worker_after_sleep_s releases the worker (a shorter one keeps it).
                 r, out = run({'legacy_admit_snapshot': legacy,
-                    'spec': {'max_cases_started': 1},
+                    'spec': {'max_cases_started': 1, 'release_worker_after_sleep_s': .5},
                     'script': {'1/admit/1': {'outcome': 'provider_limit', 'reason': 'router:quota',
-                        'retry_in': .01, 'paid': 0, 'checkpoint': True}}})
+                        'retry_in': 3.0, 'paid': 0, 'checkpoint': True}}})
                 self.addCleanup(r.close)
                 first = start(r, C1 + '/1/admit/1')
                 retry = start(r, C1 + '/1/admit/2')
@@ -287,6 +288,13 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(grants, [50 * M, 100 * M, 200 * M])
         self.assertGreaterEqual(out["ledger"]["batches"]["b-t"]["spent"], 3 * M)
 
+    def test_a_diagnosis_that_cannot_run_holds_the_case(self):
+        r, out = run({"spec": {"max_infra_retries_per_step": 2, "max_cases_started": 1},
+                      "script": {"1/writer:1/1": {"outcome": "exhausted", "reason": "writer:rounds"},
+                                 "1/diagnosis/*": {"outcome": "infra_error", "reason": "infra:creation_limit"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})   # never "retired": nothing was judged
+
     def test_infra_retries_then_diagnosis_with_the_engine_history(self):
         r, out = run({"spec": {"max_infra_retries_per_step": 2, "max_cases_started": 2},
                       "script": {"1/writer:1/*": {"outcome": "infra_error", "reason": "infra:stalled", "paid": 7000,
@@ -368,9 +376,8 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 98 + ["stress:1", "gates:1", "seal"])
         writers = [x for x in r.starts(1) if "/2/writer:1/" in x["key"]]
         workers = [x["worker"] for x in writers]
-        releases = {x["worker"] for x in r.pool_log() if x["op"] == "release" and x["case"] == C1}
-        self.assertEqual(len(set(workers)), 98)
-        self.assertTrue(set(workers[:-1]) <= releases)
+        # Each short wait keeps the case's worker: 98 tries, one worker creation.
+        self.assertEqual(len(set(workers)), 1)
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
     def test_paid_provider_waits_book_waste_and_keep_running(self):
@@ -476,6 +483,18 @@ class Outcomes(unittest.TestCase):
                       [{k: v for k, v in x.items() if k != "t"} for x in r.pool_log()])
         self.assertEqual(start(r, f"{C1}/3/stress:1/2")["worker"], "w-1-2")
         self.assertEqual(start(r, f"{C1}/3/stress:1/2")["opened"]["snapshot"], f"snapshot {C1}/2/writer:1/1")
+        self.assertEqual(out["result"]["cases"], {C1: "sealed"})
+
+    def test_short_sleep_keeps_the_worker(self):
+        # Waits up to release_worker_after_sleep_s retry on the same worker, so a rate limit spends
+        # no creation allowance (8 November: five cases' 15-minute waits used all 24).
+        r, out = run({"spec": {"release_worker_after_sleep_s": 60.0},
+                      "script": {"1/stress:1/1": {"outcome": "provider_limit", "reason": "router:rate",
+                                                  "retry_in": 1.0, "paid": 0}}})
+        self.addCleanup(r.close)
+        self.assertNotIn({"op": "release", "case": C1, "worker": "w-1-1"},
+                         [{k: v for k, v in x.items() if k != "t"} for x in r.pool_log()][:-1])
+        self.assertEqual(start(r, f"{C1}/3/stress:1/2")["worker"], "w-1-1")
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
     def test_stop_admission(self):

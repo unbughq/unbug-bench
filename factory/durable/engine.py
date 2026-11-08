@@ -677,8 +677,12 @@ class _Case:
                 continue
             if action is Action.SLEEP:
                 seconds = wait_seconds(result.retry_at, now_step())
-                # A sequence of short waits must not monopolize worker capacity.
-                self.release_worker()
+                # A short wait keeps its worker: releasing it made every retry create a new one,
+                # and on 8 November the 15-minute rate waits of five cases spent the campaign's
+                # whole creation allowance. Only a wait past release_worker_after_sleep_s releases it.
+                if (not DBOS.patch('short_sleep_keeps_worker')
+                        or seconds > self.spec.release_worker_after_sleep_s):
+                    self.release_worker()
                 DBOS.sleep(seconds)
                 continue
             if action is Action.WAIT_FOR_BOUND:
@@ -842,6 +846,11 @@ class _Case:
         self.card()
         action, r = self.run_seq(Step(StepKind.DIAGNOSIS), evidence=evidence)
         if action is not None:                              # a diagnosis is never diagnosed
+            # A diagnosis that never ran (no worker, an outage) holds the case like any other infra
+            # stop: on 8 November f46dac was retired, as if judged, when no worker could be created.
+            if r.outcome is Outcome.INFRA_ERROR and DBOS.patch('diagnosis_infra_holds'):
+                self.stop_line(Action.HOLD)
+                self.finish("held")
             self.stop_line(Action.RETIRE)
             self.finish("retired")
         self.verdict = r.verdict.value
