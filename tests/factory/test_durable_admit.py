@@ -393,7 +393,7 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(c.card["candidate_attempts"], 3)
 
     def legacy_archive(self, old, statement, *, commit="a" * 40, gates=None, writer="opencode-go/minimax-m3", link=False,
-                       repo="medusajs/medusa", lockfile=None, card_extra=None):
+                       repo="medusajs/medusa", lockfile=None, card_extra=None, meta=True):
         """A pre-durable checkpoint as run_artifacts.seal wrote it, rewrapped to the statement key:
         `tar -C <work parent> -czf - <case id> | age -r <recipient>`, links and caches included."""
         import worker_secrets
@@ -410,7 +410,8 @@ class AdmitTests(unittest.TestCase):
         app = {"repo": repo, "commit": commit}
         if lockfile is not None:
             app["lockfile_sha256"] = lockfile
-        (work / "case/case.json").write_text(json.dumps({"source": "port", "app": app}))
+        if meta:
+            (work / "case/case.json").write_text(json.dumps({"source": "port", "app": app}))
         (work / "case/guards").mkdir()
         (work / "case/guards/reference.py").write_text("print('guard')")
         (work / "scorecard.json").write_text(json.dumps({"case": old, "seed": 3, "source": "port",
@@ -592,6 +593,121 @@ class AdmitTests(unittest.TestCase):
         result, outputs = self.run_admit(self.import_step(self.import_inputs(spent=3_000_000), registry,
                                                           self.legacy_archive(old, text)))
         self.assertEqual(result.reason, "admit:imported_written")
+
+    # Idea-only import (5813be, 25fbfa): only the admitted statement and case metadata survive.
+    OCTOBER_5813BE = {"roles": {"writer": {"model": "opencode/minimax-m3.1-flash-free"}},
+                      "model_transition": {"kind": "approved-paid-to-free",
+                                           "before": {"writer": {"model": "opencode-go/mimo-v2.6-pro"}},
+                                           "after": {"writer": {"model": "opencode/minimax-m3.1-flash-free"}}},
+                      "continuation_budget": {"cost": 2.5, "events": [
+                          {"id": "e1", "role": "writer", "invocation": "builder-1",
+                           "configured_model": "opencode-go/mimo-v2.6-pro", "cost": 1.0}]}}
+
+    def idea_value(self):
+        value = self.real_inputs("unused", import_spent_usd_micros=2_500_000, import_mode="idea_only")
+        value.pop("candidate")
+        # The default reviewer is MiMo, an idea author's family, which no judge may share; GLM may.
+        value["models"]["reviewers"] = [["openrouter/z-ai/glm-5.3-flash"]]
+        return value
+
+    def idea_inputs(self, value=None):
+        return self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value or self.idea_value()).encode())
+
+    def test_idea_only_import_keeps_the_statement_and_starts_at_writer(self):
+        old, text = "case-20261017T212113Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.admitted_registry((old, text), ("case-prior", "# Candidate\n\nRefund exceeds the order."))
+        # The October writer moved from MiMo to MiniMax and the draft passed G1: the strict import refuses.
+        archive = self.legacy_archive(old, text, writer=None, card_extra=self.OCTOBER_5813BE)
+        result, _ = self.run_admit(self.import_step(self.import_inputs(), registry, archive))
+        self.assertEqual(result.reason, "admit:import_writer_conflict")
+        step_input = self.import_step(self.idea_inputs(), registry, archive)
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:selected"))   # WRITER, not STRESS
+        check_result_for(step_input.step, result)
+        self.assertIn("reviewer-idea-realism", self.calls)
+        self.assertFalse(any(name.startswith("builder-selection") for name in self.calls))
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual(sorted(p.name for p in (work / "case").iterdir()), ["case.json", "promise.md", "statement.md"])
+        self.assertEqual((work / "case/statement.md").read_text(), text)
+        for gone in ("gate-cache", "public-search.json", "freshness-verdict.json", "agent-state", ".casekey"):
+            self.assertFalse((work / gone).exists(), gone)
+        self.assertEqual((c.card["gates"], c.card["failed_gate"]), ({}, None))
+        self.assertEqual(c.card["imported_from"], {"case": old, "source": "port", "gates": {"G1": "pass", "G2": "pass"},
+                                                   "failed_gate": None, "spent_usd": 2.5, "mode": "idea_only",
+                                                   "idea_families": ["minimax", "xiaomi"], "case_json": "kept",
+                                                   "written": False})
+        entries = self.registry_doc(result, outputs)["registry"]["entries"]
+        self.assertEqual(entries[CASE]["statement_sha256"], hashlib.sha256(text.encode()).hexdigest())
+
+    def test_idea_only_import_keeps_idea_authors_out_of_judging_and_needs_a_supported_writer(self):
+        old, text = "case-20261017T212113Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        archive = self.legacy_archive(old, text, writer=None, card_extra=self.OCTOBER_5813BE)
+        mimo_reviewer = self.idea_value()
+        mimo_reviewer["models"]["reviewers"] = [["openrouter/xiaomi/mimo-v2.6-pro"]]
+        mimo_dedup = self.idea_value()
+        mimo_dedup["models"]["reviewers"] = [["openrouter/z-ai/glm-5.3-flash"]]
+        mimo_dedup["models"]["easy_calibrator"] = ["openrouter/xiaomi/mimo-v2.6-pro"]
+        for value in (mimo_reviewer, mimo_dedup):
+            result, _ = self.run_admit(self.import_step(self.idea_inputs(value), registry, archive))
+            self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_idea_family"))
+        # Slot 1's writer is Claude: idea-only hands the statement only to MiniMax or DeepSeek.
+        value = self.idea_value(); value.pop("models"); value["rotation_slot"] = 1
+        result, _ = self.run_admit(self.import_step(self.idea_inputs(value), registry, archive))
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_idea_writer"))
+        # No author recorded at all: the family rule cannot be checked, so the import refuses.
+        bare = self.legacy_archive(old, text, writer=None)
+        result, _ = self.run_admit(self.import_step(self.idea_inputs(), registry, bare))
+        self.assertEqual(result.reason, "admit:import_writer_none")
+        self.assertEqual(self.calls, [])
+
+    def test_unpinned_idea_only_import_takes_a_supported_writer_slot(self):
+        import model_runtime
+        from model_router import family
+        old, text = "case-20261020T095024Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        value = self.idea_value(); value.pop("models")
+        inputs = self.idea_inputs(value)
+        for card_extra, authors in ((self.OCTOBER_5813BE, {"minimax", "xiaomi"}),
+                                    ({"roles": {"writer": {"model": "opencode/deepseek-v4.1-flash-free"}}}, {"deepseek"})):
+            with self.subTest(authors=authors):
+                archive = self.legacy_archive(old, text, writer=None, card_extra=card_extra)
+                step_input = self.import_step(inputs, registry, archive)
+                result, outputs = self.run_admit(step_input)
+                # Past the family checks; the offline router has no bounded route for the table's models.
+                self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "router:unbounded_route"))
+                _, c = self.restore(step_input, result, outputs)
+                roles = c.card["roles"]
+                self.assertIn(family(roles["writer"]["model"]), authors)   # an author's family, when supported
+                self.assertNotIn(family(roles["reviewer"]["model"]), authors)
+                self.assertEqual(roles["writer"]["model"], model_runtime.rotation(c.card["rotation_slot"])["writer"]["model"])
+        self.assertEqual(self.calls, [])
+
+    def test_idea_only_import_rebuilds_missing_case_metadata_from_the_batch(self):
+        old, text = "case-20261020T095024Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        archive = self.legacy_archive(old, text, writer=None, meta=False, gates={},
+                                      card_extra={"roles": {"writer": {"model": "opencode/deepseek-v4.1-flash-free"}}})
+        result, _ = self.run_admit(self.import_step(self.import_inputs(), registry, archive))
+        self.assertEqual(result.reason, "admit:import_layout_meta")   # the strict import still needs it
+        step_input = self.import_step(self.idea_inputs(), registry, archive)
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:selected"))
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual(json.loads((work / "case/case.json").read_text()), {
+            "source": "port", "app": {"repo": "medusajs/medusa", "commit": "a" * 40},
+            "promise_paths": ["store-checkout"], "promise_checks": [], "leak_words": []})
+        self.assertEqual((c.card["imported_from"]["case_json"], c.card["imported_from"]["idea_families"]),
+                         ("rebuilt", ["deepseek"]))
+        # Without case.json only the old card names the source; it must be this batch's.
+        hunt = self.legacy_archive(old, text, writer=None, meta=False,
+                                   card_extra={"source": "hunt", "roles": {"writer": {"model": "opencode/deepseek-v4.1-flash-free"}}})
+        result, _ = self.run_admit(self.import_step(self.idea_inputs(), registry, hunt))
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_source"))
+        # An unknown import mode is malformed INPUTS.
+        value = self.idea_value(); value["import_mode"] = "draft_only"
+        result, _ = self.run_admit(self.import_step(self.idea_inputs(value), registry, archive))
+        self.assertEqual(result.reason, "admit:inputs_invalid")
 
     def test_batch_ordinals_follow_existing_role_rotation(self):
         from dataclasses import replace
