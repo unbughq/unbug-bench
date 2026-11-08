@@ -72,7 +72,7 @@ class Drill(unittest.TestCase):
         rpc = lambda op, batch=None: {"status": {"cases": [{"case": C1, "status": "running"}]},
                           "budget": {"spent": 0, "bound": 1}}[op]
         return Guard({**REQUEST, "deadline_epoch": time.time() + 3600}, run.work / "state/guard", boat=boat, rpc=rpc,
-                     service=service, ours=lambda row: True, count=lambda: 1, delete=lambda worker: None,
+                     service=service, ours=lambda row: True, count=lambda: [], delete=lambda worker: None,
                      sleep=lambda s: None)
 
     def test_a_hanging_usage_call_pauses_only_new_attempts(self):
@@ -204,7 +204,7 @@ class Drill(unittest.TestCase):
         service = type("Service", (), {"state": lambda s: ("inactive" if stopped else "active", time.time() - 3600, None),
                                        "stop": lambda s: stop()})()
         return Guard({**REQUEST, "deadline_epoch": time.time() + 3600}, run.work / "state/guard", boat=boat, rpc=rpc,
-                     service=service, ours=lambda row: True, count=lambda: 1, delete=delete,
+                     service=service, ours=lambda row: True, count=lambda: [], delete=delete,
                      checkpoint_grace_s=grace_s, sleep=lambda s: None), stopped, live
 
     def resume(self, run):
