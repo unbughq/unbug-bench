@@ -37,6 +37,12 @@ EARLY_GATES = ["G3", "G4", "G5"]  # also run right after the writer, before the 
 DRY_SKIP = {"G2": "model gate", "G8": "model gate", "G9": "model gate", "G10": "model gate", "G15": "v1 fixture has no v2 baseline or pending ingredients"}
 DRY_SKIP.update({"G16": "independent model fix", "G17": "model diagnosis"})
 # Later gate failures the writer may repair (validate_and_repair; a repairable GATE_FAILED under the engine).
+# Recertifying a case sealed before G16/G17 existed: these rerun, in this order, on today's worker
+# (G2 judges today's freshness, never October's; G3 prepares its runtime; G17 needs this run's G10
+# tries; G11 checks G10's passes and reads G17's difficulty); every other gate up to G15 keeps its
+# October verdict.
+RECERTIFY_RERUN = ("G2", "G3", "G16", "G10", "G17", "G11")
+RECERTIFY_KEPT = tuple(f"G{i}" for i in range(1, 16) if f"G{i}" not in (*RECERTIFY_RERUN, "G12"))  # SEAL sets G12
 REPAIRABLE_GATES = frozenset({"G4", "G5", "G6", "G8", "G9", "G11", "G13", "G14", "G15", "G16", "G17"})
 # Model state that holds transcripts: archived into the seal, then shredded.
 AGENT_STATE = [".local/share/opencode/storage", ".local/share/opencode/log", ".local/share/opencode/snapshot",
@@ -2582,6 +2588,13 @@ def engine_gates(c):
     for key in ("gates", "gate_results", "gate_minutes"): c.card[key] = {}
     c.card["failed_gate"] = None
     for key in ("failed_detail", "infrastructure_gate", "terminal_stop", "kept_gate_source"): c.card.pop(key, None)
+    recertify = c.card.get("recertify")
+    if recertify:
+        # ADMIT checked these against the sealed archive's own card; only the rerun gates run here.
+        c.card["gates"] = {g: "pass" for g in RECERTIFY_KEPT}
+        c.card["gate_results"] = {g: v for g, v in recertify.get("gate_results", {}).items() if g in RECERTIFY_KEPT}
+        c.card["kept_gate_source"] = {"case": recertify["case"], "kind": "recertify", "gates": list(RECERTIFY_KEPT)}
+        c.audit_gates = list(RECERTIFY_RERUN)
     validate_and_repair(c)
     passed = tuple(g for g in GATES if c.card["gates"].get(g) == "pass")
     receipt = json.dumps({key: c.card.get(key) for key in (

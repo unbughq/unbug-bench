@@ -534,6 +534,90 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(entries[old]["status"], "screening")   # the old entry stays occupied
         self.assertEqual(entries[CASE]["statement_sha256"], hashlib.sha256(text.encode()).hexdigest())
 
+    def sealed_card(self, **changes):
+        """A sealed October card as 18681d and 86b100 have it: G1-G15 passed, models and role efforts."""
+        models = {"builder": ["openrouter/minimax/minimax-m3.1-flash"],
+                  "attacker": ["openrouter/deepseek/deepseek-v4.1-flash"],
+                  "reviewers": [["openrouter/xiaomi/mimo-v2.6-pro"]],
+                  "strong_calibrator": ["claude/claude-opus-5-5"],
+                  "easy_calibrator": ["opencode/glm-5.3-flash-free"]}
+        roles = {role: {"model": models[key][0] if key != "reviewers" else models[key][0][0], "effort": "default"}
+                 for key, role in (("builder", "writer"), ("attacker", "stress_tester"), ("reviewers", "reviewer"),
+                                   ("strong_calibrator", "strong_calibrator"), ("easy_calibrator", "easy_calibrator"))}
+        roles["strong_calibrator"]["effort"] = "high"
+        gates = {f"G{i}": "pass" for i in range(1, 16)}
+        card = {"gates": gates, "models": models, "roles": roles, "dry_run": False, "difficulty": "hard",
+                "gate_results": {"G5": {"reference": "solved"}, "G10": {"strong": 0}, "G13": {"ok": True}}}
+        card.update(changes)
+        return card
+
+    def recertify_inputs(self, **more):
+        more.setdefault("recertify_routes", {"easy_calibrator": "openrouter/z-ai/glm-5.3-flash"})
+        more.setdefault("recovery_config", {"pilot_tries": 3, "pilot_runs": 5, "runs": 10})
+        value = self.real_inputs("unused", import_spent_usd_micros=2_500_000, recertify=True, **more)
+        value.pop("candidate"); value.pop("models")
+        return self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+
+    def test_a_sealed_case_is_recertified_with_its_october_models_and_kept_verdicts(self):
+        old, text = "case-20261017T125556Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.admitted_registry((old, text), ("case-prior", "# Candidate\n\nRefund exceeds the order."))
+        card = self.sealed_card()
+        archive = self.legacy_archive(old, text, writer=None, gates=card["gates"], card_extra=card)
+        step_input = self.import_step(self.recertify_inputs(), registry, archive)
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:imported_sealed"))
+        check_result_for(step_input.step, result)
+        # Fresh search evidence here; expired evidence would top up with the writer and stress tester.
+        self.assertFalse(any(name.startswith("builder") for name in self.calls))
+        self.assertIn("reviewer-idea-realism", self.calls)   # admission's screens still run
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual((c.card["gates"], c.card["failed_gate"]), ({}, None))
+        self.assertEqual(c.card["models"]["builder"], ["openrouter/minimax/minimax-m3.1-flash"])
+        # The same-family route swap, with the October effort.
+        self.assertEqual(c.card["models"]["easy_calibrator"], ["openrouter/z-ai/glm-5.3-flash"])
+        self.assertEqual(c.card["roles"]["easy_calibrator"], {"model": "openrouter/z-ai/glm-5.3-flash", "effort": "default"})
+        self.assertEqual(c.card["roles"]["strong_calibrator"]["effort"], "high")
+        self.assertEqual(c.card["recertify"], {"case": old, "routes": {"easy_calibrator": "openrouter/z-ai/glm-5.3-flash"},
+                                               "gate_results": {"G5": {"reference": "solved"}, "G13": {"ok": True}}})
+        self.assertIs(c.card["imported_from"]["recertify"], True)
+
+    def test_recertify_refuses_an_unsealed_card_a_family_change_or_pinned_models(self):
+        old, text = "case-20261017T125556Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        unsealed = self.sealed_card()
+        del unsealed["gates"]["G16" if "G16" in unsealed["gates"] else "G15"]
+        mismatched = self.sealed_card()
+        mismatched["roles"]["reviewer"]["model"] = "openrouter/deepseek/deepseek-v4.1-flash"
+        for card, inputs, reason in (
+                (unsealed, self.recertify_inputs(), "admit:import_recertify"),
+                (mismatched, self.recertify_inputs(), "admit:import_recertify"),
+                (self.sealed_card(), self.recertify_inputs(recertify_routes={"easy_calibrator": "claude/claude-opus-5-5"}),
+                 "admit:import_recertify")):
+            with self.subTest(reason=reason, card=card["roles"]["reviewer"]["model"]):
+                archive = self.legacy_archive(old, text, writer=None, gates=card["gates"], card_extra=card)
+                result, _ = self.run_admit(self.import_step(inputs, registry, archive))
+                self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, reason))
+        archive = self.legacy_archive(old, text, writer=None, gates=self.sealed_card()["gates"], card_extra=self.sealed_card())
+        pinned = self.real_inputs("unused", import_spent_usd_micros=2_500_000, recertify=True, recovery_config={})
+        pinned.pop("candidate")   # still pins models
+        unconfigured = self.real_inputs("unused", import_spent_usd_micros=2_500_000, recertify=True)
+        unconfigured.pop("candidate"); unconfigured.pop("models")   # the exam needs a recovery_config
+        for value in (pinned, unconfigured):
+            inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+            result, _ = self.run_admit(self.import_step(inputs, registry, archive))
+            self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "admit:inputs_invalid"))
+        # Without a sealed import, recertify is refused rather than admitting a fresh case.
+        result, _ = self.run_admit(self.step(self.recertify_inputs(), registry))
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_recertify"))
+        self.assertEqual(self.calls, [])
+        # The writer and stress tester may still be called (freshness top-ups), so they need a bounded route.
+        muse = self.sealed_card()
+        muse["models"]["builder"] = ["openrouter/meta/muse-spark-1.3-contributor"]
+        muse["roles"]["writer"]["model"] = "openrouter/meta/muse-spark-1.3-contributor"
+        archive = self.legacy_archive(old, text, writer=None, gates=muse["gates"], card_extra=muse)
+        result, _ = self.run_admit(self.import_step(self.recertify_inputs(), registry, archive))
+        self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "router:unbounded_route"))
+
     def test_unpinned_import_takes_the_first_slot_with_the_october_writer_family(self):
         from model_router import family
         old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
@@ -717,8 +801,9 @@ class AdmitTests(unittest.TestCase):
     def test_unbounded_strong_or_second_reviewer_stops_before_any_model_spend(self):
         for role in ('strong_calibrator', 'reviewers'):
             value = self.real_inputs('unused')
-            if role == 'strong_calibrator': value['models'][role] = ['codex/gpt-6.1-sol']
-            else: value['models'][role].append(['codex/gpt-6.1-sol'])
+            # codex/gpt-6.1-sol is bounded now (CODEX_PROFILES); an unpriced Codex model still is not.
+            if role == 'strong_calibrator': value['models'][role] = ['codex/gpt-unpriced']
+            else: value['models'][role].append(['codex/gpt-unpriced'])
             inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
             registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b'')
             result, _ = self.run_admit(self.step(inputs, registry))
