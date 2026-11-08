@@ -277,6 +277,16 @@ def writer_round_estimate(c):
     return round(max([8.0, *rounds.values(), *interrupted]), 2)
 
 
+def call_failure_reason(label, route):
+    """A per-call failure that moves this call to its chain's next route, or None (the step fails).
+    A free route's broken usage report or provider mismatch also moves on: the next route is gated."""
+    if label.startswith('provider_limit'): return 'quota'
+    if label in ('codex_login_expired', 'credential_expiring'): return 'credential_expiring'
+    if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:'): return 'outage'
+    if route in FREE_ROUTES and label in ('missing_usage', 'invalid_usage', 'free_route_mismatch'): return 'outage'
+    return None
+
+
 @dataclass(frozen=True)
 class ModelRuntime:
     """Execute one routed role call with caller-owned operational adapters."""
@@ -431,9 +441,7 @@ class ModelRuntime:
                 failure = ({'reason': 'router_unavailable', 'model': lease.route} if lost is not None and lost.is_set()
                            else getattr(error, 'provider_failure', None))
                 if failure is None:
-                    label = str(error)
-                    reason = ('quota' if label.startswith('provider_limit') else 'credential_expiring' if label in ('codex_login_expired', 'credential_expiring') else
-                              'outage' if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:') else None)
+                    reason = call_failure_reason(str(error), lease.route)
                     if reason: failure = {'reason': reason, 'model': lease.route, 'per_call': True}
                 if not failure: raise
                 from durable.classify import FAILURE_STOPS

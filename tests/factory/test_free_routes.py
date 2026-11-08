@@ -120,6 +120,16 @@ class FreeRoutes(unittest.TestCase):
         c.models['easy_calibrator'] = ['openrouter/z-ai/glm-5.3-flash']   # what the batches pin today
         model_runtime.require_bounded_models(c)
 
+    def test_a_failing_free_call_moves_to_the_next_route(self):
+        from model_runtime import call_failure_reason
+        paid = 'openrouter/deepseek/deepseek-v4.1-flash'
+        for label in ('provider_limit:x', 'opencode_error', 'process_error'):   # limits, 5xx, a crashed CLI
+            self.assertIsNotNone(call_failure_reason(label, FREE))
+        for label in ('missing_usage', 'invalid_usage', 'free_route_mismatch'):  # a usage report we cannot trust
+            self.assertEqual(call_failure_reason(label, FREE), 'outage')
+            self.assertIsNone(call_failure_reason(label, paid))                 # a paid route's stays a stop
+        self.assertIsNone(call_failure_reason('timeout', FREE))                 # its window is spent: durable retry
+
     def test_a_step_from_another_provider_or_model_stops_a_free_call(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / 'out.jsonl'
