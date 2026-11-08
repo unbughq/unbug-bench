@@ -202,13 +202,22 @@ class CodexRoute(unittest.TestCase):
                              Decimal(str(codex_cost(CODEX, turn['tokens'], True))))
             self.assertTrue(all(e['tokens']['input_tokens'] == 0 for e in events if e.get('codex_request')))
 
-    def test_codex_runs_only_inside_a_reservation_with_its_live_usage(self):
+    def test_an_unreserved_codex_call_is_held_to_its_lease_maximum(self):
+        # Review: outside the engine there is no reservation, so the call's own booked value is capped.
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            for feed in (lambda: '', None):
-                with self.assertRaisesRegex(BudgetError, 'unbounded_route'):
-                    budget.run_budgeted(['true'], str(tmp), {}, tmp / 'out.jsonl', tmp / 'ledger.json', 30, driver='codex',
-                                        configured_model=CODEX, containment=False, usage_feed=feed)
+            script, log = tmp / 'cli.py', tmp / 'rollout.jsonl'
+            script.write_text(CLI); log.touch()
+            with mock.patch.object(budget, 'CODEX_FEED_SECONDS', 0):
+                with self.assertRaisesRegex(BudgetError, 'usage_reservation_exceeded'):
+                    budget.run_budgeted([sys.executable, str(script), str(log), json.dumps([[100_000, 10_000]] * 40), '0.05', 'live'],
+                                        str(tmp), {'PATH': '/bin:/usr/bin'}, tmp / 'out.jsonl', tmp / 'ledger.json', 60,
+                                        driver='codex', configured_model=CODEX, containment=False, max_calls=1000,
+                                        usage_feed=lambda: log.read_text(), call_cap_usd=1.0)
+            self.assertLessEqual(len(json.loads((tmp / 'ledger.json').read_text())['events']), 6)
+            with self.assertRaisesRegex(BudgetError, 'unbounded_route'):   # live usage with nothing to hold it to
+                budget.run_budgeted(['true'], str(tmp), {}, tmp / 'out.jsonl', tmp / 'ledger2.json', 30, driver='codex',
+                                    configured_model=CODEX, containment=False, usage_feed=lambda: '')
 
     def test_an_unreadable_session_log_stops_the_call(self):
         with tempfile.TemporaryDirectory() as tmp:

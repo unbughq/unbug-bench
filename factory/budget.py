@@ -22,7 +22,7 @@ import tempfile
 import time
 import uuid
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_CEILING
-from token_prices import CODEX_PRICES, CODEX_PROFILES, CODEX_USAGE_FIELDS, codex_cost, codex_request_usages, claude_cost, claude_standard_usage
+from token_prices import CODEX_PRICES, CODEX_USAGE_FIELDS, codex_cost, codex_request_usages, claude_cost, claude_standard_usage
 
 
 class BudgetError(RuntimeError):
@@ -846,7 +846,7 @@ def _check_containment(ledger):
 def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None):
+                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, call_cap_usd=None):
     # Preserve the original whole-session lock unless concurrency is explicitly enabled.
     settings = locals()
     _check_containment(ledger_path)
@@ -862,7 +862,7 @@ def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
 def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, _serial_lock=None, _activity_lock=None, _admission_lock=None):
+                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, call_cap_usd=None, _serial_lock=None, _activity_lock=None, _admission_lock=None):
     """Return CompletedProcess, or raise BudgetError without exposing transcript text.
 
     max_calls limits this invocation; max_total_calls and max_cost span roles.
@@ -874,15 +874,16 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     resumed; resuming preserves all costs/calls and archives the previous stop.
     usage_feed (Codex only) returns the text of Codex's own session logs, or None when it cannot
     be read: each request is booked as it lands, so a reserved call stops mid-turn at its maximum.
+    call_cap_usd holds an unreserved call's own booked list value to that maximum the same way.
     """
     import processes
     if driver not in ('opencode', 'codex', 'claude'):
         raise ValueError('Unknown driver')
     if usage_feed is not None and driver != 'codex': raise ValueError('usage_feed is for Codex only')
     reserved = attempt is not None
-    # A Codex route has no gate: only its per-call reservation (check_reservation) caps it, so a call
-    # outside an admitted reservation, or without its live usage, would run uncapped.
-    if configured_model in CODEX_PROFILES and (not reserved or usage_feed is None): raise BudgetError('unbounded_route')
+    # Live Codex usage holds a call to its reservation (check_reservation) or, outside one, to call_cap_usd.
+    if usage_feed is not None and not reserved and call_cap_usd is None: raise BudgetError('unbounded_route')
+    if call_cap_usd is not None and (reserved or not _number(call_cap_usd)): raise ValueError('call_cap_usd is for an unreserved call')
     if ((max_cost is None and not reserved)
             or (reserved and (max_cost is not None or not invocation_id or not lease_id))):
         raise ValueError('attempt budget requires admitted invocation')
@@ -963,7 +964,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     partial_usage = {}
     count = usages = 0
     session = {'id': '', 'turns': 0}
-    live = {'polled': float('-inf'), 'booked': 0, 'failures': 0, 'unattributed': {k: 0 for k in CODEX_USAGE_FIELDS}}
+    live = {'polled': float('-inf'), 'booked': 0, 'failures': 0, 'value': Decimal(0), 'unattributed': {k: 0 for k in CODEX_USAGE_FIELDS}}
     process = None
     contained = None
     stopped = False
@@ -994,6 +995,8 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             # whole-attempt re-test let other calls' late bookings stop a call within its own
             # (b5521c, 7 November: attempts 2 and 4 stopped mid-admission at real cents).
             check_reservation(ledger, lease_id)
+        if call_cap_usd is not None and live['value'] > usd(call_cap_usd):
+            raise BudgetError('usage_reservation_exceeded')
         if not reserved and ledger['calls'] >= max_total_calls:
             raise BudgetError('total_call_limit')
         if count >= max_calls:
@@ -1064,6 +1067,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         if partial: record['estimated_from_partial_usage'] = True
         if extra: record.update(extra)
         if estimate is not None:
+            live['value'] += usd(estimate)
             record['estimated_subscription_cost_usd'] = estimate
             ledger['estimated_subscription_cost_usd'] = ledger.get('estimated_subscription_cost_usd', 0) + estimate
         if list_cost is not None:

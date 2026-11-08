@@ -705,7 +705,10 @@ class ModelRuntime:
                 reservation = c.invocation_reservation
                 attempt_kwargs = dict(attempt=c.engine, invocation_id=reservation['invocation_id'],
                     lease_id=reservation['lease_id'], on_started=lambda: c.model_process_state.update(started=True))
-            if driver == "codex": attempt_kwargs['usage_feed'] = codex_usage_feed(scratch, user)
+            if driver == "codex":
+                # No gate: Codex's live usage holds the call to its reservation, or outside the engine to its lease maximum.
+                attempt_kwargs['usage_feed'] = codex_usage_feed(scratch, user)
+                if not attempt_kwargs.get('attempt'): attempt_kwargs['call_cap_usd'] = lease.max_usd
             with model_call_gate.enforce(lease, env, c.model_cap_used, limit, getattr(c, 'role_cancel', None), user=user) as gate:
                 if diagnosis and driver == 'opencode':
                     env.pop('OPENCODE_ENABLE_EXA', None)

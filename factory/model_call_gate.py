@@ -21,7 +21,7 @@ import threading
 import time
 
 from budget import BudgetError
-from token_prices import (GATED_CLAUDE, CLAUDE_PROFILES, CLAUDE_CONTEXT, CLAUDE_OUTPUT, claude_profile,
+from token_prices import (GATED_CLAUDE, CLAUDE_PROFILES, CODEX_PROFILES, CLAUDE_CONTEXT, CLAUDE_OUTPUT, claude_profile,
                           CLAUDE_GATE_FIELDS, CLAUDE_PRICES, claude_gate_cost, claude_standard_usage,
                           GATED_OPENROUTER, OPENROUTER_OUTPUT, openrouter_gate_cost, runtime_prices)
 
@@ -752,7 +752,7 @@ def free_environment(lease, env):
 @contextmanager
 def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
     import model_router
-    from token_prices import CODEX_PROFILES, FREE_ROUTES
+    from token_prices import FREE_ROUTES
     if lease.route in FREE_ROUTES:
         # $0 maximum: any booked cost stops the call (budget.check_reservation), and so does a step
         # from any other provider or model (budget.py). A walled role can reach only a gate's port, so
