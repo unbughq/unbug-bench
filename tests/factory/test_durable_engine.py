@@ -89,6 +89,19 @@ class StepSequence(unittest.TestCase):
         self.assertFalse(r.starts())
         self.assertEqual(out["ledger"]["batches"]["b-t"]["held"], 0)
 
+    def test_an_exhausted_bound_with_no_raise_makes_one_attempt_not_many(self):
+        # b-import-b5521c-4: with nothing left and no raise, each poll timeout retried, the unstarted
+        # attempt's settle woke the case again, and it spun reserve/release for a day. It must
+        # instead block on the bound until a raise or the deadline.
+        r, out = run({"deadline_in": 6.0, "timing": {"wake_poll_s": 0.3},
+                      "spec": {"money_bound_usd_micros": 500_000, "max_cases_started": 1}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "stopped_admission"})
+        self.assertFalse(r.starts())
+        reserves = [x for x in r.ledger_log() if x["op"] == "reserve"]
+        self.assertEqual(len(reserves), 1, reserves)   # the post-deadline attempt makes no reservation
+        self.assertEqual(out["ledger"]["batches"]["b-t"]["held"], 0)
+
     def test_admitted_case_keeps_its_provider_retry_after_the_cutoff(self):
         r, out = run({"deadline_in": 3.0, "spec": {"max_cases_started": 1},
                       "script": {"1/admit/1": {"outcome": "provider_limit", "reason": "router:claude_limit",

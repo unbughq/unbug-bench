@@ -331,12 +331,12 @@ def attempt_workflow(job: dict) -> dict:
     if (si.step.kind is StepKind.ADMIT and job.get("admission_deadline") is not None
             and DBOS.patch("admission_deadline_gate") and now_step() >= job["admission_deadline"]):
         release_unstarted_step(to_record(si))
-        DBOS.send(si.batch_id, {"kind": "settled"}, topic=CASE_EVENT)
+        DBOS.send(si.batch_id, {"kind": "settled", "unstarted": True}, topic=CASE_EVENT)
         return {"started": False, "action": Action.STOP_ADMISSION.value, "reason": "infra:deadline"}
     early = decide_grant(si.step, grant)
     if early is not None:
         release_unstarted_step(to_record(si))
-        DBOS.send(si.batch_id, {"kind": "settled"}, topic=CASE_EVENT)
+        DBOS.send(si.batch_id, {"kind": "settled", "unstarted": True}, topic=CASE_EVENT)
         return {"started": False, "grant": to_record(grant), "action": early.value}
     si = replace(si, money_ceiling_usd_micros=grant.amount_usd_micros)
     if job["prev"] is not None:
@@ -347,7 +347,7 @@ def attempt_workflow(job: dict) -> dict:
         # No worker attempt can precede this recorded lease step. Free its grant,
         # then let the case apply the normal infra retry policy to the safe reason.
         release_unstarted_step(to_record(si))
-        DBOS.send(si.batch_id, {"kind": "settled"}, topic=CASE_EVENT)
+        DBOS.send(si.batch_id, {"kind": "settled", "unstarted": True}, topic=CASE_EVENT)
         return {"started": True, "grant": to_record(grant), "input": to_record(si),
                 "result": to_record(StepResult(Outcome.INFRA_ERROR, lease["reason"])),
                 "started_at": None, "worker_id": None}
@@ -601,7 +601,9 @@ class _Case:
                 self.history.append({"seq": self.seq, "step": step.name, "attempt": attempt,
                                      "outcome": "not_started", "action": action.value})
                 if action is Action.WAIT_FOR_BOUND:
-                    self.wait_for_bound()
+                    if not self.wait_for_bound(self.spec.deadline_epoch if admit and not admission_started else None):
+                        self.last_reason = DEADLINE_REASON
+                        return Action.STOP_ADMISSION, None
                     continue
                 self.last_reason = out.get("reason", "engine:below_minimum_grant")
                 return action, None
@@ -682,7 +684,8 @@ class _Case:
                 DBOS.sleep(seconds)
                 continue
             if action is Action.WAIT_FOR_BOUND:
-                self.wait_for_bound()
+                if not self.wait_for_bound(self.spec.deadline_epoch if admit and not admission_started else None):
+                    return Action.STOP_ADMISSION, result
                 continue
             if (admit and action is Action.STOP_ADMISSION and result.outcome is Outcome.INFRA_ERROR
                     and DBOS.patch('admission_release_recovery')):
@@ -731,13 +734,20 @@ class _Case:
             self.passed = r.passed
             self.failed_gate = r.gate if r.outcome is Outcome.GATE_FAILED else None
 
-    def wait_for_bound(self) -> None:
+    def wait_for_bound(self, deadline: Optional[float] = None) -> bool:
+        """Block until the batch wakes this case (a settle that freed money, a bound raise or a
+        release). False: the admission deadline passed first. A poll timeout alone never retries:
+        with nothing left, each retry's own settle used to wake the case again, and it spun."""
         self.release_worker()
         self.status = "waiting_for_bound"
         self.card()
         self.tell("waiting")
-        DBOS.recv(WAKE, timeout_seconds=_RT.timing.wake_poll_s)
+        blocks = DBOS.patch("bound_wait_blocks")
+        while DBOS.recv(WAKE, timeout_seconds=_RT.timing.wake_poll_s) is None and blocks:
+            if deadline is not None and now_step() >= deadline:
+                return False
         self.status = "running"
+        return True
 
     def wait_for_release(self, failed_releases: list) -> None:
         """Park without a worker, slot or hold; a previously failed release cannot retry."""
@@ -942,6 +952,7 @@ class _Batch:
         self.done: dict = {}
         self.sealed: list = []
         self.waiting: list = []
+        self.missed: set = set()   # cases that were mid-attempt when a wake went out
         self.replaced: list = []
         self.admission_stopped = False
 
@@ -961,6 +972,10 @@ class _Batch:
         DBOS.set_event("cases", list(self.cases))
 
     def wake_waiting(self) -> None:
+        if DBOS.patch("bound_wait_blocks"):
+            # A case between its reserve and its "waiting" would miss this wake and, now that a
+            # bound wait blocks, could wait forever. It gets the wake when it next waits.
+            self.missed.update(c for c in self.cases if c not in self.done and c not in self.waiting)
         for case_id in self.waiting:
             DBOS.send(case_id, {"kind": "wake"}, topic=WAKE)
         self.waiting = []
@@ -968,9 +983,14 @@ class _Batch:
     def handle(self, msg: dict) -> None:
         kind, case_id = msg.get("kind"), msg.get("case")
         if kind == "settled":
-            self.wake_waiting()
+            # An unstarted attempt released exactly what it reserved: nothing new fits.
+            if not (msg.get("unstarted") and DBOS.patch("bound_wait_blocks")):
+                self.wake_waiting()
         elif kind == "waiting":
-            if case_id not in self.waiting and case_id not in self.done:
+            if case_id in self.missed and DBOS.patch("bound_wait_blocks"):
+                self.missed.discard(case_id)
+                DBOS.send(case_id, {"kind": "wake"}, topic=WAKE)
+            elif case_id not in self.waiting and case_id not in self.done:
                 self.waiting.append(case_id)
         elif kind == "stop_admission":
             self.admission_stopped = True
