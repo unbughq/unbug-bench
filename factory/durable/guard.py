@@ -220,7 +220,10 @@ class Guard:
             health["hard_stop"] = self._controller(health)
         if health["hard_stop"]:
             return self._wind_down(health, status, active)
-        if owned:
+        # A crashed controller restarts and resumes on its worker, so renewal continues. A cleanly
+        # stopped one (an operator stop) runs nothing: the worker is left to its Boat timer and a
+        # resume gets a fresh one (b5521c, 8 November: an idle worker was renewed for nine hours).
+        if owned and active != "inactive":
             self._extend(owned)
         return self._finish(health, status)
 

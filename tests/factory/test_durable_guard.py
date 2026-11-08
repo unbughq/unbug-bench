@@ -170,6 +170,16 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(self.f.stopped, 0)
         self.assertIn(["extend", "bx_aaaaaaaa", "--ttl", "7200"], self.f.calls)
 
+    def test_a_cleanly_stopped_controller_lets_its_idle_worker_expire(self):
+        self.f.active = "inactive"   # systemctl stop: nothing runs on the worker
+        self.tick()
+        self.tick(601)
+        self.assertNotIn("extend", [c[0] for c in self.f.calls])
+        self.assertEqual((self.f.stopped, self.f.deletes()), (0, []))   # nothing deleted: Boat's timer ends it
+        self.f.active = "active"     # a resume renews again
+        self.tick(60)
+        self.assertIn(["extend", "bx_aaaaaaaa", "--ttl", "7200"], self.f.calls)
+
     def test_a_crash_loop_cannot_hide_behind_the_grace_period(self):
         """Up for 30 seconds at a time: never ready, but alerted, and the worker still renewed."""
         self.f.active = "failed"
