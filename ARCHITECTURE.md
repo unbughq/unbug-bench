@@ -168,6 +168,22 @@ ADMIT refuses unless it matches the old card, and `start` refuses unless it plus
 batch's `case_money_usd_micros` fits the default per-case ceiling. Import refusals
 (`admit:import_invalid`) are deterministic, so they end admission instead of retrying.
 
+A case sealed before G16 and G17 existed is recertified the same way, with INPUTS
+`"recertify": true`, a `recovery_config` (the exam reads it) and no pinned models, roles or
+slot. ADMIT refuses (`admit:import_recertify`) without a legacy import, or unless the archive's
+own card passed G1 to G15 (G12 aside) and names one model per role with its effort. Those models and efforts become the new card's, so the kept verdicts and the rerun
+gates have the same roles. `recertify_routes` may move the writer, stress tester or a calibrator
+to another model of the same family (the October GLM easy calibrator ran on a free route a
+walled calibrator can no longer lease); reviewers stay, since the exam's owner contract binds
+the reviewer. Every role still needs a bounded route: the admission screens and GATES rerun the
+freshness check, and expired October search evidence is topped up by the writer and stress
+tester. ADMIT then answers `admit:imported_sealed`, and the engine skips WRITER
+and STRESS: GATES keeps the October verdicts for `run.RECERTIFY_KEPT` and runs only G2 (today's
+freshness), G3 (to prepare the worker's runtime), G16, G10, G17 and G11, then SEAL writes the owner contract and
+delivery receipts as usual. G10 reruns because G17 and the receipts need this run's calibrator
+workspaces. A gate that asks for a repair, or a diagnosis that would extend, retires the case;
+a diagnosis that finds infrastructure holds it as for any case.
+
 An archive whose draft cannot be kept (its writer changed family mid-run, or it stopped
 before its case.json) can be imported idea-only: INPUTS sets `"import_mode": "idea_only"`.
 ADMIT keeps only statement.md, which must match the old case's registry entry when one
@@ -222,7 +238,10 @@ Counters, snapshot and evidence therefore come out of the same code that built t
 refuses unless the earlier spend (the ledger across the original and every earlier resume
 batch, plus any declared import spend) plus the batch's
 case money fits the default per-case ceiling. Run the resume batch with the stopped batch's
-limits, or the replay diverges.
+limits, or the replay diverges. Case money is the exception: it is what the case may still spend,
+so it is the $50 ceiling less the import spend and less what every earlier batch of the case used
+(the ledger holds only batch spend, never the import's, so nothing is counted twice). A recorded
+attempt replays from its key whatever case money its job now carries.
 
 A case held by a `factory_bug` diagnosis resumes the same way, but only when the diagnosed step
 stopped on a factory check rather than a scientific result (`FACTORY_BUG_RESUMABLE`: today a

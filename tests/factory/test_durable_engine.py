@@ -70,6 +70,34 @@ class StepSequence(unittest.TestCase):
                 self.assertEqual(r.keys(1)[:len(expected) + 1], expected + [(str(len(expected) + 1), 'stress:1', '1')])
                 self.assertEqual(out['result']['cases'], {C1: 'sealed'})
 
+    def test_a_recertified_sealed_case_runs_only_gates_and_seal_and_is_never_rewritten(self):
+        sealed = {'1/admit/1': {'reason': 'admit:imported_sealed'}}
+        r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1}, 'script': sealed})
+        self.addCleanup(r.close)
+        self.assertEqual(start(r, C1 + '/1/admit/1')['opened'].get('snapshot'), 'legacy import')
+        self.assertEqual(r.keys(1), [('1', 'admit', '1'), ('2', 'gates:1', '1'), ('3', 'seal', '1')])
+        self.assertEqual(start(r, f'{C1}/2/gates:1/1')['opened']['snapshot'], f'snapshot {C1}/1/admit/1')
+        self.assertEqual(out['result']['cases'], {C1: 'sealed'})
+        # A gate that asks for a repair, or a diagnosis that would extend, fails the case honestly.
+        repair = {'outcome': 'gate_failed', 'gate': 'G17', 'repairable': True, 'passed': ['G1', 'G2', 'G16', 'G10']}
+        infra = {'outcome': 'infra_error', 'reason': 'infra:stalled'}
+        for name, script, expected in (
+                ('repair', {'1/gates:1/1': repair}, ['admit', 'gates:1']),
+                ('extend', {'1/gates:1/*': infra, '1/diagnosis/*': {'verdict': 'close_to_passing'}},
+                 ['admit', 'gates:1', 'gates:1', 'gates:1', 'diagnosis'])):
+            with self.subTest(name):
+                r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 2},
+                              'script': {**sealed, **script}})
+                self.addCleanup(r.close)
+                self.assertEqual(steps(r, 1), expected)
+                self.assertEqual(out['result']['cases'], {C1: 'retired'})
+        # A diagnosis that finds infrastructure still holds it, as for any case.
+        r, out = run({'import_snapshot': True, 'spec': {'max_cases_started': 1, 'max_infra_retries_per_step': 2},
+                      'script': {**sealed, '1/gates:1/*': infra, '1/diagnosis/*': {'verdict': 'factory_bug'}}})
+        self.addCleanup(r.close)
+        self.assertEqual(steps(r, 1), ['admit', 'gates:1', 'gates:1', 'gates:1', 'diagnosis'])
+        self.assertEqual(out['result']['cases'], {C1: 'held'})
+
     def test_queued_admission_expires_without_dispatch_or_retaining_money(self):
         r, out = run({"deadline_in": 3.0,
                       "spec": {"target_sealed": 2, "max_cases_started": 2},
@@ -1078,6 +1106,18 @@ class Resume(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "held"})
         r3 = EngineRun({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1}, workdir=r.work)
         self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "sealed"})
+
+    def test_a_resume_batch_with_case_money_net_of_earlier_spend_replays(self):
+        # An imported case's batch has $50 less its import spend. Its resume batch has that less what
+        # the earlier batches used (runtime's resume_money check), so case money differs from the
+        # stopped batch's. The recorded attempts still replay: their keys return their results.
+        stopped = {**self.FACTORY_BUG, "spec": {**self.FACTORY_BUG["spec"], "case_money_usd_micros": 45_700_000}}
+        r, out = run(stopped)
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1, "case_money_usd_micros": 43_700_000},
+                        "resume_of": C1}, workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "sealed"})
 
     def test_a_factory_bug_after_a_scientific_result_is_not_resumable(self):
         for step, spec in (("writer:2", {"outcome": "exhausted", "reason": "writer:rounds_exhausted"}),
