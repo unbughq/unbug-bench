@@ -184,6 +184,19 @@ delivery receipts as usual. G10 reruns because G17 and the receipts need this ru
 workspaces. A gate that asks for a repair, or a diagnosis that would extend, retires the case;
 a diagnosis that finds infrastructure holds it as for any case.
 
+A rejected idea publishes `admit:<screen>_<evidence>` (`durable/admission_reasons.py`): the
+screen (dedup, freshness, realism, other) and a fixed evidence kind read from structured
+fields only, such as `freshness_upstream_fix`. The sealed card keeps per-candidate codes
+(duplicate case ID, confirmed source classes, a release tag's version against the pin).
+`python3 factory/durable/admission_reasons.py --config <config> <case|batch>...` prints
+those codes for finished cases on the control VM: read-only, existing keys only.
+`durable/board_cleanup.py` dedupes the statement board: a one-case batch with INPUTS
+`"board_dedup": true` has ADMIT group the board's statements with the easy calibrator in
+worker RAM and record only case IDs (`admit:board_planned`, no registry returned); on the
+control VM `plan` (dry run), `apply` (new board file plus change log) and `revert` change
+entry statuses only. Sealed, live and known_public entries stay; each duplicate group keeps
+its most advanced member; other abandoned entries are released.
+
 OpenCode's free routes (DeepSeek, MiniMax and GLM flash) are bounded at $0 with no gate: a call that books
 any cost, or reports a step from another provider or model, is stopped. It runs with OpenCode's own
 provider and its one model only, no outside config and no self-update. A calibrator is never leased one,
