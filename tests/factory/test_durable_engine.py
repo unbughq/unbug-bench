@@ -47,10 +47,11 @@ class StepSequence(unittest.TestCase):
     def test_admission_wait_restores_checkpoint_on_replacement_worker(self):
         for legacy in (False, True):
             with self.subTest(legacy=legacy):
+                # A wait past release_worker_after_sleep_s releases the worker (a shorter one keeps it).
                 r, out = run({'legacy_admit_snapshot': legacy,
-                    'spec': {'max_cases_started': 1},
+                    'spec': {'max_cases_started': 1, 'release_worker_after_sleep_s': .5},
                     'script': {'1/admit/1': {'outcome': 'provider_limit', 'reason': 'router:quota',
-                        'retry_in': .01, 'paid': 0, 'checkpoint': True}}})
+                        'retry_in': 3.0, 'paid': 0, 'checkpoint': True}}})
                 self.addCleanup(r.close)
                 first = start(r, C1 + '/1/admit/1')
                 retry = start(r, C1 + '/1/admit/2')
@@ -368,9 +369,8 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(steps(r, 1), ["admit"] + ["writer:1"] * 98 + ["stress:1", "gates:1", "seal"])
         writers = [x for x in r.starts(1) if "/2/writer:1/" in x["key"]]
         workers = [x["worker"] for x in writers]
-        releases = {x["worker"] for x in r.pool_log() if x["op"] == "release" and x["case"] == C1}
-        self.assertEqual(len(set(workers)), 98)
-        self.assertTrue(set(workers[:-1]) <= releases)
+        # Each short wait keeps the case's worker: 98 tries, one worker creation.
+        self.assertEqual(len(set(workers)), 1)
         self.assertEqual(out["result"]["cases"], {C1: "sealed"})
 
     def test_paid_provider_waits_book_waste_and_keep_running(self):
