@@ -277,6 +277,12 @@ def writer_round_estimate(c):
     return round(max([8.0, *rounds.values(), *interrupted]), 2)
 
 
+def free_usage_settled(lease):
+    """A failed free call's usage needs no settling before the next route: it is bounded at $0 and
+    checked only against OpenCode's report (founder 2026-11-08). Its receipt keeps the evidence."""
+    return lease.route in FREE_ROUTES and lease.max_usd == 0
+
+
 def call_failure_reason(label, route):
     """A per-call failure that moves this call to its chain's next route, or None (the step fails).
     A free route's broken usage report or provider mismatch also moves on: the next route is gated."""
@@ -547,6 +553,7 @@ class ModelRuntime:
                                        or (last_wait.reason == 'router_unavailable'
                                            and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1')
                                        or (getattr(c, 'engine', None) is not None and os.environ.get('UNBUG_PROVIDER_WAIT', '0') == '1'
+                                           and not free_usage_settled(lease)
                                            and not _read_json(accounting_work(c) / receipt, {}).get('final_usage_known', False)))
             context.force_budget_resume = c.force_budget_resume = True
             lease = None

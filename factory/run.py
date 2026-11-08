@@ -380,8 +380,10 @@ def provider_preflight(c):
                     'reviewer-provider-preflight' if i == 0 else f'reviewer{i+1}-provider-preflight')
                    for i, chain in enumerate(c.models['reviewers'])]
     for role, chain, name in checks:
-        if tuple(chain) in seen: continue
-        seen.add(tuple(chain))
+        # A calibrator never takes a free lane (ModelRuntime._call), so its chain is checked on its own.
+        key = (tuple(chain), role in ('strong_tester', 'easy_tester'))
+        if key in seen: continue
+        seen.add(key)
         row = {"role": role, "model": chain[0], "scope": "availability_only", "status": "running"}
         rows.append(row)
         started = time.monotonic()

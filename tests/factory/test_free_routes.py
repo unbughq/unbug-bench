@@ -130,6 +130,48 @@ class FreeRoutes(unittest.TestCase):
             self.assertIsNone(call_failure_reason(label, paid))                 # a paid route's stays a stop
         self.assertIsNone(call_failure_reason('timeout', FREE))                 # its window is spent: durable retry
 
+    def test_a_failed_free_call_goes_straight_to_the_paid_route(self):
+        # Review of #41: a free call with unknown final usage deferred its retry onto the same wait,
+        # so the paid alternative was never asked. A $0 free lease needs no settling first.
+        import model_runtime
+        self.assertTrue(model_runtime.free_usage_settled(lease()))
+        self.assertFalse(model_runtime.free_usage_settled(lease(max_usd=1.0)))
+        paid = SimpleNamespace(route='openrouter/deepseek/deepseek-v4.1-flash', max_usd=5.0)
+        self.assertFalse(model_runtime.free_usage_settled(paid))
+        # Undeferred, the next admission asks the router again with the failed free lane excluded.
+        asked = []
+        def admit(role, case, deadline, identity, accounts, excluded=()):
+            asked.append(excluded)
+            return model_router.Lease(lease_id='a' * 32, route='openrouter/deepseek/deepseek-v4.1-flash',
+                account='openrouter-key', pool='openrouter-key', family='deepseek', billing='paid', expires_at=2e9,
+                **model_router.route_maximum('openrouter/deepseek/deepseek-v4.1-flash'))
+        case = SimpleNamespace(card={'roles': {'stress_tester': {'model': FREE}}}, router_model=FREE,
+                               router_excluded=('opencode-free/' + FREE,), router_deferred=False,
+                               router_wait=model_router.Wait('outage', 0, route=FREE), engine=object())
+        saved = (model_router._admit, model_router._credential_ready, model_router._deadlines)
+        model_router._admit, model_router._credential_ready = admit, lambda result: True
+        model_router._deadlines = lambda case, deadline: (True, 2e9, 2e9)
+        try:
+            got = model_router.await_lease('stress_tester', case)
+        finally:
+            model_router._admit, model_router._credential_ready, model_router._deadlines = saved
+        self.assertEqual(asked, [('opencode-free/' + FREE,)])
+        self.assertEqual(got.route, 'openrouter/deepseek/deepseek-v4.1-flash')
+
+    def test_a_calibrator_preflight_is_not_merged_with_an_unwalled_one(self):
+        # Review of #41: stress tester and easy calibrator on DeepSeek free share a chain, but the
+        # calibrator needs the paid route, so its preflight must run on its own.
+        import run
+        names = []
+        c = SimpleNamespace(card={}, case='/', models={'attacker': [FREE], 'strong_calibrator': ['claude/claude-opus-5-5'],
+                                                      'easy_calibrator': [FREE], 'reviewers': [['opencode/glm-5.3-flash-free']]})
+        saved = run.opencode
+        run.opencode = lambda c, chain, text, cwd, name, **kw: names.append(name) or 0
+        try: run.provider_preflight(c)
+        finally: run.opencode = saved
+        self.assertIn('attacker-provider-preflight', names)
+        self.assertIn('easy-calibrator-provider-preflight', names)
+
     def test_a_step_from_another_provider_or_model_stops_a_free_call(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / 'out.jsonl'
