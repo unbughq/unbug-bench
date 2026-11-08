@@ -337,9 +337,13 @@ class RealStops(unittest.TestCase):
         for label, want in self.MAPPED.items():
             c = classify(label, step=StepKind.WRITER, now=NOW)
             self.assertEqual((c.outcome.value, c.reason), want, label)
+        # They still have no table entry, but each now names itself (RAW_STOP_PREFIX) when its
+        # head is a short code identifier; the bare wrappers and the over-long label do not.
+        named = {"freshness_public_match": "infra:raw_freshness_public_match",
+                 "stress_review_unresolved:": "infra:raw_stress_review_unresolved"}
         for label in self.UNCLASSIFIED_BY_DESIGN:
             self.assertEqual(classify(label, step=StepKind.WRITER, now=NOW),
-                             Classified(Outcome.INFRA_ERROR, UNCLASSIFIED), label)
+                             Classified(Outcome.INFRA_ERROR, named.get(label, UNCLASSIFIED)), label)
 
     # run.run_step reports an exception it does not handle by its class name alone. A name
     # without an Error/Exception/Exit/Interrupt suffix misses _EXCEPTION and, unless it is
@@ -452,7 +456,7 @@ class Secrecy(unittest.TestCase):
                      "g5:reference_unsolved", "x" * 10_000, b"opencode_error", None, 7, ["stalled"]):
             for kind in StepKind:
                 c = classify(stop, step=kind, now=NOW)
-                self.assertIn(c.reason, REASONS)
+                self.assertTrue(c.reason in REASONS or wp4.RAW_REASON.fullmatch(c.reason), stop)
                 for token in ("src", "reserve", "SECRET", "sk", "42", "g5"):
                     self.assertNotIn(token, c.reason.split(":", 1)[1])
         self.assertEqual(classify(secret, step=StepKind.WRITER, now=NOW),
@@ -475,6 +479,41 @@ class Secrecy(unittest.TestCase):
         for _, stop in STOPS:
             self.assertIn(classify(stop, step=StepKind.WRITER, now=NOW).reason, PUBLISHED_REASONS)
 
+
+
+class SelfNamingStops(unittest.TestCase):
+    """An unknown stop names itself in the plaintext attempt record, label only (1bb2ad-2)."""
+
+    def test_unknown_identifier_stops_name_themselves(self):
+        for stop, reason in (("BrokenProcessPool", "infra:raw_broken_process_pool"),
+                             ("_Changed", "infra:raw_changed"),
+                             ("some_new_label", "infra:raw_some_new_label"),
+                             ("some_new_label:/home/user/case/secret.ts", "infra:raw_some_new_label"),
+                             ("Budget ledger stopped: Budget stopped: some_new_label", "infra:raw_some_new_label")):
+            for kind in StepKind:
+                c = classify(stop, step=kind, now=NOW)
+                self.assertEqual(c, Classified(Outcome.INFRA_ERROR, reason), stop)
+                self.assertTrue(REASON.fullmatch(c.reason))
+                check_result_for(step_of(kind), as_result(c))
+                self.assertNotIn(c.reason, PUBLISHED_REASONS)
+
+    def test_anything_but_a_short_code_identifier_stays_unclassified(self):
+        for stop in ("KeyError: secret", "SomeError: /home/user/x", "Expecting value: line 1", "src/a.ts",
+                     "g5:reference_unsolved", "Http2Thing", "label with spaces", "x" * 40, "A" * 40,
+                     "Budget stopped: " * 9 + "label", "", "  ", None, b"label", 7, "\u00e9t\u00e9", "\u00c9t\u00e9"):
+            c = classify(stop, step=StepKind.WRITER, now=NOW)
+            self.assertIn(c.reason, (UNCLASSIFIED, "infra:stop_without_failure"), repr(stop))
+
+    def test_raw_reasons_never_collide_with_fixed_ones(self):
+        self.assertFalse(any(wp4.RAW_REASON.fullmatch(r) for r in REASONS | CONTRACT_REASONS | PUBLISHED_REASONS))
+
+    def test_cleanup_label_fits_the_grammar_or_is_refused(self):
+        self.assertEqual(wp4.labelled(wp4.CLEANUP_PREFIX, wp4.stop_label("route_feature_unsupported")),
+                         "diagnosis:cf_route_feature_unsupported")
+        self.assertEqual(wp4.labelled(wp4.CLEANUP_PREFIX, wp4.stop_label("RuntimeError")),
+                         "diagnosis:cf_runtime_error")
+        self.assertIsNone(wp4.labelled(wp4.CLEANUP_PREFIX, wp4.stop_label("a" * 31)))
+        self.assertIsNone(wp4.labelled(wp4.CLEANUP_PREFIX, None))
 
 
 class Purity(unittest.TestCase):

@@ -6,9 +6,10 @@ codex_error". `classify` implements the contract's `Classifier` protocol.
 
 Rules:
 - Pure: no I/O, no clock, no engine import. The same input always gives the same result.
-- A reason is never built from stop text. Every reason is a member of the fixed set
-  REASONS, so nothing a stop carries (paths, routes, messages) can reach the engine
-  database or the public card.
+- A known stop's reason is a member of the fixed set REASONS. An unknown stop gets
+  "infra:raw_<label>" only when its bare head is a code identifier (RAW_STOP_PREFIX);
+  otherwise UNCLASSIFIED. Nothing a stop carries after its head (paths, routes, messages)
+  can reach the engine database, and no label-built reason reaches the public card.
 - Broken runs (model-CLI errors, stalls, timeouts, pauses, accounting faults, runner
   exceptions, and any stop not listed here) are INFRA_ERROR. They are never scored.
 - Every PROVIDER_LIMIT has a finite retry_at: a trusted reset time when the caller has
@@ -161,6 +162,21 @@ _EXCEPTION = re.compile(r"[A-Z][A-Za-z0-9]*(Error|Exception|Exit|Interrupt)")
 
 UNCLASSIFIED = "infra:unclassified_stop"
 
+# A stop no table knows names itself, so the next occurrence can be read from the attempt
+# record without opening its DIAGNOSTIC: "infra:raw_<label>". The label is the stop's bare
+# head (a BudgetError label such as freshness_public_match, or an exception class name such
+# as InvalidInfra, snake-cased) and only when it is a code identifier: lowercase snake text,
+# or a CamelCase class name with nothing after it, no digits, short enough for REASON.
+# Anything else (paths, messages, routes, long or mixed text) stays UNCLASSIFIED.
+# These reasons are never published (PUBLISHED_REASONS is fixed); operator views show them.
+RAW_STOP_PREFIX = "infra:raw_"
+# A diagnosis whose cleanup also failed keeps its first error as the cause, named here:
+# "diagnosis:cf_<label>" (durable/steps/diagnosis.py; diagnosis_invocation.invoke).
+CLEANUP_PREFIX = "diagnosis:cf_"
+RAW_REASON = re.compile(r"(?:infra:raw|diagnosis:cf)_[a-z][a-z_]*")
+_SNAKE_LABEL = re.compile(r"[a-z][a-z_]*")
+_CLASS_LABEL = re.compile(r"_*[A-Z][A-Za-z]*")
+
 # run.provider_preflight's roles and the CLI's own stop, in short fixed forms (REASON allows 32).
 PREFLIGHT_ROLES = {"stress_tester": "stress", "strong_tester": "strong", "easy_tester": "easy",
                    "reviewer": "review", "reviewer2": "second"}
@@ -254,6 +270,29 @@ def _lookup(stop) -> tuple[Outcome, Optional[str], str]:
     return _I, None, UNCLASSIFIED
 
 
+def stop_label(stop) -> Optional[str]:
+    """The content-free snake_case label of a stop, or None. See RAW_STOP_PREFIX."""
+    if not isinstance(stop, str) or len(stop) > 4096:
+        return None
+    head, rest = _head(stop)
+    if _SNAKE_LABEL.fullmatch(head):
+        label = head
+    elif _CLASS_LABEL.fullmatch(head) and not rest:
+        label = re.sub(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", "_", head.lstrip("_")).lower()
+    else:
+        return None
+    label = re.sub(r"_+", "_", label).strip("_")
+    return label if _SNAKE_LABEL.fullmatch(label) and len(label) <= 32 else None
+
+
+def labelled(prefix: str, label: Optional[str]) -> Optional[str]:
+    """prefix + label when the result is a valid REASON, else None."""
+    if label is None:
+        return None
+    reason = prefix + label
+    return reason if REASON.fullmatch(reason) and RAW_REASON.fullmatch(reason) else None
+
+
 def _retry_at(now: float, reset_at) -> float:
     if (type(reset_at) in (int, float) and math.isfinite(reset_at)
             and now < reset_at <= now + MAX_RESET_AHEAD_S):
@@ -274,6 +313,8 @@ def classify(stop, *, step, now: float, reset_at: Optional[float] = None) -> Cla
     if type(now) not in (int, float) or not math.isfinite(now):
         raise ContractError("now must be a finite number")
     outcome, case_code, reason = _lookup(stop)
+    if reason == UNCLASSIFIED:
+        reason = labelled(RAW_STOP_PREFIX, stop_label(stop)) or UNCLASSIFIED
     if case_code is not None:
         reason = f"{_STEP_STAGE[kind]}:{case_code}"
     return Classified(outcome, reason, _retry_at(float(now), reset_at) if outcome is _P else None)
@@ -316,4 +357,5 @@ def classify_wait(error, *, step, now, prior=()):
 
 
 __all__ = ["BACKOFF_S", "MAX_RESET_AHEAD_S", "REASONS", "CONTRACT_REASONS", "PUBLISHED_REASONS",
+           "RAW_REASON", "RAW_STOP_PREFIX", "CLEANUP_PREFIX", "stop_label", "labelled",
            "UNCLASSIFIED", "classify"]

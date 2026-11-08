@@ -164,8 +164,16 @@ class InvocationTests(unittest.TestCase):
                 else:
                     self.runner.dispose_diagnosis_pilot = self.dispose
                     self.mutate = lambda op, value: b'private cleanup' if op == 'remove' else value
-                with self.assertRaisesRegex(BudgetError, '^diagnosis_cleanup_failed$'): self.invoke()
+                # The first error stays the cause and is marked; the cleanup failure no longer replaces it.
+                with self.assertRaises(RuntimeError) as caught: self.invoke()
+                self.assertIs(caught.exception, self.error)
+                self.assertIs(caught.exception.diagnosis_cleanup_failed, True)
                 self.assert_clean()
+
+    def test_cleanup_failure_without_an_earlier_error_is_its_own_stop(self):
+        self.error = None
+        self.mutate = lambda op, value: b'private cleanup' if op == 'remove' else value
+        with self.assertRaisesRegex(BudgetError, '^diagnosis_cleanup_failed$'): self.invoke()
 
     def test_partial_pilot_creation_still_disposes(self):
         def fail(*args, **kwargs):
