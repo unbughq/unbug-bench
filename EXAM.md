@@ -257,7 +257,11 @@ Tools, budgets, owner answers and access rules must follow the agreed conditions
 each comparison.
 
 These are the planned arms. Their inclusion here does not mean that every arm has
-produced scored results.
+produced scored results. In `bin/run-exam` they are B, C, C0, `gpt-tools` and `gpt-unbug`.
+C0 is paired: it runs in the same exam right after C's try with the same number, on a
+snapshot of C's box (files, nested shop, judge ledgers) taken after C's first step, and
+its first-step row is C's. `gpt-unbug` runs the frozen Unbug runtime on Codex, priced at
+list rate per session.
 
 ### What the Unbug contestant looks like
 

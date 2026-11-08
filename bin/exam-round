@@ -17,8 +17,27 @@ import time
 from exam_meter import merge, ready
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-ACCOUNTS = ['claude-token', 'claude-token-2']
-ARMS = {'A', 'B', 'C', 'C0', 'gpt', 'oracle', 'nop'}
+# The exam's own account first: claude-token is also the factory router's fallback, so a round
+# uses it only when its JSON names it.
+ACCOUNTS = ['claude-token-2', 'claude-token']
+ARMS = {'A', 'B', 'C', 'C0', 'gpt', 'gpt-tools', 'gpt-unbug', 'oracle', 'nop'}
+
+
+def with_pairs(case, pending):
+    """C0:n continues C:n's first session in the same exam, so a pending C0 reruns its C."""
+    for trial in list(pending):
+        partner = 'C:' + trial.split(':')[1]
+        if trial.startswith('C0:') and partner not in pending and partner in case['trials']:
+            record = case['trials'][partner]
+            if record['status'] == 'missing':  # no C session left to continue
+                case['trials'][trial]['status'] = 'missing'
+                pending.remove(trial)
+                continue
+            if record['status'] == 'collected':
+                record['superseded'] = record.pop('scorecard', None)
+            record['status'] = 'pending'
+            pending.append(partner)
+    return pending
 
 
 def save(path, data):
@@ -30,11 +49,13 @@ def save(path, data):
 def specification(path):
     data = json.loads(path.read_text())
     accounts = data.get('accounts', ACCOUNTS[:1])
-    if accounts not in (ACCOUNTS[:1], ACCOUNTS):
-        raise ValueError('accounts must be [claude-token] or [claude-token, claude-token-2]')
+    if accounts not in (['claude-token-2'], ['claude-token'], ACCOUNTS, ACCOUNTS[::-1]):
+        raise ValueError('accounts must be [claude-token-2], [claude-token] or both')
     arms, tries = data['arms'], data['tries']
     if not arms or len(set(arms)) != len(arms) or not set(arms) <= ARMS:
         raise ValueError('arms must be unique exam arms')
+    if 'C0' in arms and 'C' not in arms:
+        raise ValueError('C0 is paired with C: a round with C0 needs C')
     if type(tries) is not int or not 1 <= tries <= 3:
         raise ValueError('tries must be 1, 2 or 3')
     cases = []
@@ -204,7 +225,7 @@ def main():
             for index, case in enumerate(state['cases']):
                 if stopping or len(active) >= args.parallel:
                     break
-                pending = [t for t, r in case['trials'].items() if r['status'] == 'pending']
+                pending = with_pairs(case, [t for t, r in case['trials'].items() if r['status'] == 'pending'])
                 if index in active or index in failed or not pending or not ready(state['meters'][case['account']]):
                     continue
                 launch_dir = directory / f"case-{index + 1:02d}-launch-{len(case['launches']) + 1:02d}"
