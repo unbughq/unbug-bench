@@ -169,8 +169,11 @@ batch's `case_money_usd_micros` fits the default per-case ceiling. Import refusa
 (`admit:import_invalid`) are deterministic, so they end admission instead of retrying.
 
 OpenCode's free routes (DeepSeek, MiniMax and GLM flash) are bounded at $0 with no gate: a call that books
-any cost is stopped by its own reservation check, and a walled (isolated) role cannot use one because it
-reaches only a gate's port. Each falls back to its family's gated or subscription route.
+any cost, or reports a step from another provider or model, is stopped. It runs with OpenCode's own
+provider and its one model only, no outside config and no self-update. A calibrator is never leased one,
+since behind the wall it reaches only a gate's port: it takes its chain's next bounded route, and a chain
+with none (GLM and MiniMax free today) is refused up front as `unbounded_route`. A full or failing free
+lane hands an unwalled call to the next route in its chain (DeepSeek: paid OpenRouter).
 
 Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused
 every request (exhausted, nothing forwarded) settles at $0, not its hold; `start` refuses a batch

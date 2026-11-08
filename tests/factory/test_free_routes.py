@@ -75,21 +75,47 @@ class FreeRoutes(unittest.TestCase):
             with model_call_gate.enforce(lease(max_usd=1.0), {}, cap, 5, None): pass
 
     def test_a_walled_role_is_never_leased_a_free_route(self):
-        lanes = model_router.free_lanes('opencode/glm-5.3-flash-free', model_router.ACCOUNTS)
-        self.assertEqual(lanes, ('opencode-free/opencode/glm-5.3-flash-free',))
-        left = [r for r in model_router.routes('opencode/glm-5.3-flash-free', model_router.ACCOUNTS)
-                if r['pool'] + '/' + r['route'] not in lanes]
-        self.assertTrue(left and all(r['route'] == 'opencode-go/glm-5.3-flash' for r in left))   # the easy calibrator keeps GLM
-        self.assertEqual(model_router.free_lanes('opencode-go/glm-5.3-flash', model_router.ACCOUNTS), lanes)   # whichever is asked
-        source = (ROOT / 'factory/model_runtime.py').read_text()
-        self.assertIn('if user is not None:\n            # A walled role', source)
-        self.assertIn('model_router.free_lanes(requested', source)
+        import model_runtime
+        runtime = model_runtime.ModelRuntime(Path('/nonexistent'), None, None, None, None)
+        seen = []
+        def await_lease(role, context, deadline=None):
+            seen.append((role, getattr(context, 'router_excluded', ())))
+            raise RuntimeError('stop before dispatch')
+        original = model_router.await_lease
+        model_router.await_lease = await_lease
+        try:
+            for user, name in (('pilot', 'easy-calibrator-1'), (None, 'easy-calibrator-provider-preflight'),
+                               ('pilot', 'diagnosis-1')):
+                # DeepSeek free keeps its gated OpenRouter route.
+                with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
+                    runtime._call(SimpleNamespace(card={}), [FREE], 'x', '/', name, user=user)
+                self.assertEqual(seen.pop(), (model_runtime.invocation_role(name),
+                                              ('opencode-free/' + FREE,)))
+                # GLM free has no bounded route behind the wall: refused as a configuration, not slept on.
+                with self.assertRaises(model_router.ProviderWait) as stop:
+                    runtime._call(SimpleNamespace(card={}), ['opencode/glm-5.3-flash-free'], 'x', '/', name, user=user)
+                self.assertEqual(stop.exception.wait.reason, 'unbounded_route')
+            # An unwalled role still gets the free lane.
+            with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
+                runtime._call(SimpleNamespace(card={}), [FREE], 'x', '/', 'attacker-1')
+            self.assertEqual(seen.pop(), ('stress_tester', ()))
+        finally:
+            model_router.await_lease = original
+        # Before construction: a calibrator chain whose only bounded route is free is refused.
+        c = SimpleNamespace(models={'builder': [FREE], 'attacker': [FREE],
+                                    'strong_calibrator': ['claude/claude-opus-5-5'], 'easy_calibrator': ['opencode/glm-5.3-flash-free'],
+                                    'reviewers': [['openrouter/xiaomi/mimo-v2.6-pro']]})
+        with self.assertRaises(model_router.ProviderWait) as stop:
+            model_runtime.require_bounded_models(c)
+        self.assertEqual(stop.exception.role, 'easy_calibrator')
+        c.models['easy_calibrator'] = ['openrouter/z-ai/glm-5.3-flash']   # what the batches pin today
+        model_runtime.require_bounded_models(c)
 
     def test_a_step_from_another_provider_or_model_stops_a_free_call(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / 'out.jsonl'
-            def run(model_id, provider):
-                part = {'messageID': 'm', 'id': 'p', 'cost': 0, 'modelID': model_id, 'providerID': provider,
+            def run(model_id, provider, cost=0):
+                part = {'messageID': 'm', 'id': 'p', 'cost': cost, 'modelID': model_id, 'providerID': provider,
                         'tokens': {'input': 1, 'output': 1, 'reasoning': 0, 'cache': {'read': 0, 'write': 0}}}
                 lines = [{'type': 'step_start', 'part': {'messageID': 'm'}}, {'type': 'step_finish', 'part': part}]
                 script = Path(tmp) / 'cli.sh'
@@ -102,7 +128,9 @@ class FreeRoutes(unittest.TestCase):
             self.assertEqual(run(None, None).returncode, 0)                    # OpenCode 2.x reports neither
             for model_id, provider in (('deepseek-v4.1-flash', 'opencode'), ('deepseek-v4.1-flash-free', 'openrouter')):
                 with self.assertRaisesRegex(BudgetError, 'free_route_mismatch'):
-                    run(model_id, provider)
+                    run(model_id, provider, cost=0.25)
+                ledger = json.loads(max(Path(tmp).glob('ledger-*.json'), key=lambda p: p.stat().st_mtime_ns).read_text())
+                self.assertEqual(ledger['cost'], 0.25)   # the mismatched step's cost is booked before the stop
 
     def test_a_free_call_that_books_any_cost_is_stopped(self):
         with tempfile.TemporaryDirectory() as tmp:

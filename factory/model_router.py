@@ -147,6 +147,10 @@ def routes(model, accounts=ACCOUNTS):
     return result
 
 
+# Calibrators run behind the isolation wall (user=pilot): they can reach only a gate's port.
+WALLED_ROLES = ('strong_calibrator', 'easy_calibrator')
+
+
 def free_lanes(model, accounts):
     """The lanes of model's chain that are free routes, as admission's excluded_lanes spells them."""
     return tuple(r['pool'] + '/' + r['route'] for r in routes(model, accounts) if r['route'] in FREE_ROUTES)
