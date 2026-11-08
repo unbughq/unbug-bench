@@ -186,7 +186,8 @@ WORKER_POOL_REASONS = frozenset({"infra:worker_create_failed", "infra:worker_cre
 IMPORT_REASONS = frozenset("admit:" + code for code in (
     "import_key", "import_layout", "import_layout_root", "import_layout_card", "import_layout_meta",
     "import_layout_statement", "import_layout_card_case", "import_links", "import_pin", "import_source",
-    "import_spend", "import_writer", "import_writer_none", "import_writer_conflict", "import_invalid"))
+    "import_spend", "import_writer", "import_writer_none", "import_writer_conflict", "import_invalid",
+    "import_recertify"))
 # Admission rejections (durable/admission_reasons.py REJECTION_CODES): the screen and a fixed
 # evidence kind, never the idea.
 REJECTION_REASONS = frozenset("admit:" + code for code in (

@@ -90,6 +90,16 @@ def _inputs(plaintext):
             raise _Invalid("inputs")
     if value.get("rotation_slot") is not None and (type(value["rotation_slot"]) is not int or value["rotation_slot"] < 1):
         raise _Invalid("inputs")
+    if value.get("recertify") is not None and (value["recertify"] is not True or value["dry_run"]
+            or any(value.get(k) is not None for k in ("models", "roles", "rotation_slot", "candidate"))
+            or not isinstance(value.get("recovery_config"), dict)):
+        # A recertified case keeps its sealed models and roles; the exam reads its recovery_config.
+        raise _Invalid("inputs")
+    routes = value.get("recertify_routes")
+    if routes is not None and (value.get("recertify") is not True or not isinstance(routes, dict)
+            or not set(routes) <= set(RECERTIFY_ROUTE_KEYS)
+            or not all(isinstance(m, str) and _MODEL.fullmatch(m) for m in routes.values())):
+        raise _Invalid("inputs")
     if value["dry_run"]:
         return value
     if "board_dedup" in value and (value["board_dedup"] is not True or value.get("candidate") is not None):
@@ -212,7 +222,14 @@ AGE = b"age-encryption.org/v1\n"
 # Fixed refusal codes, published on the scorecard: they name the failed check, never case content.
 IMPORT_REFUSALS = ("import_key", "import_layout", "import_layout_root", "import_layout_card", "import_layout_meta",
                    "import_layout_statement", "import_layout_card_case", "import_links", "import_pin", "import_source",
-                   "import_spend", "import_writer", "import_writer_none", "import_writer_conflict", "import_invalid")
+                   "import_spend", "import_writer", "import_writer_none", "import_writer_conflict", "import_invalid",
+                   "import_recertify")
+# INPUTS `recertify_routes` may move one of these roles to another route of the same model family
+# (the October GLM easy calibrator ran on a free route, which a walled calibrator may no longer lease).
+# Reviewers stay: the exam's owner contract is bound to the sealed reviewer.
+RECERTIFY_ROUTE_KEYS = {"builder": "writer", "attacker": "stress_tester", "strong_calibrator": "strong_calibrator",
+                        "easy_calibrator": "easy_calibrator"}
+_MODEL = re.compile(r"[A-Za-z0-9_.:-]+/[A-Za-z0-9_.:/-]{1,200}")
 
 
 def _import_legacy(ciphertext, work, inputs, case_id):
@@ -273,9 +290,12 @@ def _import_legacy(ciphertext, work, inputs, case_id):
             raise _Invalid("import_spend")
         spent = declared / 1_000_000
         writer = _old_writer(card)
+        recertify = _recertify(card, inputs.get("recertify_routes") or {}) if inputs.get("recertify") is True else None
         summary = {"case": old.name, "source": card.get("source"), "gates": dict(gates),
                    "failed_gate": card.get("failed_gate"), "spent_usd": spent, "writer": writer,
                    "written": gates.get("G1") == "pass"}
+        if recertify is not None:
+            summary["recertify"] = True
         if work.exists():
             shutil.rmtree(work)
         work.mkdir()
@@ -284,7 +304,13 @@ def _import_legacy(ciphertext, work, inputs, case_id):
         shutil.rmtree(staging, ignore_errors=True)
     atomic_json(work / "continuation-budget.json", {"calls": 0, "events": [], "cost": 0})
     fresh = _card(inputs, case_id, False)
-    if inputs.get("rotation_slot") is None and not inputs.get("models"):
+    if recertify is not None:
+        # The October models and efforts made the kept verdicts; the rerun gates use the same ones.
+        models, roles, results = recertify
+        fresh["models"], fresh["roles"] = models, roles
+        fresh["recertify"] = {"case": old.name, "gate_results": results,
+                              "routes": dict(inputs.get("recertify_routes") or {})}
+    elif inputs.get("rotation_slot") is None and not inputs.get("models"):
         # Today's writer must share the October writer's family (ADMIT checks it once models are
         # picked): take the first cohort slot with that writer; its other roles stay separated.
         from model_router import family
@@ -296,6 +322,44 @@ def _import_legacy(ciphertext, work, inputs, case_id):
     fresh["imported_from"] = summary
     atomic_json(work / "scorecard.json", fresh)
     return summary
+
+
+def _recertify(card, routes):
+    """(models, roles, kept gate results) of a sealed October card that passed G1-G15, from the
+    archive's own card. Its models and role efforts must name the same chains. `routes` moves a role
+    to another model of the same family; its October effort stays."""
+    import copy
+    from model_router import family
+    from run import RECERTIFY_KEPT
+    gates, models, roles = card.get("gates"), card.get("models"), card.get("roles")
+    if (card.get("dry_run") is not False or card.get("failed_gate") is not None or not isinstance(gates, dict)
+            or any(gates.get(f"G{i}") != "pass" for i in range(1, 16) if i != 12)
+            or not isinstance(models, dict) or not isinstance(roles, dict)):
+        raise _Invalid("import_recertify")
+    pairs = [("builder", "writer"), ("attacker", "stress_tester"), ("strong_calibrator", "strong_calibrator"),
+             ("easy_calibrator", "easy_calibrator")]
+    reviewers = models.get("reviewers")
+    if not isinstance(reviewers, list) or not 1 <= len(reviewers) <= 2:
+        raise _Invalid("import_recertify")
+    expected = {role: models.get(key) for key, role in pairs}
+    expected.update({("reviewer" if i == 0 else "reviewer2"): chain for i, chain in enumerate(reviewers)})
+    if set(models) != {key for key, _ in pairs} | {"reviewers"} or set(roles) != set(expected):
+        raise _Invalid("import_recertify")
+    for role, chain in expected.items():
+        row = roles[role]
+        if (not isinstance(chain, list) or len(chain) != 1 or not isinstance(chain[0], str) or not isinstance(row, dict)
+                or row.get("model") != chain[0] or not isinstance(row.get("effort"), str)):
+            raise _Invalid("import_recertify")
+    results = card.get("gate_results") if isinstance(card.get("gate_results"), dict) else {}
+    kept = {g: copy.deepcopy(results[g]) for g in RECERTIFY_KEPT if g in results}
+    models, roles = copy.deepcopy(models), copy.deepcopy(roles)
+    for key, model in routes.items():
+        role = RECERTIFY_ROUTE_KEYS[key]
+        if family(model) != family(models[key][0]):
+            raise _Invalid("import_recertify")
+        models[key] = [model]
+        roles[role]["model"] = model
+    return models, roles, kept
 
 
 def _old_writer(card):
@@ -606,6 +670,8 @@ def run(worker, step_input, keys):
             atomic_json(work / "continuation-budget.json", {"calls": 0, "events": [], "cost": 0})
             atomic_json(work / "scorecard.json", _card(inputs, step_input.case_id, inputs["dry_run"]))
         c = runner.context_for_step(step_input, work)
+        if inputs.get("recertify") is True and not c.card.get("recertify"):
+            return StepResult(Outcome.EXHAUSTED, "admit:import_recertify"), {}   # recertify needs a sealed import
         _pin_models(c, runner, inputs)
         imported = c.card.get("imported_from")
         if imported:
@@ -637,6 +703,8 @@ def run(worker, step_input, keys):
             reason = "admit:selected" if accepted else "admit:" + admission_reasons.reason_code(c.card.get("rejected_candidates", []))
             if accepted and (c.card.get("imported_from") or {}).get("written"):
                 reason = "admit:imported_written"  # the engine resumes a written case at STRESS
+            if accepted and c.card.get("recertify"):
+                reason = "admit:imported_sealed"   # the engine resumes a sealed case at GATES
         snap = snapshot()
         usage = account()
         if not accepted:
