@@ -141,7 +141,7 @@ def verify_exam(test,base,root,cloud,config,store,digest,results,runtime):
     cards=list((root/'sealed').glob('case-public-a.scorecard.json'))
     test.assertTrue(cards,logs)
     card=json.loads(cards[0].read_text())
-    if card.get('terminal_stop') != 'provider_preflight_failed':
+    if not str(card.get('terminal_stop')).startswith('provider_preflight_failed'):
         import io,tarfile,subprocess
         wrapped=next((root/'sealed').glob('*.casekey.age'))
         key=subprocess.check_output(['age','-d','-i',str(base/'throwaway-identity'),str(wrapped)])
@@ -149,7 +149,7 @@ def verify_exam(test,base,root,cloud,config,store,digest,results,runtime):
         data=subprocess.check_output(['age','-d','-i','/dev/stdin',str(archive)],input=key)
         with tarfile.open(fileobj=io.BytesIO(data)) as tar:
             logs+='\n'+tar.extractfile(next(m for m in tar if m.name.endswith('/logs/runner.log'))).read().decode()
-    test.assertEqual(card.get('terminal_stop'),'provider_preflight_failed',logs+'\n'+json.dumps(card))
+    test.assertTrue(str(card.get('terminal_stop')).startswith('provider_preflight_failed'),logs+'\n'+json.dumps(card))
     test.assertEqual(card['job_money']['batch'],'public')
     test.assertEqual(card['job_money']['job'],'a')
     test.assertEqual(card['batch_release_sha256'],digest)

@@ -392,11 +392,12 @@ def provider_preflight(c):
             if code: raise BudgetError("process_error")
             row["status"] = "completed"
         except BudgetError as error:
-            if str(error) in ("budget_exhausted", "codex_login_expired", "provider_wait", "model_call_cap"): raise
+            if str(error).partition(":")[0] in ("budget_exhausted", "codex_login_expired", "provider_wait", "model_call_cap"): raise
             row.update(status="failed", reason=str(error))
             if str(error).startswith("provider_limit:"): raise
-            # A bad startup route needs a decision, not an automatic new authoring attempt.
-            raise BudgetError("provider_preflight_failed") from error
+            # A bad startup route needs a decision, not an automatic new authoring attempt. The role and
+            # the CLI's own stop name the failure with fixed codes (durable/classify.py PREFLIGHT_*).
+            raise BudgetError(f"provider_preflight_failed:{role}:{str(error).partition(':')[0]}") from error
         finally:
             row["elapsed_seconds"] = round(time.monotonic() - started, 3)
 

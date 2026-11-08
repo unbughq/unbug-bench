@@ -187,18 +187,33 @@ def attempt_limit(ledger, attempt):
     return usd(row['baseline']) + ceiling
 
 
+def reservation_booked(ledger, lease_id, row, events=None):
+    """Spend booked against one reservation: its listed events plus those bound to it by lease
+    and invocation before settlement lists them (the same join as _settle_leaf)."""
+    if events is None: events = {e['id']: e for e in ledger.get('events', []) if e.get('id')}
+    ids = set(row['event_ids']) | {i for i, e in events.items()
+                                   if e.get('lease_id') == lease_id and e.get('invocation_id') == row['invocation_id']}
+    if not ids <= events.keys(): return None   # a listed event is missing: the ledger cannot be trusted
+    return sum((event_charge(events[i]) for i in ids), Decimal(0))
+
+
+def reservation_exceeded(ledger, lease_id):
+    """A running reserved call's stop condition: unknown spend, or more booked than it reserved."""
+    if case_spending(ledger)['total_spent_usd'] is None: return True
+    # Any state: a row settled or estimated while its stream continues is held to the same maximum.
+    row = ledger['invocation_reservations'][lease_id]
+    booked = reservation_booked(ledger, lease_id, row)
+    return booked is None or booked > usd(row['maximum_usd'])
+
+
 def outstanding_reservations(ledger, exclude_lease=None):
     events = {e['id']: e for e in ledger.get('events', []) if e.get('id')}
     total = Decimal(0)
     for lease_id, row in ledger.get('invocation_reservations', {}).items():
         if row['state'] != 'pending' or lease_id == exclude_lease: continue
-        # A running call's events are bound by lease and invocation before settlement lists them
-        # (the same join as _settle_leaf). Missing them counted its spend twice: once in the case
-        # total and again as unused reservation, so usage_reservation_exceeded stopped a call that
-        # held the whole remaining grant at its first priced event.
-        ids = set(row['event_ids']) | {i for i, e in events.items()
-                                       if e.get('lease_id') == lease_id and e.get('invocation_id') == row['invocation_id']}
-        booked = sum((event_charge(events[i]) for i in ids), Decimal(0))
+        # Missing the bound events counted a running call's spend twice (7 November).
+        booked = reservation_booked(ledger, lease_id, row, events)
+        if booked is None: raise BudgetError('usage_event_missing')
         total += max(Decimal(0), usd(row['maximum_usd']) - booked)
     return total
 
@@ -959,9 +974,11 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         if not reserved and ledger['cost'] >= max_cost:
             raise BudgetError('cost_limit')
         if reserved:
-            total = case_spending(ledger)['total_spent_usd']
-            limit = attempt_limit(ledger, attempt)
-            if total is None or usd(total) + outstanding_reservations(ledger) > limit:
+            # reserve_invocation admitted this call's maximum against the attempt's limit, with
+            # every other pending maximum. So the call is held to its own reservation only: the
+            # whole-attempt re-test let other calls' late bookings stop a call within its own
+            # (b5521c, 7 November: attempts 2 and 4 stopped mid-admission at real cents).
+            if reservation_exceeded(ledger, lease_id):
                 raise BudgetError('usage_reservation_exceeded')
         if not reserved and ledger['calls'] >= max_total_calls:
             raise BudgetError('total_call_limit')
