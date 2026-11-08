@@ -143,8 +143,14 @@ def stub_model(behaviour, record=None):
                 shutil.move(c.case / "case.json", aside)
             elif aside.exists():
                 shutil.move(aside, c.case / "case.json")
-            if cfg.get("edit", True):
+            limited = pathlib.Path.home() / "stub-limited"
+            if cfg.get("limit_first") and limited.exists():
+                pass   # the retry: the interrupted call's edits are already in the restored case
+            elif cfg.get("edit", True):
                 with open(c.case / "BUILD-NOTES.md", "a") as f: f.write(f"{name}\n")
+            if cfg.get("limit_first") and not limited.exists():
+                limited.touch()   # a rate limit in the middle of the call, after it edited the case
+                raise model_router.ProviderWait("writer", model_router.Wait("quota", time.time() + 900))
         if role == "attacker":
             category = json.loads(text.split('CATEGORY MODE (overrides whole-review completion instructions):\n')[1].split('\n')[0])
             pathlib.Path(category['category_output']).write_text(json.dumps({
@@ -510,6 +516,33 @@ class StepTests(unittest.TestCase):
         call = json.loads((h.home / "model-calls.jsonl").read_text().splitlines()[-1])
         self.assertIn("the key misses scenario S10", call["text"])
         self.assertIn("round-1.json", call["text"])
+
+    def test_a_rate_limit_mid_repair_keeps_the_round_start_for_the_retry(self):
+        """8 November, f46dac-2: writer:2 attempt 1 hit a provider limit after editing; attempt 2
+        restored those edits, made none of its own, and was judged an unchanged repair."""
+        for edits_before_limit in (True, False):
+            with self.subTest(edits_before_limit=edits_before_limit):
+                h = WorkerHome(self)
+                stress = h.step(StepKind.STRESS, 1, snapshot=h.push_practice())
+                h.start(stress, {"bench": "skip", "model": {"attacker": {"blocking": ["the key misses S10"]}}})
+                found = h.wait(stress)
+                h.push(ArtifactKind.CASE_SNAPSHOT, h.output(stress, found.snapshot))
+                h.push(ArtifactKind.WRITER_FEEDBACK, h.output(stress, found.feedback))
+                model = {"builder": {"limit_first": True, "edit": edits_before_limit}}
+                first = h.step(StepKind.WRITER, 2, seq=2, snapshot=found.snapshot, feedback=found.feedback)
+                h.start(first, {"bench": "skip", "model": model})
+                limited = h.wait(first)
+                self.assertEqual(limited.outcome, Outcome.PROVIDER_LIMIT, h.log(first))
+                self.assertIsNotNone(limited.snapshot)
+                h.push(ArtifactKind.CASE_SNAPSHOT, h.output(first, limited.snapshot))
+                retry = h.step(StepKind.WRITER, 2, seq=2, attempt=2, snapshot=limited.snapshot,
+                               feedback=found.feedback)
+                h.start(retry, {"bench": "skip", "model": model})
+                result = h.wait(retry)
+                # The interrupted call's edits count for the round; a round with none is still unchanged.
+                expected = ((Outcome.OK, "writer:validated") if edits_before_limit
+                            else (Outcome.EXHAUSTED, "writer:unchanged_repair"))
+                self.assertEqual((result.outcome, result.reason), expected, h.log(retry))
 
     def test_clean_stress_round(self):
         h = WorkerHome(self)
