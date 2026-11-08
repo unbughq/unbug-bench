@@ -393,7 +393,7 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(c.card["candidate_attempts"], 3)
 
     def legacy_archive(self, old, statement, *, commit="a" * 40, gates=None, writer="opencode-go/minimax-m3", link=False,
-                       repo="medusajs/medusa", lockfile=None):
+                       repo="medusajs/medusa", lockfile=None, card_extra=None):
         """A pre-durable checkpoint as run_artifacts.seal wrote it, rewrapped to the statement key:
         `tar -C <work parent> -czf - <case id> | age -r <recipient>`, links and caches included."""
         import worker_secrets
@@ -415,8 +415,8 @@ class AdmitTests(unittest.TestCase):
         (work / "case/guards/reference.py").write_text("print('guard')")
         (work / "scorecard.json").write_text(json.dumps({"case": old, "seed": 3, "source": "port",
             "gates": gates if gates is not None else {"G1": "pass", "G2": "pass"}, "failed_gate": None,
-            "models": {"builder": [writer]},
-            "continuation_budget": {"cost": 2.5, "calls": 9, "events": []}}))
+            **({"models": {"builder": [writer]}} if writer else {}),
+            "continuation_budget": {"cost": 2.5, "calls": 9, "events": []}, **(card_extra or {})}))
         (work / "continuation-budget.json").write_text(json.dumps({"cost": 2.5, "calls": 9, "events": []}))
         for name in ("gate-cache", "public-search.json", "freshness-verdict.json", "idea-realism.json"):
             (work / name).write_text("old evidence") if "." in name else (work / name).mkdir()
@@ -504,6 +504,28 @@ class AdmitTests(unittest.TestCase):
                 self.assertEqual(family(c.card["roles"]["writer"]["model"]), family(writer))
                 self.assertNotEqual(family(c.card["roles"]["strong_calibrator"]["model"]), family(writer))
                 self.assertEqual(self.calls, [])
+
+    def test_the_writer_comes_only_from_the_archive_and_must_agree(self):
+        old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        inputs = self.import_inputs()
+        ledger = lambda model: {"continuation_budget": {"cost": 2.5, "events": [
+            {"id": "e1", "role": "writer", "invocation": "builder-1", "configured_model": model, "cost": 1.0}]}}
+        for card_extra, reason in ((ledger("opencode/minimax-m3.1-flash-free"), "admit:imported_written"),
+                                   ({"roles": {"writer": {"model": "opencode/minimax-m3.1-flash-free"}}}, "admit:imported_written"),
+                                   (ledger("openrouter/deepseek/deepseek-v4.1-flash"), "admit:import_writer"),
+                                   ({}, "admit:import_writer")):
+            with self.subTest(card_extra=card_extra):
+                # An October checkpoint card without models.builder (5813be): its ledger's writer
+                # calls or writer role name the family; a disagreeing record, or none, refuses.
+                archive = self.legacy_archive(old, text, writer=None, card_extra=card_extra)
+                result, _ = self.run_admit(self.import_step(inputs, registry, archive))
+                self.assertEqual(result.reason, reason)
+        # A builder pin that disagrees with the ledger's writer calls refuses too.
+        archive = self.legacy_archive(old, text, writer="opencode-go/minimax-m3",
+                                      card_extra=ledger("openrouter/deepseek/deepseek-v4.1-flash"))
+        result, _ = self.run_admit(self.import_step(inputs, registry, archive))
+        self.assertEqual(result.reason, "admit:import_writer")
 
     def test_unwritten_import_continues_with_the_writer(self):
         old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."

@@ -266,9 +266,7 @@ def _import_legacy(ciphertext, work, inputs, case_id):
                 or declared < math.ceil(spent * 1_000_000)):
             raise _Invalid("import_spend")
         spent = declared / 1_000_000
-        writer = ((card.get("models") or {}).get("builder") or [None])[0]
-        if not isinstance(writer, str):
-            raise _Invalid("import_writer")
+        writer = _old_writer(card)
         summary = {"case": old.name, "source": card.get("source"), "gates": dict(gates),
                    "failed_gate": card.get("failed_gate"), "spent_usd": spent, "writer": writer,
                    "written": gates.get("G1") == "pass"}
@@ -292,6 +290,25 @@ def _import_legacy(ciphertext, work, inputs, case_id):
     fresh["imported_from"] = summary
     atomic_json(work / "scorecard.json", fresh)
     return summary
+
+
+def _old_writer(card):
+    """The model that wrote the old case, from the archive's own records only: the card's pinned
+    builder, its writer role, and its ledger's writer calls. Older checkpoint cards may lack the
+    first (5813be, 8 November). Every source present must name one family; none, or two, refuses."""
+    from model_router import family
+    def first(value):
+        return value[0] if isinstance(value, list) and value and isinstance(value[0], str) else value
+    found = [first((card.get("models") or {}).get("builder")), ((card.get("roles") or {}).get("writer") or {}).get("model")]
+    events = (card.get("continuation_budget") or {}).get("events")
+    for event in events if isinstance(events, list) else []:
+        if isinstance(event, dict) and (event.get("role") == "writer"
+                                         or str(event.get("invocation", "")).startswith("builder")):
+            found.append(event.get("configured_model"))
+    found = [m for m in found if isinstance(m, str) and m]
+    if not found or len({family(m) for m in found}) != 1:
+        raise _Invalid("import_writer")
+    return found[0]
 
 
 def _same_app(app, inputs):
