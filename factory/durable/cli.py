@@ -165,8 +165,9 @@ def main(argv=None):
     start.add_argument("spec_file")
     start.add_argument("registry_file")
     start.add_argument("--import-file", help="ref printed by `prepare <first case id> case <rewrapped checkpoint>`")
-    start.add_argument("--resume-case", help="a case stopped by an infrastructure failure (held or retired): "
-                       "continue it as this one-case batch's case, where it stopped")
+    start.add_argument("--resume-case", help="a case stopped by an infrastructure failure (held or retired), or held "
+                       "by a factory_bug diagnosis of an unchanged repair: continue it as this "
+                       "one-case batch's case, where it stopped")
     install = commands.add_parser("install")
     install.add_argument("content_file", help="existing worker release bundle")
     install.add_argument("bench_version")

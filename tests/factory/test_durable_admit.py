@@ -382,11 +382,18 @@ class AdmitTests(unittest.TestCase):
         second_input = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(self.real_inputs(self.selected)).encode())
         second = replace(self.step(second_input, first.registry), case_id="case-second")
         result, outputs = self.run_admit(second)
-        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:exhausted"))
+        # The published reason names the screen and its evidence kind, never the idea.
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:dedup_board_duplicate"))
         self.assertIsNone(result.registry)
         check_result_for(second.step, result)
         work, c = self.restore(second, result, outputs)
         self.assertEqual(c.card["dedup"]["duplicate_of"], CASE)
+        # The fake builder proposes the same idea again; those tries judged nothing.
+        self.assertEqual([r["codes"] for r in c.card["rejected_candidates"]], [
+            {"screen": "dedup", "evidence": "board_duplicate", "judge_family": "z-ai",
+             "duplicate_of": CASE, "duplicate_status": "screening"}]
+            + [{"screen": "other", "evidence": "repeat_candidate"}] * 2)
+        self.assertEqual(c.card["admission"]["reason"], "dedup_board_duplicate")
         self.assertIn("easy-calibrator-dedup", self.calls)
         self.assertEqual((work / "statements" / (CASE + ".md")).read_text(), text)
         self.assertEqual(c.card["admission"]["status"], "exhausted")
@@ -455,6 +462,47 @@ class AdmitTests(unittest.TestCase):
             registry = result.registry
         self.calls.clear()
         return registry
+
+    def test_board_dedup_records_only_groups_and_never_changes_the_board(self):
+        from dataclasses import replace
+        texts = {"case-a": "# A\n\nOversell when two carts check out at once.",
+                 "case-b": "# B\n\nTwo simultaneous checkouts sell the last unit twice.",
+                 "case-c": "# C\n\nRefund exceeds the order total."}
+        registry = self.admitted_registry(*texts.items())
+        original = self.model
+        seen = {}
+        def model(c, models, text, cwd, name, **kwargs):
+            if name != "easy-calibrator-board-dedup":
+                return original(c, models, text, cwd, name, **kwargs)
+            self.calls.append(name)
+            request = json.loads(text.rsplit("\n", 1)[-1])
+            seen.update({k: pathlib.Path(v).read_text() for k, v in request["statements"].items()})
+            pathlib.Path(request["result_path"]).write_text(json.dumps({"groups": [["case-b", "case-a"]]}))
+            if kwargs.get("on_complete"):
+                c.model_lease = SimpleNamespace(route=models[0])
+                kwargs["on_complete"]()
+            return 0
+        patch.object(run, "model_call", side_effect=model).start()
+        patch.object(run, "opencode", side_effect=model).start()
+        value = self.real_inputs("unused", board_dedup=True); value.pop("candidate")
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
+        step_input = replace(self.step(inputs, registry), case_id="case-board-1")
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:board_planned"))
+        self.assertIsNone(result.registry)   # the board is never changed on the worker
+        check_result_for(step_input.step, result)
+        self.assertEqual(seen, texts)        # every unreleased statement was compared, in worker RAM
+        self.assertEqual(self.calls, ["easy-calibrator-board-dedup"])   # no screen, selection or preflight
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual(c.card["board_dedup"], {"entries": 3, "registry_revision": 3, "judge_family": "z-ai",
+                                                 "groups": [["case-a", "case-b"]]})
+        card = json.dumps(c.card)
+        self.assertTrue(all(t not in card for t in texts.values()))
+        from durable.board_cleanup import plan_groups
+        self.assertEqual(plan_groups(self.output(result.snapshot, outputs)), [["case-a", "case-b"]])
+        # A plan cannot carry a candidate or run on an import.
+        with self.assertRaises(admit._Invalid):
+            admit._inputs(json.dumps(self.real_inputs("x", board_dedup=True)).encode())
 
     def test_import_keeps_only_the_old_case_tree_and_reruns_every_screen(self):
         old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
@@ -544,10 +592,66 @@ class AdmitTests(unittest.TestCase):
         registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
         step_input = self.import_step(self.import_inputs(), registry, self.legacy_archive(old, text))
         result, outputs = self.run_admit(step_input)
-        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:exhausted"))
+        # No reviewer verdict on disk: the screen is still named, its evidence is "unrecorded".
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:freshness_unrecorded"))
         self.assertFalse(any(name.startswith("builder-selection") for name in self.calls))
         work, c = self.restore(step_input, result, outputs)
         self.assertEqual(len(c.card["rejected_candidates"]), 1)
+
+    def test_freshness_rejection_names_the_confirmed_source_kind_without_urls(self):
+        old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        secret = "private-why-sentinel"
+        def g2(c):
+            hits = [{"url": "https://github.com/medusajs/medusa/releases/tag/v2.19.4", "resolved": True,
+                     "same_bug": True, "retrieved": True, "retrieved_from": "live", "app_version": "2.19.0",
+                     "version_scope": secret, "why": secret},
+                    {"url": "https://github.com/medusajs/medusa/issues/12345", "resolved": True, "same_bug": True,
+                     "retrieved": True, "retrieved_from": "archive", "app_version": "2.19.0", "version_scope": secret,
+                     "why": secret},
+                    {"url": "https://blog.example/" + secret, "resolved": True, "same_bug": False, "retrieved": True,
+                     "app_version": "2.19.0", "version_scope": secret, "why": secret}]
+            (c.work / "freshness-verdict.json").write_text(json.dumps({"hits": hits}))
+            return False, {"outcome": "public_match"}
+        self.freshness.side_effect = g2
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        step_input = self.import_step(self.import_inputs(), registry, self.legacy_archive(old, text))
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:freshness_upstream_fix"))
+        from durable.classify import PUBLISHED_REASONS
+        self.assertIn(result.reason, PUBLISHED_REASONS)
+        work, c = self.restore(step_input, result, outputs)
+        codes = c.card["rejected_candidates"][0]["codes"]
+        self.assertEqual(codes, {"screen": "freshness", "evidence": "upstream_fix", "confirmed_hits": 2,
+                                 "sources": ["upstream_issue", "upstream_release"], "archived_hits": 1,
+                                 "pin_version": "2.19.0", "judge_family": "xiaomi",
+                                 "fix_releases": [{"version": "2.19.4", "relation": "after_pin"}]})
+        self.assertNotIn(secret, json.dumps(codes))
+        self.assertNotIn("github.com", json.dumps(codes))
+
+    def test_realism_rejection_names_the_screen_and_judge_family(self):
+        statement = "# Candidate\n\nOversell under concurrent checkout."
+        original = self.model
+        def model(c, models, text, cwd, name, **kwargs):
+            if name == "reviewer-idea-realism":
+                self.calls.append(name)
+                target = text.split('Write JSON to ')[1].split(': {')[0]
+                pathlib.Path(target).write_text(json.dumps({"approve": False, "reason": "private-reason-sentinel"}))
+                if kwargs.get("on_complete"):
+                    c.model_lease = SimpleNamespace(route=models[0])
+                    kwargs["on_complete"]()
+                return 0
+            return original(c, models, text, cwd, name, **kwargs)
+        patch.object(run, "model_call", side_effect=model).start()
+        patch.object(run, "opencode", side_effect=model).start()
+        inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(self.real_inputs(statement)).encode())
+        registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        step_input = self.step(inputs, registry)
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:realism_rejected"))
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual(c.card["rejected_candidates"][0]["codes"],
+                         {"screen": "realism", "evidence": "rejected", "judge_family": "xiaomi"})
+        self.assertNotIn("private-reason-sentinel", json.dumps(c.card["rejected_candidates"]))
 
     def test_import_refuses_another_app_pin_or_an_unreadable_archive(self):
         old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell."
@@ -744,8 +848,9 @@ class AdmitTests(unittest.TestCase):
     def test_unbounded_strong_or_second_reviewer_stops_before_any_model_spend(self):
         for role in ('strong_calibrator', 'reviewers'):
             value = self.real_inputs('unused')
-            if role == 'strong_calibrator': value['models'][role] = ['codex/gpt-6.1-sol']
-            else: value['models'][role].append(['codex/gpt-6.1-sol'])
+            # codex/gpt-6.1-sol is bounded now (CODEX_PROFILES); an unpriced Codex model still is not.
+            if role == 'strong_calibrator': value['models'][role] = ['codex/gpt-unpriced']
+            else: value['models'][role].append(['codex/gpt-unpriced'])
             inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
             registry = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b'')
             result, _ = self.run_admit(self.step(inputs, registry))

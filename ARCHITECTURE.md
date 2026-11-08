@@ -170,11 +170,25 @@ batch's `case_money_usd_micros` fits the default per-case ceiling. Import refusa
 
 An archive whose draft cannot be kept (its writer changed family mid-run, or it stopped
 before its case.json) can be imported idea-only: INPUTS sets `"import_mode": "idea_only"`.
-ADMIT keeps only statement.md, promise.md and case.json, rebuilding a missing case.json from
-INPUTS when the old card names the same source. The case starts at WRITER whatever its old
-gates said. Its writer may be any MiniMax or DeepSeek writer. Every family the old card names
-as a writer is an idea author and may not hold a reviewer role or the easy calibrator
+ADMIT keeps only statement.md, which must match the old case's registry entry when one
+records it; promise.md and case.json are written from INPUTS once the old case.json (if any)
+matches the pin and source, or the old card names the same source. The case starts at WRITER
+whatever its old gates said, with a MiniMax or DeepSeek writer. Every family the old card
+names as a writer is an idea author and may not hold a reviewer role or the easy calibrator
 (`admit:import_idea_family`). Spend, screens and the one-candidate rule are as above.
+
+A rejected idea publishes `admit:<screen>_<evidence>` (`durable/admission_reasons.py`): the
+screen (dedup, freshness, realism, other) and a fixed evidence kind read from structured
+fields only, such as `freshness_upstream_fix`. The sealed card keeps per-candidate codes
+(duplicate case ID, confirmed source classes, a release tag's version against the pin).
+`python3 factory/durable/admission_reasons.py --config <config> <case|batch>...` prints
+those codes for finished cases on the control VM: read-only, existing keys only.
+`durable/board_cleanup.py` dedupes the statement board: a one-case batch with INPUTS
+`"board_dedup": true` has ADMIT group the board's statements with the easy calibrator in
+worker RAM and record only case IDs (`admit:board_planned`, no registry returned); on the
+control VM `plan` (dry run), `apply` (new board file plus change log) and `revert` change
+entry statuses only. Sealed, live and known_public entries stay; each duplicate group keeps
+its most advanced member; other abandoned entries are released.
 
 OpenCode's free routes (DeepSeek, MiniMax and GLM flash) are bounded at $0 with no gate: a call that books
 any cost, or reports a step from another provider or model, is stopped. It runs with OpenCode's own
@@ -183,12 +197,22 @@ since behind the wall it reaches only a gate's port: it takes its chain's next b
 with none (GLM and MiniMax free today) is refused up front as `unbounded_route`. A full or failing free
 lane hands an unwalled call to the next route in its chain (DeepSeek: paid OpenRouter).
 
+Codex (`codex/gpt-6.1-sol`, the strong calibrator's other family) has no gate either. Its lease
+maximum is $50 at the Codex list price (`CODEX_PROFILES`), lowered by funding. The runtime reads Codex's
+own session log (`exec` without `--ephemeral`) every few seconds and books each request at list price as
+it lands, so the reservation check stops a long turn mid-way; that stop is reported as `model_call_cap`,
+as a Claude gate's exhaustion is. Tokens the turn total reports but the log never showed are booked at
+the long-context tariff; an unreadable log stops the call (`missing_usage`). Codex's web search and
+other tools stay off (`CODEX_OFF`, `web_search="disabled"`), and the wall is unchanged: it blocks local
+and private networks, and Codex reaches its public API as before.
+
 A durable case stopped by an infrastructure failure resumes instead: `start --resume-case
 <case>` makes it the only case of a new batch. It keeps its case ID, so its key, artifacts,
 snapshot card and admission binding stay valid. Only its workflow is new (`<case>@<batch>`),
 and the batch maps it back for cards and seals. `engine.resume_point` allows this only when every
 workflow of the case finished held or retired and its last attempt ended `infra_error` or
-`provider_limit`, never after a verdict, gate, limit or founder decision. The new workflow
+`provider_limit`, never after a verdict, gate, limit or founder decision (one exception for a
+`factory_bug` hold follows below). The new workflow
 replays every earlier seq from the attempts recorded under the case's keys, with no worker,
 wait or message. If any attempt it needs is missing, it fails (`resume:diverged`) rather than
 starting new work in that history. The stopped seq first restores its recorded attempts
@@ -199,6 +223,17 @@ refuses unless the earlier spend (the ledger across the original and every earli
 batch, plus any declared import spend) plus the batch's
 case money fits the default per-case ceiling. Run the resume batch with the stopped batch's
 limits, or the replay diverges.
+
+A case held by a `factory_bug` diagnosis resumes the same way, but only when the diagnosed step
+stopped on a factory check rather than a scientific result (`FACTORY_BUG_RESUMABLE`: today a
+writer's `writer:unchanged_repair`). It resumes at that diagnosed step, not at the diagnosis, so
+the diagnosis is not replayed. A later diagnosis at that seq numbers its attempts after it
+(`renumber`). The lineage's count of these resumes carries into the new workflow and is added
+to the case's own `factory_bug_resumes` when a diagnosis is decided, so the policy's cap of three
+covers factory_bug holds across batches. Skips an earlier resume made at or above the diagnosed
+step are dropped, since the steps that now take those seqs never ran there. A writer round keeps the case hash it started
+from in `attack-state.json` (`round_start`, bound to the round's feedback), so a retry that
+restores an interrupted call's edits is not judged an unchanged repair.
 
 Reserve allowance before dispatch and settle actual usage idempotently. A call whose gate refused
 every request (exhausted, nothing forwarded) settles at $0, not its hold; `start` refuses a batch

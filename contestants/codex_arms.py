@@ -23,7 +23,7 @@ from harbor.agents.installed.codex import Codex
 from arm_b import TOOLS_NOTE
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "factory"))
-from token_prices import codex_cost  # noqa: E402
+from token_prices import codex_cost, codex_request_usages as request_usages  # noqa: E402
 
 RUNTIME = "/installed-agent/unbug-runtime.py"
 
@@ -35,28 +35,6 @@ class CodexTools(Codex):
 
     async def run(self, instruction, environment, context):
         await super().run(TOOLS_NOTE + instruction, environment, context)
-
-
-def request_usages(rollouts):
-    """Per-request token usage from Codex rollout files: one token_count event closes one API call.
-    Repeated token_count events (same cumulative total) are not new requests."""
-    usages, previous = [], None
-    for line in rollouts.splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(event, dict) or event.get("type") != "event_msg":
-            continue
-        payload = event.get("payload")
-        if not isinstance(payload, dict) or payload.get("type") != "token_count" or not isinstance(payload.get("info"), dict):
-            continue
-        last, total = payload["info"].get("last_token_usage"), payload["info"].get("total_token_usage")
-        if not isinstance(last, dict) or total == previous:
-            continue
-        previous = total
-        usages.append(last)
-    return usages
 
 
 def codex_usage(text, model, rollouts=""):

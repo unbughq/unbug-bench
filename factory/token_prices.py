@@ -1,4 +1,5 @@
 """Pinned USD list prices per million tokens; unknown models fail closed."""
+import json
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 # Source: https://developers.openai.com/api/docs/models/gpt-6.1-sol
 # Verified 2026-10-24. Standard list price, not subscription billing.
@@ -180,7 +181,9 @@ def claude_cost(model, usage):
     return None if amount is None else float(amount)
 
 
-def codex_cost(model, usage):
+def codex_cost(model, usage, long_context=None):
+    """List value of Codex usage. long_context=None decides from the usage itself; True forces the
+    long-context tariff (tokens whose request sizes are unknown)."""
     rates = CODEX_PRICES.get(model)
     if rates is None:
         return None
@@ -189,7 +192,50 @@ def codex_cost(model, usage):
         return None
     # CLI aggregates a whole turn: conservatively use long-context rates when its
     # total exceeds 272K, even if individual requests may have been shorter.
-    long_context = incoming > 272000
+    if long_context is None: long_context = incoming > 272000
     return ((incoming - cached) * rates[0] * (2 if long_context else 1)
             + cached * rates[1] * (2 if long_context else 1)
             + outgoing * rates[2] * (1.5 if long_context else 1)) / 1000000
+
+
+# Codex on the ChatGPT subscription, for the strong calibrator (2026-11-08). Like the free routes there is
+# no gate: Codex's own per-request usage (its session log's token_count events) is priced at the
+# CODEX_PRICES list rates and booked as each request lands, and the per-call reservation check
+# (budget.check_reservation) stops the call once the booked value passes this maximum.
+CODEX_CALL_USD = Decimal('50')
+CODEX_PROFILES = {'codex/gpt-6.1-sol': CODEX_CALL_USD}
+CODEX_USAGE_FIELDS = ('input_tokens', 'cached_input_tokens', 'output_tokens')
+
+
+def codex_gate_maximum(route):
+    maximum = CODEX_PROFILES.get(route)
+    if maximum is None or route not in CODEX_PRICES: return None
+    incoming, cached, outgoing = (Decimal(str(v)) for v in CODEX_PRICES[route])
+    # Token maxima at the dearest (long-context) tariff: 2x input, 1.5x output.
+    return dict(max_usd=float(maximum),
+                max_input_tokens=int(maximum * 1_000_000 / (max(incoming, cached) * 2)),
+                max_output_tokens=int(maximum * 1_000_000 / (outgoing * Decimal('1.5'))),
+                price_source='token_prices:2026-10-24:' + route.replace('/', ':', 1) + ':'
+                             + ','.join(map(str, CODEX_PRICES[route])) + ':long-context=2,1.5:self-reported-v1')
+
+
+def codex_request_usages(rollouts):
+    """Per-request token usage from Codex session logs (rollout-*.jsonl): one token_count event closes
+    one API call. A repeated token_count event (same cumulative total) is not a new request."""
+    usages, previous = [], None
+    for line in rollouts.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict) or event.get("type") != "event_msg":
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict) or payload.get("type") != "token_count" or not isinstance(payload.get("info"), dict):
+            continue
+        last, total = payload["info"].get("last_token_usage"), payload["info"].get("total_token_usage")
+        if not isinstance(last, dict) or total == previous:
+            continue
+        previous = total
+        usages.append(last)
+    return usages
