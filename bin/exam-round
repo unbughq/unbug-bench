@@ -99,10 +99,11 @@ def collect(case, attempt, meters):
                 continue
             meter = trial.get('meter', {})
             merge(meters[case['account']], [meter])
-            if trial.get('infrastructure_failure') == 'claude_usage_limit':
+            if trial.get('infrastructure_failure') in ('claude_usage_limit', 'c0_fork_failed'):
+                # A failed C0 clone retries with a fresh C (with_pairs), like a usage cutoff.
                 record['limit_failures'] += 1
                 record['status'] = 'missing' if record['limit_failures'] >= 3 else 'pending'
-                outcome = 'claude_usage_limit'
+                outcome = trial['infrastructure_failure']
             else:
                 record['status'] = 'collected'
                 record['scorecard'] = str(path)

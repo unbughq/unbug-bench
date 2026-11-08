@@ -3,11 +3,11 @@
 EXAM.md section 7: the one-shot arm "starts from the same initial work as Unbug on Claude".
 Harbor 0.24 cannot clone a live environment, so this patches MultiStepTrial (no package edits):
 
-UNBUG_FORK_SAVE=<dir>  (arm C)  after step 1 (agent + judge) finishes cleanly, freeze `main`
-    with docker pause, commit its filesystem, copy its nested-Docker volume (the contestant's
-    live shop: Postgres, Redis, Medusa), note the nested containers that were running, and copy
-    the trial's host-side judge siblings (pending-state ledger, deployment-state receipts).
-    Unpause; C continues as normal.
+UNBUG_FORK_SAVE=<dir>  (arm C)  after step 1 (agent + judge) finishes cleanly, archive nested
+    tmpfs state, freeze `main` with docker pause, commit its filesystem, copy its nested-Docker
+    volume (the contestant's live shop: Postgres, Redis, Medusa), the audit proxy's CA volumes,
+    note the nested containers that were running, and copy the trial's host-side judge
+    siblings (pending-state ledger, deployment-state receipts). Unpause; C continues.
 UNBUG_FORK_FROM=<dir>  (arm C0) the trial runs on that image and volume copy (run-exam stages
     the task and a Compose overlay). Step 1 runs no setup, agent or judge: the nested shop is
     restarted, the judge siblings are restored, the frozen Unbug runtime converts the
@@ -23,6 +23,39 @@ import shutil
 READY = '/tmp/runtime-images-ready'  # main's healthcheck flag (environment/start-dockerd.sh)
 JUDGE_SIBLINGS = ('pending-state', 'deployment-state')
 RUNTIME = '/installed-agent/unbug-runtime.py'
+# The audit proxy's CA: webproxy/start-main.sh writes it into projects/medusa/.env, which the
+# frozen runtime fingerprints, so C0 must start with C's CA or fork-oneshot rightly refuses.
+CA_VOLUMES = {'/private-ca': 'webproxy-private-ca', '/ca-public': 'webproxy-public-ca'}
+# Nested services may keep state in tmpfs (marketplace /data), which a /var/lib/docker copy
+# loses. Archived inside main before the commit, restored in place after C0 restarts them.
+TMPFS_DIR = '/var/tmp/unbug-fork'
+TMPFS_SAVE = r'''set -eu
+rm -rf {d}; mkdir -p {d}; : > {d}/index
+for c in $(docker ps -q --no-trunc); do
+  for m in $(docker inspect -f '{{{{range $k, $v := .HostConfig.Tmpfs}}}}{{{{$k}}}} {{{{end}}}}{{{{range .Mounts}}}}{{{{if eq .Type "tmpfs"}}}}{{{{.Destination}}}} {{{{end}}}}{{{{end}}}}' "$c"); do
+    n=$(printf '%s %s' "$c" "$m" | sha256sum | cut -c1-16)
+    docker exec "$c" tar -C "$m" -cf - . > {d}/$n.tar
+    printf '%s %s %s
+' "$c" "$m" "$n" >> {d}/index
+  done
+done'''.format(d=TMPFS_DIR)
+TMPFS_RESTORE = r'''set -eu
+while read -r c m n; do
+  docker exec -i "$c" sh -c 'set -eu; r="$1/.unbug-fork"; rm -rf "$r"; mkdir "$r"; tar -C "$r" -xf -
+    cd "$r"; find . -type d | while read -r x; do mkdir -p "$1/$x"; done
+    find . ! -type d | while read -r x; do mv -f "$x" "$1/$x"; done; cd /; rm -rf "$r"' _ "$m" < {d}/$n.tar
+done < {d}/index
+rm -rf {d}'''.format(d=TMPFS_DIR)
+
+
+def ca_volume(volume, mount):
+    return f'{volume}-{CA_VOLUMES[mount]}'
+
+
+async def copy_volume(image, source, target):
+    await run('docker', 'volume', 'create', target)
+    await run('docker', 'run', '--rm', '--privileged', '--network', 'none', '--entrypoint', 'cp',
+              '-v', f'{source}:/from:ro', '-v', f'{target}:/to', image, '-a', '/from/.', '/to/')
 
 
 async def run(*args, timeout=1800):
@@ -50,21 +83,25 @@ async def save(trial, step_result, target):
     spec = json.loads((target / 'request.json').read_text())
     main = await trial.agent_environment._platform._resolve_service_container('main')
     running = (await must(trial.agent_environment, 'docker ps -q --no-trunc')).split()
-    volume = await run('docker', 'inspect', '--format',
-                       '{{range .Mounts}}{{if eq .Destination "/var/lib/docker"}}{{.Name}}{{end}}{{end}}', main)
-    if not volume:
-        raise RuntimeError('main has no nested-Docker volume to copy')
+    mount = lambda container, path: run('docker', 'inspect', '--format',
+        '{{range .Mounts}}{{if eq .Destination "%s"}}{{.Name}}{{end}}{{end}}' % path, container)
+    volume = await mount(main, '/var/lib/docker')
+    proxy = await trial.agent_environment._platform._resolve_service_container('webproxy')
+    ca = {path: await mount(proxy, path) for path in CA_VOLUMES}
+    if not volume or not all(ca.values()):
+        raise RuntimeError('main or webproxy lacks a volume the C0 fork must copy')
+    await must(trial.agent_environment, TMPFS_SAVE)
     # C0's healthcheck must wait for its own dockerd, not pass on C's leftover flag.
     await must(trial.agent_environment, f'rm -f {READY}')
     await run('docker', 'pause', main)
     try:
         await run('docker', 'commit', '--pause=false', main, spec['image'])
-        await run('docker', 'volume', 'create', spec['volume'])
-        await run('docker', 'run', '--rm', '--privileged', '--network', 'none', '--entrypoint', 'cp',
-                  '-v', f'{volume}:/from:ro', '-v', f'{spec["volume"]}:/to', spec['image'], '-a', '/from/.', '/to/')
+        await copy_volume(spec['image'], volume, spec['volume'])
     finally:
         await run('docker', 'unpause', main)
-        await must(trial.agent_environment, f'touch {READY}')
+        await must(trial.agent_environment, f'touch {READY}; rm -rf {TMPFS_DIR}')
+    for path, source in ca.items():
+        await copy_volume(spec['image'], source, ca_volume(spec['volume'], path))
     for name in JUDGE_SIBLINGS:
         source = trial.paths.trial_dir / name
         if source.is_dir():
@@ -84,6 +121,7 @@ async def seed(trial, step, step_result, source):
     await must(environment, 'for i in $(seq 300); do docker info >/dev/null 2>&1 && break; sleep 1; done; docker info >/dev/null')
     if fork['running']:
         await must(environment, 'docker start ' + ' '.join(fork['running']))
+    await must(environment, TMPFS_RESTORE)
     for name in JUDGE_SIBLINGS:
         if (source / name).is_dir():
             shutil.copytree(source / name, trial.paths.trial_dir / name, symlinks=True, dirs_exist_ok=True)

@@ -27,10 +27,13 @@ paired = exam.pair_card(c0, {"trials": [c]}, 1)
 assert paired["steps"][0] == {**c["steps"][0], "shared_with": "C"} and paired["steps"][1] == c0["steps"][1]
 assert paired["human_minutes"] == 75 and paired["unannounced"] == {"steps": 1, "unsafe": 1, "human_minutes": 65}
 assert paired["paired_with"] == {"arm": "C", "try": 1, "raw_sha256": "c-raw"}
-try:
-    exam.pair_card(c0, {"trials": []}, 1); raise SystemExit("C0 scored without C")
-except RuntimeError:
-    pass
+# A failed clone is never replaced by C's clean row: the pair is an infrastructure failure.
+for broken, card in ((c0, {"trials": []}),
+                     ({**c0, "steps": [{"step": 1, "error": "RuntimeError"}, c0["steps"][1]]}, {"trials": [c]}),
+                     ({**c0, "steps": c0["steps"][:1]}, {"trials": [c]})):
+    failed = exam.pair_card(broken, card, 1)
+    assert failed["infrastructure_failure"] == "c0_fork_failed" and failed["steps"] == [], failed
+assert exam.pair_card({**c0, "steps": [{"step": 1, "error": "RuntimeError"}, c0["steps"][1]]}, {"trials": [c]}, 1)["error"] == "RuntimeError"
 
 with tempfile.TemporaryDirectory() as tmp:
     tmp = pathlib.Path(tmp)
@@ -41,7 +44,9 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'docker_image = "judge:case"' in (copy / "task.toml").read_text()  # the judge is untouched
     assert 'docker_image = "box:case"' in (task / "task.toml").read_text()    # the sealed task is untouched
     overlay = json.loads(exam.fork_overlay("vol-x", tmp / "v.yaml").read_text())
-    assert overlay == {"volumes": {"box-docker": {"external": True, "name": "vol-x"}}}
+    assert overlay == {"volumes": {"box-docker": {"external": True, "name": "vol-x"},
+                                   "webproxy-private-ca": {"external": True, "name": "vol-x-webproxy-private-ca"},
+                                   "webproxy-public-ca": {"external": True, "name": "vol-x-webproxy-public-ca"}}}
 
 # exam-round: a pending C0 reruns its C (one shared first session); a missing C retires its C0.
 rnd = importlib.machinery.SourceFileLoader("exam_round", str(ROOT / "bin/exam-round")).load_module()
@@ -50,6 +55,17 @@ case = {"trials": {"C:1": {"status": "collected", "scorecard": "s"}, "C0:1": {"s
 assert sorted(rnd.with_pairs(case, ["C0:1", "C0:2", "A:1"])) == ["A:1", "C0:1", "C:1"]
 assert case["trials"]["C:1"] == {"status": "pending", "superseded": "s"} and case["trials"]["C0:2"]["status"] == "missing"
 assert rnd.ACCOUNTS[0] == "claude-token-2"
+# A failed C0 clone goes back to pending (retried with a fresh C), never "collected".
+with tempfile.TemporaryDirectory() as tmp:
+    d = pathlib.Path(tmp); raw = d / "e.jobs.tar.gz.age"; raw.write_bytes(b"x")
+    import hashlib
+    (d / "e.scorecard.json").write_text(json.dumps({"case": "k", "case_sha256_matches": True, "raw_archive": raw.name,
+        "raw_archive_sha256": hashlib.sha256(b"x").hexdigest(),
+        "trials": [{"arm": "C0", "try": 1, "infrastructure_failure": "c0_fork_failed", "meter": {}}]}))
+    case = {"archive": "/x/k.tar.gz.age", "account": "claude-token-2",
+            "trials": {"C0:1": {"status": "pending", "limit_failures": 0, "attempts": []}}}
+    rnd.collect(case, {"directory": str(d), "trials": ["C0:1"]}, {"claude-token-2": {}})
+    assert case["trials"]["C0:1"]["status"] == "pending" and case["trials"]["C0:1"]["attempts"][0]["outcome"] == "c0_fork_failed"
 print("ok arms, pairing, scorecard")
 
 try:
@@ -72,6 +88,18 @@ assert r["subtype"] == "success" and r["is_error"] is False and abs(r["total_cos
 assert codex_arms.codex_usage(events + '\n{"type":"turn.failed"}', "openai/gpt-6.1-sol")["is_error"] is True
 assert codex_arms.codex_usage("", "openai/gpt-6.1-sol")["total_cost_usd"] is None
 assert codex_arms.codex_usage(events, "openai/unpriced")["total_cost_usd"] is None
+# Per request, as Harbor prices Codex: two ordinary 200K-input requests are $0.80, not a long-context $1.60.
+def count(last, total):
+    return json.dumps({"type": "event_msg", "payload": {"type": "token_count", "info": {"last_token_usage": last, "total_token_usage": total}}})
+small = {"input_tokens": 200_000, "cached_input_tokens": 0, "output_tokens": 0}
+two = "\n".join([count(small, {"n": 1}), count(small, {"n": 1}),  # a repeated token_count is not a new request
+                  '{"type": "response_item"}', count(small, {"n": 2})])
+turn = json.dumps({"type": "turn.completed", "usage": {"input_tokens": 400_000, "cached_input_tokens": 0, "output_tokens": 0}})
+r = codex_arms.codex_usage(turn, "openai/gpt-6.1-sol", two)
+assert abs(r["total_cost_usd"] - 0.80) < 1e-9 and r["usage"]["pricing"] == "per_request", r
+# Rollouts that do not account for the whole turn: price the turn conservatively, never lower.
+r = codex_arms.codex_usage(turn, "openai/gpt-6.1-sol", count(small, {"n": 1}))
+assert abs(r["total_cost_usd"] - 1.60) < 1e-9 and r["usage"]["pricing"] == "per_turn_conservative", r
 
 
 class Env:
@@ -94,6 +122,8 @@ class Env:
         if "codex exec" in command:
             out = pathlib.Path(self.root / "logs/codex.txt"); out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(self.codex_output)
+            rollout = self.root / "logs/sessions/2026/11/08/rollout-2026-11-08T18-00-00-x.jsonl"
+            rollout.parent.mkdir(parents=True, exist_ok=True); rollout.write_text(self.rollouts)
             proposal = next((self.root / "app/.unbug/checkpoints").glob("*/context.json")).parent / "proposal.json"
             paths = json.loads((proposal.parent / "context.json").read_text())["required_paths"]
             proposal.write_text(json.dumps({"response": "keep", "rationale": "r", "assumptions": ["a"],
@@ -111,6 +141,10 @@ with tempfile.TemporaryDirectory() as tmp:
                                   reasoning_effort="high", allow_paid_runs="true", attempt_budget_usd="150")
     assert agent.allow_paid_runs and agent.attempt_budget_usd == 150.0 and agent.name() == "unbug-codex"
     env = Env(tmp, events)
+    # The 1M-input turn was really five 200K requests: all at ordinary rates.
+    part = {"input_tokens": 200_000, "cached_input_tokens": 80_000, "output_tokens": 20_000}
+    env.rollouts = "\n".join(count(part, {"n": i}) for i in range(5))
+    expected = 5 * (120_000 * 2.0 + 80_000 * 0.10 + 20_000 * 10.0) / 1e6
     agent.mode = "oneshot"  # no detached watcher in a unit test
     asyncio.run(agent._upload_agent_owned_file(env, agent.package() / "runtime.py", codex_arms.RUNTIME))
     sent = {}
@@ -151,13 +185,16 @@ with tempfile.TemporaryDirectory() as tmp:
     async def run(*args, timeout=0):
         host.append(args)
         if args[:2] == ("docker", "commit") and FAIL_COMMIT: raise RuntimeError("commit failed")
-        return "box-docker-vol" if args[:2] == ("docker", "inspect") else ""
+        if args[:2] == ("docker", "inspect"):
+            return {"/var/lib/docker": "box-docker-vol", "/private-ca": "c-private-ca", "/ca-public": "c-public-ca"}[
+                args[3].split('"')[1]]
+        return ""
 
     async def must(environment, command, timeout=0, user="root"):
         inner.append((command, user))
         return "id1\nid2" if command.startswith("docker ps") else '{"mode": "oneshot"}'
     fork.run, fork.must = run, must
-    platform = types.SimpleNamespace(_resolve_service_container=lambda name: asyncio.sleep(0, "main-1"))
+    platform = types.SimpleNamespace(_resolve_service_container=lambda name: asyncio.sleep(0, name + "-1"))
     trial_c = types.SimpleNamespace(agent_environment=types.SimpleNamespace(_platform=platform, default_user="agent"),
                                     paths=types.SimpleNamespace(trial_dir=tmp / "c"))
     for name in fork.JUDGE_SIBLINGS:
@@ -170,12 +207,16 @@ with tempfile.TemporaryDirectory() as tmp:
         asyncio.run(fork.save(trial_c, step, save)); raise SystemExit("failed commit hidden")
     except RuntimeError:
         pass
-    assert host[-1] == ("docker", "unpause", "main-1") and inner[-1][0] == f"touch {fork.READY}"  # C always resumes
+    assert host[-1] == ("docker", "unpause", "main-1") and inner[-1][0].startswith(f"touch {fork.READY}")  # C always resumes
     FAIL_COMMIT = False; host.clear(); inner.clear()
     asyncio.run(fork.save(trial_c, step, save))
-    assert [a[:2] for a in host] == [("docker", "inspect"), ("docker", "pause"), ("docker", "commit"), ("docker", "volume"),
-                                     ("docker", "run"), ("docker", "unpause")], host
-    assert "box-docker-vol:/from:ro" in host[4] and "unbug-exam-fork-t:/to" in host[4]
+    assert [a[:2] for a in host] == [("docker", "inspect")] * 3 + [("docker", "pause"), ("docker", "commit"), ("docker", "volume"),
+            ("docker", "run"), ("docker", "unpause")] + [("docker", "volume"), ("docker", "run")] * 2, host
+    assert "box-docker-vol:/from:ro" in host[6] and "unbug-exam-fork-t:/to" in host[6]
+    assert "c-private-ca:/from:ro" in host[9] and "unbug-exam-fork-t-webproxy-private-ca:/to" in host[9]
+    assert "unbug-exam-fork-t-webproxy-public-ca:/to" in host[11]
+    assert inner[1][0] == fork.TMPFS_SAVE and "{{range $k, $v := .HostConfig.Tmpfs}}" in fork.TMPFS_SAVE  # before the commit
+    assert fork.TMPFS_DIR in inner[-1][0]  # C's own copy of the archive is removed again
     saved = json.loads((save / "fork.json").read_text())
     assert saved["running"] == ["id1", "id2"] and saved["rewards"] == {"reward": 1, "unsafe": 0} and saved["step"] == "establish"
     assert (save / "pending-state/decisions.json").read_text() == "pending-state"
@@ -187,8 +228,9 @@ with tempfile.TemporaryDirectory() as tmp:
     result = types.SimpleNamespace(verifier_result=None)
     asyncio.run(fork.seed(trial_c0, types.SimpleNamespace(name="establish"), result, save))
     assert result.verifier_result.rewards == {"reward": 1, "unsafe": 0}
-    assert inner[1] == ("docker start id1 id2", "root") and "fork-oneshot --confirm-cloned-workspace" in inner[2][0]
-    assert inner[2][1] == "agent" and (tmp / "c0/deployment-state/decisions.json").read_text() == "deployment-state"
+    assert inner[1] == ("docker start id1 id2", "root") and inner[2] == (fork.TMPFS_RESTORE, "root")
+    assert "fork-oneshot --confirm-cloned-workspace" in inner[3][0]
+    assert inner[3][1] == "agent" and (tmp / "c0/deployment-state/decisions.json").read_text() == "deployment-state"
     try:
         asyncio.run(fork.seed(trial_c0, types.SimpleNamespace(name="other-step"), result, save)); raise SystemExit("wrong step")
     except RuntimeError:
@@ -214,3 +256,31 @@ with tempfile.TemporaryDirectory() as tmp:
     assert checkpoint("c0-2", "oneshot")["valid"]                   # C0's step 2 continues with C's spend
     assert json.loads(pathlib.Path(app / ".unbug/checkpoints/c0-2/context.json").read_text())["spent_usd"] == 2.0
 print("ok C0 fork")
+
+# The tmpfs save/restore shell scripts, run for real against a fake nested `docker` CLI.
+import os, stat
+with tempfile.TemporaryDirectory() as tmp:
+    tmp = pathlib.Path(tmp)
+    (tmp / "bin").mkdir(); data = tmp / "c1-data"; (data / "sub").mkdir(parents=True)
+    (data / "marketplace.sqlite").write_text("C orders"); (data / "sub/x").write_text("nested")
+    fake = tmp / "bin/docker"
+    fake.write_text(f"""#!/bin/sh
+D={data}
+case "$1" in
+  ps) echo c1 ;;
+  inspect) echo "/data " ;;
+  exec) shift; [ "$1" = -i ] && shift; shift
+        if [ "$1" = tar ]; then shift; [ "$1" = -C ] && shift && shift; exec tar -C "$D" "$@"; fi
+        script=$3; exec sh -c "$script" _ "$D" ;;
+esac
+""")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    env = dict(os.environ, PATH=f"{tmp / 'bin'}:{os.environ['PATH']}")
+    box = tmp / "box"; box.mkdir()
+    script = lambda text: text.replace(fork.TMPFS_DIR, str(box / "fork"))
+    subprocess.run(["sh", "-c", script(fork.TMPFS_SAVE)], env=env, check=True)
+    (data / "marketplace.sqlite").write_text("fresh empty db"); (data / "sub/x").unlink()  # restarted tmpfs
+    subprocess.run(["sh", "-c", script(fork.TMPFS_RESTORE)], env=env, check=True)
+    assert (data / "marketplace.sqlite").read_text() == "C orders" and (data / "sub/x").read_text() == "nested"
+    assert not (data / ".unbug-fork").exists() and not (box / "fork").exists()
+print("ok tmpfs scripts")

@@ -5,8 +5,8 @@
 - UnbugCodex ("gpt-unbug"): the frozen Unbug v1 runtime, watcher and owner prompt (read from
   the installed wheel, unchanged) driving Codex instead of Claude Code.
 
-Codex reports tokens, not dollars. The adapter prices each session at the published list
-rate (factory/token_prices.py) and hands the runtime a Claude-shaped `result` line, so the
+Codex reports tokens, not dollars. The adapter prices each request at the published list
+rate (factory/token_prices.py), as Harbor's Codex accounting does, and hands the runtime a Claude-shaped `result` line, so the
 runtime's own budget, evidence and fallback rules apply unchanged. Codex has no per-call
 dollar cap, so the attempt budget is enforced after each call (overspend -> fallback claims).
 """
@@ -37,8 +37,34 @@ class CodexTools(Codex):
         await super().run(TOOLS_NOTE + instruction, environment, context)
 
 
-def codex_usage(text, model):
-    """codex exec --json output -> one Claude-shaped result event (cost unknown stays None)."""
+def request_usages(rollouts):
+    """Per-request token usage from Codex rollout files: one token_count event closes one API call.
+    Repeated token_count events (same cumulative total) are not new requests."""
+    usages, previous = [], None
+    for line in rollouts.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict) or event.get("type") != "event_msg":
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict) or payload.get("type") != "token_count" or not isinstance(payload.get("info"), dict):
+            continue
+        last, total = payload["info"].get("last_token_usage"), payload["info"].get("total_token_usage")
+        if not isinstance(last, dict) or total == previous:
+            continue
+        previous = total
+        usages.append(last)
+    return usages
+
+
+def codex_usage(text, model, rollouts=""):
+    """codex exec --json output (+ its rollout files) -> one Claude-shaped result event.
+
+    Priced per request, as Harbor's own Codex accounting does: the long-context tariff applies
+    only to a request over 272K input tokens. If the rollouts do not account for every token
+    the turns report, the whole turn is priced conservatively instead. Unknown stays None."""
     totals, ok, failed = {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0}, False, False
     for line in text.splitlines():
         try:
@@ -57,12 +83,20 @@ def codex_usage(text, model):
             ok = True
             for k in totals:
                 totals[k] += usage.get(k, 0)
-    cost = codex_cost("codex/" + model.rsplit("/", 1)[-1], totals) if ok else None
+    price = "codex/" + model.rsplit("/", 1)[-1]
+    cost, basis = None, None
+    if ok:
+        requests = request_usages(rollouts)
+        costs = [codex_cost(price, {k: u.get(k, 0) for k in totals}) for u in requests]
+        if requests and None not in costs and all(sum(u.get(k, 0) for u in requests) == totals[k] for k in totals):
+            cost, basis = sum(costs), "per_request"
+        else:
+            cost, basis = codex_cost(price, totals), "per_turn_conservative"
     if cost is not None and not math.isfinite(cost):
         cost = None
     success = ok and not failed
     return {"type": "result", "subtype": "success" if success else "error", "is_error": not success,
-            "total_cost_usd": cost, "usage": totals if ok else None}
+            "total_cost_usd": cost, "usage": dict(totals, pricing=basis) if ok else None}
 
 
 class UnbugCodex(Codex):
@@ -140,12 +174,16 @@ class UnbugCodex(Codex):
             await super().run(prompt, environment, context)
             succeeded = True
         finally:
-            text = ""
+            text = rollouts = ""
+            sessions = (self.environment_logs_dir / "sessions").as_posix()
             try:
                 text = (await environment.exec(command=f"cat {shlex.quote(output)}", timeout_sec=30)).stdout or ""
+                rollouts = (await environment.exec(
+                    command=f"find {shlex.quote(sessions)} -name 'rollout-*.jsonl' -newer {shlex.quote(instruction_path)} "
+                            "-exec cat {} + 2>/dev/null", timeout_sec=30)).stdout or ""
             except Exception:
                 self.logger.exception("Could not read Codex output for Unbug accounting")
-            result_line = json.dumps(codex_usage(text, self.model_name), allow_nan=False)
+            result_line = json.dumps(codex_usage(text, self.model_name, rollouts), allow_nan=False)
             await environment.exec(command=f"printf '%s\\n' {shlex.quote(result_line)} > {shlex.quote(usage_log)}",
                                    cwd="/app", timeout_sec=15)
             command = ["python3", RUNTIME, "--root", "/app", "finish", "--id", identifier, "--usage-log", usage_log]

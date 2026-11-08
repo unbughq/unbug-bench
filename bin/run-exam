@@ -68,15 +68,25 @@ def fork_task(task, image, destination):
     return destination
 
 
+FORK_VOLUMES = ("box-docker", "webproxy-private-ca", "webproxy-public-ca")  # harbor/phase2/fork.py
+
+
+def fork_volume(volume, name):
+    return volume if name == "box-docker" else f"{volume}-{name}"
+
+
 def fork_overlay(volume, path):
-    path.write_text(json.dumps({"volumes": {"box-docker": {"external": True, "name": volume}}}) + "\n")
+    """C0 mounts C's nested Docker data and C's audit-proxy CA (same .env, same fingerprint)."""
+    path.write_text(json.dumps({"volumes": {n: {"external": True, "name": fork_volume(volume, n)}
+                                            for n in FORK_VOLUMES}}) + "\n")
     return path
 
 
 def drop_fork(fork, log):
     spec = jload(fork / "request.json") or {}
     if spec.get("image"): sh(["docker", "image", "rm", "-f", spec["image"]], log)
-    if spec.get("volume"): sh(["docker", "volume", "rm", "-f", spec["volume"]], log)
+    for name in FORK_VOLUMES if spec.get("volume") else ():
+        sh(["docker", "volume", "rm", "-f", fork_volume(spec["volume"], name)], log)
     shred(fork)
 
 
@@ -207,11 +217,21 @@ def trial_card(arm, trial):
             "human_minutes": sum((s.get("human_minutes") or {}).get("total", 0) for s in steps)}
 
 
+def fork_failed(arm, try_number, raw_sha256=None, error="ForkFailed"):
+    """An unpaired or failed C0 clone is infrastructure, never a scored C0 (exam-round retries the pair)."""
+    return {"arm": arm, "try": try_number, "raw_sha256": raw_sha256, "steps": [], "human_minutes": None,
+            "error": error, "infrastructure_failure": "c0_fork_failed"}
+
+
 def pair_card(summary, card, try_number):
-    """C0's step 1 IS C's step 1: copy C's row so the pair shares one first session."""
+    """C0's step 1 IS C's step 1: copy C's row so the pair shares one first session.
+    The copy is made only if C0's own seeding (restart, restore, fork-oneshot) succeeded."""
     source = next((t for t in card["trials"] if t["arm"] == "C" and t["try"] == try_number), None)
-    if not source or not source.get("steps") or not summary.get("steps"):
-        raise RuntimeError("C0 pairing needs C's scored first step")
+    steps = summary.get("steps") or []
+    if (not source or not source.get("steps") or source.get("error") or len(steps) < 2
+            or steps[0].get("error") or summary.get("error")):
+        return fork_failed("C0", try_number, summary.get("raw_sha256"),
+                           (steps[0].get("error") if steps else None) or summary.get("error") or "ForkFailed")
     first = dict(source["steps"][0], shared_with="C")
     # C0's own responder log starts empty, so its later steps already count only C0's questions.
     steps = [first, *summary["steps"][1:]]
@@ -404,8 +424,9 @@ def main():
             if arm == "C0":
                 fork = priv / "fork" / str(try_number)
                 saved = jload(fork / "fork.json")
-                if not saved:
-                    raise RuntimeError("C0 has no snapshot of C's first session; the pair is not scored")
+                if not saved:  # C's snapshot failed (fork/error.txt): record, keep examining other arms
+                    card["trials"].append({**fork_failed("C0", try_number, error="ForkUnavailable"), "meter": {}})
+                    continue
                 env["UNBUG_FORK_FROM"] = str(fork)
                 trial_task = fork_task(task, saved["image"], priv / f"task-C0-{try_number}" / task.name)
                 fork_args = ["--extra-docker-compose", str(fork_overlay(saved["volume"], fork / "volume.yaml"))]
@@ -455,7 +476,8 @@ def main():
                 drop_fork(priv / "fork" / str(try_number), log)
             card["trials"].append({**summary, "try": try_number,
                                    "meter": exam_meter.merge({}, meter),
-                                   "infrastructure_failure": "claude_usage_limit" if usage_limit else None})
+                                   "infrastructure_failure": "claude_usage_limit" if usage_limit
+                                   else summary.get("infrastructure_failure")})
             if usage_limit:
                 break  # collect/delete now; the round runner waits off-VM and reruns the whole trial
     except Exception as error:
