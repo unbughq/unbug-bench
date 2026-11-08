@@ -40,6 +40,7 @@ class Fake:
         self.allowance = 7
         self.in_flight = 0
         self.deleted = []
+        self.rpc_batches, self.per_batch, self.request = [], {}, REQUEST
 
     def boat(self, args, timeout):
         self.calls.append(args)
@@ -52,11 +53,13 @@ class Fake:
         out = {"list": inventory(*self.rows), "usage": self.usage}.get(args[0], b"{}")
         return {"code": 0, "out": out, "stderr": b"", "seconds": 0.1}
 
-    def rpc(self, op):
+    def rpc(self, op, batch=None):
         if self.rpc_failures:
             self.rpc_failures -= 1
             raise ConnectionRefusedError()
-        return {"status": {"cases": self.cases}, "budget": self.money, "publish": {"published": "k"},
+        self.rpc_batches.append((op, batch))
+        cases, money = self.per_batch.get(batch, (self.cases, self.money))
+        return {"status": {"cases": cases}, "budget": money, "publish": {"published": "k"},
                 "in_flight": self.in_flight}[op]
 
     def state(self):
@@ -71,7 +74,7 @@ class Fake:
         self.rows.remove(worker)
 
     def guard(self, **kw):
-        return Guard(REQUEST, self.state_dir / "guard", boat=self.boat, rpc=self.rpc, service=self, ours=lambda r: True,
+        return Guard(self.request, self.state_dir / "guard", boat=self.boat, rpc=self.rpc, service=self, ours=lambda r: True,
                      count=lambda: self.allowance, delete=self.delete, notify=self.sent.append, clock=lambda: self.clock,
                      sleep=lambda s: setattr(self, "clock", self.clock + s), **kw)
 
@@ -88,6 +91,41 @@ class GuardTests(unittest.TestCase):
     def tick(self, seconds=60, **kw):
         self.f.clock += seconds
         return self.f.guard().run(**kw)
+
+    def test_a_campaign_watches_several_batches(self):
+        f = self.f
+        f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "approved_infrastructure_usd": 12}
+        running, done = [{"case": "c1", "status": "running"}], [{"case": "c2", "status": "sealed"}]
+        f.per_batch = {"b-one": (running, {"spent": 1, "bound": 25, "held": 3}),
+                       "b-two": (done, {"spent": 2, "bound": 25, "held": 0})}
+        f.rows = ["bx_aaaaaaaa", "bx_bbbbbbbb"]           # one worker per batch is not a breach
+        out = self.tick()
+        self.assertEqual((out["phase"], out["hard_stop"], out["money_held"]), ("healthy", None, 3))
+        self.assertEqual({b for op, b in f.rpc_batches if op == "status"}, {"b-one", "b-two"})
+        self.assertFalse(out["finished"])                  # one batch still running
+        f.per_batch["b-one"] = (done, {"spent": 1, "bound": 25, "held": 0})
+        out = self.tick()
+        self.assertTrue(out["finished"])                   # every batch terminal: publish each, stop
+        self.assertEqual({b for op, b in f.rpc_batches if op == "publish"}, {"b-one", "b-two"})
+
+    def test_any_watched_batch_over_its_bound_is_a_hard_stop(self):
+        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "approved_infrastructure_usd": 12}
+        self.f.per_batch = {"b-two": (self.f.cases, {"spent": 26, "bound": 25})}
+        self.hard("money_ceiling")
+
+    def test_the_compute_bound_counts_one_wall_per_watched_batch(self):
+        # Two workers live for the whole wall need twice its compute: this request's $10 covers one.
+        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"]}
+        self.hard("compute_bound")
+        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "approved_infrastructure_usd": 12}
+        self.f.calls.clear(); self.f.stopped = 0
+        import shutil; shutil.rmtree(self.f.state_dir / "guard", ignore_errors=True)
+        self.assertEqual(self.tick()["hard_stop"], None)
+
+    def test_more_workers_than_watched_batches_is_a_hard_stop(self):
+        self.f.request = {**REQUEST, "batch_ids": ["b-one", "b-two"], "approved_infrastructure_usd": 12}
+        self.f.rows = ["bx_aaaaaaaa", "bx_bbbbbbbb", "bx_cccccccc"]
+        self.hard("worker_count", workers=("bx_aaaaaaaa", "bx_bbbbbbbb", "bx_cccccccc"))
 
     def test_healthy_pass_renews_the_worker(self):
         out = self.tick()

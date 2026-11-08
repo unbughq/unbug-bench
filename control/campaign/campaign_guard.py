@@ -20,11 +20,11 @@ cli = BoatCli(env={**os.environ, 'HOME': '/home/user', 'XDG_CONFIG_HOME': '/home
 pool = BoatPool(state / 'pool', ReleaseStore(state / 'releases'), config['pool_id'], boat=cli)
 
 
-def rpc(op):
+def rpc(op, batch=None):
     with socket.socket(socket.AF_UNIX) as client:
         client.settimeout(15)
         client.connect(str(state / 'operator.sock'))
-        client.sendall(json.dumps({'op': op, 'batch': request['batch_id']}).encode() + b'\n')
+        client.sendall(json.dumps({'op': op, 'batch': batch or request['batch_id']}).encode() + b'\n')
         with client.makefile('rb') as stream:
             reply = json.loads(stream.readline(1024 * 1024))
     if not reply.get('ok'):

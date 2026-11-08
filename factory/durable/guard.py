@@ -85,6 +85,8 @@ class Guard:
         self.delete, self.checkpoint_grace_s, self.router = delete, checkpoint_grace_s, router
         self.low_credit_usd = low_credit_usd
         self.notify = notify
+        # A campaign watches one batch (batch_id) or several started side by side (batch_ids).
+        self.batches = list(request.get("batch_ids") or [request["batch_id"]])
         self.grace_s, self.escalate_s = grace_s, escalate_s
         self.clock, self.sleep = clock, sleep
         self.failed: list = []
@@ -158,11 +160,14 @@ class Guard:
     def _breach(self, owned: list) -> Optional[str]:
         """A hard stop only on confirmed numbers. An unreadable number is a failed check."""
         r = self.request
-        worker_bound = r["max_worker_rate_usd_per_second"] * (r["wall_seconds"] + r["max_workers_lifetime"] * 7200)
+        # Each watched batch may keep one worker live for the whole wall.
+        worker_bound = r["max_worker_rate_usd_per_second"] * (len(self.batches) * r["wall_seconds"]
+                                                              + r["max_workers_lifetime"] * 7200)
         if (r["prior_compute_retained_usd"] + r["control_allowance_usd"] + worker_bound
                 > r["approved_infrastructure_usd"] - r["cleanup_margin_usd"]):
             return "compute_bound"
-        if len(owned) > 1:
+        # One worker per watched batch (each runs one case at a time).
+        if len(owned) > len(self.batches):
             return "worker_count"
         ok, count = self.check("worker_allowance", self._count)
         if ok and count > r["max_workers_lifetime"]:
@@ -229,9 +234,10 @@ class Guard:
 
     def _controller(self, health: dict) -> Optional[str]:
         def over_ceiling():
-            money = self.rpc("budget")
-            health["money_held"] = money.get("held")
-            return money["spent"] > money["bound"]
+            # Every watched batch keeps its own bound; held money is their sum.
+            moneys = [self.rpc("budget", batch) for batch in self.batches]
+            health["money_held"] = sum(m.get("held") or 0 for m in moneys)
+            return any(m["spent"] > m["bound"] for m in moneys)
         def router_over_ceiling():
             """The router's charges are the real spend, and the ledger has read low."""
             spent, ceiling, *credit = self.router()
@@ -239,12 +245,15 @@ class Guard:
             health["provider_credit_usd"] = round(credit[0], 2) if credit and credit[0] is not None else None
             return spent >= ceiling - ROUTER_MARGIN_USD
         def terminal():
-            report = self.rpc("status")
-            cases = report["cases"]
+            # The campaign is finished only when every watched batch is.
+            reports = [self.rpc("status", batch) for batch in self.batches]
+            cases = [c for report in reports for c in report["cases"]]
             if not all(isinstance(c["case"], str) and isinstance(c["status"], str) for c in cases):
                 raise CheckFailed("status_malformed")
-            self.save("scorecard.json", report)
-            return bool(cases) and all(c["status"] in TERMINAL for c in cases)
+            self.save("scorecard.json", {**reports[0], "cases": cases} if len(reports) == 1 else
+                      {"batches": self.batches, "cases": cases})
+            return all(report["cases"] and all(c["status"] in TERMINAL for c in report["cases"])
+                       for report in reports)
         ok, over = self.check("ledger", over_ceiling)
         if ok and over:
             return "money_ceiling"
@@ -254,7 +263,7 @@ class Guard:
                 return "money_ceiling"
         ok, finished = self.check("controller_status", terminal)
         if ok and finished:
-            done, _ = self.check("publish", lambda: self.rpc("publish"))
+            done, _ = self.check("publish", lambda: [self.rpc("publish", batch) for batch in self.batches])
             if done:
                 health["finished"] = True
                 health["phase"] = "finished"
@@ -269,7 +278,7 @@ class Guard:
             return False
         if self.clock() - health["stopping_since"] >= self.checkpoint_grace_s:
             return False
-        ok, running = self.check("in_flight", lambda: self.rpc("in_flight"))
+        ok, running = self.check("in_flight", lambda: self.rpc("in_flight", self.batches[0]))
         return not ok or running > 0
 
     def _wind_down(self, health: dict, status: dict, active: str) -> dict:

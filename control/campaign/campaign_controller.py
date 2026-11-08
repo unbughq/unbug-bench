@@ -23,7 +23,8 @@ class BoundedRuntime(Runtime):
     if not all(type(v) in (float,int) and math.isfinite(v) and v>=0 for v in values) or values[2]<=0:raise ValueError()
     rate=values[1]/values[2]
     if rate>request['max_worker_rate_usd_per_second']:raise ValueError()
-    worker_bound=request['max_worker_rate_usd_per_second']*(request['wall_seconds']+request['max_workers_lifetime']*7200)
+    batches=len(request.get('batch_ids') or [request['batch_id']])  # one worker per watched batch for the whole wall
+    worker_bound=request['max_worker_rate_usd_per_second']*(batches*request['wall_seconds']+request['max_workers_lifetime']*7200)
     if worker_bound+request['prior_compute_retained_usd']+request['control_allowance_usd']+request['cleanup_margin_usd']>request['approved_infrastructure_usd']:raise ValueError()
     if values[0]>worker_bound or time.time()>=request['deadline_epoch']:raise ValueError()
     _atomic_json(root/'campaign-compute-bound.json',{'worker':worker,'observed_rate_usd_per_second':rate,'joint_worker_bound_usd':worker_bound,'max_creation_attempts':request['max_workers_lifetime'],'deadline_epoch':request['deadline_epoch']})
