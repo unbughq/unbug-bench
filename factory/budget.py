@@ -22,7 +22,7 @@ import tempfile
 import time
 import uuid
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_CEILING
-from token_prices import CODEX_PRICES, codex_cost, claude_cost, claude_standard_usage
+from token_prices import CODEX_PRICES, CODEX_PROFILES, CODEX_USAGE_FIELDS, codex_cost, codex_request_usages, claude_cost, claude_standard_usage
 
 
 class BudgetError(RuntimeError):
@@ -73,6 +73,11 @@ def provider_diagnostic(event):
                 reset_at=first(('resetsAt', 'reset_at', 'resetAt'), lambda v: type(v) in (int, float)),
                 retry_after=first(('retry_after', 'retryAfter'), lambda v: type(v) in (int, float)))
 
+
+# How often a Codex call's own session logs are read for its per-request usage (usage_feed).
+CODEX_FEED_SECONDS = 5
+CODEX_FEED_FAILURES = 3                         # unreadable polls in a row before the call stops
+CODEX_TURN_READS, CODEX_TURN_READ_PAUSE = 3, 0.5  # reads at a turn's end while the log lags its total
 
 # Codex items that end a model response (reasoning items accompany one of these).
 CODEX_STEPS = ('agent_message', 'command_execution', 'file_change', 'mcp_tool_call', 'web_search', 'collab_tool_call')
@@ -841,7 +846,7 @@ def _check_containment(ledger):
 def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True):
+                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None):
     # Preserve the original whole-session lock unless concurrency is explicitly enabled.
     settings = locals()
     _check_containment(ledger_path)
@@ -857,7 +862,7 @@ def run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
 def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                  max_cost=3.0, max_calls=100, max_total_calls=300, driver='opencode',
                  progress_timeout=15 * 60, max_zero_tokens=3, configured_model=None, resume=False, concurrent=False, cancel=None, case_budget=50.0, role=None, invocation_name=None,
-                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, _serial_lock=None, _activity_lock=None, _admission_lock=None):
+                 invocation_id=None, lease_id=None, on_started=None, attempt=None, containment=True, usage_feed=None, _serial_lock=None, _activity_lock=None, _admission_lock=None):
     """Return CompletedProcess, or raise BudgetError without exposing transcript text.
 
     max_calls limits this invocation; max_total_calls and max_cost span roles.
@@ -867,11 +872,17 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     reservation instead, with no cumulative case ceiling.
     Ledger contains usage metadata only. A terminal failure is sticky unless explicitly
     resumed; resuming preserves all costs/calls and archives the previous stop.
+    usage_feed (Codex only) returns the text of Codex's own session logs, or None when it cannot
+    be read: each request is booked as it lands, so a reserved call stops mid-turn at its maximum.
     """
     import processes
     if driver not in ('opencode', 'codex', 'claude'):
         raise ValueError('Unknown driver')
+    if usage_feed is not None and driver != 'codex': raise ValueError('usage_feed is for Codex only')
     reserved = attempt is not None
+    # A Codex route has no gate: only its per-call reservation (check_reservation) caps it, so a call
+    # outside an admitted reservation, or without its live usage, would run uncapped.
+    if configured_model in CODEX_PROFILES and (not reserved or usage_feed is None): raise BudgetError('unbounded_route')
     if ((max_cost is None and not reserved)
             or (reserved and (max_cost is not None or not invocation_id or not lease_id))):
         raise ValueError('attempt budget requires admitted invocation')
@@ -952,6 +963,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
     partial_usage = {}
     count = usages = 0
     session = {'id': '', 'turns': 0}
+    live = {'polled': float('-inf'), 'booked': 0, 'failures': 0, 'unattributed': {k: 0 for k in CODEX_USAGE_FIELDS}}
     process = None
     contained = None
     stopped = False
@@ -1030,12 +1042,12 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
         _save(path, ledger)
         check_limits()
 
-    def subscription_usage(identity, usage, required, list_cost=None, partial=False):
+    def subscription_usage(identity, usage, required, list_cost=None, partial=False, long_context=None, extra=None):
         """Tokens recorded at cost 0, priced 'subscription' (exempt from unpriced_usage)."""
         nonlocal usages
         if not isinstance(usage, dict) or not all(_number(usage.get(k)) for k in required):
             raise BudgetError('missing_usage')
-        estimate = (codex_cost(configured_model, usage) if driver == 'codex' else
+        estimate = (codex_cost(configured_model, usage, long_context) if driver == 'codex' else
                     claude_cost(configured_model, usage) if partial else None)
         if (driver == 'codex' or partial) and estimate is None: raise BudgetError('missing_usage')
         finishes.add(identity)
@@ -1050,6 +1062,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             record.update(invocation_id=invocation, lease_id=lease_id)
             ledger['invocation_reservations'][lease_id]['event_ids'].append(identity)
         if partial: record['estimated_from_partial_usage'] = True
+        if extra: record.update(extra)
         if estimate is not None:
             record['estimated_subscription_cost_usd'] = estimate
             ledger['estimated_subscription_cost_usd'] = ledger.get('estimated_subscription_cost_usd', 0) + estimate
@@ -1057,9 +1070,84 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             record['list_cost_usd'] = list_cost
             ledger['list_cost_usd'] = ledger.get('list_cost_usd', 0) + list_cost
         ledger['events'].append(record)
-        if driver == 'codex': tokens_seen([v for k, v in usage.items() if k.endswith('_tokens') and _number(v)])
+        if driver == 'codex':  # what Codex reported counts, not what is left to book after live requests
+            reported = record.get('turn_usage') or record.get('reported_usage') or usage
+            tokens_seen([v for k, v in reported.items() if k.endswith('_tokens') and _number(v)])
         else: _save(path, ledger)
         check_limits()
+
+    def read_feed(force=False):
+        """Codex's session logs, at most every CODEX_FEED_SECONDS unless forced; None when not due or
+        unreadable. Called outside the ledger lock (the feed may run sudo). CODEX_FEED_FAILURES
+        unreadable polls in a row stop the call: its usage would no longer be capped."""
+        if usage_feed is None: return None
+        now = time.monotonic()
+        if not force and now - live['polled'] < CODEX_FEED_SECONDS: return None
+        live['polled'] = now
+        text = usage_feed()
+        if isinstance(text, str):
+            live['failures'] = 0
+            return text
+        live['failures'] += 1
+        if not force and live['failures'] >= CODEX_FEED_FAILURES: raise BudgetError('missing_usage')
+        return None
+
+    def covers(text, usage):
+        """Whether the log already shows every token the turn reports."""
+        if text is None or not isinstance(usage, dict): return False
+        new = codex_request_usages(text)[live['booked']:]
+        return all(_number(usage.get(k)) and max(0, live['unattributed'][k])
+                   + sum(u.get(k, 0) for u in new if _number(u.get(k, 0))) >= usage[k] for k in CODEX_USAGE_FIELDS)
+
+    def prefetch(line):
+        """Before a turn's end is booked under the ledger lock, read the log outside it, a few times
+        while Codex's log writer lags behind the turn total."""
+        live.pop('prefetched', None)
+        if usage_feed is None or b'turn.completed' not in line: return
+        try: usage = json.loads(line).get('usage')
+        except (ValueError, UnicodeDecodeError, AttributeError): return
+        text = None
+        for attempt_number in range(CODEX_TURN_READS):
+            if attempt_number: time.sleep(CODEX_TURN_READ_PAUSE)
+            text = read_feed(force=True) or text
+            if covers(text, usage): break
+        live['prefetched'] = text
+
+    def book_live(text):
+        """Book each new request from Codex's own report at list price, as it lands. Tokens a turn's
+        end already booked as residual (negative 'unattributed') are not booked again."""
+        if text is None: return
+        for usage in codex_request_usages(text)[live['booked']:]:
+            identity = invocation + ':request-' + str(live['booked'])
+            live['booked'] += 1
+            if not all(type(usage.get(k, 0)) is int and usage.get(k, 0) >= 0 for k in CODEX_USAGE_FIELDS):
+                raise BudgetError('missing_usage')
+            booked = {}
+            for k in CODEX_USAGE_FIELDS:
+                value = usage.get(k, 0)
+                booked[k] = max(0, value + min(0, live['unattributed'][k]))
+                live['unattributed'][k] += value
+            booked['cached_input_tokens'] = min(booked['cached_input_tokens'], booked['input_tokens'])
+            subscription_usage(identity, booked, CODEX_USAGE_FIELDS,
+                               extra={'codex_request': True, 'reported_usage': {k: usage.get(k, 0) for k in CODEX_USAGE_FIELDS}})
+
+    def book_turn(identity, usage):
+        """A turn's end: book only what its live requests did not, at the long-context tariff
+        (those tokens' request sizes are unknown)."""
+        if not isinstance(usage, dict) or not all(type(usage.get(k)) is int and usage[k] >= 0 for k in CODEX_USAGE_FIELDS):
+            raise BudgetError('missing_usage')
+        finishes.add(identity)   # a stop below must not book the whole turn again (book_residual books it)
+        try: book_live(live.pop('prefetched', None))
+        finally: book_residual(identity, usage)
+
+    def book_residual(identity, usage):
+        residual = {}
+        for k in CODEX_USAGE_FIELDS:
+            residual[k] = max(0, usage[k] - max(0, live['unattributed'][k]))
+            live['unattributed'][k] -= usage[k]
+        residual['cached_input_tokens'] = min(residual['cached_input_tokens'], residual['input_tokens'])
+        subscription_usage(identity, residual, CODEX_USAGE_FIELDS, long_context=True,
+                           extra={'turn_usage': {k: usage[k] for k in CODEX_USAGE_FIELDS}})
 
     def consume_codex(event):
         # 'error' events are retry notices ("Reconnecting..."); turn.failed is terminal.
@@ -1078,8 +1166,9 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             # ponytail: exec --json has no per-response usage; parallel tool calls overcount, so limits stop early, never late.
             call()
         elif kind == 'turn.completed':
-            subscription_usage(session['id'] + ':turn-' + str(session['turns']), event.get('usage'),
-                               ('input_tokens', 'cached_input_tokens', 'output_tokens'))
+            identity = session['id'] + ':turn-' + str(session['turns'])
+            if usage_feed is not None: book_turn(identity, event.get('usage'))
+            else: subscription_usage(identity, event.get('usage'), CODEX_USAGE_FIELDS)
 
     def consume_claude(event):
         kind = event.get('type')
@@ -1252,8 +1341,10 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             pending = b''
             tool_cpu = tool_cpu_ticks(process.pid)
             while selector.get_map() or process.poll() is None:
+                feed = read_feed()
                 with transaction():
                     shared_stop()
+                    book_live(feed)
                     check_limits()
                 now = time.monotonic()
                 if driver == 'opencode' and min(now - last_output, now - log_checked) >= min(60, progress_timeout / 2):
@@ -1277,6 +1368,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                     transcript.flush()
                     pending += chunk
                     while b'\n' in pending:
+                        prefetch(pending.split(b'\n', 1)[0])
                         with transaction():
                             shared_stop()
                             seen.update(item["id"] for item in ledger["events"])
@@ -1374,6 +1466,10 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 if not complete:
                     # An unread/malformed tail could contain another unpriced turn.
                     starts.add('unverified-buffered-usage:' + invocation)
+        final_feed = None
+        if usage_feed is not None:
+            try: final_feed = read_feed(force=True)   # outside the ledger lock
+            except Exception: final_feed = None
         with transaction():
             collecting_usage = True
             try:
@@ -1388,9 +1484,15 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                         if not all(claude_standard_usage(v) for v in values): usage['speed'] = 'unknown'
                         subscription_usage(identity, usage, required, partial=True)
                 elif driver == 'codex':
+                    # A stopped call keeps what Codex reported for it, up to its stop.
+                    if usage_feed is not None:
+                        try: book_live(final_feed)
+                        except Exception: starts.add('unverified-live-usage:' + invocation)
                     for identity, usage in partial_usage.items():
-                        if identity not in finishes:
-                            subscription_usage(identity, usage, ('input_tokens', 'cached_input_tokens', 'output_tokens'), partial=True)
+                        if identity in finishes: continue
+                        if usage_feed is not None:   # only what the live requests did not book
+                            finishes.add(identity); book_residual(identity, usage)
+                        else: subscription_usage(identity, usage, CODEX_USAGE_FIELDS, partial=True)
             except BudgetError:
                 pass  # Unknown model or invalid partial usage remains fail-closed below.
             finally:

@@ -719,9 +719,15 @@ def openrouter_environment(lease, env, gate):
 
 
 class FreeCall:
-    """A free route's stand-in for Gate: no proxy, no money to hold. It only carries cancellation."""
+    """A free or Codex route's stand-in for Gate: no proxy, no money to hold. It only carries cancellation."""
     def __init__(self, cancel): self.cancel = cancel
     def is_set(self): return self.cancel is not None and self.cancel.is_set()
+
+
+# A Codex call gets its scratch CODEX_HOME (config.toml without MCP servers, the worker's auth.json) and nothing else.
+CODEX_ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CODEX_HOME', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
+                  'HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'NO_PROXY', 'no_proxy',
+                  'FACTORY_STRATEGY_DIAGNOSTIC', 'FACTORY_STRATEGY_SECONDS', 'FACTORY_STRATEGY_WORKERS')
 
 
 def free_environment(lease, env):
@@ -746,7 +752,7 @@ def free_environment(lease, env):
 @contextmanager
 def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
     import model_router
-    from token_prices import FREE_ROUTES
+    from token_prices import CODEX_PROFILES, FREE_ROUTES
     if lease.route in FREE_ROUTES:
         # $0 maximum: any booked cost stops the call (budget.check_reservation), and so does a step
         # from any other provider or model (budget.py). A walled role can reach only a gate's port, so
@@ -759,6 +765,19 @@ def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
         clean = free_environment(lease, env)
         env.clear(); env.update(clean)
         yield FreeCall(cancel)
+        return
+    if lease.route in CODEX_PROFILES:
+        # No gate: Codex's own per-request usage is booked live at list price (budget.py usage_feed) and
+        # the reservation check stops the call once it passes the lease maximum. That stop is this
+        # call's cap, as the gate's exhaustion is Claude's. Codex's tools stay off (model_runtime CODEX_OFF).
+        if not model_router.valid_maximum(lease) or lease.max_usd <= 0: raise BudgetError('unbounded_route')
+        if not env.get('CODEX_HOME'): raise BudgetError('route_feature_unsupported')
+        clean = {k: env[k] for k in CODEX_ENV_KEYS if k in env}
+        env.clear(); env.update(clean)
+        try: yield FreeCall(cancel)
+        except BudgetError as error:
+            if str(error) == 'usage_reservation_exceeded': raise BudgetError('model_call_cap') from error
+            raise
         return
     if (lease.route not in CLAUDE_PROFILES and lease.route not in GATED_OPENROUTER) or not model_router.valid_maximum(lease):
         raise BudgetError('unbounded_route')

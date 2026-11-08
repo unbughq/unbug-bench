@@ -103,7 +103,7 @@ class MaximaTests(unittest.TestCase):
         self.assertEqual(Decimal(state.snapshot()['held_usd']), Decimal('9.520896'))
         self.assertIsNone(state.reserve(0))
 
-    def test_codex_batch_call_currently_waits_unbounded(self):
+    def test_codex_batch_call_is_bounded_and_waits_for_its_credential(self):
         # Real attempt grant, runtime and router; no CLI/provider call.
         deadline = float(int(time.time()) + 3600)
         channel = dict(schema=1, batch='synthetic', job='job', case='case-synthetic',
@@ -126,14 +126,16 @@ class MaximaTests(unittest.TestCase):
              patch.object(model_runtime.ModelRuntime, '_invoke') as invoke:
             with self.assertRaises(router.ProviderWait) as caught:
                 runtime.call(c, [model], 'synthetic', self.root, 'strong-calibrator-1')
-        self.assertEqual(caught.exception.wait.reason, 'unbounded_route')
+        # The route has a maximum now (CODEX_PROFILES); without codex-auth.json it waits on the credential.
+        self.assertEqual(caught.exception.wait.reason, 'credential_expiring')
         invoke.assert_not_called()
         self.assertEqual(store.rpc('status', {})['leases'], [])
 
     def test_real_routes_fail_closed_except_exact_qualified_profiles(self):
         store = router.Store(self.root/'router.sqlite')
         from token_prices import GATED_OPENROUTER
-        qualified = {*CLAUDE_PROFILES, *GATED_OPENROUTER,
+        from token_prices import CODEX_PROFILES
+        qualified = {*CLAUDE_PROFILES, *GATED_OPENROUTER, *CODEX_PROFILES,
                      'opencode/deepseek-v4.1-flash-free', 'opencode-go/mimo-v2.6-pro'}
         models = {r for c in router.CHAINS for r in c} | {'codex/gpt-6.1-sol', 'claude/unknown', 'unknown/model'}
         models |= {*CLAUDE_PROFILES, GATED_CLAUDE + ':large'}
@@ -160,6 +162,10 @@ class MaximaTests(unittest.TestCase):
                                       int(cap * (40000 if actual.route.startswith(GATED_CLAUDE45) else 50000))))
                 elif actual.route in FREE_ROUTES:
                     self.assertEqual(actual.max_usd, 0.0)        # free: nothing held, any booked cost stops it
+                elif actual.route in CODEX_PROFILES:
+                    # $50 at the long-context list tariff ($4/M input, $15/M output)
+                    self.assertEqual((actual.max_usd, actual.max_input_tokens, actual.max_output_tokens),
+                                     (50.0, 12_500_000, 3_333_333))
                 else:
                     self.assertIn(actual.route, GATED_OPENROUTER)
                 store.rpc('finish',dict(lease_id=actual.lease_id,outcome='denied',receipt=None))
