@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-10-29",
-  "source": "local ~/.ascii/bin/boat --version (no update)",
-  "version": "boat 1.0.85"
+  "captured_at": "2026-11-08",
+  "source": "control VM boat --version (no update), after it self-updated",
+  "version": "boat 1.0.96"
 }
