@@ -136,11 +136,11 @@ class AdmitTests(unittest.TestCase):
         elif name == "reviewer-idea-realism":
             target = text.split('Write JSON to ')[1].split(': {')[0]
             pathlib.Path(target).write_text(json.dumps({"approve": True, "reason": "plausible"}))
-        elif name == "second-opinion-dedup":
+        elif name.endswith("-second-opinion-dedup"):
             self.second_judges.append(models[0])
             target = json.loads(text.rsplit("\n", 1)[-1])["result_path"]
             pathlib.Path(target).write_text(json.dumps({"same_bug": self.second_agrees, "reason": "checked"}))
-        elif name == "second-opinion-idea-realism":
+        elif name.endswith("-second-opinion-idea-realism"):
             self.second_judges.append(models[0])
             target = text.split('Write JSON to ')[1].split(': {')[0]
             pathlib.Path(target).write_text(json.dumps({"approve": not self.second_agrees, "reason": "checked"}))
@@ -497,11 +497,44 @@ class AdmitTests(unittest.TestCase):
                                     "easy_calibrator": ["openrouter/z-ai/glm-5.3-flash"]})
         with self.assertRaises(ValueError):
             run.second_opinion_chain(c, c.models["easy_calibrator"], (("reviewers", 0), ("attacker", None)))
-        # A free route is preferred among eligible judges.
+        # A free route is preferred among eligible judges, and its invocation names its own role.
         c.models["reviewers"] = [["openrouter/xiaomi/mimo-v2.6-pro"]]
         c.models["attacker"] = ["opencode/deepseek-v4.1-flash-free"]
         self.assertEqual(run.second_opinion_chain(c, c.models["easy_calibrator"], (("reviewers", 0), ("attacker", None))),
-                         ["opencode/deepseek-v4.1-flash-free"])
+                         ("attacker", ["opencode/deepseek-v4.1-flash-free"]))
+
+    def test_second_opinion_passes_the_runtime_role_family_check(self):
+        """The real ModelRuntime._call binds an invocation to its role's pinned family; each second
+        judge's label must map to the role whose model it uses (review of #48)."""
+        import copy
+        import model_runtime
+        from budget import invocation_role
+        models = {"builder": ["openrouter/minimax/minimax-m3.1-flash"], "attacker": ["opencode/deepseek-v4.1-flash-free"],
+                  "reviewers": [["openrouter/xiaomi/mimo-v2.6-pro"], ["codex/gpt-6.1-sol"]],
+                  "easy_calibrator": ["openrouter/z-ai/glm-5.3-flash"]}
+        roles = {"writer": models["builder"][0], "stress_tester": models["attacker"][0],
+                 "reviewer": models["reviewers"][0][0], "reviewer2": models["reviewers"][1][0],
+                 "easy_calibrator": models["easy_calibrator"][0]}
+        runtime = model_runtime.ModelRuntime(pathlib.Path(self.home), None, None, None, None)
+        class Dispatched(Exception):
+            pass
+        cases = [(models["easy_calibrator"], (("reviewers", 0), ("attacker", None)), "-second-opinion-dedup", "stress_tester"),
+                 (models["reviewers"][0], (("reviewers", 1), ("easy_calibrator", None)), "-second-opinion-idea-realism", "reviewer2")]
+        for first, order, suffix, role in cases:
+            for drop in (False, True):
+                with self.subTest(suffix=suffix, fallback=drop):
+                    chosen = dict(models)
+                    if drop:   # the fallback judge (easy calibrator for realism, reviewer for dedup)
+                        chosen = {**models, "reviewers": models["reviewers"][:1]} if role == "reviewer2" else \
+                                 {**models, "attacker": ["openrouter/minimax/minimax-m3"]}
+                    c = SimpleNamespace(models=chosen, card={"roles": {k: {"model": v} for k, v in roles.items()}})
+                    prefix, chain = run.second_opinion_chain(c, first, order)
+                    label = prefix + suffix
+                    self.assertEqual(model_runtime.family(roles[invocation_role(label)]), model_runtime.family(chain[0]))
+                    # Real boundary: the family check passes, so the call reaches dispatch.
+                    with patch.object(model_runtime.copy, "copy", side_effect=Dispatched):
+                        with self.assertRaises(Dispatched):
+                            runtime._call(c, chain, "text", self.home, label)
 
     def test_board_dedup_records_only_groups_and_never_changes_the_board(self):
         from dataclasses import replace

@@ -702,22 +702,32 @@ def _free(chain):
     return chain[0] in FREE_ROUTES
 
 
+# The invocation prefix that budget.invocation_role maps back to each role, so the runtime checks
+# (and accounts) a second opinion against the role whose model it uses.
+_SECOND_PREFIX = {("reviewers", 0): "reviewer", ("reviewers", 1): "reviewer-2",
+                  ("attacker", None): "attacker", ("easy_calibrator", None): "easy-calibrator"}
+
+
 def second_opinion_chain(c, first, roles):
-    """The second judge for an admission rejection: the first listed role whose family is neither
-    the writer's nor the first judge's (a free route first). None qualifying is refused up front."""
+    """(invocation prefix, chain) of the second judge for an admission rejection: the first listed
+    role whose family is neither the writer's nor the first judge's (a free route first). None
+    qualifying is refused up front."""
     excluded = {family(c.models["builder"][0]), family(first[0])}
-    chains = [chain for role, index in roles
-              for chain in ([c.models[role][index]] if index is not None and len(c.models.get(role) or []) > index
-                            else [c.models[role]] if index is None and c.models.get(role) else [])]
-    eligible = [chain for chain in chains if family(chain[0]) not in excluded]
-    if not eligible:
+    chains = []
+    for role, index in roles:
+        value = c.models.get(role) or []
+        chain = (value[index] if len(value) > index else None) if index is not None else (value or None)
+        if chain and family(chain[0]) not in excluded:
+            chains.append((_SECOND_PREFIX[(role, index)], chain))
+    if not chains:
         raise ValueError("Admission second opinion needs a family other than the writer's and the first judge's")
-    return sorted(eligible, key=lambda chain: not _free(chain))[0]
+    return sorted(chains, key=lambda pair: not _free(pair[1]))[0]
 
 
 def _second_answer(c, chain, label, text, out, identity, schema, valid):
     if under_engine(c):
-        return retained_answer(c, chain, text, out.parent, label, out, identity, label, schema, valid)
+        return retained_answer(c, chain, text, out.parent, label, out, identity, "second_" + label.split("second-opinion-")[1].replace("-", "_"),
+                               schema, valid)
     if model_call(c, chain, text, out.parent, label):
         raise BudgetError("admission_second_opinion_unavailable")
     return jload(out, {})
@@ -725,7 +735,7 @@ def _second_answer(c, chain, label, text, out, identity, schema, valid):
 
 def dedup_second_opinion(c, statement, duplicate_of, prior):
     """True when a second family agrees the candidate is the same bug as `duplicate_of`."""
-    chain = second_opinion_chain(c, c.models["easy_calibrator"], (("reviewers", 0), ("attacker", None)))
+    prefix, chain = second_opinion_chain(c, c.models["easy_calibrator"], (("reviewers", 0), ("attacker", None)))
     binding = {"statement_sha256": c.card["statement_sha256"], "duplicate_of": duplicate_of,
                "earlier_sha256": hashlib.sha256(pathlib.Path(prior[duplicate_of]).read_bytes()).hexdigest(),
                "judge": chain}
@@ -744,7 +754,7 @@ def dedup_second_opinion(c, statement, duplicate_of, prior):
                 json.dumps({"candidate_path": str(statement), "earlier_path": prior[duplicate_of], "result_path": str(out)}))
         valid = lambda v: (isinstance(v, dict) and type(v.get("same_bug")) is bool and
                            isinstance(v.get("reason"), str) and bool(v["reason"].strip()))
-        verdict = _second_answer(c, chain, "second-opinion-dedup", text, out,
+        verdict = _second_answer(c, chain, prefix + "-second-opinion-dedup", text, out,
                                  {"statement": c.statement, "earlier": pathlib.Path(prior[duplicate_of]).read_text(),
                                   "contract": "dedup-second-v1"}, "{same_bug: boolean, reason: nonempty string}", valid)
         if not valid(verdict):
@@ -760,7 +770,7 @@ def realism_second_opinion(c):
     meet the case cold), except the easy calibrator, which the dedup screen already shows every
     statement; a second reviewer (reviewer2) comes first."""
     first = c.models["reviewers"][0]
-    chain = second_opinion_chain(c, first, (("reviewers", 1), ("easy_calibrator", None)))
+    prefix, chain = second_opinion_chain(c, first, (("reviewers", 1), ("easy_calibrator", None)))
     if family(chain[0]) == family(c.models["attacker"][0]):
         raise ValueError("Idea realism second opinion must be independent")
     binding = {"statement_sha256": c.card["statement_sha256"], "reviewer": chain}
@@ -782,7 +792,7 @@ def realism_second_opinion(c):
                 ': {"approve": true | false, "reason": "specific short rationale"}.')
         valid = lambda v: (isinstance(v, dict) and type(v.get("approve")) is bool and
                            isinstance(v.get("reason"), str) and bool(v["reason"].strip()))
-        verdict = _second_answer(c, chain, "second-opinion-idea-realism", text, out,
+        verdict = _second_answer(c, chain, prefix + "-second-opinion-idea-realism", text, out,
                                  {"statement": c.statement, "contract": "idea-realism-second-v1"},
                                  "{approve: boolean, reason: nonempty string}", valid)
         if not valid(verdict):

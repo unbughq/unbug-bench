@@ -66,7 +66,7 @@ class AdmissionTests(unittest.TestCase):
                 def compare(ctx, models, text, cwd, name):
                     if mode == "unavailable": raise run.BudgetError("synthetic unavailable")
                     request = json.loads(text.split("\n", 1)[1])
-                    if name == "second-opinion-dedup":   # a second family confirms the duplicate
+                    if name.endswith("-second-opinion-dedup"):   # a second family confirms the duplicate
                         self.assertNotIn(models[0].split("/")[0], ("claude", "glm"))
                         pathlib.Path(request["result_path"]).write_text(json.dumps({"same_bug": True, "reason": "same"}))
                         return 0
