@@ -105,7 +105,7 @@ boat scp "$archive" "$id:/home/user/$case_id.tar.gz.age" >/dev/null
 boat scp "$card" "$id:/home/user/$case_id.scorecard.json" >/dev/null
 boat ssh "$id" "rm -rf ~/unbug-bench && mkdir ~/unbug-bench && tar -xzf ~/bench.tgz -C ~/unbug-bench && rm ~/bench.tgz" >/dev/null
 # Real keys, not boat's paid relay: files on the VM, mounted only into keyswap / the responder.
-claude_secret=${EXAM_CLAUDE_SECRET:-claude-token}
+claude_secret=${EXAM_CLAUDE_SECRET:-claude-token-2}  # the exam's own account; claude-token is the factory's fallback
 case $claude_secret in claude-token|claude-token-2) ;; *) echo "invalid Claude account key" >&2; exit 1 ;; esac
 printf '%s' "$secrets_b64" | "$root/bin/push-secrets" "$id" ${EXAM_SECRETS:-$claude_secret codex-auth.json openrouter-key opencode-go-key}
 # Trial wiring always expects claude-token, regardless of the case's pinned account.

@@ -198,7 +198,7 @@ def main():
         assert calls.read_text() == original, 'resume repeated finished work'
         assert [c['account'] for c in json.loads(manifest_path.read_text())['cases']] == [c['account'] for c in state['cases']]
         # The full assignment exists before the very first launcher is started.
-        fake.write_text(FAKE.replace("assert sys.stdin.buffer.read()", "assert json.loads(pathlib.Path(os.environ['MANIFEST']).read_text())['cases'][0]['account'] == 'claude-token'\nassert sys.stdin.buffer.read()"))
+        fake.write_text(FAKE.replace("assert sys.stdin.buffer.read()", "assert json.loads(pathlib.Path(os.environ['MANIFEST']).read_text())['cases'][0]['account'] == 'claude-token-2'\nassert sys.stdin.buffer.read()"))
         one = root / 'limits.json'
         one.write_text(json.dumps({'arms':['A'], 'tries':1, 'cases':cases[:1]}))
         command[1] = str(one)
@@ -211,7 +211,7 @@ def main():
         assert trial['status'] == 'missing' and trial['limit_failures'] == 3
         assert len(trial['attempts']) == 3 and all(a['outcome'] == 'claude_usage_limit' for a in trial['attempts'])
         starts = [json.loads(line) for line in calls.read_text().splitlines()][before:]
-        assert len(starts) == 3 and all(c['account'] == 'claude-token' and c['trials'] == ['A:1'] for c in starts)
+        assert len(starts) == 3 and all(c['account'] == 'claude-token-2' and c['trials'] == ['A:1'] for c in starts)
         assert all(b['at'] - a['at'] >= .4 for a,b in zip(starts, starts[1:])), starts
         run(1)
         assert len(calls.read_text().splitlines()) == before + 3, 'missing trial restarted'

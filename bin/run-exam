@@ -30,16 +30,64 @@ CLAUDE = ["-m", CLAUDE_MODEL, "--ak", f"version={CLAUDE_CODE_VERSION}", "--ak", 
 UNBUG_WHEEL = next((BENCH / "contestants/unbug_v1").glob("*.whl"), None)
 UNBUG = [*CLAUDE, "--ak", "allow_paid_runs=true", "--ak", "attempt_budget_usd=150", "--ak", "max_budget_usd=150",
          "--artifact", "/app/.unbug"]
-ARMS = {  # arm -> (harbor agent, extra harbor args)
+CODEX = ["-m", codex.MODEL, "--ak", f"version={codex.CLI_VERSION}", "--ak", "reasoning_effort=high"]
+ARMS = {  # arm -> (harbor agent, extra harbor args); EXAM.md section 7
     "A": ("claude-code", CLAUDE),
-    "B": ("arm_b:ArmB", CLAUDE),
+    "B": ("arm_b:ArmB", CLAUDE),  # Claude Code + strong testing tools (headline baseline)
     "C": ("unbug.agent:UnbugAgent", UNBUG),
-    # ponytail: C0 runs its own first session (unpaired); paired C0 needs C's environment cloned after step 1.
-    "C0": ("unbug.agent:OneShotAgent", UNBUG),
-    "gpt": ("codex", ["-m", codex.MODEL, "--ak", f"version={codex.CLI_VERSION}", "--ak", "reasoning_effort=high"]),
+    "C0": ("unbug.agent:OneShotAgent", UNBUG),  # continues C's own first session (PAIRED)
+    "gpt": ("codex", CODEX),
+    "gpt-tools": ("codex_arms:CodexTools", CODEX),  # Codex + arm B's tools
+    "gpt-unbug": ("codex_arms:UnbugCodex", [*CODEX, "--ak", "allow_paid_runs=true", "--ak", "attempt_budget_usd=150",
+                                            "--artifact", "/app/.unbug"]),
     "oracle": ("oracle", []),
     "nop": ("nop", []),
 }
+CODEX_ARMS = {"gpt", "gpt-tools", "gpt-unbug"}
+UNBUG_ARMS = {"C", "C0", "gpt-unbug"}  # need the frozen Unbug wheel's Harbor venv
+
+
+def paired_order(selected):
+    """C0:n continues C:n's first session, so C:n must run first in the same exam."""
+    for arm, n in selected:
+        if arm == "C0" and ("C", n) not in selected:
+            raise ValueError("C0 try %d needs C try %d in the same exam" % (n, n))
+    return sorted(selected, key=lambda t: (t[1] if t[0] in ("C", "C0") else 0, t[0] == "C0"))
+
+
+def fork_task(task, image, destination):
+    """C0's task copy: the main image is C's committed snapshot."""
+    shutil.copytree(task, destination, symlinks=True)
+    path = destination / "task.toml"
+    cfg = tomllib.loads(path.read_text())
+    old = cfg["environment"]["docker_image"]
+    text = path.read_text()
+    if text.count(f'docker_image = "{old}"') != 1:
+        raise RuntimeError("cannot retarget the C0 task image")
+    path.write_text(text.replace(f'docker_image = "{old}"', f'docker_image = "{image}"'))
+    return destination
+
+
+FORK_VOLUMES = ("box-docker", "webproxy-private-ca", "webproxy-public-ca")  # harbor/phase2/fork.py
+
+
+def fork_volume(volume, name):
+    return volume if name == "box-docker" else f"{volume}-{name}"
+
+
+def fork_overlay(volume, path):
+    """C0 mounts C's nested Docker data and C's audit-proxy CA (same .env, same fingerprint)."""
+    path.write_text(json.dumps({"volumes": {n: {"external": True, "name": fork_volume(volume, n)}
+                                            for n in FORK_VOLUMES}}) + "\n")
+    return path
+
+
+def drop_fork(fork, log):
+    spec = jload(fork / "request.json") or {}
+    if spec.get("image"): sh(["docker", "image", "rm", "-f", spec["image"]], log)
+    for name in FORK_VOLUMES if spec.get("volume") else ():
+        sh(["docker", "volume", "rm", "-f", fork_volume(spec["volume"], name)], log)
+    shred(fork)
 
 
 def sh(cmd, log, **kw):
@@ -169,6 +217,31 @@ def trial_card(arm, trial):
             "human_minutes": sum((s.get("human_minutes") or {}).get("total", 0) for s in steps)}
 
 
+def fork_failed(arm, try_number, raw_sha256=None, error="ForkFailed"):
+    """An unpaired or failed C0 clone is infrastructure, never a scored C0 (exam-round retries the pair)."""
+    return {"arm": arm, "try": try_number, "raw_sha256": raw_sha256, "steps": [], "human_minutes": None,
+            "error": error, "infrastructure_failure": "c0_fork_failed"}
+
+
+def pair_card(summary, card, try_number):
+    """C0's step 1 IS C's step 1: copy C's row so the pair shares one first session.
+    The copy is made only if C0's own seeding (restart, restore, fork-oneshot) succeeded."""
+    source = next((t for t in card["trials"] if t["arm"] == "C" and t["try"] == try_number), None)
+    steps = summary.get("steps") or []
+    if (not source or not source.get("steps") or source.get("error") or len(steps) < 2
+            or steps[0].get("error") or summary.get("error")):
+        return fork_failed("C0", try_number, summary.get("raw_sha256"),
+                           (steps[0].get("error") if steps else None) or summary.get("error") or "ForkFailed")
+    first = dict(source["steps"][0], shared_with="C")
+    # C0's own responder log starts empty, so its later steps already count only C0's questions.
+    steps = [first, *summary["steps"][1:]]
+    return {**summary, "steps": steps, "paired_with": {"arm": "C", "try": try_number, "raw_sha256": source["raw_sha256"]},
+            "human_minutes": sum((s.get("human_minutes") or {}).get("total", 0) for s in steps),
+            "unannounced": {'steps': sum(s.get('unannounced', False) for s in steps),
+                            'unsafe': sum(bool(s.get('unsafe')) for s in steps if s.get('unannounced')),
+                            'human_minutes': sum((s.get('human_minutes') or {}).get('total', 0) for s in steps if s.get('unannounced'))}}
+
+
 def card_text(card):
     out = [f"{card['exam']}  case {card['case']}  sha256 ok: {card.get('case_sha256_matches', False)}"]
     for t in card.get("trials", []):
@@ -286,6 +359,10 @@ def main():
                 raise ValueError()
         except (ValueError, IndexError):
             p.error('--trial must be a unique requested ARM:TRY')
+    try:
+        selected = paired_order(selected)
+    except ValueError as error:
+        p.error(str(error))
     if sys.platform != "linux": p.error("runs on the scoring VM only (bin/exam-launch), never on the Mac")
     case_id = a.archive.name.removesuffix(".tar.gz.age")
     exam = f"{case_id}.exam-{datetime.datetime.now(datetime.timezone.utc):%Y%m%dT%H%M%SZ}-{secrets.token_hex(2)}"
@@ -337,7 +414,23 @@ def main():
             env = dict(os.environ, TMPDIR=str(priv), PYTHONPATH=str(BENCH / "contestants"))
             harbor_args = ["-k", "1", "-n", "1", *extra]
             harbor = shutil.which("harbor") or str(pathlib.Path.home() / ".local/bin/harbor")
-            if arm == "gpt":
+            env.pop("UNBUG_FORK_SAVE", None); env.pop("UNBUG_FORK_FROM", None)
+            fork_args, trial_task = [], task
+            if arm == "C" and ("C0", try_number) in selected:
+                fork = priv / "fork" / str(try_number); fork.mkdir(parents=True)
+                tag = secrets.token_hex(6)
+                (fork / "request.json").write_text(json.dumps({"image": f"unbug-exam-fork:{tag}", "volume": f"unbug-exam-fork-{tag}"}))
+                env["UNBUG_FORK_SAVE"] = str(fork)
+            if arm == "C0":
+                fork = priv / "fork" / str(try_number)
+                saved = jload(fork / "fork.json")
+                if not saved:  # C's snapshot failed (fork/error.txt): record, keep examining other arms
+                    card["trials"].append({**fork_failed("C0", try_number, error="ForkUnavailable"), "meter": {}})
+                    continue
+                env["UNBUG_FORK_FROM"] = str(fork)
+                trial_task = fork_task(task, saved["image"], priv / f"task-C0-{try_number}" / task.name)
+                fork_args = ["--extra-docker-compose", str(fork_overlay(saved["volume"], fork / "volume.yaml"))]
+            if arm in CODEX_ARMS:
                 env = {k: v for k, v in env.items() if not k.startswith(("OPENAI_", "AZURE_OPENAI_", "CODEX_", "LITELLM_"))}
                 env["KEYSWAP_CODEX_AUTH_FILE"] = str(a.codex_auth.resolve())
                 (priv / "keyswap-codex.toml").write_text(KEYSWAP_CODEX)
@@ -347,7 +440,7 @@ def main():
                 env = {k: v for k, v in env.items() if not k.startswith(("ANTHROPIC_", "CLAUDE_"))}
                 harbor_args += ["--ae", "CLAUDE_CODE_OAUTH_TOKEN=keyswap-placeholder",
                                 "--ae", "ANTHROPIC_BASE_URL=http://keyswap:8090/anthropic"]  # CLAUDE_FORCE_OAUTH: compose env only (see run-audited)
-            if arm in ("C", "C0"):
+            if arm in UNBUG_ARMS:
                 harbor = unbug_harbor(log)
             if cpus and (os.cpu_count() or cpus) < cpus: harbor_args += ["--override-cpus", str(os.cpu_count())]
             if a.runs: harbor_args += ["--ve", f"UNBUG_RUNS={a.runs}"]
@@ -357,8 +450,8 @@ def main():
             with docker_owner_server(owner, runner, workspace) as relay:
                 env.update(relay)
                 result = sh([sys.executable, str(BENCH / "harbor/run-audited.py"), "--agent", agent, "--job-name", job_name, "--harbor", harbor,
-                    "--task", str(task), "--jobs-dir", str(priv / "jobs"), "--answerer", a.answerer, *sheet,
-                    "--", *harbor_args], logs / f"harbor-{job_name}.log", env=env)
+                    "--task", str(trial_task), "--jobs-dir", str(priv / "jobs"), "--answerer", a.answerer, *sheet,
+                    "--", *harbor_args, *fork_args], logs / f"harbor-{job_name}.log", env=env)
                 if result:
                     raise RuntimeError("audited trial failed")
             trials = sorted((t.parent for t in (priv / "jobs" / job_name).glob("*/result.json")),
@@ -377,9 +470,14 @@ def main():
                            "steps": [], "human_minutes": None, "error": "ClaudeUsageLimit"}
             else:
                 summary = trial_card(arm, trial)
+                if arm == "C0":
+                    summary = pair_card(summary, card, try_number)
+            if arm == "C0":
+                drop_fork(priv / "fork" / str(try_number), log)
             card["trials"].append({**summary, "try": try_number,
                                    "meter": exam_meter.merge({}, meter),
-                                   "infrastructure_failure": "claude_usage_limit" if usage_limit else None})
+                                   "infrastructure_failure": "claude_usage_limit" if usage_limit
+                                   else summary.get("infrastructure_failure")})
             if usage_limit:
                 break  # collect/delete now; the round runner waits off-VM and reruns the whole trial
     except Exception as error:
@@ -393,6 +491,8 @@ def main():
             # CLI packages/auth are neither evidence nor raw model output.
             shred(owner.work / "auth")
             shutil.rmtree(owner.work / "cli", ignore_errors=True)
+        for fork in sorted((priv / "fork").glob("*")) if (priv / "fork").is_dir() else []:
+            drop_fork(fork, log)  # snapshot image + volume copy of C's box never outlive the exam
         shred(a.identity)
         out = a.out / f"{exam}.jobs.tar.gz.age"
         recipients = [x for r in (a.recipient or [FOUNDER_RECIPIENT]) for x in ("-r", r)]

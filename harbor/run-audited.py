@@ -19,13 +19,19 @@ import shlex
 HERE = Path(__file__).resolve().parent
 
 
+def codex_family(agent):
+    """Harbor's codex adapter and its subclasses (contestants/codex_arms.py) use Codex auth."""
+    return agent == "codex" or agent.startswith("codex_arms:")
+
+
 def stage_keyswap(stage, agent, env):
     """Only the relay gets host secrets; Harbor uploads a separate dummy auth.json."""
     import sys
     sys.path.insert(0, str(HERE / "keyswap"))
     from keyswap import PLACEHOLDER, placeholder_auth
 
-    kind = "CODEX_AUTH" if agent == "codex" else "CLAUDE_TOKEN"
+    codex = codex_family(agent)
+    kind = "CODEX_AUTH" if codex else "CLAUDE_TOKEN"
     key = f"KEYSWAP_{kind}_FILE"
     source = Path(env.get(key, "")).expanduser()
     if not env.get(key) or not source.is_file():
@@ -33,7 +39,7 @@ def stage_keyswap(stage, agent, env):
     source = source.resolve()
     if source.is_relative_to(stage) or source.is_relative_to(HERE.parent):
         raise ValueError("Keep real credentials outside staged inputs and the repository")
-    target = "/run/secrets/" + ("auth.json" if agent == "codex" else "claude-token")
+    target = "/run/secrets/" + ("auth.json" if codex else "claude-token")
     service = {
         "image": "mitmproxy/mitmproxy:12.1.2@sha256:0d7b2a14b4a71a908cd6f31b8f50e29bbc5c8720fe6caa706acf782da558e5c7",
         "entrypoint": ["python", "/srv/keyswap/keyswap.py"], "user": "0:0",
@@ -42,13 +48,13 @@ def stage_keyswap(stage, agent, env):
         "environment": {key: target},
         "volumes": [f"{stage / 'keyswap'}:/srv/keyswap:ro", "webproxy-log:/log",
                     {"type": "bind", "source": str(source), "target": target,
-                     "read_only": agent != "codex", "bind": {"create_host_path": False}}],
+                     "read_only": not codex, "bind": {"create_host_path": False}}],
         "healthcheck": {"test": ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)"],
                         "interval": "2s", "timeout": "5s", "retries": 30},
     }
     main_env = {"NO_PROXY": "localhost,127.0.0.1,::1,responder,keyswap",
                 "no_proxy": "localhost,127.0.0.1,::1,responder,keyswap"}
-    if agent == "codex":
+    if codex:
         dummy = stage / "keyswap/placeholder-auth.json"
         dummy.write_text(json.dumps(placeholder_auth()) + "\n")
         env["CODEX_AUTH_JSON_PATH"] = str(dummy)
@@ -176,7 +182,9 @@ def main():
                "--extra-docker-compose", str(stage / "responder/docker-compose.responder.yaml"),
                "--extra-docker-compose", str(joint), "--job-name", args.job_name,
                "-o", str(args.jobs_dir.resolve()), "--max-retries", "0"]
-    if list((stage / 'task/steps').glob('*/window.json')):
+    fork = os.environ.get('UNBUG_FORK_SAVE') or os.environ.get('UNBUG_FORK_FROM')
+    if list((stage / 'task/steps').glob('*/window.json')) or fork:
+        # Paired C0 (harbor/phase2/fork.py) uses the same patched Harbor entry point.
         # Freeze host-side judge code/data too: unlike ordinary verifiers, live
         # windows do not get their implementation from the immutable judge image.
         runtime = stage / 'runtime'
@@ -210,10 +218,10 @@ def main():
     command.extend(args.extra[1:] if args.extra[:1] == ["--"] else args.extra)
     if keyswap_overlay:
         command.extend(["--extra-docker-compose", str(keyswap_overlay), *credentials])
-        if args.agent != "codex":  # keyswap writes Claude's usage meters beside the web log
+        if not codex_family(args.agent):  # keyswap writes Claude's usage meters beside the web log
             text = task.read_text().replace('{source = "/log/web.jsonl"', '{source = "/log/claude-meter.jsonl", destination = "web/claude-meter.jsonl", service = "webproxy"},\n  {source = "/log/web.jsonl"', 1)
             task.write_text(text)
-    if args.agent == "codex":
+    if codex_family(args.agent):
         command.extend(["--ak", "web_search=disabled"])
     elif args.agent not in ("oracle", "nop"):  # Claude Code and its subclasses (arm B, Unbug)
         command.extend(["--ak", "disable_web_search=true"])
