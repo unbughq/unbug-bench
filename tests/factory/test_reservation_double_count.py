@@ -40,7 +40,10 @@ class RunningReservation(unittest.TestCase):
     def check(self, ledger, row=None):
         """run_budgeted's check_limits condition for the running reserved call `row` (each listed call)."""
         rows = [row] if row else [r for r in ledger['invocation_reservations'].values() if r['state'] == 'pending']
-        return any(budget.reservation_exceeded(ledger, r['lease_id']) for r in rows)
+        for r in rows:
+            try: budget.check_reservation(ledger, r['lease_id'])
+            except budget.BudgetError as error: return str(error)
+        return None
 
     def test_a_call_holding_the_whole_grant_survives_its_first_priced_event(self):
         funding = budget.available_invocation_funding(self.path, self.attempt)
@@ -61,8 +64,8 @@ class RunningReservation(unittest.TestCase):
         row = self.reserve(self.lease(1), Decimal(4))
         other = self.reserve(self.lease(2), Decimal(6))
         ledger = self.stream(row, 5.0)   # one dollar past its reservation, with no slack left
-        self.assertTrue(self.check(ledger, row))
-        self.assertFalse(self.check(ledger, other))
+        self.assertEqual(self.check(ledger, row), 'usage_reservation_exceeded')
+        self.assertIsNone(self.check(ledger, other))
 
     def test_a_late_booking_elsewhere_does_not_stop_a_call_within_its_own_reservation(self):
         # b5521c, 7 November: calls holding the attempt's remaining funding were stopped
@@ -82,14 +85,14 @@ class RunningReservation(unittest.TestCase):
         row = self.reserve(self.lease(1), Decimal(4))
         ledger = json.loads(self.path.read_text())
         ledger['invocation_reservations'][row['lease_id']]['event_ids'].append('gone')
-        self.assertTrue(self.check(ledger, row))
+        self.assertEqual(self.check(ledger, row), 'reservation_event_missing')
 
     def test_unknown_spend_still_stops_the_call(self):
         row = self.reserve(self.lease(1), Decimal(4))
         ledger = json.loads(self.path.read_text())
         ledger['events'].append({'id': uuid.uuid4().hex, 'cost': None})
         self.path.write_text(json.dumps(ledger))
-        self.assertTrue(self.check(ledger, row))
+        self.assertEqual(self.check(ledger, row), 'reservation_spend_unknown')
 
 
 if __name__ == '__main__':

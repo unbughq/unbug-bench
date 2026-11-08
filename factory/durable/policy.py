@@ -38,7 +38,8 @@ DEADLINE_REASON = "infra:deadline"
 # quota or a Boat incident; a bad image or a lasting outage still ends instead of holding the batch.
 POOL_WAIT_CEILING_S = 21_600.0
 USAGE_STOP_REASONS = frozenset({"infra:usage_unknown", "infra:missing_usage", "infra:unpriced_usage",
-                                "infra:usage_monitor", "infra:usage_reservation_exceeded"})
+                                "infra:usage_monitor", "infra:usage_reservation_exceeded",
+                                "infra:reservation_spend_unknown", "infra:reservation_event_missing"})
 # How long past its deadline an attempt may stay unconfirmed before its worker is deleted and the
 # attempt counts as lost, so a controller recovering an unanswering worker never waits forever.
 UNCONFIRMED_WORKER_LIMIT_S = 9000.0

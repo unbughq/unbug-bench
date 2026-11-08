@@ -271,6 +271,8 @@ class RealStops(unittest.TestCase):
         "usage_monitor:": ("infra_error", "infra:usage_monitor"),
         "usage_unknown": ("infra_error", "infra:usage_unknown"),
         "usage_reservation_exceeded": ("infra_error", "infra:usage_reservation_exceeded"),
+        "reservation_spend_unknown": ("infra_error", "infra:reservation_spend_unknown"),
+        "reservation_event_missing": ("infra_error", "infra:reservation_event_missing"),
         "usage_receipt_regressed": ("infra_error", "infra:usage_unknown"),
         "usage_reservation_missing": ("infra_error", "infra:usage_unknown"),
         "wait_receipt_mismatch": ("infra_error", "infra:ledger_error"),

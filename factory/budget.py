@@ -197,13 +197,16 @@ def reservation_booked(ledger, lease_id, row, events=None):
     return sum((event_charge(events[i]) for i in ids), Decimal(0))
 
 
-def reservation_exceeded(ledger, lease_id):
-    """A running reserved call's stop condition: unknown spend, or more booked than it reserved."""
-    if case_spending(ledger)['total_spent_usd'] is None: return True
+def check_reservation(ledger, lease_id):
+    """Stop a running reserved call when the case total cannot be priced, an event it listed is
+    missing from the ledger, or more is booked to it than it reserved. Each stop has its own label
+    (b5521c, 8 November: all three were usage_reservation_exceeded, so the cause was hidden)."""
+    if case_spending(ledger)['total_spent_usd'] is None: raise BudgetError('reservation_spend_unknown')
     # Any state: a row settled or estimated while its stream continues is held to the same maximum.
     row = ledger['invocation_reservations'][lease_id]
     booked = reservation_booked(ledger, lease_id, row)
-    return booked is None or booked > usd(row['maximum_usd'])
+    if booked is None: raise BudgetError('reservation_event_missing')
+    if booked > usd(row['maximum_usd']): raise BudgetError('usage_reservation_exceeded')
 
 
 def outstanding_reservations(ledger, exclude_lease=None):
@@ -978,8 +981,7 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
             # every other pending maximum. So the call is held to its own reservation only: the
             # whole-attempt re-test let other calls' late bookings stop a call within its own
             # (b5521c, 7 November: attempts 2 and 4 stopped mid-admission at real cents).
-            if reservation_exceeded(ledger, lease_id):
-                raise BudgetError('usage_reservation_exceeded')
+            check_reservation(ledger, lease_id)
         if not reserved and ledger['calls'] >= max_total_calls:
             raise BudgetError('total_call_limit')
         if count >= max_calls:
