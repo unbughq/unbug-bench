@@ -1079,6 +1079,18 @@ class Resume(unittest.TestCase):
         r3 = EngineRun({"spec": {"batch_id": "b-v", "max_cases_started": 1}, "resume_of": C1}, workdir=r.work)
         self.assertEqual(r3.run()["result"]["cases"], {C1 + "@b-v": "sealed"})
 
+    def test_a_resume_batch_with_case_money_net_of_earlier_spend_replays(self):
+        # An imported case's batch has $50 less its import spend. Its resume batch has that less what
+        # the earlier batches used (runtime's resume_money check), so case money differs from the
+        # stopped batch's. The recorded attempts still replay: their keys return their results.
+        stopped = {**self.FACTORY_BUG, "spec": {**self.FACTORY_BUG["spec"], "case_money_usd_micros": 45_700_000}}
+        r, out = run(stopped)
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1, "case_money_usd_micros": 43_700_000},
+                        "resume_of": C1}, workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "sealed"})
+
     def test_a_factory_bug_after_a_scientific_result_is_not_resumable(self):
         for step, spec in (("writer:2", {"outcome": "exhausted", "reason": "writer:rounds_exhausted"}),
                            ("gates:1", {"outcome": "gate_failed", "gate": "G5", "repairable": True})):

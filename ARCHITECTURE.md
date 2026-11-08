@@ -204,7 +204,10 @@ Counters, snapshot and evidence therefore come out of the same code that built t
 refuses unless the earlier spend (the ledger across the original and every earlier resume
 batch, plus any declared import spend) plus the batch's
 case money fits the default per-case ceiling. Run the resume batch with the stopped batch's
-limits, or the replay diverges.
+limits, or the replay diverges. Case money is the exception: it is what the case may still spend,
+so it is the $50 ceiling less the import spend and less what every earlier batch of the case used
+(the ledger holds only batch spend, never the import's, so nothing is counted twice). A recorded
+attempt replays from its key whatever case money its job now carries.
 
 A case held by a `factory_bug` diagnosis resumes the same way, but only when the diagnosed step
 stopped on a factory check rather than a scientific result (`FACTORY_BUG_RESUMABLE`: today a
