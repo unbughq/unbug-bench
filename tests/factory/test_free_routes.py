@@ -37,6 +37,15 @@ class FreeRoutes(unittest.TestCase):
         # DeepSeek free falls back to the paid gated route of the same family.
         self.assertEqual([r['route'] for r in model_router.routes(FREE, model_router.ACCOUNTS)],
                          [FREE, 'openrouter/deepseek/deepseek-v4.1-flash'])
+        # So does MiniMax free (on either OpenCode account), past the unbounded OpenRouter :free variant.
+        self.assertEqual([(r['route'], r['account']) for r in model_router._bounded_routes(
+                              'opencode/minimax-m3.1-flash-free', model_router.ACCOUNTS)],
+                         [('opencode/minimax-m3.1-flash-free', 'opencode-go-key'),
+                          ('opencode/minimax-m3.1-flash-free', 'opencode-go-key-2'),
+                          ('openrouter/minimax/minimax-m3.1-flash', 'openrouter-key')])
+        # A batch that pins the paid route still asks it first: free routes run only where a batch pins them.
+        self.assertEqual(model_router.routes('openrouter/minimax/minimax-m3.1-flash', model_router.ACCOUNTS)[0]['route'],
+                         'openrouter/minimax/minimax-m3.1-flash')
 
     def test_enforce_runs_a_free_call_without_a_gate_and_refuses_the_wall(self):
         cancel, cap = threading.Event(), model_call_gate.empty_usage(FREE)

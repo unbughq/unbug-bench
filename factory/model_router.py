@@ -35,7 +35,9 @@ ACCOUNTS = ('claude-token', 'claude-factory-token-2', 'opencode-go-key',
             'opencode-go-key-2', 'codex-auth.json', 'openrouter-key')
 CHAINS = (
     ('opencode/deepseek-v4.1-flash-free', 'openrouter/deepseek/deepseek-v4.1-flash'),
-    ('opencode/minimax-m3.1-flash-free', 'openrouter/minimax/minimax-m3.1-flash:free'),
+    # Founder 2026-11-08: MiniMax free falls back to the paid gated route, as DeepSeek free does
+    # (the OpenRouter :free variant has no maximum, so it is never leased).
+    ('opencode/minimax-m3.1-flash-free', 'openrouter/minimax/minimax-m3.1-flash:free', 'openrouter/minimax/minimax-m3.1-flash'),
     ('opencode-go/mimo-v2.6-pro', 'openrouter/xiaomi/mimo-v2.6-pro'),
     ('opencode-go/muse-spark-1.3-contributor', 'openrouter/meta/muse-spark-1.3-contributor'),
     ('opencode/glm-5.3-flash-free', 'opencode-go/glm-5.3-flash'),
