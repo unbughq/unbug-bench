@@ -53,10 +53,12 @@ def invocation_maximum(c, lease):
 def codex_usage_feed(home, user=None):
     """Read a Codex call's own session logs (CODEX_HOME/sessions/**/rollout-*.jsonl): their token_count
     events are its per-request usage. A walled user's home is private, so that user reads them."""
-    script = ('[ -d "$1/sessions" ] || exit 0; '
+    # pipefail: an unreadable directory or log (find, cat) fails the read. Only grep's "no match" (1) means
+    # a readable log with no usage yet. Only the usage lines are kept: the log also holds every item.
+    script = ('set -o pipefail; [ -d "$1/sessions" ] || exit 0; '
               'find "$1/sessions" -type f -name "rollout-*.jsonl" -print0 | sort -z | xargs -0 -r cat -- '
-              '| grep -F \'"token_count"\'; [ $? -le 1 ]')   # only the usage lines: the log also holds every item
-    cmd = ['sh', '-c', script, 'sh', str(home)]
+              '| { grep -F \'"token_count"\' || [ $? -eq 1 ]; }')
+    cmd = ['bash', '-c', script, 'bash', str(home)]
     if user: cmd = ['sudo', '-n', '-H', '-u', user] + cmd
     def feed():
         try: result = subprocess.run(cmd, capture_output=True, timeout=30)

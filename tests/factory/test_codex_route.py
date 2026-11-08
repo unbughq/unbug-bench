@@ -2,6 +2,7 @@
 per-request usage booked live so a reserved call stops mid-turn once it passes its maximum."""
 from decimal import Decimal
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -249,6 +250,18 @@ class CodexRoute(unittest.TestCase):
             (day / 'other.json').write_text('ignored')
             self.assertEqual(budget.codex_request_usages(feed()),
                              [{'input_tokens': 1, 'cached_input_tokens': 0, 'output_tokens': 2}])
+            # Review of #50: a log that cannot be read is a failed read, never "no usage yet".
+            bin_dir = Path(tmp) / 'bin'; bin_dir.mkdir()
+            (bin_dir / 'cat').write_text('#!/bin/sh\necho "cat: permission denied" >&2\nexit 1\n')
+            (bin_dir / 'cat').chmod(0o755)
+            with mock.patch.dict('os.environ', {'PATH': f"{bin_dir}:{os.environ['PATH']}"}):
+                self.assertIsNone(feed())
+            if os.geteuid() != 0:                                         # root reads a mode-000 file anyway
+                (day / 'rollout-a.jsonl').chmod(0)
+                self.assertIsNone(feed())
+                (day / 'rollout-a.jsonl').chmod(0o600)
+            (day / 'rollout-a.jsonl').write_text('{"type": "event_msg"}\n')   # readable, no usage yet
+            self.assertEqual(feed(), '')
         sudo = model_runtime.codex_usage_feed(Path('/home/pilot/.cache/x'), 'pilot')
         with mock.patch.object(model_runtime.subprocess, 'run') as run:
             run.return_value = SimpleNamespace(returncode=1, stdout=b'')
