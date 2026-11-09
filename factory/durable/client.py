@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 from durable.contract import BATCH_ID
+from durable.board import render_board
 from durable.report import render_status
 
 
@@ -42,6 +43,9 @@ def main(argv=None):
         command = commands.add_parser(name, help='read the current batch scorecard')
         command.add_argument('batch', nargs='?', help='override the saved default batch')
         command.add_argument('--json', action='store_true', help='emit the controller JSON')
+    board = commands.add_parser('board', help='the Sealing Board: every case in every batch, from live records')
+    board.add_argument('--live', action='store_true', help='only cases still running in a live batch')
+    board.add_argument('--json', action='store_true', help='emit the controller JSON')
     args = parser.parse_args(argv)
     try:
         profile = connection(args.connection)
@@ -51,11 +55,15 @@ def main(argv=None):
     except (OSError, ValueError):
         print('Invalid controller connection. Check its fields and permissions (600).', file=sys.stderr)
         return 1
-    batch = args.batch or profile['batch']
-    if not BATCH_ID.fullmatch(batch):
-        parser.error('invalid batch ID')
-    # SSH interprets a remote command as shell text; quote every argument once.
-    remote = shlex.join([*profile['command'], args.op, batch])
+    if args.op == 'board':
+        batch = None
+        remote = shlex.join([*profile['command'], 'board', *(['--live'] if args.live else [])])
+    else:
+        batch = args.batch or profile['batch']
+        if not BATCH_ID.fullmatch(batch):
+            parser.error('invalid batch ID')
+        # SSH interprets a remote command as shell text; quote every argument once.
+        remote = shlex.join([*profile['command'], args.op, batch])
     try:
         result = subprocess.run([*profile['ssh'], remote], stdin=subprocess.DEVNULL,
                                 capture_output=True, text=True, timeout=45)
@@ -74,9 +82,12 @@ def main(argv=None):
         return 1
     try:
         card = json.loads(result.stdout)
-        if card['batch'] != batch:
+        if batch is None:
+            text = render_board(card)
+        elif card['batch'] != batch:
             raise ValueError('wrong batch')
-        text = render_status(card)
+        else:
+            text = render_status(card)
     except (ValueError, KeyError, TypeError):
         print('Controller returned an invalid status response. Check the remote CLI configuration.', file=sys.stderr)
         return 1
