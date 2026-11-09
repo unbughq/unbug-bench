@@ -129,6 +129,7 @@ _FIXED = {
     "diagnosis_loopback_failed": (_I, "infra:diagnosis_loopback_failed"),
     "diagnosis_config_invalid": (_I, "infra:diagnosis_config_invalid"),
     "model_wall_failed": (_I, "infra:model_wall_failed"),
+    "prompt_too_large": (_I, "infra:prompt_too_large"),
     "usage_reservation_exceeded": (_I, "infra:usage_reservation_exceeded"),
     "reservation_spend_unknown": (_I, "infra:reservation_spend_unknown"),
     "reservation_event_missing": (_I, "infra:reservation_event_missing"),

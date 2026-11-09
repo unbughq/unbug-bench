@@ -206,6 +206,9 @@ def diagnosis_environment(env, driver, lease, home):
     return clean
 
 
+ARG_LIMIT = 32 * 4096   # Linux MAX_ARG_STRLEN: the longest single argv entry, terminating NUL included
+
+
 @contextmanager
 def diagnosis_loopback(c, command, gate, enabled):
     """Permit exactly A's ephemeral listener, before the pilot LOCAL rejection.
@@ -715,6 +718,9 @@ class ModelRuntime:
         progress_started = time.monotonic()
         self.progress(c, 'role:' + progress_role, 'running')
         try:
+            # Linux refuses any single argument over 128 KiB (MAX_ARG_STRLEN) with E2BIG, and the
+            # prompt is one argument: name that stop instead of model_launch_failed:OSError.
+            if any(len(os.fsencode(str(arg))) >= ARG_LIMIT for arg in cmd): raise BudgetError('prompt_too_large')
             limit = timeout or c.args.agent_timeout
             if deadline is not None:
                 limit = min(limit, deadline - time.monotonic())

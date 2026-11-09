@@ -113,9 +113,14 @@ def run(worker, step_input, keys):
                 generation = step_input.snapshot.digest
                 output = Path(tmp) / 'output'
                 output.mkdir()
+                # The inventory itself stays out of the prompt: the prompt is one command-line
+                # argument, and a round-3 case's inventory passed Linux's 128 KiB limit for one
+                # (f46dac-2r and 22e434-3r, 9 November: OSError E2BIG before launch). The
+                # reviewer lists and hashes the read-only inputs itself.
                 context = dict(case_id=c.case_id, checkpoint_sha256=generation,
                                inputs=str(root), output=str(output / 'result.json'),
-                               schema=scientific.RESULT_SCHEMA, files=inventory)
+                               schema=scientific.RESULT_SCHEMA, file_count=len(inventory),
+                               files_sha256=extensions.digest(inventory))
                 templates, _ = diagnosis_dispatch.contract(root)
                 text = templates[0]
                 raw = invoke(c, model=model, prompt=text + '\nRun context (data):\n' +
