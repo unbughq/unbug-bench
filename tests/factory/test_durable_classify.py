@@ -283,6 +283,9 @@ class RealStops(unittest.TestCase):
         "waste_operations_pending": ("infra_error", "infra:ledger_error"),
         "x_cli_not_x": ("infra_error", "infra:cli_version"),   # f'{kind}_cli_not_{want}', model_runtime.py
         "zero_tokens": ("infra_error", "router:zero_tokens"),
+        "provider_wait_unsettled": ("infra_error", "infra:provider_wait_unsettled"),
+        "provider_wait_record_missing": ("infra_error", "infra:provider_wait_record_missing"),
+        "route_feature_unsupported": ("infra_error", "infra:route_feature_unsupported"),
     }
     # Reviewed: labels that stay infra:unclassified_stop (still INFRA_ERROR, never scored).
     # The two bare wrappers only prefix a cause. The rest are lifecycle stops
@@ -290,7 +293,6 @@ class RealStops(unittest.TestCase):
     UNCLASSIFIED_BY_DESIGN = {
         "Budget ledger stopped: ", "Budget stopped: ",
         "freshness_public_match",
-        "provider_wait_record_missing", "provider_wait_unsettled", "route_feature_unsupported",
         "stress_publication_configuration_missing",
         "stress_review_unresolved:",
     }
@@ -337,9 +339,78 @@ class RealStops(unittest.TestCase):
         for label, want in self.MAPPED.items():
             c = classify(label, step=StepKind.WRITER, now=NOW)
             self.assertEqual((c.outcome.value, c.reason), want, label)
+        # They still have no table entry, but each now names itself (RAW_STOP_PREFIX) when its
+        # head is a short code identifier; the bare wrappers and the over-long label do not.
+        named = {"freshness_public_match": "infra:raw_freshness_public_match",
+                 "stress_review_unresolved:": "infra:raw_stress_review_unresolved"}
         for label in self.UNCLASSIFIED_BY_DESIGN:
             self.assertEqual(classify(label, step=StepKind.WRITER, now=NOW),
-                             Classified(Outcome.INFRA_ERROR, UNCLASSIFIED), label)
+                             Classified(Outcome.INFRA_ERROR, named.get(label, UNCLASSIFIED)), label)
+
+    # run.run_step reports an exception it does not handle by its class name alone. A name
+    # without an Error/Exception/Exit/Interrupt suffix misses _EXCEPTION and, unless it is
+    # listed, ends as infra:unclassified_stop (1bb2ad-2 writer:1, 2026-11-08).
+    EXCEPTION_FILES = (*RUNNER_FILES, "../bin/run_validity.py", "../bin/processes.py")
+    EXCEPTION_MAPPED = {
+        "InvalidInfra": "infra:invalid_execution",
+        "InfrastructureExhausted": "infra:execution_retries_exhausted",
+        "RouterUnavailable": "infra:router_unavailable",
+    }
+    # Reviewed: classes that never reach run_step as a bare stop.
+    EXCEPTION_NOT_A_STOP = {
+        "ArtifactMissing",    # control-VM artifact store, not the worker
+        "CaseProblem",        # early checks and gate_pipeline turn it into feedback or a gate result
+        "CheckFailed",        # campaign guard, control VM
+        "Cancelled",          # run.py sh() turns it into BudgetError('cancelled')
+        "PauseRequested",     # run_step reports it as "paused"
+        "ProviderWait",       # run_step hands it to engine_provider_wait
+        "RuntimeErrorCode",   # durable/runtime.py, control VM
+        "_Changed", "_Conflict", "_Invalid", "_Stop",   # module-private, caught where raised
+    }
+
+    def exception_classes(self):
+        """Every class in EXCEPTION_FILES that derives, through these files, from a built-in exception."""
+        bases = {}
+        for name in self.EXCEPTION_FILES:
+            for node in ast.walk(ast.parse((ROOT / "factory" / name).read_text())):
+                if isinstance(node, ast.ClassDef):
+                    bases.setdefault(node.name, set()).update(
+                        getattr(b, "id", getattr(b, "attr", None)) for b in node.bases)
+        import builtins
+        builtin = {n for n, v in vars(builtins).items() if isinstance(v, type) and issubclass(v, BaseException)}
+        found, grew = set(), True
+        while grew:
+            grew = False
+            for cls, parents in bases.items():
+                if cls not in found and parents & (builtin | found):
+                    found.add(cls)
+                    grew = True
+        return found
+
+    def test_every_exception_class_stop_has_its_reviewed_outcome(self):
+        unmatched = {n for n in self.exception_classes() if not wp4._EXCEPTION.fullmatch(n)}
+        self.assertEqual(unmatched, set(self.EXCEPTION_MAPPED) | self.EXCEPTION_NOT_A_STOP,
+                         "an exception class was added or removed: review its stop")
+        for name, reason in self.EXCEPTION_MAPPED.items():
+            for kind in StepKind:
+                self.assertEqual(classify(name, step=kind, now=NOW), Classified(Outcome.INFRA_ERROR, reason), name)
+
+    def test_writer_path_stops_are_never_unclassified(self):
+        # Stops run_step can hand the classifier on a WRITER attempt (run.engine_writer_round,
+        # its model calls, G1 and early checks).
+        writer_stops = {
+            "InvalidInfra": "infra:invalid_execution",                  # checkpoint/verdicts, freshness retrieval
+            "InfrastructureExhausted": "infra:execution_retries_exhausted",  # infra-attempts.json allowance
+            "TimeoutExpired": "infra:timeout",                          # run.py sh(timeout=...) on a bench run
+            "provider_wait_unsettled": "infra:provider_wait_unsettled",
+            "provider_wait_record_missing": "infra:provider_wait_record_missing",
+            "route_feature_unsupported": "infra:route_feature_unsupported",
+            "Budget ledger stopped: route_feature_unsupported": "infra:route_feature_unsupported",
+        }
+        for stop, reason in writer_stops.items():
+            c = classify(stop, step=StepKind.WRITER, now=NOW)
+            self.assertEqual(c, Classified(Outcome.INFRA_ERROR, reason), stop)
+            self.assertIn(c.reason, PUBLISHED_REASONS, stop)
 
 
 class RetryAt(unittest.TestCase):
@@ -387,7 +458,7 @@ class Secrecy(unittest.TestCase):
                      "g5:reference_unsolved", "x" * 10_000, b"opencode_error", None, 7, ["stalled"]):
             for kind in StepKind:
                 c = classify(stop, step=kind, now=NOW)
-                self.assertIn(c.reason, REASONS)
+                self.assertTrue(c.reason in REASONS or wp4.RAW_REASON.fullmatch(c.reason), stop)
                 for token in ("src", "reserve", "SECRET", "sk", "42", "g5"):
                     self.assertNotIn(token, c.reason.split(":", 1)[1])
         self.assertEqual(classify(secret, step=StepKind.WRITER, now=NOW),
@@ -410,6 +481,41 @@ class Secrecy(unittest.TestCase):
         for _, stop in STOPS:
             self.assertIn(classify(stop, step=StepKind.WRITER, now=NOW).reason, PUBLISHED_REASONS)
 
+
+
+class SelfNamingStops(unittest.TestCase):
+    """An unknown stop names itself in the plaintext attempt record, label only (1bb2ad-2)."""
+
+    def test_unknown_identifier_stops_name_themselves(self):
+        for stop, reason in (("BrokenProcessPool", "infra:raw_broken_process_pool"),
+                             ("_Changed", "infra:raw_changed"),
+                             ("some_new_label", "infra:raw_some_new_label"),
+                             ("some_new_label:/home/user/case/secret.ts", "infra:raw_some_new_label"),
+                             ("Budget ledger stopped: Budget stopped: some_new_label", "infra:raw_some_new_label")):
+            for kind in StepKind:
+                c = classify(stop, step=kind, now=NOW)
+                self.assertEqual(c, Classified(Outcome.INFRA_ERROR, reason), stop)
+                self.assertTrue(REASON.fullmatch(c.reason))
+                check_result_for(step_of(kind), as_result(c))
+                self.assertNotIn(c.reason, PUBLISHED_REASONS)
+
+    def test_anything_but_a_short_code_identifier_stays_unclassified(self):
+        for stop in ("KeyError: secret", "SomeError: /home/user/x", "Expecting value: line 1", "src/a.ts",
+                     "g5:reference_unsolved", "Http2Thing", "label with spaces", "x" * 40, "A" * 40,
+                     "Budget stopped: " * 9 + "label", "", "  ", None, b"label", 7, "\u00e9t\u00e9", "\u00c9t\u00e9"):
+            c = classify(stop, step=StepKind.WRITER, now=NOW)
+            self.assertIn(c.reason, (UNCLASSIFIED, "infra:stop_without_failure"), repr(stop))
+
+    def test_raw_reasons_never_collide_with_fixed_ones(self):
+        self.assertFalse(any(wp4.RAW_REASON.fullmatch(r) for r in REASONS | CONTRACT_REASONS | PUBLISHED_REASONS))
+
+    def test_cleanup_label_fits_the_grammar_or_is_refused(self):
+        self.assertEqual(wp4.labelled(wp4.CLEANUP_PREFIX, wp4.stop_label("route_feature_unsupported")),
+                         "diagnosis:cf_route_feature_unsupported")
+        self.assertEqual(wp4.labelled(wp4.CLEANUP_PREFIX, wp4.stop_label("RuntimeError")),
+                         "diagnosis:cf_runtime_error")
+        self.assertIsNone(wp4.labelled(wp4.CLEANUP_PREFIX, wp4.stop_label("a" * 31)))
+        self.assertIsNone(wp4.labelled(wp4.CLEANUP_PREFIX, None))
 
 
 class Purity(unittest.TestCase):

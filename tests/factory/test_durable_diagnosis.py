@@ -89,6 +89,13 @@ class DiagnosisTests(unittest.TestCase):
             configured_model=model, concurrent=True, case_budget=c.args.case_budget,
             role='reviewer', invocation_name='diagnosis-test', containment=False)
         if self.corrupt == 'raise': raise RuntimeError('private exception sentinel')
+        if self.corrupt in ('cleanup_route', 'cleanup_raise', 'cleanup_provider'):
+            # diagnosis_invocation.invoke marks the first error when the pilot cleanup also failed.
+            error = {'cleanup_route': budget.BudgetError('route_feature_unsupported'),
+                     'cleanup_raise': RuntimeError('private exception sentinel'),
+                     'cleanup_provider': budget.BudgetError('provider_limit:codex/private')}[self.corrupt]
+            error.diagnosis_cleanup_failed = True
+            raise error
         if self.corrupt == 'provider': raise budget.BudgetError('provider_limit:codex/private')
         if self.corrupt == 'structured_provider':
             from model_router import ProviderWait, Wait
@@ -152,6 +159,16 @@ class DiagnosisTests(unittest.TestCase):
                 result, _ = self.execute()
                 self.assertEqual(result.outcome, k.Outcome.INFRA_ERROR)
                 self.assertIsNone(result.verdict)
+
+    def test_cleanup_failure_names_the_first_error(self):
+        for corrupt, outcome, reason in (
+                ('cleanup_route', k.Outcome.INFRA_ERROR, 'diagnosis:cf_route_feature_unsupported'),
+                ('cleanup_raise', k.Outcome.INFRA_ERROR, 'diagnosis:cf_runtime_error'),
+                ('cleanup_provider', k.Outcome.PROVIDER_LIMIT, 'router:codex_limit')):
+            with self.subTest(corrupt=corrupt):
+                self.corrupt = corrupt
+                result, _ = self.execute()
+                self.assertEqual((result.outcome, result.reason), (outcome, reason))
 
     def test_unknown_verdict_is_infrastructure_failure(self):
         self.answer = 'private unknown verdict'

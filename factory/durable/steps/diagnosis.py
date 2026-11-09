@@ -157,6 +157,14 @@ def run(worker, step_input, keys):
             else:
                 classified = worker.classifier()(str(error), step=StepKind.DIAGNOSIS, now=worker.clock())
                 fields = dict(outcome=classified.outcome, reason=classified.reason, retry_at=classified.retry_at)
+        if getattr(error, 'diagnosis_cleanup_failed', False) is True and fields['outcome'] is Outcome.INFRA_ERROR:
+            # The pilot cleanup failed after this error. The record names the first error, so
+            # the cleanup failure no longer hides it: "diagnosis:cf_<label>" (classify.py). A
+            # provider wait or case limit keeps its own outcome; its pilot is rebuilt next time.
+            from durable.classify import CLEANUP_PREFIX, labelled, stop_label
+            label = stop_label(str(error) if isinstance(error, BudgetError) else type(error).__name__)
+            fields = dict(outcome=Outcome.INFRA_ERROR,
+                          reason=labelled(CLEANUP_PREFIX, label) or 'infra:diagnosis_cleanup_failed')
         if c is not None and c.card.get('engine_provider_wait') is not None:
             fields['diagnostic'] = seal(ArtifactKind.DIAGNOSTIC, worker_step.diagnostic(c, fields))
         return StepResult(**fields, usage=usage), outputs

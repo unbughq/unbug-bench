@@ -46,6 +46,7 @@ def invoke(runner, c, *, model, prompt, inputs, output):
     source = c.work / 'diagnosis' / identity
     exposed = task.ROOT / c.case_id / identity
     prepared = False
+    first = None  # the error that ended the call; a cleanup failure never replaces it
     try:
         inventory = diagnosis._input_inventory(Path(inputs))
         source.mkdir(parents=True, mode=0o700)
@@ -78,6 +79,9 @@ def invoke(runner, c, *, model, prompt, inputs, output):
         if response['inputs_sha256'] != expected:
             raise BudgetError('diagnosis_input_invalid')
         return raw
+    except BaseException as error:
+        first = error
+        raise
     finally:
         failed = False
         try:
@@ -96,4 +100,8 @@ def invoke(runner, c, *, model, prompt, inputs, output):
         except BaseException:
             failed = True
         if failed:
-            raise BudgetError('diagnosis_cleanup_failed') from None
+            if first is None:
+                raise BudgetError('diagnosis_cleanup_failed') from None
+            # Keep the first error as the cause; the step names both (steps/diagnosis.py).
+            try: first.diagnosis_cleanup_failed = True
+            except AttributeError: pass
