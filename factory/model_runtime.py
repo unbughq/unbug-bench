@@ -174,10 +174,9 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
                "cost": price('openrouter/meta/muse-spark-1.3-contributor')}}}}}
     if model: cfg["small_model"] = model  # Compaction shares the admitted model/family/account.
     if diagnosis: cfg['permission'].update(webfetch='deny', websearch='deny')
-    # OpenCode v1.19 does not know Muse Contributor's price; without one the budget guard stops the run.
-    go = {"models": {"muse-spark-1.3-contributor": {"cost": price('opencode-go/muse-spark-1.3-contributor')}}}
     # Go plan routes book their OpenRouter twin's list price (token_prices.GO_TWINS), never OpenCode's own figure.
-    go["models"].update({route.partition("/")[2]: {"cost": price(route)} for route in sorted(GO_ROUTES)})
+    # OpenCode v1.19 does not know Muse Contributor's price; without one the budget guard stops the run.
+    go = {"models": {route.partition("/")[2]: {"cost": price(route)} for route in sorted(GO_ROUTES)}}
     go["options"] = {"apiKey": "{env:OPENCODE_API_KEY}"}
     if base: go["options"]["baseURL"] = base.rstrip("/") + "/go/v1"
     cfg["provider"]["opencode-go"] = go
