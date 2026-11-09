@@ -203,7 +203,7 @@ PREFLIGHT_STOPS = {"process_error": "process", "claude_error": "claude", "codex_
 CLEANUP_STAGES = ("pilot_stop", "pilot_wall", "pilot_home", "pilot_userdel", "task_remove", "source_remove")
 CLEANUP_ERRORS = {"PermissionError": "permission", "FileNotFoundError": "missing", "OSError": "os",
                   "RuntimeError": "runtime", "CalledProcessError": "process", "TimeoutExpired": "timeout",
-                  "BudgetError": "budget", "ValueError": "value"}
+                  "BudgetError": "budget", "ValueError": "value", "PilotHomeError": "remains"}
 
 REASONS = frozenset({r for _, r in _FIXED.values()} | {r for _, r in _LIMIT_FAMILY}
                     | {f"infra:dcf_{s}_{e}" for s in CLEANUP_STAGES for e in (*CLEANUP_ERRORS.values(), "other")}

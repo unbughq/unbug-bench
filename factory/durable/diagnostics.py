@@ -86,9 +86,10 @@ def cleanup_errors(card):
     """Fixed operational labels only; paths and exception messages stay sealed."""
     from durable.classify import CLEANUP_STAGES
     stages={'model_scratch','model_process','model_join','model_containment','lease_finish',
-            *('diagnosis_'+stage for stage in CLEANUP_STAGES)}   # diagnosis_invocation.invoke
+            *('diagnosis_'+stage for stage in CLEANUP_STAGES),   # diagnosis_invocation.invoke
+            'pilot_home'}   # run.early_probe
     errors={'TimeoutExpired','TimeoutError','CalledProcessError','PermissionError','FileNotFoundError',
-            'OSError','RuntimeError','RouterUnavailable','BudgetError','ValueError',
+            'OSError','RuntimeError','RouterUnavailable','BudgetError','ValueError','PilotHomeError',
             'containment_unavailable','cancellation_failed'}
     rows=card.get('cleanup_errors',[]) if isinstance(card,dict) else []
     if not isinstance(rows,list):return []
