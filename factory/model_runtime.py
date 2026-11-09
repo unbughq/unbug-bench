@@ -324,9 +324,6 @@ def call_failure_reason(label, route):
     if label in ('codex_login_expired', 'credential_expiring'): return 'credential_expiring'
     if label in ('opencode_error', 'claude_error', 'codex_error', 'process_error') or label.startswith('refusal:'): return 'outage'
     if route in FREE_ROUTES and label in ('missing_usage', 'invalid_usage', 'free_route_mismatch'): return 'outage'
-    # A Go plan call whose usage OpenCode cannot price is stopped before it costs anything real; the
-    # chain's OpenRouter route can still answer the call.
-    if route in GO_ROUTES and label in ('missing_usage', 'invalid_usage', 'unpriced_usage'): return 'outage'
     return None
 
 

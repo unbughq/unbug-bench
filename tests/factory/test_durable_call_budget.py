@@ -325,6 +325,31 @@ class AttemptBudget(unittest.TestCase):
         # Recreating the attempt context cannot reset its baseline after usage.
         self.assertEqual(budget.attempt_limit(ledger, self.attempt), Decimal(110))
 
+    def test_a_go_step_reported_at_zero_is_booked_at_its_twin_price_and_completes(self):
+        # Review of #66: a $0 Go step raised unpriced_usage with an unknown final usage, so settlement
+        # booked the whole $50 reservation and the case could not fall back. It is booked at the
+        # OpenRouter twin's list price instead, and the call completes with known usage.
+        route = 'opencode-go/deepseek-v4.1-flash'
+        lease = model_router.Lease(lease_id=uuid.uuid4().hex, expires_at=time.time()+60,
+            **next(r for r in model_router.routes(route) if r['route'] == route), **model_router.funded_maximum(route, '5'))
+        row = self.reserve(lease)
+        tokens = dict(input=1000, output=2000, reasoning=500, cache=dict(read=4000, write=0))
+        events = [dict(type='step_finish', sessionID='s', part=dict(id=f'p{i}', messageID=f'm{i}', cost=cost, tokens=tokens))
+                  for i, cost in enumerate((0, 1e-9))]
+        command = [sys.executable, '-c', ''.join('print('+repr(json.dumps(e))+');' for e in events)]
+        budget.run_budgeted(command, self.root, {}, self.root/'transcript', self.ledger, 3,
+            max_cost=None, case_budget=50, configured_model=route, concurrent=True,
+            attempt=self.attempt, invocation_id=row['invocation_id'], lease_id=lease.lease_id,
+            containment=False)
+        # Twin: $0.14/M input, $0.42/M output and reasoning, $0.0042/M cache read.
+        step = (1000 * .14 + 2500 * .42 + 4000 * .0042) / 1_000_000
+        ledger = json.loads(self.ledger.read_text())
+        self.assertEqual(ledger['terminal_stop'], 'complete')
+        self.assertEqual([e['cost'] for e in ledger['events']], [step, step])
+        self.assertAlmostEqual(ledger['cost'], 2 * step)
+        self.assertEqual(ledger['invocation_reservations'][lease.lease_id]['event_ids'], ['s:m0:p0', 's:m1:p1'])
+        self.assertAlmostEqual(float(budget.outstanding_reservations(ledger)), 5 - 2 * step)
+
     def test_runtime_passes_reservation_to_real_monitor_and_settles(self):
         usage = dict(input_tokens=1, output_tokens=1, cache_read_input_tokens=0,
                      cache_creation_input_tokens=0)

@@ -23,6 +23,7 @@ import time
 import uuid
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_CEILING
 from token_prices import CODEX_PRICES, CODEX_USAGE_FIELDS, codex_cost, codex_request_usages, claude_cost, claude_standard_usage
+from token_prices import GO_ROUTES, go_step_cost
 
 
 class BudgetError(RuntimeError):
@@ -1268,6 +1269,11 @@ def _run_budgeted(cmd, cwd, env, transcript_path, ledger_path, timeout,
                 or not all(_number(tokens.get(k)) for k in ('input', 'output', 'reasoning'))
                 or not all(_number(tokens['cache'].get(k)) for k in ('read', 'write'))):
             raise BudgetError('missing_usage')
+        if configured_model in GO_ROUTES:
+            # A Go plan step is booked at its OpenRouter twin's list price whatever OpenCode reports
+            # (founder 2026-11-09): a $0 or low report must neither stop the call with an unknown final
+            # usage, which books the whole reservation, nor under-count the case budget.
+            part = dict(part, cost=max(float(part['cost']), go_step_cost(configured_model, tokens)))
         seen.add(identity)
         finishes.add(key)
         count += 1

@@ -213,9 +213,9 @@ the idea goes on to the next screen. Cards record `second_opinion` {second_famil
 Every request in a `model_router.CHAINS` chain starts at the chain's head, whichever member was asked
 for. The heads are the OpenCode Go plan routes on both founder accounts (DeepSeek, MiniMax, MiMo, GLM),
 then OpenRouter's gated paid route; the anonymous free DeepSeek and GLM lanes hang, so they come last.
-A Go route has no gate: the plan's allowance pays (Extra Usage stays off), OpenCode books each step at
-the OpenRouter twin's list price (`token_prices.GO_TWINS`), and its lease maximum is the twin's, so the
-reservation check stops it as Codex's (`model_call_cap`). Its quota is published as the account's block,
+A Go route has no gate: the plan's allowance pays (Extra Usage stays off), each step is booked at the
+OpenRouter twin's list price (`token_prices.GO_TWINS`, `go_step_cost`) or OpenCode's report if higher, and
+its lease maximum is the twin's, so the reservation check stops it as Codex's (`model_call_cap`). Its quota is published as the account's block,
 so the next call takes OpenRouter. The router's money ceiling counts only OpenRouter's paid requests.
 
 OpenCode's free routes (DeepSeek, MiniMax and GLM flash) are bounded at $0 with no gate: a call that books

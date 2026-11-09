@@ -63,6 +63,14 @@ def go_maximum(route):
     return dict(maximum, price_source='opencode-go:' + route.partition('/')[2] + ':twin=' + maximum['price_source'])
 
 
+def go_step_cost(route, tokens):
+    """One OpenCode step on a Go plan route at its twin's list price. Reasoning is billed as output,
+    and a cache write at the full input rate (OpenRouter's twins quote no write price)."""
+    prices = runtime_prices(route)
+    return ((tokens['input'] + tokens['cache']['write']) * prices['input'] + (tokens['output'] + tokens['reasoning']) * prices['output']
+            + tokens['cache']['read'] * prices['cache_read']) / 1_000_000
+
+
 def openrouter_gate_maximum(route):
     profile = GATED_OPENROUTER.get(route)
     if profile is None or Decimal(profile['cache_write']) != 0: return None
