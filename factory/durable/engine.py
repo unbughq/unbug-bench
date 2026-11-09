@@ -319,7 +319,14 @@ RESUMABLE_OUTCOMES = (Outcome.INFRA_ERROR.value, Outcome.PROVIDER_LIMIT.value)
 # interrupted call's own edits as its starting point and stopped as an unchanged repair.
 # On 9 November 22e434-3's round-3 writer reply stopped at the 32k output cap with none of its edits
 # applied; writer:output_capped is that stop after the in-round retries are spent.
-FACTORY_BUG_RESUMABLE = {"writer": ("writer:unchanged_repair", "writer:output_capped")}
+# A writer or stress step that ran out of the case's own money ("<stage>:money") reached no result
+# either: no repair was judged and no stress verdict was given. On 9 November cae763-2 (writer:6)
+# and 22e434-3 (writer:4) spent their case money on Go plan calls booked at list price, and their
+# diagnoses said factory_bug. Their resume books that step's money as waste (factory_bug_waste_keys)
+# and then needs case money left within the ceiling (runtime's resume_money check), so a resume
+# never grants the case more than its ceiling.
+FACTORY_BUG_RESUMABLE = {"writer": ("writer:unchanged_repair", "writer:output_capped", "writer:money"),
+                         "stress": ("stress:money",)}
 # A GATES step whose every attempt ended on our own infrastructure reached no gate verdict, so
 # running it again is one more infra retry, not a re-roll. On 9 November 18681d's recertify G16
 # failed three times in calibrator setup (the pilot-home teardown fixed by #61), then a diagnosis
@@ -349,7 +356,7 @@ def _resume_point(case_id: str) -> tuple:
     when every workflow of it has finished as held or retired and its last attempt ended in an
     infrastructure or provider failure: never after a verdict, a gate, an exhausted limit or a
     founder's decision. The one exception is a case held by a factory_bug diagnosis of a factory
-    check (FACTORY_BUG_RESUMABLE) or of a GATES step that only ever stopped on infrastructure
+    check or of a writer or stress step that ran out of case money (FACTORY_BUG_RESUMABLE) or of a GATES step that only ever stopped on infrastructure
     (FACTORY_BUG_RESUMABLE_INFRA): it resumes at the diagnosed step, its diagnosis is not replayed,
     and the resume counts against the lineage's factory_bug_resumes."""
     if type(case_id) is not str or not CASE_ID.fullmatch(case_id):
