@@ -60,7 +60,9 @@ Boat worker pool/channel, worker-side steps, SQL ledger and wrapped-key service.
 by side (`batch_ids`: each keeps its own bound, the campaign finishes when all are terminal, and one live
 worker per watched batch is allowed): failures pause new attempts. Only a money,
 deadline or confirmed Boat limit is a hard stop: after a bounded checkpoint grace the guard stops the
-controller and deletes the workers. On SIGTERM the engine drains, then
+controller and deletes the workers. `preflight.py` adds advance warnings to the guard's alerts and
+status (router TLS certificate, router paid headroom, campaign deadline, unbounded routes); they never
+degrade, pause or stop, and an unreadable input is an "unknown" warning. On SIGTERM the engine drains, then
 exits without touching DBOS again, and systemd restarts it unless an operator stopped it.
 `runtime.py` composes these components; `cli.py` exposes a private operator socket.
 `client.py` reads that operator's public status/report over SSH using a saved local
