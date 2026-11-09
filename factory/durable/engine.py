@@ -379,10 +379,15 @@ def resume_point(case_id: str) -> dict:
             for name, n in steps.items():
                 renumber.setdefault(int(k), {})[name] = max(renumber.get(int(k), {}).get(name, 0), n)
     if not (isinstance(result, dict) and result.get("outcome") in RESUMABLE_OUTCOMES):
-        diagnosed = sorted(a for s, a in attempts if s == seq - 1)
+        # The diagnosed step is the one that ran last at seq - 1. A factory_bug resume can give that
+        # seq to a new step while an older diagnosis there kept higher-numbered attempts; those belong
+        # to another step and must not decide this one (they still count for skip and renumber).
+        before = [w for (s, _), w in attempts.items() if s == seq - 1]
+        name = max(before, key=lambda w: (w.created_at or 0, w.workflow_id)).workflow_id.split("/")[2] if before else None
+        diagnosed = sorted(a for (s, a), w in attempts.items() if s == seq - 1 and w.workflow_id.split("/")[2] == name)
         stops = [result_of(attempts[(seq - 1, a)]) for a in diagnosed]
         stopped = stops[-1] if stops else None
-        kind = attempts[(seq - 1, diagnosed[-1])].workflow_id.split("/")[2].split(":")[0] if diagnosed else None
+        kind = name.split(":")[0] if name else None
         factory_check = (isinstance(stopped, dict) and stopped.get("outcome") == Outcome.EXHAUSTED.value
                          and stopped.get("reason") in FACTORY_BUG_RESUMABLE.get(kind, ()))
         infra_only = (kind in FACTORY_BUG_RESUMABLE_INFRA and bool(stops)

@@ -1140,6 +1140,30 @@ class Resume(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
         self.assertEqual(start(r, f"{C1}/{gseq}/gates:1/4")["opened"]["snapshot"], f"snapshot {C1}/{gseq}/gates:1/3")
 
+    def test_a_gates_step_on_a_reused_seq_is_judged_by_its_own_attempts(self):
+        # The first diagnosis took seq 5 with two attempts. After the resume, a release makes SEAL
+        # rerun GATES, which takes seq 5 with one attempt: the old diagnosis/2 there is not its history.
+        p3, b4 = "3" * 64, "4" * 64
+        spec = {"max_cases_started": 1, "max_infra_retries_per_step": 0}
+        r, out = run({"spec": spec,
+                      "script": {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted"},
+                                 "1/5/diagnosis/1": {"outcome": "provider_limit"},
+                                 "1/5/diagnosis/2": {"verdict": "factory_bug"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertEqual(r.keys(1)[-1], ("5", "diagnosis", "2"))
+        r2 = EngineRun({"spec": {**spec, "batch_id": "b-u"}, "resume_of": C1,
+                        "script": {"1/4/gates:1/2": {"dur": 1.5},
+                                   "1/5/gates:1/1": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted"},
+                                   "1/diagnosis/*": {"verdict": "factory_bug"}},
+                        "actions": [{"when": {"started": f"{C1}/4/gates:1/2"}, "plumbing": p3, "bench": b4}]},
+                       workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "held"})
+        self.assertEqual(r.keys(1)[-2:], [("5", "gates:1", "1"), ("6", "diagnosis", "1")])
+        # Eligibility now looks only at the seq-5 GATES attempt, so the resume is not refused.
+        r3 = EngineRun({"spec": {**spec, "batch_id": "b-v"}, "resume_of": C1}, workdir=r.work)
+        self.assertNotIn("refused", r3.run())
+
     def test_an_infra_only_step_other_than_gates_is_not_resumed_after_a_factory_bug(self):
         r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
                       "script": {"1/writer:1/*": {"outcome": "infra_error", "reason": "infra:stalled"},
