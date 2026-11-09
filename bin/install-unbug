@@ -16,7 +16,7 @@ with tempfile.NamedTemporaryFile(dir=args.bin_dir, delete=False) as stream:
 try:
     staged.write_bytes(b'#!/usr/bin/env python3\n')
     with zipfile.ZipFile(staged, 'a', compression=zipfile.ZIP_DEFLATED) as archive:
-        for name in ('__init__', 'client', 'contract', 'report'):
+        for name in ('__init__', 'board', 'client', 'contract', 'report'):
             archive.write(root / f'factory/durable/{name}.py', f'durable/{name}.py')
         archive.writestr('__main__.py', 'from durable.client import main\nraise SystemExit(main())\n')
     staged.chmod(0o755)

@@ -56,6 +56,8 @@ with `~/.local/bin` on your PATH. After saving the controller connection:
 unbug status                    # configured default batch
 unbug status b-other            # another batch
 unbug report --json             # machine-readable scorecard
+unbug board                     # Sealing Board: every case in every batch
+unbug board --live --json       # only live cases, as JSON
 ```
 
 The client reads `~/.config/unbug/client.json`; see
@@ -64,6 +66,13 @@ read the controller's stage, status, gates and sealed count without launching wo
 The formatted view also shows recorded attempt state, worker assignments, batch
 spending/reservations and settled call counts. In-flight usage is not a settled charge;
 worker assignment does not prove liveness. `--json` retains exact micro-dollar values.
+
+`unbug board` is the Sealing Board. It is generated on every read from the engine's case
+cards, workflow records and the ledger, so it is never edited by hand and cannot go stale:
+per case it shows stage, status, writer round, gates passed (and the failed gate), spend and
+the time of the last recorded event. On the control VM the same board comes from
+`python3 control/campaign/campaign_board.py [--live] [--text]` or
+`bin/unbug --config CONFIG board`. Sections it cannot read are named, never guessed.
 
 ## Benchmark rules
 

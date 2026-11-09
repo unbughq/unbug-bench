@@ -86,9 +86,11 @@ def _controller(config):
         return {'state': 'unavailable'}
 
 
-def _budget(config, batch):
+def readonly_engine(config):
+    """A ledger connection that cannot write: SQLite opened read-only; Postgres reads in
+    a read-only transaction (see `readonly`)."""
     import sqlalchemy as sa
-    from durable.ledger import _make_engine, BATCHES, ATTEMPTS, SqlLedger
+    from durable.ledger import _make_engine
     url = sa.engine.make_url(config['database_url'])
     if url.get_backend_name() == 'sqlite':
         import sqlite3
@@ -100,10 +102,22 @@ def _budget(config, batch):
             conn.exec_driver_sql('BEGIN')
     else:
         engine = _make_engine(config['database_url'])
+    return engine
+
+
+def readonly(conn):
+    if conn.dialect.name == 'postgresql':
+        return conn.execution_options(isolation_level='REPEATABLE READ', postgresql_readonly=True)
+    return conn
+
+
+def _budget(config, batch):
+    import sqlalchemy as sa
+    from durable.ledger import BATCHES, ATTEMPTS, SqlLedger
+    engine = readonly_engine(config)
     try:
         with engine.connect() as conn:
-            if conn.dialect.name == 'postgresql':
-                conn = conn.execution_options(isolation_level='REPEATABLE READ', postgresql_readonly=True)
+            conn = readonly(conn)
             with conn.begin():
                 bound = conn.execute(sa.select(BATCHES.c.bound_usd_micros).where(BATCHES.c.batch_id == batch)).scalar_one()
                 held, spent, waste = SqlLedger._batch_sums(conn, batch)
@@ -118,12 +132,14 @@ def _budget(config, batch):
         engine.dispose()
 
 
-def observe(config, card, *, client=None):
-    """Enrich a public scorecard with allowlisted records; unavailable sections stay explicit."""
+def observe(config, card, *, client=None, controller=None, guard=None):
+    """Enrich a public scorecard with allowlisted records; unavailable sections stay explicit.
+    `controller` and `guard` may be passed in when one read covers several batches (board.py)."""
     from dbos import DBOSClient
     card = {**card, 'cases': [dict(case) for case in card['cases']]}
-    meta = card['observation'] = {'at': time.time(), 'unavailable': [], 'controller': _controller(config),
-                                  'guard': guard_health(config['state_dir'])}
+    meta = card['observation'] = {'at': time.time(), 'unavailable': [],
+                                  'controller': controller if controller is not None else _controller(config),
+                                  'guard': guard if guard is not None else guard_health(config['state_dir'])}
     try:
         meta['budget'] = _budget(config, card['batch'])
     except Exception:

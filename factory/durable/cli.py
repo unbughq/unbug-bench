@@ -174,6 +174,8 @@ def main(argv=None):
     install.add_argument("image")
     for name in ("status", "report", "publish"):
         commands.add_parser(name).add_argument("batch")
+    commands.add_parser("board", help="read-only Sealing Board: every case in every batch, as JSON").add_argument(
+        "--live", action="store_true", help="only cases still running in a live batch")
     for name in ("bench_release", "plumbing_release", "bound_raised", "founder_reply"):
         p = commands.add_parser(name)
         p.add_argument("destination")
@@ -187,6 +189,9 @@ def main(argv=None):
         if args['op'] in ('status', 'report'):
             from durable.observation import read_status
             result = read_status(config, args['batch'])
+        elif args['op'] == 'board':
+            from durable.board import read_board
+            result = read_board(config, live_only=args['live'])
         elif args["op"] == "backup":
             result = backup(config, resume_after=args["resume_after"])
         elif args["op"] == "restore":
