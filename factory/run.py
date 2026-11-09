@@ -387,9 +387,11 @@ def provider_preflight(c):
                     'reviewer-provider-preflight' if i == 0 else f'reviewer{i+1}-provider-preflight')
                    for i, chain in enumerate(c.models['reviewers'])]
     for role, chain, name in checks:
-        # A calibrator never takes a free lane (ModelRuntime._call): where its chain has one, the
-        # calibrator's route differs from an unwalled role's, so it is checked on its own.
-        key = (tuple(chain), role in ('strong_tester', 'easy_tester') and chain[0] in FREE_ROUTES)
+        # A calibrator never takes a free or Go plan lane (ModelRuntime._call): where its chain has one,
+        # the calibrator's route differs from an unwalled role's, so it is checked on its own.
+        try: ungated = bool(model_router.ungated_lanes(chain[0], getattr(c, 'router_accounts', model_router.ACCOUNTS)))
+        except ValueError: ungated = False   # an unroutable name fails in the check itself
+        key = (tuple(chain), role in ('strong_tester', 'easy_tester') and ungated)
         if key in seen: continue
         seen.add(key)
         row = {"role": role, "model": chain[0], "scope": "availability_only", "status": "running"}

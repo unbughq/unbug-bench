@@ -30,6 +30,8 @@ from durable.policy import Action, Counters, decide
 from test_durable_policy import SPEC, GATES, DIAG
 
 ROUTE = 'claude/claude-opus-5-5'
+# These tests drive OpenRouter's gated paid route; without the Go accounts a chain starts there.
+NO_GO = tuple(a for a in model_router.ACCOUNTS if not a.startswith('opencode-go'))
 
 
 class AttemptBudget(unittest.TestCase):
@@ -87,6 +89,7 @@ class AttemptBudget(unittest.TestCase):
     def test_durable_opencode_discards_ram_state_without_slow_disk_wiping(self):
         paid='openrouter/minimax/minimax-m3.1-flash'
         self.c.card['roles']['writer']['model']=paid
+        self.c.router_accounts=NO_GO
         for failure in (None,'mount','umount'):
             self.ledger.unlink(missing_ok=True)
             self.c.card.pop('cleanup_errors',None)
@@ -155,6 +158,7 @@ class AttemptBudget(unittest.TestCase):
         self.attempt.ceiling_usd=Decimal('40.792858')
         reviewer='openrouter/xiaomi/mimo-v2.6-pro'
         self.c.exam_owner_models=[reviewer]
+        self.c.router_accounts=NO_GO
         expected=Decimal(str(model_router.route_maximum(reviewer)['max_usd']))
         invoked=[]
         def transport(c, models, text, cwd, name, *args, **kwargs):
@@ -303,7 +307,7 @@ class AttemptBudget(unittest.TestCase):
         self.attempt.baseline_spent_usd = 60
         route = 'openrouter/deepseek/deepseek-v4.1-flash'
         lease = model_router.Lease(lease_id=uuid.uuid4().hex, expires_at=time.time()+60,
-            **model_router.routes(route)[0], **model_router.route_maximum(route))
+            **next(r for r in model_router.routes(route) if r['route'] == route), **model_router.route_maximum(route))
         row = self.reserve(lease)
         # Fake only model transport: the real monitor parses duplicate priced receipts.
         event = dict(type='step_finish', sessionID='s', part=dict(id='p', messageID='m', cost=.25,
@@ -320,6 +324,31 @@ class AttemptBudget(unittest.TestCase):
         self.assertEqual(budget.outstanding_reservations(ledger), Decimal(str(lease.max_usd)) - Decimal('.25'))
         # Recreating the attempt context cannot reset its baseline after usage.
         self.assertEqual(budget.attempt_limit(ledger, self.attempt), Decimal(110))
+
+    def test_a_go_step_reported_at_zero_is_booked_at_its_twin_price_and_completes(self):
+        # Review of #66: a $0 Go step raised unpriced_usage with an unknown final usage, so settlement
+        # booked the whole $50 reservation and the case could not fall back. It is booked at the
+        # OpenRouter twin's list price instead, and the call completes with known usage.
+        route = 'opencode-go/deepseek-v4.1-flash'
+        lease = model_router.Lease(lease_id=uuid.uuid4().hex, expires_at=time.time()+60,
+            **next(r for r in model_router.routes(route) if r['route'] == route), **model_router.funded_maximum(route, '5'))
+        row = self.reserve(lease)
+        tokens = dict(input=1000, output=2000, reasoning=500, cache=dict(read=4000, write=0))
+        events = [dict(type='step_finish', sessionID='s', part=dict(id=f'p{i}', messageID=f'm{i}', cost=cost, tokens=tokens))
+                  for i, cost in enumerate((0, 1e-9))]
+        command = [sys.executable, '-c', ''.join('print('+repr(json.dumps(e))+');' for e in events)]
+        budget.run_budgeted(command, self.root, {}, self.root/'transcript', self.ledger, 3,
+            max_cost=None, case_budget=50, configured_model=route, concurrent=True,
+            attempt=self.attempt, invocation_id=row['invocation_id'], lease_id=lease.lease_id,
+            containment=False)
+        # Twin: $0.14/M input, $0.42/M output and reasoning, $0.0042/M cache read.
+        step = (1000 * .14 + 2500 * .42 + 4000 * .0042) / 1_000_000
+        ledger = json.loads(self.ledger.read_text())
+        self.assertEqual(ledger['terminal_stop'], 'complete')
+        self.assertEqual([e['cost'] for e in ledger['events']], [step, step])
+        self.assertAlmostEqual(ledger['cost'], 2 * step)
+        self.assertEqual(ledger['invocation_reservations'][lease.lease_id]['event_ids'], ['s:m0:p0', 's:m1:p1'])
+        self.assertAlmostEqual(float(budget.outstanding_reservations(ledger)), 5 - 2 * step)
 
     def test_runtime_passes_reservation_to_real_monitor_and_settles(self):
         usage = dict(input_tokens=1, output_tokens=1, cache_read_input_tokens=0,
