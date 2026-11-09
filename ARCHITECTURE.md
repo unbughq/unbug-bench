@@ -59,7 +59,7 @@ Boat worker pool/channel, worker-side steps, SQL ledger and wrapped-key service.
 `guard.py` is the campaign's minute-by-minute check, for one batch (`batch_id`) or several started side
 by side (`batch_ids`: each keeps its own bound, the campaign finishes when all are terminal, and one live
 worker per watched batch is allowed): failures pause new attempts. A stall (a case waiting for credentials or
-the router, no case or router-spend progress for 15 minutes while cases are live, or a case parked on a
+the router, no case, ledger or router-spend progress for 15 minutes while cases are live and no step is in flight, or a case parked on a
 founder decision for 30 minutes) reads `degraded` with its reason in `stalled` and alerts; it pauses nothing. Only a money,
 deadline or confirmed Boat limit is a hard stop: after a bounded checkpoint grace the guard stops the
 controller and deletes the workers. `preflight.py` adds advance warnings to the guard's alerts and

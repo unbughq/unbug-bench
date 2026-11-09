@@ -297,6 +297,33 @@ class GuardTests(unittest.TestCase):
         self.assertEqual((out["phase"], out["stalled"]), ("healthy", None))
         self.assertEqual(self.f.stopped, 0)
 
+    def test_a_long_step_in_flight_is_progress(self):
+        # A writer step on a subscription route runs for hours with no row change and no router spend.
+        self.f.in_flight = 1
+        for _ in range(30):
+            out = self.tick()
+        self.assertEqual((out["phase"], out["stalled"], self.f.sent), ("healthy", None, []))
+        self.f.in_flight = 0                               # nothing in flight and nothing changes: a stall
+        for _ in range(16):
+            out = self.tick()
+        self.assertEqual((out["phase"], out["stalled"]), ("degraded", "no_progress"))
+        self.assertEqual(len(self.f.sent), 1)
+
+    def test_a_failed_pass_between_stalled_passes_sends_nothing_again(self):
+        self.f.cases[:] = [{"case": "case-a", "status": "waiting_for_credentials"}, {"case": "case-b", "status": "held"}]
+        for _ in range(32):
+            out = self.tick()
+        self.assertEqual((out["stalled"], out["founder_waits"]), ("waiting_for_credentials", ["case-b"]))
+        sent = list(self.f.sent)
+        self.assertEqual(len(sent), 3)                     # held now, credentials now, founder wait at 30 minutes
+        self.f.rpc_failures = 10 ** 6                      # the controller does not answer for a pass
+        out = self.tick()
+        self.assertEqual((out["stalled"], out["founder_waits"]), ("waiting_for_credentials", ["case-b"]))
+        self.f.rpc_failures = 0
+        self.tick()
+        self.tick()
+        self.assertEqual(self.f.sent, sent)
+
     def test_router_spend_counts_as_progress(self):
         spent = [1.0]
         for _ in range(20):
