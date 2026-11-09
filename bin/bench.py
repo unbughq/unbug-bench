@@ -9,7 +9,11 @@ import argparse, datetime, fcntl, hashlib, json, os, pathlib, re, shutil, subpro
 if "MEDUSA_DEPS_IMAGE" not in os.environ and pathlib.Path("/opt/medusa-deps-image").is_file():
     os.environ["MEDUSA_DEPS_IMAGE"] = pathlib.Path("/opt/medusa-deps-image").read_text().strip()
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "factory"))
+# Appended, never first: on a worker this file comes from the baked bench (~/unbug-bench), and the
+# factory release's own modules must keep precedence over the bench's copy (9 November: G16 loaded
+# fairness.py from the baked bench instead of the deployed release).
+if str(ROOT / "factory") not in sys.path:
+    sys.path.append(str(ROOT / "factory"))
 from case_permissions import normalize_case_tree
 APP = ROOT / "projects/medusa"
 COMPOSE_PROJECT = "unbug-bench"
