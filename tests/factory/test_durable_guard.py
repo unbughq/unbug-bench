@@ -263,6 +263,24 @@ class GuardTests(unittest.TestCase):
         out = self.tick()
         self.assertEqual((out["phase"], out["stalled"]), ("healthy", None))
 
+    def test_a_case_newly_stuck_as_another_recovers_still_alerts(self):
+        self.f.cases[:] = [{"case": "case-a", "status": "waiting_for_credentials"}, {"case": "case-b", "status": "running"}]
+        self.tick()
+        self.tick()
+        self.assertEqual(len(self.f.sent), 1)
+        self.assertIn("case-a", self.f.sent[0])
+        self.f.cases[:] = [{"case": "case-a", "status": "running"}, {"case": "case-b", "status": "waiting_for_credentials"}]
+        out = self.tick()
+        self.assertEqual((out["stalled"], out["stalled_cases"]), ("waiting_for_credentials", ["case-b"]))
+        self.assertEqual(len(self.f.sent), 2)
+        self.assertIn("case-b", self.f.sent[1])
+        self.assertNotIn("case-a", self.f.sent[1])
+        self.f.cases[0]["status"] = "waiting_for_router"   # b's wait lasts: only a's new one alerts
+        self.tick()
+        self.tick()
+        self.assertEqual(len(self.f.sent), 3)
+        self.assertIn("case-a is stuck waiting for the router", self.f.sent[2])
+
     def test_no_progress_for_fifteen_minutes_reads_degraded_and_alerts_once(self):
         self.f.cases[0].update(stage="writer:1", writer_rounds=1)
         for _ in range(15):

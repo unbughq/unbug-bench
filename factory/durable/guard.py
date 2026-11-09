@@ -73,8 +73,8 @@ CASE_ALERTS = {
 # router's certificate expired and the guard read healthy for twenty minutes).
 STALL_STATUSES = ("waiting_for_credentials", "waiting_for_router")
 STALL_ALERTS = {
-    "waiting_for_credentials": "Cases are stuck waiting for credentials ({cases}). Check the router and its certificate.",
-    "waiting_for_router": "Cases are stuck waiting for the router ({cases}). Check the router and its certificate.",
+    "waiting_for_credentials": "{case} is stuck waiting for credentials. Check the router and its certificate.",
+    "waiting_for_router": "{case} is stuck waiting for the router. Check the router and its certificate.",
     "no_progress": "No case has made progress for {minutes} minutes ({cases}). Check the controller and router logs.",
 }
 # A case parked on a founder decision: the decision it waits on, as the guard can read it.
@@ -410,11 +410,11 @@ class Guard:
                 waits[c["case"]] = before if same else {"status": c["status"], "since": now}
         health["waits"] = waits
         health["founder_waits"] = sorted(case for case, w in waits.items() if now - w["since"] > FOUNDER_WAIT_S)
-        for status in STALL_STATUSES:
-            stuck = sorted(c["case"] for c in self.cases if c["status"] == status)
-            if stuck:
-                health["stalled"], health["stalled_cases"] = status, stuck
-                return
+        stuck = sorted(c["case"] for c in self.cases if c["status"] in STALL_STATUSES)
+        if stuck:
+            health["stalled"] = next(s for s in STALL_STATUSES if any(c["status"] == s for c in self.cases))
+            health["stalled_cases"] = stuck
+            return
         # Cases waiting on a founder decision already raise their own alert.
         live = sorted(c["case"] for c in self.cases if c["status"] not in TERMINAL and c["status"] not in CASE_ALERTS)
         if live and now - health["progress_at"] > STALL_S:
@@ -488,11 +488,16 @@ class Guard:
         if down is not None and now - down >= DOWN_ALERT_S:
             out["controller_down"] = (f"The controller has been down for {int((now - down) / 60)} minutes "
                                       "and has not restarted. Check its service log.")
-        if health.get("stalled") in STALL_ALERTS:
-            stuck = health["stalled_cases"]
+        # Keyed per case (or per case set), so a newly stuck case alerts while a lasting one does not repeat.
+        stuck = health.get("stalled_cases") or []
+        if health.get("stalled") in STALL_STATUSES:
+            for case in self.load("scorecard.json", {}).get("cases", []):
+                if isinstance(case, dict) and case.get("case") in stuck and case.get("status") in STALL_STATUSES:
+                    out[f"stalled:{case['status']}:{case['case']}"] = STALL_ALERTS[case["status"]].format(case=case["case"])
+        elif health.get("stalled") == "no_progress":
             cases = ", ".join(stuck[:5]) + (f" and {len(stuck) - 5} more" if len(stuck) > 5 else "")
             minutes = int((now - (health.get("progress_at") or now)) / 60)
-            out[f"stalled:{health['stalled']}"] = STALL_ALERTS[health["stalled"]].format(cases=cases, minutes=minutes)
+            out["stalled:no_progress:" + ",".join(stuck)] = STALL_ALERTS["no_progress"].format(cases=cases, minutes=minutes)
         for case in health.get("founder_waits") or []:
             wait = health["waits"][case]
             out[f"founder_wait:{case}:{wait['status']}"] = (
