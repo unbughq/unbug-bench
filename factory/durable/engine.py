@@ -320,6 +320,11 @@ RESUMABLE_OUTCOMES = (Outcome.INFRA_ERROR.value, Outcome.PROVIDER_LIMIT.value)
 # On 9 November 22e434-3's round-3 writer reply stopped at the 32k output cap with none of its edits
 # applied; writer:output_capped is that stop after the in-round retries are spent.
 FACTORY_BUG_RESUMABLE = {"writer": ("writer:unchanged_repair", "writer:output_capped")}
+# A GATES step whose every attempt ended on our own infrastructure reached no gate verdict, so
+# running it again is one more infra retry, not a re-roll. On 9 November 18681d's recertify G16
+# failed three times in calibrator setup (the pilot-home teardown fixed by #61), then a diagnosis
+# said factory_bug. A GATES step with any other outcome among its attempts is never resumed.
+FACTORY_BUG_RESUMABLE_INFRA = ("gates",)
 MAX_FACTORY_BUG_RESUMES = 3   # policy.decide_diagnosis holds at most this many in a lineage
 
 
@@ -332,7 +337,8 @@ def resume_point(case_id: str) -> dict:
     when every workflow of it has finished as held or retired and its last attempt ended in an
     infrastructure or provider failure: never after a verdict, a gate, an exhausted limit or a
     founder's decision. The one exception is a case held by a factory_bug diagnosis of a factory
-    check (FACTORY_BUG_RESUMABLE): it resumes at the diagnosed step, its diagnosis is not replayed,
+    check (FACTORY_BUG_RESUMABLE) or of a GATES step that only ever stopped on infrastructure
+    (FACTORY_BUG_RESUMABLE_INFRA): it resumes at the diagnosed step, its diagnosis is not replayed,
     and the resume counts against the lineage's factory_bug_resumes."""
     if type(case_id) is not str or not CASE_ID.fullmatch(case_id):
         raise ContractError("resume:bad_case")
@@ -374,14 +380,18 @@ def resume_point(case_id: str) -> dict:
                 renumber.setdefault(int(k), {})[name] = max(renumber.get(int(k), {}).get(name, 0), n)
     if not (isinstance(result, dict) and result.get("outcome") in RESUMABLE_OUTCOMES):
         diagnosed = sorted(a for s, a in attempts if s == seq - 1)
-        stopped = result_of(attempts[(seq - 1, diagnosed[-1])]) if diagnosed else None
+        stops = [result_of(attempts[(seq - 1, a)]) for a in diagnosed]
+        stopped = stops[-1] if stops else None
         kind = attempts[(seq - 1, diagnosed[-1])].workflow_id.split("/")[2].split(":")[0] if diagnosed else None
+        factory_check = (isinstance(stopped, dict) and stopped.get("outcome") == Outcome.EXHAUSTED.value
+                         and stopped.get("reason") in FACTORY_BUG_RESUMABLE.get(kind, ()))
+        infra_only = (kind in FACTORY_BUG_RESUMABLE_INFRA and bool(stops)
+                      and all(isinstance(s, dict) and s.get("outcome") == Outcome.INFRA_ERROR.value for s in stops))
         if not (latest.output.get("status") == "held"
                 and attempts[(seq, attempt)].workflow_id.split("/")[2] == StepKind.DIAGNOSIS.value
                 and isinstance(result, dict) and result.get("outcome") == Outcome.OK.value
                 and result.get("verdict") == Verdict.FACTORY_BUG.value
-                and isinstance(stopped, dict) and stopped.get("outcome") == Outcome.EXHAUSTED.value
-                and stopped.get("reason") in FACTORY_BUG_RESUMABLE.get(kind, ())):
+                and (factory_check or infra_only)):
             raise ContractError("resume:not_stopped_by_infra")
         if factory_bug_resumes >= MAX_FACTORY_BUG_RESUMES:   # defensive: the policy retires first
             raise ContractError("resume:factory_bug_resumes_exhausted")
