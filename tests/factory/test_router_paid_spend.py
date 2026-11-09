@@ -25,8 +25,9 @@ from token_prices import GATED_OPENROUTER
 MINIMAX = 'openrouter/minimax/minimax-m3.1-flash'
 
 
-def admit(store, model=MINIMAX, identity=None, protocol=True):
-    data = dict(id=identity or uuid.uuid4().hex, model=model, accounts=list(router.ACCOUNTS),
+def admit(store, model=MINIMAX, identity=None, protocol=True, accounts=None):
+    # The paid protocol's own tests: without the Go accounts a chain starts at OpenRouter (founder 2026-11-09).
+    data = dict(id=identity or uuid.uuid4().hex, model=model, accounts=accounts or [a for a in router.ACCOUNTS if not a.startswith('opencode-go')],
                 role='writer', deadline=store.clock() + 3600)
     if protocol: data['paid_protocol'] = 1
     value = store.rpc('acquire', data)
@@ -253,9 +254,9 @@ class PaidTests(unittest.TestCase):
             self.assertTrue(pending.result()[1]['granted'])
 
     def test_protocol_binding_subscription_exclusion_and_canonical_path(self):
-        # Without the paid protocol a paid route is never leased; MiniMax's chain now leases its free route.
-        lease = admit(self.store, protocol=False)
-        self.assertEqual((lease.route, lease.billing), ('opencode/minimax-m3.1-flash-free', 'free'))
+        # Without the paid protocol a paid route is never leased; MiniMax's chain now leases its Go plan route.
+        lease = admit(self.store, protocol=False, accounts=list(router.ACCOUNTS))
+        self.assertEqual((lease.route, lease.billing), ('opencode-go/minimax-m3.1-flash', 'subscription'))
         subscription = admit(self.store, 'claude/claude-opus-4-5-20251101:compact', protocol=False)
         self.assertEqual(self.reserve(subscription)[1], dict(granted=False, reason='binding'))
         self.assertEqual(self.status()['total_usd'], '0.000000000')

@@ -30,6 +30,8 @@ from durable.policy import Action, Counters, decide
 from test_durable_policy import SPEC, GATES, DIAG
 
 ROUTE = 'claude/claude-opus-5-5'
+# These tests drive OpenRouter's gated paid route; without the Go accounts a chain starts there.
+NO_GO = tuple(a for a in model_router.ACCOUNTS if not a.startswith('opencode-go'))
 
 
 class AttemptBudget(unittest.TestCase):
@@ -87,6 +89,7 @@ class AttemptBudget(unittest.TestCase):
     def test_durable_opencode_discards_ram_state_without_slow_disk_wiping(self):
         paid='openrouter/minimax/minimax-m3.1-flash'
         self.c.card['roles']['writer']['model']=paid
+        self.c.router_accounts=NO_GO
         for failure in (None,'mount','umount'):
             self.ledger.unlink(missing_ok=True)
             self.c.card.pop('cleanup_errors',None)
@@ -155,6 +158,7 @@ class AttemptBudget(unittest.TestCase):
         self.attempt.ceiling_usd=Decimal('40.792858')
         reviewer='openrouter/xiaomi/mimo-v2.6-pro'
         self.c.exam_owner_models=[reviewer]
+        self.c.router_accounts=NO_GO
         expected=Decimal(str(model_router.route_maximum(reviewer)['max_usd']))
         invoked=[]
         def transport(c, models, text, cwd, name, *args, **kwargs):
@@ -303,7 +307,7 @@ class AttemptBudget(unittest.TestCase):
         self.attempt.baseline_spent_usd = 60
         route = 'openrouter/deepseek/deepseek-v4.1-flash'
         lease = model_router.Lease(lease_id=uuid.uuid4().hex, expires_at=time.time()+60,
-            **model_router.routes(route)[0], **model_router.route_maximum(route))
+            **next(r for r in model_router.routes(route) if r['route'] == route), **model_router.route_maximum(route))
         row = self.reserve(lease)
         # Fake only model transport: the real monitor parses duplicate priced receipts.
         event = dict(type='step_finish', sessionID='s', part=dict(id='p', messageID='m', cost=.25,

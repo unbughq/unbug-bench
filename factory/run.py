@@ -389,8 +389,9 @@ def provider_preflight(c):
     for role, chain, name in checks:
         # A calibrator never takes a free or Go plan lane (ModelRuntime._call): where its chain has one,
         # the calibrator's route differs from an unwalled role's, so it is checked on its own.
-        key = (tuple(chain), role in ('strong_tester', 'easy_tester')
-               and bool(model_router.ungated_lanes(chain[0], getattr(c, 'router_accounts', model_router.ACCOUNTS))))
+        try: ungated = bool(model_router.ungated_lanes(chain[0], getattr(c, 'router_accounts', model_router.ACCOUNTS)))
+        except ValueError: ungated = False   # an unroutable name fails in the check itself
+        key = (tuple(chain), role in ('strong_tester', 'easy_tester') and ungated)
         if key in seen: continue
         seen.add(key)
         row = {"role": role, "model": chain[0], "scope": "availability_only", "status": "running"}

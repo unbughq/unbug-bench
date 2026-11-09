@@ -78,10 +78,11 @@ class CheapTests(unittest.TestCase):
         # Free routes are bounded at $0, never a paid window (founder 2026-11-08).
         self.assertEqual(router.route_maximum(free)['max_usd'],0.0); self.assertEqual(router.funded_maximum(free,'5')['max_usd'],0.0)
         store=router.Store(self.root/'router.sqlite')
-        # The free route needs no account and comes first; the paid same-family fallback follows it.
-        for accounts in ([],['claude-token'],['openrouter-key']):
+        # The anonymous free route needs no account. It comes after the Go plan and the paid route
+        # (founder 2026-11-09), so it is leased only where neither account is offered.
+        for accounts,route in (([],free),(['claude-token'],free),(['openrouter-key'],'openrouter/deepseek/deepseek-v4.1-flash')):
             result=store.rpc('acquire',dict(paid_protocol=1,id=uuid.uuid4().hex,model=free,accounts=accounts,role='writer',deadline=time.time()+3600))
-            self.assertEqual((result['kind'],result['route'],result['max_usd']),('lease',free,0.0))
+            self.assertEqual((result['kind'],result['route'],result['max_usd'] == 0.0),('lease',route,route == free))
             store.rpc('finish',dict(lease_id=result['lease_id'],outcome='denied',receipt=None))
         self.assertEqual(store.rpc('status',{})['leases'],[])
 
