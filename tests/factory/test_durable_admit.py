@@ -415,7 +415,7 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(c.card["candidate_attempts"], 3)
 
     def legacy_archive(self, old, statement, *, commit="a" * 40, gates=None, writer="opencode-go/minimax-m3", link=False,
-                       repo="medusajs/medusa", lockfile=None, card_extra=None, meta=True):
+                       repo="medusajs/medusa", lockfile=None, card_extra=None, meta=True, statement_inside=True):
         """A pre-durable checkpoint as run_artifacts.seal wrote it, rewrapped to the statement key:
         `tar -C <work parent> -czf - <case id> | age -r <recipient>`, links and caches included."""
         import worker_secrets
@@ -427,7 +427,8 @@ class AdmitTests(unittest.TestCase):
         recipient = subprocess.run(["age-keygen", "-y", str(self.statement_key)], capture_output=True, check=True).stdout.decode().strip()
         work = root / "work" / old
         (work / "case").mkdir(parents=True)
-        (work / "case/statement.md").write_text(statement)
+        if statement_inside:   # an October seal kept it beside the archive instead
+            (work / "case/statement.md").write_text(statement)
         (work / "case/promise.md").write_text("# Promise\n\nCheckout holds the stock it promised.")
         app = {"repo": repo, "commit": commit}
         if lockfile is not None:
@@ -665,6 +666,22 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(c.card["recertify"], {"case": old, "routes": {"easy_calibrator": "openrouter/z-ai/glm-5.3-flash"},
                                                "gate_results": {"G5": {"reference": "solved"}, "G13": {"ok": True}}})
         self.assertIs(c.card["imported_from"]["recertify"], True)
+
+    def test_a_sealed_archive_without_its_statement_takes_the_one_the_board_holds(self):
+        # 86b100: the October seal stored statement.md beside the archive, so the tar lacks it.
+        old, text = "case-20261017T120256Z-old", "# Candidate\n\nOversell when two carts check out at once."
+        card = self.sealed_card()
+        archive = self.legacy_archive(old, text, writer=None, gates=card["gates"], card_extra=card, statement_inside=False)
+        registry = self.admitted_registry((old, text), ("case-prior", "# Candidate\n\nRefund exceeds the order."))
+        step_input = self.import_step(self.recertify_inputs(), registry, archive)
+        result, outputs = self.run_admit(step_input)
+        self.assertEqual((result.outcome, result.reason), (Outcome.OK, "admit:imported_sealed"))
+        work, c = self.restore(step_input, result, outputs)
+        self.assertEqual((work / "case/statement.md").read_text(), text)
+        # A board without that case's statement still refuses the archive by its fixed code.
+        empty = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
+        result, _ = self.run_admit(self.import_step(self.recertify_inputs(), empty, archive))
+        self.assertEqual((result.outcome, result.reason), (Outcome.EXHAUSTED, "admit:import_layout_statement"))
 
     def test_recertify_refuses_an_unsealed_card_a_family_change_or_pinned_models(self):
         old, text = "case-20261017T125556Z-old", "# Candidate\n\nOversell when two carts check out at once."
