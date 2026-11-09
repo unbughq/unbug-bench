@@ -48,8 +48,9 @@ def free_maximum(route):
 
 # OpenCode Go plan routes (founder 2026-11-09: "move everything over to opencode so we stop burning
 # money on openrouter"). The founder's two Go accounts pay from their plan allowance, so no money moves
-# while "Extra Usage" stays off. A Go call is still booked and bounded at its OpenRouter twin's pinned
-# list price, so a case budget means the same on either route and a Go call has its twin's maximum.
+# while "Extra Usage" stays off. A Go call is bounded at its OpenRouter twin's pinned list price, so it
+# has its twin's maximum, but it books what the plan bills, $0, to case and batch money (budget.py,
+# "book Go at cost", founder 2026-11-09). Its list value is kept and reported as plan_list_cost_usd.
 GO_TWINS = {'opencode-go/deepseek-v4.1-flash': 'openrouter/deepseek/deepseek-v4.1-flash',
             'opencode-go/minimax-m3.1-flash': 'openrouter/minimax/minimax-m3.1-flash',
             'opencode-go/mimo-v2.6-pro': 'openrouter/xiaomi/mimo-v2.6-pro',
