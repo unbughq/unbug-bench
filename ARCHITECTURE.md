@@ -219,6 +219,9 @@ lane hands an unwalled call to the next route in its chain (DeepSeek: paid OpenR
 A usage-limit (quota) failure on an OpenCode Go account is published as that account's router health
 block until its reset, even when it came from an unstructured CLI line, so later calls skip the exhausted
 account instead of retrying it per call.
+Any other failure of a free model on an OpenCode account lane (an OpenCode error, a crashed CLI, a broken
+usage report; not a content refusal) is published as an outage of that lane for that route only, with the
+router's usual backoff, so later calls take the next lane; the account's Go lanes stay open.
 
 Codex (`codex/gpt-6.1-sol`, the strong calibrator's other family) has no gate either. Its lease
 maximum is $50 at the Codex list price (`CODEX_PROFILES`), lowered by funding. The runtime reads Codex's

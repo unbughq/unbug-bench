@@ -100,6 +100,41 @@ class ProviderRoutesTest(TestCase):
         # Another route's per-call quota keeps its old, lane-only handling.
         self.assertEqual(model_runtime.call_failure_reason('provider_limit:x', 'openrouter/minimax/minimax-m3.1-flash'), 'quota')
 
+    def test_a_failing_free_account_lane_is_blocked_for_that_route_only(self):
+        # 9 November: free MiniMax calls kept retrying both accounts; their refusals did not read as quota.
+        stack, store = offline_router()
+        self.addCleanup(stack.close)
+        free = 'opencode/minimax-m3.1-flash-free'
+        tried = []
+        def invoke(runtime, context, models, *args, **kwargs):
+            tried.append((models[0], context.model_lease.account))
+            if models[0] == free:
+                raise model_runtime.BudgetError('opencode_error')   # no provider failure: per-call outage
+            return 0
+        runtime = model_runtime.ModelRuntime(None, None, None, None, None)
+        with mock.patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
+            runtime.call(SimpleNamespace(card={}), [free], 't', '.', 'fixture')
+            self.assertEqual(tried[:2], [(free, 'opencode-go-key'), (free, 'opencode-go-key-2')])
+            fallback = tried[2]
+            blocked = {k: v['reason'] for k, v in store.rpc('status', {})['health'].items() if v.get('blocked_until')}
+            # Route-scoped: the accounts' Go lanes (MiMo, Muse, GLM Go) stay open.
+            self.assertEqual(blocked, {'opencode-go-key/' + free: 'outage', 'opencode-go-key-2/' + free: 'outage'})
+            tried.clear()
+            runtime.call(SimpleNamespace(card={}), [free], 't', '.', 'fixture')
+            self.assertEqual(tried, [fallback])
+            mimo = model_router.routes('opencode-go/mimo-v2.6-pro')[0]
+            self.assertEqual(store.rpc('capacity', {'route': mimo['route']})['slots'], 2)
+        # A content refusal stays per-call: it says nothing about the lane.
+        stack, store = offline_router()
+        self.addCleanup(stack.close)
+        def refuse(runtime, context, models, *args, **kwargs):
+            if models[0] == free and context.model_lease.account == 'opencode-go-key':
+                raise model_runtime.BudgetError('refusal:' + free)
+            return 0
+        with mock.patch.object(model_runtime.ModelRuntime, '_invoke', refuse):
+            runtime.call(SimpleNamespace(card={}), [free], 't', '.', 'fixture')
+        self.assertFalse([k for k, v in store.rpc('status', {})['health'].items() if v.get('blocked_until')])
+
     def test_fallback_is_shared_and_billing_is_explicit(self):
         self.addCleanup(offline_router()[0].close)
         c = SimpleNamespace(work=self.work, card={})
