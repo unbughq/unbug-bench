@@ -23,7 +23,7 @@ import tempfile
 import time
 from budget import BudgetError, run_budgeted, case_spending, require_case_budget, invocation_role
 import model_router
-from token_prices import FREE_ROUTES, GATED_OPENROUTER
+from token_prices import FREE_ROUTES, GATED_OPENROUTER, GO_ROUTES
 import model_call_gate
 from model_router import family
 from registry import atomic_json
@@ -138,9 +138,9 @@ def require_bounded_models(c):
              ('strong_calibrator', models['strong_calibrator']), ('easy_calibrator', models['easy_calibrator'])]
     roles += [('reviewer' if i == 0 else 'reviewer2', chain) for i, chain in enumerate(models['reviewers'])]
     for role, chain in roles:
-        # A walled role is never leased a free route (ModelRuntime._call).
+        # A walled role is never leased a free or Go plan route (ModelRuntime._call).
         if not any(model_router.route_maximum(row['route']) is not None
-                   and not (role in model_router.WALLED_ROLES and row['route'] in FREE_ROUTES)
+                   and not (role in model_router.WALLED_ROLES and (row['route'] in FREE_ROUTES or row['route'] in GO_ROUTES))
                    for row in model_router.routes(chain[0], getattr(c, 'router_accounts', model_router.ACCOUNTS))):
             raise model_router.ProviderWait(role, model_router.Wait('unbounded_route',
                 model_router.retry_at('unbounded_route'), route=chain[0]))
@@ -176,6 +176,8 @@ def opencode_config(model=None, case=None, *, diagnosis=False):
     if diagnosis: cfg['permission'].update(webfetch='deny', websearch='deny')
     # OpenCode v1.19 does not know Muse Contributor's price; without one the budget guard stops the run.
     go = {"models": {"muse-spark-1.3-contributor": {"cost": price('opencode-go/muse-spark-1.3-contributor')}}}
+    # Go plan routes book their OpenRouter twin's list price (token_prices.GO_TWINS), never OpenCode's own figure.
+    go["models"].update({route.partition("/")[2]: {"cost": price(route)} for route in sorted(GO_ROUTES)})
     go["options"] = {"apiKey": "{env:OPENCODE_API_KEY}"}
     if base: go["options"]["baseURL"] = base.rstrip("/") + "/go/v1"
     cfg["provider"]["opencode-go"] = go
@@ -385,11 +387,11 @@ class ModelRuntime:
         operation_id = getattr(c, 'model_operation_id', None) or str(uuid.uuid4())
         duration = timeout or getattr(getattr(c, 'args', None), 'agent_timeout', 2400)
         if user is not None or role in model_router.WALLED_ROLES:
-            # A walled role reaches only a gate's port, and a free route has no gate: it takes the
-            # family's gated or subscription route instead (model_call_gate.enforce refuses it too).
+            # A walled role reaches only a gate's port, and a free or Go plan route has no gate: it takes
+            # the family's gated or subscription route instead (model_call_gate.enforce refuses it too).
             # Calibrator preflights run unwalled but are excluded the same way, so they test the real route.
             accounts = getattr(c, 'router_accounts', model_router.ACCOUNTS)
-            context.router_excluded = (*getattr(context, 'router_excluded', ()), *model_router.free_lanes(requested, accounts))
+            context.router_excluded = (*getattr(context, 'router_excluded', ()), *model_router.ungated_lanes(requested, accounts))
             if not [r for r in model_router._bounded_routes(requested, accounts)
                     if r['pool'] + '/' + r['route'] not in context.router_excluded]:
                 raise model_router.ProviderWait(role, model_router.Wait('unbounded_route',

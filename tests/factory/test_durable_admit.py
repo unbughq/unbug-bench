@@ -39,6 +39,12 @@ CASE = "case-admit-practice"
 BATCH = "b-admit"
 
 
+
+import model_router as _router
+# These tests stop admission at the table's walled GLM calibrator, before any model call. Its chain
+# now ends in OpenRouter's gated route (founder 2026-11-09), so they use the chain without it.
+WALLED_GLM_UNBOUNDED = tuple(tuple(r for r in c if r != 'openrouter/z-ai/glm-5.3-flash') for c in _router.CHAINS)
+
 class AdmitTests(unittest.TestCase):
     def test_failure_cause_is_specific_and_original_traceback_stays_encrypted(self):
         from durable.contract import to_record
@@ -360,7 +366,7 @@ class AdmitTests(unittest.TestCase):
                     kwargs['on_complete']()  # Completed CLI, missing/undecodable answer.
                     return 0
             return self.model(c, models, text, cwd, name, **kwargs)
-        with patch.object(model_router, 'routes', side_effect=lambda *a: routes(*a)[:1]), \
+        with patch.object(model_router, 'routes', side_effect=lambda m, *a: [r for r in routes(m, *a) if r['route'] == m][:1]), \
                 patch.object(run, 'opencode', side_effect=model), patch.object(run, 'model_call', side_effect=model):
             result, blobs = self.run_admit(first)
             self.assertEqual((result.outcome,result.reason), (Outcome.INFRA_ERROR,'infra:malformed_output_exhausted'))
@@ -697,6 +703,7 @@ class AdmitTests(unittest.TestCase):
         result, _ = self.run_admit(self.import_step(self.recertify_inputs(), registry, archive))
         self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, "router:unbounded_route"))
 
+    @patch.object(__import__('model_router'), 'CHAINS', WALLED_GLM_UNBOUNDED)
     def test_unpinned_import_takes_the_first_slot_with_the_october_writer_family(self):
         from model_router import family
         old, text = "case-20261019T061459Z-old", "# Candidate\n\nOversell when two carts check out at once."
@@ -938,6 +945,7 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(result.reason, "admit:import_writer_none")
         self.assertEqual(self.calls, [])
 
+    @patch.object(__import__('model_router'), 'CHAINS', WALLED_GLM_UNBOUNDED)
     def test_unpinned_idea_only_import_takes_a_supported_writer_slot(self):
         import model_runtime
         from model_router import family
@@ -989,6 +997,7 @@ class AdmitTests(unittest.TestCase):
         result, _ = self.run_admit(self.import_step(self.idea_inputs(value), registry, archive))
         self.assertEqual(result.reason, "admit:inputs_invalid")
 
+    @patch.object(__import__('model_router'), 'CHAINS', WALLED_GLM_UNBOUNDED)
     def test_batch_ordinals_follow_existing_role_rotation(self):
         from dataclasses import replace
         import model_runtime

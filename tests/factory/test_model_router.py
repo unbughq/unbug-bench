@@ -150,10 +150,16 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(self.store.rpc('status', {})['health'], {})
 
     def test_real_paid_deepseek_ledger_is_explicit_and_not_rebooked(self):
-        source, target = router.CHAINS[0]
+        go, target, source = router.CHAINS[0]
         choices = router.routes(source)
-        self.assertEqual([(r['route'], r['billing']) for r in choices], [(source, 'free'), (target, 'paid')])
-        first = self.acquire(source); self.observe(first, 'outage'); self.finish(first, 'interrupted')
+        # Founder 2026-11-09: the Go plan on both accounts first, then paid, the hanging anonymous free lane last.
+        self.assertEqual([(r['route'], r['account'], r['billing']) for r in choices],
+                         [(go, 'opencode-go-key', 'subscription'), (go, 'opencode-go-key-2', 'subscription'),
+                          (target, 'openrouter-key', 'paid'), (source, None, 'free')])
+        for account in ('opencode-go-key', 'opencode-go-key-2'):
+            lease = self.acquire(source)
+            self.assertEqual((lease['route'], lease['account']), (go, account))
+            self.observe(lease, 'quota'); self.finish(lease, 'interrupted')
         selected = self.acquire(source)
         self.assertEqual((selected['route'], selected['account'], selected['family']), (target, 'openrouter-key', 'deepseek'))
         for card in PAID:
@@ -166,7 +172,8 @@ class RouterTests(unittest.TestCase):
 
     def test_wallet_credit_denial_is_shared_and_requires_explicit_topup(self):
         model = next(c['terminal_stop'].split(':', 1)[1] for c in LIMITS if 'openrouter/' in c['terminal_stop'])
-        lease = self.acquire(model)
+        lease = self.acquire(model, accounts=('openrouter-key',))
+        self.assertTrue(lease['route'].startswith('openrouter/'))
         observation = budget.classify_provider_failure('HTTP 402 insufficient credits', lease['route'])
         self.observe(lease, observation['reason']); self.finish(lease, 'interrupted')
         self.now[0] += 86400
@@ -205,7 +212,8 @@ class RouterTests(unittest.TestCase):
         for chain in router.CHAINS:
             for requested in chain:
                 rows = router.routes(requested)
-                self.assertEqual(rows[0]['route'], requested)
+                # Founder 2026-11-09: whichever member is requested, the chain starts at its OpenCode head.
+                self.assertEqual([r['route'] for r in rows if r['account'] != 'opencode-go-key-2'], list(chain))
                 self.assertEqual({r['family'] for r in rows}, {model_runtime.family(requested)})
                 self.assertTrue(all(r['pool'] and r['billing'] in ('free', 'paid', 'subscription') for r in rows))
         self.assertEqual({r['account'] for r in router.routes('claude/claude-opus-5-5')}, {'claude-token', 'claude-factory-token-2'})
@@ -519,7 +527,7 @@ class RouterTests(unittest.TestCase):
         try:
             with socket.create_connection(server.server_address,timeout=2):
                 request=urllib.request.Request(f'https://localhost:{server.server_port}/capacity',
-                    json.dumps({'route':router.CHAINS[0][0]}).encode(),
+                    json.dumps({'route':'opencode/deepseek-v4.1-flash-free'}).encode(),
                     {'Authorization':'Bearer synthetic-token','Content-Type':'application/json'})
                 trust=ssl.create_default_context(cafile=str(cert))
                 with urllib.request.urlopen(request,context=trust,timeout=2) as response:

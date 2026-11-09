@@ -141,7 +141,7 @@ class MaximaTests(unittest.TestCase):
         models |= {*CLAUDE_PROFILES, GATED_CLAUDE + ':large'}
         models |= {c['terminal_stop'].partition(':')[2] for c in LIMITS}
         # OpenCode's free routes are bounded at $0 (founder 2026-11-08), so a chain reaching one qualifies.
-        from token_prices import FREE_ROUTES
+        from token_prices import FREE_ROUTES, GO_ROUTES, GO_TWINS
         def reaches_free(model):
             try: return any(r['route'] in FREE_ROUTES for r in router.routes(model, router.ACCOUNTS))
             except ValueError: return False
@@ -166,6 +166,12 @@ class MaximaTests(unittest.TestCase):
                     # $50 at the long-context list tariff ($4/M input, $15/M output)
                     self.assertEqual((actual.max_usd, actual.max_input_tokens, actual.max_output_tokens),
                                      (50.0, 12_500_000, 3_333_333))
+                elif actual.route in GO_ROUTES:
+                    # The Go plan route has its OpenRouter twin's bound (founder 2026-11-09).
+                    twin = router.route_maximum(GO_TWINS[actual.route])
+                    self.assertEqual((actual.max_usd, actual.max_input_tokens, actual.max_output_tokens),
+                                     (twin['max_usd'], twin['max_input_tokens'], twin['max_output_tokens']))
+                    self.assertTrue(actual.price_source.startswith('opencode-go:'))
                 else:
                     self.assertIn(actual.route, GATED_OPENROUTER)
                 store.rpc('finish',dict(lease_id=actual.lease_id,outcome='denied',receipt=None))
