@@ -2097,13 +2097,18 @@ def stop_pilot(c, user):
 
 
 def dispose_diagnosis_pilot(c):
+    """Each stage's failure carries its name (cleanup_stage) for the diagnosis cleanup stop."""
+    stage = 'pilot_stop'
     try:
         present = stop_pilot(c, 'pilot')
-        pilot_wall(c, 'pilot', None, remove=True)
-        shred_tree(pilot_home('pilot'), sudo=True)
+        stage = 'pilot_wall'; pilot_wall(c, 'pilot', None, remove=True)
+        stage = 'pilot_home'; shred_tree(pilot_home('pilot'), sudo=True)
+        stage = 'pilot_userdel'
         if present: sh(c, ['sudo', 'userdel', 'pilot'], check=True)
-    except Exception:
-        raise RuntimeError('pilot disposal failed') from None
+    except Exception as error:
+        failure = RuntimeError('pilot disposal failed')
+        failure.cleanup_stage, failure.cleanup_error = stage, type(error).__name__
+        raise failure from None   # the command's own message may quote its private log tail
 
 
 def make_pilots(c, identities, concurrent, *, diagnosis=False):
