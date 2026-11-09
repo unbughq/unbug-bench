@@ -677,7 +677,8 @@ def _wall_access(gate, lease, user):
     revoked = True
     try:
         if user is not None:
-            uid = pwd.getpwnam(user).pw_uid
+            try: uid = pwd.getpwnam(user).pw_uid
+            except KeyError: raise BudgetError('model_wall_failed') from None   # no such isolated user
             chain = 'factory-' + user
             rule = ['-m', 'owner', '--uid-owner', str(uid), '-o', 'lo', '-d', '127.0.0.1/32',
                     '-p', 'tcp', '--dport', str(gate.server.server_port),
