@@ -514,6 +514,21 @@ class SelfNamingStops(unittest.TestCase):
     def test_raw_reasons_never_collide_with_fixed_ones(self):
         self.assertFalse(any(wp4.RAW_REASON.fullmatch(r) for r in REASONS | CONTRACT_REASONS | PUBLISHED_REASONS))
 
+    def test_gate_crash_names_the_gate_and_class(self):
+        # 18681d-r recertify (2026-11-09): GATES ended infra:raw_infrastructure_exhausted twice and
+        # the attempt record could not say which rerun gate crashed, or with what.
+        for stop, want in (("infrastructure_exhausted:G3:CalledProcessError", "g3:crash_called_process_error"),
+                           ("infrastructure_exhausted:G17:InvalidInfra", "g17:crash_invalid_infra"),
+                           ("Budget stopped: infrastructure_exhausted:G2:TimeoutExpired", "g2:crash_timeout_expired"),
+                           ("infrastructure_exhausted", "infra:gate_infra_exhausted"),
+                           ("infrastructure_exhausted:G18:KeyError", "infra:gate_infra_exhausted"),
+                           ("infrastructure_exhausted:G3:/home/user/x", "infra:gate_infra_exhausted"),
+                           ("infrastructure_exhausted:G3:" + "A" * 40, "infra:gate_infra_exhausted")):
+            c = classify(stop, step=StepKind.GATES, now=NOW)
+            self.assertEqual(c, Classified(Outcome.INFRA_ERROR, want), stop)
+            self.assertTrue(wp4.RAW_REASON.fullmatch(c.reason) or c.reason in PUBLISHED_REASONS, stop)
+        self.assertNotIn("g3:crash_called_process_error", PUBLISHED_REASONS)
+
     def test_cleanup_label_fits_the_grammar_or_is_refused(self):
         self.assertEqual(wp4.labelled(wp4.CLEANUP_PREFIX, wp4.stop_label("route_feature_unsupported")),
                          "diagnosis:cf_route_feature_unsupported")

@@ -182,7 +182,11 @@ RAW_STOP_PREFIX = "infra:raw_"
 # A diagnosis whose cleanup also failed keeps its first error as the cause, named here:
 # "diagnosis:cf_<label>" (durable/steps/diagnosis.py; diagnosis_invocation.invoke).
 CLEANUP_PREFIX = "diagnosis:cf_"
-RAW_REASON = re.compile(r"(?:infra:raw|diagnosis:cf)_[a-z][a-z_]*")
+# A gate that crashed under the engine (run.gate_crash_stop): "infrastructure_exhausted:<gate>:<Class>"
+# becomes "g<n>:crash_<class>", operator-visible like the raw labels, never published.
+GATE_CRASH_INFIX = "crash_"
+RAW_REASON = re.compile(r"(?:infra:raw|diagnosis:cf)_[a-z][a-z_]*|g(?:[1-9]|1[0-7]):crash_[a-z][a-z_]*")
+_GATE = re.compile(r"G([1-9]|1[0-7])")
 _SNAKE_LABEL = re.compile(r"[a-z][a-z_]*")
 _CLASS_LABEL = re.compile(r"_*[A-Z][A-Za-z]*")
 
@@ -207,7 +211,7 @@ REASONS = frozenset({r for _, r in _FIXED.values()} | {r for _, r in _LIMIT_FAMI
                     | {f"router:preflight_{r}_{c}" for r in PREFLIGHT_ROLES.values() for c in PREFLIGHT_STOPS.values()}
                     | {r for _, r in _WAIT.values()}
                     | {"router:provider_limit", "infra:usage_unknown", "infra:cli_version",
-                       "infra:runner_exception", UNCLASSIFIED}
+                       "infra:runner_exception", "infra:gate_infra_exhausted", UNCLASSIFIED}
                     | {f"{stage}:{code}" for stage in _STEP_STAGE.values() for code in _CASE_LIMIT.values()})
 
 # Fixed codes that the contract and the design define outside WP4.
@@ -277,6 +281,12 @@ def _lookup(stop) -> tuple[Outcome, Optional[str], str]:
         stage, _, error = rest.strip().partition(":")
         if stage in CLEANUP_STAGES:
             return _I, None, f"infra:dcf_{stage}_{CLEANUP_ERRORS.get(error, 'other')}"
+    if head == "infrastructure_exhausted":
+        gate, _, error = rest.strip().partition(":")
+        if _GATE.fullmatch(gate):
+            reason = labelled(f"g{gate[1:]}:{GATE_CRASH_INFIX}", stop_label(error))
+            if reason: return _I, None, reason
+        return _I, None, "infra:gate_infra_exhausted"
     if head in _FIXED:
         outcome, reason = _FIXED[head]
         return outcome, None, reason
