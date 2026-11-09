@@ -998,21 +998,44 @@ class AdmitTests(unittest.TestCase):
         self.assertEqual(result.reason, "admit:inputs_invalid")
 
     @patch.object(__import__('model_router'), 'CHAINS', WALLED_GLM_UNBOUNDED)
-    def test_batch_ordinals_follow_existing_role_rotation(self):
+    def board(self, cases):
+        """A registry plaintext whose board already holds `cases` (earlier batches' admissions)."""
+        entries, objects = {}, {}
+        for i, case in enumerate(cases, 1):
+            data = b"age-encryption.org/v1\n" + case.encode()
+            digest = hashlib.sha256(data).hexdigest()
+            objects[digest] = base64.b64encode(data).decode()
+            entries[case] = {"version": 1, "case_id": case, "status": "completed", "complete": True,
+                             "reservation": f"r{i}", "registry_revision": i, "statements": {},
+                             "cipher_sha256": digest, "statement_sha256": None}
+        return json.dumps({"version": 1, "registry": {"revision": len(cases), "entries": entries},
+                           "objects": objects, "refs": {}}).encode()
+
+    @patch.object(__import__('model_router'), 'CHAINS', WALLED_GLM_UNBOUNDED)
+    def test_campaign_wide_admissions_cycle_the_role_rotation(self):
+        # Every durable case is a one-case batch (ordinal 1): the board's earlier cases, carried
+        # batch to batch, choose the slot. The case's own entry (a retry) is not counted.
         from dataclasses import replace
         import model_runtime
         value = self.real_inputs("# Candidate\n\nA checkout failure.")
         value.pop('models')
         inputs = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(value).encode())
-        empty = self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, b"")
-        for ordinal in (1, 4, 8, 9):
-            si = replace(self.step(inputs, empty), case_id=f"case-cohort-{ordinal}")
+        for earlier, slot in ((0, 1), (3, 4), (7, 8), (8, 1), (12, 5)):
+            case = f"case-b{earlier}-1"
+            board = self.board([f"case-b{i}-1" for i in range(earlier)] + [case])
+            si = replace(self.step(inputs, self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key, board)),
+                         case_id=case)
             result, blobs = self.run_admit(si)
             self.assertEqual((result.outcome, result.reason), (Outcome.INFRA_ERROR, 'router:unbounded_route'))
             _, c = self.restore(si, result, blobs)
-            slot = (ordinal - 1) % 8 + 1
             self.assertEqual(c.card["rotation_slot"], slot)
             self.assertEqual(c.card["roles"]["writer"]["model"], model_runtime.rotation(slot)["writer"]["model"])
+        # An explicit slot still wins over the board's count.
+        pinned = self.push(ArtifactKind.INPUTS, self.batch_key, json.dumps(dict(value, rotation_slot=6)).encode())
+        si = replace(self.step(pinned, self.push(ArtifactKind.STATEMENT_REGISTRY, self.batch_key,
+                                                 self.board(["case-a-1", "case-b-1"]))), case_id="case-pin-1")
+        result, blobs = self.run_admit(si)
+        self.assertEqual(self.restore(si, result, blobs)[1].card["rotation_slot"], 6)
         self.assertEqual(self.calls, [])
 
     def test_unbounded_strong_or_second_reviewer_stops_before_any_model_spend(self):

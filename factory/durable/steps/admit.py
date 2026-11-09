@@ -25,8 +25,9 @@ INPUTS (batch key), reusing the card and case.json schemas:
         only that archive's statement and case metadata and starts the case at WRITER.
         Every real candidate runs the existing semantic dedup, public freshness and
         independent idea-realism checks before it can be handed to WRITER.
-        Optional `rotation_slot` overrides the existing cohort table; otherwise engine
-        case ordinals cycle that table. Explicit role chains still undergo validation.
+        Optional `rotation_slot` overrides the existing cohort table; otherwise the count of
+        other cases on the REGISTRY board (campaign-wide, carried batch to batch) cycles that
+        table. Explicit role chains still undergo validation.
 
 REGISTRY (batch key), exactly registry.Registry's state plus its object store:
     {"version": 1, "registry": {"revision": n, "entries": {...}},
@@ -484,16 +485,25 @@ def _same_app(app, inputs):
     return old is not None and old == pinned
 
 
-def _card(value, case_id, dry_run):
+def _admitted_before(root, case_id):
+    """Campaign-wide count of cases admitted before this one: the board's other entries.
+
+    The operator carries each batch's newest board into the next batch (dedup needs every
+    earlier statement), and registry entries are never removed, so this count grows across
+    one-case batches as well as within a batch (the engine queue serialises ADMITs)."""
+    entries = json.loads((root / "registry.json").read_text())["entries"]
+    return sum(1 for case in entries if case != case_id)
+
+
+def _card(value, case_id, dry_run, admitted_before=0):
     card = {"case": case_id, "dry_run": dry_run, "seed": value["seed"], "gates": {}, "failed_gate": None,
             "factory_slots_prepared": 1}
     import model_runtime
     table = model_runtime.PROMPTS.parent / os.environ.get("FACTORY_ROTATION", "rotation-3writers.json")
     slots = len(json.loads(table.read_text())["slots"])
-    # Engine case IDs end in their batch ordinal; cycle the existing cohort table.
-    ordinal = case_id.rsplit("-", 1)[-1]
-    default = (int(ordinal) - 1) % slots + 1 if ordinal.isdigit() and int(ordinal) > 0 else 1
-    card["rotation_slot"] = value.get("rotation_slot") or default
+    # Cycle the cohort table by the campaign-wide count of admitted cases, never the batch
+    # ordinal: every durable case is its own one-case batch, so ordinals would pin slot 1.
+    card["rotation_slot"] = value.get("rotation_slot") or admitted_before % slots + 1
     if not 1 <= card["rotation_slot"] <= slots: raise _Invalid("inputs")
     card["source"] = "fixture (dry-run)" if dry_run else value["source"]
     for name in ("models", "roles", "recovery_config"):
@@ -746,7 +756,8 @@ def run(worker, step_input, keys):
             shutil.rmtree(work, ignore_errors=True)
             work.mkdir()
             atomic_json(work / "continuation-budget.json", {"calls": 0, "events": [], "cost": 0})
-            atomic_json(work / "scorecard.json", _card(inputs, step_input.case_id, inputs["dry_run"]))
+            atomic_json(work / "scorecard.json", _card(inputs, step_input.case_id, inputs["dry_run"],
+                                                        _admitted_before(root / "registry", step_input.case_id)))
         c = runner.context_for_step(step_input, work)
         if inputs.get("recertify") is True and not c.card.get("recertify"):
             return StepResult(Outcome.EXHAUSTED, "admit:import_recertify"), {}   # recertify needs a sealed import
