@@ -2096,18 +2096,68 @@ def stop_pilot(c, user):
 
 
 
+PILOT_TEARDOWN_S = 300        # its own window: the diagnosis may have used its step's whole deadline
+PILOT_HOME_REMOVAL_S = 900    # a calibrator home holds whole solve attempts (app trees with dependencies)
+
+
+class PilotHomeError(RuntimeError):
+    """A pilot home that could not be removed. Its class name is what a gate's card records
+    (gate_attempt: infrastructure_gate.error_type), so a stuck home names itself there."""
+
+
+def release_pilot_home(c, home):
+    """Remove a pilot's home before the next pilot and after a diagnosis, whatever is left of the
+    caller's deadline: unmount a diagnosis tmpfs home, shred only the credentials make_pilots copied
+    in, and delete the rest. A home that is still mounted or still present is refused.
+
+    18681d-r (9 November) failed G16 three times before any model call: the old shred of every
+    file of the previous calibrator's home (its solve attempts) ran out of time each try, and the
+    unfinished home was there again for the next one."""
+    import processes
+    if str(home) not in {str(path) for _, path in pilot_homes()}: raise ValueError("not a pilot home")
+    cleanup = copy.copy(c)
+    cleanup.role_cancel = None
+    try:
+        with processes.deadline(PILOT_HOME_REMOVAL_S, independent=True):
+            if sh(cleanup, ["sudo", "mountpoint", "-q", "--", home]) == 0:
+                sh(cleanup, ["sudo", "umount", "--", home], check=True)
+            sh(cleanup, ["sudo", "sh", "-c",
+                         'case "$1" in /?*/?*) ;; *) exit 2 ;; esac; '
+                         'for f in "$1/.local/share/opencode/auth.json" "$1/.config/opencode"; do '
+                         'if [ -e "$f" ]; then find "$f" -type f -exec shred -u -z {} +; fi; done; '
+                         'rm -rf --one-file-system -- "$1"', "sh", home])
+            if sh(cleanup, ["sudo", "mountpoint", "-q", "--", home]) == 0:
+                raise PilotHomeError("pilot home still mounted")
+            if sh(cleanup, ["sudo", "test", "-e", home]) == 0:
+                raise PilotHomeError("pilot home remains")
+    except PilotHomeError: raise
+    except Exception as error:
+        failure = PilotHomeError("pilot home removal failed")
+        failure.cleanup_error = type(error).__name__
+        raise failure from None
+
+
 def dispose_diagnosis_pilot(c):
-    """Each stage's failure carries its name (cleanup_stage) for the diagnosis cleanup stop."""
+    """Each stage's failure carries its name (cleanup_stage) for the diagnosis cleanup stop.
+
+    22e434-3r2 (9 November) stopped infra:dcf_pilot_home_timeout: the home's shred ran in what was
+    left of the diagnosis step's deadline. Teardown now has its own window and cancellation does
+    not reach it, and the diagnosis home is a tmpfs that is unmounted rather than shredded."""
+    import copy, processes
+    cleanup = copy.copy(c)
+    cleanup.role_cancel = None
     stage = 'pilot_stop'
     try:
-        present = stop_pilot(c, 'pilot')
-        stage = 'pilot_wall'; pilot_wall(c, 'pilot', None, remove=True)
-        stage = 'pilot_home'; shred_tree(pilot_home('pilot'), sudo=True)
-        stage = 'pilot_userdel'
-        if present: sh(c, ['sudo', 'userdel', 'pilot'], check=True)
+        with processes.deadline(PILOT_TEARDOWN_S, independent=True):
+            present = stop_pilot(cleanup, 'pilot')
+            stage = 'pilot_wall'; pilot_wall(cleanup, 'pilot', None, remove=True)
+            stage = 'pilot_home'; release_pilot_home(cleanup, pilot_home('pilot'))
+            stage = 'pilot_userdel'
+            if present: sh(cleanup, ['sudo', 'userdel', 'pilot'], check=True)
     except Exception as error:
         failure = RuntimeError('pilot disposal failed')
-        failure.cleanup_stage, failure.cleanup_error = stage, type(error).__name__
+        failure.cleanup_stage = stage
+        failure.cleanup_error = getattr(error, 'cleanup_error', None) or type(error).__name__
         raise failure from None   # the command's own message may quote its private log tail
 
 
@@ -2121,9 +2171,16 @@ def make_pilots(c, identities, concurrent, *, diagnosis=False):
         # homes. A later repair or interrupted attempt must not reuse live sessions.
         sh(c, ["sudo", "pkill", "-KILL", "-u", user])
         pilot_wall(c, user, slot, remove=True)
-        shred_tree(home, sudo=True)
+        release_pilot_home(c, home)   # refuses a leftover home that is still mounted
         sh(c, ["sudo", "userdel", user])
         sh(c, ["sudo", "useradd", "-m", "-s", "/bin/bash", user], check=True)
+        if diagnosis:
+            # A memory-backed home: teardown is an unmount, however much the diagnosis wrote.
+            import pwd
+            entry = pwd.getpwnam(user)
+            sh(c, ["sudo", "mount", "-t", "tmpfs", "-o",
+                   f"mode=0700,size=2g,nodev,nosuid,uid={entry.pw_uid},gid={entry.pw_gid}",
+                   "tmpfs", home], check=True)
         for d in (() if diagnosis else (".config/opencode", ".local/share/opencode/auth.json")):
             if (HOME / d).exists(): sh(c, ["sudo", "cp", "-a", "--parents", d, home], cwd=HOME, check=True)
         sh(c, ["sudo", "chown", "-R", f"{user}:{user}", home], check=True)
@@ -2158,8 +2215,11 @@ def early_probe(c):
         home = pilot_home("pilot")
         if home.exists():  # G10 creates the pilot user afresh
             pilot_wall(c, "pilot", 0, remove=True)
-            shred_tree(home, sudo=True)
             subprocess.run(["sudo", "pkill", "-KILL", "-u", "pilot"], capture_output=True)
+            try: release_pilot_home(c, home)
+            except PilotHomeError as error:   # optional probe: the next make_pilots refuses the home by name
+                c.card.setdefault("cleanup_errors", []).append(
+                    {"stage": "pilot_home", "error": getattr(error, "cleanup_error", None) or type(error).__name__})
             subprocess.run(["sudo", "userdel", "-r", "pilot"], capture_output=True)
         c.__dict__.pop("pilot_passes", None)  # G10 sets its own; an empty list here hid kept G10 passes from G11 (2026-10-19)
     r["minutes"] = round((time.time() - started) / 60, 1)
