@@ -25,7 +25,7 @@ import subprocess
 import threading
 
 from durable.artifacts import AgeSealer, LocalObjects, R2Objects, SealedStore, check_scope
-from durable.contract import ArtifactKind, BatchSpec, CASE_ID, Ref, assert_no_conductor, batch_spec_from_record
+from durable.contract import ArtifactKind, BatchSpec, CASE_ID, ContractError, Ref, assert_no_conductor, batch_spec_from_record
 from durable.guard import degraded as guard_degraded
 from durable.keys import AgeKeyService
 from durable.ledger import SqlLedger
@@ -299,6 +299,14 @@ class Runtime:
                     self.store.get_sealed(old_batch, old_inputs))).get("import_spent_usd_micros") or 0
             except (ValueError, AttributeError):
                 carried = 0
+            # Money a factory_bug diagnosis found lost to our own bug is waste, not the case's: book
+            # it so before counting what the case used. Idempotent, so a refused start books nothing twice.
+            try:
+                waste_keys = self.engine.factory_bug_waste_keys(resume_of)
+            except ContractError:
+                waste_keys = []   # not resumable: engine.start_batch refuses it with its own reason
+            for key in waste_keys:
+                self.ledger.book_waste(key, "factory_bug")
             # Each earlier resume ran as "<case>@<batch>" and charged its own batch.
             resumed = [w.workflow_id.partition("@")[2] for w in
                        DBOS.list_workflows(workflow_id_prefix=resume_of + "@", load_input=False, load_output=False)]
