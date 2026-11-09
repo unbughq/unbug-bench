@@ -240,7 +240,7 @@ RECERTIFY_ROUTE_KEYS = {"builder": "writer", "attacker": "stress_tester", "stron
 _MODEL = re.compile(r"[A-Za-z0-9_.:-]+/[A-Za-z0-9_.:/-]{1,200}")
 
 
-def _import_legacy(ciphertext, work, inputs, case_id):
+def _import_legacy(ciphertext, work, inputs, case_id, board_statement=None):
     """Turn a rewrapped pre-durable checkpoint into this case's first work tree, in worker RAM.
 
     Only the old case tree is kept. Its card, ledger, gate caches, reviews and search evidence
@@ -254,6 +254,11 @@ def _import_legacy(ciphertext, work, inputs, case_id):
     name is an idea author, which ADMIT keeps out of the reviewer and judge roles. A tree
     without case.json (25fbfa stopped while writing its statement) gets one rebuilt from INPUTS,
     whose source the old card must confirm instead.
+
+    An October seal kept its statement beside the archive (sealed/<case>.statement.age), not in
+    it, so a sealed archive can lack case/statement.md. The board already holds that statement,
+    sealed under the batch key: `board_statement(old case id)` returns it (checked against the
+    board's statement digest) or None, and only then is a missing statement.md filled from it.
     """
     idea_only = inputs.get("import_mode") == IDEA_ONLY
     from worker_secrets import SECRETS
@@ -285,6 +290,10 @@ def _import_legacy(ciphertext, work, inputs, case_id):
         # Each missing part has its own fixed code, so a refused archive says what it lacks.
         # An idea-only import may rebuild a missing case.json (and only a missing one).
         rebuilt = idea_only and not (case / "case.json").exists()
+        if case.is_dir() and not (case / "statement.md").exists() and board_statement is not None:
+            kept = board_statement(name)
+            if kept is not None:
+                (case / "statement.md").write_bytes(kept)
         for path, code in ((old / "scorecard.json", "import_layout_card"), (case / "case.json", "import_layout_meta"),
                            (case / "statement.md", "import_layout_statement")):
             if not path.is_file() and not (rebuilt and code == "import_layout_meta"):
@@ -559,6 +568,19 @@ def _pin_models(c, runner, inputs):
     c.models = c.card["models"] = selected
 
 
+def _board_statement(root, refs, sealer, batch_key, case):
+    """The statement the board holds for `case`, or None when it holds none (or released it)."""
+    entry = json.loads((root / "registry.json").read_text())["entries"].get(case)
+    if not entry or entry["status"] == "released" or entry["cipher_sha256"] not in refs:
+        return None
+    digest = entry["cipher_sha256"]
+    raw = sealer.open(batch_key, Ref(refs[digest], ArtifactKind.STATEMENT_REGISTRY),
+                      (root / "objects" / (digest + ".age")).read_bytes())
+    if entry["statement_sha256"] is not None and hashlib.sha256(raw).hexdigest() != entry["statement_sha256"]:
+        raise _Invalid("import_layout_statement")
+    return raw
+
+
 def _prior_statements(root, refs, sealer, batch_key, case_id, work, imported=None):
     state = json.loads((root / "registry.json").read_text())
     prior = {}
@@ -743,7 +765,8 @@ def run(worker, step_input, keys):
                 if inputs["dry_run"] or inputs.get("board_dedup"):
                     return fail("admit:inputs_invalid")
                 try:
-                    _import_legacy(restored, work, inputs, step_input.case_id)
+                    _import_legacy(restored, work, inputs, step_input.case_id,
+                                   lambda old: _board_statement(registry.root, refs, sealer, batch_key, old))
                 except (_Invalid, ValueError, KeyError, AttributeError, TypeError, tarfile.TarError) as error:
                     # The archive itself is wrong: a retry would only rebuild a worker for the same refusal.
                     code = str(error) if str(error) in IMPORT_REFUSALS else "import_invalid"
