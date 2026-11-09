@@ -102,6 +102,9 @@ def prepare_delivery(case, bench_root, workspace, *, exposure="blind", slot=0):
     The caller still owns Unix isolation, the owner channel and checkpoint execution.
     """
     import bench
+    # A defect in the case's own contestant material is a gate result the writer can repair,
+    # never an infrastructure retry (18681d, 9 November: six G16 retries on a baseline mismatch).
+    from case_contract import CaseProblem
     case, bench_root, workspace = map(pathlib.Path, (case, bench_root, workspace))
     if exposure not in ("blind", "exam", "statement"):
         raise ValueError("unknown tester information conditions")
@@ -126,20 +129,20 @@ def prepare_delivery(case, bench_root, workspace, *, exposure="blind", slot=0):
         if project.resolve() != approved[name].resolve():
             raise ValueError("resolved service differs from permitted source")
         if not (project / "README.md").is_file():
-            raise ValueError("missing service documentation")
+            raise CaseProblem("missing service documentation")
         sources = 0
         for path in sorted(project.rglob("*")):
             relative = path.relative_to(project)
-            if path.is_symlink(): raise ValueError("symlink in contestant service material")
+            if path.is_symlink(): raise CaseProblem("symlink in contestant service material")
             if set(relative.parts) & _PRIVATE_NAMES:
-                raise ValueError("private material in contestant service project")
+                raise CaseProblem("private material in contestant service project")
             if any(p.startswith(".") or p in ("node_modules", "__pycache__") for p in relative.parts): continue
             if not path.is_file() or path.name in _INFRA_FILES: continue
             if path.suffix not in _SOURCE_SUFFIXES:
-                raise ValueError("unsupported contestant service material")
+                raise CaseProblem("unsupported contestant service material")
             inputs[(pathlib.Path("services") / name / relative).as_posix()] = path
             sources += path.suffix in {".py", ".js", ".ts", ".mjs", ".cjs"}
-        if not sources: raise ValueError("missing service source")
+        if not sources: raise CaseProblem("missing service source")
         replacements[f"projects/{name}"] = f"services/{name}"
         replacements[f"app/integrations/{name}"] = f"services/{name}"
     baseline = case / "base/admin.sql"
@@ -147,12 +150,12 @@ def prepare_delivery(case, bench_root, workspace, *, exposure="blind", slot=0):
         # Reuse the exam's visible baseline aliases only when their bytes agree.
         aliases = []
         for path in case.glob("harbor/*/steps/establish/workdir/**/admin.sql"):
-            if path.is_symlink(): raise ValueError("symlink in contestant baseline material")
+            if path.is_symlink(): raise CaseProblem("symlink in contestant baseline material")
             if path.read_bytes() == baseline.read_bytes():
                 alias = path.as_posix().split("/workdir/", 1)[1]
                 aliases.append(alias)
                 replacements[alias] = "baseline/admin.sql"
-        if not aliases: raise ValueError("baseline SQL lacks contestant-visible delivery")
+        if not aliases: raise CaseProblem("baseline SQL lacks contestant-visible delivery")
         inputs["baseline/admin.sql"] = baseline
     ports = [9000, 9001] + [p for s in services for p in s.get("host_ports", [])]
     port_map = {str(p): str(p + 100 * slot) for p in ports}
@@ -163,9 +166,9 @@ def prepare_delivery(case, bench_root, workspace, *, exposure="blind", slot=0):
     prepared = {}
     for name, path in inputs.items():
         source_root(path, [path])
-        if not path.is_file() or path.is_symlink(): raise ValueError("missing contestant material")
+        if not path.is_file() or path.is_symlink(): raise CaseProblem("missing contestant material")
         content = path.read_text()
-        if pattern.search(content): raise ValueError("private information in contestant material")
+        if pattern.search(content): raise CaseProblem("private information in contestant material")
         # Preserve deployed source bytes: patches written against it must apply unchanged.
         if not name.startswith("services/") and path.suffix in (".md", ".txt"):
             for old, new in replacements.items(): content = content.replace(old, new)
@@ -178,11 +181,11 @@ def prepare_delivery(case, bench_root, workspace, *, exposure="blind", slot=0):
         for reference in re.findall(r"(?:services/[a-z][a-z0-9-]*/)[\w./-]+", references):
             reference = reference.rstrip("./")
             if pathlib.PurePosixPath(reference).suffix and reference not in prepared:
-                raise ValueError("missing promised service material")
+                raise CaseProblem("missing promised service material")
     if workspace.exists(): raise ValueError("delivery workspace already exists")
     patch = case / "base/app.patch"
     if patch.is_file() and (patch.is_symlink() or pattern.search(patch.read_text())):
-        raise ValueError("private information in application baseline patch")
+        raise CaseProblem("private information in application baseline patch")
     app = source_root(bench_root / "projects/medusa", [bench_root / "projects/medusa"])
     app_files = application_files(app, pattern)
     # Stage and validate baseline additions before creating any pilot-owned location.
@@ -198,7 +201,7 @@ def prepare_delivery(case, bench_root, workspace, *, exposure="blind", slot=0):
             subprocess.run(["git", "apply", str(patch.resolve())], cwd=staged, check=True, capture_output=True)
         validated = application_files(staged, pattern)
         if tree_digest(staged) != {name: hashlib.sha256(data).hexdigest() for name, data in validated.items()}:
-            raise ValueError("baseline patch adds forbidden application material")
+            raise CaseProblem("baseline patch adds forbidden application material")
         shutil.copytree(staged, workspace / "app")
     for name, content in prepared.items():
         target = workspace / name

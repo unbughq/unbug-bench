@@ -83,6 +83,27 @@ class DeliveryTests(unittest.TestCase):
                 saved.write_text(original)
                 (self.source / "escape.py").unlink(missing_ok=True)
 
+    def test_case_material_defects_are_case_problems_not_infrastructure(self):
+        # 18681d (9 November): its baseline SQL differed from the copy the exam delivers, and the
+        # plain ValueError was retried six times as infrastructure. A case defect fails the gate.
+        from case_contract import CaseProblem
+        visible = self.case / "harbor/synthetic/steps/establish/workdir/services/store/admin.sql"
+        visible.write_text("-- a different contestant baseline\n")
+        with self.assertRaises(CaseProblem): prepare_delivery(self.case, self.bench, self.root / "mismatch")
+        self.assertFalse((self.root / "mismatch").exists())
+        visible.write_bytes((self.base / "admin.sql").read_bytes())
+        (self.source / "README.md").unlink()
+        with self.assertRaises(CaseProblem): prepare_delivery(self.case, self.bench, self.root / "no-readme")
+        (self.source / "README.md").write_text("API http://127.0.0.1:9010\n")
+        # The permitted application and the factory's own state stay outside the case contract.
+        (self.bench / "projects/medusa/credentials.json").write_text("SYNTHETIC_CREDENTIAL")
+        with self.assertRaises(ValueError) as caught: prepare_delivery(self.case, self.bench, self.root / "bench")
+        self.assertNotIsInstance(caught.exception, CaseProblem)
+        (self.bench / "projects/medusa/credentials.json").unlink()
+        (self.root / "exists").mkdir()
+        with self.assertRaises(ValueError) as caught: prepare_delivery(self.case, self.bench, self.root / "exists")
+        self.assertNotIsInstance(caught.exception, CaseProblem)
+
     def test_application_contract_and_private_content_all_exposures(self):
         app = self.bench / "projects/medusa"
         dependencies = app / "node_modules/.bin"
