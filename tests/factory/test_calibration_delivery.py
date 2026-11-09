@@ -94,6 +94,33 @@ class DeliveryTests(unittest.TestCase):
         self.assertNotIn("stock", str(caught.exception))
         prepare_delivery(self.case, self.bench, self.root / "exam", exposure="exam")   # not delivered there
 
+    def test_a_cases_own_leak_words_do_not_apply_to_a_shared_bench_service(self):
+        # 86b100 (9 November): two ordinary words of its leak list occur in bench
+        # projects/marketplace, the same public service every case delivers, and G16 failed.
+        from case_contract import CaseProblem
+        shared = self.bench / "projects/market"; shared.mkdir(parents=True)
+        for name in ("compose.yaml", "adapter.py", "Dockerfile"):
+            (shared / name).write_text("synthetic immutable infrastructure")
+        (shared / "README.md").write_text("Marketplace listings API\n")
+        (shared / "service.py").write_text("LISTINGS = 'reserved stock'\n")
+        (self.base / "scenario.json").write_text(json.dumps({"id": "BASE", "inventory_services": [
+            {"name": "market", "project": "projects/market", "host_ports": [9010]}]}))
+        (self.case / "contestant.md").write_text("Use services.patch.\n")
+        (self.case / "case.json").write_text(json.dumps({"leak_words": ["reserved stock"]}))
+        with mock.patch.object(bench, "ROOT", self.bench):
+            prepare_delivery(self.case, self.bench, self.root / "shared", exposure="statement")
+            # The case's words still guard what the case itself wrote ...
+            (self.case / "statement.md").write_text("Reserved stock leaks at checkout.")
+            with self.assertRaises(CaseProblem) as caught:
+                prepare_delivery(self.case, self.bench, self.root / "own", exposure="statement")
+            self.assertEqual(str(caught.exception), "private information in contestant material: statement.md")
+            (self.case / "statement.md").write_text("synthetic statement")
+            # ... and the fixed answer-key terms still guard the shared service.
+            (shared / "README.md").write_text("See the answer key.\n")
+            with self.assertRaises(CaseProblem) as caught:
+                prepare_delivery(self.case, self.bench, self.root / "fixed", exposure="statement")
+            self.assertEqual(str(caught.exception), "private information in contestant material: services/market/README.md")
+
     def test_case_material_defects_are_case_problems_not_infrastructure(self):
         # 18681d (9 November): its baseline SQL differed from the copy the exam delivers, and the
         # plain ValueError was retried six times as infrastructure. A case defect fails the gate.
