@@ -2,10 +2,10 @@
 
 A failed check never stops anything. It is retried, logged and marks the batch degraded,
 which pauses new attempts (engine.py) until a pass succeeds. A stalled campaign (a case waiting on
-credentials or the router, no case progress for STALL_S while cases are live, or a case parked
-on a founder decision for FOUNDER_WAIT_S) also reads
-degraded, with the reason in `stalled`, and alerts; it pauses nothing. Only these are hard stops: the
-deadline, the money ceiling and a confirmed Boat allowance or rate breach.
+credentials or the router, no case progress for STALL_S while cases are live and no step is in
+flight, or a case parked on a founder decision for FOUNDER_WAIT_S) also reads degraded, with the
+reason in `stalled`, and alerts; it pauses nothing. Only these are hard stops: the deadline,
+the money ceiling and a confirmed Boat allowance or rate breach.
 
 A hard stop pauses new attempts and gives steps in flight a checkpoint grace to record. When none
 is left, or the grace ends, the guard stops the controller and deletes the workers. Work still
@@ -312,10 +312,16 @@ class Guard:
                   "down_since": status.get("down_since"), "hard_stop": status.get("hard_stop"),
                   "finished": status.get("finished", False), "failed_checks": [], "owned_workers": None,
                   "stopping_since": status.get("stopping_since"), "controller_stopped": status.get("controller_stopped", False),
-                  "money_held": None, "router_spent_usd": status.get("router_spent_usd"),
-                  "provider_credit_usd": status.get("provider_credit_usd"), "stalled": None, "stalled_cases": [],
+                  "money_held": None, "money_spent": None, "router_spent_usd": status.get("router_spent_usd"),
+                  "provider_credit_usd": status.get("provider_credit_usd"),
                   "progress_at": status.get("progress_at"), "progress_digest": status.get("progress_digest"),
-                  "waits": status.get("waits") if isinstance(status.get("waits"), dict) else {}, "founder_waits": []}
+                  "waits": status.get("waits") if isinstance(status.get("waits"), dict) else {}}
+        # A pass that cannot read the cases (an rpc failure, a restarting controller) keeps the
+        # last stall, so its alerts are neither dropped nor sent again.
+        for key in ("stalled", "stalled_cases", "founder_waits"):
+            health[key] = status.get(key) if key == "stalled" or isinstance(status.get(key), list) else []
+        if not isinstance(health["stalled"], str):
+            health["stalled"] = None
         ok, service = self.check("service_state", self.service.state)
         active, active_since, ready_since = service if ok else ("unknown", None, None)
         if health["finished"]:
@@ -358,6 +364,7 @@ class Guard:
             # Every watched batch keeps its own bound; held money is their sum.
             moneys = [self.rpc("budget", batch) for batch in self.batches]
             health["money_held"] = sum(m.get("held") or 0 for m in moneys)
+            health["money_spent"] = sum(m.get("spent") or 0 for m in moneys)
             return any(m["spent"] > m["bound"] for m in moneys)
         def router_over_ceiling():
             """The router's charges are the real spend, and the ledger has read low."""
@@ -387,6 +394,7 @@ class Guard:
         if ok and not finished:
             self._stall(health)
         if ok and finished:
+            self._unstall(health)
             done, _ = self.check("publish", lambda: [self.rpc("publish", batch) for batch in self.batches])
             if done:
                 health["finished"] = True
@@ -395,13 +403,31 @@ class Guard:
                 self.check("controller_stop", self.service.stop)
         return None
 
+    @staticmethod
+    def _unstall(health: dict) -> None:
+        health["stalled"], health["stalled_cases"], health["founder_waits"] = None, [], []
+
+    def _in_flight(self) -> Optional[int]:
+        """Steps in flight, or None when the controller does not say. It only quiets the
+        no-progress alert, so a failure here is no failed check."""
+        try:
+            running = self.rpc("in_flight", self.batches[0])
+        except Exception:
+            return None
+        return running if type(running) is int else None
+
     def _stall(self, health: dict) -> None:
         """Name a stall from data already read: case waits only an operator can end, or no change
-        in any case row or in router spend for STALL_S while cases are live. Alerts only."""
+        in any case row, ledger or router spend for STALL_S while cases are live and no step is in
+        flight (a writer or stress step on a subscription route runs for hours). Alerts only."""
         now = self.clock()
+        self._unstall(health)
         progress = json.dumps([[c.get(k) for k in ("case", "status", "stage", "gates", "writer_rounds", "extensions")]
-                               for c in self.cases] + [health.get("router_spent_usd")], sort_keys=True, default=str)
-        if progress != health["progress_digest"] or type(health["progress_at"]) not in (int, float):
+                               for c in self.cases] + [health.get("router_spent_usd"), health.get("money_held"),
+                                                       health.get("money_spent")], sort_keys=True, default=str)
+        running = self._in_flight()
+        if (progress != health["progress_digest"] or type(health["progress_at"]) not in (int, float)
+                or running is None or running > 0):
             health["progress_digest"], health["progress_at"] = progress, now
         # Since when each case has sat in its founder wait; a case that moves on starts over.
         waits = {}
@@ -439,6 +465,7 @@ class Guard:
         holds until an operator clears it: every pass stops a controller that came back (a
         reboot) and deletes a worker that landed late."""
         health["stopping_since"] = health["stopping_since"] or self.clock()
+        self._unstall(health)   # the hard stop's own alert says what is needed
         health["phase"] = "stopping"
         if not health["controller_stopped"] and self._recording(health, active):
             return self._finish(health, status)
