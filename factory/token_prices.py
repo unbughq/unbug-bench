@@ -46,6 +46,23 @@ def free_maximum(route):
     return dict(max_usd=0.0, max_input_tokens=0, max_output_tokens=0, price_source='free:' + route)
 
 
+# OpenCode Go plan routes (founder 2026-11-09: "move everything over to opencode so we stop burning
+# money on openrouter"). The founder's two Go accounts pay from their plan allowance, so no money moves
+# while "Extra Usage" stays off. A Go call is still booked and bounded at its OpenRouter twin's pinned
+# list price, so a case budget means the same on either route and a Go call has its twin's maximum.
+GO_TWINS = {'opencode-go/deepseek-v4.1-flash': 'openrouter/deepseek/deepseek-v4.1-flash',
+            'opencode-go/minimax-m3.1-flash': 'openrouter/minimax/minimax-m3.1-flash',
+            'opencode-go/mimo-v2.6-pro': 'openrouter/xiaomi/mimo-v2.6-pro',
+            'opencode-go/glm-5.3-flash': 'openrouter/z-ai/glm-5.3-flash'}
+GO_ROUTES = frozenset(GO_TWINS)
+
+
+def go_maximum(route):
+    maximum = openrouter_gate_maximum(GO_TWINS[route]) if route in GO_TWINS else None
+    if maximum is None: return None
+    return dict(maximum, price_source='opencode-go:' + route.partition('/')[2] + ':twin=' + maximum['price_source'])
+
+
 def openrouter_gate_maximum(route):
     profile = GATED_OPENROUTER.get(route)
     if profile is None or Decimal(profile['cache_write']) != 0: return None
@@ -71,6 +88,7 @@ def openrouter_gate_cost(route, usage):
 
 
 def runtime_prices(route):
+    route = GO_TWINS.get(route, route)
     if route in GATED_OPENROUTER:
         incoming, cached, outgoing = map(float, GATED_OPENROUTER[route]['prices'])
         return dict(input=incoming, output=outgoing, cache_read=cached, cache_write=0)

@@ -176,7 +176,8 @@ class ConfirmDeadlineTests(FreshnessRestoreTests):
              patch.object(run, 'opencode', side_effect=call):
             with self.assertRaisesRegex(run.BudgetError, '^freshness_unresolved$'):
                 run.loop_freshness(self.c, self.result, self.report)
-        self.assertEqual(seen, [primary, "opencode-go/glm-5.3-flash"])
+        # The chain starts at the Go plan (founder 2026-11-09); the first account's limit moves it to the second.
+        self.assertEqual(seen, ["opencode-go/glm-5.3-flash"] * 2)
         self.assertFalse((self.c.work / 'freshness-verdict.json').exists())
 
     def test_confirm_timeout_preserves_repair_allowance_and_retries_confirmation(self):

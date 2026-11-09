@@ -77,17 +77,18 @@ class ProviderRoutesTest(TestCase):
         # and router health never recorded either account.
         stack, store = offline_router()
         self.addCleanup(stack.close)
-        free = 'opencode/minimax-m3.1-flash-free'
+        free, go = 'opencode/minimax-m3.1-flash-free', 'opencode-go/minimax-m3.1-flash'
         tried = []
         def invoke(runtime, context, models, *args, **kwargs):
             tried.append((models[0], context.model_lease.account))
-            if models[0] == free:   # an unstructured usage-limit line: today's per-call path
-                raise model_runtime.BudgetError('provider_limit:' + free)
+            if context.model_lease.account in ('opencode-go-key', 'opencode-go-key-2'):   # an unstructured usage-limit line
+                raise model_runtime.BudgetError('provider_limit:' + models[0])
             return 0
         runtime = model_runtime.ModelRuntime(None, None, None, None, None)
         with mock.patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
             runtime.call(SimpleNamespace(card={}), [free], 't', '.', 'fixture')
-            self.assertEqual(tried[:2], [(free, 'opencode-go-key'), (free, 'opencode-go-key-2')])
+            # The chain starts at the Go plan route; the account's quota then also closes its free lane.
+            self.assertEqual(tried[:2], [(go, 'opencode-go-key'), (go, 'opencode-go-key-2')])
             fallback = tried[2]   # the chain's OpenRouter route (synthetic maxima bound every route here)
             self.assertEqual((len(tried), fallback[1]), (3, 'openrouter-key'))
             health = store.rpc('status', {})['health']
@@ -106,19 +107,20 @@ class ProviderRoutesTest(TestCase):
         tried = []
         def invoke(runtime, context, models, *args, **kwargs):
             tried.append(models[0])
-            if models[0].endswith('-free'):
+            if models[0].startswith('opencode-go/'):
                 raise model_runtime.BudgetError('opencode_error', provider_failure=
                     classify_provider_failure('model removed', models[0], status_code=404))
             return 0
+        go, paid, free = model_router.CHAINS[-1]
         runtime = model_runtime.ModelRuntime(None, None, None, None, None)
         with mock.patch.object(model_runtime.ModelRuntime, '_invoke', invoke):
-            runtime.call(c, [model_router.CHAINS[-1][0]], 't', '.', 'fixture')
-            self.assertEqual(tried, list(model_router.CHAINS[-1]))
+            runtime.call(c, [free], 't', '.', 'fixture')
+            self.assertEqual(tried, [go, go, paid])   # both Go accounts, then OpenRouter; never the free lane
             other = SimpleNamespace(card={})
             tried.clear()
-            runtime.call(other, [model_router.CHAINS[-1][0]], 't', '.', 'fixture')
-            self.assertEqual(tried, [model_router.CHAINS[-1][1]])
-        self.assertEqual(c.card['route_receipts'][-1]['billing'], 'subscription')
+            runtime.call(other, [free], 't', '.', 'fixture')
+            self.assertEqual(tried, [paid])
+        self.assertEqual(c.card['route_receipts'][-1]['billing'], 'paid')
         self.assertTrue(c.force_budget_resume)
 
 

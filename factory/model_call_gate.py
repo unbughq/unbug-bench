@@ -732,14 +732,16 @@ CODEX_ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CODEX_HOME', 'SSL
 
 
 def free_environment(lease, env):
-    """OpenCode's own provider only, its one model, no user or project config, no self-update.
-    The provider entry (endpoint, key reference) comes from the runtime's config for this route."""
-    try: provider = json.loads(Path(env['OPENCODE_CONFIG']).read_text())['provider']['opencode']
+    """The route's own OpenCode provider only (opencode, or opencode-go for a Go plan route), its one
+    model, no user or project config, no self-update. The provider entry (endpoint, key reference,
+    prices) comes from the runtime's config for this route."""
+    name = lease.route.partition('/')[0]
+    try: provider = json.loads(Path(env['OPENCODE_CONFIG']).read_text())['provider'][name]
     except (KeyError, OSError, ValueError, TypeError): raise BudgetError('route_feature_unsupported') from None
     model = lease.route.partition('/')[2]
-    cfg = dict(model=lease.route, small_model=lease.route, enabled_providers=['opencode'],
+    cfg = dict(model=lease.route, small_model=lease.route, enabled_providers=[name],
                permission={'task': 'deny'}, compaction={'auto': True}, mcp={},
-               provider={'opencode': {**provider, 'whitelist': [model]}})
+               provider={name: {**provider, 'whitelist': [model]}})
     keys = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
             'FACTORY_STRATEGY_DIAGNOSTIC', 'FACTORY_STRATEGY_SECONDS', 'FACTORY_STRATEGY_WORKERS')
     clean = {k: env[k] for k in keys if k in env}
@@ -753,7 +755,7 @@ def free_environment(lease, env):
 @contextmanager
 def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
     import model_router
-    from token_prices import FREE_ROUTES
+    from token_prices import FREE_ROUTES, GO_ROUTES
     if lease.route in FREE_ROUTES:
         # $0 maximum: any booked cost stops the call (budget.check_reservation), and so does a step
         # from any other provider or model (budget.py). A walled role can reach only a gate's port, so
@@ -766,6 +768,23 @@ def enforce(lease, env, cap_used, timeout, cancel=None, *, user=None):
         clean = free_environment(lease, env)
         env.clear(); env.update(clean)
         yield FreeCall(cancel)
+        return
+    if lease.route in GO_ROUTES:
+        # The founder's Go plan pays (Extra Usage off), so no gate: OpenCode books each step at the
+        # OpenRouter twin's list price (model_runtime.opencode_config) and the reservation check stops
+        # the call once it passes the lease maximum, as for Codex. A walled role reaches only a gate's
+        # port, so the runtime never leases it a Go route; refusing here is the backstop.
+        if not model_router.valid_maximum(lease) or lease.max_usd <= 0: raise BudgetError('unbounded_route')
+        if user is not None: raise BudgetError('route_feature_unsupported')
+        if Path('/etc/opencode').exists() or any(not env.get(k) for k in ('XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME')):
+            raise BudgetError('route_feature_unsupported')
+        if not lease.account or not env.get('OPENCODE_API_KEY'): raise BudgetError('credential_expiring')
+        clean = free_environment(lease, env)
+        env.clear(); env.update(clean)
+        try: yield FreeCall(cancel)
+        except BudgetError as error:
+            if str(error) == 'usage_reservation_exceeded': raise BudgetError('model_call_cap') from error
+            raise
         return
     if lease.route in CODEX_PROFILES:
         # No gate: Codex's own per-request usage is booked live at list price (budget.py usage_feed) and

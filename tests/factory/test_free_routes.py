@@ -7,6 +7,7 @@ import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,18 +35,21 @@ class FreeRoutes(unittest.TestCase):
         self.assertFalse(model_router.valid_maximum(vars(lease(max_usd=1.0))))   # a free lease holds nothing
         # Paid routes are unchanged.
         self.assertGreater(model_router.route_maximum('openrouter/deepseek/deepseek-v4.1-flash')['max_usd'], 0)
-        # DeepSeek free falls back to the paid gated route of the same family.
+        # Founder 2026-11-09: the Go plan on both accounts first, then the paid gated route of the same
+        # family; the anonymous free DeepSeek lane hangs, so it comes last.
+        go = 'opencode-go/deepseek-v4.1-flash'
         self.assertEqual([r['route'] for r in model_router.routes(FREE, model_router.ACCOUNTS)],
-                         [FREE, 'openrouter/deepseek/deepseek-v4.1-flash'])
-        # So does MiniMax free (on either OpenCode account), past the unbounded OpenRouter :free variant.
+                         [go, go, 'openrouter/deepseek/deepseek-v4.1-flash', FREE])
+        # MiniMax: Go, then free on either OpenCode account, past the unbounded OpenRouter :free variant to paid.
+        go = 'opencode-go/minimax-m3.1-flash'
         self.assertEqual([(r['route'], r['account']) for r in model_router._bounded_routes(
                               'opencode/minimax-m3.1-flash-free', model_router.ACCOUNTS)],
-                         [('opencode/minimax-m3.1-flash-free', 'opencode-go-key'),
+                         [(go, 'opencode-go-key'), (go, 'opencode-go-key-2'),
+                          ('opencode/minimax-m3.1-flash-free', 'opencode-go-key'),
                           ('opencode/minimax-m3.1-flash-free', 'opencode-go-key-2'),
                           ('openrouter/minimax/minimax-m3.1-flash', 'openrouter-key')])
-        # A batch that pins the paid route still asks it first: free routes run only where a batch pins them.
-        self.assertEqual(model_router.routes('openrouter/minimax/minimax-m3.1-flash', model_router.ACCOUNTS)[0]['route'],
-                         'openrouter/minimax/minimax-m3.1-flash')
+        # A batch that pins the paid route now starts at the Go plan too.
+        self.assertEqual(model_router.routes('openrouter/minimax/minimax-m3.1-flash', model_router.ACCOUNTS)[0]['route'], go)
 
     def test_enforce_runs_a_free_call_without_a_gate_and_refuses_the_wall(self):
         cancel, cap = threading.Event(), model_call_gate.empty_usage(FREE)
@@ -83,6 +87,54 @@ class FreeRoutes(unittest.TestCase):
         with self.assertRaisesRegex(BudgetError, 'unbounded_route'):
             with model_call_gate.enforce(lease(max_usd=1.0), {}, cap, 5, None): pass
 
+    def test_go_plan_routes_are_bounded_at_their_twin_and_run_without_a_gate(self):
+        # Founder 2026-11-09: "move everything over to opencode so we stop burning money on openrouter".
+        import model_runtime
+        from token_prices import GO_TWINS, runtime_prices
+        for go, twin in GO_TWINS.items():
+            maximum, paid = model_router.route_maximum(go), model_router.route_maximum(twin)
+            self.assertEqual({k: maximum[k] for k in ('max_usd', 'max_input_tokens', 'max_output_tokens')},
+                             {k: paid[k] for k in ('max_usd', 'max_input_tokens', 'max_output_tokens')})
+            self.assertEqual(maximum['price_source'], 'opencode-go:' + go.partition('/')[2] + ':twin=' + paid['price_source'])
+            funded = model_router.funded_maximum(go, '2')
+            self.assertEqual(funded['max_usd'], 2.0)
+            self.assertTrue(model_router.valid_maximum(dict(route=go, **funded)))
+            self.assertEqual(runtime_prices(go), runtime_prices(twin))
+            self.assertEqual({r['account'] for r in model_router.routes(go) if r['route'] == go}, {'opencode-go-key', 'opencode-go-key-2'})
+            self.assertEqual({r['billing'] for r in model_router.routes(go) if r['route'] == go}, {'subscription'})
+        # OpenCode books each Go step at the twin's list price, not its own figure.
+        with patch.dict('os.environ', {}, clear=False):
+            config = json.loads(model_runtime.opencode_config('opencode-go/mimo-v2.6-pro').read_text())
+        self.assertEqual(config['provider']['opencode-go']['models']['mimo-v2.6-pro']['cost'],
+                         runtime_prices('openrouter/xiaomi/mimo-v2.6-pro'))
+        go = 'opencode-go/deepseek-v4.1-flash'
+        cap = model_call_gate.empty_usage(go)
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / 'opencode.json'
+            config.write_text(json.dumps({'provider': {'opencode': {}, 'openrouter': {},
+                                                       'opencode-go': {'options': {'apiKey': '{env:OPENCODE_API_KEY}'}}}}))
+            xdg = {k: tmp for k in ('XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME')}
+            env = {'PATH': '/bin', 'OPENCODE_CONFIG': str(config), 'OPENCODE_API_KEY': 'k', 'OPENROUTER_API_KEY': 'r', **xdg}
+            with model_call_gate.enforce(lease(go, account='opencode-go-key'), env, cap, 5, None) as call:
+                self.assertFalse(call.is_set())
+            cfg = json.loads(env.pop('OPENCODE_CONFIG_CONTENT'))
+            self.assertNotIn('OPENROUTER_API_KEY', env)                         # only the account's own key
+            self.assertEqual(env['OPENCODE_API_KEY'], 'k')
+            self.assertEqual(cfg['enabled_providers'], ['opencode-go'])
+            self.assertEqual(cfg['provider'], {'opencode-go': {'options': {'apiKey': '{env:OPENCODE_API_KEY}'},
+                                                               'whitelist': ['deepseek-v4.1-flash']}})
+            # The reservation check is this call's cap, as for Codex.
+            with self.assertRaisesRegex(BudgetError, '^model_call_cap$'):
+                with model_call_gate.enforce(lease(go, account='opencode-go-key'), dict(env, OPENCODE_CONFIG=str(config)), cap, 5, None):
+                    raise BudgetError('usage_reservation_exceeded')
+            # No key, no call; behind the wall, no call.
+            with self.assertRaisesRegex(BudgetError, 'credential_expiring'):
+                with model_call_gate.enforce(lease(go, account='opencode-go-key'), {'OPENCODE_CONFIG': str(config), **xdg}, cap, 5, None): pass
+            with self.assertRaisesRegex(BudgetError, 'route_feature_unsupported'):
+                with model_call_gate.enforce(lease(go, account='opencode-go-key'), dict(env, OPENCODE_CONFIG=str(config)), cap, 5, None, user='pilot'): pass
+        with self.assertRaisesRegex(BudgetError, 'unbounded_route'):
+            with model_call_gate.enforce(lease(go, account='opencode-go-key', max_usd=0.0), {}, cap, 5, None): pass
+
     def test_a_walled_role_is_never_leased_a_free_route(self):
         import model_runtime
         runtime = model_runtime.ModelRuntime(Path('/nonexistent'), None, None, None, None)
@@ -95,14 +147,19 @@ class FreeRoutes(unittest.TestCase):
         try:
             for user, name in (('pilot', 'easy-calibrator-1'), (None, 'easy-calibrator-provider-preflight'),
                                ('pilot', 'diagnosis-1')):
-                # DeepSeek free keeps its gated OpenRouter route.
+                # DeepSeek keeps its gated OpenRouter route: the Go plan lanes have no gate either.
                 with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
                     runtime._call(SimpleNamespace(card={}), [FREE], 'x', '/', name, user=user)
+                go = 'opencode-go/deepseek-v4.1-flash'
                 self.assertEqual(seen.pop(), (model_runtime.invocation_role(name),
-                                              ('opencode-free/' + FREE,)))
-                # GLM free has no bounded route behind the wall: refused as a configuration, not slept on.
-                with self.assertRaises(model_router.ProviderWait) as stop:
+                                              ('opencode-go-key/' + go, 'opencode-go-key-2/' + go, 'opencode-free/' + FREE)))
+                # So does GLM, whose chain now ends in OpenRouter's gated route.
+                with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
                     runtime._call(SimpleNamespace(card={}), ['opencode/glm-5.3-flash-free'], 'x', '/', name, user=user)
+                self.assertEqual(len(seen.pop()[1]), 3)
+                # A Go-only chain (Muse's Go route is unbounded) has nothing behind the wall: refused, not slept on.
+                with self.assertRaises(model_router.ProviderWait) as stop:
+                    runtime._call(SimpleNamespace(card={}), ['opencode-go/muse-spark-1.3-contributor'], 'x', '/', name, user=user)
                 self.assertEqual(stop.exception.wait.reason, 'unbounded_route')
             # An unwalled role still gets the free lane.
             with self.assertRaisesRegex(RuntimeError, 'stop before dispatch'):
@@ -110,13 +167,15 @@ class FreeRoutes(unittest.TestCase):
             self.assertEqual(seen.pop(), ('stress_tester', ()))
         finally:
             model_router.await_lease = original
-        # Before construction: a calibrator chain whose only bounded route is free is refused.
+        # Before construction: a calibrator chain whose only bounded routes have no gate is refused.
         c = SimpleNamespace(models={'builder': [FREE], 'attacker': [FREE],
                                     'strong_calibrator': ['claude/claude-opus-5-5'], 'easy_calibrator': ['opencode/glm-5.3-flash-free'],
                                     'reviewers': [['openrouter/xiaomi/mimo-v2.6-pro']]})
-        with self.assertRaises(model_router.ProviderWait) as stop:
-            model_runtime.require_bounded_models(c)
+        with patch.object(model_router, 'CHAINS', (('opencode-go/glm-5.3-flash', 'opencode/glm-5.3-flash-free'),)):
+            with self.assertRaises(model_router.ProviderWait) as stop:
+                model_runtime.require_bounded_models(c)
         self.assertEqual(stop.exception.role, 'easy_calibrator')
+        model_runtime.require_bounded_models(c)   # the real GLM chain ends in OpenRouter's gated route
         c.models['easy_calibrator'] = ['openrouter/z-ai/glm-5.3-flash']   # what the batches pin today
         model_runtime.require_bounded_models(c)
 

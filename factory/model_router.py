@@ -27,21 +27,24 @@ from urllib.parse import urlsplit
 import uuid
 
 from budget import BudgetError
-from token_prices import (GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, CODEX_PROFILES, FREE_ROUTES, claude_gate_maximum,
-                          codex_gate_maximum, free_maximum, openrouter_gate_maximum)
+from token_prices import (GATED_OPENROUTER, GATED_CLAUDE, CLAUDE_PROFILES, CODEX_PROFILES, FREE_ROUTES, GO_ROUTES, claude_gate_maximum,
+                          codex_gate_maximum, free_maximum, go_maximum, openrouter_gate_maximum)
 
 WAIT_SECONDS, RENEW_SECONDS, LEASE_SECONDS = 60, 60, 180
 from worker_secrets import SECRETS
 ACCOUNTS = ('claude-token', 'claude-factory-token-2', 'opencode-go-key',
             'opencode-go-key-2', 'codex-auth.json', 'openrouter-key')
+# Every request in a chain starts at the chain's head (founder 2026-11-09: OpenCode first, OpenRouter as
+# the fallback). The Go plan routes lead on both accounts; OpenRouter's paid route follows. The anonymous
+# free lanes hang (8 of 9 free DeepSeek calls, 2026-11-08), so they come after paid, as a last resort.
 CHAINS = (
-    ('opencode/deepseek-v4.1-flash-free', 'openrouter/deepseek/deepseek-v4.1-flash'),
-    # Founder 2026-11-08: MiniMax free falls back to the paid gated route, as DeepSeek free does
-    # (the OpenRouter :free variant has no maximum, so it is never leased).
-    ('opencode/minimax-m3.1-flash-free', 'openrouter/minimax/minimax-m3.1-flash:free', 'openrouter/minimax/minimax-m3.1-flash'),
+    ('opencode-go/deepseek-v4.1-flash', 'openrouter/deepseek/deepseek-v4.1-flash', 'opencode/deepseek-v4.1-flash-free'),
+    # The OpenRouter :free variant has no maximum, so it is never leased.
+    ('opencode-go/minimax-m3.1-flash', 'opencode/minimax-m3.1-flash-free', 'openrouter/minimax/minimax-m3.1-flash:free',
+     'openrouter/minimax/minimax-m3.1-flash'),
     ('opencode-go/mimo-v2.6-pro', 'openrouter/xiaomi/mimo-v2.6-pro'),
     ('opencode-go/muse-spark-1.3-contributor', 'openrouter/meta/muse-spark-1.3-contributor'),
-    ('opencode/glm-5.3-flash-free', 'opencode-go/glm-5.3-flash'),
+    ('opencode-go/glm-5.3-flash', 'openrouter/z-ai/glm-5.3-flash', 'opencode/glm-5.3-flash-free'),
 )
 REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring', 'unbounded_route'}
 MAXIMUM_FIELDS = ('max_usd', 'max_input_tokens', 'max_output_tokens', 'price_source')
@@ -50,6 +53,7 @@ MAXIMUM_FIELDS = ('max_usd', 'max_input_tokens', 'max_output_tokens', 'price_sou
 def route_maximum(route):
     # Only explicit profiles qualify; native CLI knobs alone grant no lease.
     if route in FREE_ROUTES: return free_maximum(route)
+    if route in GO_ROUTES: return go_maximum(route)
     if route in CODEX_PROFILES: return codex_gate_maximum(route)
     return claude_gate_maximum(route) if route in CLAUDE_PROFILES else openrouter_gate_maximum(route)
 
@@ -130,8 +134,7 @@ def routes(model, accounts=ACCOUNTS):
     if not isinstance(model, str) or not re.fullmatch(r'[A-Za-z0-9_.:/-]{1,200}', model) or '/' not in model:
         raise ValueError('invalid requested model')
     if any(a not in ACCOUNTS for a in accounts): raise ValueError('unapproved account')
-    if model == 'opencode-go/deepseek-v4.1-flash': model = CHAINS[0][0]
-    chain = next((list(c) if c[0] == model else [model, c[0]] for c in CHAINS if model in c), [model])
+    chain = next((list(c) for c in CHAINS if model in c), [model])
     result = []
     for route in chain:
         billing = ('subscription' if route.startswith(('claude/', 'codex/', 'opencode-go/')) else
@@ -155,9 +158,11 @@ def routes(model, accounts=ACCOUNTS):
 WALLED_ROLES = ('strong_calibrator', 'easy_calibrator')
 
 
-def free_lanes(model, accounts):
-    """The lanes of model's chain that are free routes, as admission's excluded_lanes spells them."""
-    return tuple(r['pool'] + '/' + r['route'] for r in routes(model, accounts) if r['route'] in FREE_ROUTES)
+def ungated_lanes(model, accounts):
+    """The lanes of model's chain that have no gate (free and Go plan routes), as admission's
+    excluded_lanes spells them. A walled role reaches only a gate's port, so it never takes one."""
+    return tuple(r['pool'] + '/' + r['route'] for r in routes(model, accounts)
+                 if r['route'] in FREE_ROUTES or r['route'] in GO_ROUTES)
 
 
 @dataclass(frozen=True)

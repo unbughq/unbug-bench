@@ -210,12 +210,20 @@ A first judge's duplicate or realism rejection is final only when a second famil
 judge's family, a free route first, refused up front when none qualifies. On a disagreement
 the idea goes on to the next screen. Cards record `second_opinion` {second_family, agreed}.
 
+Every request in a `model_router.CHAINS` chain starts at the chain's head, whichever member was asked
+for. The heads are the OpenCode Go plan routes on both founder accounts (DeepSeek, MiniMax, MiMo, GLM),
+then OpenRouter's gated paid route; the anonymous free DeepSeek and GLM lanes hang, so they come last.
+A Go route has no gate: the plan's allowance pays (Extra Usage stays off), OpenCode books each step at
+the OpenRouter twin's list price (`token_prices.GO_TWINS`), and its lease maximum is the twin's, so the
+reservation check stops it as Codex's (`model_call_cap`). Its quota is published as the account's block,
+so the next call takes OpenRouter. The router's money ceiling counts only OpenRouter's paid requests.
+
 OpenCode's free routes (DeepSeek, MiniMax and GLM flash) are bounded at $0 with no gate: a call that books
-any cost, or reports a step from another provider or model, is stopped. It runs with OpenCode's own
-provider and its one model only, no outside config and no self-update. A calibrator is never leased one,
-since behind the wall it reaches only a gate's port: it takes its chain's next bounded route, and a chain
-with none (GLM and MiniMax free today) is refused up front as `unbounded_route`. A full or failing free
-lane hands an unwalled call to the next route in its chain (DeepSeek: paid OpenRouter).
+any cost, or reports a step from another provider or model, is stopped. Free and Go calls run with their
+OpenCode provider and one model only, no outside config and no self-update. A calibrator is never leased
+either, since behind the wall it reaches only a gate's port: it takes its chain's OpenRouter route, and a
+chain with none is refused up front as `unbounded_route`. A full or failing lane hands an unwalled call to
+the next route in its chain.
 A usage-limit (quota) failure on an OpenCode Go account is published as that account's router health
 block until its reset, even when it came from an unstructured CLI line, so later calls skip the exhausted
 account instead of retrying it per call.
