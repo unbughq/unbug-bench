@@ -286,6 +286,71 @@ class Waste(Db, unittest.TestCase):
 
 # ---- labels ------------------------------------------------------------------------------------
 
+class RebookedWaste(Db, unittest.TestCase):
+    """Money a factory_bug diagnosis found lost to our own bug leaves the case's money (book_waste).
+    22e434-3 and f46dac-2r on 9 November: writer steps that stopped on our bugs had settled as case
+    money, so a resume had almost none of the case's $50 left."""
+    CASE = "case-rebook"
+
+    def spend(self, n, paid, *, draws=True, waste=False):
+        k = key(self.CASE, n)
+        self.ledger.reserve(BATCH, self.CASE, k, 50 * M, 50 * M, draws_case_money=draws)
+        self.ledger.settle(k, Usage(1, paid, paid), waste=waste)
+        return k
+
+    def test_rebooking_frees_case_money_but_keeps_the_batch_spend(self):
+        self.ledger.open(BATCH, 100 * M)
+        kept, lost = self.spend(1, 3 * M), self.spend(2, 45 * M)
+        self.assertEqual(self.ledger.case_balance(BATCH, self.CASE, 50 * M), {"used": 48 * M, "remaining": 2 * M})
+        self.assertTrue(self.ledger.book_waste(lost, "factory_bug"))
+        self.assertEqual(self.ledger.case_balance(BATCH, self.CASE, 50 * M), {"used": 3 * M, "remaining": 47 * M})
+        # Still spent, still against the bound: waste is money gone, only no longer the case's.
+        bal = self.ledger.balance(BATCH)
+        self.assertEqual((bal["spent"], bal["waste"], bal["remaining"]), (48 * M, 45 * M, 52 * M))
+        # A new reservation of the case sees the freed money; the batch's bound is unchanged.
+        g = self.ledger.reserve(BATCH, self.CASE, key(self.CASE, 3), 50 * M, 50 * M)
+        self.assertEqual(g, Grant(47 * M, C))
+        self.assertEqual(kept, key(self.CASE, 1))
+
+    def test_rebooking_is_idempotent_and_never_double_counts(self):
+        self.ledger.open(BATCH, 100 * M)
+        k = self.spend(1, 5 * M)
+        self.assertTrue(self.ledger.book_waste(k, "factory_bug"))
+        before = self.ledger.rows()
+        self.assertFalse(self.ledger.book_waste(k, "factory_bug"))
+        self.assertEqual(self.ledger.rows(), before)
+        self.assertEqual(self.ledger.balance(BATCH)["waste"], 5 * M)
+        # The attempt row is untouched, so its settle still repeats cleanly.
+        self.ledger.settle(k, Usage(1, 5 * M, 5 * M))
+        self.assertEqual(before["rebooked"], [(k, "factory_bug")])
+
+    def test_money_already_waste_or_not_the_cases_is_left_alone(self):
+        self.ledger.open(BATCH, 100 * M)
+        infra = self.spend(1, 2 * M, waste=True)
+        batch_only = self.spend(2, 4 * M, draws=False)
+        lost = key(self.CASE, 3)
+        self.ledger.reserve(BATCH, self.CASE, lost, 6 * M, 50 * M)
+        self.ledger.settle_lost(lost)
+        before = self.ledger.balance(BATCH)
+        for k in (infra, batch_only, lost, key(self.CASE, 9)):   # the last never reserved
+            self.assertFalse(self.ledger.book_waste(k, "factory_bug"), k)
+        self.assertEqual(self.ledger.balance(BATCH), before)
+        self.assertEqual(self.ledger.rows()["rebooked"], [])
+
+    def test_held_attempts_and_unknown_reasons_are_refused(self):
+        self.ledger.open(BATCH, 100 * M)
+        held = key(self.CASE, 1)
+        self.ledger.reserve(BATCH, self.CASE, held, 5 * M, 50 * M)
+        with self.assertRaisesRegex(LedgerError, "still held"):
+            self.ledger.book_waste(held, "factory_bug")
+        settled = self.spend(2, 1 * M)
+        for bad in ("scientific", "", None):
+            with self.assertRaisesRegex(LedgerError, "unknown waste reason"):
+                self.ledger.book_waste(settled, bad)
+        with self.assertRaisesRegex(LedgerError, "bad idempotency key"):
+            self.ledger.book_waste("not-a-key", "factory_bug")
+
+
 class Labels(Db, unittest.TestCase):
     def test_tie_request_equals_batch_remaining_is_batch(self):
         self.ledger.open(BATCH, 30)

@@ -241,7 +241,8 @@ class RuntimeTests(unittest.TestCase):
             assert workflow_id_prefix == "case-old-1@"
             return [SimpleNamespace(workflow_id="case-old-1@b-mid")]
         with patch("dbos.DBOS.get_workflow_status", return_value=None), patch("dbos.DBOS.list_workflows", side_effect=workflows), \
-                patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start:
+                patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start, \
+                patch.object(runtime.engine, "factory_bug_waste_keys", return_value=[]):
             for bad, code in ((spec(max_cases_started=2, case_money_usd_micros=1), "resume_invalid"),
                               (spec(case_money_usd_micros=15_000_001), "resume_money")):
                 with self.assertRaisesRegex(RuntimeErrorCode, code):
@@ -250,6 +251,49 @@ class RuntimeTests(unittest.TestCase):
             ok = spec(case_money_usd_micros=15_000_000)   # $35 earlier + $15 = the $50 ceiling
             runtime.start(to_record(ok), to_record(registry), None, "case-old-1")
             start.assert_called_once_with(ok, registry, None, "case-old-1")
+
+    def test_resume_books_factory_bug_losses_as_waste_before_counting_case_money(self):
+        # 22e434-3 on 9 November: a writer step that stopped on our own bug had settled $45 as the
+        # case's money. Once a factory_bug diagnosis names it, it is waste, and the resume gets the
+        # case's money back; the batch still counts it as spent.
+        from durable.contract import Usage
+        from durable.contract import ContractError
+        runtime = self.runtime()
+        old_inputs = runtime.prepare("b-old", ArtifactKind.INPUTS, b"{}")
+        old = BatchSpec(batch_id="b-old", plumbing_version="a" * 64, bench_version="b" * 64,
+                        app_repo="medusajs/medusa", app_commit="c" * 40, inputs=old_inputs, target_sealed=1,
+                        money_bound_usd_micros=100, deadline_epoch=4e9, max_concurrency=1)
+        runtime.ledger.open("b-old", 100_000_000)
+        for n, paid in ((1, 3_000_000), (2, 45_000_000)):
+            key = f"case-old-1/{n}/writer:1/1"
+            runtime.ledger.reserve("b-old", "case-old-1", key, paid, 50_000_000)
+            runtime.ledger.settle(key, Usage(paid_usd_micros=paid))
+        lost = "case-old-1/2/writer:1/1"
+        inputs = runtime.prepare("b-new", ArtifactKind.INPUTS, b"{}")
+        registry = runtime.prepare("b-new", ArtifactKind.STATEMENT_REGISTRY, b"opaque registry")
+        ok = BatchSpec(batch_id="b-new", plumbing_version="a" * 64, bench_version="b" * 64,
+                       app_repo="medusajs/medusa", app_commit="c" * 40, inputs=inputs, target_sealed=1,
+                       money_bound_usd_micros=100, deadline_epoch=4e9, max_concurrency=1, max_cases_started=1,
+                       case_money_usd_micros=47_000_000)   # $50 less the $3 the case itself used
+        def workflows(workflow_ids=None, workflow_id_prefix=None, **_):
+            if workflow_ids == ["b-old"]:
+                return [SimpleNamespace(input={"args": [{"spec": to_record(old)}]})]
+            return []
+        with patch("dbos.DBOS.get_workflow_status", return_value=None), patch("dbos.DBOS.list_workflows", side_effect=workflows), \
+                patch.object(runtime.releases, "bundle", return_value=b"bundle"), patch.object(runtime.engine, "start_batch") as start:
+            # Without the diagnosis naming it, the $45 stays the case's and the resume is refused.
+            with patch.object(runtime.engine, "factory_bug_waste_keys", side_effect=ContractError("resume:x")):
+                with self.assertRaisesRegex(RuntimeErrorCode, "resume_money"):
+                    runtime.start(to_record(ok), to_record(registry), None, "case-old-1")
+            with patch.object(runtime.engine, "factory_bug_waste_keys", return_value=[lost]) as named:
+                runtime.start(to_record(ok), to_record(registry), None, "case-old-1")
+                runtime.start(to_record(ok), to_record(registry), None, "case-old-1")   # idempotent
+            named.assert_called_with("case-old-1")
+            start.assert_called_with(ok, registry, None, "case-old-1")
+        self.assertEqual(runtime.ledger.case_balance("b-old", "case-old-1", 50_000_000)["used"], 3_000_000)
+        bal = runtime.ledger.balance("b-old")
+        self.assertEqual((bal["spent"], bal["waste"]), (48_000_000, 45_000_000))
+        self.assertEqual(runtime.ledger.rows()["rebooked"], [(lost, "factory_bug")])
 
     def test_private_socket_client_prepare(self):
         import socketserver

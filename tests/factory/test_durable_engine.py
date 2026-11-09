@@ -1076,6 +1076,23 @@ class Resume(unittest.TestCase):
         self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
         self.assertEqual(start(r, f"{C1}/4/writer:2/3")["opened"]["snapshot"], f"snapshot {C1}/4/writer:2/2")
 
+    def test_a_factory_bug_resume_names_the_diagnosed_attempts_as_waste(self):
+        # Their money was lost to our own bug: runtime.start books it as waste (ledger.book_waste)
+        # before it counts what the case used. A resume after an infra stop names nothing.
+        r, out = run(self.FACTORY_BUG)
+        self.addCleanup(r.close)
+        self.resume(r)
+        self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()),
+                         [f"{C1}/4/writer:2/1", f"{C1}/4/writer:2/2"])
+        r2, _ = run(self.STOPPED)
+        self.addCleanup(r2.close)
+        self.resume(r2, {"1/diagnosis/4": {"verdict": "close_to_passing"}})
+        self.assertEqual(json.loads((r2.work / "waste-keys.json").read_text()), [])
+        r3, _ = run({**self.STOPPED, "script": {**self.STOPPED["script"], "1/diagnosis/*": {"verdict": "not_converging"}}})
+        self.addCleanup(r3.close)
+        self.resume(r3)
+        self.assertEqual(json.loads((r3.work / "waste-keys.json").read_text()), {"refused": "resume:not_stopped_by_infra"})
+
     def test_factory_bug_resumes_count_across_the_lineage(self):
         r, out = run(self.FACTORY_BUG)
         self.addCleanup(r.close)
@@ -1118,6 +1135,44 @@ class Resume(unittest.TestCase):
         r2 = EngineRun({"spec": {"batch_id": "b-u", "max_cases_started": 1, "case_money_usd_micros": 43_700_000},
                         "resume_of": C1}, workdir=r.work)
         self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "sealed"})
+
+    # cae763-2 and 22e434-3 on 9 November: a writer (or stress) step ran out of the case's own money
+    # on Go plan calls booked at list price, and the diagnosis said factory_bug.
+    def money_hold(self, step):
+        script = {"1/diagnosis/*": {"verdict": "factory_bug"},
+                  f"1/{step}/1": {"outcome": "exhausted", "reason": step.split(":")[0] + ":money", "checkpoint": True}}
+        if step == "writer:2":
+            script["1/stress:1/1"] = {"feedback": True}
+        r, out = run({"spec": {"max_cases_started": 1}, "script": script})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        return r
+
+    def test_a_case_held_after_a_money_stop_resumes_at_that_step_and_books_it_as_waste(self):
+        for step, seq, after in (("writer:2", "4", [("5", "stress:2", "1"), ("6", "gates:2", "1"), ("7", "seal", "1")]),
+                                 ("stress:1", "3", [("4", "writer:2", "1"), ("5", "stress:2", "1"),
+                                                    ("6", "gates:2", "1"), ("7", "seal", "1")])):
+            with self.subTest(step=step):
+                r = self.money_hold(step)
+                before = len(r.starts(1))
+                script = {"1/stress:1/*": {"feedback": True}} if step == "stress:1" else {}
+                out = self.resume(r, script)
+                self.assertEqual(r.keys(1)[before:], [(seq, step, "2"), *after])
+                self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+                self.assertEqual(start(r, f"{C1}/{seq}/{step}/2")["opened"]["snapshot"], f"snapshot {C1}/{seq}/{step}/1")
+                # Its money was the case's; the resume books it as waste first (runtime.start).
+                self.assertEqual(json.loads((r.work / "waste-keys.json").read_text()), [f"{C1}/{seq}/{step}/1"])
+
+    def test_a_money_stop_of_another_step_or_without_factory_bug_is_not_resumable(self):
+        r, out = run({"spec": {"max_cases_started": 1},
+                      "script": {"1/stress:1/1": {"feedback": True},
+                                 "1/writer:2/1": {"outcome": "exhausted", "reason": "writer:money"},
+                                 "1/diagnosis/*": {"verdict": "not_converging"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "retired"})
+        self.assertEqual(self.resume(r), {"refused": "resume:not_stopped_by_infra"})
+        from durable.engine import FACTORY_BUG_RESUMABLE
+        self.assertEqual(set(FACTORY_BUG_RESUMABLE), {"writer", "stress"})   # never gates, admit or seal
 
     # 18681d on 9 November: recertify G16 failed three times in calibrator setup, then factory_bug.
     GATES_INFRA = {"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},

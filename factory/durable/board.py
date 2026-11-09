@@ -30,9 +30,11 @@ ENDED_WORKFLOW = ("SUCCESS", "ERROR", "CANCELLED", "MAX_RECOVERY_ATTEMPTS_EXCEED
 def _ledger(config) -> tuple[list[str], dict]:
     """Every batch id, and per (batch, case) money in micro-dollars, from one read-only pass."""
     import sqlalchemy as sa
-    from durable.ledger import ATTEMPTS, BATCHES, HELD, LOST, SETTLED
+    from durable.ledger import ATTEMPTS, BATCHES, HELD, LOST, REBOOKED, SETTLED
     from durable.observation import readonly, readonly_engine
     a = ATTEMPTS.c
+    # Settled money later rebooked as waste (SqlLedger.book_waste) is waste, never the case's.
+    is_waste = sa.or_(a.waste, a.idempotency_key.in_(sa.select(REBOOKED.c.idempotency_key)))
     zero = 0
     def total(*whens):
         return sa.func.coalesce(sa.func.sum(sa.case(*whens, else_=zero)), zero)
@@ -46,10 +48,10 @@ def _ledger(config) -> tuple[list[str], dict]:
                     a.batch_id, a.case_id,
                     total((a.state == SETTLED, a.paid_usd_micros), (a.state == LOST, a.granted_usd_micros)),
                     total((a.state == HELD, a.granted_usd_micros)),
-                    total((sa.and_(a.state == SETTLED, a.waste), a.paid_usd_micros), (a.state == LOST, a.granted_usd_micros)),
+                    total((sa.and_(a.state == SETTLED, is_waste), a.paid_usd_micros), (a.state == LOST, a.granted_usd_micros)),
                     # The case's own money: the same rule as SqlLedger._case_used.
                     total((sa.and_(a.draws_case_money, sa.not_(a.waste), a.state == HELD), a.granted_usd_micros),
-                          (sa.and_(a.draws_case_money, sa.not_(a.waste), a.state == SETTLED), a.paid_usd_micros)),
+                          (sa.and_(a.draws_case_money, sa.not_(is_waste), a.state == SETTLED), a.paid_usd_micros)),
                     total((a.state == SETTLED, a.list_usd_micros)),
                     total((a.state != HELD, a.calls)),
                 ).group_by(a.batch_id, a.case_id)).all()

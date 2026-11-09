@@ -646,6 +646,11 @@ def engine_main(workdir):
         fakes["store"].put_sealed(case, imported, ct)
     if scenario.get("resume_of"):
         from durable.contract import ContractError
+        try:   # what runtime.start books as waste before its resume_money check
+            waste_keys = engine.factory_bug_waste_keys(scenario["resume_of"])
+        except ContractError as error:
+            waste_keys = {"refused": str(error)}
+        (work / "waste-keys.json").write_text(json.dumps(waste_keys))
         try:
             handle = engine.start_batch(spec, registry, None, scenario["resume_of"])
         except ContractError as error:
