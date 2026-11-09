@@ -115,6 +115,10 @@ _FIXED = {
     "usage_monitor": (_I, "infra:usage_monitor"),
     # A runner fault before the model process started (model_runtime._invoke): usage is known, $0.
     "model_launch_failed": (_I, "infra:model_launch_failed"),
+    # Named pre-launch steps of a walled or diagnosis call; each settles at its known $0 like the above.
+    "diagnosis_loopback_failed": (_I, "infra:diagnosis_loopback_failed"),
+    "diagnosis_config_invalid": (_I, "infra:diagnosis_config_invalid"),
+    "model_wall_failed": (_I, "infra:model_wall_failed"),
     "usage_reservation_exceeded": (_I, "infra:usage_reservation_exceeded"),
     "reservation_spend_unknown": (_I, "infra:reservation_spend_unknown"),
     "reservation_event_missing": (_I, "infra:reservation_event_missing"),

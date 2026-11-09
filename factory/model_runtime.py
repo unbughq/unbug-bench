@@ -208,7 +208,10 @@ def diagnosis_environment(env, driver, lease, home):
 
 @contextmanager
 def diagnosis_loopback(c, command, gate, enabled):
-    """Permit exactly A's ephemeral listener, before the pilot LOCAL rejection."""
+    """Permit exactly A's ephemeral listener, before the pilot LOCAL rejection.
+
+    A failed rule change stops as diagnosis_loopback_failed, a classified fault, never as the
+    command's own exception, which the runtime could name only by its class (RuntimeError)."""
     rules = []
     try:
         # A Codex call has no local gate (model_call_gate.FreeCall): it reaches its provider over
@@ -218,12 +221,16 @@ def diagnosis_loopback(c, command, gate, enabled):
             for rule in (["-d", "127.0.0.1", "-p", "tcp", "--dport", port, "-j", "ACCEPT"],
                          ["-p", "tcp", "-m", "conntrack", "--ctdir", "ORIGINAL",
                           "--ctorigdst", "127.0.0.1", "--ctorigdstport", port, "-j", "ACCEPT"]):
-                command(c, ['sudo', 'iptables', '-w', '5', '-I', 'factory-pilot', '1', *rule], check=True)
+                try: command(c, ['sudo', 'iptables', '-w', '5', '-I', 'factory-pilot', '1', *rule], check=True)
+                except BudgetError: raise
+                except Exception as error: raise BudgetError('diagnosis_loopback_failed') from error
                 rules.append(rule)
         yield
     finally:
         for rule in reversed(rules):
-            command(c, ['sudo', 'iptables', '-w', '5', '-D', 'factory-pilot', *rule], check=True)
+            try: command(c, ['sudo', 'iptables', '-w', '5', '-D', 'factory-pilot', *rule], check=True)
+            except BudgetError: raise
+            except Exception as error: raise BudgetError('diagnosis_loopback_failed') from error
 
 
 def pinned_cli(kind):
@@ -717,8 +724,11 @@ class ModelRuntime:
                 if diagnosis and driver == 'opencode':
                     env.pop('OPENCODE_ENABLE_EXA', None)
                     if model in GATED_OPENROUTER:
-                        cfg = json.loads(env['OPENCODE_CONFIG_CONTENT'])
-                        cfg['permission'].update(webfetch='deny', websearch='deny')
+                        try:
+                            cfg = json.loads(env['OPENCODE_CONFIG_CONTENT'])
+                            cfg['permission'].update(webfetch='deny', websearch='deny')
+                        except (KeyError, ValueError, TypeError, AttributeError) as error:
+                            raise BudgetError('diagnosis_config_invalid') from error
                         env['OPENCODE_CONFIG_CONTENT'] = json.dumps(cfg)
                     # The gate replaces env, including its inline config and isolation flags.
                     cmd[1] = '--preserve-env=' + ','.join(env)
