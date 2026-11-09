@@ -107,6 +107,21 @@ class AttackRecoveryTests(unittest.TestCase):
         self.assertEqual([call.args[4] for call in writer.call_args_list], ['builder-2'])
         self.early_review.assert_not_called()
 
+    def test_a_new_round_after_stress_measures_its_first_call_from_the_stress_snapshot(self):
+        # f46dac-2r writer:3/1: the first attempt of a round after a stress round. Its baseline is
+        # the case as the stress step left it, set before call 1, so real edits are never unchanged.
+        feedback = self.stress('{"complete": false, "blocking": ["reference misses stock update"]}')['feedback']
+        self.step(StepKind.WRITER, 2)
+        start = run.case_hash(self.c)
+        def edit(*args, **kwargs):
+            receipt = json.loads((self.c.work / 'attack-state.json').read_text())
+            self.assertEqual(receipt['round_start']['case'], start)
+            (self.c.case / 'repair.txt').write_text('the repair')
+            return 0
+        with patch.object(run, 'opencode', side_effect=edit) as writer:
+            self.assertEqual(run.engine_writer_round(self.c, 2, feedback)['outcome'], Outcome.OK)
+        self.assertEqual([call.args[4] for call in writer.call_args_list], ['builder-2'])
+
     def test_a_retry_from_a_receipt_without_a_round_start_is_not_called_unchanged(self):
         # f46dac-2's held snapshot: written before receipts carried the round start, after the
         # writer's interrupted edits. Its first retried call cannot be judged unchanged.

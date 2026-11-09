@@ -578,7 +578,9 @@ class MaximaTests(unittest.TestCase):
                         self.assertEqual(runtime.call(c, [GATED_CLAUDE], 'synthetic', work, 'builder-1'), 0)
                     else:
                         label = ('containment_unavailable' if outcome == 'containment_denied' else
-                                 'model_call_cap' if outcome == 'interrupted' else 'usage_monitor:OSError')
+                                 'model_call_cap' if outcome == 'interrupted' else
+                                 # The process never started: known $0, not a usage-monitor fault.
+                                 'model_launch_failed:OSError')
                         with self.assertRaisesRegex(budget.BudgetError, '^'+label+'$'):
                             runtime.call(c, [GATED_CLAUDE], 'synthetic', work, 'builder-1')
                     called.assert_called_once()

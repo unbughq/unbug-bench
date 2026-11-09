@@ -113,6 +113,8 @@ _FIXED = {
     "unpriced_usage": (_I, "infra:unpriced_usage"),
     "free_route_mismatch": (_I, "infra:free_route_mismatch"),
     "usage_monitor": (_I, "infra:usage_monitor"),
+    # A runner fault before the model process started (model_runtime._invoke): usage is known, $0.
+    "model_launch_failed": (_I, "infra:model_launch_failed"),
     "usage_reservation_exceeded": (_I, "infra:usage_reservation_exceeded"),
     "reservation_spend_unknown": (_I, "infra:reservation_spend_unknown"),
     "reservation_event_missing": (_I, "infra:reservation_event_missing"),

@@ -272,6 +272,7 @@ class RealStops(unittest.TestCase):
         "usage_event_missing": ("infra_error", "infra:usage_unknown"),
         "usage_event_shared": ("infra_error", "infra:usage_unknown"),
         "usage_monitor:": ("infra_error", "infra:usage_monitor"),
+        "model_launch_failed:": ("infra_error", "infra:model_launch_failed"),
         "usage_unknown": ("infra_error", "infra:usage_unknown"),
         "usage_reservation_exceeded": ("infra_error", "infra:usage_reservation_exceeded"),
         "reservation_spend_unknown": ("infra_error", "infra:reservation_spend_unknown"),

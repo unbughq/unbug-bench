@@ -211,7 +211,9 @@ def diagnosis_loopback(c, command, gate, enabled):
     """Permit exactly A's ephemeral listener, before the pilot LOCAL rejection."""
     rules = []
     try:
-        if enabled:
+        # A Codex call has no local gate (model_call_gate.FreeCall): it reaches its provider over
+        # the public network the pilot wall leaves open, so there is no listener to admit.
+        if enabled and getattr(gate, 'server', None) is not None:
             port = str(gate.server.server_port)
             for rule in (["-d", "127.0.0.1", "-p", "tcp", "--dport", port, "-j", "ACCEPT"],
                          ["-p", "tcp", "-m", "conntrack", "--ctdir", "ORIGINAL",
@@ -742,6 +744,12 @@ class ModelRuntime:
             raise
         except Exception as error:
             self.progress(c, 'role:' + progress_role, 'failed', time.monotonic() - progress_started)
+            if (getattr(c, 'engine', None) is not None
+                    and (getattr(c, 'model_process_state', None) or {}).get('started') is False):
+                # The model process never started, so this call spent nothing: its reservation is
+                # released as uninvoked (ModelRuntime._call). Not a usage-monitor fault, whose
+                # unknown usage would book the attempt's whole grant as waste (policy.settles_lost).
+                raise BudgetError('model_launch_failed:' + type(error).__name__) from error
             raise BudgetError('usage_monitor:' + type(error).__name__) from error
         except BaseException:
             self.progress(c, 'role:' + progress_role, 'interrupted', time.monotonic() - progress_started)

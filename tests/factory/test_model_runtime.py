@@ -222,5 +222,25 @@ class ModelRuntimeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class DiagnosisLoopbackTests(unittest.TestCase):
+    def test_a_route_without_a_local_gate_opens_no_loopback_rule(self):
+        # f46dac-2r: a diagnosis on the Codex route (model_call_gate.FreeCall) failed before the
+        # model started, reading gate.server, which only the proxy Gate has.
+        import model_call_gate
+        commands = []
+        with model_runtime.diagnosis_loopback(None, lambda c, cmd, **kw: commands.append(cmd),
+                                              model_call_gate.FreeCall(None), True):
+            pass
+        self.assertEqual(commands, [])
+
+    def test_a_gated_route_opens_and_removes_its_listener_rules(self):
+        commands = []
+        gate = types.SimpleNamespace(server=types.SimpleNamespace(server_port=40123))
+        with model_runtime.diagnosis_loopback(None, lambda c, cmd, **kw: commands.append(cmd), gate, True):
+            self.assertEqual([cmd[4] for cmd in commands], ['-I', '-I'])
+        self.assertEqual([cmd[4] for cmd in commands], ['-I', '-I', '-D', '-D'])
+        self.assertTrue(all('40123' in cmd for cmd in commands))
+
+
 if __name__ == '__main__':
     unittest.main()
