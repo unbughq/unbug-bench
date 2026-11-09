@@ -28,6 +28,9 @@ from durable.contract import REASON, Classified, ContractError, Outcome, StepKin
 # first-failure delay (900 s) for every reason except router_unavailable, so the engine
 # and the router back off alike (tests/factory/test_durable_classify.py pins the two).
 BACKOFF_S = 900.0
+# Our own router seats were all held (model_router.SEATS_BUSY_SECONDS): no provider limited
+# the call, and a seat frees whenever another case's call ends, so retry in seconds.
+SEATS_BUSY_RETRY_S = 30.0
 # A reset time further ahead than this is not trusted (weekly windows are 7 days).
 MAX_RESET_AHEAD_S = 8 * 24 * 3600.0
 
@@ -48,7 +51,8 @@ _WAIT = {"quota": (_P, "router:quota"), "rate": (_P, "router:rate"),
          "credit": (_P, "router:credit"), "outage": (_I, "router:outage"),
          "credential_expiring": (_I, "router:credential_expiring"),
          "unbounded_route": (_I, "router:unbounded_route"),
-         "router_unavailable": (_I, "infra:router_unavailable")}
+         "router_unavailable": (_I, "infra:router_unavailable"),
+         "seats_busy": (_P, "router:seats_busy")}
 FAILURE_STOPS = frozenset({"process_error", "claude_error", "codex_error", "opencode_error",
                            "refusal", "zero_tokens", "timeout", "stalled", "credential_expiring", "model_unavailable"})
 
@@ -369,14 +373,17 @@ def classify_wait(error, *, step, now, prior=()):
     original = next((row['source_stop'] for row in reversed(waits) if 'source_stop' in row), None)
     reason = fault or waits[-1]['reason']
     reset = max((r['retry_after'] for r in active if 'retry_after' in r), default=None)
-    if original and fault is None and reason not in ('quota', 'rate', 'credit'):
+    if original and fault is None and reason not in ('quota', 'rate', 'credit', 'seats_busy'):
         result = classify(original, step=step, now=now, reset_at=reset)
+    elif reasons == {'seats_busy'}:
+        # Only our own seat queue held the call: never the 15-minute provider backoff.
+        result = Classified(_P, _WAIT['seats_busy'][1], now + SEATS_BUSY_RETRY_S)
     else:
         outcome, code = _WAIT.get(reason, (_I, UNCLASSIFIED))
         result = Classified(outcome, code, _retry_at(now, reset) if outcome is _P else None)
     return result, {'schema': 1, 'waits': waits}
 
 
-__all__ = ["BACKOFF_S", "MAX_RESET_AHEAD_S", "REASONS", "CONTRACT_REASONS", "PUBLISHED_REASONS",
+__all__ = ["BACKOFF_S", "SEATS_BUSY_RETRY_S", "MAX_RESET_AHEAD_S", "REASONS", "CONTRACT_REASONS", "PUBLISHED_REASONS",
            "RAW_REASON", "RAW_STOP_PREFIX", "CLEANUP_PREFIX", "stop_label", "labelled",
            "UNCLASSIFIED", "classify"]

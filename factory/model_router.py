@@ -46,7 +46,10 @@ CHAINS = (
     ('opencode-go/muse-spark-1.3-contributor', 'openrouter/meta/muse-spark-1.3-contributor'),
     ('opencode-go/glm-5.3-flash', 'openrouter/z-ai/glm-5.3-flash', 'opencode/glm-5.3-flash-free'),
 )
-REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring', 'unbounded_route'}
+REASONS = {'quota', 'rate', 'credit', 'outage', 'router_unavailable', 'credential_expiring', 'unbounded_route', 'seats_busy'}
+# seats_busy: every eligible seat is held by our own leases and no provider limit is recorded.
+# It is our queue, not a provider signal, so it retries in seconds and is never stored as health.
+SEATS_BUSY_SECONDS = 15
 MAXIMUM_FIELDS = ('max_usd', 'max_input_tokens', 'max_output_tokens', 'price_source')
 
 
@@ -126,6 +129,7 @@ def epoch(value):
 def retry_at(reason, *, now=None, failures=1, reset_at=None):
     now = time.time() if now is None else now
     if finite(reset_at) and reset_at > now: return reset_at
+    if reason == 'seats_busy': return now + SEATS_BUSY_SECONDS
     delay = 300 if reason == 'router_unavailable' and failures == 1 else min(3600, 900 * 2 ** min(max(failures - 1, 0), 2))
     return now + delay
 
@@ -394,7 +398,7 @@ class Store:
                 db.execute("UPDATE leases SET outcome='denied' WHERE id=? AND outcome IS NULL", (identity,))
                 result = {'cancelled': True}
             elif operation == 'acquire':
-                if set(data) - {'excluded_lanes', 'paid_protocol', 'funding_usd'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
+                if set(data) - {'excluded_lanes', 'paid_protocol', 'funding_usd', 'wait_protocol'} != {'id', 'model', 'accounts', 'role', 'deadline'}: raise ValueError('invalid admission fields')
                 if 'funding_usd' in data and _nano(data['funding_usd'], ROUND_FLOOR) <= 0: raise ValueError('empty invocation funding')
                 if not isinstance(data['role'], str) or not re.fullmatch(r'[a-z_0-9]{1,40}', data['role']): raise ValueError('invalid role')
                 identity = data['id']
@@ -434,9 +438,13 @@ class Store:
                         active = [(json.loads(r)['pool'], e) for r,e in db.execute('SELECT route,expires FROM leases WHERE outcome IS NULL')]
                         for route in choices:
                             limit = blocked(route)
+                            # No recorded limit: our own leases hold every seat. A seat frees whenever
+                            # a call finishes, so poll in seconds rather than waiting for the expiry.
                             ready = (max(now + 1, limit.get('blocked_until', now + 900)) if limit else
-                                     min((e for pool,e in active if pool == route['pool']), default=now + 15))
-                            alternatives.append((ready, limit['reason'] if limit else 'rate', route))
+                                     min([now + SEATS_BUSY_SECONDS] + [e for pool,e in active if pool == route['pool']]))
+                            # Workers on an older plumbing release reject reasons they do not know.
+                            busy = 'seats_busy' if data.get('wait_protocol') == 1 else 'rate'
+                            alternatives.append((ready, limit['reason'] if limit else busy, route))
                         bounded = any(route_maximum(r['route']) is not None for r in routes(data['model']))
                         ready, reason, route = min(alternatives, key=lambda row: row[0]) if alternatives else (
                             now + 900, ('credential_expiring' if data['model'].startswith('claude/') else 'outage') if bounded
@@ -491,7 +499,7 @@ class Store:
                         row = db.execute('SELECT route FROM leases WHERE id=?', (data['lease_id'],)).fetchone()
                         if not row: raise ValueError('unknown observation lease')
                         route = json.loads(row[0]); reason = data['reason']
-                        if reason not in REASONS - {'unbounded_route'}: raise ValueError('invalid provider reason')
+                        if reason not in REASONS - {'unbounded_route', 'seats_busy'}: raise ValueError('invalid provider reason')
                         key = route['pool'] + ('/' + route['route'] if reason == 'outage' else '')
                         old = health.get(key, {}); failures = old.get('failures', 0) + 1
                         reset = retry_at(reason, now=now, failures=failures, reset_at=data.get('reset_at'))
@@ -603,7 +611,8 @@ def _account_order(case):
 
 def _admit(role, case, deadline, identity, accounts, excluded=()):
     model = getattr(case, 'router_model', None) or case.card['roles'][role]['model']
-    data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_lanes=list(excluded), paid_protocol=1)
+    data = dict(id=identity, model=model, accounts=list(accounts), deadline=deadline, role=role, excluded_lanes=list(excluded),
+                paid_protocol=1, wait_protocol=1)
     funding = getattr(case, 'router_funding_usd', None)
     if funding is not None: data['funding_usd'] = funding
     result = _rpc('acquire', data)
