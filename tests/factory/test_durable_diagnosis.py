@@ -26,6 +26,8 @@ from durable.classify import classify
 from durable import contract as k
 from durable.worker_step import Worker, blob_name
 from durable.steps.diagnosis import run
+from diagnosis import _input_inventory as diagnosis_inventory
+from extensions import digest as extensions_digest
 
 
 @unittest.skipUnless(shutil.which('age'), 'requires local age CLI')
@@ -75,6 +77,11 @@ class DiagnosisTests(unittest.TestCase):
         self.assertEqual(model, self.card['roles']['reviewer']['model'])
         self.assertFalse(hasattr(c, 'authenticated_job_config'))
         context = json.loads(prompt.split('Run context (data):\n')[1])
+        # The prompt carries the inventory's size and digest, never the inventory: it is one argv entry.
+        self.assertNotIn('files', context)
+        inventory = diagnosis_inventory(inputs)
+        self.assertEqual(context['file_count'], len(inventory))
+        self.assertEqual(context['files_sha256'], extensions_digest(inventory))
         evidence = 'evidence/' + blob_name(self.evidence)
         self.assertEqual((inputs / evidence).read_bytes(), b'private evidence sentinel')
         event = {'type': 'step_finish', 'sessionID': 's', 'part': {

@@ -276,6 +276,7 @@ class RealStops(unittest.TestCase):
         "diagnosis_loopback_failed": ("infra_error", "infra:diagnosis_loopback_failed"),
         "diagnosis_config_invalid": ("infra_error", "infra:diagnosis_config_invalid"),
         "model_wall_failed": ("infra_error", "infra:model_wall_failed"),
+        "prompt_too_large": ("infra_error", "infra:prompt_too_large"),
         "usage_unknown": ("infra_error", "infra:usage_unknown"),
         "usage_reservation_exceeded": ("infra_error", "infra:usage_reservation_exceeded"),
         "reservation_spend_unknown": ("infra_error", "infra:reservation_spend_unknown"),

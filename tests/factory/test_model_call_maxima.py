@@ -539,7 +539,7 @@ class MaximaTests(unittest.TestCase):
         (secrets / 'claude-factory-token-2').write_text('synthetic-only')
         runtime = model_runtime.ModelRuntime(self.root, Mock(), Mock(),
             lambda path, **kw: shutil.rmtree(path), Mock())
-        for outcome in ('done', 'interrupted', 'denied', 'containment_denied'):
+        for outcome in ('done', 'interrupted', 'denied', 'containment_denied', 'too_large'):
             with self.subTest(outcome=outcome):
                 work = self.root / outcome; work.mkdir(); (work / 'transcripts').mkdir()
                 path = work / 'ledger.json'
@@ -577,19 +577,23 @@ class MaximaTests(unittest.TestCase):
                     if outcome == 'done':
                         self.assertEqual(runtime.call(c, [GATED_CLAUDE], 'synthetic', work, 'builder-1'), 0)
                     else:
+                        # f46dac-2r and 22e434-3r: a prompt over Linux's one-argument limit (E2BIG).
+                        text = 'x' * model_runtime.ARG_LIMIT if outcome == 'too_large' else 'synthetic'
                         label = ('containment_unavailable' if outcome == 'containment_denied' else
+                                 'prompt_too_large' if outcome == 'too_large' else
                                  'model_call_cap' if outcome == 'interrupted' else
                                  # The process never started: known $0, not a usage-monitor fault.
                                  'model_launch_failed:OSError')
                         with self.assertRaisesRegex(budget.BudgetError, '^'+label+'$'):
-                            runtime.call(c, [GATED_CLAUDE], 'synthetic', work, 'builder-1')
-                    called.assert_called_once()
+                            runtime.call(c, [GATED_CLAUDE], text, work, 'builder-1')
+                    if outcome == 'too_large': called.assert_not_called()
+                    else: called.assert_called_once()
                 ledger = json.loads(path.read_text())
                 row, = ledger['invocation_reservations'].values()
                 # Stream D money: an interrupted call is estimated when it ends, not left pending.
                 self.assertEqual(row['state'], 'estimated' if outcome == 'interrupted' else 'settled')
                 receipt = json.loads((work / 'usage-receipts' / (row['lease_id']+'.json')).read_text())
-                self.assertEqual(receipt['outcome'], 'denied' if outcome == 'containment_denied' else outcome)
+                self.assertEqual(receipt['outcome'], 'denied' if outcome in ('containment_denied', 'too_large') else outcome)
                 if outcome == 'containment_denied':
                     self.assertIn({'stage': 'model_containment', 'error': 'containment_unavailable'},
                                   c.card['cleanup_errors'])
