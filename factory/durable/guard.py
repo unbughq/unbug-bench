@@ -1,7 +1,10 @@
 """The campaign guard: one pass a minute, run by a systemd timer as root.
 
 A failed check never stops anything. It is retried, logged and marks the batch degraded,
-which pauses new attempts (engine.py) until a pass succeeds. Only these are hard stops: the
+which pauses new attempts (engine.py) until a pass succeeds. A stalled campaign (a case waiting on
+credentials or the router, no case progress for STALL_S while cases are live, or a case parked
+on a founder decision for FOUNDER_WAIT_S) also reads
+degraded, with the reason in `stalled`, and alerts; it pauses nothing. Only these are hard stops: the
 deadline, the money ceiling and a confirmed Boat allowance or rate breach.
 
 A hard stop pauses new attempts and gives steps in flight a checkpoint grace to record. When none
@@ -32,6 +35,8 @@ LOW_CREDIT_USD = 20.0        # alert below this provider credit; a call's hold c
 ROUTER_MARGIN_USD = 1.0      # the router refuses a call that would pass its ceiling, so spend stalls below it
 ESCALATE_S = 900.0           # sustained failure raises an alert; it still stops nothing
 DOWN_ALERT_S = 600.0
+STALL_S = 900.0              # no case or router progress this long while cases are live is a stall
+FOUNDER_WAIT_S = 1800.0      # a case parked on a founder decision this long raises a reminder
 MARKER_TTL_S = 600.0         # a dead guard cannot pause admission for longer than this
 EVIDENCE_KEPT = 200
 READ_LIMIT = 1 << 20
@@ -63,6 +68,21 @@ CASE_ALERTS = {
     "waiting_for_release": "{case} is waiting for a fixed plumbing release.",
     "retrying_admission": "{case} keeps failing admission on infrastructure and is still retrying. Check its stop reason.",
     "stopped_admission": "{case} stopped admission. Decide whether to start a new batch.",
+}
+# Waits that only an operator can end, so one case in them stalls the campaign (9 November: the
+# router's certificate expired and the guard read healthy for twenty minutes).
+STALL_STATUSES = ("waiting_for_credentials", "waiting_for_router")
+STALL_ALERTS = {
+    "waiting_for_credentials": "{case} is stuck waiting for credentials. Check the router and its certificate.",
+    "waiting_for_router": "{case} is stuck waiting for the router. Check the router and its certificate.",
+    "no_progress": "No case has made progress for {minutes} minutes ({cases}). Check the controller and router logs.",
+}
+# A case parked on a founder decision: the decision it waits on, as the guard can read it.
+FOUNDER_WAITS = {
+    "escalated": "a ruling on its escalation",
+    "held": "a decision on its hold",
+    "waiting_for_bound": "a raised batch bound or its retirement",
+    "waiting_for_release": "a fixed plumbing release",
 }
 CASE_REASON_ALERTS = {
     "router:credit": "{case} is waiting: the provider account refused a call for lack of credit. Top it up.",
@@ -172,6 +192,7 @@ class Guard:
         self.clock, self.sleep = clock, sleep
         self.failed: list = []
         self.evidence: list = []
+        self.cases: list = []   # this pass's case rows, once the controller answered
 
     # -- files --
 
@@ -290,7 +311,9 @@ class Guard:
                   "finished": status.get("finished", False), "failed_checks": [], "owned_workers": None,
                   "stopping_since": status.get("stopping_since"), "controller_stopped": status.get("controller_stopped", False),
                   "money_held": None, "router_spent_usd": status.get("router_spent_usd"),
-                  "provider_credit_usd": status.get("provider_credit_usd")}
+                  "provider_credit_usd": status.get("provider_credit_usd"), "stalled": None, "stalled_cases": [],
+                  "progress_at": status.get("progress_at"), "progress_digest": status.get("progress_digest"),
+                  "waits": status.get("waits") if isinstance(status.get("waits"), dict) else {}, "founder_waits": []}
         ok, service = self.check("service_state", self.service.state)
         active, active_since, ready_since = service if ok else ("unknown", None, None)
         if health["finished"]:
@@ -348,6 +371,7 @@ class Guard:
                 raise CheckFailed("status_malformed")
             self.save("scorecard.json", {**reports[0], "cases": cases} if len(reports) == 1 else
                       {"batches": self.batches, "cases": cases})
+            self.cases = cases
             return all(report["cases"] and all(c["status"] in TERMINAL for c in report["cases"])
                        for report in reports)
         ok, over = self.check("ledger", over_ceiling)
@@ -358,6 +382,8 @@ class Guard:
             if ok and over:
                 return "money_ceiling"
         ok, finished = self.check("controller_status", terminal)
+        if ok and not finished:
+            self._stall(health)
         if ok and finished:
             done, _ = self.check("publish", lambda: [self.rpc("publish", batch) for batch in self.batches])
             if done:
@@ -366,6 +392,35 @@ class Guard:
                 health["down_since"] = None
                 self.check("controller_stop", self.service.stop)
         return None
+
+    def _stall(self, health: dict) -> None:
+        """Name a stall from data already read: case waits only an operator can end, or no change
+        in any case row or in router spend for STALL_S while cases are live. Alerts only."""
+        now = self.clock()
+        progress = json.dumps([[c.get(k) for k in ("case", "status", "stage", "gates", "writer_rounds", "extensions")]
+                               for c in self.cases] + [health.get("router_spent_usd")], sort_keys=True, default=str)
+        if progress != health["progress_digest"] or type(health["progress_at"]) not in (int, float):
+            health["progress_digest"], health["progress_at"] = progress, now
+        # Since when each case has sat in its founder wait; a case that moves on starts over.
+        waits = {}
+        for c in self.cases:
+            if c["status"] in FOUNDER_WAITS and not (c["status"] == "waiting_for_bound" and health.get("money_held")):
+                before = health["waits"].get(c["case"])
+                same = isinstance(before, dict) and before.get("status") == c["status"] and type(before.get("since")) in (int, float)
+                waits[c["case"]] = before if same else {"status": c["status"], "since": now}
+        health["waits"] = waits
+        health["founder_waits"] = sorted(case for case, w in waits.items() if now - w["since"] > FOUNDER_WAIT_S)
+        stuck = sorted(c["case"] for c in self.cases if c["status"] in STALL_STATUSES)
+        if stuck:
+            health["stalled"] = next(s for s in STALL_STATUSES if any(c["status"] == s for c in self.cases))
+            health["stalled_cases"] = stuck
+            return
+        # Cases waiting on a founder decision already raise their own alert.
+        live = sorted(c["case"] for c in self.cases if c["status"] not in TERMINAL and c["status"] not in CASE_ALERTS)
+        if live and now - health["progress_at"] > STALL_S:
+            health["stalled"], health["stalled_cases"] = "no_progress", live
+        elif health["founder_waits"]:
+            health["stalled"], health["stalled_cases"] = "founder_wait", health["founder_waits"]
 
     def _recording(self, health: dict, active: str) -> bool:
         """Whether to keep waiting for steps in flight. A controller that cannot answer may
@@ -411,6 +466,8 @@ class Guard:
             self.save("degraded.json", {"until": now + MARKER_TTL_S})
         else:
             self.path("degraded.json").unlink(missing_ok=True)
+        if health.get("stalled") and health["phase"] == "healthy":
+            health["phase"] = "degraded"   # after the marker: a stall alerts, it pauses nothing
         if self.evidence:
             self.save("evidence.json", (self.load("evidence.json", []) + self.evidence)[-EVIDENCE_KEPT:])
         self._alerts(health, now)
@@ -431,6 +488,21 @@ class Guard:
         if down is not None and now - down >= DOWN_ALERT_S:
             out["controller_down"] = (f"The controller has been down for {int((now - down) / 60)} minutes "
                                       "and has not restarted. Check its service log.")
+        # Keyed per case (or per case set), so a newly stuck case alerts while a lasting one does not repeat.
+        stuck = health.get("stalled_cases") or []
+        if health.get("stalled") in STALL_STATUSES:
+            for case in self.load("scorecard.json", {}).get("cases", []):
+                if isinstance(case, dict) and case.get("case") in stuck and case.get("status") in STALL_STATUSES:
+                    out[f"stalled:{case['status']}:{case['case']}"] = STALL_ALERTS[case["status"]].format(case=case["case"])
+        elif health.get("stalled") == "no_progress":
+            cases = ", ".join(stuck[:5]) + (f" and {len(stuck) - 5} more" if len(stuck) > 5 else "")
+            minutes = int((now - (health.get("progress_at") or now)) / 60)
+            out["stalled:no_progress:" + ",".join(stuck)] = STALL_ALERTS["no_progress"].format(cases=cases, minutes=minutes)
+        for case in health.get("founder_waits") or []:
+            wait = health["waits"][case]
+            out[f"founder_wait:{case}:{wait['status']}"] = (
+                f"{case} has waited {int((now - wait['since']) / 60)} minutes ({wait['status']}) "
+                f"for {FOUNDER_WAITS[wait['status']]}.")
         credit = health.get("provider_credit_usd")
         if credit is not None and credit < self.low_credit_usd:
             out["provider_credit"] = (f"Provider account credit is ${credit:.2f}, below ${self.low_credit_usd:.0f}. "
