@@ -77,6 +77,11 @@ class Inspection(unittest.TestCase):
         self.assertEqual(result['operational']['cleanup_errors'],[{'stage':'model_scratch','error':'TimeoutExpired'}])
         self.assertNotIn(secret,json.dumps(result))
         for value in (None,secret,{}):self.assertEqual(cleanup_errors({'cleanup_errors':value}),[])
+        # Every failed diagnosis cleanup stage shows, not only the first that names the stop.
+        rows=[{'stage':'diagnosis_source_remove','error':'PermissionError'},
+              {'stage':'diagnosis_pilot_userdel','error':'RuntimeError'},
+              {'stage':'diagnosis_elsewhere','error':'RuntimeError'}]
+        self.assertEqual(cleanup_errors({'cleanup_errors':rows}),rows[:2])
         encoded=json.dumps(card).encode();data=io.BytesIO()
         with tarfile.open(fileobj=data,mode='w:gz') as archive:
             member=tarfile.TarInfo('scorecard.json');member.size=len(encoded);archive.addfile(member,io.BytesIO(encoded))

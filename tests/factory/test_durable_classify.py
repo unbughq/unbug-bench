@@ -197,7 +197,7 @@ class RealStops(unittest.TestCase):
     # Reviewed: what every BudgetError label raised in RUNNER_FILES classifies to.
     MAPPED = {
         'case_changed_during_review': ("infra_error", 'infra:case_changed_during_review'),
-        'diagnosis_cleanup_failed': ("infra_error", 'infra:diagnosis_cleanup_failed'),
+        'diagnosis_cleanup_failed:': ("infra_error", 'infra:diagnosis_cleanup_failed'),
         'diagnosis_input_invalid': ("infra_error", 'infra:diagnosis_input_invalid'),
         'diagnosis_result_invalid': ("infra_error", 'infra:diagnosis_result_invalid'),
         'diagnosis_schema_wait': ("infra_error", 'infra:diagnosis_schema_wait'),
@@ -538,6 +538,21 @@ class Purity(unittest.TestCase):
     def test_step_accepts_the_enum_or_its_value(self):
         self.assertEqual(classify("call_limit", step="stress", now=NOW).reason, "stress:call_limit")
 
+
+
+class DiagnosisCleanupStops(unittest.TestCase):
+    def test_the_failed_stage_and_its_class_name_the_reason(self):
+        from durable.classify import classify, REASONS, PUBLISHED_REASONS
+        for stop, reason in (('diagnosis_cleanup_failed:source_remove:PermissionError', 'infra:dcf_source_remove_permission'),
+                             ('diagnosis_cleanup_failed:pilot_userdel:RuntimeError', 'infra:dcf_pilot_userdel_runtime'),
+                             ('diagnosis_cleanup_failed:task_remove:BudgetError', 'infra:dcf_task_remove_budget'),
+                             ('diagnosis_cleanup_failed:pilot_stop:KeyError', 'infra:dcf_pilot_stop_other'),
+                             ('diagnosis_cleanup_failed:elsewhere:OSError', 'infra:diagnosis_cleanup_failed'),
+                             ('diagnosis_cleanup_failed', 'infra:diagnosis_cleanup_failed')):
+            with self.subTest(stop=stop):
+                result = classify(stop, step=StepKind.DIAGNOSIS, now=0)
+                self.assertEqual((result.outcome.value, result.reason), ('infra_error', reason))
+                self.assertIn(reason, REASONS & PUBLISHED_REASONS)
 
 if __name__ == "__main__":
     unittest.main()

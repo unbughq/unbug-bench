@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -38,6 +39,17 @@ def _helper(runner, c, operation, identity):
         return value, raw
     except Exception:
         raise BudgetError('diagnosis_result_invalid') from None
+
+
+def _remove_tree(path):
+    """Remove the runner's own copy of the inputs, even where a copied directory is read-only
+    (copytree keeps each directory's mode, and a 0o5xx directory refuses to lose its entries)."""
+    path.chmod(0o700)
+    for root, directories, _ in os.walk(path):   # top-down: each is opened before it is walked
+        for name in directories:
+            child = Path(root, name)
+            if not child.is_symlink(): child.chmod(0o700)
+    shutil.rmtree(path)
 
 
 def invoke(runner, c, *, model, prompt, inputs, output):
@@ -83,25 +95,36 @@ def invoke(runner, c, *, model, prompt, inputs, output):
         first = error
         raise
     finally:
-        failed = False
+        # The first cleanup stage that failed, and its error's class, name the stop
+        # (durable/classify.py CLEANUP_STAGES): 1bb2ad-2 and f46dac-2r2 stopped with only
+        # "diagnosis_cleanup_failed" after diagnoses that had succeeded.
+        failed = None
+        def fail(stage, error):
+            nonlocal failed
+            name = getattr(error, 'cleanup_stage', None) or stage
+            kind = getattr(error, 'cleanup_error', None) or type(error).__name__
+            card = getattr(c, 'card', None)
+            if isinstance(card, dict):
+                card.setdefault('cleanup_errors', []).append({'stage': 'diagnosis_' + name, 'error': kind})
+            if failed is None: failed = name + ':' + kind
         try:
             runner.dispose_diagnosis_pilot(c)
-        except BaseException:
-            failed = True
+        except BaseException as error:
+            fail('pilot_stop', error)
         if prepared:
             try:
                 response, raw = _helper(runner, c, 'remove', identity)
                 if response['inputs_sha256'] is not None or raw:
-                    failed = True
-            except BaseException:
-                failed = True
+                    raise ValueError('task not removed')
+            except BaseException as error:
+                fail('task_remove', error)
         try:
-            if source.exists(): shutil.rmtree(source)
-        except BaseException:
-            failed = True
-        if failed:
+            if source.exists(): _remove_tree(source)
+        except BaseException as error:
+            fail('source_remove', error)
+        if failed is not None:
             if first is None:
-                raise BudgetError('diagnosis_cleanup_failed') from None
+                raise BudgetError('diagnosis_cleanup_failed:' + failed) from None
             # Keep the first error as the cause; the step names both (steps/diagnosis.py).
             try: first.diagnosis_cleanup_failed = True
             except AttributeError: pass

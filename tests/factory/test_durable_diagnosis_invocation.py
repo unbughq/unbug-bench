@@ -173,7 +173,30 @@ class InvocationTests(unittest.TestCase):
     def test_cleanup_failure_without_an_earlier_error_is_its_own_stop(self):
         self.error = None
         self.mutate = lambda op, value: b'private cleanup' if op == 'remove' else value
-        with self.assertRaisesRegex(BudgetError, '^diagnosis_cleanup_failed$'): self.invoke()
+        # The stop names the failed stage and its error's class (1bb2ad-2, f46dac-2r2).
+        with self.assertRaisesRegex(BudgetError, '^diagnosis_cleanup_failed:task_remove:BudgetError$'): self.invoke()
+
+    def test_a_failed_pilot_disposal_names_its_stage(self):
+        self.error = None
+        def dispose(c):
+            self.events.append('dispose')
+            failure = RuntimeError('pilot disposal failed')
+            failure.cleanup_stage, failure.cleanup_error = 'pilot_userdel', 'RuntimeError'
+            raise failure
+        self.runner.dispose_diagnosis_pilot = dispose
+        self.c.card = {}
+        with self.assertRaisesRegex(BudgetError, '^diagnosis_cleanup_failed:pilot_userdel:RuntimeError$'): self.invoke()
+        self.assertEqual(self.c.card['cleanup_errors'], [{'stage': 'diagnosis_pilot_userdel', 'error': 'RuntimeError'}])
+        self.assert_clean()
+
+    def test_a_read_only_copied_directory_is_still_removed(self):
+        from durable.diagnosis_invocation import _remove_tree
+        tree = self.home / 'read-only-copy'
+        (tree / 'inputs/work/attacks').mkdir(parents=True)
+        (tree / 'inputs/work/attacks/round-1.json').write_text('{}')
+        for path in (tree / 'inputs/work/attacks', tree / 'inputs/work'): path.chmod(0o500)
+        _remove_tree(tree)
+        self.assertFalse(tree.exists())
 
     def test_partial_pilot_creation_still_disposes(self):
         def fail(*args, **kwargs):

@@ -194,7 +194,15 @@ PREFLIGHT_STOPS = {"process_error": "process", "claude_error": "claude", "codex_
                    "timeout": "timeout", "stalled": "stalled", "credential_expiring": "credential",
                    "model_unavailable": "model"}
 
+# diagnosis_invocation.invoke's cleanup after a diagnosis that itself succeeded: the stage that
+# failed and the class of its error, as fixed codes ("infra:dcf_<stage>_<class>").
+CLEANUP_STAGES = ("pilot_stop", "pilot_wall", "pilot_home", "pilot_userdel", "task_remove", "source_remove")
+CLEANUP_ERRORS = {"PermissionError": "permission", "FileNotFoundError": "missing", "OSError": "os",
+                  "RuntimeError": "runtime", "CalledProcessError": "process", "TimeoutExpired": "timeout",
+                  "BudgetError": "budget", "ValueError": "value"}
+
 REASONS = frozenset({r for _, r in _FIXED.values()} | {r for _, r in _LIMIT_FAMILY}
+                    | {f"infra:dcf_{s}_{e}" for s in CLEANUP_STAGES for e in (*CLEANUP_ERRORS.values(), "other")}
                     | {"router:preflight_failed"}
                     | {f"router:preflight_{r}_{c}" for r in PREFLIGHT_ROLES.values() for c in PREFLIGHT_STOPS.values()}
                     | {r for _, r in _WAIT.values()}
@@ -265,6 +273,10 @@ def _lookup(stop) -> tuple[Outcome, Optional[str], str]:
         if role in PREFLIGHT_ROLES and cause in PREFLIGHT_STOPS:
             return _I, None, f"router:preflight_{PREFLIGHT_ROLES[role]}_{PREFLIGHT_STOPS[cause]}"
         return _I, None, "router:preflight_failed"
+    if head == "diagnosis_cleanup_failed" and rest:
+        stage, _, error = rest.strip().partition(":")
+        if stage in CLEANUP_STAGES:
+            return _I, None, f"infra:dcf_{stage}_{CLEANUP_ERRORS.get(error, 'other')}"
     if head in _FIXED:
         outcome, reason = _FIXED[head]
         return outcome, None, reason
