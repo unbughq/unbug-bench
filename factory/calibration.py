@@ -168,7 +168,9 @@ def prepare_delivery(case, bench_root, workspace, *, exposure="blind", slot=0):
         source_root(path, [path])
         if not path.is_file() or path.is_symlink(): raise CaseProblem("missing contestant material")
         content = path.read_text()
-        if pattern.search(content): raise CaseProblem("private information in contestant material")
+        # The input name (never its content) says which file to fix: 86b100, 9 November, failed G16
+        # on this check while a scan of its admitted promise, contestant and statement files was clean.
+        if pattern.search(content): raise CaseProblem(f"private information in contestant material: {name}")
         # Preserve deployed source bytes: patches written against it must apply unchanged.
         if not name.startswith("services/") and path.suffix in (".md", ".txt"):
             for old, new in replacements.items(): content = content.replace(old, new)

@@ -83,6 +83,17 @@ class DeliveryTests(unittest.TestCase):
                 saved.write_text(original)
                 (self.source / "escape.py").unlink(missing_ok=True)
 
+    def test_a_private_word_failure_names_the_contestant_file_it_was_found_in(self):
+        # 86b100 (9 November) failed G16 on this check with no file named, so the leak could not
+        # be located without opening the case. The input's name, never its content, is reported.
+        from case_contract import CaseProblem
+        (self.case / "statement.md").write_text("Per the fact sheet, stock is held at payment.")
+        with self.assertRaises(CaseProblem) as caught:
+            prepare_delivery(self.case, self.bench, self.root / "statement", exposure="statement")
+        self.assertEqual(str(caught.exception), "private information in contestant material: statement.md")
+        self.assertNotIn("stock", str(caught.exception))
+        prepare_delivery(self.case, self.bench, self.root / "exam", exposure="exam")   # not delivered there
+
     def test_case_material_defects_are_case_problems_not_infrastructure(self):
         # 18681d (9 November): its baseline SQL differed from the copy the exam delivers, and the
         # plain ValueError was retried six times as infrastructure. A case defect fails the gate.
