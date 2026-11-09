@@ -1119,6 +1119,59 @@ class Resume(unittest.TestCase):
                         "resume_of": C1}, workdir=r.work)
         self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "sealed"})
 
+    # 18681d on 9 November: recertify G16 failed three times in calibrator setup, then factory_bug.
+    GATES_INFRA = {"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
+                   "script": {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted",
+                                              "checkpoint": True},
+                              "1/diagnosis/*": {"verdict": "factory_bug"}}}
+
+    def test_a_gates_step_that_only_stopped_on_infra_resumes_after_a_factory_bug(self):
+        r, out = run(self.GATES_INFRA)
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        seq, kind, _ = r.keys(1)[-1]
+        self.assertEqual(kind, "diagnosis")
+        before = len(r.starts(1))
+        out = self.resume(r, {"1/gates:1/*": {}})
+        # The gates step runs again after its three recorded attempts, then the seal takes the
+        # diagnosis's seq; nothing before the gates is redone.
+        gseq = str(int(seq) - 1)
+        self.assertEqual(r.keys(1)[before:], [(gseq, "gates:1", "4"), (seq, "seal", "1")])
+        self.assertEqual(out["result"]["cases"], {C1 + "@b-u": "sealed"})
+        self.assertEqual(start(r, f"{C1}/{gseq}/gates:1/4")["opened"]["snapshot"], f"snapshot {C1}/{gseq}/gates:1/3")
+
+    def test_a_gates_step_on_a_reused_seq_is_judged_by_its_own_attempts(self):
+        # The first diagnosis took seq 5 with two attempts. After the resume, a release makes SEAL
+        # rerun GATES, which takes seq 5 with one attempt: the old diagnosis/2 there is not its history.
+        p3, b4 = "3" * 64, "4" * 64
+        spec = {"max_cases_started": 1, "max_infra_retries_per_step": 0}
+        r, out = run({"spec": spec,
+                      "script": {"1/gates:1/*": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted"},
+                                 "1/5/diagnosis/1": {"outcome": "provider_limit"},
+                                 "1/5/diagnosis/2": {"verdict": "factory_bug"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertEqual(r.keys(1)[-1], ("5", "diagnosis", "2"))
+        r2 = EngineRun({"spec": {**spec, "batch_id": "b-u"}, "resume_of": C1,
+                        "script": {"1/4/gates:1/2": {"dur": 1.5},
+                                   "1/5/gates:1/1": {"outcome": "infra_error", "reason": "infra:raw_infrastructure_exhausted"},
+                                   "1/diagnosis/*": {"verdict": "factory_bug"}},
+                        "actions": [{"when": {"started": f"{C1}/4/gates:1/2"}, "plumbing": p3, "bench": b4}]},
+                       workdir=r.work)
+        self.assertEqual(r2.run()["result"]["cases"], {C1 + "@b-u": "held"})
+        self.assertEqual(r.keys(1)[-2:], [("5", "gates:1", "1"), ("6", "diagnosis", "1")])
+        # Eligibility now looks only at the seq-5 GATES attempt, so the resume is not refused.
+        r3 = EngineRun({"spec": {**spec, "batch_id": "b-v"}, "resume_of": C1}, workdir=r.work)
+        self.assertNotIn("refused", r3.run())
+
+    def test_an_infra_only_step_other_than_gates_is_not_resumed_after_a_factory_bug(self):
+        r, out = run({"spec": {"max_cases_started": 1, "max_infra_retries_per_step": 2},
+                      "script": {"1/writer:1/*": {"outcome": "infra_error", "reason": "infra:stalled"},
+                                 "1/diagnosis/*": {"verdict": "factory_bug"}}})
+        self.addCleanup(r.close)
+        self.assertEqual(out["result"]["cases"], {C1: "held"})
+        self.assertEqual(self.resume(r), {"refused": "resume:not_stopped_by_infra"})
+
     def test_a_factory_bug_after_a_scientific_result_is_not_resumable(self):
         for step, spec in (("writer:2", {"outcome": "exhausted", "reason": "writer:rounds_exhausted"}),
                            ("gates:1", {"outcome": "gate_failed", "gate": "G5", "repairable": True})):

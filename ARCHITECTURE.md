@@ -252,7 +252,9 @@ attempt replays from its key whatever case money its job now carries.
 
 A case held by a `factory_bug` diagnosis resumes the same way, but only when the diagnosed step
 stopped on a factory check rather than a scientific result (`FACTORY_BUG_RESUMABLE`: today a
-writer's `writer:unchanged_repair` or `writer:output_capped`). It resumes at that diagnosed step, not at the diagnosis, so
+writer's `writer:unchanged_repair` or `writer:output_capped`), or when it is a GATES step
+whose every attempt ended `infra_error` (`FACTORY_BUG_RESUMABLE_INFRA`): no gate reached a verdict, so
+running it again is one more infra retry, not a re-roll. It resumes at that diagnosed step, not at the diagnosis, so
 the diagnosis is not replayed. A later diagnosis at that seq numbers its attempts after it
 (`renumber`). The lineage's count of these resumes carries into the new workflow and is added
 to the case's own `factory_bug_resumes` when a diagnosis is decided, so the policy's cap of three
