@@ -160,15 +160,22 @@ def prepare_delivery(case, bench_root, workspace, *, exposure="blind", slot=0):
     ports = [9000, 9001] + [p for s in services for p in s.get("host_ports", [])]
     port_map = {str(p): str(p + 100 * slot) for p in ports}
     leak_words = ["answer key", "reference fix", "fact sheet", "judge.py", "hooks.mjs", "key.json"]
+    fixed = re.compile("|".join(re.escape(w) for w in leak_words), re.I)
     meta = case / "case.json"
     if meta.is_file(): leak_words += json.loads(meta.read_text()).get("leak_words", [])
     pattern = re.compile("|".join(re.escape(w) for w in leak_words), re.I)
+    # A case's own leak words guard what the case wrote. A shared bench service is the same public
+    # source for every case, so it is held to the fixed terms only: 86b100 (9 November) failed G16
+    # because two ordinary words of its list occur in bench projects/marketplace.
+    shared = pathlib.Path(os.path.abspath(bench_root / "projects"))
     prepared = {}
     for name, path in inputs.items():
         source_root(path, [path])
         if not path.is_file() or path.is_symlink(): raise CaseProblem("missing contestant material")
         content = path.read_text()
-        if pattern.search(content): raise CaseProblem("private information in contestant material")
+        check = fixed if pathlib.Path(os.path.abspath(path)).is_relative_to(shared) else pattern
+        # The input name (never its content) says which file to fix.
+        if check.search(content): raise CaseProblem(f"private information in contestant material: {name}")
         # Preserve deployed source bytes: patches written against it must apply unchanged.
         if not name.startswith("services/") and path.suffix in (".md", ".txt"):
             for old, new in replacements.items(): content = content.replace(old, new)
@@ -187,7 +194,7 @@ def prepare_delivery(case, bench_root, workspace, *, exposure="blind", slot=0):
     if patch.is_file() and (patch.is_symlink() or pattern.search(patch.read_text())):
         raise CaseProblem("private information in application baseline patch")
     app = source_root(bench_root / "projects/medusa", [bench_root / "projects/medusa"])
-    app_files = application_files(app, pattern)
+    app_files = application_files(app, fixed)   # shared bench source, as above
     # Stage and validate baseline additions before creating any pilot-owned location.
     import tempfile
     with tempfile.TemporaryDirectory() as temporary:
